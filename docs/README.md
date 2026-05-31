@@ -20,6 +20,10 @@ MVP, AWS Bedrock for enterprise) · **Aurora DSQL** for persistence in Phase 2.
 | 5 | [PLAN.md](./PLAN.md) | Execution plan: this session + the 4-week roadmap, milestones, risks |
 | 6 | [HACKATHON.md](./HACKATHON.md) | Submission requirements mapped to deliverables + bonus-points checklist |
 
+For the **implemented product surface** — feature by feature, with file references — see
+[features/README.md](./features/README.md). The docs above are the *why* and the *model*;
+the features docs are the *what ships today* and *where it lives in the code*.
+
 ## TL;DR
 
 Companies spend heavily on AI coding tools but cannot answer *"are we actually
