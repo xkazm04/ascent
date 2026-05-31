@@ -1,0 +1,33 @@
+# Local development database for Phase 2.
+#
+# Aurora DSQL has no downloadable local emulator (unlike DynamoDB Local). DSQL speaks
+# the PostgreSQL wire protocol, so for fast, free, offline dev we run plain Postgres
+# here and treat a real Aurora DSQL cluster as the staging/prod target. Keep schema and
+# queries within DSQL's supported subset (UUID primary keys instead of SERIAL,
+# optimistic concurrency, async secondary indexes) so the same migrations apply to both.
+#
+#   docker compose up -d
+#   DATABASE_URL=postgres://ascent:ascent@localhost:5432/ascent
+#
+# See docs/ARCHITECTURE.md §"Local development & Aurora DSQL".
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ascent-db
+    environment:
+      POSTGRES_USER: ascent
+      POSTGRES_PASSWORD: ascent
+      POSTGRES_DB: ascent
+    ports:
+      - "5432:5432"
+    volumes:
+      - ascent_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ascent"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ascent_pgdata:

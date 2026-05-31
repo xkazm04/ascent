@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+/* Ascent — "Altimeter" identity: cold slate canvas, a single confident azure accent,
+   elevation-strata motif, mono tabular stats. */
+/* brand accent — plain @theme so the CSS vars are emitted to :root and utilities
+   (bg-accent, text-accent, border-accent, bg-accent-soft, …) are generated. */
+@theme {
+  --color-accent: #3b9eff;
+  --color-accent-soft: #7bbcff;
+  --color-ink: #080d1a;
+  /* Foreground used ON the accent (button text on bg-accent) — a near-black that was
+     previously hardcoded as #04070e across connect/onboarding/auth. Utility: text-on-accent. */
+  --color-on-accent: #04070e;
+  /* Danger family for error banners (was raw red-500/300 literals). Opacity modifiers
+     (bg-danger/5, border-danger/30, text-danger) work like any token. */
+  --color-danger: #ef4444;
+  --color-danger-soft: #fca5a5;
+  /* Warning accent (was raw #f97316 in inline styles). */
+  --color-warn: #f97316;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #080d1a;
+  background-image:
+    radial-gradient(70rem 42rem at 50% -12%, rgba(59, 158, 255, 0.1), transparent 60%),
+    linear-gradient(180deg, #0b1322 0%, #080d1a 58%);
+  background-attachment: fixed;
+  color: #e2e8f0;
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: #3b9eff;
+  color: #04070e;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b transparent;
+}
+
+/* Elevation-strata rule-lines — the Altimeter signature motif. Apply to a positioned
+   container; renders faint horizontal rules like an altimeter gauge. */
+.strata {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0,
+    transparent 46px,
+    rgba(148, 163, 184, 0.06) 46px,
+    rgba(148, 163, 184, 0.06) 47px
+  );
+}
+
+@keyframes ascent-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: ascent-fade-up 0.5s ease-out both;
+}
+
+/* Faster variant for stepping between phases of a multi-step flow (onboarding): a subtle
+   fade+slide (~180ms) that replays whenever the keyed element remounts on phase change. */
+.animate-phase-in {
+  animation: ascent-fade-up 0.18s ease-out both;
+}
+
+/* Shared focus token — one consistent, visible focus ring for every interactive element.
+   Keyboard focus (focus-visible) gets an accent outline; mouse clicks stay clean. */
+.focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* Forgiving-input feedback: a brief 200ms shake when a submit is rejected. */
+@keyframes ascent-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+.animate-shake {
+  animation: ascent-shake 0.2s ease-in-out;
+}
+
+/* Meter fill: grow from empty to its target width on mount. The keyframe omits `to`, so it
+   animates up to whatever inline width the bar carries — works in server components. */
+@keyframes ascent-meter-fill {
+  from {
+    width: 0;
+  }
+}
+.animate-meter {
+  animation: ascent-meter-fill 0.6s ease-out both;
+}
+
+/* Stagger-reveal: sections start hidden, then fade-up when scrolled into view. Only hide
+   up front when motion is allowed, so reduced-motion users always see content immediately. */
+@media (prefers-reduced-motion: no-preference) {
+  .reveal-pre {
+    opacity: 0;
+  }
+}
+
+/* ── Mission Control: post-login fleet star-map (/launch) ────────────
+   A cinematic entrance — each org is a constellation, each repo a star
+   that brightens with its maturity and twinkles as scan data streams in. */
+.launch-sky {
+  background:
+    radial-gradient(1px 1px at 18% 26%, rgba(226, 232, 240, 0.5), transparent),
+    radial-gradient(1px 1px at 72% 62%, rgba(226, 232, 240, 0.35), transparent),
+    radial-gradient(1.5px 1.5px at 42% 82%, rgba(123, 188, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 86% 18%, rgba(226, 232, 240, 0.3), transparent),
+    radial-gradient(1px 1px at 56% 12%, rgba(226, 232, 240, 0.25), transparent),
+    radial-gradient(1px 1px at 32% 54%, rgba(226, 232, 240, 0.22), transparent);
+  background-repeat: no-repeat;
+}
+
+@keyframes ascent-twinkle {
+  0%,
+  100% {
+    opacity: var(--star-opacity, 0.8);
+  }
+  50% {
+    opacity: calc(var(--star-opacity, 0.8) * 0.4);
+  }
+}
+
+@keyframes ascent-pulse-glow {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.08);
+  }
+}
+
+/* Repo stars twinkle; the central org star's halo pulses like a live beacon. */
+.launch-star {
+  animation: ascent-twinkle 3.6s ease-in-out infinite;
+}
+.launch-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ascent-pulse-glow 4.2s ease-in-out infinite;
+}
+.launch-constellation {
+  transition:
+    border-color 0.4s ease,
+    box-shadow 0.4s ease;
+}
+.launch-constellation:hover {
+  border-color: rgba(59, 158, 255, 0.4);
+  box-shadow: 0 0 24px -8px rgba(59, 158, 255, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up {
+    animation: none;
+  }
+  .animate-phase-in {
+    animation: none;
+  }
+  .animate-shake {
+    animation: none;
+  }
+  .animate-meter {
+    animation: none;
+  }
+  .launch-star,
+  .launch-glow {
+    animation: none;
+  }
+}

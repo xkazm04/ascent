@@ -1,0 +1,152 @@
+import { Card, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
+import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
+import { scoreHex } from "@/lib/ui";
+
+export const dynamic = "force-dynamic";
+
+function ActivityChart({ series }: { series: number[] }) {
+  const max = Math.max(1, ...series);
+  return (
+    <div>
+      <div className="flex h-28 items-end gap-1">
+        {series.map((v, i) => (
+          <div
+            key={i}
+            className="flex-1 rounded-t bg-accent/70 transition-all hover:bg-accent"
+            style={{ height: `${Math.max(2, (v / max) * 100)}%` }}
+            title={`${v} commits`}
+          />
+        ))}
+      </div>
+      <div className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-widest text-slate-600">
+        <span>{series.length} weeks ago</span>
+        <span>this week</span>
+      </div>
+    </div>
+  );
+}
+
+export default async function OrgDelivery({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const [pr, gov, activity] = await Promise.all([getOrgPrSignals(slug), getOrgGovernance(slug), getOrgActivity(slug)]);
+
+  if (!pr && !gov && !activity) {
+    return (
+      <SectionEmpty>
+        Delivery signals (pull requests, branch governance, commit activity) need a GitHub token. Re-scan with a token configured to populate this tab.
+      </SectionEmpty>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* Pull request signals */}
+      {pr && (
+        <div>
+          <SectionHeader
+            title="Pull request signals"
+            description={`How systematically the fleet ships — ${pr.totalPrs} PRs across ${pr.repos} repos.`}
+            right={
+              pr.tools.length > 0 ? (
+                <span className="flex flex-wrap items-center gap-1.5 font-mono text-[11px] text-slate-500">
+                  tools:
+                  {pr.tools.map((t) => (
+                    <span key={t.name} className="rounded border border-slate-700 px-1.5 py-0.5 text-slate-300">
+                      {t.name} {t.count}
+                    </span>
+                  ))}
+                </span>
+              ) : undefined
+            }
+          />
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <Tile label="Review coverage" value={`${pr.avgReviewedRate}%`} color={scoreHex(pr.avgReviewedRate)} />
+            <Tile label="Merge rate" value={`${pr.avgMergeRate}%`} color={scoreHex(pr.avgMergeRate)} />
+            <Tile label="Small PRs" value={`${pr.avgSmallPrRate}%`} color={scoreHex(pr.avgSmallPrRate)} />
+            <Tile label="AI-involved PRs" value={`${pr.avgAiInvolvedRate}%`} color={scoreHex(pr.avgAiInvolvedRate)} />
+            <Tile
+              label="AI PRs reviewed"
+              value={pr.avgAiGovernedRate == null ? "—" : `${pr.avgAiGovernedRate}%`}
+              sub="governed AI"
+              color={pr.avgAiGovernedRate == null ? "#fff" : scoreHex(pr.avgAiGovernedRate)}
+            />
+            <Tile label="Typical time-to-merge" value={fmtHours(pr.typicalHoursToMerge)} />
+          </div>
+        </div>
+      )}
+
+      {/* Branch governance */}
+      {gov && (
+        <div>
+          <SectionHeader
+            title="Branch governance"
+            description={`Guardrails on the default branch — from branch protection & rulesets, across ${gov.repos} repos.`}
+          />
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Tile label="Protect main" value={`${gov.protectedRate}%`} color={scoreHex(gov.protectedRate)} />
+            <Tile label="Require review" value={`${gov.requireReviewRate}%`} color={scoreHex(gov.requireReviewRate)} />
+            <Tile label="Require checks" value={`${gov.requireChecksRate}%`} color={scoreHex(gov.requireChecksRate)} />
+            <Tile label="Signed commits" value={`${gov.signedRate}%`} color={scoreHex(gov.signedRate)} />
+          </div>
+          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">
+                <tr>
+                  <th className="px-4 py-2 text-left">Repo</th>
+                  <th className="px-3 py-2 text-center">Protected</th>
+                  <th className="px-3 py-2 text-center">Reviews</th>
+                  <th className="px-3 py-2 text-center">Checks</th>
+                  <th className="px-3 py-2 text-center">Signed</th>
+                  <th className="px-3 py-2 text-right">Rules</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {gov.perRepo.map((r) => {
+                  const yes = (b: boolean) => (b ? <span className="text-lime-400">✓</span> : <span className="text-slate-600">—</span>);
+                  return (
+                    <tr key={r.fullName} className="text-slate-300">
+                      <td className="px-4 py-2 font-mono text-xs text-white">
+                        {r.name}
+                        {!r.protected && (
+                          <span className="ml-2 rounded border border-orange-500/40 bg-orange-500/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest text-orange-300">
+                            unprotected
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center">{yes(r.protected)}</td>
+                      <td className="px-3 py-2 text-center font-mono text-xs">
+                        {r.requiresPullRequest ? <span className="text-lime-400">{r.requiredApprovals > 0 ? `✓ ${r.requiredApprovals}` : "✓"}</span> : yes(false)}
+                      </td>
+                      <td className="px-3 py-2 text-center">{yes(r.requiresStatusChecks)}</td>
+                      <td className="px-3 py-2 text-center">{yes(r.requiresSignatures)}</td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{r.ruleCount}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Commit activity (real) */}
+      {activity && (
+        <Card>
+          <SectionHeader
+            size="sm"
+            title="Commit activity"
+            description={
+              <>
+                Weekly commits across the fleet (real, from GitHub) — {activity.total.toLocaleString()} commits over {activity.weeks} weeks{" "}
+                <span className="font-mono text-[11px] text-slate-600">· {activity.repos} repo{activity.repos > 1 ? "s" : ""} reporting</span>
+              </>
+            }
+          />
+          <div className="mt-4">
+            <ActivityChart series={activity.series} />
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}

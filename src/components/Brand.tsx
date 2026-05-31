@@ -1,0 +1,117 @@
+import Image from "next/image";
+import Link from "next/link";
+import { GitHubSignInButton } from "@/components/GitHubSignInButton";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
+import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
+import { isDbConfigured } from "@/lib/db";
+
+/** Generated ascending-chevron mark + mono wordmark (Altimeter identity). */
+export function Logo({ className = "", size = 24 }: { className?: string; size?: number }) {
+  return (
+    <span className={`inline-flex items-center gap-2 ${className}`}>
+      <Image
+        src="/brand/logo-mark-nobg.png"
+        alt=""
+        width={size}
+        height={size}
+        priority
+        style={{ width: size, height: size }}
+      />
+      <span className="font-mono text-sm font-semibold uppercase tracking-[0.22em] text-white">
+        Ascent
+      </span>
+    </span>
+  );
+}
+
+export async function SiteHeader() {
+  const session = await getSession();
+  const authOn = isAuthConfigured();
+  const dbOn = isDbConfigured();
+  // Show the org switcher only when the viewer actually has an org to switch to — with no
+  // installations the menu would just read "Public" and be pointless.
+  const showSwitcher = Boolean(authOn && session && session.installations.length > 0);
+  const orgOptions = showSwitcher ? orgOptionsForSession(session) : [];
+  const activeOrg = showSwitcher ? await getActiveOrg(session) : "public";
+  return (
+    <header className="sticky top-0 z-30 border-b border-slate-800/70 bg-[#080d1a]/80 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
+        <Link href="/" className="focus-ring rounded-sm">
+          <Logo />
+        </Link>
+        <nav className="flex items-center gap-6 font-mono text-[11px] uppercase tracking-widest text-slate-400">
+          <Link href="/#levels" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
+            Levels
+          </Link>
+          <Link href="/#how" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
+            Method
+          </Link>
+          <Link href="/#pricing" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
+            Pricing
+          </Link>
+          {dbOn && (
+            <Link
+              href="/org/vercel"
+              className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white"
+            >
+              Org demo
+            </Link>
+          )}
+          {authOn && session ? (
+            <span className="flex items-center gap-3">
+              {showSwitcher && <OrgSwitcher orgs={orgOptions} active={activeOrg} />}
+              <Link href="/connect" className="focus-ring flex items-center gap-2 rounded-sm text-slate-200 hover:text-white">
+                {session.image && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={session.image} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
+                )}
+                <span className="normal-case tracking-normal">{session.login}</span>
+              </Link>
+              <form action="/api/auth/logout" method="post" className="contents">
+                <button type="submit" className="focus-ring rounded-sm hover:text-white">
+                  Sign out
+                </button>
+              </form>
+            </span>
+          ) : authOn ? (
+            <GitHubSignInButton variant="nav" next="/connect" />
+          ) : (
+            <Link
+              href="/onboarding"
+              className="focus-ring rounded-md bg-accent px-3 py-1.5 font-medium text-on-accent transition hover:bg-accent-soft"
+            >
+              Get started
+            </Link>
+          )}
+        </nav>
+      </div>
+    </header>
+  );
+}
+
+export function SiteFooter() {
+  return (
+    <footer className="mt-auto border-t border-slate-800/70 py-8 text-center text-sm text-slate-400">
+      <div className="mx-auto max-w-6xl px-5">
+        <Logo className="justify-center opacity-80" />
+        <p className="mt-3 font-mono text-[11px] uppercase tracking-widest text-slate-400">
+          The maturity index for AI-native engineering
+        </p>
+        <div className="mt-3 flex justify-center gap-5 font-mono text-[11px] uppercase tracking-widest text-slate-400">
+          <Link href="/#pricing" className="focus-ring rounded-sm hover:text-accent">
+            Pricing
+          </Link>
+          <Link href="/connect" className="focus-ring rounded-sm hover:text-accent">
+            Connect
+          </Link>
+          <Link href="/usage" className="focus-ring rounded-sm hover:text-accent">
+            Usage
+          </Link>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Built on Vercel + Aurora DSQL · #H0Hackathon
+        </p>
+      </div>
+    </footer>
+  );
+}

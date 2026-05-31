@@ -1,0 +1,19 @@
+{
+  "_comment": "Labeled benchmark set for calibrating Ascent's deterministic scoring. Expected levels are PROVISIONAL hand estimates — refine them as you build consensus. Run with: npm run bench (server must be running). See docs/CALIBRATION.md.",
+  "repos": [
+    { "repo": "jwasham/coding-interview-university", "expected": "L1", "note": "Curated study list; markdown only — no tests/CI/AI tooling" },
+    { "repo": "sindresorhus/slugify", "expected": "L2", "note": "Small lib; tests + CI but minimal process" },
+    { "repo": "expressjs/express", "expected": "L3", "note": "Mature framework; tests, CI, docs, conventions" },
+    { "repo": "pallets/flask", "expected": "L3", "note": "Mature; tests, CI, docs, pre-commit" },
+    { "repo": "facebook/react", "expected": "L3", "note": "Huge test suite + CI; limited public AI tooling" },
+    { "repo": "prettier/prettier", "expected": "L3", "note": "Strong tests/CI/lint, conventional commits" },
+    { "repo": "tldraw/tldraw", "expected": "L3", "note": "Modern TS monorepo; tests, CI, changesets" },
+    { "repo": "denoland/deno", "expected": "L3", "note": "Tests, CI, Rust+TS, release automation" },
+    { "repo": "cypress-io/cypress", "expected": "L3", "note": "E2E vendor; strong tests/CI" },
+    { "repo": "vercel/next.js", "expected": "L4", "note": "Extensive CI automation, tests, release tooling" },
+    { "repo": "microsoft/vscode", "expected": "L4", "note": "Org-scale CI, tests, automation, bots" },
+    { "repo": "anthropics/claude-code", "expected": "L2", "note": "AI tooling + agentic signals but sparse public source/tests" },
+    { "repo": "sigstore/cosign", "expected": "L3", "note": "D9 anchor: signing/SBOM/SLSA/SAST committed as code; strong rigor, limited AI tooling" },
+    { "repo": "aquasecurity/trivy", "expected": "L3", "note": "D9 anchor: security scanner that ships its own supply-chain config; mature CI/release" }
+  ]
+}

@@ -1,0 +1,211 @@
+// Ascent — Phase 2 persistence schema.
+//
+// DSQL-safe by design (works identically on local Postgres and Amazon Aurora DSQL):
+//   - relationMode = "prisma"  -> NO foreign-key constraints emitted (DSQL doesn't
+//     support FKs); relations are enforced at the Prisma layer. Requires manual
+//     @@index on relation scalar fields (added below).
+//   - UUID primary keys via @default(uuid())  -> no SERIAL / sequences (DSQL has none).
+//   - Bulky string arrays are stored as serialized JSON in text columns (no jsonb
+//     dependency); queryable fields (scores, level, timestamps) are real columns so
+//     trend/history queries stay relational.
+//
+// On DSQL, create indexes asynchronously (CREATE INDEX ASYNC ...) — see
+// docs/ARCHITECTURE.md. Migrations: Prisma is supported by DSQL (since 2026-02).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "postgresql"
+  url          = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+model Organization {
+  id              String   @id @default(uuid())
+  slug            String   @unique
+  name            String
+  plan            String   @default("free") // free | pro | team | enterprise
+  // Per-org data-retention overrides (enterprise). null = inherit the global env default
+  // (RETENTION_MAX_SCANS_PER_REPO / RETENTION_AUDIT_DAYS); 0 = keep everything (unlimited).
+  // Enforced by the /api/cron/purge job — see src/lib/db/retention.ts.
+  retentionMaxScans  Int?
+  retentionAuditDays Int?
+  githubInstallId String?
+  createdAt       DateTime @default(now())
+
+  memberships   Membership[]
+  repositories  Repository[]
+  auditLogs     AuditLog[]
+  subscription  Subscription?
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  memberships Membership[]
+}
+
+model Membership {
+  id        String   @id @default(uuid())
+  orgId     String
+  userId    String
+  role      String   @default("member") // owner | admin | member | viewer
+  createdAt DateTime @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id])
+  user User         @relation(fields: [userId], references: [id])
+
+  @@unique([orgId, userId])
+  @@index([orgId])
+  @@index([userId])
+}
+
+model Repository {
+  id              String    @id @default(uuid())
+  orgId           String
+  owner           String
+  name            String
+  fullName        String // "owner/name"
+  url             String
+  isPrivate       Boolean   @default(false)
+  primaryLanguage String?
+  stars           Int       @default(0)
+  // Current default-branch head + the GitHub ETag from the last conditional HEAD lookup.
+  // Together these back the cross-instance scan cache: a re-scan sends `If-None-Match: headEtag`
+  // (a free 304 when unchanged) and serves the persisted scan pinned to headSha — see
+  // src/lib/scan-cache.ts. Null until the repo's first anonymous scan records them.
+  headSha         String?
+  headEtag        String?
+  watched         Boolean   @default(false)
+  scanSchedule    String    @default("off") // off | daily | weekly | monthly
+  lastScanAt      DateTime?
+  nextScanAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  org          Organization      @relation(fields: [orgId], references: [id])
+  scans        Scan[]
+  contributors RepoContributor[]
+
+  @@unique([orgId, fullName])
+  @@index([orgId])
+  @@index([fullName])
+  @@index([watched])
+}
+
+model RepoContributor {
+  id           String    @id @default(uuid())
+  repoId       String
+  login        String
+  name         String?
+  commits      Int       @default(0)
+  aiCommits    Int       @default(0)
+  lastActiveAt DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  repo Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([repoId, login])
+  @@index([repoId])
+}
+
+model Scan {
+  id             String   @id @default(uuid())
+  repoId         String
+  headSha        String? // the commit the scan pinned to — powers /report/{owner}/{repo}@{sha} permalinks
+  overallScore   Int
+  level          String // "L1".."L5"
+  levelName      String
+  archetype      String   @default("org")
+  adoptionScore  Int      @default(0)
+  rigorScore     Int      @default(0)
+  posture        String   @default("")
+  confidence     Float    @default(0)
+  engineProvider String
+  engineModel    String
+  headline       String
+  strengths      String   @default("[]") // JSON string[]
+  risks          String   @default("[]") // JSON string[]
+  prStats        String? // JSON PrStats (pull-request process signals); null if no token
+  governance     String? // JSON Governance (branch protection / rulesets); null if no token
+  commitActivity String? // JSON number[] — last ~12 weekly commit totals; null if no token
+  scannedAt      DateTime
+  createdAt      DateTime @default(now())
+
+  repo            Repository      @relation(fields: [repoId], references: [id])
+  dimensions      ScanDimension[]
+  recommendations Recommendation[]
+
+  @@index([repoId])
+  @@index([repoId, scannedAt])
+  @@index([repoId, headSha])
+}
+
+model ScanDimension {
+  id          String @id @default(uuid())
+  scanId      String
+  dimId       String // "D1".."D9"
+  name        String
+  weight      Float
+  score       Int
+  signalScore Int
+  llmScore    Int
+  summary     String @default("")
+  evidence    String @default("[]") // JSON string[]
+  strengths   String @default("[]") // JSON string[]
+  gaps        String @default("[]") // JSON string[]
+
+  scan Scan @relation(fields: [scanId], references: [id])
+
+  @@index([scanId])
+}
+
+model Recommendation {
+  id          String   @id @default(uuid())
+  scanId      String
+  title       String
+  dimId       String
+  impact      String // high | medium | low
+  effort      String // high | medium | low
+  rationale   String   @default("")
+  explore     String   @default("[]") // JSON string[] — invitational questions to explore the gap
+  levelUnlock String?
+  status      String   @default("open") // open | in_progress | done | dismissed
+  createdAt   DateTime @default(now())
+
+  scan Scan @relation(fields: [scanId], references: [id])
+
+  @@index([scanId])
+  @@index([status])
+}
+
+model AuditLog {
+  id      String   @id @default(uuid())
+  orgId   String?
+  actorId String?
+  action  String
+  meta    String   @default("{}") // JSON object
+  at      DateTime @default(now())
+
+  org Organization? @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@index([at])
+  // Serves the org-scoped audit viewer's keyset query (where orgId, order by at desc, id desc).
+  @@index([orgId, at])
+}
+
+model Subscription {
+  id        String   @id @default(uuid())
+  orgId     String   @unique
+  stripeId  String?
+  status    String   @default("inactive")
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+}
