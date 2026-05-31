@@ -1,0 +1,102 @@
+import { describe, it, expect } from "vitest";
+import { buildGateComment, GATE_COMMENT_MARKER } from "./gate-comment";
+import type { GateResult } from "./gate";
+import type { ScanReport } from "@/lib/types";
+import { levelForScore, postureFor } from "@/lib/maturity/model";
+
+function report(over: Partial<ScanReport> = {}): ScanReport {
+  const overall = over.overallScore ?? 58;
+  return {
+    repo: { owner: "acme", name: "api", url: "https://github.com/acme/api", stars: 0, forks: 0, defaultBranch: "main" },
+    overallScore: overall,
+    level: levelForScore(overall),
+    archetype: "org",
+    adoptionScore: 55,
+    rigorScore: 60,
+    posture: postureFor(55, 60),
+    aiUsage: { detected: true, commitFraction: 0.4, signals: [] },
+    contributors: [],
+    dimensions: [],
+    headline: "",
+    strengths: [],
+    risks: [],
+    roadmap: [
+      { title: "Few tests vouch for behavior", dimension: "D2", impact: "high", effort: "medium", rationale: "", explore: ["What would catch a regression before merge?"] },
+    ],
+    discrepancies: [],
+    confidence: 0.8,
+    scannedAt: "2026-05-31T00:00:00.000Z",
+    engine: { provider: "mock", model: "rubric" },
+    ...over,
+  };
+}
+
+const passGate: GateResult = { pass: true, policy: { minLevel: "L3", minDimension: 40 }, failures: [] };
+const failGate: GateResult = {
+  pass: false,
+  policy: { minLevel: "L3", minDimension: 40 },
+  failures: [{ code: "level", message: "Overall level L2 is below the required L3." }],
+};
+
+describe("buildGateComment", () => {
+  it("renders a passing gate with success conclusion + marker", () => {
+    const c = buildGateComment(report(), passGate);
+    expect(c.conclusion).toBe("success");
+    expect(c.title).toContain("Passed");
+    expect(c.commentBody.startsWith(GATE_COMMENT_MARKER)).toBe(true);
+    expect(c.summary).toContain("posture");
+  });
+
+  it("renders a failing gate and lists the failures", () => {
+    const c = buildGateComment(report({ overallScore: 40 }), failGate);
+    expect(c.conclusion).toBe("failure");
+    expect(c.title).toContain("Failed");
+    expect(c.summary).toContain("below the required L3");
+    expect(c.summary).toContain("Gaps to explore");
+  });
+
+  it("shows the delta vs the previous scan when a baseline diff is provided", () => {
+    const c = buildGateComment(report(), passGate, {
+      overall: { before: 50, after: 58, delta: 8 },
+      level: { before: { id: "L3", name: "Augmented" }, after: { id: "L3", name: "Augmented" }, changed: false, up: false },
+      adoption: { before: 50, after: 55, delta: 5 },
+      rigor: { before: 55, after: 60, delta: 5 },
+      posture: { before: postureFor(50, 55), after: postureFor(55, 60), changed: false },
+      dimensions: [],
+      recsMovedToDone: [],
+      closedGapCount: 0,
+      openedGapCount: 0,
+      appearedSignalCount: 0,
+      disappearedSignalCount: 0,
+      movements: [],
+      unchanged: false,
+    });
+    expect(c.summary).toContain("overall +8");
+    expect(c.summary).toContain("vs last scan");
+  });
+
+  it("labels the delta for a PR when baselineSuffix is overridden", () => {
+    const c = buildGateComment(
+      report(),
+      passGate,
+      {
+        overall: { before: 50, after: 58, delta: 8 },
+        level: { before: { id: "L3", name: "Augmented" }, after: { id: "L3", name: "Augmented" }, changed: false, up: false },
+        adoption: { before: 50, after: 55, delta: 5 },
+        rigor: { before: 55, after: 60, delta: 5 },
+        posture: { before: postureFor(50, 55), after: postureFor(55, 60), changed: false },
+        dimensions: [],
+        recsMovedToDone: [],
+        closedGapCount: 0,
+        openedGapCount: 0,
+        appearedSignalCount: 0,
+        disappearedSignalCount: 0,
+        movements: [],
+        unchanged: false,
+      },
+      { baselineSuffix: "in this PR" },
+    );
+    expect(c.summary).toContain("overall +8 in this PR");
+    expect(c.summary).not.toContain("vs last scan");
+  });
+});

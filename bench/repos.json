@@ -14,6 +14,12 @@
     { "repo": "microsoft/vscode", "expected": "L4", "note": "Org-scale CI, tests, automation, bots" },
     { "repo": "anthropics/claude-code", "expected": "L2", "note": "AI tooling + agentic signals but sparse public source/tests" },
     { "repo": "sigstore/cosign", "expected": "L3", "note": "D9 anchor: signing/SBOM/SLSA/SAST committed as code; strong rigor, limited AI tooling" },
-    { "repo": "aquasecurity/trivy", "expected": "L3", "note": "D9 anchor: security scanner that ships its own supply-chain config; mature CI/release" }
+    { "repo": "aquasecurity/trivy", "expected": "L3", "note": "D9 anchor: security scanner that ships its own supply-chain config; mature CI/release" },
+    { "repo": "sindresorhus/awesome", "expected": "L1", "note": "L1 anchor: curated link list, markdown only — no tests/CI/AI tooling" },
+    { "repo": "astral-sh/ruff", "expected": "L3", "note": "Modern Rust+Python toolchain; heavy CI, tests, release automation" },
+    { "repo": "kubernetes/kubernetes", "expected": "L4", "note": "L4 anchor: org-scale CI, bots, prow automation, extensive tests" },
+    { "repo": "gitleaks/gitleaks", "expected": "L3", "note": "D9 anchor: secret-scanning tool with its own scanning + signed releases" },
+    { "repo": "BerriAI/litellm", "expected": "L3", "note": "AI-adjacent: LLM gateway with tests/CI; probes D1/D8 adoption signals" },
+    { "repo": "withastro/astro", "expected": "L4", "note": "Modern TS monorepo; changesets, strong CI, Renovate/bot automation" }
   ]
 }

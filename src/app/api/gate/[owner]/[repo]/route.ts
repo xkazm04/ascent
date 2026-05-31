@@ -21,28 +21,40 @@ export async function GET(
   const { owner, repo } = await ctx.params;
   const { searchParams } = new URL(req.url);
   const mock = searchParams.get("mock") !== "0" && searchParams.get("mock") !== "false";
+  // Optional git ref (branch/tag/commit SHA) to gate a PR head in CI:
+  //   /api/gate/owner/repo?ref=<pr-head-sha>. A ref-scoped scan reflects what the PR changes,
+  //   not the default branch — so a PR that adds tests/CI/agent-guidance can clear the gate.
+  const ref = searchParams.get("ref") || undefined;
   // Normalize so the gate shares one cache-key scheme with the scan flow and the badge —
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
   try {
-    // Resolve the current head commit so the gate keys the same per-commit entry as the scan
-    // flow and badge — a push misses the cache and re-evaluates against fresh signals instead
-    // of returning a stale pass/fail (CI would otherwise gate on the pre-push score). Null on
-    // failure → a SHA-less key (best-effort).
-    const sha = await resolveHeadSha({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
-    const llmKey = makeCacheKey(ownerN, repoN, true, sha);
-    const mockKey = makeCacheKey(ownerN, repoN, false, sha);
-    let report = cacheGet(llmKey) ?? cacheGet(mockKey);
-    if (!report) {
-      report = await scanRepository(`${ownerN}/${repoN}`, { mock });
-      cacheSet(mock ? mockKey : llmKey, report);
+    let report;
+    if (ref) {
+      // Ref-scoped: bypass the default-branch cache (keyed by the default head sha) and score the
+      // requested ref directly. Cheap enough — CI calls this once per PR event.
+      report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref });
+    } else {
+      // Resolve the current head commit so the gate keys the same per-commit entry as the scan
+      // flow and badge — a push misses the cache and re-evaluates against fresh signals instead
+      // of returning a stale pass/fail (CI would otherwise gate on the pre-push score). Null on
+      // failure → a SHA-less key (best-effort).
+      const sha = await resolveHeadSha({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
+      const llmKey = makeCacheKey(ownerN, repoN, true, sha);
+      const mockKey = makeCacheKey(ownerN, repoN, false, sha);
+      report = cacheGet(llmKey) ?? cacheGet(mockKey);
+      if (!report) {
+        report = await scanRepository(`${ownerN}/${repoN}`, { mock });
+        cacheSet(mock ? mockKey : llmKey, report);
+      }
     }
 
     const gate = evaluateGate(report, policyFromParams(searchParams, report.archetype));
     return NextResponse.json(
       {
         repo: `${ownerN}/${repoN}`,
+        ref: ref ?? null,
         pass: gate.pass,
         level: report.level.id,
         overallScore: report.overallScore,

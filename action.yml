@@ -1,0 +1,71 @@
+# Ascent maturity gate — a publishable GitHub Action that fails a PR/build when a repo is below
+# the AI-native maturity bar. It calls your Ascent deployment's GET /api/gate endpoint (which
+# already returns 200 pass / 422 fail) and turns that into a clean CI status.
+#
+# Usage (in a consumer repo's workflow):
+#
+#   - uses: <owner>/ascent@v1
+#     with:
+#       ascent-url: ${{ vars.ASCENT_URL }}   # e.g. https://ascent.yourco.dev
+#       min-level: L3
+#       no-ungoverned: 'true'
+#
+# `repo` defaults to the workflow's own repository. Combine with the PR Check + comment posted by
+# the Ascent GitHub App for inline feedback; this action is the hard merge gate.
+name: "Ascent maturity gate"
+description: "Fail CI when a repository is below the AI-native maturity bar (scored by Ascent)."
+branding:
+  icon: "trending-up"
+  color: "green"
+inputs:
+  ascent-url:
+    description: "Base URL of your Ascent deployment (serves /api/gate)."
+    required: true
+  repo:
+    description: "owner/repo to gate (defaults to the current repository)."
+    required: false
+    default: ""
+  ref:
+    description: "Git ref to gate — branch, tag, or commit SHA. On a pull_request, set this to the PR head SHA to score what the PR changes (e.g. ${{ github.event.pull_request.head.sha }})."
+    required: false
+    default: ""
+  min-level:
+    description: "Minimum overall maturity level, e.g. L3."
+    required: false
+    default: ""
+  min-overall:
+    description: "Minimum overall score (0..100)."
+    required: false
+    default: ""
+  min-dimension:
+    description: "No single dimension may score below this."
+    required: false
+    default: ""
+  no-ungoverned:
+    description: "Fail if the posture is 'ungoverned' (heavy AI, light guardrails)."
+    required: false
+    default: "false"
+  live:
+    description: "Score with the configured LLM instead of the deterministic mock."
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+    - shell: bash
+      env:
+        ASCENT_URL: ${{ inputs.ascent-url }}
+      run: |
+        REPO="${{ inputs.repo }}"
+        if [ -z "$REPO" ]; then REPO="${{ github.repository }}"; fi
+        ARGS=("$REPO")
+        if [ -n "${{ inputs.min-level }}" ]; then ARGS+=(--min-level "${{ inputs.min-level }}"); fi
+        if [ -n "${{ inputs.min-overall }}" ]; then ARGS+=(--min-overall "${{ inputs.min-overall }}"); fi
+        if [ -n "${{ inputs.min-dimension }}" ]; then ARGS+=(--min-dimension "${{ inputs.min-dimension }}"); fi
+        if [ -n "${{ inputs.ref }}" ]; then ARGS+=(--ref "${{ inputs.ref }}"); fi
+        if [ "${{ inputs.no-ungoverned }}" = "true" ]; then ARGS+=(--no-ungoverned); fi
+        if [ "${{ inputs.live }}" = "true" ]; then ARGS+=(--live); fi
+        node "${{ github.action_path }}/scripts/maturity-gate.mjs" "${ARGS[@]}"
