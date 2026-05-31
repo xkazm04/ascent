@@ -30,6 +30,13 @@ export interface ScanOptions {
   now?: string; // injectable timestamp (tests / determinism)
   onProgress?: ProgressFn;
   /**
+   * Git ref to ingest (branch, tag, or commit SHA). Defaults to the repo's default branch.
+   * Pass a PR's head SHA to score what the pull request changes — the basis of the per-PR
+   * maturity gate (see /api/app/webhook). The report's `repo.defaultBranch` still reports the
+   * true default; governance/PR-stats enrichment remains repo-level.
+   */
+  ref?: string;
+  /**
    * Aborts all in-flight scan work (GitHub ingest, governance/PR/activity, and the LLM call)
    * when the client disconnects. Wire the route's `request.signal` here so an abandoned scan
    * stops burning the function's duration budget, GitHub rate limit, and LLM spend.
@@ -94,7 +101,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
       })
     : Promise.resolve(null);
 
-  const snapshot = await source.fetchSnapshot(parsed, { token, onProgress: emit, signal });
+  const snapshot = await source.fetchSnapshot(parsed, { token, onProgress: emit, signal, ref: opts.ref });
   signal?.throwIfAborted();
 
   // Governance (branch protection / rulesets) + commit activity need the default branch from

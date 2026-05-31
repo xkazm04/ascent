@@ -9,6 +9,7 @@
 //   --min-overall 60      minimum overall score (0..100)
 //   --min-dimension 40    no dimension may score below this
 //   --no-ungoverned       fail if the posture is "ungoverned" (heavy AI, light guardrails)
+//   --ref <sha|branch>    gate a specific ref (e.g. a PR head sha) instead of the default branch
 //   --live                score with the configured LLM instead of the deterministic mock
 //
 // Exit codes: 0 = pass, 1 = fail (below the bar), 2 = error. Hits GET /api/gate, which
@@ -34,6 +35,9 @@ if (opt("min-overall")) qs.set("min_overall", opt("min-overall"));
 if (opt("min-dimension")) qs.set("min_dimension", opt("min-dimension"));
 if (flag("no-ungoverned")) qs.set("no_ungoverned", "1");
 if (flag("live")) qs.set("mock", "0");
+// --ref <sha|branch>: gate a specific ref (e.g. a PR head) so the score reflects what the PR
+// changes, not the default branch. In a PR workflow: --ref "$GITHUB_SHA" or the PR head sha.
+if (opt("ref")) qs.set("ref", opt("ref"));
 
 const url = `${base}/api/gate/${repo}${qs.toString() ? `?${qs}` : ""}`;
 
@@ -44,7 +48,8 @@ try {
     console.error(`✖ Gate error (${res.status}): ${body.error ?? "unknown"}`);
     process.exit(2);
   }
-  const head = `${repo} — ${body.level ?? "?"} (${body.overallScore ?? "?"}/100), posture ${body.posture ?? "?"}`;
+  const at = body.ref ? `@${String(body.ref).slice(0, 12)}` : "";
+  const head = `${repo}${at} — ${body.level ?? "?"} (${body.overallScore ?? "?"}/100), posture ${body.posture ?? "?"}`;
   if (body.pass) {
     console.log(`✓ Maturity gate PASSED — ${head}`);
     process.exit(0);

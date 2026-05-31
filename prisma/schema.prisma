@@ -39,6 +39,8 @@ model Organization {
   repositories  Repository[]
   auditLogs     AuditLog[]
   subscription  Subscription?
+  goals         Goal[]
+  initiatives   Initiative[]
 }
 
 model User {
@@ -131,6 +133,9 @@ model Scan {
   headline       String
   strengths      String   @default("[]") // JSON string[]
   risks          String   @default("[]") // JSON string[]
+  // LLM-as-auditor output: suspected deterministic-detector misses, persisted so the
+  // detector backlog (getOrgDiscrepancies) can aggregate them across the fleet. JSON Discrepancy[].
+  discrepancies  String   @default("[]")
   prStats        String? // JSON PrStats (pull-request process signals); null if no token
   governance     String? // JSON Governance (branch protection / rulesets); null if no token
   commitActivity String? // JSON number[] — last ~12 weekly commit totals; null if no token
@@ -208,4 +213,41 @@ model Subscription {
   createdAt DateTime @default(now())
 
   org Organization @relation(fields: [orgId], references: [id])
+}
+
+// A maturity target an org is steering toward — the management layer over the trend/forecast.
+// `metric` is "overall" | "adoption" | "rigor" | a dimension id ("D1".."D9"); progress is derived
+// from the fleet's latest scans at read time (no stored snapshot to drift). See src/lib/db/plan.ts.
+model Goal {
+  id        String   @id @default(uuid())
+  orgId     String
+  label     String
+  metric    String   @default("overall")
+  target    Int      @default(50)
+  status    String   @default("active") // active | achieved | archived
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+}
+
+// A tracked, scoped program of work — typically created from a fleet recommendation: "bring
+// these N repos up to <target> on <dimension>". Bundles the highest-leverage org move into an
+// assignable, status-tracked initiative. `repos` is a JSON string[] of repo fullNames.
+model Initiative {
+  id          String   @id @default(uuid())
+  orgId       String
+  title       String
+  dimId       String // "D1".."D9"
+  practiceId  String? // optional link into the Practice Library
+  targetScore Int      @default(70)
+  repos       String   @default("[]") // JSON string[] — repo fullNames in scope
+  status      String   @default("open") // open | in_progress | done | dismissed
+  createdAt   DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@index([status])
 }

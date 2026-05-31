@@ -77,6 +77,15 @@ export class AppApiError extends Error {
   }
 }
 
+/**
+ * Authenticated GitHub API call (App JWT or installation token as the bearer). Exported so the
+ * write surfaces (github/write.ts, github/checks.ts) reuse one fetch with consistent headers +
+ * AppApiError handling. Throws AppApiError on a non-2xx so callers can branch on `.status`.
+ */
+export async function githubAppFetch<T>(path: string, auth: string, init: RequestInit = {}): Promise<T> {
+  return ghApp<T>(path, auth, init);
+}
+
 async function ghApp<T>(path: string, auth: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     ...init,

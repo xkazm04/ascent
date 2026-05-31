@@ -13,6 +13,7 @@ export function OrgNav({ slug }: { slug: string }) {
     { href: `${base}/contributors`, label: "Contributors" },
     { href: `${base}/delivery`, label: "Delivery" },
     { href: `${base}/practices`, label: "Practices" },
+    { href: `${base}/plan`, label: "Plan" },
     { href: `${base}/audit`, label: "Audit" },
   ];
   return (

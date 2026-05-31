@@ -19,6 +19,13 @@ export interface FetchOptions {
   onProgress?: ProgressFn;
   /** Aborts all in-flight ingestion fetches when the client disconnects. */
   signal?: AbortSignal;
+  /**
+   * Git ref to ingest — a branch name, tag, or commit SHA. Defaults to the repo's default
+   * branch. Set this to a PR's head SHA to score what a pull request *changes* (its tree, files,
+   * and commits) rather than the default branch. `meta.defaultBranch` still reports the true
+   * default; only the tree/content/commit reads are pinned to this ref.
+   */
+  ref?: string;
 }
 
 const API = "https://api.github.com";
@@ -195,6 +202,27 @@ export async function resolveHeadSha(
   return res.status === "ok" ? res.sha : null;
 }
 
+/** Minimal repo metadata for tailoring a generated artifact (no tree/file fetch). */
+export interface RepoContextMeta {
+  fullName: string;
+  name: string;
+  description: string | null;
+  primaryLanguage: string | null;
+  defaultBranch: string;
+}
+
+/** One cheap metadata call → the context the practice-artifact builder tailors against. */
+export async function fetchRepoContext(parsed: ParsedRepo, token?: string): Promise<RepoContextMeta> {
+  const meta = await ghJson<GhRepoResponse>(`${API}/repos/${parsed.owner}/${parsed.repo}`, token);
+  return {
+    fullName: `${meta.owner.login}/${meta.name}`,
+    name: meta.name,
+    description: meta.description,
+    primaryLanguage: meta.language,
+    defaultBranch: meta.default_branch || "main",
+  };
+}
+
 /** Run `worker` over `items` with bounded concurrency. */
 async function pool<T, R>(
   items: T[],
@@ -288,6 +316,9 @@ export class GitHubPublicSource implements RepoSource {
     emit({ stage: "fetch", message: "Reading repository metadata…", pct: 10 });
     const meta = await ghJson<GhRepoResponse>(`${API}/repos/${owner}/${repo}`, token, signal);
     const branch = meta.default_branch || "main";
+    // The ref to actually read (tree/files/commits) — a PR head SHA when gating a pull request,
+    // else the default branch. `meta.defaultBranch` below still reports the true default.
+    const ref = opts.ref || branch;
 
     const repoMeta: RepoMeta = {
       owner: meta.owner.login,
@@ -309,15 +340,19 @@ export class GitHubPublicSource implements RepoSource {
     };
 
     emit({ stage: "tree", message: "Reading file tree & recent history…", pct: 28 });
-    // Recursive tree + recent commits in parallel.
+    // Recursive tree + recent commits in parallel, both pinned to `ref`. The trees API resolves
+    // a branch name OR a commit SHA; `?sha=` scopes the commit list to the ref's history (so a
+    // PR-head scan's D7 signals reflect the PR's commits), and is only sent when a ref override
+    // is in play to keep default-branch scans byte-for-byte unchanged.
+    const refQuery = opts.ref ? `&sha=${encodeURIComponent(ref)}` : "";
     const [treeRes, commitsRes] = await Promise.all([
       ghJson<GhTreeResponse>(
-        `${API}/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
+        `${API}/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
         token,
         signal,
       ),
       ghJson<GhCommitResponse[]>(
-        `${API}/repos/${owner}/${repo}/commits?per_page=${COMMIT_COUNT}`,
+        `${API}/repos/${owner}/${repo}/commits?per_page=${COMMIT_COUNT}${refQuery}`,
         token,
         signal,
       ).catch(() => [] as GhCommitResponse[]),
@@ -362,8 +397,8 @@ export class GitHubPublicSource implements RepoSource {
       // With a token (e.g. a GitHub App installation), use the authenticated Contents
       // API so private repos work. Without one, the raw host avoids API rate limits.
       const content = token
-        ? await fetchContents(owner, repo, branch, path, token, signal)
-        : await fetchRaw(owner, repo, branch, path, signal);
+        ? await fetchContents(owner, repo, ref, path, token, signal)
+        : await fetchRaw(owner, repo, ref, path, signal);
       if (content == null) {
         totalBytes -= MAX_FILE_BYTES; // release the unused claim
         return;

@@ -75,6 +75,9 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     // change/unmount and ignore any late resolution, so only the latest request can setView.
     const controller = new AbortController();
     let active = true;
+    // Intentional: reset to the loading state whenever `org`/`installationId` changes so the
+    // heading doesn't show a stale installation's repos while the new fetch is in flight.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setView({ status: "loading" });
     const qs = new URLSearchParams({ org });
     if (installationId) qs.set("installation_id", installationId);

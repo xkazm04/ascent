@@ -6,6 +6,7 @@ import type {
   Contributor,
   DimensionId,
   DimensionResult,
+  Discrepancy,
   Effort,
   Governance,
   Impact,
@@ -202,6 +203,7 @@ export async function persistScanReport(
       headline: report.headline,
       strengths: JSON.stringify(report.strengths),
       risks: JSON.stringify(report.risks),
+      discrepancies: JSON.stringify(report.discrepancies ?? []),
       prStats: report.prStats ? JSON.stringify(report.prStats) : null,
       governance: report.governance ? JSON.stringify(report.governance) : null,
       commitActivity: report.commitActivity ? JSON.stringify(report.commitActivity) : null,
@@ -757,6 +759,20 @@ function parseJson<T>(s: string | null | undefined): T | null {
   }
 }
 
+/** Parse the persisted `discrepancies` JSON into validated Discrepancy[] (drops malformed rows). */
+function parseDiscrepancies(s: string | null | undefined): Discrepancy[] {
+  if (!s) return [];
+  try {
+    const p = JSON.parse(s);
+    if (!Array.isArray(p)) return [];
+    return p
+      .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
+      .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Rebuild a full ScanReport from a persisted scan — the pinned snapshot behind a
  * `/report/{owner}/{repo}@{headSha}` permalink. With `headSha`, returns that exact commit's
@@ -855,7 +871,7 @@ export async function getScanReportByCommit(
     strengths: parseStringArray(scan.strengths),
     risks: parseStringArray(scan.risks),
     roadmap,
-    discrepancies: [],
+    discrepancies: parseDiscrepancies(scan.discrepancies),
     confidence: scan.confidence,
     scannedAt: scan.scannedAt.toISOString(),
     engine: { provider: scan.engineProvider as ProviderName, model: scan.engineModel },

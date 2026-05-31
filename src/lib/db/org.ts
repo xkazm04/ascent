@@ -17,6 +17,26 @@ function nextScanFor(schedule: string): Date | null {
   return d > 0 ? new Date(Date.now() + d * 86_400_000) : null;
 }
 
+/** Resolve an org slug to its id (the tenant scope), or null when it doesn't exist. */
+export async function getOrgId(slug: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const org = await getPrisma().organization.findUnique({ where: { slug }, select: { id: true } });
+  return org?.id ?? null;
+}
+
+/** Is a repo watched (the gate for push-triggered re-scans)? False when DB off or repo unknown. */
+export async function isRepoWatched(orgSlug: string, fullName: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  if (!org) return false;
+  const repo = await prisma.repository.findUnique({
+    where: { orgId_fullName: { orgId: org.id, fullName } },
+    select: { watched: true },
+  });
+  return Boolean(repo?.watched);
+}
+
 async function ensureOrg(slug: string) {
   return getPrisma().organization.upsert({
     where: { slug },
@@ -647,7 +667,8 @@ export interface OrgPractice {
   total: number; // repos scored on this dimension
   strongCount: number; // repos that embody the practice (score ≥ 70)
   exemplar: { name: string; fullName: string; score: number } | null; // learn from this one
-  gapRepos: string[]; // repos that could adopt it (score < 40)
+  gapRepos: string[]; // repos that could adopt it (score < 40) — display names
+  gapRepoRefs: { name: string; fullName: string }[]; // same repos with fullName, for "apply" actions
 }
 
 const STRONG = 70;
@@ -695,6 +716,7 @@ export async function getOrgPractices(orgSlug: string): Promise<OrgPractice[] | 
       strongCount: rows.filter((r) => r.score >= STRONG).length,
       exemplar: top && top.score >= STRONG ? { name: top.name, fullName: top.fullName, score: top.score } : null,
       gapRepos: rows.filter((r) => r.score < GAP).map((r) => r.name),
+      gapRepoRefs: rows.filter((r) => r.score < GAP).map((r) => ({ name: r.name, fullName: r.fullName })),
     };
   });
 
@@ -940,6 +962,80 @@ export async function getOrgActivity(orgSlug: string): Promise<OrgActivity | nul
     for (let i = 0; i < s.length; i++) series[offset + i] += s[i];
   }
   return { weeks: maxLen, series, total: series.reduce((a, b) => a + b, 0), repos: seriesList.length };
+}
+
+// ── Calibration: LLM-as-auditor detector backlog ──────────────────────────────
+// The scan's LLM auditor flags signals it believes the deterministic detectors got wrong
+// (`Scan.discrepancies`). Aggregated across the fleet, recurring claims for one dimension are a
+// prioritized backlog of detector improvements — the loop that keeps the core IP calibrated.
+
+export interface DiscrepancyGroup {
+  dimId: string;
+  label: string;
+  count: number; // total times flagged across the fleet
+  repos: string[]; // repos where this dimension was flagged
+  examples: string[]; // distinct sample claims (capped)
+}
+
+export interface OrgDiscrepancies {
+  scanned: number; // repos with a latest scan
+  flaggedRepos: number; // repos with ≥1 auditor flag
+  total: number; // total flags
+  groups: DiscrepancyGroup[]; // by dimension, most-flagged first
+}
+
+/** Aggregate the LLM auditor's suspected detector misses across the fleet → a detector backlog. */
+export async function getOrgDiscrepancies(orgSlug: string): Promise<OrgDiscrepancies | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
+  if (!org) return null;
+
+  const repos = await prisma.repository.findMany({
+    where: { orgId: org.id },
+    select: { name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { discrepancies: true } } },
+  });
+
+  const groups = new Map<string, { count: number; repos: Set<string>; examples: Set<string> }>();
+  let scanned = 0;
+  let total = 0;
+  const flagged = new Set<string>();
+
+  for (const r of repos) {
+    const raw = r.scans[0]?.discrepancies;
+    if (raw == null) continue;
+    scanned += 1;
+    let parsed: { dimension?: unknown; claim?: unknown }[] = [];
+    try {
+      const p = JSON.parse(raw);
+      if (Array.isArray(p)) parsed = p;
+    } catch {
+      continue;
+    }
+    for (const d of parsed) {
+      if (typeof d.dimension !== "string" || typeof d.claim !== "string") continue;
+      const g = groups.get(d.dimension) ?? { count: 0, repos: new Set<string>(), examples: new Set<string>() };
+      g.count += 1;
+      g.repos.add(r.name);
+      if (g.examples.size < 4) g.examples.add(d.claim.trim());
+      groups.set(d.dimension, g);
+      total += 1;
+      flagged.add(r.name);
+    }
+  }
+  if (scanned === 0) return null;
+
+  const out: DiscrepancyGroup[] = [...groups.entries()]
+    .map(([dimId, g]) => ({
+      dimId,
+      label: DIMENSION_BY_ID[dimId as DimensionId]?.name ?? dimId,
+      count: g.count,
+      repos: [...g.repos].sort(),
+      examples: [...g.examples],
+    }))
+    .sort((a, b) => b.count - a.count || b.repos.length - a.repos.length);
+
+  return { scanned, flaggedRepos: flagged.size, total, groups: out };
 }
 
 /** Fleet-level pull-request signals — aggregated from each repo's latest scan's prStats. */

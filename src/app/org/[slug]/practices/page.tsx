@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Card, Meter, SectionEmpty, SectionHeader } from "@/components/org/ui";
+import { PracticeApply } from "@/components/org/PracticeApply";
 import { getOrgPractices } from "@/lib/db";
 import { scoreHex } from "@/lib/ui";
 
@@ -95,6 +96,9 @@ export default async function OrgPractices({ params }: { params: Promise<{ slug:
                 </ul>
               </div>
             </div>
+
+            {/* Systematic apply: generate the starter + open a draft PR into a gap repo. */}
+            <PracticeApply practiceId={p.id} gapRepos={p.gapRepoRefs} />
           </Card>
         );
       })}

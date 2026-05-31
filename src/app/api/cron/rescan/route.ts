@@ -7,7 +7,16 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { advanceSchedule, getInstallationIdForOwner, isDbConfigured, listDueRescans, persistScanReport } from "@/lib/db";
+import {
+  advanceSchedule,
+  getInstallationIdForOwner,
+  getOrgId,
+  getScanReportByCommit,
+  isDbConfigured,
+  listDueRescans,
+  persistScanReport,
+} from "@/lib/db";
+import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 
 export const runtime = "nodejs";
@@ -39,6 +48,11 @@ export async function GET(request: Request) {
         tokenCache.set(r.orgSlug, id ? await getInstallationToken(id).catch(() => undefined) : undefined);
       }
       const token = tokenCache.get(r.orgSlug);
+      // Capture the prior persisted report BEFORE the new scan lands, so we can diff for a
+      // regression alert once the fresh scan is stored.
+      const [owner, name] = r.fullName.split("/");
+      const prev = await getScanReportByCommit(owner, name, { orgSlug: r.orgSlug }).catch(() => null);
+
       const report = await scanRepository(r.fullName, { token });
       const persisted = await persistScanReport(report, { orgSlug: r.orgSlug });
       if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
@@ -47,6 +61,11 @@ export async function GET(request: Request) {
           scanId: persisted.scanId,
           failures: persisted.failures,
         });
+      }
+      // Live intelligence: alert on a regression vs the prior scan (skipped on an unchanged commit).
+      if (persisted && !persisted.deduped) {
+        const orgId = (await getOrgId(r.orgSlug).catch(() => null)) ?? undefined;
+        await checkAndAlertRegression(prev, report, { orgId });
       }
       await advanceSchedule(r.repoId, r.scanSchedule);
       scanned += 1;

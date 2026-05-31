@@ -19,12 +19,26 @@ GitHub → **Settings → Developer settings → GitHub Apps → New GitHub App*
 | **Webhook URL** | `https://<host>/api/app/webhook` |
 | **Webhook secret** | a random string → `GITHUB_APP_WEBHOOK_SECRET` |
 
-**Repository permissions** (read-only is all we need):
-- **Contents:** Read-only
-- **Metadata:** Read-only (mandatory)
+**Repository permissions.** Scanning needs only read access; the in-workflow features (PR
+maturity gate, push-driven re-scan, and "open a practice starter PR") need a little write:
 
-**Subscribe to events:** `Installation` (optional but recommended; keeps stored
-installations in sync). `Push` is not required yet.
+| Permission | Access | Why |
+|---|---|---|
+| **Metadata** | Read | mandatory |
+| **Contents** | Read | scan private files; **Read & write** to open practice-starter PRs |
+| **Pull requests** | Read & write | PR maturity-gate sticky comment; open starter PRs |
+| **Checks** | Read & write | post the PR maturity-gate Check Run (the merge status) |
+
+Grant only what you use — read-only Contents + Metadata is enough for pure scanning.
+
+**Subscribe to events:**
+- `Installation` — keeps stored installations in sync (recommended).
+- `Pull request` — runs the maturity gate on each PR: scores the **PR head** (so adding tests /
+  agent guidance / CI in the PR actually moves the score), diffs it against the base branch to show
+  what the PR changes, and posts a Check Run + sticky comment. (CI can do the same without the App
+  via the published Action / `GET /api/gate/{owner}/{repo}?ref=<pr-head-sha>`.)
+- `Push` — re-scans a **watched** repo on a push to its default branch and alerts on a
+  regression vs the prior scan (the "live intelligence" loop). Skip if you don't want auto-rescan.
 
 **Where can this App be installed?** Your choice (private to your org, or public).
 
