@@ -85,7 +85,11 @@ export async function POST(request: Request) {
           signal: request.signal,
         });
 
-        if (lookup) cacheSet(lookup.cacheKey, report);
+        // A transient LLM failure degrades to MockProvider, but the lookup key is still the llm
+        // key — caching it would pin the mock floor under `::llm` for the full TTL and serve it to
+        // every later scanner of this commit. Skip caching a mock report when the LLM was requested.
+        const degradedToMock = report.engine.provider === "mock" && !mock;
+        if (lookup && !degradedToMock) cacheSet(lookup.cacheKey, report);
         if (isDbConfigured()) {
           try {
             // Persist the ETag so the next re-scan can issue a free conditional request.

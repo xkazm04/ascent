@@ -61,7 +61,13 @@ async function runScan(
     signal: opts.signal,
     headSha: lookup?.headSha ?? undefined,
   });
-  if (lookup) cacheSet(lookup.cacheKey, report);
+  // Don't poison the shared `::llm` cache entry with a deterministic mock report produced by a
+  // transient LLM failure: a single Gemini timeout/429 degrades to MockProvider, but the lookup
+  // key is still the llm key, so caching it would pin the mock floor under `owner/repo@sha::llm`
+  // for the full TTL and serve it to every later scanner of this commit. Cache only when the
+  // report came from the requested engine (an intentional mock scan legitimately keys `::mock`).
+  const degradedToMock = report.engine.provider === "mock" && !opts.mock;
+  if (lookup && !degradedToMock) cacheSet(lookup.cacheKey, report);
 
   let deduped = false;
   if (isDbConfigured()) {
