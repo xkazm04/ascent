@@ -77,6 +77,9 @@ export async function POST(request: Request) {
           token,
           mock,
           onProgress: (p) => send("progress", p),
+          // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan
+          // can't key the report under a different commit than it actually scored.
+          headSha: lookup?.headSha ?? undefined,
           // Abort the scan (GitHub ingest + LLM) when the browser navigates away or aborts
           // the SSE stream, instead of running it to completion for a closed connection.
           signal: request.signal,

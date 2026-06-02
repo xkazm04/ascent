@@ -53,7 +53,14 @@ async function runScan(
     }
   }
 
-  const report = await scanRepository(url, { token, mock: opts.mock, signal: opts.signal });
+  // Pass the head sha resolved for the cache key so the scored commit matches the key (no SHA
+  // drift if a push lands mid-scan). Null/SHA-less lookups pass undefined → default behavior.
+  const report = await scanRepository(url, {
+    token,
+    mock: opts.mock,
+    signal: opts.signal,
+    headSha: lookup?.headSha ?? undefined,
+  });
   if (lookup) cacheSet(lookup.cacheKey, report);
 
   let deduped = false;

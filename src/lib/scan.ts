@@ -37,6 +37,13 @@ export interface ScanOptions {
    */
   ref?: string;
   /**
+   * Head commit sha already resolved for the cache key (by lookupCachedScan). Pins ingestion to
+   * that exact commit so the scored snapshot matches the key even if a push lands between the head
+   * lookup and this read, and stamps it as the report's canonical commit identity. Ignored when an
+   * explicit `ref` (PR gating) is supplied — that wins.
+   */
+  headSha?: string;
+  /**
    * Aborts all in-flight scan work (GitHub ingest, governance/PR/activity, and the LLM call)
    * when the client disconnects. Wire the route's `request.signal` here so an abandoned scan
    * stops burning the function's duration budget, GitHub rate limit, and LLM spend.
@@ -101,7 +108,14 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
       })
     : Promise.resolve(null);
 
-  const snapshot = await source.fetchSnapshot(parsed, { token, onProgress: emit, signal, ref: opts.ref });
+  // Pin ingestion to the head sha already resolved for the cache key (when there is one) so the
+  // scored snapshot matches that key even if a push lands between the head lookup and this read;
+  // an explicit PR `ref` still takes precedence. Then stamp the resolved commit as the report's
+  // canonical identity — fetchSnapshot otherwise records treeRes.sha, the tree object's sha, not
+  // the commit's — so lookup, scan, cache, and persistence all reference the same commit.
+  const pinnedRef = opts.ref ?? opts.headSha;
+  const snapshot = await source.fetchSnapshot(parsed, { token, onProgress: emit, signal, ref: pinnedRef });
+  if (!opts.ref && opts.headSha) snapshot.meta.headSha = opts.headSha;
   signal?.throwIfAborted();
 
   // Governance (branch protection / rulesets) + commit activity need the default branch from
