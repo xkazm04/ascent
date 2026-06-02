@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { diffReports } from "./engine";
-import { DIMENSIONS, LEVEL_BY_ID, postureFor } from "@/lib/maturity/model";
-import type { DimensionResult, ScanReport } from "@/lib/types";
+import { assembleReport, diffReports } from "./engine";
+import { DIMENSIONS, LEVEL_BY_ID, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
+import { MockProvider } from "@/lib/llm/mock";
+import type { DimensionResult, DimensionSignals, LlmAssessment, RepoSnapshot, ScanReport } from "@/lib/types";
 
 /** All 8 dimensions at a baseline, with per-dimension score/signal/evidence/gap overrides. */
 function dims(
@@ -90,5 +91,105 @@ describe("diffReports", () => {
     expect(diff.unchanged).toBe(true);
     expect(diff.appearedSignalCount).toBe(0);
     expect(diff.movements).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — dimension reconciliation (#8) + overall roll-up parity (#4)
+// ---------------------------------------------------------------------------
+
+function blankSnap(): RepoSnapshot {
+  return {
+    meta: { owner: "acme", name: "widget", url: "", stars: 0, forks: 0, defaultBranch: "main" },
+    tree: [],
+    files: [],
+    commits: [],
+    truncated: false,
+    coverage: 1,
+  };
+}
+function signalsFor(scores: Partial<Record<string, number>>): DimensionSignals[] {
+  return Object.entries(scores).map(([id, signalScore]) => ({
+    id: id as DimensionSignals["id"],
+    signalScore: signalScore as number,
+    signals: [{ label: `${id} signal` }],
+  }));
+}
+const emptyAssessment: LlmAssessment = {
+  dimensions: [],
+  headline: "",
+  strengths: [],
+  risks: [],
+  roadmap: [],
+  discrepancies: [],
+};
+
+describe("assembleReport — LLM/signal dimension reconciliation (#8)", () => {
+  it("warns when the LLM scores a dimension absent from the signal set", () => {
+    const assessment: LlmAssessment = {
+      ...emptyAssessment,
+      dimensions: [{ id: "D9", score: 80, summary: "", strengths: [], gaps: [] }],
+    };
+    const report = assembleReport(
+      blankSnap(),
+      signalsFor({ D1: 50, D2: 50 }),
+      assessment,
+      { name: "gemini", model: "x" },
+      "2026-01-01T00:00:00Z",
+      "org",
+    );
+    expect((report.warnings ?? []).some((w) => /D9/.test(w) && /signal set/i.test(w))).toBe(true);
+  });
+
+  it("does not warn when every LLM dimension is in the signal set", () => {
+    const assessment: LlmAssessment = {
+      ...emptyAssessment,
+      dimensions: [{ id: "D1", score: 60, summary: "", strengths: [], gaps: [] }],
+    };
+    const report = assembleReport(
+      blankSnap(),
+      signalsFor({ D1: 50, D2: 50 }),
+      assessment,
+      { name: "gemini", model: "x" },
+      "2026-01-01T00:00:00Z",
+      "org",
+    );
+    expect((report.warnings ?? []).some((w) => /signal set/i.test(w))).toBe(false);
+  });
+});
+
+describe("overall roll-up parity — mock matches engine (#4)", () => {
+  it("overallScoreFor renormalizes over present weights (a partial set doesn't deflate)", () => {
+    // 4 of 9 dimensions, all at 90 → renormalized mean is 90, not the raw weighted sum (~50).
+    const partial = [
+      { id: "D1" as const, score: 90 },
+      { id: "D2" as const, score: 90 },
+      { id: "D3" as const, score: 90 },
+      { id: "D4" as const, score: 90 },
+    ];
+    expect(overallScoreFor(partial, "org")).toBe(90);
+  });
+
+  it("MockProvider's headline level agrees with the engine's renormalized overall", async () => {
+    // A partial signal set is exactly where the old raw-weighted-sum mock diverged from the engine.
+    const signals = signalsFor({ D1: 90, D2: 90, D3: 90, D4: 90 });
+    const mock = new MockProvider();
+    const assessment = await mock.assess({
+      repo: blankSnap().meta,
+      signals,
+      files: [],
+      commitSample: [],
+      archetype: "org",
+    });
+    const report = assembleReport(blankSnap(), signals, assessment, mock, "2026-01-01T00:00:00Z", "org");
+
+    const expectedOverall = overallScoreFor(
+      signals.map((s) => ({ id: s.id, score: s.signalScore })),
+      "org",
+    );
+    expect(report.overallScore).toBe(expectedOverall);
+    expect(report.level.id).toBe(levelForScore(expectedOverall).id);
+    // The mock's headline announces the SAME level as the engine's badge (the divergence the fix removed).
+    expect(report.headline).toContain(report.level.id);
   });
 });
