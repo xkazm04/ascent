@@ -188,20 +188,6 @@ export async function resolveHead(
   }
 }
 
-/**
- * Unconditional head-SHA resolution — the badge/gate surfaces want the current sha, not a
- * conditional re-validation. Thin wrapper over {@link resolveHead}. Returns null on any failure
- * (network, timeout, rate limit, missing/private repo) so callers fall back to a SHA-less key
- * rather than breaking the scan.
- */
-export async function resolveHeadSha(
-  parsed: ParsedRepo,
-  token?: string,
-): Promise<string | null> {
-  const res = await resolveHead(parsed, { token });
-  return res.status === "ok" ? res.sha : null;
-}
-
 /** Minimal repo metadata for tailoring a generated artifact (no tree/file fetch). */
 export interface RepoContextMeta {
   fullName: string;

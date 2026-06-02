@@ -91,3 +91,26 @@ export async function lookupCachedScan(opts: {
 
   return { cacheKey, headSha, etag, cached: null, source: null };
 }
+
+/**
+ * Resolve a repo's current head sha for the read-only badge/gate surfaces while reusing the
+ * in-memory conditional-request hint. Unlike an unconditional head lookup, this sends the prior
+ * ETag (`If-None-Match`): an unchanged repo answers `304 Not Modified`, which GitHub does NOT
+ * bill against the REST rate limit, so a README badge polled by every repo viewer re-validates
+ * for free instead of spending a rate-limit unit per hit. The hint is refreshed on a fresh `200`.
+ * Returns null on any failure so the caller falls back to a SHA-less (best-effort) cache key.
+ */
+export async function resolveHeadWithHint(parsed: ParsedRepo, token?: string): Promise<string | null> {
+  const { owner, repo } = parsed;
+  const prior = headHintGet(owner, repo);
+  const head = await resolveHead(parsed, { token, etag: prior?.etag ?? null });
+  if (head.status === "ok") {
+    headHintSet(owner, repo, { etag: head.etag, headSha: head.sha });
+    return head.sha;
+  }
+  if (head.status === "unmodified" && prior) {
+    headHintSet(owner, repo, { etag: prior.etag, headSha: prior.headSha });
+    return prior.headSha;
+  }
+  return null;
+}

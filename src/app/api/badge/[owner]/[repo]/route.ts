@@ -19,7 +19,7 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { resolveHeadSha } from "@/lib/github/source";
+import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
 import { LEVEL_HEX } from "@/lib/ui";
@@ -222,9 +222,10 @@ export async function GET(
     // Resolve the current head commit so the badge reads (and writes) the SAME per-commit entry
     // the scan flow keys — otherwise a SHA-pinned real LLM scan would never be found here, and a
     // push wouldn't refresh the badge (it would advertise the pre-push level for up to the TTL).
-    // One lightweight call (sha media type), authenticated with GITHUB_TOKEN when set to stay
-    // within rate limits; null on failure falls back to a SHA-less key.
-    const sha = await resolveHeadSha({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
+    // CONDITIONAL (If-None-Match) via the shared head-hint store: an unchanged repo answers a free
+    // 304, so a README badge hit by every viewer doesn't burn a rate-limit unit per request.
+    // Null on failure falls back to a SHA-less key.
+    const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
     // One key scheme shared with the scan/cache layer (makeCacheKey), so the badge reflects a
     // real LLM scan when one exists instead of resolving to a duplicate mock entry.
     const mockKey = makeCacheKey(ownerN, repoN, false, sha);

@@ -45,7 +45,8 @@ export function normalizeRepoName(name: string): string {
  * misses the cache instead of serving the pre-push score for up to the TTL. Omit it (or pass
  * null when a cheap head lookup failed) to fall back to the un-pinned `owner/repo::mode` form
  * — best-effort caching rather than no caching. Callers MUST resolve the sha through the same
- * source (resolveHeadSha) so a reader and writer of the same commit produce the same key.
+ * resolveHead path (lookupCachedScan for the scan routes, resolveHeadWithHint for badge/gate) so
+ * a reader and writer of the same commit produce the same key.
  */
 export function makeCacheKey(
   owner: string,

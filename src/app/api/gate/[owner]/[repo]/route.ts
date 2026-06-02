@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { resolveHeadSha } from "@/lib/github/source";
+import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
 
@@ -38,9 +38,10 @@ export async function GET(
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
       // flow and badge — a push misses the cache and re-evaluates against fresh signals instead
-      // of returning a stale pass/fail (CI would otherwise gate on the pre-push score). Null on
-      // failure → a SHA-less key (best-effort).
-      const sha = await resolveHeadSha({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
+      // of returning a stale pass/fail (CI would otherwise gate on the pre-push score). CONDITIONAL
+      // via the shared head-hint store (free 304 on an unchanged repo). Null on failure → a
+      // SHA-less key (best-effort).
+      const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
       const llmKey = makeCacheKey(ownerN, repoN, true, sha);
       const mockKey = makeCacheKey(ownerN, repoN, false, sha);
       report = cacheGet(llmKey) ?? cacheGet(mockKey);
