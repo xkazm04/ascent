@@ -23,14 +23,23 @@ const AI_TOOLS: { name: string; re: RegExp }[] = [
 ];
 
 function median(xs: number[]): number | null {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b);
+  // Drop any non-finite entries first: a single malformed timestamp upstream would otherwise
+  // make the comparator return NaN (unstable sort) and can yield a NaN median.
+  const finite = xs.filter((x) => Number.isFinite(x));
+  if (!finite.length) return null;
+  const s = finite.sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
   const v = s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
   return Math.round(v * 10) / 10;
 }
-const hoursBetween = (later: string, earlier: string) =>
-  Math.max(0, (new Date(later).getTime() - new Date(earlier).getTime()) / 3_600_000);
+// Returns null when either timestamp is missing/malformed, so a bad GraphQL date can't poison the
+// velocity medians (a NaN that JSON.stringify would serialize as null further downstream).
+const hoursBetween = (later: string, earlier: string): number | null => {
+  const l = new Date(later).getTime();
+  const e = new Date(earlier).getTime();
+  if (!Number.isFinite(l) || !Number.isFinite(e)) return null;
+  return Math.max(0, (l - e) / 3_600_000);
+};
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
 export function summarizePullRequests(nodes: PrNode[], totalCount: number): PrStats {
@@ -72,7 +81,10 @@ export function summarizePullRequests(nodes: PrNode[], totalCount: number): PrSt
     if (lines <= 200) small++;
 
     if (isMerged) {
-      if (pr.mergedAt) ttm.push(hoursBetween(pr.mergedAt, pr.createdAt));
+      if (pr.mergedAt) {
+        const h = hoursBetween(pr.mergedAt, pr.createdAt);
+        if (h != null) ttm.push(h);
+      }
       if (!isBotAuthor) {
         mergedHuman++;
         if (approved) reviewedHumanMerged++;
@@ -82,7 +94,10 @@ export function summarizePullRequests(nodes: PrNode[], totalCount: number): PrSt
       .map((r) => r.submittedAt)
       .filter((s): s is string => !!s)
       .sort()[0];
-    if (firstReview) ttfr.push(hoursBetween(firstReview, pr.createdAt));
+    if (firstReview) {
+      const h = hoursBetween(firstReview, pr.createdAt);
+      if (h != null) ttfr.push(h);
+    }
 
     const login = pr.author?.login ?? "";
     if (isBotAuthor) bot++;
