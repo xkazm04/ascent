@@ -82,6 +82,19 @@ export function assembleReport(
     }];
   });
 
+  // Reconcile the two independent sources of truth. The deterministic signal set is what we
+  // actually scored and asked the LLM about; we only iterate `signals` above, so any LLM
+  // dimension whose id is NOT in that set is silently dropped at blend time while still having
+  // passed validation. Surface that drift as a warning instead of hiding it.
+  const signalIds = new Set(signals.map((s) => s.id));
+  for (const id of llmById.keys()) {
+    if (!signalIds.has(id)) {
+      const msg = `LLM scored dimension "${id}" that was not in the deterministic signal set — ignored.`;
+      warnings.push(msg);
+      console.warn(`[engine] ${msg}`);
+    }
+  }
+
   const scoreById = new Map(dimensions.map((d) => [d.id, d.score]));
   // Renormalize by the weights actually present: a weighted *mean*, not a raw weighted sum.
   // If any dimension is dropped (detector recovery, partial/persisted signals) or the lens
