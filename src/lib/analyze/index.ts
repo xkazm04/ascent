@@ -386,6 +386,37 @@ const AI_TRAILER =
 const CONVENTIONAL =
   /^(feat|fix|chore|docs|refactor|test|build|ci|perf|style|revert)(\(.+\))?!?:/i;
 
+// Single source of truth for "is this commit AI/bot-attributed". Previously this exact test was
+// copy-pasted in d7, detectAiUsage, and computeContributors — if one copy's regex was updated the
+// others silently drifted. One predicate keeps the rule consistent everywhere.
+function isAiCommit(c: { message: string; authorLogin?: string | null }): boolean {
+  return AI_TRAILER.test(c.message) || /\[bot\]$/i.test(c.authorLogin ?? "");
+}
+
+// Per-snapshot derivation memos. The AI-attribution pass over commits and the lowercased full
+// tree are each computed once per RepoSnapshot and shared across every consumer (d7 / detectAiUsage
+// / computeContributors / classifyArchetype) instead of being re-derived 3-4x. Keyed by the
+// immutable snapshot object, so memory is reclaimed with the snapshot and stale reuse is impossible.
+const aiFlagsBySnap = new WeakMap<RepoSnapshot, boolean[]>();
+function aiCommitFlags(snap: RepoSnapshot): boolean[] {
+  let flags = aiFlagsBySnap.get(snap);
+  if (!flags) {
+    flags = snap.commits.map(isAiCommit);
+    aiFlagsBySnap.set(snap, flags);
+  }
+  return flags;
+}
+
+const loweredTreeBySnap = new WeakMap<RepoSnapshot, string[]>();
+function loweredTreePaths(snap: RepoSnapshot): string[] {
+  let paths = loweredTreeBySnap.get(snap);
+  if (!paths) {
+    paths = snap.tree.map((t) => t.path.toLowerCase());
+    loweredTreeBySnap.set(snap, paths);
+  }
+  return paths;
+}
+
 const d7: Detector = (idx, snap, nowMs) => {
   const s = new Scorer();
   const commits = snap.commits;
@@ -398,9 +429,7 @@ const d7: Detector = (idx, snap, nowMs) => {
 
   // AI attribution is graded but kept moderate so it doesn't dominate (the explicit
   // "AI usage detected" indicator surfaces the fact separately — see detectAiUsage).
-  const aiCommits = commits.filter(
-    (c) => AI_TRAILER.test(c.message) || /\[bot\]$/i.test(c.authorLogin ?? ""),
-  ).length;
+  const aiCommits = aiCommitFlags(snap).filter(Boolean).length;
   const aiFrac = aiCommits / commits.length;
   if (aiFrac >= 0.3) s.add(30, "Frequent AI/bot-attributed commits", `${Math.round(aiFrac * 100)}%`);
   else if (aiCommits > 0) s.add(15, "AI/bot-attributed commits present", `${aiCommits} of ${commits.length}`);
@@ -594,11 +623,9 @@ export function analyzeSignals(
  */
 export function detectAiUsage(snap: RepoSnapshot): AiUsage {
   const commits = snap.commits;
-  const ai = commits.filter(
-    (c) => AI_TRAILER.test(c.message) || /\[bot\]$/i.test(c.authorLogin ?? ""),
-  ).length;
+  const ai = aiCommitFlags(snap).filter(Boolean).length;
   const frac = commits.length ? ai / commits.length : 0;
-  const lowerPaths = snap.tree.map((t) => t.path.toLowerCase());
+  const lowerPaths = loweredTreePaths(snap);
   const hasTooling = lowerPaths.some((p) =>
     /(^|\/)(claude\.md|agents?\.md|\.cursorrules|copilot-instructions\.md)$/.test(p) ||
     /^\.(claude|cursor|windsurf)\//.test(p),
@@ -612,17 +639,18 @@ export function detectAiUsage(snap: RepoSnapshot): AiUsage {
 /** Aggregate recent commits by author, tracking AI-attributed commits per contributor. */
 export function computeContributors(snap: RepoSnapshot): Contributor[] {
   const map = new Map<string, Contributor>();
-  for (const c of snap.commits) {
+  const flags = aiCommitFlags(snap);
+  snap.commits.forEach((c, i) => {
     const login = c.authorLogin || c.authorName || "unknown";
     const e =
       map.get(login) ??
       ({ login, name: c.authorName, commits: 0, aiCommits: 0, lastActiveAt: undefined } as Contributor);
     e.commits += 1;
-    if (AI_TRAILER.test(c.message) || /\[bot\]$/i.test(c.authorLogin ?? "")) e.aiCommits += 1;
+    if (flags[i]) e.aiCommits += 1;
     if (c.committedAt && (!e.lastActiveAt || c.committedAt > e.lastActiveAt)) e.lastActiveAt = c.committedAt;
     if (!e.name && c.authorName) e.name = c.authorName;
     map.set(login, e);
-  }
+  });
   return [...map.values()].sort((a, b) => b.commits - a.commits);
 }
 
@@ -632,7 +660,7 @@ export function computeContributors(snap: RepoSnapshot): Contributor[] {
  * workflows) or popularity implies team/org; otherwise solo/early-stage.
  */
 export function classifyArchetype(snap: RepoSnapshot): RepoArchetype {
-  const paths = snap.tree.map((t) => t.path.toLowerCase());
+  const paths = loweredTreePaths(snap);
   const hasCodeowners = paths.some((p) => /(^|\/)codeowners$/.test(p));
   const workflows = paths.filter((p) => /^\.github\/workflows\/.+\.ya?ml$/.test(p)).length;
   const stars = snap.meta.stars ?? 0;
