@@ -71,9 +71,21 @@ export function validateAssessment(raw: unknown): LlmAssessment {
     for (const d of obj.dimensions as Record<string, unknown>[]) {
       const id = d?.id;
       if (typeof id !== "string" || !VALID_DIM_IDS.has(id as DimensionId)) continue;
+      // Distinguish "scored 0" from "no score supplied". The old `clamp(Math.round(Number(d.score))) || 0`
+      // turned a missing/non-numeric score into a real 0 (clamp(NaN) -> NaN, then NaN || 0 -> 0), which
+      // isAssessmentUsable then counted toward coverage — so a model that returned valid ids with no real
+      // numbers passed the quality gate and rendered the deterministic floor under the provider's name.
+      // Admit only a finite numeric score; skip the dimension otherwise so coverage stays honest.
+      const rawScore =
+        typeof d.score === "number"
+          ? d.score
+          : typeof d.score === "string" && d.score.trim() !== ""
+            ? Number(d.score)
+            : NaN;
+      if (!Number.isFinite(rawScore)) continue;
       dims.push({
         id: id as DimensionId,
-        score: clamp(Math.round(Number(d.score))) || 0,
+        score: clamp(Math.round(rawScore)),
         summary: typeof d.summary === "string" ? d.summary.trim() : "",
         strengths: asStringArray(d.strengths),
         gaps: asStringArray(d.gaps),
