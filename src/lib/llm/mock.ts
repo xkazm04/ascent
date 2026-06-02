@@ -4,7 +4,7 @@
 
 import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import type { DimensionSignals, LlmAssessment, LlmDimensionScore } from "@/lib/types";
-import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
+import { DIMENSION_BY_ID, levelForScore, overallScoreFor } from "@/lib/maturity/model";
 import { buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 
 function dimSummary(s: DimensionSignals): LlmDimensionScore {
@@ -28,11 +28,12 @@ export class MockProvider implements LLMProvider {
 
   async assess(input: LlmScoreInput): Promise<LlmAssessment> {
     const dimensions = input.signals.map(dimSummary);
-    const overall = Math.round(
-      input.signals.reduce(
-        (acc, s) => acc + s.signalScore * DIMENSION_BY_ID[s.id].weight,
-        0,
-      ),
+    // Use the engine's renormalized, archetype-aware roll-up (not a raw base-weight sum that
+    // ignores the archetype lens and deflates on partial signals), so the mock's internal level,
+    // headline, and fallback roadmap match the report the engine composes from these same scores.
+    const overall = overallScoreFor(
+      input.signals.map((s) => ({ id: s.id, score: s.signalScore })),
+      input.archetype,
     );
     const level = levelForScore(overall);
 

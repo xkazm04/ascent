@@ -25,6 +25,7 @@ import {
   axisScore,
   clamp,
   levelForScore,
+  overallScoreFor,
   postureFor,
   weightsFor,
 } from "@/lib/maturity/model";
@@ -96,16 +97,11 @@ export function assembleReport(
   }
 
   const scoreById = new Map(dimensions.map((d) => [d.id, d.score]));
-  // Renormalize by the weights actually present: a weighted *mean*, not a raw weighted sum.
-  // If any dimension is dropped (detector recovery, partial/persisted signals) or the lens
-  // weights don't sum to exactly 1, the headline stays a true 0..100 score instead of
-  // silently deflating and mis-leveling the repo.
-  const presentWsum = dimensions.reduce((acc, d) => acc + (lensW[d.id] ?? 0), 0);
-  const overallScore = clamp(
-    presentWsum > 0
-      ? Math.round(dimensions.reduce((acc, d) => acc + d.score * (lensW[d.id] ?? 0), 0) / presentWsum)
-      : 0,
-  );
+  // Renormalized, archetype-weighted mean (a weighted *mean*, not a raw weighted sum): if any
+  // dimension is dropped (detector recovery, partial/persisted signals) or the lens weights don't
+  // sum to exactly 1, the headline stays a true 0..100 score instead of silently deflating and
+  // mis-leveling the repo. Shared with the mock provider so the keyless path levels identically.
+  const overallScore = overallScoreFor(dimensions, archetype);
   const level = levelForScore(overallScore);
 
   // Axis roll-ups: weighted mean of each axis's dimensions (lens weights renormalized).

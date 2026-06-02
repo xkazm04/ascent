@@ -217,6 +217,26 @@ export function weightsFor(archetype: RepoArchetype): Record<DimensionId, number
 }
 
 /**
+ * Renormalized, archetype-weighted mean of per-dimension scores (0..100) — the single source of
+ * truth for how an overall headline rolls up. Weights come from the archetype lens and are
+ * renormalized over just the dimensions present, so a dropped or partial dimension (detector
+ * recovery, partial/persisted signals) can't silently deflate the score. Used by the scoring
+ * engine (blended dimension scores) and the mock provider (signal scores) alike, so the keyless
+ * demo's internal level can't diverge from the report headline the engine composes.
+ */
+export function overallScoreFor(
+  scored: { id: DimensionId; score: number }[],
+  archetype: RepoArchetype,
+): number {
+  const lensW = weightsFor(archetype);
+  const presentWsum = scored.reduce((acc, d) => acc + (lensW[d.id] ?? 0), 0);
+  if (presentWsum <= 0) return 0;
+  return clamp(
+    Math.round(scored.reduce((acc, d) => acc + d.score * (lensW[d.id] ?? 0), 0) / presentWsum),
+  );
+}
+
+/**
  * Weighted roll-up of one axis (Adoption / Rigor) from per-dimension scores, under an
  * archetype lens (weights renormalized over just that axis's dimensions). `scoreFor`
  * supplies the score for a dimension id, so this works for a live report or a persisted
