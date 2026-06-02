@@ -213,13 +213,13 @@ export interface RepoContextMeta {
 
 /** One cheap metadata call → the context the practice-artifact builder tailors against. */
 export async function fetchRepoContext(parsed: ParsedRepo, token?: string): Promise<RepoContextMeta> {
-  const meta = await ghJson<GhRepoResponse>(`${API}/repos/${parsed.owner}/${parsed.repo}`, token);
+  const meta = mapGhRepo(await ghJson<GhRepoResponse>(`${API}/repos/${parsed.owner}/${parsed.repo}`, token));
   return {
-    fullName: `${meta.owner.login}/${meta.name}`,
+    fullName: `${meta.owner}/${meta.name}`,
     name: meta.name,
-    description: meta.description,
-    primaryLanguage: meta.language,
-    defaultBranch: meta.default_branch || "main",
+    description: meta.description ?? null,
+    primaryLanguage: meta.primaryLanguage ?? null,
+    defaultBranch: meta.defaultBranch,
   };
 }
 
@@ -289,6 +289,34 @@ interface GhRepoResponse {
   topics?: string[];
 }
 
+/**
+ * Single REST -> internal normalizer for a `/repos/{owner}/{repo}` response. Both the full-scan
+ * snapshot (RepoMeta) and the lighter context lookup (RepoContextMeta — a projection of this)
+ * derive from here, so the `default_branch` fallback and field-plucking can't drift between the
+ * two call sites. `headSha` is filled in by the snapshot fetch once the tree is read.
+ */
+function mapGhRepo(meta: GhRepoResponse): RepoMeta {
+  return {
+    owner: meta.owner.login,
+    name: meta.name,
+    url: meta.html_url,
+    description: meta.description ?? undefined,
+    isPrivate: meta.private,
+    stars: meta.stargazers_count,
+    forks: meta.forks_count,
+    openIssues: meta.open_issues_count,
+    primaryLanguage: meta.language ?? undefined,
+    pushedAt: meta.pushed_at ?? undefined,
+    defaultBranch: meta.default_branch || "main",
+    sizeKb: meta.size,
+    license:
+      meta.license?.spdx_id && meta.license.spdx_id !== "NOASSERTION"
+        ? meta.license.spdx_id
+        : meta.license?.name ?? undefined,
+    topics: meta.topics,
+  };
+}
+
 interface GhTreeResponse {
   sha: string;
   truncated: boolean;
@@ -315,29 +343,11 @@ export class GitHubPublicSource implements RepoSource {
 
     emit({ stage: "fetch", message: "Reading repository metadata…", pct: 10 });
     const meta = await ghJson<GhRepoResponse>(`${API}/repos/${owner}/${repo}`, token, signal);
-    const branch = meta.default_branch || "main";
+    const repoMeta = mapGhRepo(meta);
+    const branch = repoMeta.defaultBranch;
     // The ref to actually read (tree/files/commits) — a PR head SHA when gating a pull request,
     // else the default branch. `meta.defaultBranch` below still reports the true default.
     const ref = opts.ref || branch;
-
-    const repoMeta: RepoMeta = {
-      owner: meta.owner.login,
-      name: meta.name,
-      url: meta.html_url,
-      description: meta.description ?? undefined,
-      isPrivate: meta.private,
-      stars: meta.stargazers_count,
-      forks: meta.forks_count,
-      openIssues: meta.open_issues_count,
-      primaryLanguage: meta.language ?? undefined,
-      pushedAt: meta.pushed_at ?? undefined,
-      defaultBranch: branch,
-      sizeKb: meta.size,
-      license: meta.license?.spdx_id && meta.license.spdx_id !== "NOASSERTION"
-        ? meta.license.spdx_id
-        : meta.license?.name ?? undefined,
-      topics: meta.topics,
-    };
 
     emit({ stage: "tree", message: "Reading file tree & recent history…", pct: 28 });
     // Recursive tree + recent commits in parallel, both pinned to `ref`. The trees API resolves
