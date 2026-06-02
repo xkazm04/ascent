@@ -416,8 +416,15 @@ const d7: Detector = (idx, snap, nowMs) => {
   if (snap.meta.pushedAt) {
     // Use the injected scan timestamp (not Date.now) so the same snapshot re-scored later
     // yields the same D7 — keeping scores reproducible and trend comparisons honest.
-    const ageDays = (nowMs - new Date(snap.meta.pushedAt).getTime()) / 86_400_000;
-    if (ageDays <= 30) s.add(15, "Actively maintained", "pushed within 30 days");
+    // Guard the parsed pushedAt the same way nowMs is guarded above: a malformed / non-ISO
+    // value would otherwise make ageDays NaN, `NaN <= 30` false, and silently void the bonus.
+    const pushedMs = new Date(snap.meta.pushedAt).getTime();
+    if (Number.isFinite(pushedMs)) {
+      const ageDays = (nowMs - pushedMs) / 86_400_000;
+      if (ageDays <= 30) s.add(15, "Actively maintained", "pushed within 30 days");
+    } else {
+      s.note("Last-push date unreadable", "recency bonus skipped — malformed pushedAt");
+    }
   }
 
   return s.result("D7", `aiCommits=${aiCommits}/${commits.length}`);
