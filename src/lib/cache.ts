@@ -79,6 +79,17 @@ export function cacheSet(key: string, report: ScanReport): void {
   store.set(key, { report, expires: Date.now() + TTL_MS });
 }
 
+/**
+ * Drop a single scan-cache entry. The cache otherwise only evicts via TTL/LRU, so when a fresh
+ * scan is persisted for the SAME head sha (a `fresh=1` re-test of an unchanged commit) a warm
+ * instance would keep serving the prior report under the same `owner/repo@sha::mode` key for up
+ * to the TTL. Persistence calls this after a new Scan row commits so the next read reflects it.
+ * No-op when the key is absent.
+ */
+export function cacheDelete(key: string): void {
+  store.delete(key);
+}
+
 // ---- Conditional-request head hint ------------------------------------------
 // To check the per-commit scan cache (keyed `owner/repo@sha`) we first need the repo's current
 // head sha — but a plain head lookup costs a rate-limit unit. The hint remembers the last
