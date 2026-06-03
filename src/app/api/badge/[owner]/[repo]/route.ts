@@ -18,7 +18,7 @@
 //     copy-paste markdown also wraps it in a link).
 
 import { NextResponse } from "next/server";
-import { scanRepository } from "@/lib/scan";
+import { scanRepository, GitHubError } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
@@ -264,9 +264,16 @@ export async function GET(
     return respond(
       badgeSvg({ label, value: `${report.level.id} ${report.level.name}`, color, style, logo, href }),
     );
-  } catch {
-    // Remember the miss briefly so a broken/private/nonexistent repo isn't re-scanned per hit.
-    negSet(key);
+  } catch (err) {
+    // Only negative-cache a GENUINE not-found/invalid/empty repo. A transient failure (GitHub rate
+    // limit, upstream 5xx, network blip) thrown by resolveHeadWithHint/scanRepository must NOT pin a
+    // perfectly valid public repo to "unknown" for the full NEG_TTL — every README viewer would then
+    // see a broken badge long after the blip cleared. On a transient error we still serve the neutral
+    // badge (so the image never breaks) but leave the cache clean, so the next hit re-resolves.
+    const genuineMiss =
+      err instanceof GitHubError &&
+      (err.code === "NOT_FOUND" || err.code === "EMPTY" || err.code === "INVALID_URL");
+    if (genuineMiss) negSet(key);
     return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }));
   }
 }
