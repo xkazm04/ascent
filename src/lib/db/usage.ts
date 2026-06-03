@@ -63,14 +63,20 @@ export async function getUsageSummary(
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return empty;
 
-  const since = new Date(Date.now() - periodDays * 86_400_000);
+  // Anchor the window to UTC calendar days. `since` is the START of the oldest day shown on the
+  // chart, derived from the SAME UTC-day floor the axis uses (emptyDailySeries) — so every counted
+  // scan's UTC date is guaranteed to land on a generated axis day. The previous code stepped the
+  // axis from a LOCAL `new Date()` while keying buckets by UTC date, so near-midnight-UTC scans
+  // fell into the idx-miss gap and were silently dropped (under-reporting billable volume).
+  const todayUtcMs = utcDayStart(Date.now());
+  const since = new Date(todayUtcMs - (periodDays - 1) * 86_400_000);
   const where = { repo: { orgId: org.id } };
   // The private/public split and provider mix are shown beside the "Last Nd" window, so they
   // must be scoped to the same window as periodScans — otherwise the billable figure reported
   // for a selected period would actually be the org's all-time private-scan total.
   const periodWhere = { ...where, scannedAt: { gte: since } };
 
-  const [total, period, priv, pub, distinctRepos, providerGroups, agg, periodScanRows] = await Promise.all([
+  const [total, period, priv, pub, distinctRepos, providerGroups, agg, daily] = await Promise.all([
     prisma.scan.count({ where }),
     prisma.scan.count({ where: periodWhere }),
     prisma.scan.count({ where: { ...periodWhere, repo: { orgId: org.id, isPrivate: true } } }),
@@ -78,12 +84,9 @@ export async function getUsageSummary(
     prisma.repository.count({ where: { orgId: org.id, scans: { some: {} } } }),
     prisma.scan.groupBy({ by: ["engineProvider"], where: periodWhere, _count: true }),
     prisma.scan.aggregate({ where, _min: { scannedAt: true }, _max: { scannedAt: true } }),
-    // Per-day series: pull the period's scans with just date + visibility, bucket in JS so the
-    // grouping is identical on local Postgres and Aurora DSQL (no DB-specific date_trunc).
-    prisma.scan.findMany({
-      where: periodWhere,
-      select: { scannedAt: true, repo: { select: { isPrivate: true } } },
-    }),
+    // Per-day series, aggregated in SQL (one row per UTC-day × visibility) instead of streaming
+    // every period scan row back to bucket in JS — see fetchDailySeries.
+    fetchDailySeries(prisma, org.id, since, periodDays, todayUtcMs),
   ]);
 
   return {
@@ -97,10 +100,7 @@ export async function getUsageSummary(
     byProvider: providerGroups
       .map((g) => ({ provider: g.engineProvider, count: g._count }))
       .sort((a, b) => b.count - a.count),
-    daily: buildDailySeries(
-      periodDays,
-      periodScanRows.map((s) => ({ at: s.scannedAt, billable: s.repo.isPrivate })),
-    ),
+    daily,
     firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
   };
@@ -108,20 +108,79 @@ export async function getUsageSummary(
 
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
 
-/** A zero-filled day series for the last `periodDays` (so the chart has a stable x-axis). */
-function emptyDailySeries(periodDays: number): UsageDay[] {
+/** Floor an epoch-ms instant to the start of its UTC day. Epoch 0 is a UTC midnight and a day is
+ *  exactly 86_400_000 ms in JS time (no leap seconds), so a multiple of that is UTC midnight. */
+function utcDayStart(ms: number): number {
+  return Math.floor(ms / 86_400_000) * 86_400_000;
+}
+
+/**
+ * Aggregate the period's computed scans into a per-UTC-day billable/free series in SQL — a single
+ * COUNT(*) per (day, visibility) row (~periodDays×2 rows) rather than streaming every scan row in
+ * the window back to bucket in JS (thousands of rows on a busy org). `date_trunc` is standard SQL
+ * supported by both local Postgres and Aurora DSQL, and Prisma stores DateTime as UTC `timestamp`,
+ * so `date_trunc('day', "scannedAt")` is the UTC day that matches the dayKey axis; `to_char` formats
+ * it to the same YYYY-MM-DD token (no driver-dependent Date round-trip) and `::int` keeps COUNT out
+ * of BigInt. Falls back to row-bucketing if the raw query is ever unavailable, so /usage can't break.
+ */
+async function fetchDailySeries(
+  prisma: ReturnType<typeof getPrisma>,
+  orgId: string,
+  since: Date,
+  periodDays: number,
+  anchorUtcMs: number,
+): Promise<UsageDay[]> {
+  const series = emptyDailySeries(periodDays, anchorUtcMs);
+  const idx = new Map(series.map((d, i) => [d.date, i]));
+  try {
+    const rows = await prisma.$queryRaw<{ day: string; isPrivate: boolean; count: number }[]>`
+      SELECT to_char(date_trunc('day', s."scannedAt"), 'YYYY-MM-DD') AS day,
+             r."isPrivate" AS "isPrivate",
+             COUNT(*)::int AS count
+      FROM "Scan" s
+      JOIN "Repository" r ON r."id" = s."repoId"
+      WHERE r."orgId" = ${orgId} AND s."scannedAt" >= ${since}
+      GROUP BY day, r."isPrivate"
+    `;
+    for (const row of rows) {
+      const i = idx.get(row.day);
+      if (i === undefined) continue;
+      if (row.isPrivate) series[i].billable += Number(row.count);
+      else series[i].free += Number(row.count);
+    }
+    return series;
+  } catch (err) {
+    console.error("[usage] daily aggregation query failed, falling back to row bucketing", err);
+    const scans = await prisma.scan.findMany({
+      where: { repo: { orgId }, scannedAt: { gte: since } },
+      select: { scannedAt: true, repo: { select: { isPrivate: true } } },
+    });
+    return buildDailySeries(
+      periodDays,
+      anchorUtcMs,
+      scans.map((s) => ({ at: s.scannedAt, billable: s.repo.isPrivate })),
+    );
+  }
+}
+
+/** A zero-filled day series for the last `periodDays` UTC days ending at `anchorUtcMs`'s day, so the
+ *  chart has a stable x-axis whose keys exactly match the UTC dayKey of any bucketed scan. */
+function emptyDailySeries(periodDays: number, anchorUtcMs: number = utcDayStart(Date.now())): UsageDay[] {
   const days: UsageDay[] = [];
-  const today = new Date();
+  const todayUtc = utcDayStart(anchorUtcMs);
   for (let i = periodDays - 1; i >= 0; i--) {
-    const d = new Date(today.getTime() - i * 86_400_000);
-    days.push({ date: dayKey(d), billable: 0, free: 0 });
+    days.push({ date: dayKey(new Date(todayUtc - i * 86_400_000)), billable: 0, free: 0 });
   }
   return days;
 }
 
-/** Bucket scans into the zero-filled day series by UTC date. */
-function buildDailySeries(periodDays: number, scans: { at: Date; billable: boolean }[]): UsageDay[] {
-  const series = emptyDailySeries(periodDays);
+/** Bucket scans into the zero-filled day series by UTC date (the JS fallback for fetchDailySeries). */
+function buildDailySeries(
+  periodDays: number,
+  anchorUtcMs: number,
+  scans: { at: Date; billable: boolean }[],
+): UsageDay[] {
+  const series = emptyDailySeries(periodDays, anchorUtcMs);
   const idx = new Map(series.map((d, i) => [d.date, i]));
   for (const s of scans) {
     const i = idx.get(dayKey(s.at));
