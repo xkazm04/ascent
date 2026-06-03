@@ -538,16 +538,25 @@ async function resolveOrgId(orgSlug: string): Promise<string | null> {
   return org?.id ?? null;
 }
 
-/** Prior scans for a repo (most recent first), with per-dimension scores for trends. */
+/**
+ * Prior scans for a repo (most recent first), with per-dimension scores for trends.
+ *
+ * `includeDimensions` (default true) controls the eager per-dimension fan-out: a full history of
+ * `limit` scans pulls up to `limit × |dimensions|` ScanDimension rows, but a caller that only charts
+ * the OVERALL line (a first paint, an embed, the /api/history `?dims=0` mode) doesn't need them.
+ * Passing `false` skips that select entirely and returns empty `dimensions` arrays — a lighter query
+ * for the overall-only path, with the by-dimension data fetched separately when actually shown.
+ */
 export async function getRepositoryHistory(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; limit?: number } = {},
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean } = {},
 ): Promise<RepositoryHistory | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const limit = opts.limit ?? 30;
+  const includeDimensions = opts.includeDimensions ?? true;
   const fullName = `${owner}/${name}`;
 
   const orgId = await resolveOrgId(orgSlug);
@@ -557,34 +566,52 @@ export async function getRepositoryHistory(
   });
   if (!repo) return null;
 
-  const scans = await prisma.scan.findMany({
-    where: { repoId: repo.id },
-    orderBy: { scannedAt: "desc" },
-    take: limit,
-    select: {
-      id: true,
-      overallScore: true,
-      level: true,
-      levelName: true,
-      confidence: true,
-      engineProvider: true,
-      scannedAt: true,
-      dimensions: { select: { dimId: true, score: true } },
-    },
+  // Two statically-typed queries (rather than a dynamic select) so the result type stays precise:
+  // the light branch genuinely omits the dimensions join at the DB, not just in the mapping. Each
+  // branch maps through toPoint (mapping a single array type, never a union, so it stays type-safe).
+  const baseSelect = {
+    id: true,
+    overallScore: true,
+    level: true,
+    levelName: true,
+    confidence: true,
+    engineProvider: true,
+    scannedAt: true,
+  } as const;
+  const args = { where: { repoId: repo.id }, orderBy: { scannedAt: "desc" }, take: limit } as const;
+
+  const toPoint = (s: {
+    id: string;
+    overallScore: number;
+    level: string;
+    levelName: string;
+    confidence: number;
+    engineProvider: string;
+    scannedAt: Date;
+    dimensions?: { dimId: string; score: number }[];
+  }): HistoryPoint => ({
+    id: s.id,
+    overallScore: s.overallScore,
+    level: s.level,
+    levelName: s.levelName,
+    confidence: s.confidence,
+    engineProvider: s.engineProvider,
+    scannedAt: s.scannedAt.toISOString(),
+    dimensions: s.dimensions ?? [],
   });
+
+  const scans: HistoryPoint[] = includeDimensions
+    ? (
+        await prisma.scan.findMany({
+          ...args,
+          select: { ...baseSelect, dimensions: { select: { dimId: true, score: true } } },
+        })
+      ).map(toPoint)
+    : (await prisma.scan.findMany({ ...args, select: baseSelect })).map(toPoint);
 
   return {
     repo: { owner: repo.owner, name: repo.name, fullName },
-    scans: scans.map((s) => ({
-      id: s.id,
-      overallScore: s.overallScore,
-      level: s.level,
-      levelName: s.levelName,
-      confidence: s.confidence,
-      engineProvider: s.engineProvider,
-      scannedAt: s.scannedAt.toISOString(),
-      dimensions: s.dimensions,
-    })),
+    scans,
   };
 }
 
