@@ -40,12 +40,25 @@ export async function GET(request: Request) {
     // name collision can't leak another tenant's history.
     const orgSlug = await readableOrgForOwner(parsed.owner);
     const history = await getRepositoryHistory(parsed.owner, parsed.repo, { orgSlug });
-    if (!history) {
-      return NextResponse.json(
-        { repo: { owner: parsed.owner, name: parsed.repo, fullName: `${parsed.owner}/${parsed.repo}` }, scans: [] },
-      );
+    const payload =
+      history ??
+      { repo: { owner: parsed.owner, name: parsed.repo, fullName: `${parsed.owner}/${parsed.repo}` }, scans: [] };
+
+    // A repo's history is append-only: existing scan points are immutable snapshots; only new
+    // points append. So a weak validator over (count, newest-scan-id) changes iff a new scan
+    // landed. Emit it and answer a matching If-None-Match with a free 304 so the /trends page and
+    // any pollers don't re-transfer an unchanged series. Caching is `private` (not `s-maxage`):
+    // the payload is org-scoped and may be auth-gated, so it must never sit in a shared proxy
+    // cache where another tenant could receive it.
+    const etag = `W/"h${payload.scans.length}-${payload.scans[0]?.id ?? "none"}"`;
+    const headers: Record<string, string> = {
+      etag,
+      "cache-control": "private, max-age=30, stale-while-revalidate=300",
+    };
+    if (request.headers.get("if-none-match") === etag) {
+      return new NextResponse(null, { status: 304, headers });
     }
-    return NextResponse.json(history);
+    return NextResponse.json(payload, { headers });
   } catch (err) {
     console.error("[history] query failed", err);
     return NextResponse.json({ error: "Failed to load history." }, { status: 500 });
