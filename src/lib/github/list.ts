@@ -26,7 +26,16 @@ interface GhRepo {
   description: string | null;
 }
 
+// GitHub login grammar: alphanumerics and single hyphens, ≤39 chars. Validating BEFORE the value is
+// interpolated into the api.github.com URL stops a crafted `org` (e.g. containing `../`, `@`, or
+// URL-control chars) from rewriting the request path/host — an SSRF / path-injection vector, since
+// `org` reaches here unauthenticated via /api/org/repos and /api/org/import.
+const VALID_HANDLE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+
 export async function listOrgRepos(org: string, count: number, token?: string): Promise<OrgRepoListItem[]> {
+  if (!VALID_HANDLE.test(org)) {
+    throw new Error(`Invalid GitHub org/user handle: "${org}"`);
+  }
   const headers: Record<string, string> = {
     accept: "application/vnd.github+json",
     "x-github-api-version": "2022-11-28",
