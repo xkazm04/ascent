@@ -60,15 +60,16 @@
   Consider always recording the commit sha so report/persistence identity is uniform.
 
 ## Open follow-ups (from Pipeline C scan-and-decide, 2026-06-03 — "Reporting, Persistence & Metering" group)
-- **D5 client lazy-load (the user-visible half)**: `getRepositoryHistory({includeDimensions:false})` and
-  `/api/history?dims=0` ship the lightweight overall-only query, but NO consumer uses it yet — both the
-  `/trends` page (`DimensionTrends`) and `ReportView`'s history fetch still pull per-dimension data on first
-  paint. To realize the "first paint skips dimension rows" win, fetch light server-side for the overall chart
-  and lazy-load the by-dimension grid client-side (in-view) via `?dims=0`→full. Deferred: it rearchitects the
-  trends page's primary content and needs an app-run to verify. Idea `efdf1427` left **accepted** (not implemented).
+- ~~**D5 client lazy-load**~~ **RESOLVED 2026-06-03** (`c2e8d18`): `/trends` now server-fetches the overall-only
+  history (`includeDimensions:false`) and `DimensionTrends` lazy-loads the per-dimension grid client-side via
+  `/api/history` on IntersectionObserver, with a skeleton + retry fallback. Verified on a real Postgres seed:
+  full `/api/history` → 63 dim rows, `?dims=0` → 0; trends first paint ships 0 dim rows + skeleton, then hydrates.
+  (`ReportView`'s history fetch still pulls full dims for its sparklines — intentional, it needs them.)
+- ~~**D1 raw-SQL portability**~~ **VERIFIED 2026-06-03**: against Postgres 16, `Scan.scannedAt` is
+  `timestamp without time zone` (UTC-stored), so `date_trunc('day', "scannedAt")`+`to_char(…,'YYYY-MM-DD')`
+  produces day keys IDENTICAL to the JS `toISOString().slice(0,10)` axis for all rows, including the
+  23:30Z→06-02 / 00:30Z→06-03 midnight boundary. Runtime `/api/usage` buckets matched the direct SQL exactly.
+  The `catch`→JS-bucketing fallback remains as defense-in-depth.
 - **`scans.ts` commit hygiene**: the B4/B5/D3 commit (`2f15b37`) bundles substantial pre-existing working-tree
   WIP in `scans.ts` (~600 lines that predate this run), per an explicit user decision. If you bisect, that
-  commit is not a clean single-concern change.
-- **D1 raw-SQL portability**: `fetchDailySeries` (usage.ts) uses `date_trunc`/`to_char` via `$queryRaw` with a
-  JS row-bucketing fallback in `catch`. Verify the aggregation against a real Postgres/Aurora-DSQL instance —
-  the no-DB dev path can't confirm the day buckets match the JS fallback exactly at tz boundaries.
+  commit is not a clean single-concern change. (Still open.)
