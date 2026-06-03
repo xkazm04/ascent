@@ -12,6 +12,7 @@
 import { NextResponse, after } from "next/server";
 import { getInstallationToken, isAppConfigured, verifyWebhook } from "@/lib/github/app";
 import {
+  getInstallationIdForOwner,
   getOrgId,
   getScanReportByCommit,
   isDbConfigured,
@@ -45,6 +46,45 @@ interface WebhookPayload {
 
 const PR_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
+// Replay defense. GitHub stamps each delivery with a unique X-GitHub-Delivery id. A captured,
+// still-valid signed request can be re-sent (the HMAC still verifies) to re-trigger scans/gates;
+// remember recently-seen ids (bounded, in-memory) and skip duplicates. Process-local — it collapses
+// same-instance replays; recorded only AFTER signature verification so junk can't fill the map.
+const DELIVERY_TTL_MS = 10 * 60_000;
+const DELIVERY_MAX = 2000;
+const seenDeliveries = new Map<string, number>(); // delivery id -> expiry
+
+function deliveryAlreadySeen(id: string): boolean {
+  const now = Date.now();
+  const exp = seenDeliveries.get(id);
+  if (exp && exp > now) return true;
+  seenDeliveries.set(id, now + DELIVERY_TTL_MS);
+  if (seenDeliveries.size > DELIVERY_MAX) {
+    for (const [k, v] of seenDeliveries) if (v <= now) seenDeliveries.delete(k);
+    while (seenDeliveries.size > DELIVERY_MAX) {
+      const oldest = seenDeliveries.keys().next().value;
+      if (oldest === undefined) break;
+      seenDeliveries.delete(oldest);
+    }
+  }
+  return false;
+}
+
+/** Bind a webhook's claimed installation to our stored org→install mapping. Returns false (skip)
+ *  only when a mapping EXISTS and disagrees — so a payload whose installation doesn't match the
+ *  repo owner on record can't drive a token mint / scan. Unknown owners (no mapping yet) are allowed
+ *  since the HMAC already authenticated the delivery; this is defense-in-depth, not the primary gate. */
+async function installationMatchesOwner(installationId: number, owner: string): Promise<boolean> {
+  const known = await getInstallationIdForOwner(owner).catch(() => null);
+  if (known && known !== String(installationId)) {
+    console.warn(
+      `[webhook] installation mismatch for ${owner}: payload=${installationId} stored=${known}; skipping`,
+    );
+    return false;
+  }
+  return true;
+}
+
 function publicBase(): string {
   return (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
 }
@@ -69,6 +109,7 @@ interface PrGateRef {
 async function runPrGate(ref: PrGateRef) {
   const { installationId, owner, repo, prNumber, headSha, baseRef } = ref;
   try {
+    if (!(await installationMatchesOwner(installationId, owner))) return;
     const token = await getInstallationToken(installationId);
     const fullName = `${owner}/${repo}`;
 
@@ -120,6 +161,7 @@ async function runPushRescan(installationId: number, owner: string, repo: string
   try {
     const fullName = `${owner}/${repo}`;
     const orgSlug = owner.toLowerCase();
+    if (!(await installationMatchesOwner(installationId, owner))) return;
     if (!(await isRepoWatched(orgSlug, fullName))) return; // only watched repos auto-rescan
     const token = await getInstallationToken(installationId);
     const prev = await getScanReportByCommit(owner, repo, { orgSlug }).catch(() => null);
@@ -142,6 +184,12 @@ export async function POST(request: Request) {
   }
 
   const event = request.headers.get("x-github-event") ?? "";
+  // Reject replays of an already-processed delivery (a verified signature alone can't distinguish a
+  // fresh delivery from a re-sent capture). Answer 200 so a genuine GitHub redelivery isn't retried.
+  const delivery = request.headers.get("x-github-delivery");
+  if (delivery && deliveryAlreadySeen(delivery)) {
+    return NextResponse.json({ ok: true, event, duplicate: true });
+  }
   let payload: WebhookPayload = {};
   try {
     payload = JSON.parse(raw) as WebhookPayload;
