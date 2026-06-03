@@ -17,6 +17,20 @@ function toCsv(summary: UsageSummary): string {
   return [header, ...rows].join("\n") + "\n";
 }
 
+// The org slug reaches us straight from the query string (and for the shared "public" org / any
+// auth-off deployment it's never membership-checked), so it must never be interpolated raw into a
+// response header: a slug containing a quote, CR/LF, or non-ASCII byte would corrupt or spoof the
+// Content-Disposition filename (header injection / response-splitting). Reduce it to a safe ASCII
+// token for the download name; the real org identity already lives inside the payload.
+function safeFilenameSlug(org: string): string {
+  const cleaned = org
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return cleaned || "org";
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org") ?? "public";
@@ -56,11 +70,12 @@ export async function GET(request: Request) {
     }
 
     const stamp = new Date().toISOString().slice(0, 10);
+    const fileOrg = safeFilenameSlug(org);
     if (format === "csv") {
       return new NextResponse(toCsv(summary), {
         headers: {
           "content-type": "text/csv; charset=utf-8",
-          "content-disposition": `attachment; filename="ascent-usage-${org}-${stamp}.csv"`,
+          "content-disposition": `attachment; filename="ascent-usage-${fileOrg}-${stamp}.csv"`,
         },
       });
     }
@@ -68,7 +83,7 @@ export async function GET(request: Request) {
       return new NextResponse(JSON.stringify(summary, null, 2), {
         headers: {
           "content-type": "application/json; charset=utf-8",
-          "content-disposition": `attachment; filename="ascent-usage-${org}-${stamp}.json"`,
+          "content-disposition": `attachment; filename="ascent-usage-${fileOrg}-${stamp}.json"`,
         },
       });
     }
