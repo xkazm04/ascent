@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, setRepoSchedule } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
+import { requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,10 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  // Authorize: only an org member (or any caller on "public" / an auth-off deploy) may change a
+  // repo's autoscan cadence — otherwise anyone could schedule token-spending scans for any org.
+  const denied = await requireOrgAccess(body.org);
+  if (denied) return denied;
   try {
     await setRepoSchedule(body.org, body.fullName, body.schedule);
     return NextResponse.json({ ok: true, fullName: body.fullName, schedule: body.schedule });

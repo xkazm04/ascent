@@ -1,19 +1,32 @@
-// POST /api/org/import  { org, count?, repos?, mock?, watch?, schedule? }  — Server-Sent Events.
+// POST /api/org/import  { org, count?, repos?, mock?, watch?, schedule?, installationId? }  — Server-Sent Events.
 //
-// Token-based bulk scan of a PUBLIC org's (or user's) repositories — no GitHub App required.
-// Lists the org's most-recently-pushed public repos (or uses an explicit `repos` list),
-// scans each, persists under the `org` slug, and optionally marks them watched + scheduled.
+// Bulk scan of an org's (or user's) repositories, scanning each, persisting under the `org`
+// slug, and optionally marking them watched + scheduled.
 //
-// This powers two things:
+// This powers three things:
 //   1. The free-tier funnel: "scan a whole public org" without installing the App.
-//   2. Local demo/seeding (see scripts/seed-org.mjs and docs/ENTERPRISE.md §5).
+//   2. Onboarding of PRIVATE repos: when the caller passes an `installationId` (or the org
+//      has a stored installation), we mint a short-lived installation token so the scan can
+//      read private/org repos. The GitHub source needs a token for any private metadata/tree/
+//      contents — even a mock-LLM scan fetches the real snapshot — so without it a private
+//      repo would 404. Falls back to GITHUB_TOKEN for the public funnel, unchanged.
+//   3. Local demo/seeding (see scripts/seed-org.mjs and docs/ENTERPRISE.md §5).
 //
 // Needs DATABASE_URL. A GITHUB_TOKEN (env) is strongly recommended to avoid rate limits.
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { isDbConfigured, persistScanReport, setRepoSchedule, setRepoWatch } from "@/lib/db";
+import {
+  getInstallationIdForOwner,
+  isDbConfigured,
+  persistScanReport,
+  setRepoSchedule,
+  setRepoWatch,
+} from "@/lib/db";
+import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { listOrgRepos } from "@/lib/github/list";
+import { isAuthConfigured } from "@/lib/auth";
+import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +45,7 @@ export async function POST(request: Request) {
     mock?: boolean;
     watch?: boolean;
     schedule?: string;
+    installationId?: string;
   };
   const org = body.org?.trim().toLowerCase();
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
@@ -40,7 +54,30 @@ export async function POST(request: Request) {
   const mock = body.mock ?? true;
   const watch = body.watch ?? true;
   const schedule = body.schedule && SCHEDULES.has(body.schedule) ? body.schedule : "weekly";
-  const token = process.env.GITHUB_TOKEN || undefined;
+
+  // Mint an installation token (PRIVATE-repo access) ONLY for a caller who owns this org. Without
+  // this gate an anonymous request could pass any `installationId` (or rely on the org's stored
+  // install) to mint a token and read another tenant's PRIVATE repos. The public funnel is
+  // unaffected: an anonymous caller's ownsOrg is false, so no token is minted and only public repos
+  // resolve via the env GITHUB_TOKEN. Auth-off (local/demo) deployments keep the prior open behavior.
+  let token = process.env.GITHUB_TOKEN || undefined;
+  if (isAppConfigured()) {
+    const ownsOrg = !isAuthConfigured() || (await sessionOwnsOrg(org));
+    if (ownsOrg) {
+      // A caller-supplied installationId must belong to the session (when auth is on); otherwise
+      // fall back to the org's own stored installation.
+      const supplied = body.installationId?.trim();
+      let installationId: string | undefined;
+      if (supplied && (!isAuthConfigured() || (await sessionHasInstallation(supplied)))) {
+        installationId = supplied;
+      }
+      if (!installationId) installationId = (await getInstallationIdForOwner(org)) || undefined;
+      if (installationId) {
+        const appToken = await getInstallationToken(installationId).catch(() => undefined);
+        if (appToken) token = appToken;
+      }
+    }
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

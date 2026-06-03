@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, setRepoWatch } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
+import { requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,10 @@ export async function POST(request: Request) {
   if (!body.org || !body.fullName || !body.owner || !body.name) {
     return NextResponse.json({ error: "Missing org/owner/name/fullName." }, { status: 400 });
   }
+  // Authorize: only a member of the org (or any caller on the shared "public" org / an auth-off
+  // deploy) may change its watchlist. Without this, anyone could toggle watch flags for any org.
+  const denied = await requireOrgAccess(body.org);
+  if (denied) return denied;
   try {
     await setRepoWatch(
       body.org,

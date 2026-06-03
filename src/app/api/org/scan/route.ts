@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import { getInstallationIdForOwner, isDbConfigured, listWatchedRepos, persistScanReport } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
+import { requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,10 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { org?: string };
   const org = body.org;
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
+  // Authorize before minting the org's installation token: a non-member must not be able to trigger
+  // a bulk scan that reads the org's (possibly private) watched repos and spends its token budget.
+  const denied = await requireOrgAccess(org);
+  if (denied) return denied;
 
   const repos = await listWatchedRepos(org);
   const installationId = await getInstallationIdForOwner(org);
