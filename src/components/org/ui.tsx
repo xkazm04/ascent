@@ -13,16 +13,34 @@ export const DIMS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"];
 export const fmtHours = (h: number | null) =>
   h == null ? "—" : h < 48 ? `${Math.round(h)}h` : `${(h / 24).toFixed(1)}d`;
 
+/** Color a positive/negative/flat delta on the dark canvas (lime up · orange down · slate flat). */
+export const deltaHex = (d: number): string => (d > 0 ? "#84cc16" : d < 0 ? "#f97316" : "#94a3b8");
+
+/** "+8" / "-5" / "0" — signed delta for inline text. */
+export const signedDelta = (d: number): string => `${d > 0 ? "+" : ""}${d}`;
+
+/** "▲+8" / "▼-5" / "→0" — signed, arrowed delta badge. */
+export function fmtDelta(d: number): string {
+  const arrow = d > 0 ? "▲" : d < 0 ? "▼" : "→";
+  return `${arrow}${signedDelta(d)}`;
+}
+
 export function Tile({
   label,
   value,
   sub,
   color,
+  delta,
+  deltaLabel,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   color?: string;
+  /** Period-over-period change, rendered as an arrowed badge under the value. null/undefined hides it. */
+  delta?: number | null;
+  /** Suffix next to the delta, e.g. "vs 90d ago". */
+  deltaLabel?: string;
 }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
@@ -31,6 +49,12 @@ export function Tile({
         {value}
       </div>
       {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
+      {delta != null && (
+        <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[11px]">
+          <span style={{ color: deltaHex(delta) }}>{fmtDelta(delta)}</span>
+          {deltaLabel && <span className="text-slate-500">{deltaLabel}</span>}
+        </div>
+      )}
     </div>
   );
 }

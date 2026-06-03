@@ -19,6 +19,7 @@ import { BedrockProvider } from "@/lib/llm/bedrock";
 import { isAssessmentUsable } from "@/lib/llm/provider";
 import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { assembleReport } from "@/lib/scoring/engine";
+import { extractTeamOwnership } from "@/lib/github/codeowners";
 import type { Governance, PrStats, ScanReport } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
@@ -202,6 +203,9 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   report.prStats = prStats;
   report.governance = governance;
   report.commitActivity = await activityPromise;
+  // Team attribution from CODEOWNERS (the file is already in the snapshot — no extra GitHub call).
+  // Display + persist only; it doesn't move the score. Empty array = no CODEOWNERS teams found.
+  report.teams = extractTeamOwnership(snapshot.files);
 
   // Surface non-fatal reliability caveats so the score is interpreted in context.
   const warnings: string[] = [...detectorWarnings];

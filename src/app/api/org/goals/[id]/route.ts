@@ -19,7 +19,10 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const blocked = await gate();
   if (blocked) return blocked;
   const { id } = await ctx.params;
-  const body = (await request.json().catch(() => ({}))) as { status?: string; target?: number; label?: string };
+  const body = (await request.json().catch(() => ({}))) as { status?: string; target?: number; label?: string; targetDate?: string | null };
+  if (body.targetDate != null && Number.isNaN(Date.parse(body.targetDate))) {
+    return NextResponse.json({ error: "targetDate must be an ISO date (YYYY-MM-DD)." }, { status: 400 });
+  }
   try {
     await updateGoal(id, body);
     return NextResponse.json({ ok: true });

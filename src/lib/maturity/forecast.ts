@@ -181,6 +181,96 @@ function etaToNextLevel(current: number, perDay: number, lastT: number): LevelEt
   };
 }
 
+// ── Goal pacing ──────────────────────────────────────────────────────────────
+// Where the level-band ETA above asks "when do we cross the next maturity band", a *goal* asks
+// "when do we reach this specific target, and is that before the deadline". Same OLS slope, a
+// target line instead of a band boundary, and a verdict against an (optional) target date.
+
+/** Read of a goal's pace against its target (and deadline, if any). */
+export type GoalPace = "reached" | "on-pace" | "behind" | "tracking";
+
+/** A projection of a single goal: its trend slope, the ETA to the target, and the pace verdict. */
+export interface GoalProjection {
+  pace: GoalPace;
+  /** Current weekly rate of change of the metric (0 when there's no fittable trend). */
+  perWeek: number;
+  trajectory: Trajectory;
+  /** R² of the underlying fit, 0..1 — how trustworthy the slope is. */
+  fitQuality: number;
+  /** Whole days from now until the metric reaches the target at the current slope, or null. */
+  etaDays: number | null;
+  /** Absolute ISO date (YYYY-MM-DD) of the projected target crossing, or null. */
+  etaDate: string | null;
+  /** Weekly gain required to reach the target by the deadline, or null (no deadline / past due / reached). */
+  requiredPerWeek: number | null;
+  /** Whole days from now to the deadline (negative if past), or null when no deadline is set. */
+  daysToDeadline: number | null;
+}
+
+/** A goal's ETA is fantasy beyond this — flatter than "reaches target in ~3 years" reads as "behind". */
+const GOAL_ETA_CAP_DAYS = 1095;
+
+/**
+ * Project a goal forward: fit the metric's trend, extend it from `current` to the `target` line,
+ * and judge the pace against `targetDate`. Pure and deterministic — `nowMs` is injected (the
+ * present), never read, so this stays unit-testable like the rest of this module.
+ *
+ * Verdict: `reached` once current ≥ target; otherwise, with a deadline, `on-pace` when the
+ * projected crossing lands on/before it and `behind` when it lands after (or the trend is flat/
+ * falling, so the target is never reached at this pace). With no deadline — or not enough trend to
+ * fit a slope yet — the verdict is the neutral `tracking` (the ETA still shows when one exists).
+ */
+export function projectGoal(opts: {
+  series: SeriesPoint[];
+  current: number;
+  target: number;
+  targetDate: string | null;
+  nowMs: number;
+}): GoalProjection {
+  const { series, current, target, targetDate, nowMs } = opts;
+  const fit = forecastTrajectory(series); // null when there's < 2 distinct days to fit
+  const perDay = fit?.perDay ?? 0;
+
+  const deadlineMs = targetDate ? Date.parse(targetDate) : NaN;
+  const hasDeadline = Number.isFinite(deadlineMs);
+  const daysToDeadline = hasDeadline ? Math.round((deadlineMs - nowMs) / DAY_MS) : null;
+
+  // Days/date to reach the target at the current (rising) slope.
+  let etaDays: number | null = null;
+  let etaDate: string | null = null;
+  if (current < target && perDay > 0) {
+    const d = Math.round((target - current) / perDay);
+    if (Number.isFinite(d) && d >= 0 && d <= GOAL_ETA_CAP_DAYS) {
+      etaDays = d;
+      etaDate = new Date(nowMs + d * DAY_MS).toISOString().slice(0, 10);
+    }
+  }
+
+  // Weekly gain still needed to make the deadline (only meaningful while there's time left).
+  let requiredPerWeek: number | null = null;
+  if (hasDeadline && current < target) {
+    const daysLeft = (deadlineMs - nowMs) / DAY_MS;
+    if (daysLeft > 0) requiredPerWeek = round1(((target - current) / daysLeft) * 7);
+  }
+
+  let pace: GoalPace;
+  if (current >= target) pace = "reached";
+  else if (!hasDeadline || !fit) pace = "tracking";
+  else if (etaDate && Date.parse(etaDate) <= deadlineMs) pace = "on-pace";
+  else pace = "behind";
+
+  return {
+    pace,
+    perWeek: fit?.perWeek ?? 0,
+    trajectory: fit?.trajectory ?? "flat",
+    fitQuality: fit?.fitQuality ?? 0,
+    etaDays,
+    etaDate,
+    requiredPerWeek,
+    daysToDeadline,
+  };
+}
+
 /** Coarse, friendly duration for a forecast horizon ("~3 days", "~8 weeks", "~5 months"). */
 export function humanizeDays(days: number): string {
   if (days <= 1) return "~1 day";

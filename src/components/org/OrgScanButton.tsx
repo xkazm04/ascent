@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { readSSE } from "@/lib/sse";
 
 interface Progress {
   running: boolean;
@@ -9,20 +10,6 @@ interface Progress {
   total: number;
   current: string;
   error?: string;
-}
-
-function parseSSE(block: string): { event: string | null; data: Record<string, unknown> | null } {
-  let event: string | null = null;
-  let dataStr = "";
-  for (const line of block.split("\n")) {
-    if (line.startsWith("event:")) event = line.slice(6).trim();
-    else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
-  }
-  try {
-    return { event, data: dataStr ? JSON.parse(dataStr) : null };
-  } catch {
-    return { event, data: null };
-  }
 }
 
 export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount: number }) {
@@ -42,24 +29,12 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
         setP((s) => ({ ...s, running: false, error: d?.error ?? `Failed (${res.status}).` }));
         return;
       }
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buf.indexOf("\n\n")) >= 0) {
-          const block = buf.slice(0, nl);
-          buf = buf.slice(nl + 2);
-          const { event, data } = parseSSE(block);
-          if (!data) continue;
-          if (event === "progress")
-            setP((s) => ({ ...s, done: Number(data.index) || s.done, total: Number(data.total) || s.total, current: String(data.repo ?? "") }));
-          else if (event === "error") setP((s) => ({ ...s, running: false, error: String(data.error) }));
-        }
-      }
+      await readSSE(res.body, ({ event, data }) => {
+        if (!data) return;
+        if (event === "progress")
+          setP((s) => ({ ...s, done: Number(data.index) || s.done, total: Number(data.total) || s.total, current: String(data.repo ?? "") }));
+        else if (event === "error") setP((s) => ({ ...s, running: false, error: String(data.error) }));
+      });
       setP((s) => ({ ...s, running: false, current: "" }));
       router.refresh();
     } catch {

@@ -1,5 +1,6 @@
+import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { Meter, SectionEmpty, SectionHeader, Tile } from "@/components/org/ui";
-import { getContributorInsights } from "@/lib/db";
+import { getContributorInsights, listSegments } from "@/lib/db";
 import { scoreHex, timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -13,19 +14,44 @@ function AiBar({ pct }: { pct: number }) {
   );
 }
 
-export default async function ContributorInsightsPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ContributorInsightsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { slug } = await params;
-  const insights = await getContributorInsights(slug);
+  const sp = await searchParams;
+
+  // Optional segment scope, validated against the org's segments (bogus id → whole fleet).
+  const segments = (await listSegments(slug)) ?? [];
+  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
+  const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
+
+  const insights = await getContributorInsights(slug, segmentId);
   if (!insights || insights.totalContributors === 0) {
-    return <SectionEmpty>No contributor data yet — scan some of this org&apos;s repositories (contributor data is captured at scan time).</SectionEmpty>;
+    return (
+      <div>
+        {segments.length > 0 && (
+          <div className="mb-4 flex justify-end">
+            <SegmentSelector segments={segments} active={segmentId} />
+          </div>
+        )}
+        <SectionEmpty>No contributor data {segmentId ? "for this segment" : "yet"} — scan some of this org&apos;s repositories (contributor data is captured at scan time).</SectionEmpty>
+      </div>
+    );
   }
 
   return (
     <div>
-      <p className="max-w-3xl text-sm text-slate-400">
-        Inputs to explore where trust in AI could grow across the team — who&apos;s leaning in, whose approach others could
-        learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-3xl text-sm text-slate-400">
+          Inputs to explore where trust in AI could grow across the team — who&apos;s leaning in, whose approach others could
+          learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
+        </p>
+        {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+      </div>
 
         {/* Summary tiles */}
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -169,8 +195,9 @@ export default async function ContributorInsightsPage({ params }: { params: Prom
           The aim is to surface where trust could grow — people decide what to pick up.
         </p>
         <p className="mt-4 font-mono text-[11px] text-slate-600">
-          Metrics reflect the recent-activity commit window captured at scan time. Per-person trend over time,
-          “who introduced CLAUDE.md/evals”, and GitHub Teams rollups are still on the roadmap.
+          Metrics reflect the recent-activity commit window captured at scan time. For team-level rollups, see the{" "}
+          <span className="text-slate-500">Teams</span> tab (CODEOWNERS attribution). Per-person trend over time,
+          “who introduced CLAUDE.md/evals”, and GitHub Teams (GraphQL) attribution are still on the roadmap.
         </p>
       </div>
   );

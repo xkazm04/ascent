@@ -56,7 +56,57 @@ describe("encodeSession", () => {
   });
 });
 
+describe("session version + refresh horizon", () => {
+  it("decodeSession honors the legacy long-lived `exp` when there is no `rexp`", () => {
+    // Cookies minted before this feature carry only `exp` (the old 7-day expiry) and no
+    // `rexp`/`sv`; they must keep working until that `exp` passes.
+    const valid = encodeSession({ login: "octocat", installations: [], exp: Date.now() + 60_000 } as Session);
+    expect(decodeSession(valid)?.login).toBe("octocat");
+    const expired = encodeSession({ login: "octocat", installations: [], exp: Date.now() - 1_000 } as Session);
+    expect(decodeSession(expired)).toBeNull();
+  });
+
+  it("decodeSession accepts a spent access token still within the refresh horizon", () => {
+    // The short access `exp` only gates silent refresh — past it, the session is still valid
+    // (and decodable) up to `rexp`, so getSessionState can re-mint it.
+    const token = encodeSession({
+      login: "octocat",
+      installations: [],
+      exp: Date.now() - 1_000,
+      rexp: Date.now() + 60_000,
+      sv: 2,
+    });
+    const decoded = decodeSession(token);
+    expect(decoded?.login).toBe("octocat");
+    expect(decoded?.sv).toBe(2);
+  });
+
+  it("decodeSession rejects a token past its refresh horizon", () => {
+    const token = encodeSession({
+      login: "octocat",
+      installations: [],
+      exp: Date.now() - 2_000,
+      rexp: Date.now() - 1_000,
+      sv: 0,
+    });
+    expect(decodeSession(token)).toBeNull();
+  });
+});
+
 describe("buildSession", () => {
+  it("stamps the session version and a short access window inside the refresh horizon", () => {
+    const before = Date.now();
+    const session = buildSession({ login: "octocat" }, makeInstallations(2), 5);
+    expect(session.sv).toBe(5);
+    expect(session.exp).toBeGreaterThan(before);
+    // The access window (`exp`) is shorter than the inactivity horizon (`rexp`).
+    expect(session.rexp ?? 0).toBeGreaterThan(session.exp);
+  });
+
+  it("defaults the session version to 0 when none is supplied", () => {
+    expect(buildSession({ login: "octocat" }, makeInstallations(1)).sv).toBe(0);
+  });
+
   it("keeps every installation when the payload fits", () => {
     const installs = makeInstallations(5);
     const session = buildSession({ login: "octocat" }, installs);
@@ -77,5 +127,36 @@ describe("buildSession", () => {
     const value = encodeSession(session);
     expect(value.length).toBeLessThan(BROWSER_COOKIE_LIMIT);
     expect(warn).toHaveBeenCalledOnce();
+  });
+});
+
+describe("buildSession — discovered orgs", () => {
+  it("embeds suggested orgs + the seeded org and round-trips them", () => {
+    const session = buildSession({ login: "octocat" }, makeInstallations(2), 3, {
+      suggestedOrgs: ["acme", "beta"],
+      seededOrg: "acme",
+    });
+    expect(session.suggestedOrgs).toEqual(["acme", "beta"]);
+    expect(session.seededOrg).toBe("acme");
+    expect(decodeSession(encodeSession(session))).toEqual(session);
+  });
+
+  it("omits the discovery fields entirely when nothing was discovered (legacy shape)", () => {
+    const session = buildSession({ login: "octocat" }, makeInstallations(2));
+    expect(session.suggestedOrgs).toBeUndefined();
+    expect(session.seededOrg).toBeUndefined();
+  });
+
+  it("sheds discovered orgs before trimming access-granting installations", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Installations alone overflow the budget, so the lower-priority discovery fields can't survive.
+    const session = buildSession({ login: "power-user" }, makeInstallations(500), 0, {
+      suggestedOrgs: ["a", "b", "c"],
+      seededOrg: "a",
+    });
+    expect(session.suggestedOrgs).toBeUndefined();
+    expect(session.seededOrg).toBeUndefined();
+    expect(session.installations.length).toBeGreaterThan(0);
+    expect(encodeSession(session).length).toBeLessThan(BROWSER_COOKIE_LIMIT);
   });
 });

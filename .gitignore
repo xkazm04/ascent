@@ -52,6 +52,8 @@ next-env.d.ts
 # local Claude Code state (project agents/commands/skills ARE committed)
 .claude/settings.local.json
 .claude/logs/
+# git worktrees live here (linked checkouts) — local state, never commit the checkout
+.claude/worktrees/
 
 # stray local artifacts (accidental path-mangled dumps, IDE specs)
 /Userskazdakiroverify_ideas.json

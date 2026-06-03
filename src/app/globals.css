@@ -184,6 +184,89 @@ body {
   box-shadow: 0 0 24px -8px rgba(59, 158, 255, 0.35);
 }
 
+/* ── Fleet Command: the live transformation war-room (/org/[slug]/live) ────────
+   A big-screen operations wall — headline tiles count up, the leaderboard
+   reshuffles, the posture mix morphs, and AI-Native crossings burst in. */
+
+/* The "LIVE" heartbeat dot. */
+@keyframes ascent-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.72);
+  }
+}
+.live-dot {
+  animation: ascent-live-pulse 1.6s ease-in-out infinite;
+}
+
+/* Freshly-landed ticker rows slide in from the lead edge. */
+@keyframes ascent-pop-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-pop-in {
+  animation: ascent-pop-in 0.35s ease-out both;
+}
+
+/* A row briefly flares accent the moment its score updates. */
+@keyframes ascent-flash {
+  from {
+    background-color: rgba(59, 158, 255, 0.22);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.animate-flash {
+  animation: ascent-flash 1.2s ease-out;
+}
+
+/* Celebratory burst card when a repo crosses into AI-Native. */
+@keyframes ascent-burst-in {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.82);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(0) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-burst {
+  animation: ascent-burst-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Radiating ring behind a burst — starts invisible so it stays hidden when motion is off. */
+@keyframes ascent-burst-ring {
+  from {
+    opacity: 0.5;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+.burst-ring {
+  opacity: 0;
+  animation: ascent-burst-ring 0.9s ease-out forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-up {
     animation: none;
@@ -199,6 +282,13 @@ body {
   }
   .launch-star,
   .launch-glow {
+    animation: none;
+  }
+  .live-dot,
+  .animate-pop-in,
+  .animate-flash,
+  .animate-burst,
+  .burst-ring {
     animation: none;
   }
 }

@@ -4,6 +4,8 @@
 // the two-axis posture (Adoption × Rigor).
 
 import type {
+  ContributionBreakdown,
+  DimensionContribution,
   DimensionId,
   DimensionResult,
   DimensionSignals,
@@ -216,6 +218,51 @@ export function cheapestPathToNextLevel(report: ScanReport): LevelPath {
     steps,
     projected,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Glass-box attribution — decompose the headline into per-dimension contributions.
+// ---------------------------------------------------------------------------
+
+/**
+ * Decompose the overall headline into each dimension's signed marginal point contribution — the
+ * first step toward a fully auditable "why this score" view.
+ *
+ * The headline is a renormalized, archetype-weighted *mean* of the per-dimension scores (see
+ * {@link overallScoreFor}), i.e. it is linear in those scores. For a linear model a feature's
+ * Shapley value collapses to its single weighted term, so a dimension's contribution is just
+ * `points = (weight / Σweight) * score`. Those points sum to the (unrounded) overall, so a
+ * waterfall stacking them lands exactly on the headline — the score is the sum of visible parts,
+ * not a black box.
+ *
+ * `signed` re-centers each contribution on the headline (`weight/Σweight * (score - overall)`),
+ * summing to ~0, so the UI can read which dimensions pull the overall *up* (positive) vs *drag*
+ * it down (negative) relative to the repo's own weighted mean.
+ *
+ * Weights are the report's already lens-adjusted dimension weights, renormalized over just the
+ * dimensions present — the same defensive renormalization the engine uses — so a dropped or
+ * partial dimension can't make the parts disagree with the headline.
+ */
+export function contributions(report: ScanReport): ContributionBreakdown {
+  const dims = report.dimensions;
+  const wsum = dims.reduce((acc, d) => acc + d.weight, 0);
+  const overall = report.overallScore;
+
+  const out: DimensionContribution[] = dims.map((d) => {
+    const normalizedWeight = wsum > 0 ? d.weight / wsum : 0;
+    return {
+      dimension: d.id,
+      name: d.name,
+      score: d.score,
+      weight: d.weight,
+      normalizedWeight,
+      points: normalizedWeight * d.score,
+      signed: normalizedWeight * (d.score - overall),
+    };
+  });
+
+  const total = out.reduce((acc, c) => acc + c.points, 0);
+  return { overallScore: overall, total, dimensions: out };
 }
 
 // ---------------------------------------------------------------------------

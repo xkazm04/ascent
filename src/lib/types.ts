@@ -13,6 +13,11 @@ export type RecStatus = "open" | "in_progress" | "done" | "dismissed";
 
 export const REC_STATUSES: RecStatus[] = ["open", "in_progress", "done", "dismissed"];
 
+/** What a RecommendationEvent records: a status change, a (re)assignment, or a due-date change. */
+export type RecEventKind = "status" | "assignee" | "target_date";
+
+export const REC_EVENT_KINDS: RecEventKind[] = ["status", "assignee", "target_date"];
+
 /** A roadmap recommendation that has been persisted (has an id + trackable status). */
 export interface PersistedRecommendation {
   id: string;
@@ -25,6 +30,26 @@ export interface PersistedRecommendation {
   explore: string[];
   levelUnlock?: string;
   status: RecStatus;
+  /** GitHub login accountable for closing this gap (the backlog owner), or null when unassigned. */
+  assigneeLogin: string | null;
+  /** Due date the gap is paced against, as an ISO date (YYYY-MM-DD), or null when open-ended. */
+  targetDate: string | null;
+}
+
+/** One entry in a recommendation's activity timeline — who changed what, from → to, when. */
+export interface RecEvent {
+  id: string;
+  /** GitHub login who made the change, or null for a system/anonymous change. */
+  actor: string | null;
+  kind: RecEventKind;
+  /** Prior value (status id, login, or ISO date), or null when first set. */
+  from: string | null;
+  /** New value, or null when cleared. */
+  to: string | null;
+  /** Optional free-text note attached to the change. */
+  note: string | null;
+  /** When the change happened (ISO timestamp). */
+  at: string;
 }
 
 export interface MaturityLevel {
@@ -96,6 +121,18 @@ export interface Contributor {
   commits: number;
   aiCommits: number;
   lastActiveAt?: string;
+}
+
+/**
+ * A team that owns part of a repo, parsed from its CODEOWNERS file at scan time. The unit behind
+ * the org's team-level rollups (Adoption×Rigor, gaps, movers, AI-knowledge per team). `slug` is the
+ * normalized `@org/team` code-owner mention (lowercased); individual `@user` owners and email
+ * owners are not teams and are excluded.
+ */
+export interface TeamOwnership {
+  slug: string; // normalized "@org/team" (lowercased)
+  ownedPaths: number; // number of CODEOWNERS rules that name this team
+  isDefaultOwner: boolean; // the team owns the "*" catch-all rule (the repo's primary owner)
 }
 
 export interface RepoSnapshot {
@@ -262,6 +299,11 @@ export interface ScanReport {
   aiUsage: AiUsage;
   /** Recent contributors with AI-attribution (from the sampled commit history). */
   contributors: Contributor[];
+  /** Teams that own part of this repo, parsed from CODEOWNERS at scan time. Empty when the repo
+   *  has no CODEOWNERS file (or it names no `@org/team` owners). Drives the org team rollups.
+   *  Undefined only on reconstructed snapshots that never ran ingestion (so persistence leaves any
+   *  existing team attribution untouched rather than wiping it). */
+  teams?: TeamOwnership[];
   /** Pull-request process signals (GraphQL). Null/absent when no token was available. */
   prStats?: PrStats | null;
   /** Default-branch governance (branch protection / rulesets). Null when no token. */
@@ -316,6 +358,44 @@ export interface LevelPath {
   target: { level: LevelId; name: string; score: number } | null;
   steps: LevelPathStep[];
   projected: ScoreProjection;
+}
+
+// ---------------------------------------------------------------------------
+// Glass-box score attribution — decompose the headline into per-dimension parts
+// ---------------------------------------------------------------------------
+
+/** One dimension's marginal contribution to the overall headline score. */
+export interface DimensionContribution {
+  dimension: DimensionId;
+  name: string;
+  /** The dimension's blended 0..100 score. */
+  score: number;
+  /** The dimension's lens-adjusted weight as stored on the report (may not sum to 1 across dims). */
+  weight: number;
+  /** Weight renormalized over the dimensions present (0..1; sums to 1 across the breakdown). */
+  normalizedWeight: number;
+  /**
+   * Marginal points this dimension adds to the headline: `normalizedWeight * score`. Summed
+   * across all dimensions, these reconstruct the overall score — so a waterfall stacking them
+   * lands exactly on the headline.
+   */
+  points: number;
+  /**
+   * Signed deviation from the headline: `normalizedWeight * (score - overall)`. Positive means
+   * the dimension lifts the overall above its weighted mean; negative means it drags it down.
+   * Sums to ~0 across the breakdown.
+   */
+  signed: number;
+}
+
+/** The full decomposition of a report's overall score into per-dimension contributions. */
+export interface ContributionBreakdown {
+  /** The report's rounded overall headline score. */
+  overallScore: number;
+  /** Exact (unrounded) sum of `points` — rounds to `overallScore` for an internally consistent report. */
+  total: number;
+  /** Per-dimension contributions, in the report's dimension order. */
+  dimensions: DimensionContribution[];
 }
 
 export interface ScanError {

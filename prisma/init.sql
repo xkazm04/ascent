@@ -82,6 +82,43 @@ CREATE TABLE "RepoContributor" (
 );
 
 -- CreateTable
+-- Team attribution parsed from a repo's CODEOWNERS at scan time; backs getOrgTeamRollup.
+CREATE TABLE "RepoTeam" (
+    "id" TEXT NOT NULL,
+    "repoId" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "ownedPaths" INTEGER NOT NULL DEFAULT 0,
+    "isDefaultOwner" BOOLEAN NOT NULL DEFAULT false,
+    "source" TEXT NOT NULL DEFAULT 'codeowners',
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RepoTeam_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+-- A user-defined slice of the fleet (a named tag grouping repos); backs the org segment filter.
+CREATE TABLE "Segment" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "color" TEXT NOT NULL DEFAULT '#3b9eff',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Segment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+-- Membership of a repo in a segment (the tag join, many-to-many).
+CREATE TABLE "RepoSegment" (
+    "id" TEXT NOT NULL,
+    "segmentId" TEXT NOT NULL,
+    "repoId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RepoSegment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Scan" (
     "id" TEXT NOT NULL,
     "repoId" TEXT NOT NULL,
@@ -138,9 +175,29 @@ CREATE TABLE "Recommendation" (
     "explore" TEXT NOT NULL DEFAULT '[]',
     "levelUnlock" TEXT,
     "status" TEXT NOT NULL DEFAULT 'open',
+    -- Ownership + planning layer (backs the org-wide backlog view); both carry forward across
+    -- re-scans (matched by dimId+title). null = unassigned / no deadline.
+    "assigneeLogin" TEXT,
+    "targetDate" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Recommendation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+-- Append-only activity timeline for a recommendation (status / assignee / due-date changes), with
+-- the actor, the from→to values, and an optional note — what makes the backlog trustworthy.
+CREATE TABLE "RecommendationEvent" (
+    "id" TEXT NOT NULL,
+    "recommendationId" TEXT NOT NULL,
+    "actor" TEXT,
+    "kind" TEXT NOT NULL DEFAULT 'status',
+    "fromValue" TEXT,
+    "toValue" TEXT,
+    "note" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RecommendationEvent_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -164,6 +221,17 @@ CREATE TABLE "Subscription" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Subscription_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+-- Per-login session version backing server-side session revocation (see src/lib/auth.ts);
+-- bumping the version invalidates every outstanding cookie for that login immediately.
+CREATE TABLE "SessionRevocation" (
+    "login" TEXT NOT NULL,
+    "version" INTEGER NOT NULL DEFAULT 0,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SessionRevocation_pkey" PRIMARY KEY ("login")
 );
 
 -- CreateIndex
@@ -200,6 +268,27 @@ CREATE INDEX "RepoContributor_repoId_idx" ON "RepoContributor"("repoId");
 CREATE UNIQUE INDEX "RepoContributor_repoId_login_key" ON "RepoContributor"("repoId", "login");
 
 -- CreateIndex
+CREATE INDEX "RepoTeam_repoId_idx" ON "RepoTeam"("repoId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RepoTeam_repoId_slug_key" ON "RepoTeam"("repoId", "slug");
+
+-- CreateIndex
+CREATE INDEX "Segment_orgId_idx" ON "Segment"("orgId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Segment_orgId_name_key" ON "Segment"("orgId", "name");
+
+-- CreateIndex
+CREATE INDEX "RepoSegment_segmentId_idx" ON "RepoSegment"("segmentId");
+
+-- CreateIndex
+CREATE INDEX "RepoSegment_repoId_idx" ON "RepoSegment"("repoId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RepoSegment_segmentId_repoId_key" ON "RepoSegment"("segmentId", "repoId");
+
+-- CreateIndex
 CREATE INDEX "Scan_repoId_idx" ON "Scan"("repoId");
 
 -- CreateIndex
@@ -219,6 +308,16 @@ CREATE INDEX "Recommendation_scanId_idx" ON "Recommendation"("scanId");
 CREATE INDEX "Recommendation_status_idx" ON "Recommendation"("status");
 
 -- CreateIndex
+-- Powers the by-owner grouping of the org-wide backlog (getOrgBacklog).
+CREATE INDEX "Recommendation_assigneeLogin_idx" ON "Recommendation"("assigneeLogin");
+
+-- CreateIndex
+CREATE INDEX "RecommendationEvent_recommendationId_idx" ON "RecommendationEvent"("recommendationId");
+
+-- CreateIndex
+CREATE INDEX "RecommendationEvent_createdAt_idx" ON "RecommendationEvent"("createdAt");
+
+-- CreateIndex
 CREATE INDEX "AuditLog_orgId_idx" ON "AuditLog"("orgId");
 
 -- CreateIndex
@@ -230,3 +329,13 @@ CREATE INDEX "AuditLog_orgId_at_idx" ON "AuditLog"("orgId", "at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Subscription_orgId_key" ON "Subscription"("orgId");
+
+-- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
+-- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
+-- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes
+-- concurrent scans collide on a retryable serialization conflict. See src/lib/db/scans.ts
+-- (ensureOrgId) and docs/ARCHITECTURE.md §3. The id is a fixed sentinel UUID (the column is TEXT;
+-- under relationMode="prisma" there are no DB-level FKs, so any stable value is fine).
+INSERT INTO "Organization" ("id", "slug", "name", "plan")
+VALUES ('00000000-0000-4000-8000-000000000001', 'public', 'Public Scans', 'free')
+ON CONFLICT ("slug") DO NOTHING;

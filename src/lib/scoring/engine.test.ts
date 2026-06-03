@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assembleReport, diffReports } from "./engine";
+import { assembleReport, contributions, diffReports } from "./engine";
 import { DIMENSIONS, LEVEL_BY_ID, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
 import { MockProvider } from "@/lib/llm/mock";
 import type { DimensionResult, DimensionSignals, LlmAssessment, RepoSnapshot, ScanReport } from "@/lib/types";
@@ -191,5 +191,71 @@ describe("overall roll-up parity — mock matches engine (#4)", () => {
     expect(report.level.id).toBe(levelForScore(expectedOverall).id);
     // The mock's headline announces the SAME level as the engine's badge (the divergence the fix removed).
     expect(report.headline).toContain(report.level.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// contributions — glass-box per-dimension attribution of the headline
+// ---------------------------------------------------------------------------
+
+describe("contributions — glass-box score attribution", () => {
+  it("decomposes the headline into per-dimension points that sum back to the overall", () => {
+    const dimensions = dims({
+      D1: { score: 90 },
+      D2: { score: 30 },
+      D5: { score: 70 },
+      D9: { score: 10 },
+    });
+    const overall = overallScoreFor(
+      dimensions.map((d) => ({ id: d.id, score: d.score })),
+      "org",
+    );
+    const report = mkReport({ overallScore: overall, level: levelForScore(overall).id, dimensions });
+
+    const { dimensions: parts, total } = contributions(report);
+
+    // One contribution per dimension, in report order.
+    expect(parts.map((p) => p.dimension)).toEqual(dimensions.map((d) => d.id));
+    // The parts reconstruct the headline — the auditability guarantee the waterfall relies on.
+    const sumPoints = parts.reduce((a, p) => a + p.points, 0);
+    expect(sumPoints).toBeCloseTo(total, 9);
+    expect(Math.round(total)).toBe(report.overallScore);
+    // Renormalized weights are a true distribution.
+    expect(parts.reduce((a, p) => a + p.normalizedWeight, 0)).toBeCloseTo(1, 9);
+  });
+
+  it("signs each contribution by whether the dimension beats the weighted mean (residual = rounding only)", () => {
+    const dimensions = dims({ D1: { score: 90 }, D2: { score: 20 } });
+    const overall = overallScoreFor(dimensions.map((d) => ({ id: d.id, score: d.score })), "org");
+    const report = mkReport({ overallScore: overall, level: levelForScore(overall).id, dimensions });
+
+    const { dimensions: parts, total } = contributions(report);
+
+    // Deviations from the headline sum to exactly (total − rounded overall) — i.e. only the
+    // sub-point rounding residual, never a structural imbalance.
+    const sumSigned = parts.reduce((a, p) => a + p.signed, 0);
+    expect(sumSigned).toBeCloseTo(total - report.overallScore, 9);
+    expect(Math.abs(sumSigned)).toBeLessThan(0.5);
+    // A dimension above the overall lifts it (positive); one below drags it (negative).
+    expect(parts.find((p) => p.dimension === "D1")!.signed).toBeGreaterThan(0);
+    expect(parts.find((p) => p.dimension === "D2")!.signed).toBeLessThan(0);
+  });
+
+  it("a dimension's points equal its renormalized weight times its score", () => {
+    const dimensions = dims({ D1: { score: 80 } });
+    const report = mkReport({ overallScore: 50, level: "L3", dimensions });
+    const { dimensions: parts } = contributions(report);
+    const d1 = parts.find((p) => p.dimension === "D1")!;
+    expect(d1.points).toBeCloseTo(d1.normalizedWeight * 80, 9);
+    expect(d1.weight).toBe(DIMENSIONS.find((d) => d.id === "D1")!.weight);
+  });
+
+  it("never divides by zero when no dimension carries weight", () => {
+    // Degenerate guard: a report whose dimensions all have zero weight yields zeroed parts, not NaN.
+    const zeroWeighted = dims().map((d) => ({ ...d, weight: 0 }));
+    const report = mkReport({ overallScore: 0, level: "L1", dimensions: zeroWeighted });
+    const { dimensions: parts, total } = contributions(report);
+    expect(total).toBe(0);
+    expect(parts.every((p) => p.normalizedWeight === 0 && p.points === 0 && p.signed === 0)).toBe(true);
   });
 });

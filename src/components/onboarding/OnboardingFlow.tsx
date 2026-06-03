@@ -16,7 +16,24 @@ interface OrgRepo {
   pushedAt: string | null;
 }
 
+/** A GitHub App installation the signed-in user can scan through (private repos included). */
+interface Installation {
+  login: string;
+  id: string;
+}
+
 type Phase = "pick" | "select" | "scanning" | "done";
+
+/** Rank repos for preselection: most-starred first, then most-recently-pushed. The recency
+ *  tie-break is what makes the installation path (private repos, usually 0 stars) preselect the
+ *  repos a user actually works in, while public listings still lead with their popular repos. */
+const byProminence = (a: OrgRepo, b: OrgRepo) =>
+  b.stars - a.stars || (b.pushedAt ?? "").localeCompare(a.pushedAt ?? "");
+
+// Cap the installation selector so a large org (hundreds/thousands of repos) yields a usable
+// list rather than an endless wall of buttons — mirrors the public listing's bound. The
+// most prominent repos surface first; the connect page offers full search over the rest.
+const MAX_LIST = 50;
 
 interface ScanRow {
   repo: string;
@@ -30,11 +47,27 @@ const MAX_SELECT = 10;
 // recoverable error instead of an indefinite "Scanning…" hang.
 const STALL_MS = 45_000;
 
-export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: boolean }) {
+export function OnboardingFlow({
+  hasInstallation = false,
+  installations = [],
+  suggestedOrgs = [],
+  seededOrg,
+}: {
+  hasInstallation?: boolean;
+  installations?: Installation[];
+  /** Orgs auto-discovered at login that aren't installed yet — one-click "scan this org" nudges. */
+  suggestedOrgs?: string[];
+  /** Most-active org whose watchlist was pre-seeded at login; surfaced as a "dashboard ready" CTA. */
+  seededOrg?: string;
+}) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("pick");
   const [org, setOrg] = useState("");
   const [sourceLabel, setSourceLabel] = useState("");
+  // The installation id behind the current source, when scanning through the GitHub App. It's
+  // threaded into the import POST so the server mints an installation token and can read private
+  // repos; null for the public-handle path (token-less / GITHUB_TOKEN listing).
+  const [sourceInstallId, setSourceInstallId] = useState<string | null>(null);
   const [repos, setRepos] = useState<OrgRepo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rows, setRows] = useState<Record<string, ScanRow>>({});
@@ -54,6 +87,7 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
     setLoading(true);
     setError(null);
     setRepos([]);
+    setSourceInstallId(null); // public-handle path — no installation token
     setPhase("select"); // switch first so skeleton rows show while GitHub responds
     try {
       const res = await fetch(`/api/org/repos?org=${encodeURIComponent(handle)}`);
@@ -62,9 +96,53 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
       const list = (data.repos ?? []) as OrgRepo[];
       if (list.length === 0) throw new Error("No public repositories found for that account.");
       setRepos(list);
-      const top = [...list].sort((a, b) => b.stars - a.stars).slice(0, MAX_SELECT);
+      const top = [...list].sort(byProminence).slice(0, MAX_SELECT);
       setSelected(new Set(top.map((r) => r.fullName)));
       setSourceLabel(handle);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setPhase("pick");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Org step for the GitHub App path: pull an installation's repos (private included) via
+  // /api/app/repos (which calls listInstallationRepos), then feed the SAME select+scan flow as
+  // the public listing. This is the bridge the connect page advertises — onboarding can finally
+  // reach a private repo, the highest-value activation moment.
+  async function loadInstallationRepos(login: string, id: string) {
+    setOrg(login);
+    setLoading(true);
+    setError(null);
+    setRepos([]);
+    setSourceInstallId(id);
+    setPhase("select");
+    try {
+      const qs = new URLSearchParams({ org: login, installation_id: id });
+      const res = await fetch(`/api/app/repos?${qs.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `Failed to list installation repos (${res.status}).`);
+      // The /api/app/repos rows carry extra fields (url, state); normalize to OrgRepo.
+      const list = ((data.repos ?? []) as Partial<OrgRepo>[])
+        .map((r) => ({
+          fullName: String(r.fullName),
+          owner: String(r.owner),
+          name: String(r.name),
+          private: Boolean(r.private),
+          language: r.language ?? null,
+          stars: r.stars ?? 0,
+          pushedAt: r.pushedAt ?? null,
+        }))
+        .sort(byProminence)
+        .slice(0, MAX_LIST);
+      if (list.length === 0) throw new Error("No repositories accessible to this installation.");
+      setRepos(list);
+      setSelected(new Set(list.slice(0, MAX_SELECT).map((r) => r.fullName)));
+      // Lowercase the source label: private scans persist under the lowercased owner slug, and
+      // the org dashboard resolves the slug exactly — so a mixed-case login (e.g. "Netflix")
+      // must be normalized here or the "View dashboard" link would 404.
+      setSourceLabel(login.toLowerCase());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setPhase("pick");
@@ -83,7 +161,7 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
   }
 
   function selectTop() {
-    const top = [...repos].sort((a, b) => b.stars - a.stars).slice(0, MAX_SELECT);
+    const top = [...repos].sort(byProminence).slice(0, MAX_SELECT);
     setSelected(new Set(top.map((r) => r.fullName)));
   }
 
@@ -123,6 +201,9 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
         body: JSON.stringify({
           org: sourceLabel,
           repos: picks.map((r) => r.fullName),
+          // Pass the installation id (when this source came from the GitHub App) so the server
+          // mints an installation token — required to read the private repos we just listed.
+          installationId: sourceInstallId ?? undefined,
           mock: true,
           watch: true,
           schedule: "weekly",
@@ -216,11 +297,19 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
     ];
   };
 
-  // ---- pick phase: enter an org/user handle --------------------------------
+  // ---- pick phase: choose an installed org (private repos) or enter a handle ----------
   if (phase === "pick") {
+    const hasShortcuts = installations.length > 0 || suggestedOrgs.length > 0;
     return (
       <Shell>
-        <div key="pick" className="animate-phase-in">
+        <div key="pick" className="animate-phase-in space-y-4">
+          {seededOrg && <SeededOrgBanner org={seededOrg} />}
+          {installations.length > 0 && (
+            <InstallationPicker installations={installations} onPick={loadInstallationRepos} loading={loading} />
+          )}
+          {suggestedOrgs.length > 0 && (
+            <SuggestedOrgs orgs={suggestedOrgs} onPick={(name) => loadRepos(undefined, name)} loading={loading} />
+          )}
           <PickForm
             org={org}
             setOrg={setOrg}
@@ -228,6 +317,7 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
             error={error}
             onSubmit={loadRepos}
             onPick={(name) => loadRepos(undefined, name)}
+            dimmed={hasShortcuts}
           />
         </div>
       </Shell>
@@ -243,7 +333,7 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
         <div key="select" className="animate-phase-in">
           <h1 className="text-2xl font-bold text-white">Choose repositories</h1>
           <p className="mt-1 text-slate-400">
-            Up to {MAX_SELECT}. We preselected the most-starred.
+            Up to {MAX_SELECT}. We preselected the {sourceInstallId ? "most recently active" : "most-starred"}.
             {sourceLabel && <> Source: {sourceLabel}</>}
           </p>
 
@@ -297,6 +387,11 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
                       {checked && "✓"}
                     </span>
                     <span className="flex-1 truncate font-mono text-sm text-white">{r.fullName}</span>
+                    {r.private && (
+                      <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-accent">
+                        private
+                      </span>
+                    )}
                     {capped && (
                       <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">limit reached</span>
                     )}
@@ -410,6 +505,7 @@ export function OnboardingFlow({ hasInstallation = false }: { hasInstallation?: 
                   setSelected(new Set());
                   setRows({});
                   setError(null);
+                  setSourceInstallId(null);
                 }}
                 className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm text-slate-300 hover:border-slate-600"
               >
@@ -463,6 +559,114 @@ function SelectSkeleton() {
   );
 }
 
+/**
+ * Lets a signed-in user kick off the org step from one of their GitHub App installations, so
+ * private/org repos are listed through the App (listInstallationRepos) rather than the
+ * public-only listing. Rendered above the public-handle form when the session carries
+ * installations.
+ */
+function InstallationPicker({
+  installations,
+  onPick,
+  loading,
+}: {
+  installations: Installation[];
+  onPick: (login: string, id: string) => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-accent/30 bg-accent/5 p-6">
+      <div className="font-mono text-[11px] uppercase tracking-widest text-accent">From your GitHub App</div>
+      <h2 className="mt-1 font-semibold text-white">Scan an installed organization</h2>
+      <p className="mt-1 text-sm text-slate-400">
+        These are connected through the Ascent GitHub App, so{" "}
+        <span className="text-slate-200">private repositories</span> are included.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {installations.map((inst) => (
+          <button
+            key={inst.id}
+            type="button"
+            disabled={loading}
+            onClick={() => onPick(inst.login, inst.id)}
+            className="focus-ring rounded-lg border border-accent/40 bg-slate-950/60 px-4 py-2.5 text-left transition hover:border-accent hover:bg-accent/10 disabled:opacity-50"
+          >
+            <span className="font-mono text-sm text-white">{inst.login}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Dashboard ready" CTA shown when login pre-seeded the watchlist for the user's most-active org.
+ * Turns the blank first visit into an immediate next step — open the populated rollup — without
+ * making the user pick and scan anything first.
+ */
+function SeededOrgBanner({ org }: { org: string }) {
+  return (
+    <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6">
+      <div className="font-mono text-[11px] uppercase tracking-widest text-emerald-300">Ready for you</div>
+      <h2 className="mt-1 font-semibold text-white">
+        We pre-loaded <span className="font-mono">{org}</span>&apos;s top repositories
+      </h2>
+      <p className="mt-1 text-sm text-slate-400">
+        Your most active organization is already on your watchlist. Open its dashboard to scan the
+        fleet and see the cross-repo rollup — or start a fresh scan below.
+      </p>
+      <a
+        href={`/org/${encodeURIComponent(org)}`}
+        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-[#04070e] transition hover:bg-emerald-400"
+      >
+        View {org} dashboard →
+      </a>
+    </div>
+  );
+}
+
+/**
+ * Orgs auto-discovered from the user's GitHub account (read:org) that aren't connected through the
+ * App yet. Each is a one-click shortcut into the same select+scan flow as the public-handle form,
+ * so a new user can act on an org they already belong to instead of typing a handle from scratch.
+ */
+function SuggestedOrgs({
+  orgs,
+  onPick,
+  loading,
+}: {
+  orgs: string[];
+  onPick: (name: string) => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+      <div className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+        Organizations you belong to
+      </div>
+      <h2 className="mt-1 font-semibold text-white">Scan one of your organizations</h2>
+      <p className="mt-1 text-sm text-slate-400">
+        Discovered from your GitHub account. Scanning lists each org&apos;s{" "}
+        <span className="text-slate-200">public repositories</span> — install the GitHub App to
+        include private ones.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {orgs.map((login) => (
+          <button
+            key={login}
+            type="button"
+            disabled={loading}
+            onClick={() => onPick(login)}
+            className="focus-ring rounded-lg border border-slate-700 bg-slate-950/60 px-4 py-2.5 text-left transition hover:border-accent hover:bg-accent/10 disabled:opacity-50"
+          >
+            <span className="font-mono text-sm text-white">{login}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PickForm({
   org,
   setOrg,
@@ -470,6 +674,7 @@ function PickForm({
   error,
   onSubmit,
   onPick,
+  dimmed = false,
 }: {
   org: string;
   setOrg: (v: string) => void;
@@ -477,11 +682,12 @@ function PickForm({
   error: string | null;
   onSubmit: (e: React.FormEvent) => void;
   onPick: (name: string) => void;
+  dimmed?: boolean;
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <label className="font-mono text-[11px] uppercase tracking-widest text-slate-500" htmlFor="onboarding-org">
-        GitHub organization or user
+        {dimmed ? "Or scan any public organization or user" : "GitHub organization or user"}
       </label>
       <form onSubmit={onSubmit} className="mt-2">
         <div className="flex gap-2">
@@ -490,7 +696,7 @@ function PickForm({
             value={org}
             onChange={(e) => setOrg(e.target.value)}
             placeholder="e.g. vercel or torvalds"
-            autoFocus
+            autoFocus={!dimmed}
             className="focus-ring flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white outline-none focus:border-accent"
           />
           <button

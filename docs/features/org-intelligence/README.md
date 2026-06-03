@@ -27,9 +27,12 @@ installation or `public`).
 | Overview | `org/[slug]/page.tsx` | Maturity score/level, adoption & rigor, repos scanned, **Trajectory**, goal + standing cards, gap analysis, posture distribution, dimension averages, trend, movers, highest-leverage fleet moves. |
 | Repositories | `org/[slug]/repositories/page.tsx` | Repo leaderboard (level/overall/adoption/rigor/posture/last scan) + repo × dimension heatmap. |
 | Contributors | `org/[slug]/contributors/page.tsx` | AI champions, involvement table, per-repo concentration / bus-factor. |
+| Segments | `org/[slug]/segments/page.tsx` | User-defined fleet slices (platform, mobile, legacy…) — per-segment maturity rollups plus a side-by-side segment-vs-segment comparison (headline metrics + per-dimension Δ). Tags are managed on the Repositories tab. |
+| Teams | `org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. |
 | Delivery | `org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity. |
 | Practices | `org/[slug]/practices/page.tsx` | The Practice Library — see [../practices.md](../practices.md). |
 | Plan | `org/[slug]/plan/page.tsx` | Goals, simulator, initiatives, detector backlog — see [plan.md](plan.md). |
+| Backlog | `org/[slug]/backlog/page.tsx` | The recommendation backlog — every open gap across the fleet with an owner + due date, grouped by owner and by due-date bucket; inline status/owner/due-date edits and a per-item activity history. |
 | Audit | `org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
 
 ## Dashboard rollups (`src/lib/db/org.ts`)
@@ -38,13 +41,16 @@ The Overview page composes several server queries, all scoped to the org:
 
 | Function | Produces |
 | --- | --- |
-| `getOrgRollup(slug)` | Latest scan per repo → fleet averages, posture distribution, dimension averages, daily trend, and a linear `Forecast`. |
-| `getOrgMovers(slug)` | Per-repo delta between the two most recent scans (gainers / regressions). |
-| `getOrgRecommendations(slug, limit)` | Open recs aggregated across latest scans, ranked by leverage `repoCount × impactWeight × (1 + dimWeight)`. |
+| `getOrgRollup(slug, window?, segmentId?)` | Latest scan per repo → fleet averages, posture distribution, dimension averages, daily trend, and a linear `Forecast`. With a `window` it also returns a `baseline` snapshot (latest scan per repo as of `window.start`) and per-metric `deltas` for period-over-period tile comparisons; the trend is bounded to the window. An optional `segmentId` scopes every figure to a [segment](#segments)'s tagged repos. |
+| `getOrgMovers(slug, window?, segmentId?)` | Per-repo delta over the window — latest scan vs the baseline scan at-or-before `window.start` (gainers / regressions). Without a window, falls back to the two most recent scans ("since last scan"). Optional `segmentId` scopes to a segment. |
+| `getOrgRecommendations(slug, limit, segmentId?)` | Open recs aggregated across latest scans, ranked by leverage `repoCount × impactWeight × (1 + dimWeight)`. Optional `segmentId` scopes to a segment. |
+| `getOrgBacklog(slug, segmentId?, now?)` | The recommendation **backlog**: actionable per-repo recs (open + in_progress) from the latest scans — carrying owner + due date — grouped by owner and by due-date bucket (overdue / this week / this month / later / no date), with overdue/due-soon/unassigned counts and the fleet's contributor logins for the assignee picker. Pure `dueBucketFor(date, now)` (unit-tested) does the bucketing. Backs the Backlog tab; mutations go through `updateRecommendation` (`src/lib/db/scans.ts`), which records a `RecommendationEvent` per change. |
 | `getOrgBenchmark(slug)` | The org's average-overall percentile vs every other org's repos (the corpus). |
-| `getOrgGapAnalysis(slug)` | Common org gaps (weak in ≥ 50% of repos) vs repo-specific outliers, each linked to a [practice](../practices.md). |
+| `getOrgGapAnalysis(slug, segmentId?)` | Common org gaps (weak in ≥ 50% of repos) vs repo-specific outliers, each linked to a [practice](../practices.md). Optional `segmentId` scopes to a segment. |
 | `getOrgPractices(slug)` | Per-dimension exemplars (score ≥ 70) and gap repos (< 40) for the Practice Library. |
-| `getContributorInsights(slug)` | Champions, involvement, concentration/bus-factor. |
+| `getContributorInsights(slug, segmentId?)` | Champions, involvement, concentration/bus-factor. Optional `segmentId` scopes to a segment. |
+| `compareSegments(slug, aId, bId?)` (`src/lib/db/segments.ts`) | Two segments side by side (B may be null = whole fleet): headline metric deltas + per-dimension Δ. Reuses `getOrgRollup`'s scoped averages; the pure diff is `buildSegmentComparison` (unit-tested). `listSegments` / `createSegment` / `setRepoSegment` / `getRepoSegmentMap` manage the `Segment` / `RepoSegment` tags. |
+| `getOrgTeamRollup(slug)` | Per-team rollup keyed by CODEOWNERS attribution (`RepoTeam`, captured at scan time): each team's Adoption×Rigor, per-dimension averages (strongest/weakest), merged human AI-commit knowledge + champions, and since-last-scan movers, across the repos it owns. Plus the org's AI-knowledge leader and the single highest-leverage strong→weak cross-team pairing. Pure aggregation lives in `rollupTeams` (unit-tested). |
 | `getOrgGovernance` / `getOrgActivity` / `getOrgPrSignals(slug)` | Delivery-tab aggregates. |
 | `getOrgDiscrepancies(slug)` | Aggregated LLM-auditor flags grouped by dimension (the calibration backlog). |
 
@@ -64,6 +70,9 @@ level, and an R² fit-quality confidence. Shared layout primitives (`Tile`, `Car
 | `/api/org/watch` | `POST` | Toggle a repo's `watched` flag (`setRepoWatch`). |
 | `/api/org/schedule` | `POST` | Set a repo's autoscan period off/daily/weekly/monthly (`setRepoSchedule`, computes `nextScanAt`). Drives the rescan [cron](../cron-and-retention.md). |
 | `/api/org/repos` | `GET` | List an org's public repos (onboarding picker). |
+| `/api/org/segments` | `GET` / `POST` | List an org's segments (with repo counts) / create one (`listSegments` / `createSegment`). |
+| `/api/org/segments/[id]` | `PATCH` / `DELETE` | Rename or recolor / delete a segment and its memberships (`updateSegment` / `deleteSegment`). |
+| `/api/org/segments/[id]/repos` | `POST` | Tag/untag a repo into a segment (`setRepoSegment`, org-scoped). |
 
 ## Audit log
 
@@ -79,15 +88,20 @@ Recorded actions include `scan.created`, `recommendation.status_changed`,
 
 | File | Role |
 | --- | --- |
-| `src/lib/db/org.ts` | All org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, governance, activity, PR signals, discrepancies). |
+| `src/lib/db/org.ts` | All org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies). Each fleet aggregate takes an optional `segmentId` to scope it. |
+| `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
+| `src/components/org/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter · Repositories-tab tag manager · A-vs-B comparison picker. |
+| `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |
 | `src/lib/maturity/forecast.ts` | Linear-fit projection + ETA to next level. |
 | `src/components/org/OrgNav.tsx` | Persistent tab bar. |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
 | `src/components/org/Trajectory.tsx` | Forecast "GPS" card. |
 | `src/components/org/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
 | `src/components/org/AuditLogViewer.tsx` | Audit trail viewer. |
+| `src/components/org/BacklogPanel.tsx` | Backlog tab client panel — owner/due-date grouping toggle, inline status/owner/due-date edits, per-item activity history. |
 | `src/components/org/ui.tsx` | Shared org-UI primitives. |
-| `src/app/api/org/*` | Active org, repos, import, scan, watch, schedule (+ goals/initiatives/simulate — see [plan.md](plan.md)). |
+| `src/app/api/org/*` | Active org, repos, import, scan, watch, schedule, segments, **backlog** (`GET ?org=` → `OrgBacklog`) (+ goals/initiatives/simulate — see [plan.md](plan.md)). |
+| `src/app/api/recommendations/[id]` | `PATCH` (status / `assigneeLogin` / `targetDate`, recording a `RecommendationEvent` attributed to the signed-in user) · `[id]/events` `GET` → the item's activity timeline. |
 | `src/app/api/audit/route.ts` | Audit query endpoint. |
 
 ## Known gaps
@@ -97,5 +111,8 @@ Recorded actions include `scan.created`, `recommendation.status_changed`,
 - **No regression notifications in the UI** — movers show on the dashboard; push/email
   alerts go through the webhook sink (see [../alerts.md](../alerts.md)).
 - **Org trend is overall-only** — per-dimension org trends over time aren't surfaced yet.
+- **Team attribution is CODEOWNERS-only** — `getOrgTeamRollup` keys off each repo's CODEOWNERS
+  (`@org/team` owners, parsed at scan time). Repos with no CODEOWNERS team show as "unowned"; the
+  GitHub Teams API (GraphQL) as a fallback attribution source is still on the roadmap.
 - **No org invites / multi-user roles enforced** — `User`/`Membership` models exist but
   aren't wired to a permission flow.

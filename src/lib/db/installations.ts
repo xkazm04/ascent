@@ -4,6 +4,7 @@
 
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { bumpSessionVersion } from "@/lib/db/sessions";
 
 export async function upsertInstallation(opts: {
   login: string;
@@ -44,7 +45,7 @@ export async function removeInstallation(installationId: number | string): Promi
   // their autoscans in the same pass.
   const orgs = await prisma.organization.findMany({
     where: { githubInstallId: installId },
-    select: { id: true },
+    select: { id: true, slug: true },
   });
 
   // Once the App is uninstalled/suspended we can no longer mint installation tokens for these
@@ -62,6 +63,20 @@ export async function removeInstallation(installationId: number | string): Promi
     where: { githubInstallId: installId },
     data: { githubInstallId: null },
   });
+
+  // Reflect the access change in live sessions: bump the session version for each affected
+  // login so a still-valid cookie is revoked on its next resolve rather than lingering until
+  // its TTL. The org slug is the owner login (lowercased) — for a personal-account
+  // installation that is the user's own login, so their session is revoked and re-syncs with
+  // the App now gone; for an org account no session carries that login, so the bump is a
+  // harmless no-op row. Best-effort; never block the uninstall on it.
+  for (const o of orgs) {
+    try {
+      await bumpSessionVersion(o.slug);
+    } catch {
+      /* best-effort */
+    }
+  }
 }
 
 /** Resolve a repo owner (login) to its stored installation id, if any. */

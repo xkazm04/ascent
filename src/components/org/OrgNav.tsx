@@ -9,11 +9,15 @@ export function OrgNav({ slug }: { slug: string }) {
   const base = `/org/${slug}`;
   const tabs = [
     { href: base, label: "Overview" },
+    { href: `${base}/live`, label: "Live" },
     { href: `${base}/repositories`, label: "Repositories" },
+    { href: `${base}/segments`, label: "Segments" },
     { href: `${base}/contributors`, label: "Contributors" },
+    { href: `${base}/teams`, label: "Teams" },
     { href: `${base}/delivery`, label: "Delivery" },
     { href: `${base}/practices`, label: "Practices" },
     { href: `${base}/plan`, label: "Plan" },
+    { href: `${base}/backlog`, label: "Backlog" },
     { href: `${base}/audit`, label: "Audit" },
   ];
   return (

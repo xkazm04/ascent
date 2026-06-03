@@ -11,9 +11,16 @@ export const dynamic = "force-dynamic";
 
 export default async function OnboardingPage() {
   // Seed the activation checklist from a real signal: does the session have a GitHub App
-  // installation? (Safely false when auth/App isn't configured.)
+  // installation? (Safely false when auth/App isn't configured.) Pass the installations
+  // themselves down so the org step can pull private repos through the App, not just the
+  // public listing.
   const session = await getSession();
-  const hasInstallation = (session?.installations.length ?? 0) > 0;
+  const installations = (session?.installations ?? []).map((i) => ({ login: i.login, id: String(i.id) }));
+  const hasInstallation = installations.length > 0;
+  // Orgs auto-discovered at login (read:org): not-yet-installed orgs to suggest scanning, and the
+  // most-active org whose watchlist we pre-seeded so its dashboard already has data to explore.
+  const suggestedOrgs = session?.suggestedOrgs ?? [];
+  const seededOrg = session?.seededOrg;
 
   return (
     <>
@@ -29,7 +36,12 @@ export default async function OnboardingPage() {
             reuse a practice) from the <span className="text-slate-200">repo-specific</span> ones.
           </p>
         </div>
-        <OnboardingFlow hasInstallation={hasInstallation} />
+        <OnboardingFlow
+          hasInstallation={hasInstallation}
+          installations={installations}
+          suggestedOrgs={suggestedOrgs}
+          seededOrg={seededOrg}
+        />
       </main>
       <SiteFooter />
     </>

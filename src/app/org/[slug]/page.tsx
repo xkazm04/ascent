@@ -1,22 +1,27 @@
 import Link from "next/link";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { Trajectory } from "@/components/org/Trajectory";
+import { GoalsOverview } from "@/components/org/GoalsOverview";
+import { PeriodSummary } from "@/components/org/PeriodSummary";
+import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
+import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { Card, Meter, SectionHeader, Tile, POSTURE_LABEL, POSTURE_ORDER } from "@/components/org/ui";
-import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup } from "@/lib/db";
-import { levelForScore, POSTURE_THRESHOLD } from "@/lib/maturity/model";
+import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
+import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, IMPACT_CLASS, scoreHex } from "@/lib/ui";
+import { resolveWindow } from "@/lib/window";
 import type { RepoMove } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-function MoversList({ title, tone, moves }: { title: string; tone: "up" | "down"; moves: RepoMove[] }) {
+function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "up" | "down"; moves: RepoMove[]; emptyText: string }) {
   const color = tone === "up" ? "#84cc16" : "#f97316";
   const arrow = tone === "up" ? "▲" : "▼";
   return (
     <Card>
       <SectionHeader size="sm" title={title} />
       {moves.length === 0 ? (
-        <p className="mt-3 text-xs text-slate-500">None since last scan.</p>
+        <p className="mt-3 text-xs text-slate-500">{emptyText}</p>
       ) : (
         <div className="mt-3 space-y-2">
           {moves.map((m) => (
@@ -40,66 +45,101 @@ function MoversList({ title, tone, moves }: { title: string; tone: "up" | "down"
   );
 }
 
-export default async function OrgOverview({ params }: { params: Promise<{ slug: string }> }) {
+export default async function OrgOverview({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { slug } = await params;
-  const rollup = await getOrgRollup(slug);
+  const sp = await searchParams;
+  const period = resolveWindow(sp);
+  const win = { start: period.start, end: period.end };
+
+  // Optional segment scope: validate the `?segment=` id against the org's segments (a bogus id
+  // falls back to the whole fleet) so every aggregate below is scoped to the same tagged repos.
+  const segments = (await listSegments(slug)) ?? [];
+  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
+  const activeSegment = segments.find((s) => s.id === segParam) ?? null;
+  const segmentId = activeSegment?.id ?? null;
+
+  const rollup = await getOrgRollup(slug, win, segmentId);
   if (!rollup) return null;
 
   const level = levelForScore(rollup.avgOverall);
   const trend: TrendPoint[] = rollup.trend.map((t) => ({ score: t.avg, at: t.date }));
   const maxPosture = Math.max(1, ...POSTURE_ORDER.map((p) => rollup.postureCounts[p] ?? 0));
-  const movers = await getOrgMovers(slug);
-  const orgRecs = await getOrgRecommendations(slug, 5);
+  const movers = await getOrgMovers(slug, win, segmentId);
+  const orgRecs = await getOrgRecommendations(slug, 5, segmentId);
   const benchmark = await getOrgBenchmark(slug);
-  const gaps = await getOrgGapAnalysis(slug);
-  const adoptGap = Math.max(0, POSTURE_THRESHOLD - rollup.avgAdoption);
-  const rigorGap = Math.max(0, POSTURE_THRESHOLD - rollup.avgRigor);
+  const gaps = await getOrgGapAnalysis(slug, segmentId);
+  const goals = await listGoals(slug);
   const regressionCount = movers?.regressers.length ?? 0;
+  const moversEmpty = period.start ? "None this period." : "None since last scan.";
 
   return (
     <div className="space-y-6">
+      {/* Period + segment controls — drive the tiles' deltas, the trend, and the movers below */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+          Showing · {period.title}
+          {activeSegment && (
+            <>
+              {" · "}
+              <span className="text-accent">{activeSegment.name}</span> segment
+            </>
+          )}
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentSelector segments={segments} active={segmentId} />
+          <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
+        </div>
+      </div>
+      {segments.length > 0 && (
+        <div className="-mt-3">
+          <Link href={`/org/${slug}/segments`} className="font-mono text-[11px] text-slate-500 hover:text-accent">
+            Compare segments side by side →
+          </Link>
+        </div>
+      )}
+
+      {/* Period-in-review banner — auto-summary of net fleet movement over the window */}
+      <PeriodSummary window={period} rollup={rollup} movers={movers} />
+
       {/* Tiles */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile label="Org maturity" value={rollup.avgOverall} sub={`${level.id} · ${level.name}`} color={scoreHex(rollup.avgOverall)} />
-        <Tile label="AI Adoption" value={rollup.avgAdoption} color={scoreHex(rollup.avgAdoption)} />
-        <Tile label="Engineering Rigor" value={rollup.avgRigor} color={scoreHex(rollup.avgRigor)} />
+        <Tile
+          label="Org maturity"
+          value={rollup.avgOverall}
+          sub={`${level.id} · ${level.name}`}
+          color={scoreHex(rollup.avgOverall)}
+          delta={rollup.deltas?.overall}
+          deltaLabel={period.comparisonLabel}
+        />
+        <Tile
+          label="AI Adoption"
+          value={rollup.avgAdoption}
+          color={scoreHex(rollup.avgAdoption)}
+          delta={rollup.deltas?.adoption}
+          deltaLabel={period.comparisonLabel}
+        />
+        <Tile
+          label="Engineering Rigor"
+          value={rollup.avgRigor}
+          color={scoreHex(rollup.avgRigor)}
+          delta={rollup.deltas?.rigor}
+          deltaLabel={period.comparisonLabel}
+        />
         <Tile label="Repos scanned" value={`${rollup.scannedCount}/${rollup.repoCount}`} />
       </div>
 
       {/* Trajectory — forward-looking GPS over the maturity trend */}
       {rollup.forecast && <Trajectory forecast={rollup.forecast} />}
 
-      {/* Goal & standing */}
+      {/* Goals & standing */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <SectionHeader
-            size="sm"
-            title="Goal · reach AI-Native"
-            right={
-              adoptGap === 0 && rigorGap === 0 ? (
-                <span className="rounded-full border border-lime-500/40 bg-lime-500/10 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-lime-300">reached</span>
-              ) : (
-                <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">target {POSTURE_THRESHOLD}+ each axis</span>
-              )
-            }
-          />
-          <div className="mt-4 space-y-3">
-            {[
-              { label: "AI Adoption", val: rollup.avgAdoption, gap: adoptGap },
-              { label: "Engineering Rigor", val: rollup.avgRigor, gap: rigorGap },
-            ].map((a) => (
-              <div key={a.label}>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-300">{a.label}</span>
-                  <span className="font-mono text-slate-400">
-                    {a.val} {a.gap === 0 ? "✓" : `· +${a.gap} to go`}
-                  </span>
-                </div>
-                <Meter className="mt-1" value={a.val} color={scoreHex(a.val)} threshold={POSTURE_THRESHOLD} />
-              </div>
-            ))}
-          </div>
-        </Card>
+        <GoalsOverview slug={slug} goals={goals ?? []} />
 
         <Card>
           <SectionHeader size="sm" title="Standing" />
@@ -125,7 +165,7 @@ export default async function OrgOverview({ params }: { params: Promise<{ slug: 
             <div className="flex items-center gap-2 pt-1">
               {regressionCount > 0 ? (
                 <span className="rounded-full border border-orange-500/40 bg-orange-500/10 px-2.5 py-1 font-mono text-[11px] text-orange-300">
-                  ⚠ {regressionCount} repo{regressionCount > 1 ? "s" : ""} regressed since last scan
+                  ⚠ {regressionCount} repo{regressionCount > 1 ? "s" : ""} regressed {period.start ? "this period" : "since last scan"}
                 </span>
               ) : (
                 <span className="rounded-full border border-slate-700 px-2.5 py-1 font-mono text-[11px] text-slate-400">no regressions</span>
@@ -237,7 +277,7 @@ export default async function OrgOverview({ params }: { params: Promise<{ slug: 
       {/* Trend */}
       {trend.length >= 1 && (
         <Card>
-          <SectionHeader size="sm" title="Org maturity over time" />
+          <SectionHeader size="sm" title="Org maturity over time" right={<span className="font-mono text-[11px] text-slate-500">{period.title}</span>} />
           <div className="mt-3">
             <TrendChart points={trend} />
           </div>
@@ -247,8 +287,8 @@ export default async function OrgOverview({ params }: { params: Promise<{ slug: 
       {/* Movers & regressions */}
       {movers && movers.comparedRepos > 0 && (movers.gainers.length > 0 || movers.regressers.length > 0) && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <MoversList title="Top gainers" tone="up" moves={movers.gainers.slice(0, 5)} />
-          <MoversList title="Regressions" tone="down" moves={movers.regressers.slice(0, 5)} />
+          <MoversList title="Top gainers" tone="up" moves={movers.gainers.slice(0, 5)} emptyText={moversEmpty} />
+          <MoversList title="Regressions" tone="down" moves={movers.regressers.slice(0, 5)} emptyText={moversEmpty} />
         </div>
       )}
 

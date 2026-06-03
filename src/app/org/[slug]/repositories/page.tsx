@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DIMS, POSTURE_LABEL, SectionHeader } from "@/components/org/ui";
-import { getOrgRollup } from "@/lib/db";
+import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
+import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
 import { DIMENSION_SHORT, LEVEL_CLASSES, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
@@ -13,8 +14,20 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
 
   const leaderboard = [...rollup.repos].sort((a, b) => (b.latest?.overall ?? -1) - (a.latest?.overall ?? -1));
 
+  // Segment tagging surface: existing segments + which segments each repo is tagged into.
+  const segments = (await listSegments(slug)) ?? [];
+  const segmentMap = await getRepoSegmentMap(slug);
+  const membership: Record<string, string[]> = {};
+  for (const r of rollup.repos) membership[r.fullName] = (segmentMap[r.fullName] ?? []).map((s) => s.id);
+
   return (
     <div className="space-y-6">
+      <RepoSegmentsPanel
+        slug={slug}
+        repos={rollup.repos.map((r) => ({ fullName: r.fullName, name: r.name }))}
+        segments={segments}
+        membership={membership}
+      />
       {/* Leaderboard */}
       <div>
         <SectionHeader

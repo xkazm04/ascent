@@ -1,8 +1,9 @@
 // GET /api/org/repos?org=X&count=N  →  { org, repos: OrgRepoListItem[] }
 //
 // Lists an org's (or user's) most-recently-pushed public repositories, for the onboarding
-// selector. Token-based (GITHUB_TOKEN) — no GitHub App required. With the App configured, a
-// future enhancement can list a signed-in user's private installation repos here instead.
+// selector. Token-based (GITHUB_TOKEN) — no GitHub App required. Signed-in users with a GitHub
+// App installation get the private-repo path in onboarding via /api/app/repos (listInstallationRepos);
+// this endpoint stays the public, App-free listing for the free-tier funnel.
 
 import { NextResponse } from "next/server";
 import { listOrgRepos } from "@/lib/github/list";

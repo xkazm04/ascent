@@ -213,7 +213,23 @@ Migrations: DSQL now supports **Prisma, Flyway, and Tortoise**, so we'll use Pri
 ## 4. Deployment
 - **Frontend + API:** Vercel (Next.js 16, Turbopack). Preview deploys per PR.
 - **DB (Phase 2):** Aurora DSQL cluster; app connects with a Postgres driver using
-  short-lived IAM auth tokens; secrets in Vercel env / AWS Secrets Manager.
+  short-lived IAM auth tokens; secrets in Vercel env / AWS Secrets Manager. Because the
+  token's TTL is ~15 min, a client cached from one static `DATABASE_URL` would stop opening
+  connections minutes after deploy. `src/lib/db/client.ts` avoids that: when `DSQL_ENDPOINT`
+  is set it acts as a connection factory — it mints the IAM token (`@aws-sdk/dsql-signer`,
+  lazily imported so local/static builds never pull in the AWS SDK), **proactively refreshes**
+  the cached client from a fresh token before the TTL elapses, and **reactively reconnects** on
+  an auth-expiry error (`withDb()` retries once; `GET /api/health` → `dbHealthCheck()` pings and
+  self-heals). Local Postgres is the static single-client path, unchanged.
+  - **Serialization-conflict retry (OCC, rule #2 in §3):** DSQL is lock-free and resolves
+    concurrency at commit time, so any real concurrency (two users scanning at once, a cron rescan
+    batch) can lose with a retryable serialization error. `withRetry()` (also in `client.ts`) runs a
+    write and retries an `isSerializationConflictError` (SQLSTATE 40001/40P01, Prisma P2034, DSQL
+    OC###) with exponential backoff + full jitter; `persistScanReport` wraps every write in it. The
+    shared `public` org — which every anonymous scan would otherwise re-upsert, creating a single
+    hot row — is now seeded once (`prisma/init.sql`) and resolved through a cached `ensureOrgId`, so
+    it is no longer a contention point. Local Postgres almost never hits these, so the protection is
+    invisible in dev and essential in prod.
 - **Inference:** Gemini API (MVP); Bedrock via AWS SDK with an IAM role (enterprise).
 - **Scheduled re-scans:** Vercel Cron → `/api/cron/rescan` for tracked repos.
 - **Data-retention purge:** Vercel Cron → `/api/cron/purge` enforces the per-org retention

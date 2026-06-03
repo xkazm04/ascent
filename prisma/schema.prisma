@@ -41,6 +41,7 @@ model Organization {
   subscription  Subscription?
   goals         Goal[]
   initiatives   Initiative[]
+  segments      Segment[]
 }
 
 model User {
@@ -93,11 +94,49 @@ model Repository {
   org          Organization      @relation(fields: [orgId], references: [id])
   scans        Scan[]
   contributors RepoContributor[]
+  teams        RepoTeam[]
+  segments     RepoSegment[]
 
   @@unique([orgId, fullName])
   @@index([orgId])
   @@index([fullName])
   @@index([watched])
+}
+
+// A user-defined slice of the fleet — a named tag grouping repos (e.g. "platform", "mobile",
+// "legacy", "acquisitions"). Repos are tagged via RepoSegment (many-to-many), so a repo can belong
+// to several segments. Every org aggregate (getOrgRollup/Movers/GapAnalysis/Recommendations/
+// Contributors) accepts an optional segment filter that scopes it to the tagged repos, and two
+// segments can be compared side by side. Org-scoped and uniquely named within an org.
+// See src/lib/db/segments.ts.
+model Segment {
+  id        String   @id @default(uuid())
+  orgId     String
+  name      String
+  color     String   @default("#3b9eff") // accent hex for the chip
+  createdAt DateTime @default(now())
+
+  org   Organization  @relation(fields: [orgId], references: [id])
+  repos RepoSegment[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+// Membership of a repo in a segment — the tag join. Toggled per (segment, repo). Standalone under
+// relationMode="prisma" (no DB FKs); deleting a segment cascades its rows at the Prisma layer.
+model RepoSegment {
+  id        String   @id @default(uuid())
+  segmentId String
+  repoId    String
+  createdAt DateTime @default(now())
+
+  segment Segment    @relation(fields: [segmentId], references: [id])
+  repo    Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([segmentId, repoId])
+  @@index([segmentId])
+  @@index([repoId])
 }
 
 model RepoContributor {
@@ -113,6 +152,26 @@ model RepoContributor {
   repo Repository @relation(fields: [repoId], references: [id])
 
   @@unique([repoId, login])
+  @@index([repoId])
+}
+
+// A team that owns part of a repo, parsed from its CODEOWNERS file at scan time. The unit behind
+// the org's team-level rollups (getOrgTeamRollup): a repo is attributed to every team in its
+// CODEOWNERS, so Adoption×Rigor, gaps, movers, and AI-knowledge can aggregate per team. The latest
+// scan is authoritative — persistScanReport replaces a repo's full RepoTeam set each scan, so a
+// removed/renamed team can't linger. `slug` is the normalized "@org/team" mention (lowercased).
+model RepoTeam {
+  id             String   @id @default(uuid())
+  repoId         String
+  slug           String // normalized "@org/team" code-owner mention (lowercased)
+  ownedPaths     Int      @default(0) // # of CODEOWNERS rules that name this team
+  isDefaultOwner Boolean  @default(false) // owns the "*" catch-all rule (the repo's primary owner)
+  source         String   @default("codeowners") // codeowners | github_teams
+  updatedAt      DateTime @updatedAt
+
+  repo Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([repoId, slug])
   @@index([repoId])
 }
 
@@ -181,12 +240,42 @@ model Recommendation {
   explore     String   @default("[]") // JSON string[] — invitational questions to explore the gap
   levelUnlock String?
   status      String   @default("open") // open | in_progress | done | dismissed
+  // Ownership + planning layer that turns a scattered list of gaps into a trackable backlog
+  // (the assignee/due-date mechanics behind the org-wide backlog view — see getOrgBacklog).
+  // Both carry forward across re-scans (matched by dimId+title) so a re-scan doesn't drop who
+  // owns a gap or when it's due. null = unassigned / no deadline.
+  assigneeLogin String? // GitHub login accountable for closing this gap
+  targetDate    DateTime? // optional due date the backlog is paced against
   createdAt   DateTime @default(now())
 
-  scan Scan @relation(fields: [scanId], references: [id])
+  scan   Scan                  @relation(fields: [scanId], references: [id])
+  events RecommendationEvent[]
 
   @@index([scanId])
   @@index([status])
+  @@index([assigneeLogin])
+}
+
+// Append-only activity timeline for a recommendation — one row per status change, (re)assignment,
+// or due-date change, capturing who did it (actor), what changed (kind, from → to), and an optional
+// note. This is what makes the backlog trustworthy for planning the way Linear/Jira are: a complete,
+// ordered audit of how a gap moved from open to done and who owned it along the way. Written in the
+// same transaction as the mutation that caused it (see updateRecommendation). Standalone under
+// relationMode = "prisma" (no DB FKs); always queried by recommendationId.
+model RecommendationEvent {
+  id               String   @id @default(uuid())
+  recommendationId String
+  actor            String? // GitHub login who made the change (null = system / anonymous)
+  kind             String   @default("status") // status | assignee | target_date
+  fromValue        String? // prior value (status id, login, or ISO date) — null when first set
+  toValue          String? // new value — null when cleared
+  note             String? // optional free-text note attached to the change
+  createdAt        DateTime @default(now())
+
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id])
+
+  @@index([recommendationId])
+  @@index([createdAt])
 }
 
 model AuditLog {
@@ -217,15 +306,18 @@ model Subscription {
 
 // A maturity target an org is steering toward — the management layer over the trend/forecast.
 // `metric` is "overall" | "adoption" | "rigor" | a dimension id ("D1".."D9"); progress is derived
-// from the fleet's latest scans at read time (no stored snapshot to drift). See src/lib/db/plan.ts.
+// from the fleet's latest scans at read time (no stored snapshot to drift). `targetDate` is the
+// optional deadline the goal is paced against — the trend slope projects an ETA that's compared to
+// it to read "on pace / behind / reached". See src/lib/db/plan.ts.
 model Goal {
-  id        String   @id @default(uuid())
-  orgId     String
-  label     String
-  metric    String   @default("overall")
-  target    Int      @default(50)
-  status    String   @default("active") // active | achieved | archived
-  createdAt DateTime @default(now())
+  id         String    @id @default(uuid())
+  orgId      String
+  label      String
+  metric     String    @default("overall")
+  target     Int       @default(50)
+  targetDate DateTime? // optional deadline the goal is paced against (null = open-ended)
+  status     String    @default("active") // active | achieved | archived
+  createdAt  DateTime  @default(now())
 
   org Organization @relation(fields: [orgId], references: [id])
 
@@ -250,4 +342,19 @@ model Initiative {
 
   @@index([orgId])
   @@index([status])
+}
+
+// Server-side session revocation. The signed session cookie embeds the `sv` (session
+// version) it was minted at; getSessionState re-checks it against this row on every
+// resolve and rejects the cookie once the stored version is higher. Bumping the version —
+// on logout, or when an installation the login owns is removed — invalidates every
+// outstanding token for that login immediately, instead of waiting out the cookie TTL
+// (the gap that made "logout" only delete the local cookie). Keyed by the GitHub login
+// (lowercased), the same identity carried in the session. No row == version 0, so a
+// never-revoked user costs nothing to store. Standalone (no FKs under relationMode =
+// "prisma"); always read/written by its primary key. See src/lib/db/sessions.ts.
+model SessionRevocation {
+  login     String   @id // GitHub login, lowercased — matches Session.login
+  version   Int      @default(0)
+  updatedAt DateTime @updatedAt
 }
