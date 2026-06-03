@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { EmptyState } from "@/components/EmptyState";
 import { SignInNotice } from "@/components/SignInNotice";
 import { UsageTrend } from "@/components/usage/UsageTrend";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
@@ -21,14 +21,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Notice({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Shell>
-      <div className="flex flex-col items-center py-24 text-center">
-        <div className="text-4xl">📊</div>
-        <h1 className="mt-4 text-2xl font-bold text-white">{title}</h1>
-        <p className="mt-2 max-w-md text-slate-400">{children}</p>
-        <Link href="/" className="mt-6 rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 hover:border-accent hover:text-white">
-          ← Home
-        </Link>
-      </div>
+      <EmptyState icon="📊" title={title} body={children} actions={[{ label: "← Home", href: "/" }]} />
     </Shell>
   );
 }
@@ -124,7 +117,7 @@ export default async function UsagePage({
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
             </h2>
             <div className="mt-3 space-y-2 text-sm">
-              <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="#64748b" />
+              <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="#64748b" pattern />
               <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="#3b9eff" />
             </div>
           </div>
@@ -154,7 +147,19 @@ export default async function UsagePage({
   );
 }
 
-function Bar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
+function Bar({
+  label,
+  value,
+  total,
+  color,
+  pattern,
+}: {
+  label: string;
+  value: number;
+  total: number;
+  color: string;
+  pattern?: boolean;
+}) {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
     <div>
@@ -165,7 +170,18 @@ function Bar({ label, value, total, color }: { label: string; value: number; tot
         </span>
       </div>
       <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-800">
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${pct}%`,
+            backgroundColor: color,
+            // Redundant (non-color) encoding so the public/free vs private/billable split stays
+            // legible without relying on hue alone (CVD): the free series is stippled.
+            backgroundImage: pattern
+              ? "repeating-linear-gradient(45deg, rgba(255,255,255,0.3) 0 3px, transparent 3px 6px)"
+              : undefined,
+          }}
+        />
       </div>
     </div>
   );

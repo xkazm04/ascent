@@ -6,20 +6,13 @@
 
 import { scoreHex } from "@/lib/ui";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
+import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
 
 export interface TrendPoint {
   score: number;
   at: string; // ISO
   engine?: string; // provider that produced this scan, when known (omitted for org rollups)
 }
-
-const BANDS = [
-  { min: 85, color: "rgba(34,197,94,0.10)" }, // L5
-  { min: 65, color: "rgba(132,204,22,0.08)" }, // L4
-  { min: 45, color: "rgba(234,179,8,0.07)" }, // L3
-  { min: 25, color: "rgba(249,115,22,0.06)" }, // L2
-  { min: 0, color: "rgba(239,68,68,0.05)" }, // L1
-];
 
 /** Tiny inline trend line for a single dimension's score history (0..100 scale). */
 export function Sparkline({
@@ -31,9 +24,8 @@ export function Sparkline({
   width?: number;
   height?: number;
 }) {
-  const x = (i: number) =>
-    points.length === 1 ? width / 2 : (width * i) / (points.length - 1);
-  const y = (v: number) => height - 3 - ((height - 6) * v) / 100;
+  const x = xScale(points.length, 0, width);
+  const y = vScale(height, 3, 3);
   const hover = useChartHover(points.map((_, i) => x(i)), width);
 
   if (points.length === 0) return null;
@@ -100,12 +92,18 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
   const innerW = W - m.left - m.right;
   const innerH = H - m.top - m.bottom;
 
-  const yFor = (score: number) => m.top + innerH * (1 - score / 100);
-  const xFor = (i: number) =>
-    points.length === 1 ? m.left + innerW / 2 : m.left + (innerW * i) / (points.length - 1);
+  const yFor = vScale(H, m.top, m.bottom);
+  const xFor = xScale(points.length, m.left, innerW);
 
   const hover = useChartHover(points.map((_, i) => xFor(i)), W);
   const a = hover.active;
+
+  // Thin the x-axis date labels so interior dates don't vanish (the old rule showed only first +
+  // last past 6 points) and don't collide at 60 scans: aim for ~7 evenly-spaced labels, always
+  // keeping the first and last.
+  const labelStep = Math.max(1, Math.ceil(points.length / 7));
+  const showDateLabel = (i: number) =>
+    i === 0 || i === points.length - 1 || (i % labelStep === 0 && i < points.length - 1);
 
   const linePath = points
     .map((p, i) => `${i === 0 ? "M" : "L"}${xFor(i).toFixed(1)},${yFor(p.score).toFixed(1)}`)
@@ -123,15 +121,15 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         onPointerLeave={hover.onPointerLeave}
       >
         {/* level bands */}
-        {BANDS.map((b, i) => {
-          const top = yFor(i === 0 ? 100 : BANDS[i - 1].min);
+        {LEVEL_BANDS.map((b, i) => {
+          const top = yFor(i === 0 ? 100 : LEVEL_BANDS[i - 1].min);
           const bottom = yFor(b.min);
           return (
             <rect key={b.min} x={m.left} y={top} width={innerW} height={Math.max(0, bottom - top)} fill={b.color} />
           );
         })}
         {/* y gridlines / labels at band edges */}
-        {[0, 25, 45, 65, 85, 100].map((v) => (
+        {BAND_EDGES.map((v) => (
           <g key={v}>
             <line x1={m.left} x2={m.left + innerW} y1={yFor(v)} y2={yFor(v)} stroke="#1e293b" strokeWidth={1} />
             <text x={m.left - 6} y={yFor(v) + 3} textAnchor="end" fontSize={9} className="fill-slate-600">
@@ -148,7 +146,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         {points.map((p, i) => (
           <g key={i}>
             <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke="#020617" strokeWidth={1.5} />
-            {(i === 0 || i === points.length - 1 || points.length <= 6) && (
+            {showDateLabel(i) && (
               <text x={xFor(i)} y={H - 8} textAnchor="middle" fontSize={9} className="fill-slate-500">
                 {shortDate(p.at)}
               </text>
@@ -159,18 +157,25 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         {a !== null && (
           <circle cx={xFor(a)} cy={yFor(points[a].score)} r={6.5} fill="none" stroke={scoreHex(points[a].score)} strokeWidth={2} />
         )}
-        {/* last value label */}
-        {points.length > 0 && (
-          <text
-            x={xFor(points.length - 1) + 8}
-            y={yFor(points[points.length - 1].score) + 3}
-            fontSize={12}
-            fontWeight={700}
-            fill={scoreHex(points[points.length - 1].score)}
-          >
-            {points[points.length - 1].score}
-          </text>
-        )}
+        {/* last value label — anchored to the right edge when it would otherwise spill past the
+            viewBox (the last point sits at the right of the plot), so it never clips */}
+        {points.length > 0 &&
+          (() => {
+            const lastX = xFor(points.length - 1);
+            const atEdge = lastX + 8 + 24 > W;
+            return (
+              <text
+                x={atEdge ? W - 2 : lastX + 8}
+                y={yFor(points[points.length - 1].score) + 3}
+                textAnchor={atEdge ? "end" : "start"}
+                fontSize={12}
+                fontWeight={700}
+                fill={scoreHex(points[points.length - 1].score)}
+              >
+                {points[points.length - 1].score}
+              </text>
+            );
+          })()}
         {/* transparent capture layer so pointer moves register across the whole plot */}
         <rect x={0} y={0} width={W} height={H} fill="transparent" />
       </svg>

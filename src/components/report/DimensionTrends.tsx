@@ -6,9 +6,10 @@
 
 import { useState } from "react";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { scoreHex } from "@/lib/ui";
+import { scoreGlyph, scoreHex } from "@/lib/ui";
 import type { HistoryPoint, RepositoryHistory } from "@/lib/db/scans";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
+import { vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
 
 /** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips). */
@@ -26,8 +27,8 @@ interface ScanMeta {
 function DimLine({ values, meta }: { values: (number | null)[]; meta: ScanMeta[] }) {
   const W = 320;
   const H = 90;
-  const x = (i: number) => (values.length < 2 ? W / 2 : (W * i) / (values.length - 1));
-  const y = (v: number) => H - 8 - ((H - 16) * v) / 100;
+  const x = xScale(values.length, 0, W);
+  const y = vScale(H, 8, 8);
 
   // Only the present points are hoverable — gaps have no value to show.
   const present = values
@@ -219,6 +220,13 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                         className="font-mono text-xl font-bold tabular-nums"
                         style={{ color: r.current !== undefined ? scoreHex(r.current) : "#475569" }}
                       >
+                        {/* Redundant (non-color) cue so the score's level reads without relying on
+                            hue alone (CVD) — mirrors the report's treatment. */}
+                        {r.current !== undefined && (
+                          <span aria-hidden className="mr-1 align-middle text-xs">
+                            {scoreGlyph(r.current)}
+                          </span>
+                        )}
                         {r.current ?? "—"}
                       </div>
                       {r.delta !== null && r.delta !== 0 && (
