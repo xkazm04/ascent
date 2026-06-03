@@ -25,6 +25,14 @@
   fresh non-deduped write, so a `fresh=1` re-test of an unchanged commit isn't shadowed by the prior report.
 - **2026-06-03** — `GET /api/scan?peek=1` is a **cache-only** probe (returns cached/persisted report or 204, never
   scans); the `/report?repo=` client peeks it before opening the SSE stream so an unchanged head hydrates instantly.
+- **2026-06-03** — **No Next middleware exists** (none at root / `src/middleware.ts`; `src/app/api/middleware.ts`
+  does NOT exist and would not run as middleware anyway). Auth is enforced **per-handler** — see `src/lib/authz.ts`.
+- **2026-06-03** — Config gates: `isAuthConfigured` = `GITHUB_OAUTH_CLIENT_ID`+`_SECRET`+`AUTH_SECRET`;
+  `isAppConfigured` = `GITHUB_APP_ID`+`GITHUB_APP_PRIVATE_KEY`; `isDbConfigured` = `DATABASE_URL`. `verifyWebhook` =
+  `sha256=`+HMAC-SHA256(rawBody, `GITHUB_APP_WEBHOOK_SECRET`), timing-safe.
+- **2026-06-03** — Authorization model (mirrors `readableOrgForOwner`): auth-off deploys are open (local/demo); the
+  shared `public` org is open (the free funnel); a real org requires a session whose `installations` include it.
+  `/api/org/import` is a **deliberately anonymous public funnel** — gate only its token-minting (private) path.
 
 ## Conventions enforced
 - **2026-06-02** — One canonical cache key everywhere via `makeCacheKey` (cache.ts); every reader/writer
@@ -37,6 +45,8 @@
   `BAND_EDGES`); TrendChart, Sparkline, DimLine route through it — don't re-inline the 0..100 y-scale per chart.
 - **2026-06-03** — Centered empty/notice states go through `components/EmptyState.tsx` (icon, title, body,
   actions[]); don't hand-roll the markup (the report/trends/usage variants had drifted on tokens + icon size).
+- **2026-06-03** — Every mutating / token-minting `/api/org/*` (and `/api/app/*`) handler MUST call
+  `requireOrgAccess(org)` from `src/lib/authz.ts` at the top — there is no middleware to fall back on.
 
 ## Anti-patterns to avoid
 - **2026-06-02** — `clamp(Math.round(Number(x))) || 0` silently turns a missing/NaN value into a real 0.
@@ -49,6 +59,13 @@
   a neutral result without poisoning on transient/5xx (badge route).
 - **2026-06-03** — Building a day-bucketed chart axis from a LOCAL `new Date()` while keying buckets by UTC date
   drops near-midnight-UTC rows into the idx-miss gap. Anchor axis + window to the same UTC-day floor (usage.ts).
+- **2026-06-03** — Deriving a cookie's `Secure` flag from `NODE_ENV` diverges from the origin/proto the request
+  actually used (TLS-terminating deploy with `NODE_ENV` unset → cookie set without Secure). Derive from the request.
+- **2026-06-03** — Interpolating caller-supplied input into an outbound URL with no charset validation is SSRF /
+  path-injection (`../`, `@`, `%2f` rewrite path/host). Validate against the expected grammar before building the URL.
+- **2026-06-03** — A verified webhook signature proves authenticity, NOT freshness/ownership: trusting
+  `payload.installation`/`repository` verbatim invites replay + confused-deputy. Dedupe the delivery id and
+  cross-check the installation against the stored owner mapping before minting a token.
 
 ## Open follow-ups (from Pipeline C scan-and-decide, 2026-06-02)
 - **Degraded-mock persistence**: the `#2` fix only skips the in-memory `cacheSet`. When `DATABASE_URL`
@@ -73,3 +90,16 @@
 - **`scans.ts` commit hygiene**: the B4/B5/D3 commit (`2f15b37`) bundles substantial pre-existing working-tree
   WIP in `scans.ts` (~600 lines that predate this run), per an explicit user decision. If you bisect, that
   commit is not a clean single-concern change. (Still open.)
+
+## Open follow-ups (from Pipeline C security_protector, 2026-06-03 — "Identity & GitHub Connectivity" group)
+- **Comprehensive authz sweep of the remaining `/api/org/*` mutating endpoints**: this run gated only `watch`,
+  `schedule`, `scan`, and `import` (token path). `goals`, `initiatives`, `segments`, `simulate`, `backlog`,
+  `active` were NOT audited/gated — apply `requireOrgAccess` (or a Next root middleware) across them. Highest-value
+  next security step. `/api/org/repos` is a public-only listing (lower risk; #3 covered its injection vector).
+- **Verification coverage**: #2 (deny+funnel), #3 (regex), #5 (replay + bad-sig) were runtime-verified on a live
+  instance + Docker Postgres. #1 (cookie Secure) and #4 (import token gate) are verified by source review + build
+  only — exercising them needs a real signed session (#1) / observing token-mint suppression (#4). Low residual risk.
+- **`auth.ts` / `org/import` commit hygiene**: commits `5de14d8` (#1) and `5475618` (#4) bundle pre-existing
+  working-tree WIP (~170 lines in auth.ts), per the user's standing "commit bundled" choice. Not clean to bisect.
+- **Webhook replay dedupe is process-local** (in-memory, like the badge/rate-limit caches): collapses same-instance
+  replays only. A cross-instance/durable guard (persist delivery ids) would be needed for multi-instance hardening.
