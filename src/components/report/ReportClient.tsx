@@ -1,11 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ProviderName, ScanProgress, ScanReport } from "@/lib/types";
 import { ReportView } from "@/components/report/ReportView";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
+import { ReportSkeleton } from "@/components/report/ReportSkeleton";
+import { EmptyState } from "@/components/EmptyState";
 import { parseScanReport } from "@/lib/report/validate";
 
 type State =
@@ -75,6 +76,33 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
     (async () => {
       setState({ status: "loading" });
       setProgress({ message: "Starting…", pct: 0 });
+
+      // Fast path: hydrate instantly from a persisted/in-memory snapshot of the repo's current head
+      // before opening a live SSE scan. A non-fresh /report?repo= visit used to ALWAYS stream a full
+      // re-score even when an identical report already existed for this commit. Peek the cache-only
+      // endpoint; on a hit render immediately, on a miss (204) or any error fall through to the
+      // streaming scan. A fresh=1 re-test (or the in-place "Re-test" button) skips the peek.
+      if (!fresh) {
+        try {
+          const peek = await fetch(`/api/scan?url=${encodeURIComponent(repo)}&peek=1`, {
+            signal: controller.signal,
+          });
+          if (cancelled) return;
+          if (peek.status === 200) {
+            const parsed = parseScanReport(await peek.json().catch(() => null));
+            if (cancelled) return;
+            if (parsed.ok) {
+              setState({ status: "done", report: parsed.report });
+              clearTimeout(timeout);
+              return;
+            }
+          }
+        } catch {
+          if (cancelled) return;
+          // Peek failed (offline, abort, etc.) — fall through to the streaming scan below.
+        }
+      }
+
       try {
         const res = await fetch("/api/scan/stream", {
           method: "POST",
@@ -339,23 +367,9 @@ function Loading({ repo, progress }: { repo: string; progress: Progress }) {
         </p>
       )}
 
-      {/* Subtle skeleton of the report loading in — animate-pulse shimmer on slate-800 blocks. */}
-      <div className="mt-8 w-full space-y-3" aria-hidden>
-        <div className="flex items-center gap-4">
-          <div className="h-16 w-16 animate-pulse rounded-full bg-slate-800" />
-          <div className="flex-1 space-y-2">
-            <div className="h-4 w-2/3 animate-pulse rounded bg-slate-800" />
-            <div className="h-3 w-1/3 animate-pulse rounded bg-slate-800/70" />
-          </div>
-        </div>
-        <div className="space-y-2 pt-2">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="flex items-center gap-3">
-              <div className="h-3 w-20 animate-pulse rounded bg-slate-800/70" />
-              <div className="h-2 flex-1 animate-pulse rounded-full bg-slate-800" />
-            </div>
-          ))}
-        </div>
+      {/* Subtle skeleton of the report loading in — shared with the route's Suspense fallback. */}
+      <div className="mt-8 w-full">
+        <ReportSkeleton />
       </div>
     </div>
   );
@@ -363,26 +377,16 @@ function Loading({ repo, progress }: { repo: string; progress: Progress }) {
 
 function Empty({ title, message, repo }: { title: string; message: string; repo?: string }) {
   return (
-    <div className="flex flex-col items-center py-24 text-center">
-      <div className="text-5xl">🧭</div>
-      <h1 className="mt-4 text-2xl font-bold text-white">{title}</h1>
-      <p className="mt-2 max-w-md text-slate-400">{message}</p>
-      <div className="mt-6 flex gap-3">
-        {repo && (
-          <a
-            href={`/report?repo=${encodeURIComponent(repo)}`}
-            className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-on-accent transition hover:bg-accent-soft"
-          >
-            Try again
-          </a>
-        )}
-        <Link
-          href="/"
-          className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 hover:border-accent hover:text-white"
-        >
-          ← Back home
-        </Link>
-      </div>
-    </div>
+    <EmptyState
+      icon="🧭"
+      title={title}
+      body={message}
+      actions={[
+        ...(repo
+          ? [{ label: "Try again", href: `/report?repo=${encodeURIComponent(repo)}`, primary: true }]
+          : []),
+        { label: "← Back home", href: "/" },
+      ]}
+    />
   );
 }

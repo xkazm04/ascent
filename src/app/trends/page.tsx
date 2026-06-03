@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { EmptyState } from "@/components/EmptyState";
 import { DimensionTrends } from "@/components/report/DimensionTrends";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
@@ -22,27 +23,17 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Notice({ title, body, repo }: { title: string; body: string; repo?: string }) {
   return (
-    <div className="flex flex-col items-center py-24 text-center">
-      <div className="text-4xl">📈</div>
-      <h1 className="mt-4 text-2xl font-bold text-white">{title}</h1>
-      <p className="mt-2 max-w-md text-slate-400">{body}</p>
-      <div className="mt-6 flex gap-3">
-        {repo && (
-          <Link
-            href={`/report?repo=${encodeURIComponent(repo)}`}
-            className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-[#04070e] transition hover:bg-accent-soft"
-          >
-            Scan {repo}
-          </Link>
-        )}
-        <Link
-          href="/"
-          className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 hover:border-accent hover:text-white"
-        >
-          ← Home
-        </Link>
-      </div>
-    </div>
+    <EmptyState
+      icon="📈"
+      title={title}
+      body={body}
+      actions={[
+        ...(repo
+          ? [{ label: `Scan ${repo}`, href: `/report?repo=${encodeURIComponent(repo)}`, primary: true }]
+          : []),
+        { label: "← Home", href: "/" },
+      ]}
+    />
   );
 }
 

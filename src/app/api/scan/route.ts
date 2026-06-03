@@ -26,7 +26,7 @@ const STATUS: Record<GitHubError["code"], number> = {
 
 async function runScan(
   url: string,
-  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; signal?: AbortSignal },
+  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; peek?: boolean; signal?: AbortSignal },
 ) {
   const parsed = parseRepoUrl(url);
 
@@ -51,6 +51,14 @@ async function runScan(
         headers: { "x-ascent-cache": lookup.source === "db" ? "hit-db" : "hit" },
       });
     }
+  }
+
+  // Cache-only probe: the /report page peeks for an existing snapshot of the repo's CURRENT head
+  // before opening a live SSE scan, so an unchanged repo hydrates instantly instead of always
+  // re-scoring from scratch. A cache miss here (or a private/unparseable repo that can't use the
+  // shared anonymous cache) returns 204 — the client then falls back to streaming a fresh scan.
+  if (opts.peek) {
+    return new NextResponse(null, { status: 204 });
   }
 
   // Pass the head sha resolved for the cache key so the scored commit matches the key (no SHA
@@ -148,7 +156,8 @@ export async function GET(request: Request) {
     const mock = searchParams.get("mock") === "1" || searchParams.get("mock") === "true";
     const installationId = searchParams.get("installation_id") ?? undefined;
     const fresh = searchParams.get("fresh") === "1" || searchParams.get("fresh") === "true";
-    return await runScan(url, { mock, installationId, fresh, signal: request.signal });
+    const peek = searchParams.get("peek") === "1" || searchParams.get("peek") === "true";
+    return await runScan(url, { mock, installationId, fresh, peek, signal: request.signal });
   } catch (err) {
     return handleError(err);
   }
