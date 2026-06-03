@@ -4,7 +4,7 @@
 // repo's scan history. A 'Last 5 / 30 / 90 days / All' range toggle slices the scan list
 // before any points are mapped; the charts add a hover crosshair + tooltip (chartHover).
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
 import type { HistoryPoint, RepositoryHistory } from "@/lib/db/scans";
@@ -143,29 +143,78 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
   const [range, setRange] = useState<RangeKey>("all");
   const days = RANGES.find((r) => r.key === range)?.days ?? null;
 
-  const scans = withinRange(history.scans, days); // newest-first, sliced by range
-  const scansChrono = [...scans].reverse();
-  const meta: ScanMeta[] = scansChrono.map((s) => ({ at: s.scannedAt, engine: s.engineProvider }));
-  const overall: TrendPoint[] = scansChrono.map((s) => ({
+  // The OVERALL series is available immediately from the (lightweight, overall-only) history the
+  // server passes, so the first paint stays light. The per-dimension small-multiples need the
+  // heavier per-dimension rows, so they're lazy-loaded client-side only when the "By dimension"
+  // section approaches the viewport. If the caller already passed a full history (dimensions
+  // present), skip the fetch and render immediately — back-compatible with full-history callers.
+  const serverHasDims = history.scans.some((s) => s.dimensions.length > 0);
+  const [full, setFull] = useState<RepositoryHistory | null>(serverHasDims ? history : null);
+  const [dimState, setDimState] = useState<"idle" | "loading" | "error" | "done">(
+    serverHasDims ? "done" : "idle",
+  );
+  const dimRef = useRef<HTMLDivElement | null>(null);
+
+  const loadDimensions = useCallback(async () => {
+    setDimState("loading");
+    try {
+      const res = await fetch(`/api/history?repo=${encodeURIComponent(history.repo.fullName)}`);
+      if (!res.ok) throw new Error(`history ${res.status}`);
+      setFull((await res.json()) as RepositoryHistory);
+      setDimState("done");
+    } catch {
+      setDimState("error");
+    }
+  }, [history.repo.fullName]);
+
+  // Fetch the per-dimension data once its section nears the viewport (or immediately where there's
+  // no IntersectionObserver, e.g. a test/SSR-less env).
+  useEffect(() => {
+    if (dimState !== "idle") return;
+    const el = dimRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      // No IntersectionObserver (e.g. JSDOM / older env): load on the next tick rather than calling
+      // setState synchronously inside the effect body.
+      const t = setTimeout(() => void loadDimensions(), 0);
+      return () => clearTimeout(t);
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          void loadDimensions();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [dimState, loadDimensions]);
+
+  // Overall series — always available from the lightweight payload, sliced by the active range.
+  const overallScans = withinRange(history.scans, days); // newest-first
+  const overallChrono = [...overallScans].reverse();
+  const overall: TrendPoint[] = overallChrono.map((s) => ({
     score: s.overallScore,
     at: s.scannedAt,
     engine: s.engineProvider,
   }));
-  const latest = scans[0];
-  const prev = scans[1];
 
-  // Order dimensions by the canonical model order.
+  // Per-dimension rows — from the full payload once loaded, sliced by the SAME range.
+  const dimScans = full ? withinRange(full.scans, days) : [];
+  const dimChrono = [...dimScans].reverse();
+  const meta: ScanMeta[] = dimChrono.map((s) => ({ at: s.scannedAt, engine: s.engineProvider }));
+  const latest = dimScans[0];
+  const prev = dimScans[1];
   const rows = DIMENSIONS.map((def) => {
     // null (not 0) for scans where this dimension is absent — see DimLine.
-    const series = scansChrono.map(
-      (s) => s.dimensions.find((d) => d.dimId === def.id)?.score ?? null,
-    );
+    const series = dimChrono.map((s) => s.dimensions.find((d) => d.dimId === def.id)?.score ?? null);
     const current = latest?.dimensions.find((d) => d.dimId === def.id)?.score;
     const prevScore = prev?.dimensions.find((d) => d.dimId === def.id)?.score;
     // Delta only when BOTH scans actually contain the dimension — otherwise it's not a
     // real change (current-minus-0 would invent a huge false drop/gain).
-    const delta =
-      current !== undefined && prevScore !== undefined ? current - prevScore : null;
+    const delta = current !== undefined && prevScore !== undefined ? current - prevScore : null;
     return { id: def.id, name: DIMENSION_BY_ID[def.id].name, weight: def.weight, current, series, delta };
   });
 
@@ -173,12 +222,12 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
-          {scans.length} {scans.length === 1 ? "scan" : "scans"} shown
+          {overallScans.length} {overallScans.length === 1 ? "scan" : "scans"} shown
         </div>
         <RangeToggle value={range} onChange={setRange} />
       </div>
 
-      {scans.length === 0 ? (
+      {overallScans.length === 0 ? (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-10 text-center">
           <p className="text-sm text-slate-400">
             No scans in the selected range. Try a wider window.
@@ -200,47 +249,71 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
             </div>
           </div>
 
-          <div>
+          <div ref={dimRef}>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">By dimension</h2>
               <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
-                {scansChrono.length} scans
+                {overallChrono.length} scans
               </span>
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {rows.map((r) => (
-                <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="font-mono text-[10px] text-slate-500">{r.id}</span>
-                      <h3 className="text-sm font-semibold text-white">{r.name}</h3>
-                    </div>
-                    <div className="text-right">
-                      <div
-                        className="font-mono text-xl font-bold tabular-nums"
-                        style={{ color: r.current !== undefined ? scoreHex(r.current) : "#475569" }}
-                      >
-                        {/* Redundant (non-color) cue so the score's level reads without relying on
-                            hue alone (CVD) — mirrors the report's treatment. */}
-                        {r.current !== undefined && (
-                          <span aria-hidden className="mr-1 align-middle text-xs">
-                            {scoreGlyph(r.current)}
-                          </span>
-                        )}
-                        {r.current ?? "—"}
+
+            {dimState === "done" ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {rows.map((r) => (
+                  <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="font-mono text-[10px] text-slate-500">{r.id}</span>
+                        <h3 className="text-sm font-semibold text-white">{r.name}</h3>
                       </div>
-                      {r.delta !== null && r.delta !== 0 && (
-                        <div className={`text-xs font-semibold ${r.delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {r.delta > 0 ? "▲+" : "▼"}
-                          {r.delta}
+                      <div className="text-right">
+                        <div
+                          className="font-mono text-xl font-bold tabular-nums"
+                          style={{ color: r.current !== undefined ? scoreHex(r.current) : "#475569" }}
+                        >
+                          {/* Redundant (non-color) cue so the score's level reads without relying on
+                              hue alone (CVD) — mirrors the report's treatment. */}
+                          {r.current !== undefined && (
+                            <span aria-hidden className="mr-1 align-middle text-xs">
+                              {scoreGlyph(r.current)}
+                            </span>
+                          )}
+                          {r.current ?? "—"}
                         </div>
-                      )}
+                        {r.delta !== null && r.delta !== 0 && (
+                          <div className={`text-xs font-semibold ${r.delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {r.delta > 0 ? "▲+" : "▼"}
+                            {r.delta}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                    <DimLine values={r.series} meta={meta} />
                   </div>
-                  <DimLine values={r.series} meta={meta} />
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : dimState === "error" ? (
+              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-10 text-center">
+                <p className="text-sm text-slate-400">Couldn&apos;t load the per-dimension breakdown.</p>
+                <button
+                  type="button"
+                  onClick={() => void loadDimensions()}
+                  className="mt-3 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-white"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              // idle / loading — shimmer placeholder cards while the dimension rows load.
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+                    <div className="h-4 w-24 animate-pulse rounded bg-slate-800" />
+                    <div className="mt-3 h-[90px] w-full animate-pulse rounded bg-slate-800/60" />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}

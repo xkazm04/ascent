@@ -84,7 +84,14 @@ export default async function TrendsPage({
   }
 
   const orgSlug = await readableOrgForOwner(parsed.owner);
-  const history = await getRepositoryHistory(parsed.owner, parsed.repo, { limit: 60, orgSlug });
+  // Lightweight first paint: fetch the overall-only series (no per-dimension fan-out) for the page
+  // shell + overall chart. DimensionTrends lazy-loads the per-dimension rows client-side (via
+  // /api/history) when its section nears the viewport.
+  const history = await getRepositoryHistory(parsed.owner, parsed.repo, {
+    limit: 60,
+    orgSlug,
+    includeDimensions: false,
+  });
   if (!history || history.scans.length === 0) {
     return (
       <Shell>
