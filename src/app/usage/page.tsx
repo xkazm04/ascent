@@ -36,6 +36,19 @@ function Stat({ label, value, sub }: { label: string; value: string | number; su
   );
 }
 
+// Per-provider label + accent so the "By inference engine" bars are distinguishable at a glance
+// (was every provider in the same azure with its raw id). Unknown ids fall back to accent + the id.
+const PROVIDER_META: Record<string, { label: string; color: string }> = {
+  gemini: { label: "Gemini", color: "#4285f4" },
+  bedrock: { label: "AWS Bedrock", color: "#ff9900" },
+  claude: { label: "Claude", color: "#d97757" },
+  "claude-cli": { label: "Claude CLI", color: "#d97757" },
+  mock: { label: "Mock (deterministic)", color: "#94a3b8" },
+};
+function providerMeta(id: string): { label: string; color: string } {
+  return PROVIDER_META[id] ?? { label: id, color: "var(--color-accent)" };
+}
+
 export default async function UsagePage({
   searchParams,
 }: {
@@ -131,7 +144,7 @@ export default async function UsagePage({
                 <p className="text-slate-500">No scans in this period.</p>
               ) : (
                 usage.byProvider.map((p) => (
-                  <Bar key={p.provider} label={p.provider} value={p.count} total={usage.periodScans} color="var(--color-accent)" />
+                  <Bar key={p.provider} label={providerMeta(p.provider).label} value={p.count} total={usage.periodScans} color={providerMeta(p.provider).color} />
                 ))
               )}
             </div>
