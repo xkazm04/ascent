@@ -36,9 +36,24 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
     })
     .join("\n");
 
-  const fileBlock = files
-    .map((f) => `### ${f.path}\n\`\`\`\n${truncate(f.content, 2200)}\n\`\`\``)
-    .join("\n\n");
+  // Concatenate file excerpts only up to the prompt's byte window (OUTER). Each file is capped to
+  // a small excerpt (PER_FILE); we stop the moment the running block reaches OUTER, since the
+  // outer truncate below discards anything past it — so we don't build a ~70KB string just to
+  // slice ~two-thirds of it off. The output is byte-identical to truncating the full join.
+  //
+  // NOTE: ingestion (github/source.ts) deliberately fetches MORE per file than this window. The
+  // deterministic detectors in analyze/index.ts read the FULL file content with length thresholds
+  // (e.g. CLAUDE.md >= 4k chars -> D1, README >= 1.5k -> D5), so the fetch budget is sized for the
+  // scorer's needs, not this LLM prompt window. Don't "align" them by shrinking the fetch budget.
+  const PER_FILE = 2200;
+  const OUTER = 22000;
+  let joined = "";
+  for (const f of files) {
+    const block = `### ${f.path}\n\`\`\`\n${truncate(f.content, PER_FILE)}\n\`\`\``;
+    joined = joined ? `${joined}\n\n${block}` : block;
+    if (joined.length >= OUTER) break;
+  }
+  const fileBlock = truncate(joined, OUTER);
 
   const commitBlock = commitSample.length
     ? commitSample.map((m) => `- ${m.replace(/\n/g, " ").slice(0, 120)}`).join("\n")
@@ -61,7 +76,7 @@ RECENT COMMIT MESSAGES (sample):
 ${commitBlock}
 
 SAMPLED FILES:
-${truncate(fileBlock, 22000)}
+${fileBlock}
 
 TASK
 For each of the ${DIMENSIONS.length} dimensions (D1..D${DIMENSIONS.length}) return a score 0-100 (calibrated to its signalScore),
