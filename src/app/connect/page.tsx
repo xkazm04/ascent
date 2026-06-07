@@ -3,6 +3,7 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { InstallationRepos } from "@/components/connect/InstallationRepos";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { appInstallUrl, isAppConfigured } from "@/lib/github/app";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 
@@ -38,7 +39,7 @@ export default async function ConnectPage({
   const header = (
     <>
       <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Connect GitHub</div>
-      <h1 className="mt-1 text-2xl font-bold text-white">Scan your private repositories</h1>
+      <h1 className="mt-1 text-3xl font-bold text-white">Scan your private repositories</h1>
       <p className="mt-2 max-w-2xl text-slate-400">
         Install the Ascent GitHub App on an organization or account. Inference runs against
         your repositories using a short-lived installation token — Ascent stores only the
@@ -61,7 +62,7 @@ export default async function ConnectPage({
       <Shell>
         <div className="animate-fade-up">
           {header}
-          <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900/40 p-6">
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="font-semibold text-white">GitHub App not configured</h2>
             <p className="mt-2 text-sm text-slate-400">
               Set <code className="font-mono text-slate-300">GITHUB_APP_ID</code> and{" "}
@@ -110,6 +111,22 @@ export default async function ConnectPage({
     <Shell>
       <div className="animate-fade-up">
         {header}
+        {/* Funnel progress — mirrors the onboarding checklist so the two first-run halves feel like
+            one flow. Install is derived from the session; the later steps signpost the path. */}
+        <div className="mt-6">
+          <OnboardingChecklist
+            steps={[
+              {
+                label: "Install the Ascent GitHub App",
+                done: installs.length > 0,
+                href: installs.length === 0 ? installUrl ?? undefined : undefined,
+                hint: "Grant read-only access to the repos you want scanned",
+              },
+              { label: "Pick repositories to watch", done: false, hint: "Choose which repos Ascent should scan" },
+              { label: "Run your first scan", done: false, hint: "Open a repo's report to see its maturity" },
+            ]}
+          />
+        </div>
         {resynced && (
           <div
             role="status"
@@ -120,7 +137,7 @@ export default async function ConnectPage({
         )}
         {/* Login-time org auto-discovery: a ready-to-explore seeded dashboard + orgs to connect. */}
         {(seededOrg || suggestedOrgs.length > 0) && (
-          <section className="mt-6 rounded-xl border border-slate-800 bg-slate-900/40 p-6">
+          <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <div className="font-mono text-[11px] uppercase tracking-widest text-accent">
               Discovered from your GitHub
             </div>
@@ -180,7 +197,7 @@ export default async function ConnectPage({
           </div>
         )}
         {installs.length === 0 ? (
-          <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900/40 p-6">
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="font-semibold text-white">Install the GitHub App</h2>
             <p className="mt-2 text-sm text-slate-400">
               You&apos;ll choose which repositories Ascent can read (Contents + Metadata,
