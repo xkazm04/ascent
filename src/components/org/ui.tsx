@@ -1,5 +1,5 @@
 // Shared presentational primitives for the org dashboard tabs (server-safe, no client hooks).
-import Link from "next/link";
+import { EmptyState } from "@/components/EmptyState";
 
 export const POSTURE_LABEL: Record<string, string> = {
   "ai-native": "AI-Native",
@@ -135,25 +135,12 @@ export function Meter({
 }
 
 export function SectionEmpty({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/20 p-10 text-center text-sm text-slate-500">
-      {children}
-    </div>
-  );
+  // Section-scale empty — delegates to the canonical EmptyState so every empty state shares one
+  // implementation. Keeps the {children}-as-body API so existing call sites stay unchanged.
+  return <EmptyState variant="section" body={children} />;
 }
 
 export function OrgEmpty({ title, body, href, cta }: { title: string; body: string; href?: string; cta?: string }) {
-  return (
-    <div className="flex flex-col items-center py-24 text-center">
-      <div className="text-4xl">🏔️</div>
-      <h1 className="mt-4 text-2xl font-bold text-white">{title}</h1>
-      <p className="mt-2 max-w-md text-slate-400">{body}</p>
-      <Link
-        href={href ?? "/"}
-        className="mt-6 rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 hover:border-accent hover:text-white"
-      >
-        {cta ?? "← Home"}
-      </Link>
-    </div>
-  );
+  // Page-scale org empty — delegates to the canonical EmptyState (was a near-duplicate scaffold).
+  return <EmptyState icon="🏔️" title={title} body={body} actions={[{ label: cta ?? "← Home", href: href ?? "/" }]} />;
 }
