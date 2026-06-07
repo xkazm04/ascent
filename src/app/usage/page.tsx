@@ -117,8 +117,8 @@ export default async function UsagePage({
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
             </h2>
             <div className="mt-3 space-y-2 text-sm">
-              <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="#64748b" pattern />
-              <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="#3b9eff" />
+              <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="#94a3b8" pattern />
+              <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="var(--color-accent)" />
             </div>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
@@ -131,7 +131,7 @@ export default async function UsagePage({
                 <p className="text-slate-500">No scans in this period.</p>
               ) : (
                 usage.byProvider.map((p) => (
-                  <Bar key={p.provider} label={p.provider} value={p.count} total={usage.periodScans} color="#3b9eff" />
+                  <Bar key={p.provider} label={p.provider} value={p.count} total={usage.periodScans} color="var(--color-accent)" />
                 ))
               )}
             </div>

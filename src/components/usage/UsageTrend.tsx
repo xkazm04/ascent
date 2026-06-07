@@ -6,8 +6,8 @@
 
 import type { UsageDay } from "@/lib/db";
 
-const BILLABLE = "#3b9eff"; // accent
-const FREE = "#475569"; // slate
+const BILLABLE = "var(--color-accent)"; // billable (private) — brand accent token
+const FREE = "#94a3b8"; // free (public) — one slate for legend swatch, bars, and summary text
 
 export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: string; days: number }) {
   const max = Math.max(1, ...daily.map((d) => d.billable + d.free));
@@ -25,7 +25,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
           <h2 className="text-sm font-semibold text-white">Computed scans per day</h2>
           <p className="mt-1 text-xs text-slate-500">
             Last {days} days · <span style={{ color: BILLABLE }}>{totalBillable} billable</span> ·{" "}
-            <span style={{ color: "#94a3b8" }}>{totalFree} free</span>
+            <span style={{ color: FREE }}>{totalFree} free</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
