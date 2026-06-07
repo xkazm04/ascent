@@ -11,6 +11,7 @@ import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS, LEVEL_CLASSES, LEVEL_GLYPH
 import { PostureQuadrant, RadarChart, ScoreRing, useMounted, usePrefersReducedMotion } from "@/components/report/Charts";
 import { Sparkline, TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { DeltaPill } from "@/components/report/deltas";
+import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
 
 export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?: () => void }) {
   const { repo, level } = report;
@@ -260,6 +261,9 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
           ))}
         </div>
       </div>
+
+      {/* Roadmap sandbox — drag dimensions, watch the future (client-side what-if recompute) */}
+      <RoadmapSandbox report={report} />
 
       {/* Contributors — recent activity + AI attribution */}
       {report.contributors.filter((c) => c.login !== "unknown").length > 0 && (

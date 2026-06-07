@@ -342,6 +342,25 @@ export interface ScoreProjection {
   levelUp: boolean;
 }
 
+/**
+ * A full client-side what-if recompute of a report under hypothetical per-dimension scores —
+ * the data behind the interactive Roadmap Sandbox. With no overrides it reproduces the report's
+ * own headline numbers exactly (same archetype-weighted blend), so dragging a slider only ever
+ * moves what the change actually moves.
+ */
+export interface SandboxProjection {
+  /** report.dimensions with the overrides applied (clamped/rounded), original order preserved. */
+  dimensions: DimensionResult[];
+  /** Overall score + level transition, via the same blend that produced the headline. */
+  overall: ScoreProjection;
+  /** Re-rolled AI-adoption axis (0..100). */
+  adoptionScore: number;
+  /** Re-rolled engineering-rigor axis (0..100). */
+  rigorScore: number;
+  /** The Adoption × Rigor quadrant the projected axes fall into. */
+  posture: Posture;
+}
+
 /** One gap to close on the path to the next level, with its contribution to the overall. */
 export interface LevelPathStep {
   dimension: DimensionId;

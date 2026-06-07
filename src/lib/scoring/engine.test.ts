@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { assembleReport, contributions, diffReports } from "./engine";
-import { DIMENSIONS, LEVEL_BY_ID, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
+import { assembleReport, contributions, diffReports, projectSandbox } from "./engine";
+import { DIMENSIONS, LEVEL_BY_ID, axisScore, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
 import { MockProvider } from "@/lib/llm/mock";
 import type { DimensionResult, DimensionSignals, LlmAssessment, RepoSnapshot, ScanReport } from "@/lib/types";
 
@@ -257,5 +257,67 @@ describe("contributions — glass-box score attribution", () => {
     const { dimensions: parts, total } = contributions(report);
     expect(total).toBe(0);
     expect(parts.every((p) => p.normalizedWeight === 0 && p.points === 0 && p.signed === 0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// projectSandbox — the interactive Roadmap Sandbox's live what-if recompute
+// ---------------------------------------------------------------------------
+
+describe("projectSandbox — live what-if recompute", () => {
+  /** A self-consistent report: its stored overall/adoption/rigor/posture are derived from its
+   *  own dimensions via the same engine functions, so the no-override invariant is a real test. */
+  function consistent(scores: Record<string, number> = {}): ScanReport {
+    const dimList = dims(Object.fromEntries(Object.entries(scores).map(([id, score]) => [id, { score }])));
+    const scoreFor = (id: string) => dimList.find((d) => d.id === id)?.score ?? 0;
+    const overall = overallScoreFor(dimList.map((d) => ({ id: d.id, score: d.score })), "org");
+    const adoption = axisScore("adoption", scoreFor, "org");
+    const rigor = axisScore("rigor", scoreFor, "org");
+    return mkReport({
+      overallScore: overall,
+      level: levelForScore(overall).id,
+      adoptionScore: adoption,
+      rigorScore: rigor,
+      dimensions: dimList,
+    });
+  }
+
+  it("with no overrides reproduces the report's own numbers exactly", () => {
+    const report = consistent({ D2: 30, D4: 70, D8: 55 });
+    const p = projectSandbox(report, {});
+    expect(p.overall.overallScore).toBe(report.overallScore);
+    expect(p.overall.deltaScore).toBe(0);
+    expect(p.overall.levelUp).toBe(false);
+    expect(p.adoptionScore).toBe(report.adoptionScore);
+    expect(p.rigorScore).toBe(report.rigorScore);
+    expect(p.posture.id).toBe(report.posture.id);
+    expect(p.dimensions).toEqual(report.dimensions);
+  });
+
+  it("raising the rigor axis to 100 lifts overall, flips posture, and levels up", () => {
+    // Everything at 40 → overall 40 (L2), both axes 40 → "early" posture.
+    const all40 = Object.fromEntries(DIMENSIONS.map((d) => [d.id, 40]));
+    const report = consistent(all40);
+    expect(report.overallScore).toBe(40);
+    expect(report.posture.id).toBe("early");
+    // Max out every rigor dimension; adoption (D1/D4/D7) stays at 40.
+    const rigorMax = { D2: 100, D3: 100, D5: 100, D6: 100, D8: 100, D9: 100 };
+    const p = projectSandbox(report, rigorMax);
+    expect(p.rigorScore).toBe(100);
+    expect(p.adoptionScore).toBe(40);
+    expect(p.posture.id).toBe("manual"); // rigor high, adoption low
+    expect(p.overall.overallScore).toBe(80); // 100*0.66 + 40*0.34, rounded
+    expect(p.overall.level).toBe("L4");
+    expect(p.overall.levelUp).toBe(true);
+    expect(p.overall.deltaScore).toBe(40);
+  });
+
+  it("clamps and rounds override values into the stored dimension scores", () => {
+    const report = consistent({});
+    const p = projectSandbox(report, { D2: 150, D3: -20, D5: 33.4 });
+    const byId = new Map(p.dimensions.map((d) => [d.id, d.score]));
+    expect(byId.get("D2")).toBe(100);
+    expect(byId.get("D3")).toBe(0);
+    expect(byId.get("D5")).toBe(33);
   });
 });

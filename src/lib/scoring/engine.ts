@@ -14,6 +14,7 @@ import type {
   LlmAssessment,
   RepoArchetype,
   RepoSnapshot,
+  SandboxProjection,
   ScanReport,
   ScoreProjection,
 } from "@/lib/types";
@@ -184,6 +185,42 @@ export function projectScore(
 export function projectDimensionClose(report: ScanReport, dim: DimensionId): ScoreProjection {
   const cur = report.dimensions.find((d) => d.id === dim)?.score ?? 0;
   return projectScore(report, { [dim]: Math.max(cur, 100) });
+}
+
+/**
+ * Full what-if recompute for the interactive Roadmap Sandbox: apply hypothetical per-dimension
+ * score overrides and re-derive everything the report's hero shows — overall score + level
+ * transition, both axis roll-ups, and the resulting posture quadrant. Overrides are clamped to
+ * 0..100 and rounded so the projected dimension scores match what the engine would have stored,
+ * and the same clamped values feed every roll-up (overall, axes), keeping them in lockstep.
+ *
+ * With an empty override set this returns the report's own numbers byte-for-byte (overall,
+ * adoption, rigor, posture), because it reuses overallScoreFor/axisScore/postureFor — the exact
+ * functions assembleReport used. Pure and dependency-light, so the client can re-run it live on
+ * every slider tick with no server round-trip.
+ */
+export function projectSandbox(
+  report: ScanReport,
+  overrides: Partial<Record<DimensionId, number>>,
+): SandboxProjection {
+  const clamped: Partial<Record<DimensionId, number>> = {};
+  for (const [id, v] of Object.entries(overrides)) {
+    if (v != null) clamped[id as DimensionId] = clamp(Math.round(v));
+  }
+  const dimensions = report.dimensions.map((d) =>
+    clamped[d.id] !== undefined ? { ...d, score: clamped[d.id]! } : d,
+  );
+  const scoreById = new Map(dimensions.map((d) => [d.id, d.score]));
+  const scoreFor = (id: DimensionId) => scoreById.get(id) ?? 0;
+  const adoptionScore = axisScore("adoption", scoreFor, report.archetype);
+  const rigorScore = axisScore("rigor", scoreFor, report.archetype);
+  return {
+    dimensions,
+    overall: projectScore(report, clamped),
+    adoptionScore,
+    rigorScore,
+    posture: postureFor(adoptionScore, rigorScore),
+  };
 }
 
 /**
