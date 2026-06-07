@@ -1,4 +1,4 @@
-import { Card, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
+import { Card, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
 import { scoreHex } from "@/lib/ui";
 
@@ -88,20 +88,20 @@ export default async function OrgDelivery({ params }: { params: Promise<{ slug: 
             <Tile label="Require checks" value={`${gov.requireChecksRate}%`} color={scoreHex(gov.requireChecksRate)} />
             <Tile label="Signed commits" value={`${gov.signedRate}%`} color={scoreHex(gov.signedRate)} />
           </div>
-          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">
-                <tr>
-                  <th className="px-4 py-2 text-left">Repo</th>
-                  <th className="px-3 py-2 text-center">Protected</th>
-                  <th className="px-3 py-2 text-center">Reviews</th>
-                  <th className="px-3 py-2 text-center">Checks</th>
-                  <th className="px-3 py-2 text-center">Signed</th>
-                  <th className="px-3 py-2 text-right">Rules</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {gov.perRepo.map((r) => {
+          <OrgTable
+            className="mt-3"
+            head={
+              <tr>
+                <th className="px-4 py-2 text-left">Repo</th>
+                <th className="px-3 py-2 text-center">Protected</th>
+                <th className="px-3 py-2 text-center">Reviews</th>
+                <th className="px-3 py-2 text-center">Checks</th>
+                <th className="px-3 py-2 text-center">Signed</th>
+                <th className="px-3 py-2 text-right">Rules</th>
+              </tr>
+            }
+          >
+            {gov.perRepo.map((r) => {
                   const yes = (b: boolean) => (b ? <span className="text-lime-400">✓</span> : <span className="text-slate-600">—</span>);
                   return (
                     <tr key={r.fullName} className="text-slate-300">
@@ -123,9 +123,7 @@ export default async function OrgDelivery({ params }: { params: Promise<{ slug: 
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+          </OrgTable>
         </div>
       )}
 

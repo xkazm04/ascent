@@ -71,6 +71,34 @@ export function Card({ children, className = "" }: { children: React.ReactNode; 
 }
 
 /**
+ * Shared fleet-table chrome — one scroll wrapper, border radius, header styling, row dividers, and a
+ * subtle row hover. Replaces four hand-rolled copies that had drifted on min-width. Pass the header
+ * row via `head` and the body rows as children; `minWidth` keeps a wide table horizontally scrollable.
+ */
+export function OrgTable({
+  head,
+  children,
+  minWidth = 640,
+  className = "",
+}: {
+  head: React.ReactNode;
+  children: React.ReactNode;
+  minWidth?: number;
+  className?: string;
+}) {
+  return (
+    <div className={`overflow-x-auto rounded-2xl border border-slate-800 ${className}`}>
+      <table className="w-full text-sm" style={{ minWidth: `${minWidth}px` }}>
+        <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">{head}</thead>
+        <tbody className="divide-y divide-slate-800 [&>tr]:transition-colors [&>tr:hover]:bg-slate-900/40">
+          {children}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
  * SectionHeader — a title with an optional description and right-aligned slot. `size="lg"`
  * is the standalone section heading; `size="sm"` is the in-card heading next to Tiles/Meters.
  */

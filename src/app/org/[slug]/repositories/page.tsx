@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { DIMS, POSTURE_LABEL, SectionHeader } from "@/components/org/ui";
+import { DIMS, OrgTable, POSTURE_LABEL, SectionHeader } from "@/components/org/ui";
 import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
 import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
-import { DIMENSION_SHORT, LEVEL_CLASSES, scoreHex } from "@/lib/ui";
+import { DIMENSION_SHORT, LEVEL_CLASSES, heatCell, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -34,21 +34,21 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
           title="Repositories"
           description={`${rollup.scannedCount}/${rollup.repoCount} scanned — sorted by overall maturity.`}
         />
-        <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">
-              <tr>
-                <th className="px-4 py-2 text-left">Repo</th>
-                <th className="px-3 py-2 text-left">Level</th>
-                <th className="px-3 py-2 text-right">Overall</th>
-                <th className="px-3 py-2 text-right">Adopt</th>
-                <th className="px-3 py-2 text-right">Rigor</th>
-                <th className="px-3 py-2 text-left">Posture</th>
-                <th className="px-3 py-2 text-left">Last scan</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {leaderboard.map((r) => {
+        <OrgTable
+          className="mt-3"
+          head={
+            <tr>
+              <th className="px-4 py-2 text-left">Repo</th>
+              <th className="px-3 py-2 text-left">Level</th>
+              <th className="px-3 py-2 text-right">Overall</th>
+              <th className="px-3 py-2 text-right">Adopt</th>
+              <th className="px-3 py-2 text-right">Rigor</th>
+              <th className="px-3 py-2 text-left">Posture</th>
+              <th className="px-3 py-2 text-left">Last scan</th>
+            </tr>
+          }
+        >
+          {leaderboard.map((r) => {
                 const l = r.latest;
                 const rlc = l ? LEVEL_CLASSES[l.level as LevelId] : null;
                 return (
@@ -71,9 +71,7 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+        </OrgTable>
       </div>
 
       {/* Heatmap */}
@@ -105,11 +103,12 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                         <td className="px-2 py-1 font-mono text-xs text-slate-300">{r.name}</td>
                         {DIMS.map((d) => {
                           const v = byId[d] ?? 0;
+                          const cell = heatCell(v, 0.25 + (v / 100) * 0.75);
                           return (
                             <td key={d} className="px-1 py-1">
                               <div
-                                className="mx-auto flex h-7 w-9 items-center justify-center rounded font-mono text-[10px] text-[#04070e]"
-                                style={{ backgroundColor: scoreHex(v), opacity: 0.25 + (v / 100) * 0.75 }}
+                                className="mx-auto flex h-7 w-9 items-center justify-center rounded font-mono text-[10px]"
+                                style={{ backgroundColor: cell.fill, color: cell.text }}
                                 title={`${d}: ${v}`}
                               >
                                 {v}
