@@ -10,7 +10,7 @@ import { scoreGlyph, scoreHex } from "@/lib/ui";
 import type { HistoryPoint, RepositoryHistory } from "@/lib/db/scans";
 import { EmptyState } from "@/components/EmptyState";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
-import { vScale, xScale } from "@/components/report/chartScale";
+import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
 
 /** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips). */
@@ -69,7 +69,13 @@ function DimLine({ values, meta }: { values: (number | null)[]; meta: ScanMeta[]
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
       >
-        {[25, 45, 65, 85].map((b) => (
+        {/* Shaded maturity bands — same strata as the overall chart, so both read on one frame. */}
+        {LEVEL_BANDS.map((band, i) => {
+          const top = y(i === 0 ? 100 : LEVEL_BANDS[i - 1].min);
+          const bottom = y(band.min);
+          return <rect key={band.min} x={0} y={top} width={W} height={Math.max(0, bottom - top)} fill={band.color} />;
+        })}
+        {BAND_EDGES.filter((e) => e > 0 && e < 100).map((b) => (
           <line key={b} x1={0} x2={W} y1={y(b)} y2={y(b)} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 4" />
         ))}
         {act && <line x1={x(act.i)} x2={x(act.i)} y1={0} y2={H} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />}
