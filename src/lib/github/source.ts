@@ -112,6 +112,18 @@ function headers(token?: string, accept = "application/vnd.github+json"): Header
 }
 
 /**
+ * Encode a git ref for use in a URL while PRESERVING the slashes inside names like `release/1.2`,
+ * `feature/x`, or any PR head ref. `encodeURIComponent(ref)` turns the whole ref into a single
+ * literal token (`release%2F1.2`), which the trees API and raw host treat as a branch name that
+ * doesn't exist — every tree/file read then 404s and the scan silently degrades to a content-less
+ * report. Encoding each slash-separated segment but joining on raw `/` keeps the ref valid both as
+ * a path segment and as a query value (a literal `/` is allowed in the query component).
+ */
+function encodeRef(ref: string): string {
+  return ref.split("/").map(encodeURIComponent).join("/");
+}
+
+/**
  * fetch() with an AbortController timeout so no upstream call can hang the function.
  * An optional caller `signal` (the request's signal) is merged in, so the fetch is
  * aborted by whichever fires first — the per-call timeout OR a client disconnect.
@@ -328,31 +340,44 @@ export class GitHubPublicSource implements RepoSource {
     const emit = opts.onProgress ?? (() => {});
 
     emit({ stage: "fetch", message: "Reading repository metadata…", pct: 10 });
-    const meta = await ghJson<GhRepoResponse>(`${API}/repos/${owner}/${repo}`, token, signal);
-    const repoMeta = mapGhRepo(meta);
-    const branch = repoMeta.defaultBranch;
-    // The ref to actually read (tree/files/commits) — a PR head SHA when gating a pull request,
-    // else the default branch. `meta.defaultBranch` below still reports the true default.
-    const ref = opts.ref || branch;
+    const metaPromise = ghJson<GhRepoResponse>(`${API}/repos/${owner}/${repo}`, token, signal);
 
     emit({ stage: "tree", message: "Reading file tree & recent history…", pct: 28 });
-    // Recursive tree + recent commits in parallel, both pinned to `ref`. The trees API resolves
+    // Recursive tree + recent commits, pinned to the ref we actually read. The trees API resolves
     // a branch name OR a commit SHA; `?sha=` scopes the commit list to the ref's history (so a
-    // PR-head scan's D7 signals reflect the PR's commits), and is only sent when a ref override
-    // is in play to keep default-branch scans byte-for-byte unchanged.
-    const refQuery = opts.ref ? `&sha=${encodeURIComponent(ref)}` : "";
-    const [treeRes, commitsRes] = await Promise.all([
-      ghJson<GhTreeResponse>(
-        `${API}/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
-        token,
-        signal,
-      ),
+    // PR-head scan's D7 signals reflect the PR's commits), and is only sent when a ref override is
+    // in play to keep default-branch scans byte-for-byte unchanged.
+    //
+    // When the caller already pinned a ref (a PR head SHA, or the head SHA lookupCachedScan
+    // resolved for the cache key — the common case), the tree/commit reads don't depend on the
+    // default branch, so they fire in PARALLEL with the metadata call instead of waiting a full
+    // REST round-trip for it. Without a pinned ref we must learn the default branch from metadata
+    // first, so that path stays serial.
+    const treeReq = (r: string) =>
+      ghJson<GhTreeResponse>(`${API}/repos/${owner}/${repo}/git/trees/${encodeRef(r)}?recursive=1`, token, signal);
+    const commitsReq = (q: string) =>
       ghJson<GhCommitResponse[]>(
-        `${API}/repos/${owner}/${repo}/commits?per_page=${COMMIT_COUNT}${refQuery}`,
+        `${API}/repos/${owner}/${repo}/commits?per_page=${COMMIT_COUNT}${q}`,
         token,
         signal,
-      ).catch(() => [] as GhCommitResponse[]),
-    ]);
+      ).catch(() => [] as GhCommitResponse[]);
+
+    let repoMeta: RepoMeta;
+    let treeRes: GhTreeResponse;
+    let commitsRes: GhCommitResponse[];
+    if (opts.ref) {
+      [repoMeta, treeRes, commitsRes] = await Promise.all([
+        metaPromise.then(mapGhRepo),
+        treeReq(opts.ref),
+        commitsReq(`&sha=${encodeRef(opts.ref)}`),
+      ]);
+    } else {
+      repoMeta = mapGhRepo(await metaPromise);
+      [treeRes, commitsRes] = await Promise.all([treeReq(repoMeta.defaultBranch), commitsReq("")]);
+    }
+    // The ref actually read (tree/files/commits) — the pinned ref, else the resolved default
+    // branch. `repoMeta.defaultBranch` still reports the true default for the report.
+    const ref = opts.ref || repoMeta.defaultBranch;
 
     repoMeta.headSha = treeRes.sha;
 
@@ -390,18 +415,33 @@ export class GitHubPublicSource implements RepoSource {
       // after the fetch resolves.
       if (totalBytes >= MAX_TOTAL_BYTES) return;
       totalBytes += MAX_FILE_BYTES; // optimistic claim
-      // With a token (e.g. a GitHub App installation), use the authenticated Contents
-      // API so private repos work. Without one, the raw host avoids API rate limits.
-      const content = token
-        ? await fetchContents(owner, repo, ref, path, token, signal)
-        : await fetchRaw(owner, repo, ref, path, signal);
-      if (content == null) {
-        totalBytes -= MAX_FILE_BYTES; // release the unused claim
-        return;
+      let claimed = true;
+      const releaseClaim = () => {
+        if (claimed) {
+          totalBytes -= MAX_FILE_BYTES;
+          claimed = false;
+        }
+      };
+      try {
+        // With a token (e.g. a GitHub App installation), use the authenticated Contents
+        // API so private repos work. Without one, the raw host avoids API rate limits.
+        const content = token
+          ? await fetchContents(owner, repo, ref, path, token, signal)
+          : await fetchRaw(owner, repo, ref, path, signal);
+        if (content == null) {
+          releaseClaim(); // release the unused claim
+          return;
+        }
+        const truncated = content.slice(0, MAX_FILE_BYTES);
+        totalBytes += truncated.length - MAX_FILE_BYTES; // reconcile claim → actual
+        claimed = false; // reconciled — no longer holding the flat optimistic claim
+        files.push({ path, content: truncated, bytes: content.length });
+      } catch {
+        // One pathological file (bad encoding, an unexpected Contents-API shape, a non-string
+        // body) must not reject the worker and, via Promise.all, abort the entire scan. Release
+        // the optimistic claim and skip the file — degrade coverage, mirroring the null path.
+        releaseClaim();
       }
-      const truncated = content.slice(0, MAX_FILE_BYTES);
-      totalBytes += truncated.length - MAX_FILE_BYTES; // reconcile claim → actual
-      files.push({ path, content: truncated, bytes: content.length });
     });
     // Keep deterministic order for stable prompts/caching.
     files.sort((a, b) => a.path.localeCompare(b.path));
@@ -429,7 +469,7 @@ async function fetchContents(
   signal?: AbortSignal,
 ): Promise<string | null> {
   const encoded = path.split("/").map(encodeURIComponent).join("/");
-  const url = `${API}/repos/${owner}/${repo}/contents/${encoded}?ref=${encodeURIComponent(branch)}`;
+  const url = `${API}/repos/${owner}/${repo}/contents/${encoded}?ref=${encodeRef(branch)}`;
   try {
     const res = await fetchWithTimeout(url, { headers: headers(token), cache: "no-store" }, TIMEOUT_FILE_MS, signal);
     if (!res.ok) return null;
@@ -448,7 +488,7 @@ async function fetchRaw(
   path: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const url = `${RAW}/${owner}/${repo}/${encodeURIComponent(branch)}/${path
+  const url = `${RAW}/${owner}/${repo}/${encodeRef(branch)}/${path
     .split("/")
     .map(encodeURIComponent)
     .join("/")}`;
