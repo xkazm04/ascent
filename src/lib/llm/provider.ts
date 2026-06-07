@@ -98,9 +98,14 @@ export function validateAssessment(raw: unknown): LlmAssessment {
     for (const r of obj.roadmap as Record<string, unknown>[]) {
       const title = typeof r?.title === "string" ? r.title.trim() : "";
       if (!title) continue;
-      const dim = typeof r.dimension === "string" && VALID_DIM_IDS.has(r.dimension as DimensionId)
-        ? (r.dimension as DimensionId)
-        : "D1";
+      // Drop a roadmap entry whose dimension is missing or unparseable instead of silently
+      // re-tagging it to D1 ("AI Tooling & Conventions") — a confidently wrong attribution in the
+      // user-facing roadmap is worse than an omission. Mirrors the discrepancies handling below.
+      const dim =
+        typeof r.dimension === "string" && VALID_DIM_IDS.has(r.dimension as DimensionId)
+          ? (r.dimension as DimensionId)
+          : null;
+      if (!dim) continue;
       roadmap.push({
         title,
         dimension: dim,
