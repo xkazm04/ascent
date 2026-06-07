@@ -375,7 +375,7 @@ export function OnboardingFlow({
                     aria-disabled={capped}
                     title={capped ? `Limit reached — deselect one to swap (max ${MAX_SELECT})` : undefined}
                     onClick={() => toggle(r.fullName)}
-                    className={`flex w-full items-center gap-3 rounded-lg border px-4 py-2.5 text-left transition ${
+                    className={`focus-ring flex w-full items-center gap-3 rounded-lg border px-4 py-2.5 text-left transition ${
                       checked
                         ? "border-accent bg-accent/10"
                         : capped
