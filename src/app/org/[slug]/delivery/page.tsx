@@ -59,7 +59,7 @@ export default async function OrgDelivery({ params }: { params: Promise<{ slug: 
               ) : undefined
             }
           />
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <Tile label="Review coverage" value={`${pr.avgReviewedRate}%`} color={scoreHex(pr.avgReviewedRate)} />
             <Tile label="Merge rate" value={`${pr.avgMergeRate}%`} color={scoreHex(pr.avgMergeRate)} />
             <Tile label="Small PRs" value={`${pr.avgSmallPrRate}%`} color={scoreHex(pr.avgSmallPrRate)} />
@@ -82,7 +82,7 @@ export default async function OrgDelivery({ params }: { params: Promise<{ slug: 
             title="Branch governance"
             description={`Guardrails on the default branch — from branch protection & rulesets, across ${gov.repos} repos.`}
           />
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Tile label="Protect main" value={`${gov.protectedRate}%`} color={scoreHex(gov.protectedRate)} />
             <Tile label="Require review" value={`${gov.requireReviewRate}%`} color={scoreHex(gov.requireReviewRate)} />
             <Tile label="Require checks" value={`${gov.requireChecksRate}%`} color={scoreHex(gov.requireChecksRate)} />

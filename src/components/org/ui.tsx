@@ -10,6 +10,9 @@ export const POSTURE_LABEL: Record<string, string> = {
 export const POSTURE_ORDER = ["ai-native", "ungoverned", "manual", "early"];
 export const DIMS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"];
 
+/** Canonical summary-tile grid — one column rhythm + gap for every tab's top tiles. */
+export const TILE_GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-4";
+
 export const fmtHours = (h: number | null) =>
   h == null ? "—" : h < 48 ? `${Math.round(h)}h` : `${(h / 24).toFixed(1)}d`;
 

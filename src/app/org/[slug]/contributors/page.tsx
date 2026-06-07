@@ -1,5 +1,5 @@
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { Meter, SectionEmpty, SectionHeader, Tile } from "@/components/org/ui";
+import { Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { getContributorInsights, listSegments } from "@/lib/db";
 import { scoreHex, timeAgo } from "@/lib/ui";
 
@@ -54,7 +54,7 @@ export default async function ContributorInsightsPage({
       </div>
 
         {/* Summary tiles */}
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={`mt-6 ${TILE_GRID}`}>
           <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" />
           <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} />
           <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
