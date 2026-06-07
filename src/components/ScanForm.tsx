@@ -66,7 +66,7 @@ export function ScanForm({
         }}
         aria-busy={submitting}
         className={`flex overflow-hidden rounded-lg border bg-slate-950/70 shadow-2xl shadow-black/40 backdrop-blur focus-within:border-accent ${
-          error ? "border-red-500/70" : "border-slate-700"
+          error ? "border-danger/70" : "border-slate-700"
         } ${shake ? "animate-shake" : ""}`}
         onAnimationEnd={() => setShake(false)}
       >
@@ -89,7 +89,7 @@ export function ScanForm({
         <button
           type="submit"
           disabled={submitting || !value.trim()}
-          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 font-mono text-xs font-semibold uppercase tracking-widest text-[#04070e] transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 font-mono text-xs font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? (
             <>
@@ -117,7 +117,7 @@ export function ScanForm({
 
       {/* Inline validation message, wired to the input via aria-describedby. */}
       {error && (
-        <p id={errorId} className="mt-2 text-sm text-red-400">
+        <p id={errorId} className="mt-2 text-sm text-danger">
           {error}
         </p>
       )}
