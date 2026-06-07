@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
 import type { HistoryPoint, RepositoryHistory } from "@/lib/db/scans";
+import { EmptyState } from "@/components/EmptyState";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
@@ -228,18 +229,15 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
       </div>
 
       {overallScans.length === 0 ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-10 text-center">
-          <p className="text-sm text-slate-400">
-            No scans in the selected range. Try a wider window.
-          </p>
+        <EmptyState icon="📈" title="No scans in the selected range" body="Try a wider window.">
           <button
             type="button"
             onClick={() => setRange("all")}
-            className="mt-3 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-white"
+            className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
           >
             Show all
           </button>
-        </div>
+        </EmptyState>
       ) : (
         <>
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
@@ -293,15 +291,16 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                 ))}
               </div>
             ) : dimState === "error" ? (
-              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-10 text-center">
-                <p className="text-sm text-slate-400">Couldn&apos;t load the per-dimension breakdown.</p>
-                <button
-                  type="button"
-                  onClick={() => void loadDimensions()}
-                  className="mt-3 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-white"
-                >
-                  Retry
-                </button>
+              <div className="mt-4">
+                <EmptyState variant="section" title="Couldn't load the per-dimension breakdown">
+                  <button
+                    type="button"
+                    onClick={() => void loadDimensions()}
+                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-white"
+                  >
+                    Retry
+                  </button>
+                </EmptyState>
               </div>
             ) : (
               // idle / loading — shimmer placeholder cards while the dimension rows load.
