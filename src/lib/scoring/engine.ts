@@ -164,7 +164,11 @@ export function projectScore(
       : 0,
   );
   const lvl = levelForScore(overall);
-  const fromIdx = LEVELS.findIndex((l) => l.id === report.level.id);
+  // An unrecognized current-level id (rubric schema drift, a legacy or hand-edited persisted
+  // scan) makes findIndex return -1; clamp to L1 so an unknown level can't read as "above
+  // everything" and falsely mark every projection a level-up. `toIdx` comes from levelForScore
+  // so it is always a valid band.
+  const fromIdx = Math.max(0, LEVELS.findIndex((l) => l.id === report.level.id));
   const toIdx = LEVELS.findIndex((l) => l.id === lvl.id);
   return {
     overallScore: overall,
@@ -189,8 +193,13 @@ export function projectDimensionClose(report: ScanReport, dim: DimensionId): Sco
  * dimension changed) and stops as soon as the projection crosses the next band floor.
  */
 export function cheapestPathToNextLevel(report: ScanReport): LevelPath {
-  const fromIdx = LEVELS.findIndex((l) => l.id === report.level.id);
-  const nextLevel = fromIdx >= 0 && fromIdx < LEVELS.length - 1 ? LEVELS[fromIdx + 1] : null;
+  // findIndex returns -1 for an unrecognized level id (schema drift / a legacy persisted scan).
+  // Treat it as the lowest band rather than conflating "not found" with "already at the top" —
+  // the latter returned reachable:true/target:null and rendered the repo as maxed out at L5 with
+  // no path to climb.
+  const rawIdx = LEVELS.findIndex((l) => l.id === report.level.id);
+  const fromIdx = rawIdx >= 0 ? rawIdx : 0;
+  const nextLevel = fromIdx < LEVELS.length - 1 ? LEVELS[fromIdx + 1] : null;
   if (!nextLevel) {
     return { reachable: true, target: null, steps: [], projected: projectScore(report, {}) };
   }
