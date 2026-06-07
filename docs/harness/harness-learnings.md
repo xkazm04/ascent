@@ -173,9 +173,12 @@
 - **2026-06-07** — User-facing counts derive from the source array (`DIMENSIONS.length`), never a hardcoded word.
 
 ### Open follow-ups (from UI Perfectionist Pipeline B, 2026-06-07 — 36/40 closed)
-- **OD#4 + OD#7** (carried): an "org-tab shell" pass — a shared `TabHeader` (consistent SegmentSelector
-  placement) + a section-spacing convention across the ~7–11 org tabs. Subjective/multi-file; do with the
-  dev server up for visual diffing. Full triage + per-wave detail in `docs/harness/ui-perfectionist-2026-06-07/`.
+- ~~**OD#4 + OD#7** (carried)~~ **RESOLVED 2026-06-08** (`8eed6cc`): OD#7 — org tab section rhythm
+  standardized to `space-y-6` (the 4-tab plurality); delivery + segments brought down from `space-y-8`.
+  Contributors keeps its intentional mixed `mt-*` (tight footnotes). OD#4 — verified already-consistent:
+  the filter `SegmentSelector` is top-right in both tabs that use it (overview, contributors); repositories'
+  `RepoSegmentsPanel` is a distinct *tagging* control, not the same filter. Full detail in
+  `docs/harness/ui-perfectionist-2026-06-07/FIXES-WAVE-8-org-tab-shell.md`.
 - **UB#6** (deferred): usage `Notice` docs affordance is blocked on a docs route that doesn't exist; the
   `Stat`/`Bar` dedup in `usage/page.tsx` is purely local cosmetic.
 - **SP#7** (skipped, not a bug): adding a "no public scans yet" notice to the marketing landing hero would
