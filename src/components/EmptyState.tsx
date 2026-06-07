@@ -9,29 +9,59 @@ export interface EmptyStateAction {
 }
 
 /**
- * The canonical centered empty/notice state — one icon, a title, body copy, and a row of link
- * actions. Unifies the three hand-rolled variants (report, trends, usage) that had drifted on icon
- * size, primary-button color (a raw hex vs the `text-on-accent` token), and button styling, so the
- * empty states stay visually consistent and a future tweak lands in one place. Server/client safe.
+ * The canonical empty/notice state for the whole app — one optional icon, a title, body copy, an
+ * optional alert banner, a row of link actions, and an optional custom-action slot (children, e.g.
+ * a client button or the GitHub sign-in CTA). Two scales:
+ *   - `variant="page"`    full-height hero notice (whole-page empties, sign-in, org dashboards)
+ *   - `variant="section"` a compact dashed in-card empty (per-section/inline empties)
+ *
+ * Every hand-rolled notice routes through here (SignInNotice, OrgEmpty, SectionEmpty, the trends
+ * empty/error states, the repo-picker empties) so the empty/notice states stay visually consistent
+ * and a future tweak lands in one place. Server/client safe — it owns no hooks, so client islands
+ * (buttons, the sign-in CTA) can be passed in as `children`.
  */
 export function EmptyState({
   icon,
   title,
   body,
   actions = [],
+  alert,
+  children,
+  variant = "page",
 }: {
-  icon: string;
-  title: string;
-  body: ReactNode;
+  icon?: string;
+  title?: string;
+  body?: ReactNode;
   actions?: EmptyStateAction[];
+  /** Optional banner rendered between the title and body (e.g. an expired-session alert). */
+  alert?: ReactNode;
+  /** Custom action node(s) (a client button, the GitHub sign-in CTA) rendered alongside `actions`. */
+  children?: ReactNode;
+  /** "page" = full-height hero notice; "section" = compact dashed in-card empty. */
+  variant?: "page" | "section";
 }) {
+  const section = variant === "section";
+  const wrap = section
+    ? "rounded-2xl border border-dashed border-slate-800 bg-slate-900/20 p-10 text-center"
+    : "flex flex-col items-center py-24 text-center";
+  const iconCls = section ? "text-3xl" : "text-5xl";
+  const titleCls = section ? "text-sm font-semibold text-white" : "mt-4 text-2xl font-bold text-white";
+  const bodyCls = section ? "mt-1 text-sm text-slate-400" : "mt-2 max-w-md text-slate-400";
+
   return (
-    <div className="flex flex-col items-center py-24 text-center">
-      <div className="text-5xl">{icon}</div>
-      <h1 className="mt-4 text-2xl font-bold text-white">{title}</h1>
-      <p className="mt-2 max-w-md text-slate-400">{body}</p>
-      {actions.length > 0 && (
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+    <div className={wrap}>
+      {icon && (
+        <div className={iconCls} aria-hidden="true">
+          {icon}
+        </div>
+      )}
+      {title != null &&
+        (section ? <div className={titleCls}>{title}</div> : <h1 className={titleCls}>{title}</h1>)}
+      {alert}
+      {body != null && <p className={bodyCls}>{body}</p>}
+      {(actions.length > 0 || children) && (
+        <div className={`flex flex-wrap items-center justify-center gap-3 ${section ? "mt-3" : "mt-6"}`}>
+          {children}
           {actions.map((a) => (
             <Link
               key={`${a.href}::${a.label}`}

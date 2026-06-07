@@ -8,8 +8,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
 import type { HistoryPoint, RepositoryHistory } from "@/lib/db/scans";
+import { EmptyState } from "@/components/EmptyState";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
-import { vScale, xScale } from "@/components/report/chartScale";
+import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
 
 /** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips). */
@@ -24,7 +25,17 @@ interface ScanMeta {
  * rendered as a gap in the line, never as a 0. Coercing absent→0 would fabricate a
  * crash-to-zero-and-recover that never happened. Hover snaps to the nearest present point.
  */
-function DimLine({ values, meta }: { values: (number | null)[]; meta: ScanMeta[] }) {
+function DimLine({
+  values,
+  meta,
+  name,
+  current,
+}: {
+  values: (number | null)[];
+  meta: ScanMeta[];
+  name?: string;
+  current?: number;
+}) {
   const W = 320;
   const H = 90;
   const x = xScale(values.length, 0, W);
@@ -63,12 +74,22 @@ function DimLine({ values, meta }: { values: (number | null)[]; meta: ScanMeta[]
         viewBox={`0 0 ${W} ${H}`}
         className="h-auto w-full"
         role="img"
-        aria-label="Dimension trend"
+        aria-label={
+          name
+            ? `${name} score trend${current !== undefined ? `, currently ${current} of 100` : ""}`
+            : "Dimension trend"
+        }
         style={{ touchAction: "none" }}
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
       >
-        {[25, 45, 65, 85].map((b) => (
+        {/* Shaded maturity bands — same strata as the overall chart, so both read on one frame. */}
+        {LEVEL_BANDS.map((band, i) => {
+          const top = y(i === 0 ? 100 : LEVEL_BANDS[i - 1].min);
+          const bottom = y(band.min);
+          return <rect key={band.min} x={0} y={top} width={W} height={Math.max(0, bottom - top)} fill={band.color} />;
+        })}
+        {BAND_EDGES.filter((e) => e > 0 && e < 100).map((b) => (
           <line key={b} x1={0} x2={W} y1={y(b)} y2={y(b)} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 4" />
         ))}
         {act && <line x1={x(act.i)} x2={x(act.i)} y1={0} y2={H} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />}
@@ -228,18 +249,15 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
       </div>
 
       {overallScans.length === 0 ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-10 text-center">
-          <p className="text-sm text-slate-400">
-            No scans in the selected range. Try a wider window.
-          </p>
+        <EmptyState icon="📈" title="No scans in the selected range" body="Try a wider window.">
           <button
             type="button"
             onClick={() => setRange("all")}
-            className="mt-3 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-white"
+            className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
           >
             Show all
           </button>
-        </div>
+        </EmptyState>
       ) : (
         <>
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
@@ -288,20 +306,21 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                         )}
                       </div>
                     </div>
-                    <DimLine values={r.series} meta={meta} />
+                    <DimLine values={r.series} meta={meta} name={r.name} current={r.current} />
                   </div>
                 ))}
               </div>
             ) : dimState === "error" ? (
-              <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-900/40 p-10 text-center">
-                <p className="text-sm text-slate-400">Couldn&apos;t load the per-dimension breakdown.</p>
-                <button
-                  type="button"
-                  onClick={() => void loadDimensions()}
-                  className="mt-3 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-white"
-                >
-                  Retry
-                </button>
+              <div className="mt-4">
+                <EmptyState variant="section" title="Couldn't load the per-dimension breakdown">
+                  <button
+                    type="button"
+                    onClick={() => void loadDimensions()}
+                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-white"
+                  >
+                    Retry
+                  </button>
+                </EmptyState>
               </div>
             ) : (
               // idle / loading — shimmer placeholder cards while the dimension rows load.

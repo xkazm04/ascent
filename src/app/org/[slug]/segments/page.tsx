@@ -84,7 +84,7 @@ export default async function OrgSegments({
   const comparison = await compareSegments(slug, aId, bId);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Per-segment rollup strip */}
       <div>
         <SectionHeader

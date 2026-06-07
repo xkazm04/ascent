@@ -150,3 +150,39 @@
 - **No unit tests exist** (only Playwright e2e, which needs a live server — not run this session). The engine
   math (guardband/rollup/level-path, `encodeRef`, the mock memo key) is pure and high-value to unit-test;
   none were added. `next build` + `tsc` + eslint were the gates. Adding a Vitest harness is a good future goal.
+
+## UI design system (from UI Perfectionist Pipeline B, 2026-06-07)
+
+### Structural facts
+- **2026-06-07** — Design tokens live in `src/app/globals.css` `@theme`: `--color-accent`/`-soft`,
+  `--color-ink` (#080d1a canvas), `--color-on-accent` (#04070e), `--color-danger`/`-soft`, `--color-warn`.
+  Tailwind v4 generates the full utility families (`bg-`/`text-`/`border-`/`via-`/`to-` + `/opacity`). For
+  inline `style`/SVG that can't take a class, use `var(--color-*)`.
+- **2026-06-07** — `EmptyState` (`components/EmptyState.tsx`) is THE notice primitive: `variant` page|section,
+  optional `icon`, `alert` slot, `children` action slot. `OrgEmpty` + `SectionEmpty` (org/ui.tsx) and
+  `SignInNotice` delegate to it; the trends/repo-picker empties use it too. Don't hand-roll notices.
+- **2026-06-07** — `OrgTable` (org/ui.tsx) is the shared fleet-table chrome (scroll wrapper, header, dividers,
+  built-in row hover); `TILE_GRID` is the canonical summary-tile grid. The 4 org data tables route through OrgTable.
+- **2026-06-07** — Chart visual language is single-sourced: `chartScale.ts` (`LEVEL_BANDS`/`BAND_EDGES`/`vScale`/
+  `xScale`) for bands+scale; line color = `scoreHex(last)` across TrendChart/DimLine/Sparkline; `heatCell`
+  (lib/ui.ts) gives heatmap cells an alpha-on-fill intensity + contrast-picked numeral.
+
+### Conventions enforced
+- **2026-06-07** — Token-over-hex: never hand-write `red-500`/`#04070e`/`#080d1a`/`#3b9eff`/`#f97316`; use the token.
+- **2026-06-07** — Text on a data-driven fill (level hex / badge / heatmap) must be contrast-picked, not hardcoded white.
+- **2026-06-07** — User-facing counts derive from the source array (`DIMENSIONS.length`), never a hardcoded word.
+
+### Open follow-ups (from UI Perfectionist Pipeline B, 2026-06-07 — 36/40 closed)
+- ~~**OD#4 + OD#7** (carried)~~ **RESOLVED 2026-06-08** (`8eed6cc`): OD#7 — org tab section rhythm
+  standardized to `space-y-6` (the 4-tab plurality); delivery + segments brought down from `space-y-8`.
+  Contributors keeps its intentional mixed `mt-*` (tight footnotes). OD#4 — verified already-consistent:
+  the filter `SegmentSelector` is top-right in both tabs that use it (overview, contributors); repositories'
+  `RepoSegmentsPanel` is a distinct *tagging* control, not the same filter. Full detail in
+  `docs/harness/ui-perfectionist-2026-06-07/FIXES-WAVE-8-org-tab-shell.md`.
+- **UB#6** (deferred): usage `Notice` docs affordance is blocked on a docs route that doesn't exist; the
+  `Stat`/`Bar` dedup in `usage/page.tsx` is purely local cosmetic.
+- **SP#7** (skipped, not a bug): adding a "no public scans yet" notice to the marketing landing hero would
+  clutter it — silent omission of the empty Live-discovery rail is correct.
+- **Section-stagger scroll-reveal** (SP#8 partial): the landing's below-fold section headings still lack the
+  staggered `reveal-pre` entrance — it needs an IntersectionObserver client wrapper (only the hero got
+  `animate-fade-up`, which is mount-safe).

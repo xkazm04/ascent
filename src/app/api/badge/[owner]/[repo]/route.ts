@@ -85,6 +85,25 @@ function esc(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+/**
+ * Pick the value-side text color for legibility on its fill. The lighter brand level fills
+ * (L3 yellow / L4 lime / L5 green) fail behind white, so choose whichever of white / near-black
+ * ink has the higher WCAG contrast against the fill. Accepts #rgb or #rrggbb; defaults to white.
+ */
+function readableOn(bg: string): string {
+  const h = bg.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return "#fff";
+  const lin = (i: number) => {
+    const v = parseInt(full.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const L = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+  const contrastWhite = 1.05 / (L + 0.05);
+  const contrastInk = (L + 0.05) / 0.05;
+  return contrastInk > contrastWhite ? "#04070e" : "#fff";
+}
+
 type BadgeStyle = "flat" | "flat-square" | "for-the-badge";
 
 /** Named colors map to brand hex; a #rrggbb / rrggbb value is accepted verbatim. */
@@ -132,7 +151,8 @@ function badgeSvg(opts: {
   const lw = Math.ceil(renderLabel.length * charW) + pad * 2 + logoW;
   const vw = Math.ceil(renderValue.length * charW) + pad * 2;
   const w = lw + vw;
-  const ty = Math.round(h / 2) + 4;
+  // Vertically center the text for ANY height/font — was a +4 constant tuned for the 28px/12px default.
+  const ty = Math.round(h / 2 + fontSize / 3);
 
   const gradient =
     style === "flat" || big
@@ -150,9 +170,9 @@ function badgeSvg(opts: {
   <rect rx="${rx}" x="${lw}" width="${vw}" height="${h}" fill="${esc(color)}"/>
   ${gradientRect}
   ${logoEl}
-  <g fill="#fff" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="${fontSize}" font-weight="600" ${ls}>
+  <g font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="${fontSize}" font-weight="600" ${ls}>
     <text x="${labelX}" y="${ty}" fill="#cbd5e1">${esc(renderLabel)}</text>
-    <text x="${lw + pad}" y="${ty}">${esc(renderValue)}</text>
+    <text x="${lw + pad}" y="${ty}" fill="${readableOn(color)}">${esc(renderValue)}</text>
   </g>
 </svg>`;
 

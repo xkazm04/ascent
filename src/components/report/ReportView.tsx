@@ -514,7 +514,7 @@ function ScoreWaterfall({ report }: { report: ScanReport }) {
             <div
               key={c.dimension}
               className="h-full shrink-0 border-r border-slate-950/40 last:border-r-0"
-              style={{ width, backgroundColor: scoreHex(c.score), transition }}
+              style={{ width, minWidth: c.points > 0 ? "0.375rem" : 0, backgroundColor: scoreHex(c.score), transition }}
               title={`${c.dimension} ${c.name}: ${c.score}/100 × ${Math.round(c.normalizedWeight * 100)}% weight = +${fmtPts(c.points)} pts`}
             />
           );

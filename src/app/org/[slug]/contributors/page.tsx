@@ -1,5 +1,5 @@
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { Meter, SectionEmpty, SectionHeader, Tile } from "@/components/org/ui";
+import { Meter, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { getContributorInsights, listSegments } from "@/lib/db";
 import { scoreHex, timeAgo } from "@/lib/ui";
 
@@ -54,11 +54,11 @@ export default async function ContributorInsightsPage({
       </div>
 
         {/* Summary tiles */}
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={`mt-6 ${TILE_GRID}`}>
           <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" />
           <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} />
           <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
-          <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "#f97316" : "#fff"} />
+          <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} />
         </div>
 
         {/* AI champions */}
@@ -94,20 +94,21 @@ export default async function ContributorInsightsPage({
             title="Involvement"
             description="Breadth (repos) × depth (commits) and each person's AI-commit share — context to explore, not a scoreboard."
           />
-          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">
-                <tr>
-                  <th className="px-4 py-2 text-left">Contributor</th>
-                  <th className="px-3 py-2 text-right">Commits</th>
-                  <th className="px-3 py-2 text-right">AI</th>
-                  <th className="px-3 py-2 text-left">AI share</th>
-                  <th className="px-3 py-2 text-left">Repos</th>
-                  <th className="px-3 py-2 text-left">Last active</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {insights.contributors.slice(0, 50).map((c) => (
+          <OrgTable
+            className="mt-3"
+            minWidth={720}
+            head={
+              <tr>
+                <th className="px-4 py-2 text-left">Contributor</th>
+                <th className="px-3 py-2 text-right">Commits</th>
+                <th className="px-3 py-2 text-right">AI</th>
+                <th className="px-3 py-2 text-left">AI share</th>
+                <th className="px-3 py-2 text-left">Repos</th>
+                <th className="px-3 py-2 text-left">Last active</th>
+              </tr>
+            }
+          >
+            {insights.contributors.slice(0, 50).map((c) => (
                   <tr key={c.login} className="text-slate-300">
                     <td className="px-4 py-2">
                       <span className="font-mono text-xs text-white">{c.login}</span>
@@ -130,9 +131,7 @@ export default async function ContributorInsightsPage({
                     <td className="px-3 py-2 text-xs text-slate-500">{timeAgo(c.lastActiveAt ?? undefined)}</td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+          </OrgTable>
           {insights.contributors.length > 50 && (
             <p className="mt-2 font-mono text-[11px] text-slate-600">Showing top 50 of {insights.contributors.length} by commits.</p>
           )}
@@ -149,19 +148,19 @@ export default async function ContributorInsightsPage({
               </>
             }
           />
-          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">
-                <tr>
-                  <th className="px-4 py-2 text-left">Repo</th>
-                  <th className="px-3 py-2 text-right">Contributors</th>
-                  <th className="px-3 py-2 text-left">Top contributor</th>
-                  <th className="px-3 py-2 text-left">Top share</th>
-                  <th className="px-3 py-2 text-right">Bus factor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {insights.concentration.map((r) => (
+          <OrgTable
+            className="mt-3"
+            head={
+              <tr>
+                <th className="px-4 py-2 text-left">Repo</th>
+                <th className="px-3 py-2 text-right">Contributors</th>
+                <th className="px-3 py-2 text-left">Top contributor</th>
+                <th className="px-3 py-2 text-left">Top share</th>
+                <th className="px-3 py-2 text-right">Bus factor</th>
+              </tr>
+            }
+          >
+            {insights.concentration.map((r) => (
                   <tr key={r.fullName} className="text-slate-300">
                     <td className="px-4 py-2">
                       <span className="font-mono text-xs text-white">{r.name}</span>
@@ -175,18 +174,16 @@ export default async function ContributorInsightsPage({
                     <td className="px-3 py-2 font-mono text-xs text-slate-400">{r.topLogin}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <Meter className="w-24" size="sm" value={r.topShare} color={r.topShare >= 80 ? "#f97316" : "#3b9eff"} />
+                        <Meter className="w-24" size="sm" value={r.topShare} color={r.topShare >= 80 ? "var(--color-warn)" : "var(--color-accent)"} />
                         <span className="w-9 font-mono text-xs text-slate-500">{r.topShare}%</span>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: r.busFactor <= 1 ? "#f97316" : undefined }}>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: r.busFactor <= 1 ? "var(--color-warn)" : undefined }}>
                       {r.busFactor}
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+          </OrgTable>
         </div>
 
         <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-sm text-slate-400">

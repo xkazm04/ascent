@@ -100,11 +100,10 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
   }
 
   return (
-    <div className="relative">
+    <div className="relative mx-auto w-full max-w-[340px]">
       <svg
-        width={size}
-        height={size}
         viewBox={`0 0 ${size} ${size}`}
+        className="h-auto w-full"
         role="img"
         aria-labelledby={`${titleId} ${descId}`}
         style={{ touchAction: "none" }}

@@ -46,7 +46,8 @@ export function Sparkline({
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
       >
-        <line x1={0} x2={width} y1={y(50)} y2={y(50)} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 3" />
+        {/* Reference line at the L4 (Advanced) threshold — a real band edge, not an arbitrary 50. */}
+        <line x1={0} x2={width} y1={y(65)} y2={y(65)} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 3" />
         {points.length > 1 && <path d={path} fill="none" stroke={scoreHex(last)} strokeWidth={1.75} />}
         {points.map((p, i) => (
           <circle
@@ -142,7 +143,10 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
           <line x1={xFor(a)} x2={xFor(a)} y1={m.top} y2={m.top + innerH} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />
         )}
         {/* line + points */}
-        {points.length > 1 && <path d={linePath} fill="none" stroke="#3b9eff" strokeWidth={2.5} />}
+        {/* Line color follows the latest score (red→green ramp), matching DimLine + Sparkline. */}
+        {points.length > 1 && (
+          <path d={linePath} fill="none" stroke={scoreHex(points[points.length - 1].score)} strokeWidth={2.5} />
+        )}
         {points.map((p, i) => (
           <g key={i}>
             <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke="#020617" strokeWidth={1.5} />

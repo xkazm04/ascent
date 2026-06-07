@@ -1,5 +1,5 @@
 // Shared presentational primitives for the org dashboard tabs (server-safe, no client hooks).
-import Link from "next/link";
+import { EmptyState } from "@/components/EmptyState";
 
 export const POSTURE_LABEL: Record<string, string> = {
   "ai-native": "AI-Native",
@@ -9,6 +9,9 @@ export const POSTURE_LABEL: Record<string, string> = {
 };
 export const POSTURE_ORDER = ["ai-native", "ungoverned", "manual", "early"];
 export const DIMS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"];
+
+/** Canonical summary-tile grid — one column rhythm + gap for every tab's top tiles. */
+export const TILE_GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-4";
 
 export const fmtHours = (h: number | null) =>
   h == null ? "—" : h < 48 ? `${Math.round(h)}h` : `${(h / 24).toFixed(1)}d`;
@@ -65,6 +68,34 @@ export function Tile({
  */
 export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`rounded-2xl border border-slate-800 bg-slate-900/40 p-6 ${className}`}>{children}</div>;
+}
+
+/**
+ * Shared fleet-table chrome — one scroll wrapper, border radius, header styling, row dividers, and a
+ * subtle row hover. Replaces four hand-rolled copies that had drifted on min-width. Pass the header
+ * row via `head` and the body rows as children; `minWidth` keeps a wide table horizontally scrollable.
+ */
+export function OrgTable({
+  head,
+  children,
+  minWidth = 640,
+  className = "",
+}: {
+  head: React.ReactNode;
+  children: React.ReactNode;
+  minWidth?: number;
+  className?: string;
+}) {
+  return (
+    <div className={`overflow-x-auto rounded-2xl border border-slate-800 ${className}`}>
+      <table className="w-full text-sm" style={{ minWidth: `${minWidth}px` }}>
+        <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">{head}</thead>
+        <tbody className="divide-y divide-slate-800 [&>tr]:transition-colors [&>tr:hover]:bg-slate-900/40">
+          {children}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /**
@@ -135,25 +166,12 @@ export function Meter({
 }
 
 export function SectionEmpty({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/20 p-10 text-center text-sm text-slate-500">
-      {children}
-    </div>
-  );
+  // Section-scale empty — delegates to the canonical EmptyState so every empty state shares one
+  // implementation. Keeps the {children}-as-body API so existing call sites stay unchanged.
+  return <EmptyState variant="section" body={children} />;
 }
 
 export function OrgEmpty({ title, body, href, cta }: { title: string; body: string; href?: string; cta?: string }) {
-  return (
-    <div className="flex flex-col items-center py-24 text-center">
-      <div className="text-4xl">🏔️</div>
-      <h1 className="mt-4 text-2xl font-bold text-white">{title}</h1>
-      <p className="mt-2 max-w-md text-slate-400">{body}</p>
-      <Link
-        href={href ?? "/"}
-        className="mt-6 rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 hover:border-accent hover:text-white"
-      >
-        {cta ?? "← Home"}
-      </Link>
-    </div>
-  );
+  // Page-scale org empty — delegates to the canonical EmptyState (was a near-duplicate scaffold).
+  return <EmptyState icon="🏔️" title={title} body={body} actions={[{ label: cta ?? "← Home", href: href ?? "/" }]} />;
 }

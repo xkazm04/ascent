@@ -5,7 +5,7 @@ import { GoalsOverview } from "@/components/org/GoalsOverview";
 import { PeriodSummary } from "@/components/org/PeriodSummary";
 import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { Card, Meter, SectionHeader, Tile, POSTURE_LABEL, POSTURE_ORDER } from "@/components/org/ui";
+import { Card, Meter, SectionHeader, Tile, TILE_GRID, POSTURE_LABEL, POSTURE_ORDER } from "@/components/org/ui";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, IMPACT_CLASS, scoreHex } from "@/lib/ui";
@@ -108,7 +108,7 @@ export default async function OrgOverview({
       <PeriodSummary window={period} rollup={rollup} movers={movers} />
 
       {/* Tiles */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className={TILE_GRID}>
         <Tile
           label="Org maturity"
           value={rollup.avgOverall}

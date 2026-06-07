@@ -75,6 +75,45 @@ export function scoreHex(score: number): string {
   return LEVEL_HEX[levelForScore(score).id];
 }
 
+/** Parse #rrggbb / #rgb → [r, g, b] (0..255). */
+function rgbOf(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  const f = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  return [parseInt(f.slice(0, 2), 16), parseInt(f.slice(2, 4), 16), parseInt(f.slice(4, 6), 16)];
+}
+
+/** WCAG relative luminance of an [r, g, b] triple. */
+function relLuminance([r, g, b]: [number, number, number]): number {
+  const ch = (v: number) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+}
+
+/**
+ * Heatmap cell styling for a 0..100 score rendered at a given intensity `alpha`. The intensity is
+ * carried by the FILL's alpha (an rgba), NOT the element's `opacity` — putting opacity on the cell
+ * also faded the numeral, which made low-score cells (the weaknesses users look for) unreadable. The
+ * numeral color is then contrast-picked against the cell's effective color over the dark canvas, so
+ * faint low-score cells get light text and bright high-score cells get dark ink.
+ */
+export function heatCell(score: number, alpha: number): { fill: string; text: string } {
+  const fg = rgbOf(LEVEL_HEX[levelForScore(score).id]);
+  const bg: [number, number, number] = [11, 19, 34]; // #0b1322 — the dark canvas behind the cell
+  const eff: [number, number, number] = [
+    Math.round(fg[0] * alpha + bg[0] * (1 - alpha)),
+    Math.round(fg[1] * alpha + bg[1] * (1 - alpha)),
+    Math.round(fg[2] * alpha + bg[2] * (1 - alpha)),
+  ];
+  const le = relLuminance(eff);
+  // Compare white (~0.75 luminance) vs near-black ink against the effective cell color; higher wins.
+  const contrastLight = 0.8 / (le + 0.05);
+  const contrastInk = (le + 0.05) / 0.05;
+  const text = contrastInk >= contrastLight ? "#04070e" : "#e2e8f0";
+  return { fill: `rgba(${fg[0]}, ${fg[1]}, ${fg[2]}, ${alpha})`, text };
+}
+
 export const IMPACT_CLASS: Record<string, string> = {
   high: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
   medium: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
