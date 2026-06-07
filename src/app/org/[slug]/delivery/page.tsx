@@ -39,7 +39,7 @@ export default async function OrgDelivery({ params }: { params: Promise<{ slug: 
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Pull request signals */}
       {pr && (
         <div>
