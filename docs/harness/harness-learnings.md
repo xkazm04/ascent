@@ -34,6 +34,26 @@
   shared `public` org is open (the free funnel); a real org requires a session whose `installations` include it.
   `/api/org/import` is a **deliberately anonymous public funnel** — gate only its token-minting (private) path.
 
+- **2026-06-07** — The ingestion byte budget is sized for the **deterministic scorer, NOT the LLM
+  prompt**. Detectors in analyze/index.ts read the FULL fetched `f.content` with length thresholds
+  (`guidance.length>=4000`→D1, `readme.length>=1500`→D5) and pattern-match across whole files;
+  `prompt.ts` separately truncates to 2200/file + 22000 total for the model. So `MAX_FILE_BYTES`/
+  `MAX_TOTAL_BYTES` (source.ts:35-37) being >> the 22KB prompt window is INTENTIONAL — shrinking
+  them to "stop fetching discarded bytes" regresses D1/D5 scores. (Documented inline in prompt.ts.)
+- **2026-06-07** — Git refs are encoded **slash-preserving** via `encodeRef` (source.ts): each
+  path segment `encodeURIComponent`'d, slashes kept. `encodeURIComponent` on a whole slashed ref
+  (`release/1.2`→`release%2F1.2`) makes every tree/raw/contents read 404 → content-less near-mock report.
+- **2026-06-07** — `fetchSnapshot` fires the `/repos` metadata call in **parallel** with tree+commits
+  when `opts.ref` is pinned (PR head, or the headSha threaded from `scanRepository`/`lookupCachedScan`);
+  only the no-ref path is serial (it needs the default branch from metadata first).
+- **2026-06-07** — `MockProvider.assess` is **memoized** (bounded LRU, mock.ts) keyed on a fingerprint
+  of the drivers — repo identity + `headSha` + archetype + per-signal scores. Keyed on signal scores,
+  NOT headSha alone: a tokened scan folds in PR/governance signals, so the same commit can yield
+  different signals and must not collide.
+- **2026-06-07** — `GET /api/scan?peek=1` now returns the resolved head as `x-ascent-head-sha`/
+  `-etag` headers on a 204 miss; the `/report` client forwards them into the stream POST body, which
+  passes `preResolved` to `lookupCachedScan` to skip the duplicate conditional head request.
+
 ## Conventions enforced
 - **2026-06-02** — One canonical cache key everywhere via `makeCacheKey` (cache.ts); every reader/writer
   (scan routes, badge, gate) must resolve the sha through a `resolveHead`-based path so keys agree.
@@ -47,6 +67,10 @@
   actions[]); don't hand-roll the markup (the report/trends/usage variants had drifted on tokens + icon size).
 - **2026-06-03** — Every mutating / token-minting `/api/org/*` (and `/api/app/*`) handler MUST call
   `requireOrgAccess(org)` from `src/lib/authz.ts` at the top — there is no middleware to fall back on.
+
+- **2026-06-07** — When two pipeline stages need different amounts of the same data (detectors want
+  full file content; the LLM prompt wants a 22KB excerpt), keep the budgets DECOUPLED and document
+  why. "Align them to save bytes" is a tempting but wrong simplification (it silently moves scores).
 
 ## Anti-patterns to avoid
 - **2026-06-02** — `clamp(Math.round(Number(x))) || 0` silently turns a missing/NaN value into a real 0.
@@ -66,6 +90,13 @@
 - **2026-06-03** — A verified webhook signature proves authenticity, NOT freshness/ownership: trusting
   `payload.installation`/`repository` verbatim invites replay + confused-deputy. Dedupe the delivery id and
   cross-check the installation against the stored owner mapping before minting a token.
+- **2026-06-07** — `LEVELS.findIndex(l => l.id === report.level.id)` returns **-1** for an unknown level id
+  (rubric schema drift / legacy persisted scan). `fromIdx>=0 && …` then conflated -1 with "already at top"
+  (reachable:true/target:null → repo shown maxed at L5), and `toIdx > fromIdx` made every projection a false
+  level-up. Clamp -1 → L1 (engine.ts: `cheapestPathToNextLevel`, `projectScore`).
+- **2026-06-07** — Defaulting an unparseable enum to a real value fabricates confidently-wrong output:
+  `validateAssessment` mapped a roadmap item with a bad/missing `dimension` to `"D1"`. Drop/skip it like the
+  discrepancies path does (provider.ts) — an omission beats a wrong attribution in the user-facing roadmap.
 
 ## Open follow-ups (from Pipeline C scan-and-decide, 2026-06-02)
 - **Degraded-mock persistence**: the `#2` fix only skips the in-memory `cacheSet`. When `DATABASE_URL`
@@ -103,3 +134,19 @@
   working-tree WIP (~170 lines in auth.ts), per the user's standing "commit bundled" choice. Not clean to bisect.
 - **Webhook replay dedupe is process-local** (in-memory, like the badge/rate-limit caches): collapses same-instance
   replays only. A cross-instance/durable guard (persist delivery ids) would be needed for multi-instance hardening.
+
+## Open follow-ups (from Pipeline C scan-and-decide, 2026-06-07 — "Repository Scanning & Scoring" group)
+- **Idea #5 (2e2fda37) was RESCOPED, not fully done**: the accepted idea proposed shrinking the ingestion
+  byte budget to match the prompt window. That regresses deterministic scores (detectors read full content
+  with length thresholds — see Structural facts), so only the score-neutral half shipped: prompt.ts now stops
+  building excerpts past the 22KB window (byte-identical output). The fetch budget was deliberately left alone.
+- **#6 trusts the client-supplied headSha as an OPTIMIZATION only**: it keys a per-commit (self-owned) cache
+  entry, so a wrong sha causes a self-inflicted miss/error but can't serve another commit's report or poison
+  the shared cache. If a future change ever makes the stream SERVE a cached report based on the client sha
+  WITHOUT re-validating the head, that becomes a real correctness/trust surface — re-audit then.
+- **PR-ref headSha stamping still open** (carried from 2026-06-02): #7 restructured `fetchSnapshot` but left
+  `repoMeta.headSha = treeRes.sha` (the tree object's sha) for PR-`ref` scans; anonymous cached scans still
+  override it via `ScanOptions.headSha`. Recording the commit sha uniformly remains a follow-up.
+- **No unit tests exist** (only Playwright e2e, which needs a live server — not run this session). The engine
+  math (guardband/rollup/level-path, `encodeRef`, the mock memo key) is pure and high-value to unit-test;
+  none were added. `next build` + `tsc` + eslint were the gates. Adding a Vitest harness is a good future goal.
