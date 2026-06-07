@@ -19,6 +19,10 @@ export async function POST(request: Request) {
     mock?: boolean;
     installationId?: string;
     fresh?: boolean;
+    // Head sha/etag the /report peek already resolved, passed back to skip a duplicate head
+    // lookup on the cold-report path. Honored only for anonymous, non-fresh scans.
+    headSha?: string;
+    headEtag?: string | null;
   };
   if (!body.url || typeof body.url !== "string") {
     return NextResponse.json({ error: "Missing 'url' in request body." }, { status: 400 });
@@ -61,7 +65,14 @@ export async function POST(request: Request) {
         // result. A failed head lookup degrades to a SHA-less best-effort key inside the helper.
         let lookup: ScanCacheLookup | null = null;
         if (parsed && !token) {
-          lookup = await lookupCachedScan({ parsed, useLLM: !mock, orgSlug: "public", fresh });
+          // Reuse the head the /report peek already resolved (passed back by the client) to skip a
+          // second conditional head request. Only for non-fresh scans; a fresh re-test bypasses the
+          // peek entirely so no sha is sent.
+          const preResolved =
+            !fresh && typeof body.headSha === "string" && body.headSha
+              ? { headSha: body.headSha, etag: typeof body.headEtag === "string" ? body.headEtag : null }
+              : undefined;
+          lookup = await lookupCachedScan({ parsed, useLLM: !mock, orgSlug: "public", fresh, preResolved });
           if (lookup.cached) {
             send("progress", {
               stage: "done",

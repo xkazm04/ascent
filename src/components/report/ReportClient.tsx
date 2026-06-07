@@ -82,6 +82,9 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
       // re-score even when an identical report already existed for this commit. Peek the cache-only
       // endpoint; on a hit render immediately, on a miss (204) or any error fall through to the
       // streaming scan. A fresh=1 re-test (or the in-place "Re-test" button) skips the peek.
+      // On a peek MISS the server hands back the head sha/etag it just resolved; forward them to
+      // the stream so it skips a duplicate head lookup instead of re-resolving from scratch.
+      let peekHead: { headSha: string; headEtag: string | null } | null = null;
       if (!fresh) {
         try {
           const peek = await fetch(`/api/scan?url=${encodeURIComponent(repo)}&peek=1`, {
@@ -97,6 +100,8 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
               return;
             }
           }
+          const hs = peek.headers.get("x-ascent-head-sha");
+          if (hs) peekHead = { headSha: hs, headEtag: peek.headers.get("x-ascent-head-etag") };
         } catch {
           if (cancelled) return;
           // Peek failed (offline, abort, etc.) — fall through to the streaming scan below.
@@ -107,7 +112,7 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
         const res = await fetch("/api/scan/stream", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: repo, fresh }),
+          body: JSON.stringify({ url: repo, fresh, ...(peekHead ?? {}) }),
           signal: controller.signal,
         });
         if (cancelled) return;

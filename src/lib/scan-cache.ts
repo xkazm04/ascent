@@ -45,31 +45,48 @@ export async function lookupCachedScan(opts: {
   useLLM: boolean;
   orgSlug?: string;
   fresh?: boolean;
+  /**
+   * A head sha/etag already resolved by an EARLIER lookup in the same logical flow — specifically
+   * the /report peek → stream handoff, where the peek resolves the head, misses, and the client
+   * passes the sha back. When set, skip the conditional head request entirely and reuse it, so the
+   * cold-report path pays one head lookup instead of two. Trusted only as an optimization: a wrong
+   * sha just keys a different (self-owned) cache entry — it can cause a self-inflicted miss/error
+   * but cannot serve another commit's report or poison the shared cache.
+   */
+  preResolved?: { headSha: string; etag: string | null };
 }): Promise<ScanCacheLookup> {
-  const { parsed, useLLM, orgSlug = "public", fresh = false } = opts;
+  const { parsed, useLLM, orgSlug = "public", fresh = false, preResolved } = opts;
   const { owner, repo } = parsed;
-
-  // Prior {etag, headSha}: in-memory fast path, else the durable Repository record (cold start).
-  const prior = headHintGet(owner, repo) ?? (await getHeadHint(owner, repo, { orgSlug }));
-
-  // Conditional head lookup — a free 304 when the prior ETag still matches.
-  const head = await resolveHead(parsed, { token: process.env.GITHUB_TOKEN, etag: prior?.etag ?? null });
 
   let headSha: string | null = null;
   let etag: string | null = null;
-  if (head.status === "ok") {
-    headSha = head.sha;
-    etag = head.etag;
-    headHintSet(owner, repo, { etag, headSha });
-  } else if (head.status === "unmodified" && prior) {
-    // 304 — repo unchanged. The prior sha is still current; reuse its ETag and refresh recency.
-    headSha = prior.headSha;
-    etag = prior.etag;
+  if (preResolved) {
+    // Reuse the head the peek already resolved — no second GitHub round-trip. Refresh the
+    // warm-instance hint so a later conditional request still validates for free.
+    headSha = preResolved.headSha;
+    etag = preResolved.etag;
     headHintSet(owner, repo, { etag, headSha });
   } else {
-    // Lookup failed (network/limit), or a 304 with no remembered sha (shouldn't happen). Fall
-    // back to a SHA-less key — best-effort caching rather than failing the scan.
-    return { cacheKey: makeCacheKey(owner, repo, useLLM, null), headSha: null, etag: null, cached: null, source: null };
+    // Prior {etag, headSha}: in-memory fast path, else the durable Repository record (cold start).
+    const prior = headHintGet(owner, repo) ?? (await getHeadHint(owner, repo, { orgSlug }));
+
+    // Conditional head lookup — a free 304 when the prior ETag still matches.
+    const head = await resolveHead(parsed, { token: process.env.GITHUB_TOKEN, etag: prior?.etag ?? null });
+
+    if (head.status === "ok") {
+      headSha = head.sha;
+      etag = head.etag;
+      headHintSet(owner, repo, { etag, headSha });
+    } else if (head.status === "unmodified" && prior) {
+      // 304 — repo unchanged. The prior sha is still current; reuse its ETag and refresh recency.
+      headSha = prior.headSha;
+      etag = prior.etag;
+      headHintSet(owner, repo, { etag, headSha });
+    } else {
+      // Lookup failed (network/limit), or a 304 with no remembered sha (shouldn't happen). Fall
+      // back to a SHA-less key — best-effort caching rather than failing the scan.
+      return { cacheKey: makeCacheKey(owner, repo, useLLM, null), headSha: null, etag: null, cached: null, source: null };
+    }
   }
 
   const cacheKey = makeCacheKey(owner, repo, useLLM, headSha);

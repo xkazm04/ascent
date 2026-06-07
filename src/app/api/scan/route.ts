@@ -58,7 +58,15 @@ async function runScan(
   // re-scoring from scratch. A cache miss here (or a private/unparseable repo that can't use the
   // shared anonymous cache) returns 204 — the client then falls back to streaming a fresh scan.
   if (opts.peek) {
-    return new NextResponse(null, { status: 204 });
+    // Hand the head sha/etag we just resolved back to the client so the follow-up streaming scan
+    // (the hot peek-miss path) can reuse them and skip a duplicate conditional head request. Only
+    // present for anonymous, parseable repos (the ones that share the public cache).
+    const peekHeaders: Record<string, string> = {};
+    if (lookup?.headSha) {
+      peekHeaders["x-ascent-head-sha"] = lookup.headSha;
+      if (lookup.etag) peekHeaders["x-ascent-head-etag"] = lookup.etag;
+    }
+    return new NextResponse(null, { status: 204, headers: peekHeaders });
   }
 
   // Pass the head sha resolved for the cache key so the scored commit matches the key (no SHA
