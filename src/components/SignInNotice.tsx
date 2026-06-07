@@ -6,7 +6,7 @@ import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 export function SignInNotice({ next, expired = false }: { next: string; expired?: boolean }) {
   return (
     <div className="flex flex-col items-center py-24 text-center">
-      <div className="text-4xl" aria-hidden="true">
+      <div className="text-5xl" aria-hidden="true">
         🔐
       </div>
       <h1 className="mt-4 text-2xl font-bold text-white">
