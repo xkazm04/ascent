@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 // Fallback chips when the live index is empty (DB-less MVP, or no scans yet).
 const FALLBACK_EXAMPLES = ["facebook/react", "vercel/next.js", "anthropics/claude-code"];
@@ -42,6 +42,17 @@ export function ScanForm({
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(false);
   const errorId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pendingChip, setPendingChip] = useState<string | null>(null);
+
+  // Autofocus only on a pointer-precise, wide viewport — on phones a bare autoFocus yanks the
+  // keyboard open and scrolls the page past the hero (SP#6).
+  useEffect(() => {
+    if (!autoFocus || typeof window === "undefined") return;
+    if (window.matchMedia("(min-width: 640px)").matches && window.matchMedia("(pointer: fine)").matches) {
+      inputRef.current?.focus();
+    }
+  }, [autoFocus]);
 
   function submit() {
     const normalized = normalizeRepo(value);
@@ -74,7 +85,7 @@ export function ScanForm({
           github.com/
         </span>
         <input
-          autoFocus={autoFocus}
+          ref={inputRef}
           value={value}
           onChange={(e) => {
             setValue(e.target.value);
@@ -129,21 +140,35 @@ export function ScanForm({
 
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 font-mono text-xs text-slate-400">
         <span className="uppercase tracking-widest">Try:</span>
-        {chips.map((ex) => (
-          <button
-            key={ex}
-            type="button"
-            onClick={() => {
-              setValue(ex);
-              setError(null);
-              setSubmitting(true);
-              router.push(`/report?repo=${encodeURIComponent(ex)}`);
-            }}
-            className="focus-ring rounded-md border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-300 transition hover:border-accent hover:text-accent"
-          >
-            {ex}
-          </button>
-        ))}
+        {chips.map((ex) => {
+          const chipPending = pendingChip === ex;
+          return (
+            <button
+              key={ex}
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                setValue(ex);
+                setError(null);
+                setSubmitting(true);
+                setPendingChip(ex);
+                router.push(`/report?repo=${encodeURIComponent(ex)}`);
+              }}
+              className={`focus-ring rounded-md border px-3 py-1 transition disabled:cursor-not-allowed ${
+                chipPending
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-accent hover:text-accent"
+              } ${submitting && !chipPending ? "opacity-50" : ""}`}
+            >
+              {ex}
+              {chipPending && (
+                <span aria-hidden className="ml-1.5 motion-safe:animate-pulse">
+                  …
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
