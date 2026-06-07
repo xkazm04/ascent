@@ -25,7 +25,17 @@ interface ScanMeta {
  * rendered as a gap in the line, never as a 0. Coercing absent→0 would fabricate a
  * crash-to-zero-and-recover that never happened. Hover snaps to the nearest present point.
  */
-function DimLine({ values, meta }: { values: (number | null)[]; meta: ScanMeta[] }) {
+function DimLine({
+  values,
+  meta,
+  name,
+  current,
+}: {
+  values: (number | null)[];
+  meta: ScanMeta[];
+  name?: string;
+  current?: number;
+}) {
   const W = 320;
   const H = 90;
   const x = xScale(values.length, 0, W);
@@ -64,7 +74,11 @@ function DimLine({ values, meta }: { values: (number | null)[]; meta: ScanMeta[]
         viewBox={`0 0 ${W} ${H}`}
         className="h-auto w-full"
         role="img"
-        aria-label="Dimension trend"
+        aria-label={
+          name
+            ? `${name} score trend${current !== undefined ? `, currently ${current} of 100` : ""}`
+            : "Dimension trend"
+        }
         style={{ touchAction: "none" }}
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
@@ -292,7 +306,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                         )}
                       </div>
                     </div>
-                    <DimLine values={r.series} meta={meta} />
+                    <DimLine values={r.series} meta={meta} name={r.name} current={r.current} />
                   </div>
                 ))}
               </div>
