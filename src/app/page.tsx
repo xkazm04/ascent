@@ -40,14 +40,14 @@ export default async function Home() {
             <div className="absolute inset-0 bg-gradient-to-t from-transparent via-ink/35 to-ink" />
           </div>
 
-          <div className="mx-auto flex max-w-6xl flex-col items-center text-center">
+          <div className="animate-fade-up mx-auto flex max-w-6xl flex-col items-center text-center">
             <Kicker>The AI-native maturity index</Kicker>
             <h1 className="mt-4 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-white sm:text-6xl">
               How <span className="text-accent">AI-native</span> is your engineering org?
             </h1>
             <p className="mt-5 max-w-2xl text-lg text-slate-400">
               Point Ascent at a GitHub repository. It reads its altitude on a 5-level ladder
-              across 7 dimensions — with evidence and a prioritized route to the next level.
+              across {DIMENSIONS.length} dimensions — with evidence and a prioritized route to the next level.
             </p>
             <div className="mt-9 flex w-full justify-center">
               <ScanForm autoFocus examples={exampleRepos} />
@@ -109,7 +109,7 @@ export default async function Home() {
                 {
                   n: "03",
                   t: "Get the route",
-                  d: "A level, a radar across 7 dimensions, the evidence behind every score, and prioritized next steps to climb.",
+                  d: `A level, a radar across ${DIMENSIONS.length} dimensions, the evidence behind every score, and prioritized next steps to climb.`,
                 },
               ].map((s) => (
                 <div key={s.n} className="rounded-xl border border-slate-800 bg-slate-900/40 p-6">
@@ -124,7 +124,7 @@ export default async function Home() {
           {/* Dimensions */}
           <section className="py-12">
             <Kicker>The instrument</Kicker>
-            <h2 className="mt-2 text-2xl font-bold text-white">Eight scoring dimensions</h2>
+            <h2 className="mt-2 text-2xl font-bold text-white">{DIMENSIONS.length} scoring dimensions</h2>
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {DIMENSIONS.map((d) => (
                 <div key={d.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
