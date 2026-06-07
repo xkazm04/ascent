@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { EmptyState } from "@/components/EmptyState";
 import { LEVEL_CLASSES, timeAgo } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
@@ -189,15 +190,16 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   if (view.status === "loading") return <RepoListSkeleton />;
   if (view.status === "error")
     return (
-      <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/5 p-5 text-sm text-red-300">
+      <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 p-5 text-sm text-danger-soft">
         {view.message}
       </div>
     );
   if (view.repos.length === 0)
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-400">
-        No repositories accessible to this installation. Adjust access on GitHub, then refresh.
-      </div>
+      <EmptyState
+        variant="section"
+        body="No repositories accessible to this installation. Adjust access on GitHub, then refresh."
+      />
     );
 
   const watchedCount = view.repos.filter((r) => r.state?.watched).length;
@@ -258,9 +260,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5 text-sm text-slate-400">
-          No repositories match your search and filters.
-        </div>
+        <EmptyState variant="section" body="No repositories match your search and filters." />
       ) : (
         <div className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/40">
           {filtered.map((r) => {
@@ -323,7 +323,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
                   </Link>
                 </div>
                 {rowError && (
-                  <p role="alert" className="mt-2 text-xs text-red-400">
+                  <p role="alert" className="mt-2 text-xs text-danger">
                     {rowError}
                   </p>
                 )}
