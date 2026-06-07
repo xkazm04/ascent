@@ -461,7 +461,7 @@ export function OnboardingFlow({
             />
           </div>
           <span className="font-mono text-xs tabular-nums text-slate-400">
-            {completed}/{scanTotal}
+            {pct}% · {completed}/{scanTotal}
           </span>
           {phase === "scanning" && (
             <button
