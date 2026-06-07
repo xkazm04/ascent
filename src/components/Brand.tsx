@@ -34,7 +34,7 @@ export async function SiteHeader() {
   const orgOptions = showSwitcher ? orgOptionsForSession(session) : [];
   const activeOrg = showSwitcher ? await getActiveOrg(session) : "public";
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-800/70 bg-[#080d1a]/80 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-slate-800/70 bg-ink/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
         <Link href="/" className="focus-ring rounded-sm">
           <Logo />

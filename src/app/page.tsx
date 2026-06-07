@@ -37,7 +37,7 @@ export default async function Home() {
               sizes="100vw"
               className="object-cover object-bottom opacity-70"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-transparent via-[#080d1a]/35 to-[#080d1a]" />
+            <div className="absolute inset-0 bg-gradient-to-t from-transparent via-ink/35 to-ink" />
           </div>
 
           <div className="mx-auto flex max-w-6xl flex-col items-center text-center">
