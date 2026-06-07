@@ -58,7 +58,7 @@ export default async function ContributorInsightsPage({
           <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" />
           <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} />
           <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
-          <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "#f97316" : "#fff"} />
+          <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} />
         </div>
 
         {/* AI champions */}
@@ -175,11 +175,11 @@ export default async function ContributorInsightsPage({
                     <td className="px-3 py-2 font-mono text-xs text-slate-400">{r.topLogin}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <Meter className="w-24" size="sm" value={r.topShare} color={r.topShare >= 80 ? "#f97316" : "#3b9eff"} />
+                        <Meter className="w-24" size="sm" value={r.topShare} color={r.topShare >= 80 ? "var(--color-warn)" : "var(--color-accent)"} />
                         <span className="w-9 font-mono text-xs text-slate-500">{r.topShare}%</span>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: r.busFactor <= 1 ? "#f97316" : undefined }}>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: r.busFactor <= 1 ? "var(--color-warn)" : undefined }}>
                       {r.busFactor}
                     </td>
                   </tr>
