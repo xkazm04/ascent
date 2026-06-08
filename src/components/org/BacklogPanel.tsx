@@ -105,8 +105,8 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
       : backlog.byDue.map((g: BacklogDueGroup) => ({
           key: g.bucket,
           header: (
-            <span className={`text-sm font-semibold ${g.bucket === "overdue" ? "text-orange-300" : "text-white"}`}>
-              {g.label} <span className="font-mono text-[11px] text-slate-500">· {g.items.length}</span>
+            <span className={`text-base font-semibold ${g.bucket === "overdue" ? "text-orange-300" : "text-white"}`}>
+              {g.label} <span className="font-mono text-sm text-slate-500">· {g.items.length}</span>
             </span>
           ),
           items: g.items,
@@ -116,8 +116,8 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
     <div className="space-y-5">
       <SummaryStrip b={backlog} />
 
-      <div className="flex items-center gap-1 text-xs">
-        <span className="mr-1 font-mono text-[11px] uppercase tracking-widest text-slate-500">Group by</span>
+      <div className="flex items-center gap-1 text-sm">
+        <span className="mr-1 font-mono text-sm uppercase tracking-widest text-slate-500">Group by</span>
         {(["owner", "due"] as const).map((v) => (
           <button
             key={v}
@@ -133,7 +133,7 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
 
       {groups.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-500">
+          <p className="text-base text-slate-500">
             Nothing active in the backlog — every recommendation is done or dismissed. 🎉
           </p>
         </Card>
@@ -168,7 +168,7 @@ function Stat({ label, value, color }: { label: string; value: number; color?: s
       <div className="font-mono text-2xl font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
         {value}
       </div>
-      <div className="mt-0.5 font-mono text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="mt-0.5 font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
     </div>
   );
 }
@@ -190,10 +190,10 @@ function OwnerHeader({ group }: { group: BacklogOwnerGroup }) {
   const name = group.login ?? "Unassigned";
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className={`text-sm font-semibold ${group.login ? "text-white" : "text-amber-300"}`}>
+      <span className={`text-base font-semibold ${group.login ? "text-white" : "text-amber-300"}`}>
         {group.login ? `@${name}` : name}
       </span>
-      <span className="font-mono text-[11px] text-slate-500">
+      <span className="font-mono text-sm text-slate-500">
         {group.active} active
         {group.overdue > 0 && <span className="text-orange-300"> · {group.overdue} overdue</span>}
       </span>
@@ -247,7 +247,7 @@ function ItemRow({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="font-medium text-white">{item.title}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-slate-500">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-sm text-slate-500">
             <span className="text-slate-400">{item.repo}</span>
             <span>· {item.dimId} {item.dimLabel}</span>
             <span>· impact {item.impact}</span>
@@ -255,21 +255,21 @@ function ItemRow({
           </div>
         </div>
         {due && (
-          <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[11px] ${item.overdue ? "bg-orange-500/10 text-orange-300" : "text-slate-400"}`}>
+          <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-sm ${item.overdue ? "bg-orange-500/10 text-orange-300" : "text-slate-400"}`}>
             {due}
           </span>
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500">
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           status
           <select
             value={item.status}
             disabled={saving}
             onChange={(e) => onPatch(item.id, { status: e.target.value })}
             aria-label="Status"
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
             style={{ color: STATUS_ACCENT[item.status] }}
           >
             {REC_STATUSES.map((s) => (
@@ -280,14 +280,14 @@ function ItemRow({
           </select>
         </label>
 
-        <label className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500">
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           owner
           <select
             value={item.assigneeLogin ?? ""}
             disabled={saving}
             onChange={(e) => onPatch(item.id, { assigneeLogin: e.target.value || null })}
             aria-label="Owner"
-            className="max-w-[10rem] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+            className="max-w-[10rem] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
           >
             <option value="">Unassigned</option>
             {options.map((login) => (
@@ -298,7 +298,7 @@ function ItemRow({
           </select>
         </label>
 
-        <label className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500">
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           due
           <input
             type="date"
@@ -306,32 +306,32 @@ function ItemRow({
             disabled={saving}
             onChange={(e) => onPatch(item.id, { targetDate: e.target.value || null })}
             aria-label="Due date"
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
           />
         </label>
 
         <button
           onClick={toggleHistory}
-          className="ml-auto rounded-md border border-slate-700 px-2 py-1 font-mono text-[11px] text-slate-400 transition hover:text-white"
+          className="ml-auto rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-400 transition hover:text-white"
         >
           {history ? "Hide history" : "History"}
         </button>
-        {saving && <span className="font-mono text-[11px] text-slate-500">saving…</span>}
+        {saving && <span className="font-mono text-sm text-slate-500">saving…</span>}
       </div>
 
-      {error && <p className="mt-2 text-xs text-orange-300">{error}</p>}
+      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
 
       {history && (
         <div className="mt-3 border-t border-slate-800 pt-3">
           {history === "loading" ? (
-            <p className="font-mono text-[11px] text-slate-500">Loading history…</p>
+            <p className="font-mono text-sm text-slate-500">Loading history…</p>
           ) : history.length === 0 ? (
-            <p className="font-mono text-[11px] text-slate-500">No changes recorded yet.</p>
+            <p className="font-mono text-sm text-slate-500">No changes recorded yet.</p>
           ) : (
             <ul className="space-y-1.5">
               {history.map((ev) => (
-                <li key={ev.id} className="flex flex-wrap items-baseline gap-x-2 text-xs text-slate-400">
-                  <span className="font-mono text-[10px] text-slate-600">{new Date(ev.at).toLocaleString()}</span>
+                <li key={ev.id} className="flex flex-wrap items-baseline gap-x-2 text-sm text-slate-400">
+                  <span className="font-mono text-sm text-slate-600">{new Date(ev.at).toLocaleString()}</span>
                   <span className="text-slate-300">{ev.actor ? `@${ev.actor}` : "system"}</span>
                   <span>
                     set {EVENT_LABEL[ev.kind] ?? ev.kind} {eventValue(ev.kind, ev.from)} → <span className="text-slate-200">{eventValue(ev.kind, ev.to)}</span>

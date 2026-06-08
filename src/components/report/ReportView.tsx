@@ -1,19 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { DimensionId, LevelId, LlmRoadmapItem, PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { parseRepositoryHistory } from "@/lib/report/validate";
 import { ARCHETYPE_LABEL, DIMENSION_BY_ID, LEVELS, LLM_GUARDBAND, axisScore } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, contributions, projectDimensionClose } from "@/lib/scoring/engine";
-import { evaluateGate } from "@/lib/scoring/gate";
 import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS, LEVEL_CLASSES, LEVEL_GLYPH, LEVEL_HEX, freshness, scoreGlyph, scoreHex, timeAgo } from "@/lib/ui";
 import { LevelBadge } from "@/components/LevelBadge";
 import { PostureQuadrant, RadarChart, ScoreRing, useMounted, usePrefersReducedMotion } from "@/components/report/Charts";
 import { Sparkline, TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { DeltaPill } from "@/components/report/deltas";
 import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
+
+type ReportTab = "scoring" | "roadmap" | "sandbox" | "contributors";
 
 export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?: () => void }) {
   const { repo, level } = report;
@@ -118,27 +119,37 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
     return m;
   })();
 
+  const [tab, setTab] = useState<ReportTab>("scoring");
+  // Recent contributors + PR signals only earn a tab when the scan actually surfaced that data —
+  // an empty "Contributors" tab would be a dead end. Scoring/Roadmap/Sandbox always have content.
+  const hasContributors = report.contributors.filter((c) => c.login !== "unknown").length > 0;
+  const hasPrStats = !!(report.prStats && report.prStats.analyzed > 0);
+  const showActivity = hasContributors || hasPrStats;
+  const tabs: { id: ReportTab; label: string }[] = [
+    { id: "scoring", label: "Scoring" },
+    { id: "roadmap", label: "Roadmap" },
+    { id: "sandbox", label: "Sandbox" },
+  ];
+  if (showActivity) tabs.push({ id: "contributors", label: "Contributors" });
+
   return (
     <div className="animate-fade-up space-y-8" data-testid="report">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <a
-            href={repo.url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-2xl font-bold text-white hover:text-accent"
-          >
-            {repo.owner}/{repo.name}
-          </a>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
+          <h1 className="text-2xl font-bold text-white">
+            <a href={repo.url} target="_blank" rel="noreferrer" className="hover:text-accent">
+              {repo.owner}/{repo.name}
+            </a>
+          </h1>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-base text-slate-400">
             {repo.primaryLanguage && <span>{repo.primaryLanguage}</span>}
             <span>★ {repo.stars.toLocaleString()}</span>
             <span>updated {timeAgo(repo.pushedAt)}</span>
           </div>
         </div>
         <div className="flex flex-col items-start gap-2 sm:items-end">
-          <div className="flex flex-wrap items-center gap-2 text-xs sm:justify-end">
+          <div className="flex flex-wrap items-center gap-2 text-sm sm:justify-end">
             <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-400">
               {ARCHETYPE_LABEL[report.archetype]}
             </span>
@@ -164,15 +175,24 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
               confidence {Math.round(report.confidence * 100)}%
             </span>
           </div>
-          <FreshnessControl report={report} onRetest={onRetest} />
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <FreshnessControl report={report} onRetest={onRetest} />
+            <a
+              href={`/api/report/pdf?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
+              className="focus-ring inline-flex items-center gap-1 rounded-full border border-slate-700 px-2.5 py-1 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+              title="Download this report as a PDF"
+            >
+              <span aria-hidden>↓</span> Export PDF
+            </a>
+          </div>
         </div>
       </div>
 
       {/* Reliability caveats */}
       {report.warnings && report.warnings.length > 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-          <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">Heads up</div>
-          <ul className="mt-2 space-y-1 text-sm text-amber-200/90">
+          <div className="font-mono text-sm uppercase tracking-widest text-amber-400">Heads up</div>
+          <ul className="mt-2 space-y-1 text-base text-amber-200/90">
             {report.warnings.map((w, i) => (
               <li key={i} className="flex gap-2">
                 <span aria-hidden>⚠</span>
@@ -183,6 +203,12 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
         </div>
       )}
 
+      {/* Section tabs — one panel renders at a time; header, caveats, flagged-for-review and the
+          share badge stay outside the tabs as always-visible context. */}
+      <ReportTabBar tabs={tabs} active={tab} onSelect={setTab} />
+
+      {tab === "scoring" && (
+        <div role="tabpanel" id="report-panel-scoring" aria-labelledby="report-tab-scoring" tabIndex={0} className="space-y-8 focus:outline-none" data-testid="report-tab-scoring">
       {/* Score + headline + ladder */}
       <div className="relative grid gap-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40 p-6 lg:grid-cols-[auto_1fr]">
         <div aria-hidden className="strata pointer-events-none absolute inset-0" />
@@ -194,11 +220,11 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
           <LevelBadge id={level.id} name={level.name} />
           <p className="mt-3 text-lg font-medium text-white">{report.headline}</p>
           {isMock && (
-            <p className="mt-1 text-sm text-sky-300/80">
+            <p className="mt-1 text-base text-sky-300/80">
               Scores are computed from deterministic signals, not LLM-written analysis.
             </p>
           )}
-          <p className="mt-2 text-sm leading-relaxed text-slate-400">{level.description}</p>
+          <p className="mt-2 text-base leading-relaxed text-slate-400">{level.description}</p>
           <LevelLadder currentId={level.id} />
         </div>
       </div>
@@ -215,7 +241,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-lg font-semibold text-white">Maturity over time</h2>
-              <p className="text-sm text-slate-400">
+              <p className="text-base text-slate-400">
                 {histError
                   ? "Couldn't load history — showing this scan only."
                   : trendPoints.length === 1
@@ -232,14 +258,14 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
             {scans.length >= 2 && (
               <Link
                 href={`/report/compare?repo=${encodeURIComponent(`${repo.owner}/${repo.name}`)}`}
-                className="font-mono text-xs uppercase tracking-widest text-accent hover:text-accent-soft"
+                className="font-mono text-sm uppercase tracking-widest text-accent hover:text-accent-soft"
               >
                 What changed →
               </Link>
             )}
             <Link
               href={`/trends?repo=${encodeURIComponent(`${repo.owner}/${repo.name}`)}`}
-              className="font-mono text-xs uppercase tracking-widest text-accent hover:text-accent-soft"
+              className="font-mono text-sm uppercase tracking-widest text-accent hover:text-accent-soft"
             >
               Dimension-level trends →
             </Link>
@@ -267,14 +293,24 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
         </div>
       </div>
 
+        </div>
+      )}
+
+      {tab === "sandbox" && (
+        <div role="tabpanel" id="report-panel-sandbox" aria-labelledby="report-tab-sandbox" tabIndex={0} className="focus:outline-none" data-testid="report-tab-sandbox">
       {/* Roadmap sandbox — drag dimensions, watch the future (client-side what-if recompute) */}
       <RoadmapSandbox report={report} />
 
+        </div>
+      )}
+
+      {showActivity && tab === "contributors" && (
+        <div role="tabpanel" id="report-panel-contributors" aria-labelledby="report-tab-contributors" tabIndex={0} className="space-y-8 focus:outline-none" data-testid="report-tab-contributors">
       {/* Contributors — recent activity + AI attribution */}
       {report.contributors.filter((c) => c.login !== "unknown").length > 0 && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
           <h2 className="text-lg font-semibold text-white">Recent contributors</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-base text-slate-400">
             From sampled commit history — bar shows the share that&apos;s AI-attributed.
           </p>
           <div className="mt-3 space-y-2">
@@ -284,7 +320,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
               .map((c) => {
                 const pctAI = c.commits ? Math.round((c.aiCommits / c.commits) * 100) : 0;
                 return (
-                  <div key={c.login} className="flex items-center gap-3 text-sm">
+                  <div key={c.login} className="flex items-center gap-3 text-base">
                     <span className="w-40 shrink-0 truncate text-slate-200">{c.login}</span>
                     <div
                       className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800"
@@ -296,7 +332,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
                     >
                       <div className="h-full rounded-full bg-accent" style={{ width: `${pctAI}%` }} />
                     </div>
-                    <span className="w-32 shrink-0 text-right font-mono text-xs text-slate-500">
+                    <span className="w-32 shrink-0 text-right font-mono text-sm text-slate-500">
                       {c.aiCommits}/{c.commits} AI · {pctAI}%
                     </span>
                   </div>
@@ -309,6 +345,11 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
       {/* Pull request signals — how systematically the team ships (GraphQL ingestion) */}
       {report.prStats && report.prStats.analyzed > 0 && <PrSignalsPanel stats={report.prStats} />}
 
+        </div>
+      )}
+
+      {tab === "roadmap" && (
+        <div role="tabpanel" id="report-panel-roadmap" aria-labelledby="report-tab-roadmap" tabIndex={0} className="space-y-8 focus:outline-none" data-testid="report-tab-roadmap">
       {/* Trust ladder — where this repo sits, what the next rung needs */}
       <TrustLadder currentId={report.level.id} />
 
@@ -317,7 +358,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
         <h2 className="text-xl font-bold text-white">
           Gaps to explore{nextLevel ? ` — your next rung: ${nextLevel.id} ${nextLevel.name}` : " — sustaining the summit"}
         </h2>
-        <p className="mt-1 text-sm text-slate-400">
+        <p className="mt-1 text-base text-slate-400">
           {recs && recs.length > 0
             ? "Inputs to explore at your own pace — these aren't orders. Track what you take on."
             : "Where trust in AI could grow — open questions to explore, quick wins first."}
@@ -332,17 +373,20 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
         </div>
       </div>
 
+        </div>
+      )}
+
       {report.discrepancies.length > 0 && (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
           <h2 className="text-lg font-semibold text-white">Flagged for review</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-base text-slate-400">
             The AI auditor believes these deterministic signals may be wrong — worth verifying,
             and a useful signal for improving the detectors.
           </p>
-          <ul className="mt-3 space-y-2 text-sm">
+          <ul className="mt-3 space-y-2 text-base">
             {report.discrepancies.map((d, i) => (
               <li key={i} className="flex gap-2">
-                <span className="font-mono text-xs text-amber-400">{d.dimension}</span>
+                <span className="font-mono text-sm text-amber-400">{d.dimension}</span>
                 <span className="text-slate-300">{d.claim}</span>
               </li>
             ))}
@@ -350,16 +394,81 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
         </div>
       )}
 
-      <BadgeShare report={report} />
-
       <div className="flex justify-center pt-2">
         <Link
           href="/"
-          className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+          className="rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
         >
           ← Scan another repo
         </Link>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Segmented tab switcher for the report body. Implements the WAI-ARIA tabs pattern: roving
+ * tabindex (only the active tab is in the tab order) with Arrow/Home/End key navigation, and each
+ * tab wired to its panel via id + aria-controls. Only the active panel mounts, so aria-controls
+ * references whichever panel is currently rendered. The active tab carries the accent fill.
+ */
+function ReportTabBar({
+  tabs,
+  active,
+  onSelect,
+}: {
+  tabs: { id: ReportTab; label: string }[];
+  active: ReportTab;
+  onSelect: (id: ReportTab) => void;
+}) {
+  const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  function onKeyDown(e: KeyboardEvent<HTMLButtonElement>, idx: number) {
+    const last = tabs.length - 1;
+    let next = idx;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = idx === last ? 0 : idx + 1;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = idx === 0 ? last : idx - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    else return;
+    e.preventDefault();
+    onSelect(tabs[next].id);
+    btnRefs.current[next]?.focus();
+  }
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Report sections"
+      className="flex flex-wrap gap-1.5 rounded-2xl border border-slate-800 bg-slate-900/40 p-1.5"
+    >
+      {tabs.map((t, i) => {
+        const isActive = t.id === active;
+        return (
+          <button
+            key={t.id}
+            ref={(el) => {
+              btnRefs.current[i] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`report-tab-${t.id}`}
+            aria-selected={isActive}
+            aria-controls={`report-panel-${t.id}`}
+            tabIndex={isActive ? 0 : -1}
+            data-testid={`report-tab-btn-${t.id}`}
+            onClick={() => onSelect(t.id)}
+            onKeyDown={(e) => onKeyDown(e, i)}
+            className={`rounded-xl px-4 py-2 text-base font-medium transition ${
+              isActive
+                ? "bg-accent text-on-accent"
+                : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -395,7 +504,7 @@ function FreshnessControl({ report, onRetest }: { report: ScanReport; onRetest?:
   );
 
   return (
-    <div className="flex items-center gap-2 font-mono text-[11px] text-slate-500">
+    <div className="flex items-center gap-2 font-mono text-sm text-slate-500">
       <span className="inline-flex items-center gap-1.5">
         <svg aria-hidden viewBox="0 0 16 16" className="h-3 w-3 shrink-0" fill="none">
           <path
@@ -433,9 +542,9 @@ function PosturePanel({
   return (
     <div className="grid items-center gap-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6 sm:grid-cols-2">
       <div className="flex flex-col justify-center">
-        <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">Posture</div>
+        <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">Posture</div>
         <h2 className="mt-1 text-xl font-bold text-white">{report.posture.label}</h2>
-        <p className="mt-1 text-sm leading-relaxed text-slate-400">{report.posture.blurb}</p>
+        <p className="mt-1 text-base leading-relaxed text-slate-400">{report.posture.blurb}</p>
         <div className="mt-5 flex flex-col gap-4">
           <AxisBar label="AI Adoption" value={report.adoptionScore} hint="tooling · agentic · commit signals" />
           <AxisBar label="Engineering Rigor" value={report.rigorScore} hint="tests · CI/CD · docs · quality" />
@@ -458,8 +567,8 @@ function AxisBar({ label, value, hint }: { label: string; value: number; hint: s
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <span className="text-sm font-medium text-white">{label}</span>
-        <span className="flex items-center gap-1 font-mono text-sm tabular-nums" style={{ color }}>
+        <span className="text-base font-medium text-white">{label}</span>
+        <span className="flex items-center gap-1 font-mono text-base tabular-nums" style={{ color }}>
           <span aria-hidden>{scoreGlyph(value)}</span>
           {value}
         </span>
@@ -467,7 +576,7 @@ function AxisBar({ label, value, hint }: { label: string; value: number; hint: s
       <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-800">
         <div className="h-full rounded-full transition-all" style={{ width: `${value}%`, backgroundColor: color }} />
       </div>
-      <div className="mt-1 font-mono text-[10px] uppercase tracking-wider text-slate-600">{hint}</div>
+      <div className="mt-1 font-mono text-sm uppercase tracking-wider text-slate-400">{hint}</div>
     </div>
   );
 }
@@ -500,16 +609,16 @@ function ScoreWaterfall({ report }: { report: ScanReport }) {
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">Why this score</div>
+          <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">Why this score</div>
           <h2 className="mt-1 text-lg font-semibold text-white">Score waterfall</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-base text-slate-400">
             Every point attributed — each dimension contributes its{" "}
             <span className="text-slate-300">weight × score</span>, and the parts sum to your headline.
           </p>
         </div>
-        <span className="shrink-0 font-mono text-sm tabular-nums text-slate-400">
+        <span className="shrink-0 font-mono text-base tabular-nums text-slate-400">
           = <span className="text-xl font-bold text-white">{overallScore}</span>
-          <span className="text-slate-600">/100</span>
+          <span className="text-slate-400">/100</span>
         </span>
       </div>
 
@@ -541,17 +650,17 @@ function ScoreWaterfall({ report }: { report: ScanReport }) {
           // an arrow. The ±0.05 band keeps a dimension sitting on the weighted mean neutral.
           const lift = c.signed > 0.05 ? "up" : c.signed < -0.05 ? "down" : "flat";
           const liftColor =
-            lift === "up" ? "text-emerald-400" : lift === "down" ? "text-red-400" : "text-slate-600";
+            lift === "up" ? "text-emerald-400" : lift === "down" ? "text-red-400" : "text-slate-400";
           return (
-            <li key={c.dimension} className="flex items-center gap-3 text-sm">
+            <li key={c.dimension} className="flex items-center gap-3 text-base">
               <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: scoreHex(c.score) }} />
               <span className="w-20 shrink-0 truncate text-slate-300">{DIMENSION_SHORT[c.dimension]}</span>
-              <span className="flex-1 font-mono text-[11px] text-slate-600">
+              <span className="flex-1 font-mono text-sm text-slate-400">
                 {c.score} × {Math.round(c.normalizedWeight * 100)}%
               </span>
               <span className="w-12 shrink-0 text-right font-mono tabular-nums text-slate-200">+{fmtPts(c.points)}</span>
               <span
-                className={`w-12 shrink-0 text-right font-mono text-[11px] tabular-nums ${liftColor}`}
+                className={`w-12 shrink-0 text-right font-mono text-sm tabular-nums ${liftColor}`}
                 title="Lift vs your weighted-mean score — ▲ pulls the overall up, ▼ drags it down"
               >
                 {lift === "flat" ? "·" : `${lift === "up" ? "▲+" : "▼"}${fmtPts(Math.abs(c.signed))}`}
@@ -576,10 +685,10 @@ function LevelLadder({ currentId }: { currentId: string }) {
               className={`h-1.5 rounded-full ${active ? "" : "bg-slate-800"}`}
               style={active ? { backgroundColor: scoreHex(l.band[0]) } : undefined}
             />
-            <div aria-hidden className={`mt-1 text-xs leading-none ${active ? lc.text : "text-slate-600"}`}>
+            <div aria-hidden className={`mt-1 text-sm leading-none ${active ? lc.text : "text-slate-500"}`}>
               {LEVEL_GLYPH[l.id]}
             </div>
-            <div className={`mt-0.5 text-[10px] ${active ? lc.text : "text-slate-600"}`}>{l.id}</div>
+            <div className={`mt-0.5 text-sm ${active ? lc.text : "text-slate-500"}`}>{l.id}</div>
           </div>
         );
       })}
@@ -593,7 +702,7 @@ function ListCard({ title, items, tone }: { title: string; items: string[]; tone
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
       <h3 className="font-semibold text-white">{title}</h3>
-      <ul className="mt-3 space-y-2 text-sm text-slate-300">
+      <ul className="mt-3 space-y-2 text-base text-slate-300">
         {items.map((it, i) => (
           <li key={i} className="flex gap-2">
             <span className={mark}>{tone === "good" ? "▲" : "▼"}</span>
@@ -638,17 +747,17 @@ function DimensionCard({
         aria-expanded={open}
         className="flex w-full items-center gap-3 text-left"
       >
-        <span className="font-mono text-xs text-slate-500">{d.id}</span>
+        <span className="font-mono text-sm text-slate-500">{d.id}</span>
         <span className="flex-1 font-semibold text-white">{d.name}</span>
         {delta !== null && delta !== 0 && (
-          <span className={`text-xs font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
+          <span className={`text-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
             {delta > 0 ? "▲+" : "▼"}
             {delta}
           </span>
         )}
-        <span className="text-xs text-slate-500">{Math.round(d.weight * 100)}%</span>
+        <span className="text-sm text-slate-500">{Math.round(d.weight * 100)}%</span>
         <span className="flex w-14 items-center justify-end gap-1 text-lg font-bold" style={{ color }}>
-          <span aria-hidden className="text-xs">{scoreGlyph(d.score)}</span>
+          <span aria-hidden className="text-sm">{scoreGlyph(d.score)}</span>
           {d.score}
         </span>
         <span
@@ -667,11 +776,11 @@ function DimensionCard({
         style={{ gridTemplateRows: open ? "1fr" : "0fr", opacity: open ? 1 : 0, transition: detailTransition }}
       >
         <div className="overflow-hidden" aria-hidden={!open}>
-          <div className="mt-3 space-y-3 text-sm">
+          <div className="mt-3 space-y-3 text-base">
             {d.summary && <p className="leading-relaxed text-slate-300">{d.summary}</p>}
             {d.evidence.length > 0 && (
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
+                <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Evidence</div>
                 <ul className="mt-1 space-y-1 text-slate-400">
                   {d.evidence.map((e, i) => (
                     <li key={i} className="flex gap-2">
@@ -684,15 +793,15 @@ function DimensionCard({
             )}
             {d.gaps.length > 0 && (
               <div className="text-slate-400">
-                <span className="text-xs font-semibold uppercase tracking-wide text-amber-400/80">Gaps: </span>
+                <span className="text-sm font-semibold uppercase tracking-wide text-amber-400/80">Gaps: </span>
                 {d.gaps.join(" · ")}
               </div>
             )}
             {series && series.length >= 2 && (
               <div className="flex items-center gap-3 border-t border-slate-800 pt-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Trend</span>
+                <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Trend</span>
                 <Sparkline points={series} />
-                <span className="text-xs text-slate-500">
+                <span className="text-sm text-slate-500">
                   {series[0].score} → {series[series.length - 1].score}
                 </span>
               </div>
@@ -755,7 +864,7 @@ function ProvenanceTrack({ signal, llm, blended }: { signal: number; llm: number
 
 function RoadmapMeta({ item }: { item: Pick<LlmRoadmapItem, "impact" | "effort"> }) {
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex items-center gap-2 text-sm">
       <span className={`rounded-md border px-2 py-0.5 ${IMPACT_CLASS[item.impact]}`}>impact: {item.impact}</span>
       <span className={`rounded-md border px-2 py-0.5 ${EFFORT_CLASS[item.effort]}`}>effort: {item.effort}</span>
     </div>
@@ -766,8 +875,8 @@ function ExploreList({ items }: { items?: string[] }) {
   if (!items?.length) return null;
   return (
     <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-accent">Explore</div>
-      <ul className="mt-1.5 space-y-1 text-sm text-slate-300">
+      <div className="font-mono text-sm uppercase tracking-widest text-accent">Explore</div>
+      <ul className="mt-1.5 space-y-1 text-base text-slate-300">
         {items.map((q, i) => (
           <li key={i} className="flex gap-2">
             <span className="select-none text-slate-600">→</span>
@@ -785,8 +894,8 @@ function TrustLadder({ currentId }: { currentId: LevelId }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Trust ladder</h2>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">trust = adoption × rigor</span>
+        <h2 className="text-base font-semibold text-white">Trust ladder</h2>
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">trust = adoption × rigor</span>
       </div>
       <div className="mt-3 flex gap-1.5">
         {LEVELS.map((l, i) => {
@@ -795,10 +904,10 @@ function TrustLadder({ currentId }: { currentId: LevelId }) {
           return (
             <div key={l.id} className="flex-1">
               <div className="h-1.5 rounded-full" style={{ backgroundColor: reached ? LEVEL_HEX[l.id] : "#1e293b" }} />
-              <div aria-hidden className="mt-1 text-xs leading-none" style={{ color: reached ? LEVEL_HEX[l.id] : "#475569" }}>
+              <div aria-hidden className="mt-1 text-sm leading-none" style={{ color: reached ? LEVEL_HEX[l.id] : "#475569" }}>
                 {LEVEL_GLYPH[l.id]}
               </div>
-              <div className={`mt-0.5 font-mono text-[10px] ${isCurrent ? "text-white" : "text-slate-600"}`}>
+              <div className={`mt-0.5 font-mono text-sm ${isCurrent ? "text-white" : "text-slate-500"}`}>
                 {l.id}
                 {isCurrent ? " ◂ you" : ""}
               </div>
@@ -806,7 +915,7 @@ function TrustLadder({ currentId }: { currentId: LevelId }) {
           );
         })}
       </div>
-      <p className="mt-2 text-xs text-slate-400">
+      <p className="mt-2 text-sm text-slate-400">
         {next
           ? `Next rung — ${next.id} ${next.name}: ${next.tagline}. The gaps below are inputs to explore on the way.`
           : "Top of the ladder — the work now is sustaining trust and sharing what works."}
@@ -840,8 +949,8 @@ function NextLevelPath({ report }: { report: ScanReport }) {
   if (!path.target || !path.reachable || path.steps.length === 0) return null;
   const names = path.steps.map((s) => DIMENSION_SHORT[s.dimension]).join(" + ");
   return (
-    <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3 text-sm">
-      <span className="font-mono text-[10px] uppercase tracking-widest text-accent">Fastest path</span>
+    <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3 text-base">
+      <span className="font-mono text-sm uppercase tracking-widest text-accent">Fastest path</span>
       <p className="mt-1 text-slate-300">
         Closing <span className="font-semibold text-white">{names}</span> projects to{" "}
         <span className="font-semibold text-white">~{path.projected.overallScore}/100</span> — enough to reach{" "}
@@ -869,23 +978,23 @@ function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; report: Scan
             style={quick ? { borderColor: "rgba(16,185,129,0.35)" } : { borderColor: "rgb(30,41,59)" }}
           >
             <div className="flex items-start gap-4">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-sm text-slate-300">
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-base text-slate-300">
                 {i + 1}
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold text-white">{item.title}</h3>
                   {quick && (
-                    <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-emerald-300">
+                    <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-sm font-semibold uppercase tracking-widest text-emerald-300">
                       ⚡ Quick win
                     </span>
                   )}
                 </div>
                 {item.rationale && (
-                  <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{item.rationale}</p>
+                  <p className="mt-1.5 text-base leading-relaxed text-slate-400">{item.rationale}</p>
                 )}
                 <ExploreList items={item.explore} />
-                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-sm">
                   <span className={`rounded-md border px-2 py-0.5 ${IMPACT_CLASS[item.impact]}`}>
                     impact: {item.impact}
                   </span>
@@ -1031,7 +1140,7 @@ function RecommendationTracker({
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between text-base">
           <span className="font-medium text-white">
             {done} of {total} done
             {dismissed > 0 && <span className="text-slate-500"> · {dismissed} dismissed</span>}
@@ -1059,7 +1168,7 @@ function RecommendationTracker({
               <h3 className={`font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
                 {item.title}
               </h3>
-              <div className="flex items-center gap-2 text-xs">
+              <div className="flex items-center gap-2 text-sm">
                 <RoadmapMeta item={item} />
                 <PayoffChip report={report} dim={item.dimension} />
                 {saving && <RowSpinner />}
@@ -1068,7 +1177,7 @@ function RecommendationTracker({
                   disabled={saving}
                   onChange={(e) => setStatus(item.id, e.target.value as RecStatus)}
                   aria-label="Recommendation status"
-                  className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+                  className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
                   style={{ color: STATUS_ACCENT[item.status] }}
                 >
                   {(Object.keys(STATUS_LABEL) as RecStatus[]).map((s) => (
@@ -1079,12 +1188,12 @@ function RecommendationTracker({
                 </select>
               </div>
             </div>
-            {item.rationale && <p className="mt-2 text-sm leading-relaxed text-slate-400">{item.rationale}</p>}
+            {item.rationale && <p className="mt-2 text-base leading-relaxed text-slate-400">{item.rationale}</p>}
             {!muted && <ExploreList items={item.explore} />}
             {err && (
               <div
                 role="alert"
-                className={`mt-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
+                className={`mt-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
                   err.kind === "config"
                     ? "border-amber-500/30 bg-amber-500/5 text-amber-200/90"
                     : "border-red-500/30 bg-red-500/5 text-red-200/90"
@@ -1130,11 +1239,11 @@ function fmtHours(h: number | null): string {
 function PrMetric({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
       <div className="mt-1 font-mono text-xl font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
         {value}
       </div>
-      {hint && <div className="mt-0.5 text-[11px] text-slate-500">{hint}</div>}
+      {hint && <div className="mt-0.5 text-sm text-slate-500">{hint}</div>}
     </div>
   );
 }
@@ -1145,12 +1254,12 @@ function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prStats"]> }
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold text-white">Pull request signals</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-base text-slate-400">
             How systematically the team ships — from the {stats.analyzed} most recent of {stats.totalCount} PRs.
           </p>
         </div>
         {stats.aiInvolvedRate > 0 && (
-          <span className="rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 font-mono text-[11px] text-accent">
+          <span className="rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 font-mono text-sm text-accent">
             {stats.aiInvolvedRate}% AI-involved
             {stats.aiGovernedRate != null && ` · ${stats.aiGovernedRate}% reviewed`}
           </span>
@@ -1164,7 +1273,7 @@ function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prStats"]> }
         <PrMetric label="Time to review" value={fmtHours(stats.medianHoursToFirstReview)} hint="median 1st" />
         <PrMetric label="Revert rate" value={`${stats.revertRate}%`} color={stats.revertRate > 10 ? "#f97316" : "#fff"} hint="reverted PRs" />
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[11px] text-slate-500">
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-sm text-slate-500">
         <span>avg {stats.avgLineChanges} lines · {stats.avgChangedFiles} files</span>
         <span>{stats.avgReviews} reviews / {stats.avgComments} comments per PR</span>
         {stats.botAuthoredRate > 0 && <span>{stats.botAuthoredRate}% bot-authored</span>}
@@ -1178,76 +1287,6 @@ function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prStats"]> }
             ))}
           </span>
         )}
-      </div>
-    </div>
-  );
-}
-
-function BadgeShare({ report }: { report: ScanReport }) {
-  const [copied, setCopied] = useState<"level" | "gate" | null>(null);
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const path = `/api/badge/${report.repo.owner}/${report.repo.name}`;
-  const gatePath = `${path}?gate`;
-  const reportUrl = `${origin}/report?repo=${encodeURIComponent(report.repo.url)}`;
-  const markdown = `[![Ascent: ${report.level.id} ${report.level.name}](${origin}${path})](${reportUrl})`;
-  const gateMarkdown = `[![Ascent gate](${origin}${gatePath})](${reportUrl})`;
-
-  // Pass/fail against the default (archetype-aware) policy — the same one the gate badge renders.
-  const gate = evaluateGate(report);
-
-  const copy = (text: string, which: "level" | "gate") => {
-    navigator.clipboard?.writeText(text);
-    setCopied(which);
-    setTimeout(() => setCopied(null), 1500);
-  };
-
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-semibold text-white">Share your maturity badge</h3>
-        <span
-          className={`rounded-full border px-2.5 py-1 font-mono text-[11px] ${
-            gate.pass
-              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-              : "border-red-500/40 bg-red-500/10 text-red-300"
-          }`}
-          title={
-            gate.pass
-              ? `Passes the default ${report.archetype} maturity gate`
-              : gate.failures.map((f) => f.message).join("\n")
-          }
-        >
-          maturity gate: {gate.pass ? "pass" : "fail"}
-        </span>
-      </div>
-      <p className="mt-1 text-sm text-slate-400">Drop the level badge into your README — or the gate badge to hold a bar in CI.</p>
-      <div className="mt-3 flex flex-wrap items-center gap-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={path} alt="Ascent level badge" className="h-7" />
-        <code className="flex-1 overflow-x-auto rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-300">
-          {markdown}
-        </code>
-        <button
-          type="button"
-          onClick={() => copy(markdown, "level")}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-soft"
-        >
-          {copied === "level" ? "Copied!" : "Copy"}
-        </button>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={gatePath} alt="Ascent gate badge" className="h-7" />
-        <code className="flex-1 overflow-x-auto rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-300">
-          {gateMarkdown}
-        </code>
-        <button
-          type="button"
-          onClick={() => copy(gateMarkdown, "gate")}
-          className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-accent hover:text-white"
-        >
-          {copied === "gate" ? "Copied!" : "Copy"}
-        </button>
       </div>
     </div>
   );

@@ -69,9 +69,9 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
     <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">Plan</div>
+          <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">Plan</div>
           <h2 className="mt-1 text-xl font-bold text-white">Roadmap sandbox</h2>
-          <p className="mt-1 max-w-prose text-sm leading-relaxed text-slate-400">
+          <p className="mt-1 max-w-prose text-base leading-relaxed text-slate-400">
             What if Testing hit 80? Drag any dimension and watch your score, radar, posture, and
             next-level path recompute instantly — no re-scan.
           </p>
@@ -81,7 +81,7 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-controls={panelId}
-          className="shrink-0 rounded-xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+          className="shrink-0 rounded-xl border border-slate-700 px-4 py-2 text-base font-medium text-slate-300 transition hover:border-accent hover:text-white"
         >
           {open ? "Close sandbox" : "Open sandbox →"}
         </button>
@@ -105,14 +105,14 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
 
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+                <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
                   Drag to explore
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={closeAllGaps}
-                    className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accent hover:text-white"
+                    className="rounded-lg border border-slate-700 px-2.5 py-1 text-sm text-slate-300 transition hover:border-accent hover:text-white"
                   >
                     Close all gaps
                   </button>
@@ -120,7 +120,7 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
                     type="button"
                     onClick={resetAll}
                     disabled={!anyChanged}
-                    className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-lg border border-slate-700 px-2.5 py-1 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Reset
                   </button>
@@ -147,8 +147,8 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
           <div className="grid gap-6 md:grid-cols-2">
             <div className="flex flex-col rounded-xl border border-slate-800 bg-slate-950/30 p-4">
               <div className="mb-2 flex items-center justify-between">
-                <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">Posture</span>
-                <span className="text-sm font-semibold" style={{ color: scoreHex(proj.adoptionScore) }}>
+                <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Posture</span>
+                <span className="text-base font-semibold" style={{ color: scoreHex(proj.adoptionScore) }}>
                   {proj.posture.label}
                 </span>
               </div>
@@ -167,7 +167,7 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
               </div>
             </div>
             <div className="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-950/30 p-4">
-              <span className="self-start font-mono text-[11px] uppercase tracking-widest text-slate-500">
+              <span className="self-start font-mono text-sm uppercase tracking-widest text-slate-500">
                 Projected radar
               </span>
               <RadarChart dimensions={proj.dimensions} size={320} />
@@ -210,15 +210,15 @@ function DimensionSlider({
   const color = scoreHex(value);
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
-      <div className="flex items-center justify-between gap-2 text-sm">
+      <div className="flex items-center justify-between gap-2 text-base">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="font-mono text-[11px] text-slate-500">{id}</span>
+          <span className="font-mono text-sm text-slate-500">{id}</span>
           <span className="truncate font-medium text-white">{DIMENSION_SHORT[id]}</span>
         </span>
         <span className="flex shrink-0 items-center gap-2 font-mono tabular-nums">
-          {changed && <span className="text-[11px] text-slate-600">{base}→</span>}
+          {changed && <span className="text-sm text-slate-600">{base}→</span>}
           <span className="flex w-9 items-center justify-end gap-1 text-base font-bold" style={{ color }}>
-            <span aria-hidden className="text-[10px]">{scoreGlyph(value)}</span>
+            <span aria-hidden className="text-sm">{scoreGlyph(value)}</span>
             {value}
           </span>
           <span className="w-9 text-right">
@@ -274,7 +274,7 @@ function LevelTransition({
   const to = LEVEL_BY_ID[toId];
   const down = LEVELS.findIndex((l) => l.id === toId) < LEVELS.findIndex((l) => l.id === fromId);
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex items-center gap-2 text-sm">
       <LevelChip id={from.id} name={from.name} muted />
       <span aria-hidden className={levelUp ? "text-emerald-400" : down ? "text-red-400" : "text-slate-600"}>
         →
@@ -319,7 +319,7 @@ function LevelChip({
 function AxisStat({ label, value, base }: { label: string; value: number; base: number }) {
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-slate-500">{label}</div>
+      <div className="font-mono text-sm uppercase tracking-wider text-slate-500">{label}</div>
       <div className="mt-0.5 flex items-baseline gap-2">
         <span className="font-mono text-lg font-bold tabular-nums" style={{ color: scoreHex(value) }}>
           {value}
@@ -349,7 +349,7 @@ function NextLevelBanner({
 
   if (!target) {
     return (
-      <p className="text-center text-xs leading-relaxed text-slate-500">
+      <p className="text-center text-sm leading-relaxed text-slate-500">
         {report.level.id === "L5"
           ? "Top of the ladder — the work now is sustaining trust."
           : "Sustaining the summit."}
@@ -367,7 +367,7 @@ function NextLevelBanner({
     });
 
   return (
-    <div className="w-full rounded-xl border border-accent/20 bg-accent/[0.06] p-3 text-center text-xs">
+    <div className="w-full rounded-xl border border-accent/20 bg-accent/[0.06] p-3 text-center text-sm">
       {leveledUp && (
         <div className="mb-1 font-semibold text-emerald-300">
           🎉 Unlocks {LEVEL_BY_ID[proj.overall.level].id} {LEVEL_BY_ID[proj.overall.level].name}
@@ -414,7 +414,7 @@ function RoadmapSimulators({
   const onPath = new Set(path.steps.map((s) => s.dimension));
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-4">
-      <div className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
         Simulate a recommendation
       </div>
       <ul className="mt-3 space-y-2">
@@ -429,17 +429,17 @@ function RoadmapSimulators({
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-[10px] text-slate-500" title={dimName}>
+                  <span className="font-mono text-sm text-slate-500" title={dimName}>
                     {DIMENSION_SHORT[item.dimension]}
                   </span>
-                  <span className="truncate text-sm font-medium text-white">{item.title}</span>
+                  <span className="truncate text-base font-medium text-white">{item.title}</span>
                   {unlocks && (
-                    <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                    <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-sm font-semibold uppercase tracking-wide text-emerald-300">
                       ⤴ on the path
                     </span>
                   )}
                 </div>
-                <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                <div className="mt-1 flex items-center gap-1.5 text-sm">
                   <span className={`rounded border px-1.5 py-0.5 ${IMPACT_CLASS[item.impact]}`}>
                     impact {item.impact}
                   </span>
@@ -452,7 +452,7 @@ function RoadmapSimulators({
                 type="button"
                 onClick={() => onTry(item.dimension)}
                 aria-pressed={applied}
-                className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                className={`shrink-0 rounded-lg border px-2.5 py-1 text-sm font-medium transition ${
                   applied
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"

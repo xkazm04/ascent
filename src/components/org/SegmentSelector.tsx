@@ -35,7 +35,7 @@ export function SegmentSelector({ segments, active }: { segments: SegmentOption[
         type="button"
         onClick={() => select(null)}
         aria-pressed={active === null}
-        className={`rounded-md px-2.5 py-1 font-mono text-[11px] transition ${
+        className={`rounded-md px-2.5 py-1 font-mono text-sm transition ${
           active === null ? "bg-accent font-semibold text-[#04070e]" : "text-slate-400 hover:text-white"
         }`}
       >
@@ -50,7 +50,7 @@ export function SegmentSelector({ segments, active }: { segments: SegmentOption[
             onClick={() => select(s.id)}
             aria-pressed={on}
             title={`${s.repoCount} repo${s.repoCount === 1 ? "" : "s"}`}
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[11px] transition ${
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-sm transition ${
               on ? "bg-accent font-semibold text-[#04070e]" : "text-slate-400 hover:text-white"
             }`}
           >

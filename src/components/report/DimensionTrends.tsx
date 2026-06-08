@@ -145,7 +145,7 @@ function withinRange(scans: HistoryPoint[], days: number | null): HistoryPoint[]
 
 function RangeToggle({ value, onChange }: { value: RangeKey; onChange: (k: RangeKey) => void }) {
   return (
-    <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900/60 p-0.5 font-mono text-[11px]">
+    <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900/60 p-0.5 font-mono text-sm">
       {RANGES.map((r) => {
         const active = r.key === value;
         return (
@@ -252,7 +252,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+        <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
           {overallScans.length} {overallScans.length === 1 ? "scan" : "scans"} shown
         </div>
         <RangeToggle value={range} onChange={setRange} />
@@ -263,7 +263,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
           <button
             type="button"
             onClick={() => setRange("all")}
-            className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+            className="rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
           >
             Show all
           </button>
@@ -280,7 +280,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
           <div ref={dimRef}>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">By dimension</h2>
-              <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+              <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
                 {overallChrono.length} scans
               </span>
             </div>
@@ -291,8 +291,8 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                   <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
                     <div className="flex items-start justify-between">
                       <div>
-                        <span className="font-mono text-[10px] text-slate-500">{r.id}</span>
-                        <h3 className="text-sm font-semibold text-white">{r.name}</h3>
+                        <span className="font-mono text-sm text-slate-500">{r.id}</span>
+                        <h3 className="text-base font-semibold text-white">{r.name}</h3>
                       </div>
                       <div className="text-right">
                         <div
@@ -302,14 +302,14 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                           {/* Redundant (non-color) cue so the score's level reads without relying on
                               hue alone (CVD) — mirrors the report's treatment. */}
                           {r.current !== undefined && (
-                            <span aria-hidden className="mr-1 align-middle text-xs">
+                            <span aria-hidden className="mr-1 align-middle text-sm">
                               {scoreGlyph(r.current)}
                             </span>
                           )}
                           {r.current ?? "—"}
                         </div>
                         {r.delta !== null && r.delta !== 0 && (
-                          <div className={`text-xs font-semibold ${r.delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          <div className={`text-sm font-semibold ${r.delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
                             {r.delta > 0 ? "▲+" : "▼"}
                             {r.delta}
                           </div>
@@ -326,7 +326,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                   <button
                     type="button"
                     onClick={() => void loadDimensions()}
-                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-accent hover:text-white"
+                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
                   >
                     Retry
                   </button>

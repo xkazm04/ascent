@@ -14,7 +14,7 @@ MVP, AWS Bedrock for enterprise) · **Aurora DSQL** for persistence in Phase 2.
 | # | Doc | What's inside |
 |---|-----|---------------|
 | 1 | [PRD.md](./PRD.md) | Vision, problem, personas, value prop, monetization, track fit |
-| 2 | [MATURITY_MODEL.md](./MATURITY_MODEL.md) | The 5 maturity levels, 7 scoring dimensions, criteria/signals, scoring math |
+| 2 | [MATURITY_MODEL.md](./MATURITY_MODEL.md) | The 5 maturity levels, 9 scoring dimensions, criteria/signals, scoring math |
 | 3 | [ARCHITECTURE.md](./ARCHITECTURE.md) | MVP (no-DB) + Phase 2 (Aurora DSQL, Bedrock, GitHub App), data model, diagrams |
 | 4 | [BACKLOG.md](./BACKLOG.md) | Epics → user stories, prioritization (MoSCoW), estimates |
 | 5 | [PLAN.md](./PLAN.md) | Execution plan: this session + the 4-week roadmap, milestones, risks |
@@ -29,7 +29,7 @@ the features docs are the *what ships today* and *where it lives in the code*.
 Companies spend heavily on AI coding tools but cannot answer *"are we actually
 becoming AI-native, or just paying for seats?"* Ascent reads a repository's
 structure, configuration, tests, CI/CD, docs, and commit signals, and produces an
-objective **AI-Native Maturity Score** (Level 1–5) across 7 weighted dimensions —
+objective **AI-Native Maturity Score** (Level 1–5) across 9 weighted dimensions —
 with evidence, benchmarks, and a prioritized roadmap of next steps.
 
 - **Free / B2C:** one-time scan of any public repo → score, report, shareable badge.

@@ -61,14 +61,14 @@ export function GoalsPanel({ slug, initial, metricOptions }: { slug: string; ini
         description="Time-bound targets the org steers toward — progress, pace and ETA track the fleet's latest scans."
       />
       <div className="mt-4 space-y-3">
-        {goals.length === 0 && <p className="text-sm text-slate-500">No goals yet — set one below.</p>}
+        {goals.length === 0 && <p className="text-base text-slate-500">No goals yet — set one below.</p>}
         {goals.map((g) => (
           <GoalCard
             key={g.id}
             goal={g}
             slug={slug}
             action={
-              <button onClick={() => remove(g.id)} className="shrink-0 font-mono text-[11px] text-slate-600 hover:text-orange-300">
+              <button onClick={() => remove(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
                 remove
               </button>
             }
@@ -81,16 +81,16 @@ export function GoalsPanel({ slug, initial, metricOptions }: { slug: string; ini
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="e.g. Reach AI-Native by Q3"
-          className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 placeholder:text-slate-600"
+          className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
         />
-        <select value={metric} onChange={(e) => setMetric(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-slate-200">
+        <select value={metric} onChange={(e) => setMetric(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
           {metricOptions.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
             </option>
           ))}
         </select>
-        <label className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500">
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           target
           <input
             type="number"
@@ -98,23 +98,23 @@ export function GoalsPanel({ slug, initial, metricOptions }: { slug: string; ini
             max={100}
             value={target}
             onChange={(e) => setTarget(Number(e.target.value))}
-            className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200"
+            className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200"
           />
         </label>
-        <label className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500">
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           by
           <input
             type="date"
             value={targetDate}
             onChange={(e) => setTargetDate(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 font-mono text-xs text-slate-200"
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 font-mono text-sm text-slate-200"
           />
         </label>
-        <button onClick={create} disabled={busy || !label.trim()} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/20 disabled:opacity-50">
+        <button onClick={create} disabled={busy || !label.trim()} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {busy ? "Adding…" : "Add goal"}
         </button>
       </div>
-      {error && <p className="mt-2 text-xs text-orange-300">{error}</p>}
+      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
     </Card>
   );
 }

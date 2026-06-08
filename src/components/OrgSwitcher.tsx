@@ -69,7 +69,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
         aria-expanded={open}
         className="focus-ring flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-60"
       >
-        <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Org</span>
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Org</span>
         <span className="max-w-[10rem] truncate normal-case tracking-normal">{labelFor(active)}</span>
         <svg
           aria-hidden
@@ -96,7 +96,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
                 role="menuitemradio"
                 aria-checked={isActive}
                 onClick={() => choose(org)}
-                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-slate-800/70 ${
+                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-base transition hover:bg-slate-800/70 ${
                   isActive ? "text-white" : "text-slate-300"
                 }`}
               >

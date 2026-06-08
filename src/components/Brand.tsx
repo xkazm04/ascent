@@ -17,7 +17,7 @@ export function Logo({ className = "", size = 24 }: { className?: string; size?:
         priority
         style={{ width: size, height: size }}
       />
-      <span className="font-mono text-sm font-semibold uppercase tracking-[0.22em] text-white">
+      <span className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">
         Ascent
       </span>
     </span>
@@ -39,7 +39,7 @@ export async function SiteHeader() {
         <Link href="/" className="focus-ring rounded-sm">
           <Logo />
         </Link>
-        <nav className="flex items-center gap-6 font-mono text-[11px] uppercase tracking-widest text-slate-400">
+        <nav className="flex items-center gap-3 font-mono text-sm uppercase tracking-widest text-slate-400 sm:gap-6">
           <Link href="/#levels" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
             Levels
           </Link>
@@ -65,7 +65,7 @@ export async function SiteHeader() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={session.image} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
                 )}
-                <span className="normal-case tracking-normal">{session.login}</span>
+                <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">{session.login}</span>
               </Link>
               <form action="/api/auth/logout" method="post" className="contents">
                 <button type="submit" className="focus-ring rounded-sm hover:text-white">
@@ -91,13 +91,13 @@ export async function SiteHeader() {
 
 export function SiteFooter() {
   return (
-    <footer className="mt-auto border-t border-slate-800/70 py-8 text-center text-sm text-slate-400">
+    <footer className="mt-auto border-t border-slate-800/70 py-8 text-center text-base text-slate-400">
       <div className="mx-auto max-w-6xl px-5">
         <Logo className="justify-center opacity-80" />
-        <p className="mt-3 font-mono text-[11px] uppercase tracking-widest text-slate-400">
+        <p className="mt-3 font-mono text-sm uppercase tracking-widest text-slate-400">
           The maturity index for AI-native engineering
         </p>
-        <div className="mt-3 flex justify-center gap-5 font-mono text-[11px] uppercase tracking-widest text-slate-400">
+        <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
           <Link href="/#pricing" className="focus-ring rounded-sm hover:text-accent">
             Pricing
           </Link>
@@ -108,7 +108,7 @@ export function SiteFooter() {
             Usage
           </Link>
         </div>
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-sm text-slate-500">
           Built on Vercel + Aurora DSQL · #H0Hackathon
         </p>
       </div>

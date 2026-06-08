@@ -43,11 +43,11 @@ export function PeriodSummary({
             🏔️
           </span>
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">{window.reviewTitle}</div>
-            <p className="mt-1.5 max-w-2xl text-sm text-slate-200">
+            <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">{window.reviewTitle}</div>
+            <p className="mt-1.5 max-w-2xl text-base text-slate-200">
               {maturity} {levels}
             </p>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-slate-400">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm text-slate-400">
               <span>
                 overall {baseline.avgOverall} → {rollup.avgOverall}
               </span>
@@ -67,7 +67,7 @@ export function PeriodSummary({
           <div className="font-mono text-3xl font-bold tabular-nums" style={{ color: deltaHex(deltas.overall) }}>
             {fmtDelta(deltas.overall)}
           </div>
-          <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">net maturity</div>
+          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">net maturity</div>
         </div>
       </div>
     </div>

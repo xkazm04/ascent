@@ -40,13 +40,13 @@ function Spinner({ size = 18 }: { size?: number }) {
 
 const VARIANTS: Record<Variant, { box: string; icon: number; idle: string; busy: string }> = {
   primary: {
-    box: "rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent hover:bg-accent-soft",
+    box: "rounded-xl bg-accent px-5 py-2.5 text-base font-semibold text-on-accent hover:bg-accent-soft",
     icon: 18,
     idle: "Sign in with GitHub",
     busy: "Redirecting to GitHub…",
   },
   nav: {
-    box: "rounded-md border border-slate-700 px-3 py-1.5 text-sm text-accent hover:border-accent",
+    box: "rounded-md border border-slate-700 px-3 py-1.5 text-base text-accent hover:border-accent",
     icon: 14,
     idle: "Sign in",
     busy: "Redirecting…",

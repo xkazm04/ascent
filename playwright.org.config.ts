@@ -31,6 +31,8 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       PORT,
+      // Org dashboards run open in the auth-off e2e/seed workflow — see authz.canReadOrg.
+      ASCENT_OPEN_ORG_DASHBOARDS: "1",
       DATABASE_URL: process.env.DATABASE_URL || "postgres://ascent:ascent@localhost:5432/ascent",
       LLM_PROVIDER: process.env.LLM_PROVIDER || "claude-cli",
       ...(process.env.GITHUB_TOKEN ? { GITHUB_TOKEN: process.env.GITHUB_TOKEN } : {}),

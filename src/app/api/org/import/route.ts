@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import {
+  consumeScanCredit,
   getInstallationIdForOwner,
   isDbConfigured,
   persistScanReport,
@@ -28,7 +29,9 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
 import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
+import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
+import { rateLimitRequest, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +43,9 @@ export async function POST(request: Request) {
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "Org import requires a database (DATABASE_URL)." }, { status: 503 });
   }
+  // Bulk scan = up to 100 GitHub ingests + (optionally) LLM completions per call. Rate-limit hard.
+  const rl = rateLimitRequest(request, ORG_IMPORT_RATE_LIMIT);
+  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     count?: number;
@@ -81,6 +87,19 @@ export async function POST(request: Request) {
     }
   }
 
+  // Credits: a real-LLM import into a private org dashboard draws on prepaid credits. The default mock
+  // import and the public funnel are free (mock runs no inference). Refuse up front when out of credits;
+  // the per-repo slice below caps the batch to the balance. Enterprise is unlimited.
+  const metered = !mock && org !== "public";
+  let unlimited = true;
+  let creditBalance = 0;
+  if (metered) {
+    const ent = await checkScanEntitlement(org);
+    if (!ent.allowed) return paymentRequired(ent.balance);
+    unlimited = ent.unlimited;
+    creditBalance = ent.balance;
+  }
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const enc = new TextEncoder();
@@ -109,6 +128,15 @@ export async function POST(request: Request) {
           send("error", { error: `No public repositories found for "${org}".` });
           return;
         }
+
+        // Cap the batch to what the prepaid balance covers (metered, non-unlimited imports only) and
+        // tell the client how many were left for credits.
+        let skippedForCredits = 0;
+        if (metered && !unlimited && fullNames.length > creditBalance) {
+          skippedForCredits = fullNames.length - creditBalance;
+          fullNames = fullNames.slice(0, creditBalance);
+          send("notice", { reason: "insufficient_credits", scanning: fullNames.length, skipped: skippedForCredits });
+        }
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });
 
         // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
@@ -127,6 +155,10 @@ export async function POST(request: Request) {
                 scanId: persisted.scanId,
                 failures: persisted.failures,
               });
+            }
+            // Debit one credit per real (non-mock) scan; unlimited plans and mock imports skip it.
+            if (metered && !unlimited && report.engine.provider !== "mock") {
+              await consumeScanCredit(org, { repoFullName: r.fullName, scanId: persisted?.scanId }).catch(() => {});
             }
             if (watch) await setRepoWatch(org, r, true);
             if (watch && schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
@@ -150,7 +182,7 @@ export async function POST(request: Request) {
           scanned += 1;
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
         });
-        send("result", { org, scanned, total: fullNames.length, dashboard: `/org/${org}` });
+        send("result", { org, scanned, total: fullNames.length, skippedForCredits, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });
       } finally {

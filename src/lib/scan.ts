@@ -19,10 +19,13 @@ import { BedrockProvider } from "@/lib/llm/bedrock";
 import { isAssessmentUsable } from "@/lib/llm/provider";
 import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { assembleReport } from "@/lib/scoring/engine";
+import { DIMENSIONS } from "@/lib/maturity/model";
 import { extractTeamOwnership } from "@/lib/github/codeowners";
 import type { Governance, PrStats, ScanReport, TokenUsage } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
+import { isAuthConfigured } from "@/lib/auth";
+import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 
 /** Backoff before a single LLM retry — fixed (no jitter) to keep the scan path deterministic-friendly. */
 const LLM_RETRY_MS = 500;
@@ -72,7 +75,20 @@ export async function resolveScanAuth(
   installationId?: string,
 ): Promise<{ token?: string; orgSlug: string }> {
   if (!parsed || !isAppConfigured()) return { orgSlug: "public" };
-  const id = installationId ?? (await getInstallationIdForOwner(parsed.owner)) ?? undefined;
+  // AUTHORIZE before minting. Without this, an anonymous caller could pass another tenant's
+  // (enumerable) installationId — or simply rely on the repo owner's stored installation — to mint
+  // that installation's token and read a PRIVATE repo's maturity (cross-tenant IDOR). Mirror the
+  // org-import gate: when auth is configured, a caller-supplied id must belong to their session, and
+  // the owner's stored installation is used only for a caller who owns that org; auth-off (local/
+  // demo) stays open, exactly like requireOrgAccess.
+  const authOn = isAuthConfigured();
+  let id: string | undefined;
+  if (installationId) {
+    if (!authOn || (await sessionHasInstallation(installationId))) id = installationId;
+  }
+  if (!id && (!authOn || (await sessionOwnsOrg(parsed.owner)))) {
+    id = (await getInstallationIdForOwner(parsed.owner)) ?? undefined;
+  }
   if (!id) return { orgSlug: "public" };
   try {
     return { token: await getInstallationToken(id), orgSlug: parsed.owner.toLowerCase() };
@@ -140,7 +156,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     ? fetchCommitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
     : Promise.resolve(null);
 
-  emit({ stage: "analyze", message: "Analyzing signals across 7 dimensions…", pct: 62 });
+  emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
   const [prStats, governance] = await Promise.all([prPromise, govPromise]);
   // Resolve the scan timestamp up front and thread it through signal extraction, so D7's
   // recency bonus is deterministic (and the same `now` stamps the report below).

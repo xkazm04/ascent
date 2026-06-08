@@ -10,9 +10,11 @@ import { scanRepository } from "@/lib/scan";
 import {
   advanceSchedule,
   advanceScheduleAfterFailure,
+  consumeScanCredit,
   getInstallationIdForOwner,
   getOrgId,
   getScanReportByCommit,
+  grantCredits,
   isDbConfigured,
   listDueRescans,
   persistScanReport,
@@ -57,11 +59,26 @@ export async function GET(request: Request) {
   );
 
   let scanned = 0;
+  let skippedForCredits = 0;
   const errors: string[] = [];
 
   // Scan with bounded concurrency so a real fleet drains within the 300s budget (counters mutate in
   // single-threaded lanes — race-free).
   await mapPool(due, SCAN_CONCURRENCY, async (r) => {
+    // Reserve one prepaid credit per autoscan (a private scan = paid). Unlimited plans are a no-op.
+    // An org out of credits has this repo skipped, but its schedule still advances so a credit-less org
+    // doesn't jam the front of the queue and silently re-attempt every run. Refunded below if the scan
+    // fails or degrades to mock (no real inference billed).
+    const reservation = await consumeScanCredit(r.orgSlug, { repoFullName: r.fullName }).catch(() => null);
+    if (!reservation || (!reservation.unlimited && !reservation.ok)) {
+      await advanceSchedule(r.repoId, r.scanSchedule).catch(() => {});
+      skippedForCredits += 1;
+      return;
+    }
+    const charged = reservation.ok && !reservation.unlimited;
+    const refundCredit = async () => {
+      if (charged) await grantCredits(r.orgSlug, 1, { reason: "refund", actor: "system" }).catch(() => {});
+    };
     try {
       const token = tokenByOrg.get(r.orgSlug);
       // Capture the prior persisted report BEFORE the new scan lands, so we can diff for a
@@ -78,6 +95,8 @@ export async function GET(request: Request) {
           failures: persisted.failures,
         });
       }
+      // No real inference (degraded to mock after an LLM failure) — refund the reserved credit.
+      if (report.engine.provider === "mock") await refundCredit();
       // Live intelligence: alert on a regression vs the prior scan (skipped on an unchanged commit).
       if (persisted && !persisted.deduped) {
         const orgId = (await getOrgId(r.orgSlug).catch(() => null)) ?? undefined;
@@ -87,6 +106,8 @@ export async function GET(request: Request) {
       await recordScanOutcome(r.orgSlug, r.fullName, { ok: true }).catch(() => {});
       scanned += 1;
     } catch (err) {
+      // The scan failed — no inference to bill, so refund the credit reserved above.
+      await refundCredit();
       // ALWAYS advance, even on failure (with a backoff). The schedule used to advance only on
       // success, so a persistently-broken repo stayed permanently due at the front of the queue and
       // re-failed every run, starving the rest of the fleet. Back it off so it leaves the front.
@@ -100,5 +121,5 @@ export async function GET(request: Request) {
     }
   });
 
-  return NextResponse.json({ due: due.length, scanned, errors });
+  return NextResponse.json({ due: due.length, scanned, skippedForCredits, errors });
 }

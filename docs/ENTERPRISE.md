@@ -62,7 +62,7 @@ Two ways repos enter the fleet:
 | **Organization** | `slug` (unique), `name`, `plan` |
 | **Repository** | `watched: Bool`, `scanSchedule: String` (`off`/`daily`/`weekly`/`monthly`), `lastScanAt`, `nextScanAt`, `@@unique([orgId, fullName])` |
 | **Scan** | `level`, `overallScore`, **`adoptionScore`**, **`rigorScore`**, **`posture`**, **`archetype`**, `scannedAt` |
-| **ScanDimension** | `dimId` (D1–D8), `score`, `level`, `rationale` |
+| **ScanDimension** | `dimId` (D1–D9), `score`, `level`, `rationale` |
 | **RepoContributor** | `repoId`, `login`, `name`, `commits`, `aiCommits`, `lastActiveAt`, `@@unique([repoId, login])` |
 | **Recommendation** | `dimId`, `title`, `status` (carry-forward across scans) |
 

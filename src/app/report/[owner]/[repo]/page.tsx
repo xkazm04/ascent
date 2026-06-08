@@ -8,6 +8,7 @@ import type { Metadata } from "next";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { ReportClient } from "@/components/report/ReportClient";
 import { ReportView } from "@/components/report/ReportView";
+import { ReportSkeleton } from "@/components/report/ReportSkeleton";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { getScanReportByCommit } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
@@ -67,7 +68,7 @@ export default async function ReportPermalink({
             <ReportView report={pinned} />
           </ReportErrorBoundary>
         ) : (
-          <Suspense fallback={<div className="py-24 text-center text-slate-400">Loading…</div>}>
+          <Suspense fallback={<div className="mx-auto w-full max-w-md py-12"><ReportSkeleton /></div>}>
             <ReportClient repo={ref} />
           </Suspense>
         )}

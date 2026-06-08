@@ -27,6 +27,11 @@ model Organization {
   slug            String   @unique
   name            String
   plan            String   @default("free") // free | pro | team | enterprise
+  // Prepaid private-scan credit balance. Public scans are free + unmetered; each private (installation)
+  // scan that runs real LLM inference debits one credit (see src/lib/db/credits.ts + src/lib/entitlement.ts).
+  // `enterprise` plan is treated as unlimited (no debit). Credits are granted out-of-band (a future
+  // Stripe top-up, or an owner/admin grant) — see docs/BILLING.md. The CreditLedger is the audit trail.
+  scanCredits     Int      @default(0)
   // Per-org data-retention overrides (enterprise). null = inherit the global env default
   // (RETENTION_MAX_SCANS_PER_REPO / RETENTION_AUDIT_DAYS); 0 = keep everything (unlimited).
   // Enforced by the /api/cron/purge job — see src/lib/db/retention.ts.
@@ -39,16 +44,43 @@ model Organization {
   repositories  Repository[]
   auditLogs     AuditLog[]
   subscription  Subscription?
+  creditLedger  CreditLedger[]
   goals         Goal[]
   initiatives   Initiative[]
   segments      Segment[]
 }
 
+// Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
+// One row per grant (+) or per-scan debit (-), each stamping the resulting balance so the running total
+// can be audited and reconciled against Stripe top-ups. Standalone under relationMode="prisma" (no DB
+// FKs); always queried by orgId. See src/lib/db/credits.ts.
+model CreditLedger {
+  id           String   @id @default(uuid())
+  orgId        String
+  delta        Int // +N granted, -N debited
+  balanceAfter Int // org.scanCredits immediately after applying this row (within the same txn)
+  reason       String   @default("scan") // scan | grant | stripe | adjustment | refund
+  repoFullName String? // the repo a scan debit paid for (null for grants/adjustments)
+  scanId       String? // the Scan row a debit paid for, when known
+  actor        String? // GitHub login (grant/adjustment) or "stripe"/"system"
+  createdAt    DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@index([orgId, createdAt])
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
+  // GitHub login — the identity the session actually carries (auth is GitHub-OAuth/App based, not
+  // email/password). Bridges a session to a Membership row so RBAC (Membership.role) can be resolved
+  // and persisted for the logins we know. Email is kept (unique, required) and set to the GitHub
+  // noreply form for App/OAuth users. See src/lib/db/members.ts.
+  githubLogin String? @unique
+  name        String?
+  createdAt   DateTime @default(now())
 
   memberships Membership[]
 }

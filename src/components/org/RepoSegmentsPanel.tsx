@@ -108,10 +108,10 @@ export function RepoSegmentsPanel({
       {/* Existing segments + create */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {segments.map((s) => (
-          <span key={s.id} className="group inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/60 py-1 pl-2.5 pr-1.5 text-xs">
+          <span key={s.id} className="group inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/60 py-1 pl-2.5 pr-1.5 text-sm">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
             <span className="text-slate-200">{s.name}</span>
-            <span className="font-mono text-[10px] text-slate-500">{s.repoCount}</span>
+            <span className="font-mono text-sm text-slate-500">{s.repoCount}</span>
             <button
               type="button"
               onClick={() => removeSegment(s.id)}
@@ -122,7 +122,7 @@ export function RepoSegmentsPanel({
             </button>
           </span>
         ))}
-        {segments.length === 0 && <span className="text-xs text-slate-500">No segments yet — create one to start tagging.</span>}
+        {segments.length === 0 && <span className="text-sm text-slate-500">No segments yet — create one to start tagging.</span>}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-4">
@@ -143,28 +143,28 @@ export function RepoSegmentsPanel({
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && createSegment()}
           placeholder="New segment name"
-          className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 placeholder:text-slate-600"
+          className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
         />
         <button
           onClick={createSegment}
           disabled={busy || !name.trim()}
-          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
         >
           {busy ? "Adding…" : "Add segment"}
         </button>
       </div>
-      {error && <p className="mt-2 text-xs text-orange-300">{error}</p>}
+      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
 
       {/* Per-repo tagging */}
       {segments.length > 0 && (
         <div className="mt-6 border-t border-slate-800 pt-4">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-mono text-[11px] uppercase tracking-widest text-slate-400">Tag repositories</h3>
+            <h3 className="font-mono text-sm uppercase tracking-widest text-slate-400">Tag repositories</h3>
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter repos…"
-              className="w-40 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-200 placeholder:text-slate-600"
+              className="w-40 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-sm text-slate-200 placeholder:text-slate-600"
             />
           </div>
           <div className="mt-3 max-h-96 space-y-1.5 overflow-y-auto pr-1">
@@ -172,7 +172,7 @@ export function RepoSegmentsPanel({
               const ids = new Set(membership[r.fullName] ?? []);
               return (
                 <div key={r.fullName} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-300" title={r.fullName}>
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-slate-300" title={r.fullName}>
                     {r.fullName}
                   </span>
                   <div className="flex flex-wrap items-center gap-1">
@@ -184,7 +184,7 @@ export function RepoSegmentsPanel({
                           type="button"
                           onClick={() => toggle(r.fullName, s.id)}
                           aria-pressed={on}
-                          className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] transition"
+                          className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-sm transition"
                           style={
                             on
                               ? { backgroundColor: s.color, borderColor: s.color, color: "#04070e" }
@@ -200,9 +200,9 @@ export function RepoSegmentsPanel({
                 </div>
               );
             })}
-            {visibleRepos.length === 0 && <p className="text-xs text-slate-500">No repos match “{filter}”.</p>}
+            {visibleRepos.length === 0 && <p className="text-sm text-slate-500">No repos match “{filter}”.</p>}
           </div>
-          <p className="mt-2 font-mono text-[10px] text-slate-600">{segById.size} segment{segById.size === 1 ? "" : "s"} · {repos.length} repos</p>
+          <p className="mt-2 font-mono text-sm text-slate-600">{segById.size} segment{segById.size === 1 ? "" : "s"} · {repos.length} repos</p>
         </div>
       )}
     </Card>

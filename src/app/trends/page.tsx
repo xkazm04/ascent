@@ -11,6 +11,12 @@ import { SignInNotice } from "@/components/SignInNotice";
 import { LevelBadge } from "@/components/LevelBadge";
 import type { LevelId } from "@/lib/types";
 
+export const metadata = {
+  title: "Maturity trends — Ascent",
+  description:
+    "Track a repository's AI-native maturity over time — per-dimension trends and a forecast of when it reaches the next level.",
+};
+
 export const dynamic = "force-dynamic";
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -115,7 +121,7 @@ export default async function TrendsPage({
       <div className="animate-fade-up">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">
+            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">
               Maturity trends
             </div>
             <h1 className="mt-1 text-2xl font-bold text-white">{history.repo.fullName}</h1>
@@ -125,20 +131,20 @@ export default async function TrendsPage({
             {history.scans.length >= 2 && (
               <Link
                 href={`/report/compare?repo=${encodeURIComponent(history.repo.fullName)}`}
-                className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+                className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
               >
                 Compare →
               </Link>
             )}
             <Link
               href={`/report?repo=${encodeURIComponent(history.repo.fullName)}`}
-              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
             >
               Full report →
             </Link>
             <a
               href={`/api/history?repo=${encodeURIComponent(history.repo.fullName)}&format=csv`}
-              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
               title="Download this repo's scan history as CSV"
             >
               Export CSV ↓
@@ -147,7 +153,7 @@ export default async function TrendsPage({
         </div>
 
         {history.scans.length === 1 && (
-          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-sm text-slate-400">
+          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-base text-slate-400">
             Only a baseline scan so far — the trend lines fill in after the next scan.
           </p>
         )}

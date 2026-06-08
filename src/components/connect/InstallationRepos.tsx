@@ -190,7 +190,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   if (view.status === "loading") return <RepoListSkeleton />;
   if (view.status === "error")
     return (
-      <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 p-5 text-sm text-danger-soft">
+      <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 p-5 text-base text-danger-soft">
         {view.message}
       </div>
     );
@@ -204,19 +204,19 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
 
   const watchedCount = view.repos.filter((r) => r.state?.watched).length;
   const chip = (active: boolean) =>
-    `rounded-full border px-3 py-1 font-mono text-[11px] uppercase tracking-widest transition ${
+    `rounded-full border px-3 py-1 font-mono text-sm uppercase tracking-widest transition ${
       active ? "border-accent bg-accent/10 text-accent" : "border-slate-700 text-slate-400 hover:border-slate-600"
     }`;
 
   return (
     <div className="animate-fade-up">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-base">
         <span className="text-slate-400">
           <span className="font-semibold text-white">{watchedCount}</span> of {view.repos.length} watched
         </span>
         <Link
           href={`/org/${encodeURIComponent(org)}`}
-          className="rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-accent hover:bg-accent/10"
+          className="rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-accent hover:bg-accent/10"
         >
           Org dashboard →
         </Link>
@@ -230,7 +230,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search repositories…"
           aria-label="Search repositories"
-          className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-accent"
+          className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white outline-none focus:border-accent"
         />
         <div className="flex flex-wrap items-center gap-1.5">
           {(["all", "public", "private"] as Visibility[]).map((v) => (
@@ -246,7 +246,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
               aria-label="Filter by language"
-              className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 font-mono text-[11px] text-slate-300 outline-none focus:border-accent"
+              className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 font-mono text-sm text-slate-300 outline-none focus:border-accent"
             >
               <option value="all">all languages</option>
               {languages.map((l) => (
@@ -272,27 +272,27 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="truncate font-mono text-sm text-white">{r.fullName}</span>
+                      <span className="truncate font-mono text-base text-white">{r.fullName}</span>
                       {r.private ? (
-                        <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-accent">
+                        <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-accent">
                           private
                         </span>
                       ) : null}
                       {st?.level && lc && (
-                        <span className={`rounded border ${lc.border} ${lc.bg} px-1.5 py-0.5 font-mono text-[10px] ${lc.text}`}>
+                        <span className={`rounded border ${lc.border} ${lc.bg} px-1.5 py-0.5 font-mono text-sm ${lc.text}`}>
                           <span aria-hidden>{LEVEL_GLYPH[st.level as LevelId]} </span>
                           {st.level} · {st.overall}
                         </span>
                       )}
                     </div>
-                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-sm text-slate-500">
                       {r.language && <span>{r.language}</span>}
                       <span>★ {r.stars.toLocaleString()}</span>
                       <span>updated {timeAgo(r.pushedAt ?? undefined)}</span>
                     </div>
                   </div>
 
-                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-400">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-400">
                     <input
                       type="checkbox"
                       checked={Boolean(st?.watched)}
@@ -307,7 +307,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
                     onChange={(e) => changeSchedule(r, e.target.value)}
                     disabled={!st?.watched}
                     aria-label="Autoscan schedule"
-                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 outline-none focus:border-accent disabled:opacity-40"
+                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-40"
                   >
                     {SCHEDULES.map((s) => (
                       <option key={s} value={s}>
@@ -319,13 +319,13 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
                   <span aria-hidden className="hidden h-7 w-px self-center bg-slate-800 sm:block" />
                   <Link
                     href={`/report?repo=${encodeURIComponent(r.fullName)}`}
-                    className="focus-ring shrink-0 rounded-lg bg-accent px-4 py-2 font-mono text-xs font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft"
+                    className="focus-ring shrink-0 rounded-lg bg-accent px-4 py-2 font-mono text-sm font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft"
                   >
                     Scan
                   </Link>
                 </div>
                 {rowError && (
-                  <p role="alert" className="mt-2 text-xs text-danger">
+                  <p role="alert" className="mt-2 text-sm text-danger">
                     {rowError}
                   </p>
                 )}

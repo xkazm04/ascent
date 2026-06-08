@@ -108,6 +108,6 @@ run with `npm run test:e2e:org` against the live :3007 server (real Postgres, se
 - **contributors** — asserts the *inputs-not-directives* framing + champions-as-exemplars + bus-factor.
 - **delivery** — PR discipline, branch-governance guardrail gaps, real commit activity.
 - **practices** — exemplar to learn from + gap repos + leak-free reusable shape (the reuse story).
-- **scan-intelligence (live LLM)** — a real scan yields 8 dimensions, posture, level, and ≥3
+- **scan-intelligence (live LLM)** — a real scan yields 9 dimensions, posture, level, and ≥3
   exploration-framed action points hitting structural AI-enablement dims (D1/D4/D8); the report page
   renders the trust ladder + exploration cards.

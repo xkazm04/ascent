@@ -28,7 +28,7 @@ export default async function OnboardingPage() {
       <main className="mx-auto w-full max-w-3xl px-5 py-10">
         {/* animate-fade-up on the header to match connect/page's entrance (Phase 4). */}
         <div className="animate-fade-up mb-8">
-          <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Get started</div>
+          <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Get started</div>
           <h1 className="mt-1 text-3xl font-bold text-white">Scan your organization</h1>
           <p className="mt-2 text-slate-400">
             Pick up to ten repositories. Ascent scans them in one shot and builds a cross-repo view —

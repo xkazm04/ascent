@@ -17,21 +17,21 @@ export function GoalsOverview({ slug, goals }: { slug: string; goals: GoalProgre
         size="sm"
         title="Goals"
         right={
-          <Link href={`/org/${slug}/plan`} className="font-mono text-[11px] uppercase tracking-widest text-accent hover:text-white">
+          <Link href={`/org/${slug}/plan`} className="font-mono text-sm uppercase tracking-widest text-accent hover:text-white">
             manage →
           </Link>
         }
       />
       {shown.length === 0 ? (
         <div className="mt-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/30 p-5 text-center">
-          <p className="text-sm text-slate-300">No goals set yet.</p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="text-base text-slate-300">No goals set yet.</p>
+          <p className="mt-1 text-sm text-slate-500">
             Define time-bound org targets — e.g. &ldquo;AI Adoption 60 by December&rdquo; or &ldquo;reach AI-Native by Q3&rdquo; — and track
             pace, ETA, and which repos must move against them.
           </p>
           <Link
             href={`/org/${slug}/plan`}
-            className="mt-3 inline-block rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/20"
+            className="mt-3 inline-block rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20"
           >
             Set a goal →
           </Link>
@@ -44,7 +44,7 @@ export function GoalsOverview({ slug, goals }: { slug: string; goals: GoalProgre
           {active.length > shown.length && (
             <Link
               href={`/org/${slug}/plan`}
-              className="block text-center font-mono text-[11px] text-slate-500 hover:text-accent"
+              className="block text-center font-mono text-sm text-slate-500 hover:text-accent"
             >
               +{active.length - shown.length} more on the Plan tab →
             </Link>

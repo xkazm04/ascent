@@ -70,7 +70,7 @@ export function ScheduleSelect({
         title={disabled ? disabledHint : undefined}
         onChange={(e) => onChange(normalize(e.target.value))}
         aria-label={`Autoscan cadence for ${fullName}`}
-        className="rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-[11px] text-slate-300 transition hover:border-accent focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition hover:border-accent focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
       >
         {OPTIONS.map((o) => (
           <option key={o} value={o}>
@@ -78,7 +78,7 @@ export function ScheduleSelect({
           </option>
         ))}
       </select>
-      {error && <span className="font-mono text-[10px] text-red-400">{error}</span>}
+      {error && <span className="font-mono text-sm text-red-400">{error}</span>}
     </span>
   );
 }

@@ -19,7 +19,7 @@ flowchart LR
   U[Browser] -->|POST /api/scan { url }| API[Route Handler /api/scan]
   subgraph Vercel [Next.js 16 on Vercel]
     API --> ING[RepoSource: GitHubPublicSource]
-    ING --> SIG[Deterministic Analyzers D1..D7]
+    ING --> SIG[Deterministic Analyzers D1..D9]
     SIG --> ENG[Scoring Engine]
     ENG --> LLM[LLMProvider]
     ENG --> RPT[(Report JSON)]
@@ -37,7 +37,7 @@ flowchart LR
 2. **Ingest** (`GitHubPublicSource`): fetch repo metadata, the recursive git **tree**
    (one call), then selectively fetch a **budgeted sample** of file contents (README,
    config files, CI workflows, a sample of test/source files) + recent commit messages.
-3. **Analyze** (D1–D7): deterministic detectors map files/patterns → signals →
+3. **Analyze** (D1–D9): deterministic detectors map files/patterns → signals →
    `signalScore`.
 4. **Score** (`ScoringEngine`): build a compact prompt (signals + sampled content +
    rubric) → `LLMProvider.score()` returns structured JSON → blend with signal scores,

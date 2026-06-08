@@ -43,7 +43,7 @@ export function TimeRangeSelector({ range, from, to }: { range: RangeKey; from?:
   }
 
   const inputCls =
-    "rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1 font-mono text-[11px] text-slate-200 [color-scheme:dark] focus:border-accent focus:outline-none";
+    "rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1 font-mono text-sm text-slate-200 [color-scheme:dark] focus:border-accent focus:outline-none";
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -56,7 +56,7 @@ export function TimeRangeSelector({ range, from, to }: { range: RangeKey; from?:
               type="button"
               onClick={() => selectPreset(o.key)}
               aria-pressed={active}
-              className={`rounded-md px-2.5 py-1 font-mono text-[11px] transition ${
+              className={`rounded-md px-2.5 py-1 font-mono text-sm transition ${
                 active ? "bg-accent font-semibold text-[#04070e]" : "text-slate-400 hover:text-white"
               }`}
             >
@@ -90,7 +90,7 @@ export function TimeRangeSelector({ range, from, to }: { range: RangeKey; from?:
             type="button"
             onClick={applyCustom}
             disabled={!fromVal}
-            className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-[11px] text-slate-200 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-200 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             Apply
           </button>

@@ -22,7 +22,7 @@ export function OrgNav({ slug }: { slug: string }) {
   ];
   return (
     <div className="relative">
-      <nav className="mt-5 flex gap-1 overflow-x-auto border-b border-slate-800 text-sm">
+      <nav className="mt-5 flex gap-1 overflow-x-auto border-b border-slate-800 text-base">
       {tabs.map((t) => {
         const active = path === t.href;
         return (

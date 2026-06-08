@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 function MetricBar({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-widest text-slate-500">
+      <div className="flex items-center justify-between font-mono text-sm uppercase tracking-widest text-slate-500">
         <span>{label}</span>
         <span style={{ color: scoreHex(value) }}>{value}</span>
       </div>
@@ -24,12 +24,12 @@ function TeamCard({ team }: { team: TeamRollup }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="font-mono text-sm text-white">{team.slug}</span>
-            <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px]" style={{ color: scoreHex(team.avgOverall) }}>
+            <span className="font-mono text-base text-white">{team.slug}</span>
+            <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm" style={{ color: scoreHex(team.avgOverall) }}>
               {level.id} · {team.avgOverall}
             </span>
           </div>
-          <div className="mt-1 font-mono text-[11px] text-slate-500">
+          <div className="mt-1 font-mono text-sm text-slate-500">
             {team.repoCount} repo{team.repoCount === 1 ? "" : "s"}
             {team.totalOwned > team.repoCount && ` (${team.totalOwned} owned)`}
             {team.defaultOwnerCount > 0 && ` · primary owner of ${team.defaultOwnerCount}`}
@@ -39,11 +39,11 @@ function TeamCard({ team }: { team: TeamRollup }) {
         </div>
         {team.comparedRepos > 0 && (
           <div className="text-right">
-            <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">since last scan</div>
-            <div className="mt-0.5 font-mono text-sm" style={{ color: deltaHex(team.avgDelta) }}>
+            <div className="font-mono text-sm uppercase tracking-widest text-slate-500">since last scan</div>
+            <div className="mt-0.5 font-mono text-base" style={{ color: deltaHex(team.avgDelta) }}>
               {fmtDelta(team.avgDelta)}
             </div>
-            <div className="font-mono text-[10px] text-slate-600">
+            <div className="font-mono text-sm text-slate-600">
               ▲{team.improving} ▼{team.declining}
             </div>
           </div>
@@ -59,17 +59,17 @@ function TeamCard({ team }: { team: TeamRollup }) {
       {/* AI knowledge + strongest/weakest dimension */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">AI knowledge</div>
+          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">AI knowledge</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="font-mono text-xl font-bold" style={{ color: scoreHex(team.aiCommitShare) }}>
               {team.aiCommitShare}%
             </span>
-            <span className="text-[11px] text-slate-500">of recent commits · {team.aiContributors}/{team.contributors} AI-active</span>
+            <span className="text-sm text-slate-500">of recent commits · {team.aiContributors}/{team.contributors} AI-active</span>
           </div>
           {team.champions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
               {team.champions.map((c) => (
-                <span key={c.login} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-accent" title={`${c.aiCommits} AI commits · ${c.aiShare}% AI`}>
+                <span key={c.login} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-accent" title={`${c.aiCommits} AI commits · ${c.aiShare}% AI`}>
                   {c.login} · {c.aiShare}%
                 </span>
               ))}
@@ -77,8 +77,8 @@ function TeamCard({ team }: { team: TeamRollup }) {
           )}
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Dimension shape</div>
-          <div className="mt-1.5 space-y-1.5 text-xs">
+          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Dimension shape</div>
+          <div className="mt-1.5 space-y-1.5 text-sm">
             {team.strongest && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-slate-400">Strongest · {team.strongest.label}</span>
@@ -100,7 +100,7 @@ function TeamCard({ team }: { team: TeamRollup }) {
         {team.repos.map((r) => (
           <span
             key={r.fullName}
-            className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-400"
+            className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400"
             title={`${r.fullName} · overall ${r.overall}${r.isDefaultOwner ? " · primary owner" : ""}`}
           >
             {r.name}
@@ -128,7 +128,7 @@ export default async function TeamsPage({ params }: { params: Promise<{ slug: st
 
   return (
     <div>
-      <p className="max-w-3xl text-sm text-slate-400">
+      <p className="max-w-3xl text-base text-slate-400">
         Your fleet, rolled up by the teams that own it (from each repo&apos;s <span className="font-mono text-slate-300">CODEOWNERS</span>).
         Inputs to explore how AI capability is distributed across the org — which team carries the most institutional AI
         knowledge, and where a pairing could spread it. Not a ranking, and not a to-do list for anyone.
@@ -157,9 +157,9 @@ export default async function TeamsPage({ params }: { params: Promise<{ slug: st
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           {rollup.knowledgeLeader && (
             <Card>
-              <div className="font-mono text-[10px] uppercase tracking-widest text-accent">🧠 Most institutional AI knowledge</div>
+              <div className="font-mono text-sm uppercase tracking-widest text-accent">🧠 Most institutional AI knowledge</div>
               <div className="mt-2 font-mono text-lg text-white">{rollup.knowledgeLeader.slug}</div>
-              <p className="mt-2 text-sm text-slate-400">
+              <p className="mt-2 text-base text-slate-400">
                 <span className="text-slate-200">{rollup.knowledgeLeader.aiCommitShare}%</span> of this team&apos;s recent commits are
                 AI-attributed and its repos average <span className="text-slate-200">{rollup.knowledgeLeader.avgAdoption}</span> on
                 adoption — a natural place to source patterns others could borrow. An input, not a verdict.
@@ -168,14 +168,14 @@ export default async function TeamsPage({ params }: { params: Promise<{ slug: st
           )}
           {rollup.pairing && (
             <Card>
-              <div className="font-mono text-[10px] uppercase tracking-widest text-accent">🤝 A pairing to consider</div>
-              <div className="mt-2 text-sm text-slate-300">
+              <div className="font-mono text-sm uppercase tracking-widest text-accent">🤝 A pairing to consider</div>
+              <div className="mt-2 text-base text-slate-300">
                 <span className="font-mono text-white">{rollup.pairing.mentorSlug}</span> is strong on{" "}
                 <span className="text-slate-200">{rollup.pairing.label}</span> ({rollup.pairing.mentorScore}), where{" "}
                 <span className="font-mono text-white">{rollup.pairing.learnerSlug}</span> sits at {rollup.pairing.learnerScore} — a{" "}
                 <span style={{ color: deltaHex(rollup.pairing.gap) }}>{rollup.pairing.gap}-point</span> gap on the same dimension.
               </div>
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-sm text-slate-500">
                 The biggest learnable gap across teams — an invitation to pair, never a directive. People decide what to pick up.
               </p>
             </Card>
@@ -196,13 +196,13 @@ export default async function TeamsPage({ params }: { params: Promise<{ slug: st
         </div>
       </div>
 
-      <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-sm text-slate-400">
+      <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-base text-slate-400">
         <span className="text-slate-300">How to read this:</span> a repo is attributed to every team named in its CODEOWNERS, so a
         team&apos;s numbers reflect the repos it&apos;s responsible for. These are inputs to explore where AI capability could spread —
         a strong team&apos;s approach is a pattern others can borrow, and a soft dimension is where a pairing could help. The aim is
         to map the fleet to how the org actually works, not to rank teams.
       </p>
-      <p className="mt-4 font-mono text-[11px] text-slate-600">
+      <p className="mt-4 font-mono text-sm text-slate-600">
         Team attribution is parsed from CODEOWNERS at scan time ({rollup.attributedRepos} attributed ·{" "}
         {rollup.unownedRepos} unowned). Movers compare each repo&apos;s two most recent scans. GitHub Teams (GraphQL) attribution is
         still on the roadmap.

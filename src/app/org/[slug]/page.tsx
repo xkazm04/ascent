@@ -25,9 +25,9 @@ function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "u
       ) : (
         <div className="mt-3 space-y-2">
           {moves.map((m) => (
-            <div key={m.fullName} className="flex items-center justify-between gap-3 text-sm">
-              <span className="min-w-0 truncate font-mono text-xs text-slate-200">{m.name}</span>
-              <span className="flex shrink-0 items-center gap-2 font-mono text-xs">
+            <div key={m.fullName} className="flex items-center justify-between gap-3 text-base">
+              <span className="min-w-0 truncate font-mono text-sm text-slate-200">{m.name}</span>
+              <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
                 {m.levelDelta !== 0 && (
                   <span className="text-slate-500">
                     {m.levelFrom}→{m.levelTo}
@@ -82,7 +82,7 @@ export default async function OrgOverview({
     <div className="space-y-6">
       {/* Period + segment controls — drive the tiles' deltas, the trend, and the movers below */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
           Showing · {period.title}
           {activeSegment && (
             <>
@@ -98,7 +98,7 @@ export default async function OrgOverview({
       </div>
       {segments.length > 0 && (
         <div className="-mt-3">
-          <Link href={`/org/${slug}/segments`} className="font-mono text-[11px] text-slate-500 hover:text-accent">
+          <Link href={`/org/${slug}/segments`} className="font-mono text-sm text-slate-500 hover:text-accent">
             Compare segments side by side →
           </Link>
         </div>
@@ -143,7 +143,7 @@ export default async function OrgOverview({
 
         <Card>
           <SectionHeader size="sm" title="Standing" />
-          <div className="mt-4 space-y-3 text-sm">
+          <div className="mt-4 space-y-3 text-base">
             {benchmark && benchmark.overallPercentile != null ? (
               <div className="flex items-baseline justify-between">
                 <span className="text-slate-300">vs the Ascent corpus</span>
@@ -151,24 +151,24 @@ export default async function OrgOverview({
                   <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(benchmark.overallPercentile) }}>
                     {benchmark.overallPercentile}
                   </span>
-                  <span className="ml-1 font-mono text-xs text-slate-500">pctile · {benchmark.corpusRepos} repos</span>
+                  <span className="ml-1 font-mono text-sm text-slate-500">pctile · {benchmark.corpusRepos} repos</span>
                 </span>
               </div>
             ) : (
               <InlineEmpty>Benchmark fills in once other orgs are scanned.</InlineEmpty>
             )}
             {benchmark && (
-              <div className="font-mono text-[11px] text-slate-500">
+              <div className="font-mono text-sm text-slate-500">
                 corpus avg: overall {benchmark.corpusAvgOverall} · adopt {benchmark.corpusAvgAdoption} · rigor {benchmark.corpusAvgRigor}
               </div>
             )}
             <div className="flex items-center gap-2 pt-1">
               {regressionCount > 0 ? (
-                <span className="rounded-full border border-orange-500/40 bg-orange-500/10 px-2.5 py-1 font-mono text-[11px] text-orange-300">
+                <span className="rounded-full border border-orange-500/40 bg-orange-500/10 px-2.5 py-1 font-mono text-sm text-orange-300">
                   ⚠ {regressionCount} repo{regressionCount > 1 ? "s" : ""} regressed {period.start ? "this period" : "since last scan"}
                 </span>
               ) : (
-                <span className="rounded-full border border-slate-700 px-2.5 py-1 font-mono text-[11px] text-slate-400">no regressions</span>
+                <span className="rounded-full border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-400">no regressions</span>
               )}
             </div>
           </div>
@@ -185,7 +185,7 @@ export default async function OrgOverview({
           <div className="mt-3 grid gap-6 lg:grid-cols-2">
             {/* Common organization gaps */}
             <Card>
-              <h3 className="font-mono text-[11px] uppercase tracking-widest text-accent">Common organization gaps</h3>
+              <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Common organization gaps</h3>
               {gaps.commonGaps.length === 0 ? (
                 <InlineEmpty>No fleet-wide gaps — strengths are broad.</InlineEmpty>
               ) : (
@@ -193,10 +193,10 @@ export default async function OrgOverview({
                   {gaps.commonGaps.map((g) => (
                     <li key={g.dimId} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm text-white">{g.label}</span>
-                        <span className="font-mono text-[11px] text-orange-300">weak in {g.weakCount}/{g.total}</span>
+                        <span className="text-base text-white">{g.label}</span>
+                        <span className="font-mono text-sm text-orange-300">weak in {g.weakCount}/{g.total}</span>
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-slate-500">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-sm text-slate-500">
                         <span>org avg {g.avg}</span>
                         {g.exemplar && (
                           <span>
@@ -215,20 +215,20 @@ export default async function OrgOverview({
 
             {/* Repo-specific gaps */}
             <Card>
-              <h3 className="font-mono text-[11px] uppercase tracking-widest text-slate-400">Repo-specific gaps</h3>
+              <h3 className="font-mono text-sm uppercase tracking-widest text-slate-400">Repo-specific gaps</h3>
               {gaps.repoSpecific.length === 0 ? (
                 <InlineEmpty>No notable outliers — repos move together.</InlineEmpty>
               ) : (
                 <ul className="mt-3 space-y-1.5">
                   {gaps.repoSpecific.slice(0, 8).map((o, i) => (
-                    <li key={`${o.fullName}-${o.dimId}-${i}`} className="flex items-center justify-between gap-3 text-sm">
+                    <li key={`${o.fullName}-${o.dimId}-${i}`} className="flex items-center justify-between gap-3 text-base">
                       <span className="min-w-0 truncate">
-                        <Link href={`/report?repo=${encodeURIComponent(o.fullName)}`} className="font-mono text-xs text-white hover:text-accent">
+                        <Link href={`/report?repo=${encodeURIComponent(o.fullName)}`} className="font-mono text-sm text-white hover:text-accent">
                           {o.name}
                         </Link>{" "}
                         <span className="text-slate-500">{o.label}</span>
                       </span>
-                      <span className="shrink-0 font-mono text-[11px] text-slate-500">
+                      <span className="shrink-0 font-mono text-sm text-slate-500">
                         {o.score} vs {o.orgAvg} org
                       </span>
                     </li>
@@ -248,7 +248,7 @@ export default async function OrgOverview({
             {POSTURE_ORDER.map((p) => {
               const n = rollup.postureCounts[p] ?? 0;
               return (
-                <div key={p} className="flex items-center gap-3 text-sm">
+                <div key={p} className="flex items-center gap-3 text-base">
                   <span className="w-36 shrink-0 text-slate-300">{POSTURE_LABEL[p]}</span>
                   <Meter className="flex-1" value={(n / maxPosture) * 100} />
                   <span className="w-6 text-right font-mono tabular-nums text-slate-400">{n}</span>
@@ -262,7 +262,7 @@ export default async function OrgOverview({
           <SectionHeader size="sm" title="Dimension averages" />
           <div className="mt-3 space-y-1.5">
             {rollup.dimAverages.map((d) => (
-              <div key={d.dimId} className="flex items-center gap-3 text-xs">
+              <div key={d.dimId} className="flex items-center gap-3 text-sm">
                 <span className="w-20 shrink-0 text-slate-400">{DIMENSION_SHORT[d.dimId as keyof typeof DIMENSION_SHORT] ?? d.dimId}</span>
                 <Meter className="flex-1" value={d.avg} color={scoreHex(d.avg)} />
                 <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.avg) }}>
@@ -277,7 +277,7 @@ export default async function OrgOverview({
       {/* Trend */}
       {trend.length >= 1 && (
         <Card>
-          <SectionHeader size="sm" title="Org maturity over time" right={<span className="font-mono text-[11px] text-slate-500">{period.title}</span>} />
+          <SectionHeader size="sm" title="Org maturity over time" right={<span className="font-mono text-sm text-slate-500">{period.title}</span>} />
           <div className="mt-3">
             <TrendChart points={trend} />
           </div>
@@ -302,29 +302,29 @@ export default async function OrgOverview({
           <div className="mt-3 space-y-2">
             {orgRecs.map((rec, i) => (
               <div key={`${rec.dimId}-${rec.title}`} className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-sm text-slate-300">{i + 1}</span>
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-base text-slate-300">{i + 1}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-white">{rec.title}</span>
-                    <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                    <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
                       {DIMENSION_SHORT[rec.dimId as keyof typeof DIMENSION_SHORT] ?? rec.dimId}
                     </span>
-                    <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${IMPACT_CLASS[rec.impact] ?? "border-slate-700 text-slate-400"}`}>
+                    <span className={`rounded border px-1.5 py-0.5 font-mono text-sm ${IMPACT_CLASS[rec.impact] ?? "border-slate-700 text-slate-400"}`}>
                       {rec.impact} impact
                     </span>
                   </div>
-                  <div className="mt-1.5 font-mono text-[11px] text-slate-500">
+                  <div className="mt-1.5 font-mono text-sm text-slate-500">
                     affects {rec.repoCount} repo{rec.repoCount > 1 ? "s" : ""}: {rec.repos.slice(0, 6).join(", ")}
                     {rec.repos.length > 6 ? ` +${rec.repos.length - 6}` : ""}
                   </div>
                 </div>
-                <span className="shrink-0 font-mono text-xs text-slate-500" title="leverage = repos × impact × dimension weight">
+                <span className="shrink-0 font-mono text-sm text-slate-500" title="leverage = repos × impact × dimension weight">
                   ⚡{rec.leverage}
                 </span>
               </div>
             ))}
           </div>
-          <Link href={`/org/${slug}/repositories`} className="mt-3 inline-block font-mono text-[11px] uppercase tracking-widest text-accent hover:text-white">
+          <Link href={`/org/${slug}/repositories`} className="mt-3 inline-block font-mono text-sm uppercase tracking-widest text-accent hover:text-white">
             Browse all repositories →
           </Link>
         </div>

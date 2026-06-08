@@ -1,24 +1,38 @@
-// GET /api/health — liveness + self-healing database check.
+// GET /api/health — liveness + self-healing database check + autoscan readiness.
 //
 // Returns the persistence status and, in Aurora DSQL mode, recovers a client whose short-lived
 // IAM token has expired: dbHealthCheck() pings the DB and, on an auth-expiry error, reconnects
 // with a freshly minted token before pinging again. Point a monitor / keep-warm cron at this so
 // an expired-token client self-heals without a redeploy. Always 200 when persistence is disabled
 // (the MVP runs with no DB); 503 when the DB is configured but unreachable.
+//
+// Also reports `autoscan` readiness: the Vercel-cron rescan path fail-closes without CRON_SECRET
+// and additionally needs the GitHub App + a DB, so a deploy missing any of these silently never
+// autoscans. Surfacing it here lets a monitor catch that misconfiguration instead of discovering
+// it as "scans mysteriously stopped".
 
 import { NextResponse } from "next/server";
 import { dbHealthCheck, isDbConfigured } from "@/lib/db";
+import { isAppConfigured } from "@/lib/github/app";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function autoscanReadiness() {
+  const cronSecret = Boolean(process.env.CRON_SECRET);
+  const githubApp = isAppConfigured();
+  const db = isDbConfigured();
+  return { ready: cronSecret && githubApp && db, cronSecret, githubApp, db };
+}
+
 export async function GET() {
+  const autoscan = autoscanReadiness();
   if (!isDbConfigured()) {
-    return NextResponse.json({ status: "ok", db: "disabled" });
+    return NextResponse.json({ status: "ok", db: "disabled", autoscan });
   }
   const result = await dbHealthCheck();
   return NextResponse.json(
-    { status: result.ok ? "ok" : "error", db: result.ok ? "up" : "down", ...result },
+    { status: result.ok ? "ok" : "error", db: result.ok ? "up" : "down", autoscan, ...result },
     { status: result.ok ? 200 : 503 },
   );
 }

@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: import.meta.dirname,
   },
+  // @react-pdf/renderer ships its own font/binary handling that doesn't survive bundling — keep it
+  // external so the PDF export route (src/app/api/report/pdf) loads it as a native server module.
+  serverExternalPackages: ["@react-pdf/renderer"],
 };
 
 export default nextConfig;

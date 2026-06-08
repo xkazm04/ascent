@@ -8,6 +8,7 @@ import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { cacheSet } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { isDbConfigured, persistScanReport } from "@/lib/db";
+import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,11 @@ export async function POST(request: Request) {
   if (!body.url || typeof body.url !== "string") {
     return NextResponse.json({ error: "Missing 'url' in request body." }, { status: 400 });
   }
+
+  // Rate-limit the live scan funnel (shares the per-IP/global budget with /api/scan). The /report
+  // flow peeks the cache first (cheap, unthrottled); reaching the stream means a real scan.
+  const rl = rateLimitRequest(request, SCAN_RATE_LIMIT);
+  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
 
   const url = body.url;
   const mock = Boolean(body.mock);

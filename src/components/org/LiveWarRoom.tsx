@@ -273,12 +273,12 @@ export function LiveWarRoom({
       {/* ── Header: LIVE state + launch control + run progress ──────────── */}
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.3em] text-accent">
+          <div className="flex items-center gap-2 font-mono text-sm uppercase tracking-[0.3em] text-accent">
             <span className={`inline-block h-2 w-2 rounded-full ${running ? "live-dot bg-red-500" : "bg-slate-600"}`} aria-hidden />
             {running ? "Live" : "Fleet Command"}
           </div>
           <h2 className="mt-1 text-2xl font-bold text-white sm:text-3xl">Transformation war-room</h2>
-          <p className="mt-1 max-w-xl text-sm text-slate-400">
+          <p className="mt-1 max-w-xl text-base text-slate-400">
             The whole org&apos;s scan, live — tiles climb, the leaderboard reshuffles, and every repo that crosses into
             AI-Native lights up the wall.
           </p>
@@ -289,7 +289,7 @@ export function LiveWarRoom({
               <button
                 type="button"
                 onClick={stop}
-                className="focus-ring rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-slate-500 hover:text-white"
+                className="focus-ring rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-slate-500 hover:text-white"
               >
                 Stop
               </button>
@@ -298,15 +298,15 @@ export function LiveWarRoom({
               type="button"
               onClick={launch}
               disabled={running || watchedCount === 0}
-              className="focus-ring rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+              className="focus-ring rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
             >
               {launchLabel}
             </button>
           </div>
           {watchedCount === 0 ? (
-            <p className="font-mono text-[11px] text-slate-500">Watch some repos on /connect to scan.</p>
+            <p className="font-mono text-sm text-slate-500">Watch some repos on /connect to scan.</p>
           ) : (
-            <p className="font-mono text-[11px] text-slate-500" aria-live="polite">
+            <p className="font-mono text-sm text-slate-500" aria-live="polite">
               {running ? `${progress.done}/${progress.total} repos` : `${watchedCount} watched`}
             </p>
           )}
@@ -320,14 +320,14 @@ export function LiveWarRoom({
             <div className="h-full rounded-full bg-accent transition-all motion-reduce:transition-none" style={{ width: `${Math.max(3, pct)}%` }} />
           </div>
           {progress.current && (
-            <p className="mt-1 truncate font-mono text-[11px] text-slate-500" aria-live="polite">
+            <p className="mt-1 truncate font-mono text-sm text-slate-500" aria-live="polite">
               scanning {shortName(progress.current)}…
             </p>
           )}
         </div>
       )}
       {error && (
-        <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger-soft">{error}</p>
+        <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-base text-danger-soft">{error}</p>
       )}
 
       {/* ── Four headline tiles, counting up as results land ────────────── */}
@@ -385,7 +385,7 @@ function AnimatedStat({
   const shown = value == null ? "—" : render ? render(tweened) : String(tweened);
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
       <div
         className="mt-1 font-mono text-3xl font-bold tabular-nums sm:text-4xl"
         style={{ color: value == null ? "#fff" : color ?? "#fff" }}
@@ -402,11 +402,11 @@ function Leaderboard({ repos, className = "" }: { repos: LiveRepo[]; className?:
   return (
     <div className={`rounded-2xl border border-slate-800 bg-slate-900/40 p-6 ${className}`}>
       <div className="flex items-center justify-between">
-        <h3 className="font-mono text-[11px] uppercase tracking-widest text-accent">Fleet leaderboard</h3>
-        <span className="font-mono text-[11px] text-slate-500">{repos.length} ranked</span>
+        <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Fleet leaderboard</h3>
+        <span className="font-mono text-sm text-slate-500">{repos.length} ranked</span>
       </div>
       {shown.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-500">No scans yet — launch the live scan to populate the board.</p>
+        <p className="mt-4 text-base text-slate-500">No scans yet — launch the live scan to populate the board.</p>
       ) : (
         <div className="relative mt-3" style={{ height: shown.length * ROW_H }}>
           {shown.map((r, i) => {
@@ -417,8 +417,8 @@ function Leaderboard({ repos, className = "" }: { repos: LiveRepo[]; className?:
                 className="absolute inset-x-0 flex h-10 items-center gap-3 rounded-lg px-2 transition-all duration-500 ease-out motion-reduce:transition-none"
                 style={{ top: i * ROW_H }}
               >
-                <span className="w-5 shrink-0 text-right font-mono text-xs tabular-nums text-slate-500">{i + 1}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200" title={r.fullName}>
+                <span className="w-5 shrink-0 text-right font-mono text-sm tabular-nums text-slate-500">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-base text-slate-200" title={r.fullName}>
                   {r.name}
                 </span>
                 <div className="hidden h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-slate-800 sm:block">
@@ -427,10 +427,10 @@ function Leaderboard({ repos, className = "" }: { repos: LiveRepo[]; className?:
                     style={{ width: `${r.overall}%`, backgroundColor: color }}
                   />
                 </div>
-                <span className="shrink-0 font-mono text-[11px]" style={{ color }} aria-hidden>
+                <span className="shrink-0 font-mono text-sm" style={{ color }} aria-hidden>
                   {scoreGlyph(r.overall!)}
                 </span>
-                <span className="w-8 shrink-0 text-right font-mono text-sm font-bold tabular-nums" style={{ color }}>
+                <span className="w-8 shrink-0 text-right font-mono text-base font-bold tabular-nums" style={{ color }}>
                   {r.overall}
                 </span>
               </div>
@@ -438,7 +438,7 @@ function Leaderboard({ repos, className = "" }: { repos: LiveRepo[]; className?:
           })}
         </div>
       )}
-      {overflow > 0 && <p className="mt-3 font-mono text-[11px] text-slate-500">+{overflow} more repos</p>}
+      {overflow > 0 && <p className="mt-3 font-mono text-sm text-slate-500">+{overflow} more repos</p>}
     </div>
   );
 }
@@ -447,14 +447,14 @@ function PostureMix({ counts, scored }: { counts: Record<string, number>; scored
   const max = Math.max(1, ...POSTURE_ORDER.map((p) => counts[p] ?? 0));
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <h3 className="font-mono text-[11px] uppercase tracking-widest text-accent">Posture distribution</h3>
+      <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Posture distribution</h3>
       <div className="mt-3 space-y-2.5">
         {POSTURE_ORDER.map((p) => {
           const n = counts[p] ?? 0;
           const color = POSTURE_HEX[p] ?? "#64748b";
           const isNative = p === "ai-native";
           return (
-            <div key={p} className="flex items-center gap-3 text-sm">
+            <div key={p} className="flex items-center gap-3 text-base">
               <span className={`w-32 shrink-0 truncate ${isNative ? "font-medium text-white" : "text-slate-300"}`}>
                 {POSTURE_LABEL[p]}
               </span>
@@ -471,7 +471,7 @@ function PostureMix({ counts, scored }: { counts: Record<string, number>; scored
           );
         })}
       </div>
-      <p className="mt-3 font-mono text-[11px] text-slate-500">{scored} repo{scored === 1 ? "" : "s"} scored</p>
+      <p className="mt-3 font-mono text-sm text-slate-500">{scored} repo{scored === 1 ? "" : "s"} scored</p>
     </div>
   );
 }
@@ -480,24 +480,24 @@ function MoversTicker({ ticker, running }: { ticker: Mover[]; running: boolean }
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="flex items-center justify-between">
-        <h3 className="font-mono text-[11px] uppercase tracking-widest text-accent">Live movers</h3>
+        <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Live movers</h3>
         {running && <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />}
       </div>
       {ticker.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-base text-slate-500">
           {running ? "Waiting for the first result…" : "Results stream in here as each repo lands."}
         </p>
       ) : (
         <ul className="mt-3 space-y-1.5" aria-live="polite">
           {ticker.map((m) => (
-            <li key={m.id} className="animate-pop-in flex items-center justify-between gap-3 rounded-md px-1 text-sm">
-              <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-200" title={m.fullName}>
+            <li key={m.id} className="animate-pop-in flex items-center justify-between gap-3 rounded-md px-1 text-base">
+              <span className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200" title={m.fullName}>
                 {m.name}
               </span>
               {m.failed ? (
-                <span className="shrink-0 font-mono text-[11px] text-orange-400">scan failed</span>
+                <span className="shrink-0 font-mono text-sm text-orange-400">scan failed</span>
               ) : (
-                <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
+                <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
                   {m.posture === "ai-native" && <span aria-hidden>🎉</span>}
                   {m.delta != null && m.delta !== 0 && (
                     <span style={{ color: m.delta > 0 ? "#84cc16" : "#f97316" }}>
@@ -534,8 +534,8 @@ function Celebrations({ celebrations }: { celebrations: Celebration[] }) {
               🎉
             </span>
             <div>
-              <div className="font-mono text-[10px] uppercase tracking-widest text-emerald-300">Crossed into AI-Native</div>
-              <div className="text-sm font-semibold text-white">
+              <div className="font-mono text-sm uppercase tracking-widest text-emerald-300">Crossed into AI-Native</div>
+              <div className="text-base font-semibold text-white">
                 {c.name} {c.overall != null && <span className="font-mono text-emerald-300">· {c.overall}</span>}
               </div>
             </div>

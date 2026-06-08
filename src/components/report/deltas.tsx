@@ -19,7 +19,7 @@ export function DeltaPill({
   if (delta === 0) {
     return (
       <span
-        className={`rounded-full border border-slate-600/40 bg-slate-500/10 px-2.5 py-1 text-xs text-slate-300 ${className}`}
+        className={`rounded-full border border-slate-600/40 bg-slate-500/10 px-2.5 py-1 text-sm text-slate-300 ${className}`}
       >
         no change{suffix ? ` ${suffix}` : ""}
       </span>
@@ -28,7 +28,7 @@ export function DeltaPill({
   const up = delta > 0;
   return (
     <span
-      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+      className={`rounded-full border px-2.5 py-1 text-sm font-semibold ${
         up
           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
           : "border-red-500/40 bg-red-500/10 text-red-300"
@@ -55,12 +55,12 @@ export function DeltaTag({
 }) {
   if (delta === 0) {
     if (hideZero) return null;
-    return <span className={`text-xs font-semibold text-slate-500 ${className}`}>—</span>;
+    return <span className={`text-sm font-semibold text-slate-500 ${className}`}>—</span>;
   }
   const up = delta > 0;
   return (
     <span
-      className={`text-xs font-semibold tabular-nums ${up ? "text-emerald-400" : "text-red-400"} ${className}`}
+      className={`text-sm font-semibold tabular-nums ${up ? "text-emerald-400" : "text-red-400"} ${className}`}
     >
       {up ? "▲+" : "▼"}
       {delta}

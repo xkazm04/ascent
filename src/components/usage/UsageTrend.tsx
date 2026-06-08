@@ -22,8 +22,8 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-white">Computed scans per day</h2>
-          <p className="mt-1 text-xs text-slate-500">
+          <h2 className="text-base font-semibold text-white">Computed scans per day</h2>
+          <p className="mt-1 text-sm text-slate-500">
             Last {days} days · <span style={{ color: BILLABLE }}>{totalBillable} billable</span> ·{" "}
             <span style={{ color: FREE }}>{totalFree} free</span>
           </p>
@@ -31,14 +31,14 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
         <div className="flex items-center gap-2">
           <a
             href={`${exportBase}&format=csv`}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
             download
           >
             Export CSV
           </a>
           <a
             href={`${exportBase}&format=json`}
-            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-200 transition hover:border-accent hover:text-white"
             download
           >
             Export JSON
@@ -47,7 +47,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
       </div>
 
       {/* Legend */}
-      <div className="mt-3 flex items-center gap-4 text-xs text-slate-400">
+      <div className="mt-3 flex items-center gap-4 text-sm text-slate-400">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: BILLABLE }} />
           Billable (private)
@@ -59,7 +59,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
       </div>
 
       {totalBillable + totalFree === 0 ? (
-        <p className="mt-6 text-sm text-slate-500">No scans recorded in this period.</p>
+        <p className="mt-6 text-base text-slate-500">No scans recorded in this period.</p>
       ) : (
         <>
           <div className="mt-4 flex h-40 items-end gap-px">
@@ -82,7 +82,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
               );
             })}
           </div>
-          <div className="mt-2 flex justify-between font-mono text-[10px] text-slate-600">
+          <div className="mt-2 flex justify-between font-mono text-sm text-slate-600">
             {daily
               .filter((_, i) => i % labelEvery === 0 || i === daily.length - 1)
               .map((d) => (

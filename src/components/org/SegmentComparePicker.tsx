@@ -26,7 +26,7 @@ export function SegmentComparePicker({ options, a, b }: { options: Opt[]; a: str
   }
 
   const selectCls =
-    "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-slate-200 focus:border-accent focus:outline-none";
+    "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 focus:border-accent focus:outline-none";
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -37,7 +37,7 @@ export function SegmentComparePicker({ options, a, b }: { options: Opt[]; a: str
           </option>
         ))}
       </select>
-      <span className="font-mono text-xs text-slate-500">vs</span>
+      <span className="font-mono text-sm text-slate-500">vs</span>
       <select value={b ?? ""} onChange={(e) => navigate({ a, b: e.target.value || null })} aria-label="Segment B" className={selectCls}>
         <option value="">Whole fleet</option>
         {options.map((o) => (

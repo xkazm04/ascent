@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { createGoal, isDbConfigured, isGoalMetric, listGoals } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,19 +13,20 @@ export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Goals require a database." }, { status: 503 });
   const org = new URL(request.url).searchParams.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
   const goals = await listGoals(org);
   return NextResponse.json({ goals: goals ?? [] });
 }
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Goals require a database." }, { status: 503 });
-  if (isAuthConfigured() && !(await getSession())) {
-    return NextResponse.json({ error: "Sign in to set a goal." }, { status: 401 });
-  }
   const body = (await request.json().catch(() => ({}))) as { org?: string; label?: string; metric?: string; target?: number; targetDate?: string | null };
   if (!body.org || !body.label || !body.metric || typeof body.target !== "number") {
     return NextResponse.json({ error: "Provide { org, label, metric, target }." }, { status: 400 });
   }
+  const denied = await requireOrgAccess(body.org);
+  if (denied) return denied;
   if (!isGoalMetric(body.metric)) {
     return NextResponse.json({ error: "metric must be overall | adoption | rigor | D1..D9." }, { status: 400 });
   }

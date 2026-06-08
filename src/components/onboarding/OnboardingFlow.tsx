@@ -345,7 +345,7 @@ export function OnboardingFlow({
                 type="button"
                 onClick={selectTop}
                 disabled={listing}
-                className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
+                className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-200 transition hover:border-accent hover:text-white disabled:opacity-50"
               >
                 Select top {MAX_SELECT}
               </button>
@@ -353,7 +353,7 @@ export function OnboardingFlow({
                 type="button"
                 onClick={clearSelection}
                 disabled={listing || selected.size === 0}
-                className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-slate-600 disabled:opacity-50"
+                className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-slate-600 disabled:opacity-50"
               >
                 Clear
               </button>
@@ -386,17 +386,17 @@ export function OnboardingFlow({
                     <span className={`flex h-5 w-5 items-center justify-center rounded border ${checked ? "border-accent bg-accent text-on-accent" : "border-slate-600"}`}>
                       {checked && "✓"}
                     </span>
-                    <span className="flex-1 truncate font-mono text-sm text-white">{r.fullName}</span>
+                    <span className="flex-1 truncate font-mono text-base text-white">{r.fullName}</span>
                     {r.private && (
-                      <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-accent">
+                      <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-accent">
                         private
                       </span>
                     )}
                     {capped && (
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">limit reached</span>
+                      <span className="font-mono text-sm uppercase tracking-widest text-slate-500">limit reached</span>
                     )}
-                    {r.language && <span className="text-xs text-slate-500">{r.language}</span>}
-                    <span className="text-xs text-slate-500">★ {r.stars.toLocaleString()}</span>
+                    {r.language && <span className="text-sm text-slate-500">{r.language}</span>}
+                    <span className="text-sm text-slate-500">★ {r.stars.toLocaleString()}</span>
                   </button>
                 );
               })
@@ -408,13 +408,13 @@ export function OnboardingFlow({
               <button
                 onClick={startScan}
                 disabled={selected.size === 0}
-                className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+                className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
               >
                 Scan {selected.size} {selected.size === 1 ? "repo" : "repos"}
               </button>
               <button
                 onClick={() => setPhase("pick")}
-                className="focus-ring rounded-lg border border-slate-700 px-4 py-2.5 text-sm text-slate-300 hover:border-slate-600"
+                className="focus-ring rounded-lg border border-slate-700 px-4 py-2.5 text-base text-slate-300 hover:border-slate-600"
               >
                 Back
               </button>
@@ -477,14 +477,14 @@ export function OnboardingFlow({
               style={{ width: `${pct}%` }}
             />
           </div>
-          <span className="font-mono text-xs tabular-nums text-slate-400">
+          <span className="font-mono text-sm tabular-nums text-slate-400">
             {pct}% · {completed}/{scanTotal}
           </span>
           {phase === "scanning" && (
             <button
               type="button"
               onClick={cancelScan}
-              className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-danger/50 hover:text-danger-soft"
+              className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-danger/50 hover:text-danger-soft"
             >
               Cancel
             </button>
@@ -492,7 +492,7 @@ export function OnboardingFlow({
         </div>
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-danger-soft">
+          <p role="alert" className="mt-3 text-base text-danger-soft">
             {error}
           </p>
         )}
@@ -511,7 +511,7 @@ export function OnboardingFlow({
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => router.push(`/org/${encodeURIComponent(sourceLabel)}`)}
-                className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft"
+                className="rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
               >
                 View dashboard
               </button>
@@ -524,7 +524,7 @@ export function OnboardingFlow({
                   setError(null);
                   setSourceInstallId(null);
                 }}
-                className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm text-slate-300 hover:border-slate-600"
+                className="rounded-lg border border-slate-700 px-4 py-2.5 text-base text-slate-300 hover:border-slate-600"
               >
                 Scan another
               </button>
@@ -554,7 +554,7 @@ function CapPill({ count, max }: { count: number; max: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="font-mono text-xs tabular-nums text-slate-300">
+      <span className="font-mono text-sm tabular-nums text-slate-300">
         {count}/{max} selected
       </span>
     </div>
@@ -593,9 +593,9 @@ function InstallationPicker({
 }) {
   return (
     <div className="rounded-2xl border border-accent/30 bg-accent/5 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">From your GitHub App</div>
+      <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">From your GitHub App</div>
       <h2 className="mt-1 font-semibold text-white">Scan an installed organization</h2>
-      <p className="mt-1 text-sm text-slate-400">
+      <p className="mt-1 text-base text-slate-400">
         These are connected through the Ascent GitHub App, so{" "}
         <span className="text-slate-200">private repositories</span> are included.
       </p>
@@ -608,7 +608,7 @@ function InstallationPicker({
             onClick={() => onPick(inst.login, inst.id)}
             className="focus-ring rounded-lg border border-accent/40 bg-slate-950/60 px-4 py-2.5 text-left transition hover:border-accent hover:bg-accent/10 disabled:opacity-50"
           >
-            <span className="font-mono text-sm text-white">{inst.login}</span>
+            <span className="font-mono text-base text-white">{inst.login}</span>
           </button>
         ))}
       </div>
@@ -624,17 +624,17 @@ function InstallationPicker({
 function SeededOrgBanner({ org }: { org: string }) {
   return (
     <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-emerald-300">Ready for you</div>
+      <div className="font-mono text-sm uppercase tracking-[0.3em] text-emerald-300">Ready for you</div>
       <h2 className="mt-1 font-semibold text-white">
         We pre-loaded <span className="font-mono">{org}</span>&apos;s top repositories
       </h2>
-      <p className="mt-1 text-sm text-slate-400">
+      <p className="mt-1 text-base text-slate-400">
         Your most active organization is already on your watchlist. Open its dashboard to scan the
         fleet and see the cross-repo rollup — or start a fresh scan below.
       </p>
       <a
         href={`/org/${encodeURIComponent(org)}`}
-        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-emerald-400"
+        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-emerald-400"
       >
         View {org} dashboard →
       </a>
@@ -658,11 +658,11 @@ function SuggestedOrgs({
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-slate-500">
+      <div className="font-mono text-sm uppercase tracking-[0.3em] text-slate-500">
         Organizations you belong to
       </div>
       <h2 className="mt-1 font-semibold text-white">Scan one of your organizations</h2>
-      <p className="mt-1 text-sm text-slate-400">
+      <p className="mt-1 text-base text-slate-400">
         Discovered from your GitHub account. Scanning lists each org&apos;s{" "}
         <span className="text-slate-200">public repositories</span> — install the GitHub App to
         include private ones.
@@ -676,7 +676,7 @@ function SuggestedOrgs({
             onClick={() => onPick(login)}
             className="focus-ring rounded-lg border border-slate-700 bg-slate-950/60 px-4 py-2.5 text-left transition hover:border-accent hover:bg-accent/10 disabled:opacity-50"
           >
-            <span className="font-mono text-sm text-white">{login}</span>
+            <span className="font-mono text-base text-white">{login}</span>
           </button>
         ))}
       </div>
@@ -709,7 +709,7 @@ function PickForm({
   }, [error]);
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <label className="font-mono text-[11px] uppercase tracking-[0.3em] text-slate-500" htmlFor="onboarding-org">
+      <label className="font-mono text-sm uppercase tracking-[0.3em] text-slate-500" htmlFor="onboarding-org">
         {dimmed ? "Or scan any public organization or user" : "GitHub organization or user"}
       </label>
       <form onSubmit={onSubmit} className="mt-2">
@@ -728,12 +728,12 @@ function PickForm({
           <button
             type="submit"
             disabled={loading}
-            className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+            className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
           >
             {loading ? "Listing…" : "List repos"}
           </button>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500">
           try:
           {SUGGESTIONS.map((s) => (
             <button
@@ -747,7 +747,7 @@ function PickForm({
           ))}
         </div>
         {error && (
-          <p id="onboarding-org-error" role="alert" className="mt-3 text-sm text-danger-soft">
+          <p id="onboarding-org-error" role="alert" className="mt-3 text-base text-danger-soft">
             {error}
           </p>
         )}
@@ -761,16 +761,16 @@ function ScanRowView({ row }: { row: ScanRow }) {
   const lc = row.level ? LEVEL_CLASSES[row.level] : null;
   return (
     <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2.5">
-      <span className="flex-1 truncate font-mono text-sm text-white">{row.repo}</span>
+      <span className="flex-1 truncate font-mono text-base text-white">{row.repo}</span>
       {row.error ? (
-        <span className="text-xs text-danger">{row.error}</span>
+        <span className="text-sm text-danger">{row.error}</span>
       ) : done ? (
-        <span className={`rounded border px-2 py-0.5 font-mono text-xs ${lc?.border} ${lc?.bg} ${lc?.text}`}>
+        <span className={`rounded border px-2 py-0.5 font-mono text-sm ${lc?.border} ${lc?.bg} ${lc?.text}`}>
           {row.level && <span aria-hidden>{LEVEL_GLYPH[row.level]} </span>}
           {row.level} · {row.overall}
         </span>
       ) : (
-        <span className="text-xs text-slate-500">scanning…</span>
+        <span className="text-sm text-slate-500">scanning…</span>
       )}
     </div>
   );

@@ -24,17 +24,17 @@ function RailCard({ c }: { c: PublicRepoCard }) {
       className="focus-ring group flex w-60 shrink-0 flex-col rounded-xl border border-slate-800 bg-slate-900/40 p-4 transition hover:border-accent/60 hover:bg-slate-900/70"
     >
       <div className="flex items-center justify-between">
-        <span className={`font-mono text-xs font-bold ${lc.text}`}>
+        <span className={`font-mono text-sm font-bold ${lc.text}`}>
           <span aria-hidden>{levelGlyph(c.level)}</span> {c.level}
         </span>
         <span className="font-mono text-lg font-bold tabular-nums" style={{ color: scoreHex(c.overall) }}>
           {c.overall}
         </span>
       </div>
-      <div className="mt-2 truncate font-mono text-sm text-white group-hover:text-accent" title={c.fullName}>
+      <div className="mt-2 truncate font-mono text-base text-white group-hover:text-accent" title={c.fullName}>
         {c.fullName}
       </div>
-      <div className="mt-1 flex items-center gap-1.5 truncate font-mono text-[10px] uppercase tracking-widest text-slate-500">
+      <div className="mt-1 flex items-center gap-1.5 truncate font-mono text-sm uppercase tracking-widest text-slate-500">
         <span>{c.levelName}</span>
         <span aria-hidden>·</span>
         <span>{timeAgo(c.scannedAt)}</span>
@@ -57,14 +57,14 @@ function LeaderRow({ c, rank }: { c: PublicRepoCard; rank: number }) {
       href={c.href}
       className="focus-ring group flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 transition hover:border-accent/60 hover:bg-slate-900/70"
     >
-      <span className="w-6 shrink-0 text-center font-mono text-sm font-bold text-slate-500">{rank}</span>
+      <span className="w-6 shrink-0 text-center font-mono text-base font-bold text-slate-500">{rank}</span>
       <span
-        className="min-w-0 flex-1 truncate font-mono text-sm text-white group-hover:text-accent"
+        className="min-w-0 flex-1 truncate font-mono text-base text-white group-hover:text-accent"
         title={c.fullName}
       >
         {c.fullName}
       </span>
-      <span className={`hidden shrink-0 items-center gap-1 font-mono text-xs sm:flex ${lc.text}`}>
+      <span className={`hidden shrink-0 items-center gap-1 font-mono text-sm sm:flex ${lc.text}`}>
         <span aria-hidden>{levelGlyph(c.level)}</span> {c.level} {c.levelName}
       </span>
       <span
@@ -83,10 +83,10 @@ export function ScanGallery({ gallery }: { gallery: PublicScanGallery }) {
 
   return (
     <section className="scroll-mt-20 py-12">
-      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Live from the index</div>
+      <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Live from the index</div>
       <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
         <h2 className="text-2xl font-bold text-white">Recently scanned</h2>
-        <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
           {totalRepos} public {totalRepos === 1 ? "repo" : "repos"} scored
         </span>
       </div>

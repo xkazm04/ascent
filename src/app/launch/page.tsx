@@ -29,7 +29,7 @@ export default async function LaunchPage({
       <>
         <SiteHeader />
         <main className="mx-auto w-full max-w-3xl px-5 py-10">
-          <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Mission Control</div>
+          <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Mission Control</div>
           <h1 className="mt-1 text-2xl font-bold text-white">Your engineering fleet awaits</h1>
           <p className="mt-2 max-w-xl text-slate-400">
             Sign in to chart your orgs and repositories as a living star-map of engineering maturity.

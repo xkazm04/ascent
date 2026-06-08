@@ -291,4 +291,11 @@ body {
   .burst-ring {
     animation: none;
   }
+  /* Tailwind's built-in looping utilities used by skeletons/spinners (loading.tsx, ReportSkeleton,
+     DimensionTrends, GitHubSignInButton). The custom ascent-* keyframes above are gated separately;
+     these cover the remaining infinite pulse/spin so a reduced-motion user gets a still UI. */
+  .animate-pulse,
+  .animate-spin {
+    animation: none;
+  }
 }

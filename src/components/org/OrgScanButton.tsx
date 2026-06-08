@@ -60,7 +60,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           onClick={() => run()}
           disabled={p.running || watchedCount === 0}
           title={watchedCount === 0 ? "Watch repositories on Connect to enable scanning" : undefined}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
           {p.running ? `Scanning ${p.done}/${p.total}…` : `Scan all watched (${watchedCount})`}
         </button>
@@ -69,7 +69,7 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           onClick={() => run({ staleOnlyDays: 14 })}
           disabled={p.running || watchedCount === 0}
           title="Rescan only repos not scanned in the last 14 days — saves token budget"
-          className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           Stale only
         </button>
@@ -77,23 +77,23 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
       {p.running && (
         <div className="w-48">
           <Meter value={Math.max(4, pct)} size="sm" />
-          <p className="mt-1 truncate font-mono text-[10px] text-slate-500">{p.current}</p>
+          <p className="mt-1 truncate font-mono text-sm text-slate-500">{p.current}</p>
         </div>
       )}
       {!p.running && watchedCount === 0 && (
         <Link
           href="/connect"
-          className="focus-ring font-mono text-[11px] text-slate-500 transition hover:text-accent"
+          className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent"
         >
           Watch repos on Connect →
         </Link>
       )}
       {!p.running && p.failed > 0 && !p.error && (
-        <p className="text-xs text-warn">
+        <p className="text-sm text-warn">
           {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan — see the Repositories tab.
         </p>
       )}
-      {p.error && <p className="text-xs text-danger">{p.error}</p>}
+      {p.error && <p className="text-sm text-danger">{p.error}</p>}
     </div>
   );
 }

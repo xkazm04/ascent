@@ -52,13 +52,13 @@ export function Tile({
 }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
       <div className="mt-1 font-mono text-3xl font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
         {value}
       </div>
-      {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
+      {sub && <div className="mt-1 text-sm text-slate-500">{sub}</div>}
       {delta != null && (
-        <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[11px]">
+        <div className="mt-1.5 flex items-center gap-1.5 font-mono text-sm">
           <span style={{ color: deltaHex(delta) }}>{fmtDelta(delta)}</span>
           {deltaLabel && <span className="text-slate-500">{deltaLabel}</span>}
         </div>
@@ -93,8 +93,8 @@ export function OrgTable({
 }) {
   return (
     <div className={`overflow-x-auto rounded-2xl border border-slate-800 ${className}`}>
-      <table className="w-full text-sm" style={{ minWidth: `${minWidth}px` }}>
-        <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">{head}</thead>
+      <table className="w-full text-base" style={{ minWidth: `${minWidth}px` }}>
+        <thead className="bg-slate-900/60 font-mono text-sm uppercase tracking-widest text-slate-500">{head}</thead>
         <tbody className="divide-y divide-slate-800 [&>tr]:transition-colors [&>tr:hover]:bg-slate-900/40">
           {children}
         </tbody>
@@ -122,11 +122,11 @@ export function SectionHeader({
   className?: string;
   descriptionClassName?: string;
 }) {
-  const titleCls = size === "lg" ? "text-lg font-semibold text-white" : "text-sm font-semibold text-white";
+  const titleCls = size === "lg" ? "text-lg font-semibold text-white" : "text-base font-semibold text-white";
   const heading = (
     <div>
       <h2 className={titleCls}>{title}</h2>
-      {description != null && <p className={`mt-1 text-sm text-slate-400 ${descriptionClassName}`}>{description}</p>}
+      {description != null && <p className={`mt-1 text-base text-slate-400 ${descriptionClassName}`}>{description}</p>}
     </div>
   );
   if (right == null) return <div className={className}>{heading}</div>;
@@ -182,7 +182,7 @@ export function SectionEmpty({ children }: { children: React.ReactNode }) {
  * overview (movers, benchmark, gaps, outliers) so they stop drifting in spacing/markup.
  */
 export function InlineEmpty({ children }: { children: React.ReactNode }) {
-  return <p className="mt-3 text-xs text-slate-500">{children}</p>;
+  return <p className="mt-3 text-sm text-slate-500">{children}</p>;
 }
 
 export function OrgEmpty({ title, body, href, cta }: { title: string; body: string; href?: string; cta?: string }) {

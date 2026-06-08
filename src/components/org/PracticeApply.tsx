@@ -72,7 +72,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
 
   return (
     <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-accent">Apply to a repo</div>
+      <div className="font-mono text-sm uppercase tracking-widest text-accent">Apply to a repo</div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
           value={repo}
@@ -82,7 +82,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
             setPr(null);
             setError(null);
           }}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-slate-200"
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
         >
           {gapRepos.map((r) => (
             <option key={r.fullName} value={r.fullName}>
@@ -93,7 +93,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
         <button
           onClick={preview}
           disabled={busy !== null}
-          className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
+          className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
         >
           {busy === "preview" ? "Generating…" : "Preview starter"}
         </button>
@@ -101,16 +101,16 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
           <button
             onClick={apply}
             disabled={busy !== null}
-            className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+            className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
           >
             {busy === "apply" ? "Opening PR…" : "Open draft PR →"}
           </button>
         )}
       </div>
 
-      {error && <p className="mt-2 text-xs text-orange-300">{error}</p>}
+      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
       {pr && (
-        <p className="mt-2 text-xs text-emerald-300">
+        <p className="mt-2 text-sm text-emerald-300">
           {pr.reused ? "Existing draft PR: " : "Draft PR opened: "}
           <a href={pr.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
             {pr.url}
@@ -120,11 +120,11 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
 
       {artifact && (
         <div className="mt-3">
-          <button onClick={() => setOpen((o) => !o)} className="font-mono text-[11px] text-slate-400 hover:text-white">
+          <button onClick={() => setOpen((o) => !o)} className="font-mono text-sm text-slate-400 hover:text-white">
             {open ? "▾" : "▸"} {artifact.path}
           </button>
           {open && (
-            <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-[11px] leading-relaxed text-slate-300">
+            <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-sm leading-relaxed text-slate-300">
               {artifact.body}
             </pre>
           )}

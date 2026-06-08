@@ -309,6 +309,13 @@ export async function deleteGoal(id: string): Promise<boolean> {
   return true;
 }
 
+/** The owning org's slug for a goal id (for the per-row tenant gate on /api/org/goals/:id). Null = unknown id. */
+export async function getGoalOrgSlug(id: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const g = await getPrisma().goal.findUnique({ where: { id }, select: { org: { select: { slug: true } } } });
+  return g?.org.slug ?? null;
+}
+
 // ── Initiatives ──────────────────────────────────────────────────────────────
 
 export interface InitiativeRow {
@@ -391,6 +398,13 @@ export async function updateInitiativeStatus(id: string, status: string): Promis
   if (!isDbConfigured()) return false;
   await getPrisma().initiative.update({ where: { id }, data: { status } });
   return true;
+}
+
+/** The owning org's slug for an initiative id (per-row tenant gate on /api/org/initiatives/:id). Null = unknown id. */
+export async function getInitiativeOrgSlug(id: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const i = await getPrisma().initiative.findUnique({ where: { id }, select: { org: { select: { slug: true } } } });
+  return i?.org.slug ?? null;
 }
 
 // ── What-if simulator ──────────────────────────────────────────────────────

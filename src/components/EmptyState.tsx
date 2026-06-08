@@ -45,8 +45,8 @@ export function EmptyState({
     ? "rounded-2xl border border-dashed border-slate-800 bg-slate-900/20 p-10 text-center"
     : "flex flex-col items-center py-24 text-center";
   const iconCls = section ? "text-3xl" : "text-5xl";
-  const titleCls = section ? "text-sm font-semibold text-white" : "mt-4 text-2xl font-bold text-white";
-  const bodyCls = section ? "mt-1 text-sm text-slate-400" : "mt-2 max-w-md text-slate-400";
+  const titleCls = section ? "text-base font-semibold text-white" : "mt-4 text-2xl font-bold text-white";
+  const bodyCls = section ? "mt-1 text-base text-slate-400" : "mt-2 max-w-md text-slate-400";
 
   return (
     <div className={wrap}>
@@ -68,8 +68,8 @@ export function EmptyState({
               href={a.href}
               className={
                 a.primary
-                  ? "rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-on-accent transition hover:bg-accent-soft"
-                  : "rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+                  ? "rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-on-accent transition hover:bg-accent-soft"
+                  : "rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
               }
             >
               {a.label}

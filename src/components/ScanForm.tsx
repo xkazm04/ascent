@@ -84,7 +84,7 @@ export function ScanForm({
         } ${shake ? "animate-shake" : ""}`}
         onAnimationEnd={() => setShake(false)}
       >
-        <span className="hidden items-center pl-4 font-mono text-sm text-slate-400 sm:flex">
+        <span className="hidden items-center pl-4 font-mono text-base text-slate-400 sm:flex">
           github.com/
         </span>
         <input
@@ -98,12 +98,12 @@ export function ScanForm({
           aria-label="GitHub repository"
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
-          className="flex-1 bg-transparent px-4 py-3.5 font-mono text-sm text-slate-100 placeholder-slate-500 outline-none sm:px-2"
+          className="flex-1 bg-transparent px-4 py-3.5 font-mono text-base text-slate-100 placeholder-slate-500 outline-none sm:px-2"
         />
         <button
           type="submit"
           disabled={submitting || !value.trim()}
-          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 font-mono text-xs font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-400"
+          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 font-mono text-sm font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-400"
         >
           {submitting ? (
             <>
@@ -131,11 +131,11 @@ export function ScanForm({
 
       {/* On phones the github.com/ prefix is hidden for width; surface it as a persistent hint
           (the placeholder disappears the moment the user types). */}
-      <p className="mt-1.5 font-mono text-[11px] text-slate-500 sm:hidden">github.com/owner/repo</p>
+      <p className="mt-1.5 font-mono text-sm text-slate-500 sm:hidden">github.com/owner/repo</p>
 
       {/* Inline validation message, wired to the input via aria-describedby. */}
       {error && (
-        <p id={errorId} className="mt-2 animate-fade-up text-sm text-danger">
+        <p id={errorId} className="mt-2 animate-fade-up text-base text-danger">
           {error}
         </p>
       )}
@@ -145,7 +145,7 @@ export function ScanForm({
         {submitting ? `Scanning ${normalizeRepo(value) ?? value}…` : ""}
       </span>
 
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-2 font-mono text-xs text-slate-400">
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2 font-mono text-sm text-slate-400">
         <span className="uppercase tracking-widest">{liveExamples ? "Top scored:" : "Try:"}</span>
         {chips.map((ex) => {
           const chipPending = pendingChip === ex;

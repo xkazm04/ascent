@@ -12,7 +12,7 @@ export default function BadgePage() {
       <SiteHeader />
       <main className="mx-auto w-full max-w-3xl px-5 py-10">
         <div className="animate-fade-up">
-          <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Embed</div>
+          <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Embed</div>
           <h1 className="mt-1 text-3xl font-bold text-white">Maturity badge generator</h1>
           <p className="mt-2 max-w-2xl text-slate-400">
             Drop a live Ascent maturity badge into your README. It links back to the full report,

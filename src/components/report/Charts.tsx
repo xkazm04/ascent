@@ -160,13 +160,13 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
       </svg>
       {active !== null && (
         <ChartTooltip xFrac={dataPts[active][0] / size} yFrac={dataPts[active][1] / size}>
-          <div className="text-xs">
+          <div className="text-sm">
             <div className="font-semibold text-white">{dimensions[active].name}</div>
             <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className="font-mono text-sm font-bold tabular-nums" style={{ color: scoreHex(dimensions[active].score) }}>
+              <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(dimensions[active].score) }}>
                 {dimensions[active].score}
               </span>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-sm text-slate-400">
                 {levelForScore(dimensions[active].score).id} {levelForScore(dimensions[active].score).name}
               </span>
             </div>
