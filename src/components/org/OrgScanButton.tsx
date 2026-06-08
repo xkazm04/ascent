@@ -11,15 +11,17 @@ interface Progress {
   done: number;
   total: number;
   current: string;
+  /** Per-repo scan failures observed during the bulk run (from the server's `repo` events). */
+  failed: number;
   error?: string;
 }
 
 export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount: number }) {
   const router = useRouter();
-  const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "" });
+  const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "", failed: 0 });
 
   async function run(scope?: { staleOnlyDays?: number }) {
-    setP({ running: true, done: 0, total: watchedCount, current: "starting…" });
+    setP({ running: true, done: 0, total: watchedCount, current: "starting…", failed: 0 });
     try {
       const res = await fetch("/api/org/scan", {
         method: "POST",
@@ -35,7 +37,12 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
         if (!data) return;
         if (event === "progress")
           setP((s) => ({ ...s, done: Number(data.index) || s.done, total: Number(data.total) || s.total, current: String(data.repo ?? "") }));
-        else if (event === "error") setP((s) => ({ ...s, running: false, error: String(data.error) }));
+        else if (event === "repo") {
+          // The server emits one `repo` event per repo, carrying `error` on a per-repo failure. The
+          // old consumer ignored these, so 3 failed repos in a 10-repo run still read as 10/10
+          // success — count them so the partial outcome is visible.
+          if (data.error) setP((s) => ({ ...s, failed: s.failed + 1 }));
+        } else if (event === "error") setP((s) => ({ ...s, running: false, error: String(data.error) }));
       });
       setP((s) => ({ ...s, running: false, current: "" }));
       router.refresh();
@@ -80,6 +87,11 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
         >
           Watch repos on Connect →
         </Link>
+      )}
+      {!p.running && p.failed > 0 && !p.error && (
+        <p className="text-xs text-warn">
+          {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan — see the Repositories tab.
+        </p>
       )}
       {p.error && <p className="text-xs text-danger">{p.error}</p>}
     </div>
