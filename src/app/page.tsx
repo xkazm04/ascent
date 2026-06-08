@@ -53,7 +53,11 @@ export default async function Home() {
               <ScanForm autoFocus examples={exampleRepos} />
             </div>
             <p className="mt-4 font-mono text-[11px] uppercase tracking-widest text-slate-400">
-              Free for public repos · No signup · Results in under a minute
+              <span>Free for public repos</span>
+              <span aria-hidden> · </span>
+              <span>No signup</span>
+              <span aria-hidden> · </span>
+              <span>Results in under a minute</span>
             </p>
           </div>
         </section>
