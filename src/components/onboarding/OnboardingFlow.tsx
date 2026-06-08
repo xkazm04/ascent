@@ -617,7 +617,7 @@ function SeededOrgBanner({ org }: { org: string }) {
       </p>
       <a
         href={`/org/${encodeURIComponent(org)}`}
-        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-[#04070e] transition hover:bg-emerald-400"
+        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-emerald-400"
       >
         View {org} dashboard →
       </a>

@@ -160,7 +160,7 @@ export default async function ConnectPage({
                 </p>
                 <Link
                   href={`/org/${encodeURIComponent(seededOrg)}`}
-                  className="focus-ring shrink-0 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-[#04070e] transition hover:bg-emerald-400"
+                  className="focus-ring shrink-0 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-on-accent transition hover:bg-emerald-400"
                 >
                   View {seededOrg} dashboard →
                 </Link>
