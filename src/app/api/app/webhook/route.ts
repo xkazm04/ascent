@@ -20,6 +20,7 @@ import {
   persistScanReport,
   removeInstallation,
   reportPermalink,
+  unwatchReposForInstallation,
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
@@ -42,6 +43,10 @@ interface WebhookPayload {
   after?: string;
   before?: string;
   deleted?: boolean;
+  // installation_repositories event: repos added/removed from an installation's selected access.
+  repositories_added?: { full_name?: string }[];
+  repositories_removed?: { full_name?: string }[];
+  repository_selection?: string;
 }
 
 const PR_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
@@ -207,6 +212,17 @@ export async function POST(request: Request) {
         } else if (payload.action === "deleted" || payload.action === "suspend") {
           await removeInstallation(id);
         }
+      }
+    } else if (event === "installation_repositories" && isDbConfigured()) {
+      // The user changed WHICH repos an installation can see (Add/Remove on GitHub's Configure page).
+      // Quiesce repos that lost access so their scheduled rescan stops minting a token that no longer
+      // covers them and 401ing forever. (Added repos surface on the next connect-list refresh / re-sync.)
+      const id = payload.installation?.id;
+      const removed = (payload.repositories_removed ?? [])
+        .map((r) => r.full_name)
+        .filter((n): n is string => Boolean(n));
+      if (id != null && removed.length > 0) {
+        await unwatchReposForInstallation(id, removed);
       }
     } else if (event === "pull_request" && isAppConfigured()) {
       const installationId = payload.installation?.id;

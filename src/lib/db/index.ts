@@ -55,6 +55,7 @@ export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay }
 export {
   upsertInstallation,
   removeInstallation,
+  unwatchReposForInstallation,
   getInstallationIdForOwner,
 } from "@/lib/db/installations";
 export { getSessionVersion, bumpSessionVersion } from "@/lib/db/sessions";
