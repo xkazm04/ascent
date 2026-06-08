@@ -184,9 +184,33 @@ export default async function UsagePage({
           </div>
         </div>
 
+        {/* Top repos by metered volume — which repos drove the bill / token spend (per-repo attribution). */}
+        {usage.byRepo.length > 0 && (
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+            <h2 className="text-sm font-semibold text-white">
+              Top repositories{" "}
+              <span className="font-normal text-slate-500">· by metered scans · last {usage.periodDays}d</span>
+            </h2>
+            <div className="mt-3 space-y-2 text-sm">
+              {usage.byRepo.map((r) => (
+                <div key={r.fullName} className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 truncate font-mono text-xs text-slate-300">{r.fullName}</span>
+                  <span className="shrink-0 font-mono tabular-nums text-slate-400">
+                    {r.scans.toLocaleString()} scan{r.scans === 1 ? "" : "s"}
+                    {r.tokens > 0 ? ` · ${r.tokens.toLocaleString()} tok` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p className="mt-6 text-xs text-slate-500">
           Window: {usage.firstScanAt ? `${timeAgo(usage.firstScanAt)} → ${timeAgo(usage.lastScanAt ?? undefined)}` : "no scans recorded"}.
-          Per-scan rate is TBD; per-org attribution activates with auth / the GitHub App.
+          {usage.estimatedCostUsd != null
+            ? " Cost is estimated from the configured per-MTok rates (LLM_INPUT/OUTPUT_COST_PER_MTOK)."
+            : " Set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate spend."}{" "}
+          Per-org attribution activates with auth / the GitHub App.
         </p>
       </div>
     </Shell>
