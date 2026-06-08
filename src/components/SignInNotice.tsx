@@ -10,7 +10,7 @@ import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 export function SignInNotice({ next, expired = false }: { next: string; expired?: boolean }) {
   return (
     <EmptyState
-      icon="🔐"
+      icon={expired ? "⏳" : "🔐"}
       title={expired ? "Your session expired" : "Sign in to continue"}
       alert={
         expired ? (
