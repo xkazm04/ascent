@@ -288,7 +288,14 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
                 return (
                   <div key={c.login} className="flex items-center gap-3 text-sm">
                     <span className="w-40 shrink-0 truncate text-slate-200">{c.login}</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                    <div
+                      className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800"
+                      role="progressbar"
+                      aria-valuenow={pctAI}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${c.login}: ${pctAI}% AI-attributed commits`}
+                    >
                       <div className="h-full rounded-full bg-accent" style={{ width: `${pctAI}%` }} />
                     </div>
                     <span className="w-32 shrink-0 text-right font-mono text-xs text-slate-500">
