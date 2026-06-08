@@ -554,3 +554,42 @@
 - **maturity #4 mock cosmetic**: mock.ts still classifies a failed-detector label as a "strength"
   (keyless demo only). Classify by score/polarity, not a `/^no/i` label regex.
 - Cumulative after wave 4: 7 of 9 criticals closed (added maturity #1). Remaining: llm #1 (Wave 5).
+
+## Bug Hunter Pipeline B — "Lifecycle / crashes / input boundaries" wave (2026-06-08, wave 5 — 8 closed; ALL criticals now done)
+
+### Structural facts
+- **2026-06-08** — `parseJsonLoose` (llm/json.ts) recovery is now bounded: skip the balanced scan
+  above `MAX_RECOVERY_BYTES` (256KB) and cap `balancedParse` to `MAX_START_ATTEMPTS` (512) structural
+  starts. The clean fast path (any size) is unaffected. A synchronous loop can't be interrupted by
+  the AbortSignal, so the ceiling is the only protection.
+- **2026-06-08** — `claude-cli.ts` `runClaude` attaches `child.stdin.on("error", reject)` + guards the
+  write with `!destroyed` (an early-dying child's EPIPE was an uncaught exception that crashed the
+  whole process), and validates `CLAUDE_MODEL` against `^[A-Za-z0-9][A-Za-z0-9._:-]*$` before the
+  `shell:true` spawn. `CLAUDE_CLI_PATH` stays operator-only (paths carry legit special chars).
+- **2026-06-08** — `/api/scan/stream` hoists the heartbeat handle and adds a stream `cancel()` to
+  clear it on client disconnect (was only cleared in start()'s finally).
+- **2026-06-08** — `parseRepositoryHistory(unknown)` (lib/report/validate.ts, sibling of
+  parseScanReport) is THE trust boundary for `/api/history`; both ReportView and DimensionTrends
+  route through it instead of `as RepositoryHistory`. Never throws — empty `scans` on junk, drops
+  unplottable points.
+- **2026-06-08** — Chart geometry is clamped/NaN-guarded at the scale boundary: `vScale` (chartScale.ts,
+  shared by TrendChart/Sparkline/DimLine) and the `ScoreRing` offset (Charts.tsx). `scoreHex` already
+  clamped colour; the geometry didn't.
+- **2026-06-08** — `validateAssessment` (llm/provider.ts) now caps every model string via `cap()`
+  (`MAX_FIELD_LEN=2000`) — it bounded array count but not string length. Bedrock's string tool-input
+  is repair-parsed (`parseJsonLoose`) instead of coerced to a zero-dim assessment.
+
+### Conventions enforced
+- **2026-06-08** — Any recovery/parse that scales with hostile input needs an explicit size/iteration
+  ceiling (AbortSignal can't interrupt a sync loop).
+- **2026-06-08** — Attach a child-process `stdin` 'error' listener before writing — EPIPE is otherwise
+  an uncaught exception that takes the server down.
+- **2026-06-08** — Every untrusted JSON boundary feeding a render needs its own validator; validating
+  one (streamed report) and `as`-casting a sibling (/api/history) is asymmetric trust.
+
+### Open follow-ups (from Bug Hunter wave 5)
+- The deferred items from earlier waves stand (persistence #4/#5, read-path withDb migration, maturity
+  #5/#6, maturity-#1 stricter axis-aware gate, maturity-#4 mock cosmetic). No NEW deferrals this wave.
+- **ALL 9 criticals are closed (8 via code + github-app #2 reassessed).** Remaining scan work is
+  High→Low: Wave 6 (LLM cost/billing — llm #2/#3, scan-pipeline #2, org-scanning #4, usage #5/#6),
+  Wave 7 (cache/dedup & GitHub App sync), Wave 8 (session/OAuth + aggregate/UI tail). See INDEX.
