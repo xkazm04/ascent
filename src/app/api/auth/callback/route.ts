@@ -13,6 +13,7 @@ import {
   NEXT_COOKIE,
   RESYNC_COOKIE,
   safeNext,
+  secureCookieForRequest,
   sessionMaxAgeSeconds,
   SESSION_COOKIE,
   STATE_COOKIE,
@@ -87,7 +88,11 @@ export async function GET(request: Request) {
     res.cookies.set(SESSION_COOKIE, encodeSession(session), {
       httpOnly: true,
       sameSite: "lax",
-      secure: origin.startsWith("https"),
+      // Derive Secure from the forwarded proto (matches the silent-refresh path), not the internal
+      // request origin: behind a TLS-terminating proxy `url.origin` is the internal http origin, so
+      // origin.startsWith("https") was false and the INITIAL session cookie was minted WITHOUT
+      // Secure — letting it leak over plaintext. secureCookieForRequest reads x-forwarded-proto.
+      secure: await secureCookieForRequest(),
       path: "/",
       maxAge: sessionMaxAgeSeconds,
     });

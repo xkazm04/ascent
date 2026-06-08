@@ -167,7 +167,7 @@ function sessionCookieAttrs(secure: boolean) {
  * it leak over plaintext. `NODE_ENV === "production"` still forces it on as a backstop, and plain
  * http (local dev) correctly stays non-Secure so the cookie works on localhost.
  */
-async function secureCookieForRequest(): Promise<boolean> {
+export async function secureCookieForRequest(): Promise<boolean> {
   if (process.env.NODE_ENV === "production") return true;
   try {
     const proto = (await headers()).get("x-forwarded-proto");
