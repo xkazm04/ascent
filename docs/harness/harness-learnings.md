@@ -186,3 +186,44 @@
 - **Section-stagger scroll-reveal** (SP#8 partial): the landing's below-fold section headings still lack the
   staggered `reveal-pre` entrance — it needs an IntersectionObserver client wrapper (only the hero got
   `animate-fade-up`, which is mount-safe).
+
+## Feature Scout Pipeline B — "Expose the dormant backend" wave (2026-06-08)
+
+### Structural facts
+- **2026-06-08** — `reportPermalink(fullName, headSha?)` now lives in `@/lib/ui` (a client-safe module) and is
+  re-exported from `@/lib/db/scans`. Client charts (TrendChart/DimensionTrends) build the same `/report/{owner}/
+  {repo}@{sha}` link as the server callers; don't re-inline the template.
+- **2026-06-08** — The trajectory GPS (`forecastTrajectory` in `maturity/forecast.ts` + the `<Trajectory>` card in
+  `components/org/Trajectory.tsx`) is **server-safe** and now rendered by BOTH the org rollup AND `/trends`. Feed it
+  `SeriesPoint[] {date,value}` (value = overall score); returns null with <2 distinct scan days.
+- **2026-06-08** — Session revocation is single-sourced on `bumpSessionVersion(login)` (sessions.ts) — called by
+  logout (one browser), uninstall, and now `POST /api/auth/revoke-sessions` ("sign out everywhere else", which
+  re-mints THIS cookie at the bumped version). The same-origin CSRF guard for POST handlers is `auth.isSameOrigin`.
+- **2026-06-08** — `/api/cron/purge` (retention) is now registered in `vercel.json` (daily 04:00 UTC). It self-no-ops
+  with no retention window configured, so it's inert until a policy is set. `vercel.json` is the ONLY place crons
+  are wired — a built cron route does nothing until it's listed there.
+- **2026-06-08** — `HistoryPoint` now carries `headSha` (added to the selects in BOTH `getRepositoryHistory` and
+  `getScanComparison` — they build HistoryPoint independently, so a new field must be added in both places + their
+  mappers, or tsc flags only the second one).
+
+### Conventions enforced
+- **2026-06-08** — A pure helper needed by both server and a client component goes in a client-safe module
+  (`@/lib/ui`) and is re-exported from the server module — never duplicated (see `reportPermalink`).
+- **2026-06-08** — Org-view mutation controls follow the optimistic-with-rollback pattern: POST, optimistic set,
+  roll back + surface error on non-2xx, `router.refresh()` on success (ScheduleSelect mirrors connect's toggleWatch).
+
+### Anti-patterns to avoid
+- **2026-06-08** — **Two Vibeman/agent runs sharing one working tree interleave commits on the same branch.** This
+  run (Feature Scout wave 2) ran concurrently with a UI-Perfectionist Pipeline-B run; both committed to
+  `vibeman/feature-scout-wave2`, and `TrendChart.tsx` was edited by both (the other's `6b675df` landed mid-flight).
+  It worked out (tsc + next build green) because edits hit different regions and were rebuilt on the latest version,
+  but it's fragile. Future: give each concurrent run its own branch/worktree, or serialize runs on a repo.
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 2 of the 60-finding scan)
+- **Trend point external links**: RPT-2 wired the in-app report permalink (click a dot → its pinned report) but
+  deferred the external GitHub-commit link and per-dimension `DimLine` deep-links. `headSha` is now on `HistoryPoint`,
+  so the commit URL is `https://github.com/{fullName}/commit/{headSha}` when wanted.
+- **Remaining Feature Scout waves**: only wave 2 (expose-backend, 6 findings) shipped. The INDEX
+  (`docs/harness/feature-scout-2026-06-08/INDEX.md`) lays out waves 1 (usage→billing), 3 (fleet reliability incl. the
+  one Critical **ORGS-1** cron starvation), 4 (GitHub App sync), 5 (scoring depth), 6 (scan reach), 7 (export/alerts/
+  compliance), plus the mediums/lows.
