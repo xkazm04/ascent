@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { DIMS, OrgTable, POSTURE_LABEL, SectionHeader } from "@/components/org/ui";
 import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
+import { ScheduleSelect } from "@/components/org/ScheduleSelect";
 import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
+import { isAppConfigured } from "@/lib/github/app";
 import { DIMENSION_SHORT, LEVEL_CLASSES, heatCell, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
@@ -11,6 +13,11 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
   const { slug } = await params;
   const rollup = await getOrgRollup(slug);
   if (!rollup) return null;
+
+  // Autoscan scheduling needs the GitHub App (the route 503s without it); the org dashboard already
+  // implies a DB. When the App isn't configured, the cadence control renders disabled with a hint
+  // rather than vanishing, so the capability stays discoverable.
+  const schedulable = isAppConfigured();
 
   const leaderboard = [...rollup.repos].sort((a, b) => (b.latest?.overall ?? -1) - (a.latest?.overall ?? -1));
 
@@ -45,6 +52,7 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
               <th className="px-3 py-2 text-right">Rigor</th>
               <th className="px-3 py-2 text-left">Posture</th>
               <th className="px-3 py-2 text-left">Last scan</th>
+              <th className="px-3 py-2 text-left">Autoscan</th>
             </tr>
           }
         >
@@ -68,6 +76,15 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{l ? l.rigor : "—"}</td>
                     <td className="px-3 py-2 text-xs text-slate-400">{l ? POSTURE_LABEL[l.posture] ?? l.posture : "—"}</td>
                     <td className="px-3 py-2 text-xs text-slate-500">{l ? l.scannedAt.slice(0, 10) : "not scanned"}</td>
+                    <td className="px-3 py-2">
+                      <ScheduleSelect
+                        org={slug}
+                        fullName={r.fullName}
+                        schedule={r.scanSchedule}
+                        disabled={!schedulable}
+                        disabledHint="Autoscan scheduling requires the GitHub App."
+                      />
+                    </td>
                   </tr>
                 );
               })}
