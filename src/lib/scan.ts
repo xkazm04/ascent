@@ -14,7 +14,7 @@ import {
 import { analyzeSignals, classifyArchetype } from "@/lib/analyze";
 import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
-import { getProvider, MockProvider } from "@/lib/llm";
+import { getProvider, providerByName, MockProvider } from "@/lib/llm";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { isAssessmentUsable } from "@/lib/llm/provider";
 import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
@@ -23,6 +23,10 @@ import { extractTeamOwnership } from "@/lib/github/codeowners";
 import type { Governance, PrStats, ScanReport } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
+
+/** Backoff before a single LLM retry — fixed (no jitter) to keep the scan path deterministic-friendly. */
+const LLM_RETRY_MS = 500;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface ScanOptions {
   token?: string;
@@ -159,41 +163,77 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     pct: 72,
   });
   signal?.throwIfAborted();
-  let assessment;
-  try {
-    assessment = await provider.assess(scoreInput, { signal });
-    // Quality gate: validateAssessment() never throws, so a parseable-but-empty reply
-    // ({}, wrong shape, or all-unknown dimension ids) coerces to an assessment scoring
-    // (almost) no dimensions. Left unchecked it would render the deterministic floor
-    // under the provider's name with no caveat. Treat it exactly like a thrown failure.
-    if (intendedProvider !== "mock" && !isAssessmentUsable(assessment, signals.length)) {
+  // One assess attempt, with the quality gate inlined: validateAssessment() never throws, so a
+  // parseable-but-empty reply ({}, wrong shape, or all-unknown dimension ids) coerces to an
+  // assessment scoring (almost) no dimensions. Left unchecked it would render the deterministic
+  // floor under the provider's name with no caveat. Treat it exactly like a thrown failure so the
+  // retry/failover below can recover. (Mock is never gated — it always returns a full assessment.)
+  const attemptAssess = async (p: LLMProvider) => {
+    const a = await p.assess(scoreInput, { signal });
+    if (p.name !== "mock" && !isAssessmentUsable(a, signals.length)) {
       throw new Error(
-        `LLM returned an unusable assessment (${assessment.dimensions.length}/${signals.length} dimensions scored).`,
+        `LLM returned an unusable assessment (${a.dimensions.length}/${signals.length} dimensions scored).`,
       );
     }
-  } catch (err) {
-    // Client disconnected mid-call — don't spend a mock fallback + compose pass on a report
-    // nobody will receive. Propagate the abort so the whole scan unwinds.
-    if (signal?.aborted) throw err;
-    // LLM failed (key invalid, quota, timeout, or an empty/unusable response) — degrade
-    // gracefully to deterministic. Only flag it when the LLM was actually expected (not
-    // an intentional/keyless mock).
-    llmFailed = intendedProvider !== "mock";
-    if (llmFailed) {
-      console.error("[scan] LLM provider failed, falling back to mock:", err);
-      // Tell the UI the model didn't make it so it can fade in a calm "showing deterministic
-      // scores" note, rather than leaving the provider-specific "Asking …" copy hanging until
-      // the report (with its "AI was unavailable" warning) finally lands.
-      emit({
-        stage: "score",
-        message: "Model took too long — showing deterministic scores.",
-        pct: 90,
-        fallback: true,
-      });
+    return a;
+  };
+
+  // Resilience: a transient blip (rate limit / timeout) or a one-off unusable reply should not
+  // permanently degrade a paid scan to the deterministic floor. Try the primary provider, then one
+  // bounded retry of it, then a configured LLM_FALLBACK_PROVIDER (e.g. bedrock → gemini) when set
+  // and different — only THEN the mock degrade. Aborts propagate immediately so an abandoned scan
+  // stops. The provider that actually produced the assessment becomes the report's engine.
+  let assessment: Awaited<ReturnType<LLMProvider["assess"]>>;
+  let usedProvider: LLMProvider = provider;
+  {
+    const fallback =
+      intendedProvider === "mock" ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
+    const plan: { p: LLMProvider; note?: string }[] = [{ p: provider }];
+    if (intendedProvider !== "mock") plan.push({ p: provider, note: `Retrying ${intendedProvider}…` });
+    if (fallback && fallback.name !== intendedProvider)
+      plan.push({ p: fallback, note: `Falling over to ${fallback.name}…` });
+
+    let resolved: Awaited<ReturnType<LLMProvider["assess"]>> | null = null;
+    let lastErr: unknown;
+    for (let i = 0; i < plan.length; i++) {
+      const step = plan[i];
+      try {
+        if (i > 0) {
+          await sleep(LLM_RETRY_MS);
+          signal?.throwIfAborted();
+          emit({ stage: "score", message: step.note ?? "Retrying…", pct: 80, provider: step.p.name });
+        }
+        resolved = await attemptAssess(step.p);
+        usedProvider = step.p;
+        break;
+      } catch (err) {
+        // Client disconnected mid-call — don't spend further attempts + a compose pass on a report
+        // nobody will receive. Propagate the abort so the whole scan unwinds.
+        if (signal?.aborted) throw err;
+        lastErr = err;
+      }
     }
-    provider = new MockProvider();
-    assessment = await provider.assess(scoreInput);
+
+    if (resolved) {
+      assessment = resolved;
+    } else {
+      // Every real attempt failed — degrade to deterministic. Only flag it when an LLM was actually
+      // expected (not an intentional/keyless mock).
+      llmFailed = intendedProvider !== "mock";
+      if (llmFailed) {
+        console.error("[scan] LLM provider failed after retry/failover, using mock:", lastErr);
+        emit({
+          stage: "score",
+          message: "Model unavailable — showing deterministic scores.",
+          pct: 90,
+          fallback: true,
+        });
+      }
+      usedProvider = new MockProvider();
+      assessment = await usedProvider.assess(scoreInput);
+    }
   }
+  provider = usedProvider;
 
   // The mock fallback (and any provider that ignores the signal) can resolve even after a
   // disconnect — re-check before composing/persisting so we don't do that work for no one.

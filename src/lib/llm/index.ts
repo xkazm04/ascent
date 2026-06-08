@@ -54,5 +54,24 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
   }
 }
 
+/**
+ * Construct a specific real provider by name — for the scan's `LLM_FALLBACK_PROVIDER` failover
+ * (try a second model on a transient primary failure before degrading to the deterministic mock).
+ * Returns null for "mock"/unknown/empty: those mean "no real fallback", and the caller degrades to
+ * MockProvider itself. Construction is side-effect-free (no network until assess()).
+ */
+export function providerByName(name: string | undefined | null): LLMProvider | null {
+  switch ((name ?? "").trim().toLowerCase()) {
+    case "gemini":
+      return geminiOrMock();
+    case "bedrock":
+      return new BedrockProvider();
+    case "claude-cli":
+      return new ClaudeCliProvider();
+    default:
+      return null;
+  }
+}
+
 export { MockProvider };
 export type { LLMProvider };
