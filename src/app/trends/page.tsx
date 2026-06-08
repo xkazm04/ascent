@@ -134,14 +134,14 @@ export default async function TrendsPage({
             {history.scans.length >= 2 && (
               <Link
                 href={`/report/compare?repo=${encodeURIComponent(history.repo.fullName)}`}
-                className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+                className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
               >
                 Compare →
               </Link>
             )}
             <Link
               href={`/report?repo=${encodeURIComponent(history.repo.fullName)}`}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
             >
               Full report →
             </Link>
