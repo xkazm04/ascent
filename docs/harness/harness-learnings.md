@@ -300,3 +300,30 @@
 ## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 4)
 - **AUTH-2 / APP-2 / APP-3** deferred (see causes above) — a good focused "GitHub App UX + session
   completeness" session once the connect UI isn't being concurrently churned.
+
+## Feature Scout Pipeline B — "Scoring depth" wave (2026-06-08, wave 5 — 2 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — `LlmScoreInput` (llm/provider.ts) now carries optional `prStats`/`governance`; the LLM
+  prompt (scoring/prompt.ts `processBlock`) renders a "PROCESS SIGNALS" section from them. The data is
+  ALREADY fetched in scan.ts (`const [prStats, governance] = await Promise.all(...)`) and folded into the
+  deterministic D3/D6/D7/D8 scores — threading it to the prompt is free (no new GitHub calls).
+- **2026-06-08** — The dimension blend in `assembleReport` (scoring/engine.ts) is now coverage-weighted:
+  `effectiveBlend = SCORE_BLEND * clamp(snap.coverage,0,1)`. At coverage=1 it equals SCORE_BLEND (full-scan
+  path unchanged — no calibration-bench regression); below 1 the LLM's pull shrinks toward the
+  coverage-robust deterministic signal. `clamp(v,min,max)` in maturity/model.ts defaults to 0..100.
+
+### Conventions enforced
+- **2026-06-08** — A derived confidence value (e.g. `coverage`) should modulate the math it describes,
+  not merely be displayed next to it. When one stage fetches rich data for ONE consumer (the scorer),
+  check the OTHER consumer (the LLM prompt) isn't being starved of the same evidence.
+
+### Notes — deferred this wave, with cause
+- **MAT-3** (discrepancies aggregator): a `GET /api/discrepancies` with no consumer view yet — defer with
+  the view. **SCAN-2** (files-inspected) + **LLM-6** (per-dim confidence): touch `ReportView` (concurrent
+  UI churn). **SCAN-4** (lockfile ingestion): the valuable half is new D9/D6 detector logic whose effect
+  needs a real scan to verify (none runnable here).
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 5)
+- **MAT-3 / SCAN-2 / SCAN-4 / LLM-6** deferred (causes above). SCAN-4 especially wants a session that can
+  run a live scan against a lockfile-bearing repo to confirm the D9/D6 signal moves.
