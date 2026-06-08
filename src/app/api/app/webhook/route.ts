@@ -10,7 +10,7 @@
 // GitHub doesn't retry on our transient issues.
 
 import { NextResponse, after } from "next/server";
-import { getInstallationToken, isAppConfigured, verifyWebhook } from "@/lib/github/app";
+import { getInstallation, getInstallationToken, isAppConfigured, verifyWebhook } from "@/lib/github/app";
 import {
   getInstallationIdForOwner,
   getOrgId,
@@ -75,19 +75,39 @@ function deliveryAlreadySeen(id: string): boolean {
   return false;
 }
 
-/** Bind a webhook's claimed installation to our stored org→install mapping. Returns false (skip)
- *  only when a mapping EXISTS and disagrees — so a payload whose installation doesn't match the
- *  repo owner on record can't drive a token mint / scan. Unknown owners (no mapping yet) are allowed
- *  since the HMAC already authenticated the delivery; this is defense-in-depth, not the primary gate. */
+/** Bind a webhook's claimed installation to its owner before we mint a token / scan. For a KNOWN
+ *  owner, the stored mapping must agree. For an UNKNOWN owner (no mapping yet), the HMAC proves the
+ *  delivery is authentic but NOT that a forged/replayed payload's (installationId, owner) pair is
+ *  real — so confirm with GitHub (App-JWT authoritative) that the installation actually belongs to
+ *  the claimed owner, and fail closed if we can't. (Previously unknown owners were allowed through,
+ *  i.e. fail-open.) */
 async function installationMatchesOwner(installationId: number, owner: string): Promise<boolean> {
   const known = await getInstallationIdForOwner(owner).catch(() => null);
-  if (known && known !== String(installationId)) {
+  if (known) {
+    if (known !== String(installationId)) {
+      console.warn(
+        `[webhook] installation mismatch for ${owner}: payload=${installationId} stored=${known}; skipping`,
+      );
+      return false;
+    }
+    return true;
+  }
+  try {
+    const info = await getInstallation(installationId);
+    const matches = info.account.toLowerCase() === owner.toLowerCase();
+    if (!matches) {
+      console.warn(
+        `[webhook] installation ${installationId} account ${info.account} != payload owner ${owner}; skipping`,
+      );
+    }
+    return matches;
+  } catch (err) {
     console.warn(
-      `[webhook] installation mismatch for ${owner}: payload=${installationId} stored=${known}; skipping`,
+      `[webhook] could not confirm installation ${installationId} for ${owner}; skipping`,
+      err instanceof Error ? err.message : err,
     );
     return false;
   }
-  return true;
 }
 
 function publicBase(): string {
@@ -204,11 +224,21 @@ export async function POST(request: Request) {
 
   try {
     if (event === "installation") {
-      const login = payload.installation?.account?.login;
       const id = payload.installation?.id;
       if (id != null) {
-        if ((payload.action === "created" || payload.action === "unsuspend") && login) {
-          await upsertInstallation({ login, installationId: id });
+        if (payload.action === "created" || payload.action === "unsuspend") {
+          // Don't trust the payload's claimed account for a token-minting mapping: a forged-but-
+          // signed delivery could name a victim login for the attacker's installation id. Confirm
+          // the real account from GitHub (App-JWT authoritative) and store THAT, not the payload.
+          try {
+            const info = await getInstallation(id);
+            await upsertInstallation({ login: info.account, installationId: id });
+          } catch (err) {
+            console.warn(
+              `[webhook] could not confirm installation ${id}; skipping upsert`,
+              err instanceof Error ? err.message : err,
+            );
+          }
         } else if (payload.action === "deleted" || payload.action === "suspend") {
           await removeInstallation(id);
         }
