@@ -16,6 +16,12 @@ function Kicker({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Landing-page surface card — one radius/border/bg/padding so the marketing sections stop drifting
+ *  (they hand-rolled the same chrome at p-5 vs p-6). */
+function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <div className={`rounded-xl border border-slate-800 bg-slate-900/40 p-6 ${className}`}>{children}</div>;
+}
+
 export default async function Home() {
   // Live discovery rail + leaderboard from persisted public scans. Null when persistence is
   // off or nothing has been scored yet — the page then keeps its static examples.
@@ -116,11 +122,11 @@ export default async function Home() {
                   d: `A level, a radar across ${DIMENSIONS.length} dimensions, the evidence behind every score, and prioritized next steps to climb.`,
                 },
               ].map((s) => (
-                <div key={s.n} className="rounded-xl border border-slate-800 bg-slate-900/40 p-6">
+                <Panel key={s.n}>
                   <div className="font-mono text-sm text-accent">{s.n}</div>
                   <h3 className="mt-2 text-lg font-semibold text-white">{s.t}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-slate-400">{s.d}</p>
-                </div>
+                </Panel>
               ))}
             </div>
           </section>
@@ -131,7 +137,7 @@ export default async function Home() {
             <h2 className="mt-2 text-2xl font-bold text-white">{DIMENSIONS.length} scoring dimensions</h2>
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {DIMENSIONS.map((d) => (
-                <div key={d.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+                <Panel key={d.id}>
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-white">{d.name}</h3>
                     <span className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-xs text-slate-400">
@@ -139,7 +145,7 @@ export default async function Home() {
                     </span>
                   </div>
                   <p className="mt-2 text-sm leading-relaxed text-slate-400">{d.description}</p>
-                </div>
+                </Panel>
               ))}
             </div>
           </section>
