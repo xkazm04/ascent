@@ -265,3 +265,38 @@
   (the row exists); the anonymous public funnel (watch=false) is skipped.
 - **Waves 1, 4–7 of the scan remain** (see INDEX): usage→billing, GitHub App sync, scoring depth, scan reach,
   export/alerts/compliance.
+
+## Feature Scout Pipeline B — "GitHub App sync" wave (2026-06-08, wave 4 — 3 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — The App webhook (`app/webhook/route.ts`) now handles `installation_repositories`
+  (added/removed selected-access repos). On "removed" it calls `unwatchReposForInstallation(installId,
+  fullNames)` (installations.ts) to clear watch + pause schedule for those repos under the orgs the
+  install backs — else a de-selected repo's rescan 401s forever. **Requires the App to subscribe to the
+  "Repository" event** in its GitHub config; the handler is inert otherwise.
+- **2026-06-08** — `listInstallationRepos` (github/app.ts) now drops `fork`+`archived` repos, matching
+  `listOrgRepos` + `fetchUserRepos`. When adding repo fields to filter on, add them to the `GhRepo`
+  interface so the REST response is typed (the API already returns them).
+- **2026-06-08** — `POST /api/org/schedule` is now dual-shape: `{org,fullName,schedule}` = one repo;
+  `{org,schedule,segmentId?}` (no fullName) = the whole watched set via `setWatchedSchedule` (db/org.ts),
+  reusing `segmentScope`. Returns `{updated}` count for the bulk path.
+
+### Anti-patterns to avoid
+- **2026-06-08** — A barrel re-export (`db/index.ts`) whose two new lines belong to two different
+  definition modules can't be split across two commits with a plain `git add <file>` and stay buildable
+  (`git add -p` is unavailable here). Either bundle the findings, or temporarily delete one export line,
+  commit, then re-add it for the second commit (what this run did for APP-1 vs ORGS-6).
+
+### Notes — deferred (NOT done) this wave, with cause
+- **AUTH-2 (org member session revocation)** needs NEW infra, not a wire-up: `removeInstallation` bumps
+  only the owner-login session version, a documented no-op for ORG accounts (members are keyed by their
+  own login + carry a baked-in `installations` array). A real fix = persist member logins per install and
+  bump each, OR an org-access epoch that `verifySessionVersion` checks per embedded installation. Security-
+  sensitive cross-tenant change; left for a focused session.
+- **APP-2 (bulk watch) + APP-3 (suspension state)** live in `InstallationRepos.tsx`/`connect` — the files
+  the concurrent UI run was editing all session. Deferred to avoid an edit war; the backends are clean to
+  add later (`POST /api/org/watch/bulk`; `fetchUserInstallations` keeping `suspended_at`/`repository_selection`).
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 4)
+- **AUTH-2 / APP-2 / APP-3** deferred (see causes above) — a good focused "GitHub App UX + session
+  completeness" session once the connect UI isn't being concurrently churned.
