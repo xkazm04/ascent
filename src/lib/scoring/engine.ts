@@ -51,6 +51,10 @@ export function assembleReport(
   const llmById = new Map(assessment.dimensions.map((d) => [d.id, d]));
   const lensW = weightsFor(archetype);
   const warnings: string[] = [];
+  // Track which deterministic dimensions the LLM did NOT score: a missing dim falls back to its
+  // signal floor below (fine numerically) but the report must not then read as fully AI-validated
+  // — see the partial-coverage warning after the blend.
+  const llmMissing: DimensionId[] = [];
 
   // Confidence-weighted blend: scale the LLM's pull by how much of the repo we actually inspected.
   // `coverage` (0..1) was computed and surfaced as report.confidence but never touched the math, so a
@@ -72,6 +76,7 @@ export function assembleReport(
       return [];
     }
     const llm = llmById.get(s.id);
+    if (!llm) llmMissing.push(s.id);
     const llmScore = llm ? clamp(llm.score) : s.signalScore;
 
     // Guardband the LLM score to within ±LLM_GUARDBAND of the deterministic score.
@@ -105,6 +110,18 @@ export function assembleReport(
       warnings.push(msg);
       console.warn(`[engine] ${msg}`);
     }
+  }
+
+  // Partial LLM coverage: the usability gate (isAssessmentUsable) only requires HALF the dimensions
+  // to be scored and never checks WHICH, so a model can score only the dims a repo is strong in and
+  // omit the weak ones — which then fall back to their signal floor while the present dims blend up,
+  // and nothing warns. Surface it so the headline can't read as fully AI-validated when it isn't.
+  if (llmMissing.length > 0 && assessment.dimensions.length > 0) {
+    const assessed = signals.length - llmMissing.length;
+    warnings.push(
+      `AI assessed ${assessed} of ${signals.length} dimensions; ${llmMissing.join(", ")} reflect ` +
+        `detected signals only (no AI nuance) — the overall is not fully AI-validated.`,
+    );
   }
 
   const scoreById = new Map(dimensions.map((d) => [d.id, d.score]));
