@@ -183,12 +183,18 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // onUsage overwrites this; a thrown attempt never reports, so the winning provider's usage stands.
   let capturedUsage: TokenUsage = {};
   const attemptAssess = async (p: LLMProvider) => {
-    const a = await p.assess(scoreInput, { signal, onUsage: (u) => { capturedUsage = u; } });
+    // Capture this attempt's usage into a LOCAL and commit it to capturedUsage only AFTER the
+    // attempt is proven usable. Providers call onUsage BEFORE the parse/usability check, so a failed
+    // attempt (malformed JSON, unusable coverage) would otherwise leave its tokens on report.usage
+    // even though the scan degraded to mock — billing the user for an attempt that never contributed.
+    let attemptUsage: TokenUsage = {};
+    const a = await p.assess(scoreInput, { signal, onUsage: (u) => { attemptUsage = u; } });
     if (p.name !== "mock" && !isAssessmentUsable(a, signals.length)) {
       throw new Error(
         `LLM returned an unusable assessment (${a.dimensions.length}/${signals.length} dimensions scored).`,
       );
     }
+    capturedUsage = attemptUsage; // commit only on success
     return a;
   };
 
