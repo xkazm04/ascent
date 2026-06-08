@@ -22,7 +22,7 @@ import type {
   ScanReport,
 } from "@/lib/types";
 import { Prisma } from "@prisma/client";
-import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
+import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
 import { reportPermalink } from "@/lib/ui";
@@ -288,6 +288,13 @@ export async function persistScanReport(
   opts: { orgSlug?: string; actorId?: string; headEtag?: string | null } = {},
 ): Promise<PersistResult | null> {
   if (!isDbConfigured()) return null;
+  // Run the whole persist under withDb so a DSQL IAM-token expiry (token TTL ~15min; a frozen
+  // serverless instance can thaw past it) is recovered: withDb proactively refreshes a stale token
+  // before the op and reconnects + retries once on an auth-expiry error — instead of 500ing with the
+  // scan unsaved. On reconnect the singleton is swapped, so the inner getPrisma()/withRetry/tx pick
+  // up the fresh client on the retried run. Inert in static/local-Postgres mode (no DSQL config →
+  // the op simply runs once, unchanged). (Body indentation kept as-is to keep the diff reviewable.)
+  return withDb(async () => {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const headSha = report.repo.headSha ?? null;
@@ -510,6 +517,7 @@ export async function persistScanReport(
 
     return { scanId, deduped: false, headSha, failures: { audit: false, contributors: 0 } };
   }, { label: "persistScanReport:scan" }));
+  });
 }
 
 export interface HistoryPoint {
