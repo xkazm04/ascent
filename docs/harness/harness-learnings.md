@@ -479,3 +479,40 @@
 - **Cron requires CRON_SECRET now** — production must set it or all crons 503. Intended posture.
 - Cumulative: 4 of 9 criticals closed (github-app #1, org-dashboard #1, org-scanning #1, usage #1)
   + 1 reassessed (github-app #2). Remaining criticals: persistence #1/#2, maturity #1, llm #1.
+
+## Bug Hunter Pipeline B — "Persistence / DSQL durability" wave (2026-06-08, wave 3 — 4 closed, 2 deferred)
+
+### Structural facts
+- **2026-06-08** — `persistScanReport` (scans.ts) now runs its whole body inside `withDb(async () => …)`
+  so a DSQL IAM-token expiry is recovered (proactive refresh + reconnect-retry-once). The inner code
+  still calls `getPrisma()`; that's fine because `reconnectDb`/`refresh` swap the global singleton, so
+  the retried run reads the fresh client. `withDb` is INERT in static mode (`readDsqlConfig()` null →
+  op runs once) — the default/local-Postgres deployment is behaviorally unchanged.
+- **2026-06-08** — `/api/scan` now emits `x-ascent-persisted: false` when `persistScanReport` throws
+  (atomic rollback = nothing saved), instead of a silent clean 200. The report still renders.
+- **2026-06-08** — `updateRecommendation`'s audit row is now written via `tx.auditLog.create` INSIDE
+  its `$transaction` (was a best-effort post-tx `recordAudit`), so status-change + timeline + audit
+  are atomic.
+
+### Conventions enforced
+- **2026-06-08** — A resilience primitive (`withDb`) must be ON the call path to count — it was dead
+  code (exported, zero callers) while every helper used the raw `getPrisma()`. Route writes through it.
+- **2026-06-08** — Atomic-but-swallowed = silent data loss: making a write all-or-nothing is only half
+  the fix; the caller must propagate the failure (header / 5xx / retry), not return 200.
+
+### Open follow-ups (from Bug Hunter wave 3)
+- **DEFERRED #4 (High)** — add `@@unique([repoId, headSha])` (partial, headSha not null) + route the
+  scan insert through `upsertRacing`. Needs a Prisma migration (fails if duplicate rows already exist)
+  + a live DB to verify — risky blind. Cross-instance dup scans remain possible until then.
+- **DEFERRED #5 (High)** — serverless connection-pool storm. Needs a pooler (PgBouncer/`pgbouncer=true`)
+  + a `connection_limit` cap reconciled against `max_connections` and the cron's `SCAN_CONCURRENCY=4`
+  (connection_limit=1 serializes the cron). Deployment/infra decision; unverifiable here.
+- **read-path + secondary-write withDb migration**: only `persistScanReport` was routed through
+  `withDb`. The other ~70 `getPrisma()` sites (org.ts/installations.ts/sessions.ts/reads) still 500
+  transiently on a DSQL token expiry (recoverable, no data loss). Migrate deliberately (watch for
+  nested-`withDb` double-retry) — not a blind sweep.
+- **#3 prevention**: the long-tx-outlives-token *recovery* is handled (withDb retry), but the
+  *preventive* part (refuse to start a >timeout tx near token end, or shrink it via `createMany`
+  contributor upserts) is not done.
+- Cumulative after wave 3: 6 of 9 criticals closed (added persistence #1/#2). Remaining: maturity #1
+  (Wave 4), llm #1 (Wave 5).
