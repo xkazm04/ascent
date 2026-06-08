@@ -163,15 +163,14 @@ export function projectScore(
   report: ScanReport,
   overrides: Partial<Record<DimensionId, number>>,
 ): ScoreProjection {
-  const dims = report.dimensions;
-  const wsum = dims.reduce((acc, d) => acc + d.weight, 0);
-  const overall = clamp(
-    wsum > 0
-      ? Math.round(
-          dims.reduce((acc, d) => acc + (overrides[d.id] ?? d.score) * d.weight, 0) / wsum,
-        )
-      : 0,
-  );
+  // Single weighted-mean source of truth: reuse overallScoreFor (the exact function the headline
+  // uses) over the possibly-overridden dimension scores. This re-implemented the mean before and
+  // renormalized by Σ d.weight, where d.weight is `lensW[id] ?? def.weight` while overallScoreFor
+  // uses `lensW[id] ?? 0` — for a lens-missing id the denominators diverged, so projectScore(report,
+  // {}) no longer equaled report.overallScore (breaking the Sandbox baseline invariant and skewing
+  // deltaScore / cheapestPathToNextLevel). One implementation, one weight source.
+  const scored = report.dimensions.map((d) => ({ id: d.id, score: overrides[d.id] ?? d.score }));
+  const overall = overallScoreFor(scored, report.archetype);
   const lvl = levelForScore(overall);
   // An unrecognized current-level id (rubric schema drift, a legacy or hand-edited persisted
   // scan) makes findIndex return -1; clamp to L1 so an unknown level can't read as "above
@@ -249,6 +248,22 @@ export function cheapestPathToNextLevel(report: ScanReport): LevelPath {
     return { reachable: true, target: null, steps: [], projected: projectScore(report, {}) };
   }
   const targetScore = nextLevel.band[0];
+
+  // True reachability first: project EVERY dimension to its ceiling (100). If even that can't reach
+  // the band floor, the next level is genuinely unreachable (e.g. the remaining headroom lives in a
+  // zero-weight dimension under this archetype lens) — return reachable:false with no misleading
+  // "path", rather than letting the greedy loop below stop a rounding-point short and imply a climb
+  // that never crosses. When the ceiling DOES clear the floor, the greedy steps are guaranteed to.
+  const ceilingOverrides: Partial<Record<DimensionId, number>> = {};
+  for (const d of report.dimensions) ceilingOverrides[d.id] = 100;
+  if (projectScore(report, ceilingOverrides).overallScore < targetScore) {
+    return {
+      reachable: false,
+      target: { level: nextLevel.id, name: nextLevel.name, score: targetScore },
+      steps: [],
+      projected: projectScore(report, {}),
+    };
+  }
 
   const candidates = report.dimensions
     .filter((d) => d.score < 100)
