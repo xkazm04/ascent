@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { readSSE } from "@/lib/sse";
+import { Meter } from "@/components/org/ui";
 
 interface Progress {
   running: boolean;
@@ -49,19 +50,17 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
         type="button"
         onClick={run}
         disabled={p.running || watchedCount === 0}
-        className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-[#04070e] transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
       >
         {p.running ? `Scanning ${p.done}/${p.total}…` : `Scan all watched (${watchedCount})`}
       </button>
       {p.running && (
         <div className="w-48">
-          <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
-            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.max(4, pct)}%` }} />
-          </div>
+          <Meter value={Math.max(4, pct)} size="sm" />
           <p className="mt-1 truncate font-mono text-[10px] text-slate-500">{p.current}</p>
         </div>
       )}
-      {p.error && <p className="text-xs text-red-400">{p.error}</p>}
+      {p.error && <p className="text-xs text-danger">{p.error}</p>}
     </div>
   );
 }
