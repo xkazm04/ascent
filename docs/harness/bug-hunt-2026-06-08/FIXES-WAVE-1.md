@@ -42,8 +42,8 @@ Each fix was committed atomically after its own `tsc` pass.
 ## Cumulative status (waves 1–1)
 
 - 4 findings closed in 3 atomic commits; 1 finding re-analyzed and deferred with cause.
-- 3 of the scan's 9 criticals closed (the wave's 4th "critical", github-app #2, was a misrated finding → Medium, deferred).
-- Remaining per INDEX: Waves 2–8 (unauth endpoints/leaks, persistence/DSQL, scoring, lifecycle, billing, cache/sync, session/UI tail). 6 criticals remain across Waves 2–5.
+- 2 of the scan's 9 criticals closed via code (github-app #1, org-dashboard #1); the wave's 3rd critical, github-app #2, was a misrated finding (actually Medium) and deferred — so 2 closed + 1 reassessed.
+- Remaining per INDEX: Waves 2–8 (unauth endpoints/leaks, persistence/DSQL, scoring, lifecycle, billing, cache/sync, session/UI tail). 6 criticals remain across Waves 2–5 (persistence #1/#2, maturity #1, org-scanning #1, usage #1, llm #1).
 
 ## Patterns established (catalogue items 1–3)
 

@@ -442,3 +442,40 @@
 - **Remaining bug-hunt waves 2–8** (see `docs/harness/bug-hunt-2026-06-08/INDEX.md`): 6 criticals
   remain (Waves 2–5) across unauth endpoints/leaks, persistence/DSQL token expiry, scoring
   correctness, and resource lifecycle.
+
+## Bug Hunter Pipeline B — "Unauth endpoints & leaks" wave (2026-06-08, wave 2 — 6 findings closed)
+
+### Structural facts
+- **2026-06-08** — All three cron routes (`cron/{rescan,digest,purge}/route.ts`) now FAIL CLOSED:
+  `if (!process.env.CRON_SECRET) return 503`, then require the `Bearer`/`?key` unconditionally.
+  Deploys MUST set `CRON_SECRET` (Vercel injects the Bearer header only when it's set) — a missing
+  secret no longer "works" unauthenticated.
+- **2026-06-08** — `ScanOptions.noAmbientToken` (scan.ts) suppresses the `?? process.env.GITHUB_TOKEN`
+  fallback. The public badge passes it so a private repo can't be ingested with the operator's PAT.
+  `scanRepository`'s token line is now `opts.token ?? (opts.noAmbientToken ? undefined : env)`.
+- **2026-06-08** — The badge (`api/badge/[owner]/[repo]/route.ts`) gates on `report.repo.isPrivate`
+  and serves a neutral "private" badge — this is the real leak-closer because the shared report
+  cache can hold a private repo's report from an AUTHENTICATED scan (token-less scanning alone
+  wouldn't catch that path).
+- **2026-06-08** — Badge cache is branched by outcome via `respond(svg, {cache})`: `CACHE_RESOLVED`
+  (long shared) only for an un-customized real level/gate; `CACHE_CUSTOM` (`private`) for any
+  query-customized body; `CACHE_NEUTRAL` (30s) for unknown/private; `CACHE_TRANSIENT` (`no-store`)
+  for 429 / upstream blip. `customized = [...searchParams.keys()].length > 0`.
+- **2026-06-08** — Webhook `installationMatchesOwner` now confirms an UNKNOWN owner against GitHub
+  (`getInstallation(id)`) before allowing a token mint, and the `installation created/unsuspend`
+  handler derives the stored login from `getInstallation(id)` rather than trusting the payload.
+
+### Conventions enforced
+- **2026-06-08** — Opt-in auth (`if (secret) { check }`) is fail-OPEN; privileged endpoints must
+  refuse first when the secret is absent. Fail-open patterns travel in families — grep siblings.
+- **2026-06-08** — `mock: true` forces only the LLM provider; it does NOT disable GitHub ingestion
+  or the ambient-PAT fallback. Public surfaces must be token-less by construction.
+- **2026-06-08** — Don't trust client-settable headers as identity (left-most XFF) or payload-
+  claimed identity (webhook installation owner). Use a trusted hop / authoritative confirmation.
+
+### Open follow-ups (from Bug Hunter wave 2)
+- **Webhook out-of-order install/uninstall** (github-app #3 secondary): a `deleted` before a late
+  `created` leaves a stale "installed" mapping. Needs per-id last-action-timestamp tracking; deferred.
+- **Cron requires CRON_SECRET now** — production must set it or all crons 503. Intended posture.
+- Cumulative: 4 of 9 criticals closed (github-app #1, org-dashboard #1, org-scanning #1, usage #1)
+  + 1 reassessed (github-app #2). Remaining criticals: persistence #1/#2, maturity #1, llm #1.
