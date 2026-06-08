@@ -701,6 +701,12 @@ function PickForm({
   onPick: (name: string) => void;
   dimmed?: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Return focus to the org field when a submit error appears so keyboard/SR users land on the
+  // control that produced it (the error is also wired via aria-invalid + aria-describedby below).
+  useEffect(() => {
+    if (error) inputRef.current?.focus();
+  }, [error]);
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <label className="font-mono text-[11px] uppercase tracking-[0.3em] text-slate-500" htmlFor="onboarding-org">
@@ -709,11 +715,14 @@ function PickForm({
       <form onSubmit={onSubmit} className="mt-2">
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             id="onboarding-org"
             value={org}
             onChange={(e) => setOrg(e.target.value)}
             placeholder="e.g. vercel or torvalds"
             autoFocus={!dimmed}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "onboarding-org-error" : undefined}
             className="focus-ring flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white outline-none focus:border-accent"
           />
           <button
@@ -738,7 +747,7 @@ function PickForm({
           ))}
         </div>
         {error && (
-          <p role="alert" className="mt-3 text-sm text-danger-soft">
+          <p id="onboarding-org-error" role="alert" className="mt-3 text-sm text-danger-soft">
             {error}
           </p>
         )}
