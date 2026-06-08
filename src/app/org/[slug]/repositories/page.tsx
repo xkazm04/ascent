@@ -79,7 +79,7 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
         <div>
           <SectionHeader
             title="Repo × dimension heatmap"
-            description="Where each repo is strong or weak across the eight dimensions."
+            description={`Where each repo is strong or weak across all ${DIMS.length} dimensions.`}
           />
           <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800 p-4">
             <table className="min-w-[640px]">

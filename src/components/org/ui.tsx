@@ -1,5 +1,7 @@
 // Shared presentational primitives for the org dashboard tabs (server-safe, no client hooks).
 import { EmptyState } from "@/components/EmptyState";
+import { DIMENSION_SHORT } from "@/lib/ui";
+import type { DimensionId } from "@/lib/types";
 
 export const POSTURE_LABEL: Record<string, string> = {
   "ai-native": "AI-Native",
@@ -8,7 +10,10 @@ export const POSTURE_LABEL: Record<string, string> = {
   early: "Getting Started",
 };
 export const POSTURE_ORDER = ["ai-native", "ungoverned", "manual", "early"];
-export const DIMS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"];
+// Heatmap / dimension-average columns, derived from the canonical dimension map (the same source
+// that supplies the column labels) so adding a dimension — e.g. D9 Security — widens every fleet
+// view automatically. Was frozen at D1–D8, which silently dropped D9 Security from the heatmap.
+export const DIMS = Object.keys(DIMENSION_SHORT) as DimensionId[];
 
 /** Canonical summary-tile grid — one column rhythm + gap for every tab's top tiles. */
 export const TILE_GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-4";
