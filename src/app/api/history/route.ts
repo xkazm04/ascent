@@ -25,8 +25,11 @@ function historyToCsv(history: RepositoryHistory): string {
   const header = ["scannedAt", "overall", "level", "levelName", "engine", ...dimIds].join(",");
   const rows = [...history.scans].reverse().map((s) => {
     const byDim = new Map(s.dimensions.map((d) => [d.dimId, d.score]));
-    const dims = dimIds.map((id) => byDim.get(id) ?? "");
-    return [s.scannedAt, s.overallScore, csvField(s.level), csvField(s.levelName), csvField(s.engineProvider), ...dims].join(",");
+    const dims = dimIds.map((id) => csvField(byDim.get(id) ?? ""));
+    // Quote EVERY field uniformly (was raw for scannedAt/overall/dims): if any value ever gains a
+    // comma (a comma'd locale timestamp, a stringy dim cell), an unquoted field shifts the column
+    // count and misaligns the whole export.
+    return [csvField(s.scannedAt), csvField(s.overallScore), csvField(s.level), csvField(s.levelName), csvField(s.engineProvider), ...dims].join(",");
   });
   return [header, ...rows].join("\n") + "\n";
 }
