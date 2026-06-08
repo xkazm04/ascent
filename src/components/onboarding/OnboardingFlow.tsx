@@ -338,7 +338,7 @@ export function OnboardingFlow({
           </p>
 
           {/* Sticky action bar: bulk select/clear + a filled progress pill for the cap. */}
-          <div className="sticky top-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 backdrop-blur">
+          <div className="sticky top-16 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 backdrop-blur">
             <CapPill count={selected.size} max={MAX_SELECT} />
             <div className="flex items-center gap-2">
               <button
