@@ -5,7 +5,6 @@
 // GitHub App lands; until then everything is under the "public" org.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { envNumber } from "@/lib/llm/config";
 
 export interface ProviderUsage {
   provider: string;
@@ -124,11 +123,19 @@ export async function getUsageSummary(
 
   const inputTokens = tokenAgg._sum.inputTokens ?? 0;
   const outputTokens = tokenAgg._sum.outputTokens ?? 0;
-  // Estimate cost only when a rate is configured — show "rate not set" rather than a fake $0/number.
-  const inRate = envNumber("LLM_INPUT_COST_PER_MTOK", 0);
-  const outRate = envNumber("LLM_OUTPUT_COST_PER_MTOK", 0);
+  // Estimate cost only when BOTH per-MTok rates are explicitly configured. Treat an unset rate as
+  // "no estimate" (null), NOT 0 — otherwise a partial config (only the input rate set) silently
+  // bills the output side at $0 while showing a confident dollar figure (a quiet ~halving of the
+  // bill). A deliberately-set "0" is still a valid explicit price (both "0" → a real $0.00).
+  const parseRate = (raw: string | undefined): number | null => {
+    if (raw == null || raw.trim() === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const inRate = parseRate(process.env.LLM_INPUT_COST_PER_MTOK);
+  const outRate = parseRate(process.env.LLM_OUTPUT_COST_PER_MTOK);
   const estimatedCostUsd =
-    inRate > 0 || outRate > 0
+    inRate != null && outRate != null
       ? (inputTokens / 1_000_000) * inRate + (outputTokens / 1_000_000) * outRate
       : null;
 
