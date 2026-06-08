@@ -142,6 +142,9 @@ CREATE TABLE "Scan" (
     "prStats" TEXT,
     "governance" TEXT,
     "commitActivity" TEXT,
+    "inputTokens" INTEGER,
+    "outputTokens" INTEGER,
+    "llmLatencyMs" INTEGER,
     "scannedAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

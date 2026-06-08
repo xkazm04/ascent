@@ -394,6 +394,9 @@ export async function persistScanReport(
             prStats: report.prStats ? JSON.stringify(report.prStats) : null,
             governance: report.governance ? JSON.stringify(report.governance) : null,
             commitActivity: report.commitActivity ? JSON.stringify(report.commitActivity) : null,
+            inputTokens: report.usage?.inputTokens ?? null,
+            outputTokens: report.usage?.outputTokens ?? null,
+            llmLatencyMs: report.usage?.latencyMs ?? null,
             scannedAt: new Date(report.scannedAt),
             dimensions: {
               create: report.dimensions.map((d) => ({

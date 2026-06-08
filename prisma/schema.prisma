@@ -203,6 +203,11 @@ model Scan {
   prStats        String? // JSON PrStats (pull-request process signals); null if no token
   governance     String? // JSON Governance (branch protection / rulesets); null if no token
   commitActivity String? // JSON number[] — last ~12 weekly commit totals; null if no token
+  // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
+  // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
+  inputTokens    Int?
+  outputTokens   Int?
+  llmLatencyMs   Int?
   scannedAt      DateTime
   createdAt      DateTime @default(now())
 
