@@ -24,6 +24,9 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
 
   const [history, setHistory] = useState<RepositoryHistory | null>(null);
   const [recs, setRecs] = useState<PersistedRecommendation[] | null>(null);
+  // Distinguishes a genuine history-fetch failure (offline / transient) from the legitimate
+  // "no history yet" baseline — otherwise both render an identical "Baseline established" panel.
+  const [histError, setHistError] = useState(false);
 
   useEffect(() => {
     const repoRef = `${repo.owner}/${repo.name}`;
@@ -37,7 +40,9 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
         if (active && h.ok) setHistory((await h.json()) as RepositoryHistory);
         if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
       } catch {
-        /* DB not configured / offline — trend & tracking degrade silently */
+        // Couldn't reach the history endpoint (offline / transient). Surface it in the trend panel
+        // instead of silently degrading to a misleading "Baseline established".
+        if (active) setHistError(true);
       }
     })();
     return () => {
@@ -213,9 +218,11 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
             <div>
               <h2 className="text-lg font-semibold text-white">Maturity over time</h2>
               <p className="text-sm text-slate-400">
-                {trendPoints.length === 1
-                  ? "Baseline established — re-scan later to track progress."
-                  : `${trendPoints.length} scans tracked.`}
+                {histError
+                  ? "Couldn't load history — showing this scan only."
+                  : trendPoints.length === 1
+                    ? "Baseline established — re-scan later to track progress."
+                    : `${trendPoints.length} scans tracked.`}
               </p>
             </div>
             {overallDelta !== null && <DeltaPill delta={overallDelta} className="mt-3" />}
