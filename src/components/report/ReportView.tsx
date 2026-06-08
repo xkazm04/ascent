@@ -748,13 +748,9 @@ function ProvenanceTrack({ signal, llm, blended }: { signal: number; llm: number
         <circle cx={x(blended)} cy={trackY} r={3.5} fill={color} stroke="#020617" strokeWidth={1} />
         <title>Blended result: {blended}</title>
       </g>
-      {/* compact text legend (kept for non-hover/screen contexts) */}
-      <text x={padX} y={7} fontSize={7} fontFamily="monospace" className="fill-slate-500">
-        signal {signal}
-      </text>
-      <text x={W - padX} y={7} fontSize={7} fontFamily="monospace" textAnchor="end" className="fill-slate-500">
-        llm {llm} · blended {blended}
-      </text>
+      {/* The numeric values are intentionally not drawn into this 22px-tall track — a 7px legend
+          failed both legibility and contrast. They're conveyed by the svg aria-label
+          (signal/llm/blended), the per-element <title> tooltips, and the tick/marker positions. */}
     </svg>
   );
 }
