@@ -189,6 +189,14 @@ export async function listInstallationRepos(installationId: number | string): Pr
       raw.push(...data.repositories);
       if (data.repositories.length < PER_PAGE) break; // last (short) page
     }
+    // Surface a silent truncation: an installation with more than MAX_PAGES×PER_PAGE repos would
+    // otherwise drop the overflow with no signal — invisible to watch/schedule/scan and wrong in
+    // the "X of N watched" counter.
+    if (Number.isFinite(total) && raw.length < total) {
+      console.warn(
+        `[github/app] installation ${installationId}: listed ${raw.length} of ${total} repos (capped at MAX_PAGES=${MAX_PAGES}); the rest are not visible to watch/scan.`,
+      );
+    }
     return raw;
   };
 
