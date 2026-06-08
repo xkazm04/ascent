@@ -427,6 +427,7 @@ export function OnboardingFlow({
 
   // ---- scanning + done phases ---------------------------------------------
   const completed = Object.values(rows).filter((r) => r.level || r.error).length;
+  const errorCount = Object.values(rows).filter((r) => r.error).length;
   const scanTotal = Object.keys(rows).length;
   const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
 
@@ -438,11 +439,27 @@ export function OnboardingFlow({
           {announce}
         </div>
 
-        <h1 className="text-2xl font-bold text-white">
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
+          {phase === "done" && (
+            <span
+              aria-hidden
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-base ${
+                errorCount > 0
+                  ? "border-orange-500/50 bg-orange-500/15 text-orange-300"
+                  : "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
+              }`}
+            >
+              {errorCount > 0 ? "!" : "✓"}
+            </span>
+          )}
           {phase === "done" ? "Scan complete" : "Scanning repositories"}
         </h1>
         <p className="mt-1 text-slate-400">
-          {phase === "done" ? "Here's how your repositories scored." : `Scanning ${scanTotal} repositories…`}
+          {phase === "done"
+            ? errorCount > 0
+              ? `Here's how your repositories scored — ${errorCount} couldn't be scanned.`
+              : "Here's how your repositories scored."
+            : `Scanning ${scanTotal} repositories…`}
         </p>
 
         {/* Progress bar (accessible) — eased width, role=progressbar. */}
