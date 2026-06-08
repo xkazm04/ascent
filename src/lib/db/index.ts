@@ -55,12 +55,14 @@ export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay }
 export {
   upsertInstallation,
   removeInstallation,
+  unwatchReposForInstallation,
   getInstallationIdForOwner,
 } from "@/lib/db/installations";
 export { getSessionVersion, bumpSessionVersion } from "@/lib/db/sessions";
 export {
   setRepoWatch,
   setRepoSchedule,
+  setWatchedSchedule,
   seedWatchlist,
   listWatchedRepos,
   getOrgRollup,
@@ -82,6 +84,9 @@ export {
   rollupTeams,
   listDueRescans,
   advanceSchedule,
+  advanceScheduleAfterFailure,
+  recordScanOutcome,
+  listOrgsWithWatchedRepos,
   getOrgId,
   isRepoWatched,
   type DueRescan,

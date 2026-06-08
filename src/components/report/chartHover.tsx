@@ -93,12 +93,18 @@ export function PointTooltip({
   engine,
   delta,
   label,
+  sha,
+  linked,
 }: {
   score: number;
   at?: string;
   engine?: string;
   delta?: number | null;
   label?: string;
+  /** Short commit sha this scan pinned to, shown as context. */
+  sha?: string;
+  /** Whether the point links somewhere (the chart opens it on click) — adds an affordance hint. */
+  linked?: boolean;
 }) {
   return (
     <div className="text-xs">
@@ -110,6 +116,7 @@ export function PointTooltip({
       </div>
       {at && <div className="mt-0.5 text-[11px] text-slate-300">{shortDateTime(at)}</div>}
       {engine && <div className="text-[11px] text-slate-500">engine: {engine}</div>}
+      {sha && <div className="font-mono text-[11px] text-slate-500">commit {sha}</div>}
       <div className="mt-0.5 text-[11px]">
         {delta == null ? (
           <span className="text-slate-500">first scan</span>
@@ -122,6 +129,7 @@ export function PointTooltip({
           </span>
         )}
       </div>
+      {linked && <div className="mt-0.5 text-[11px] text-accent">click to open this scan&apos;s report →</div>}
     </div>
   );
 }

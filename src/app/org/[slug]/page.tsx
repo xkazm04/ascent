@@ -5,7 +5,7 @@ import { GoalsOverview } from "@/components/org/GoalsOverview";
 import { PeriodSummary } from "@/components/org/PeriodSummary";
 import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { Card, Meter, SectionHeader, Tile, TILE_GRID, POSTURE_LABEL, POSTURE_ORDER } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID, POSTURE_LABEL, POSTURE_ORDER } from "@/components/org/ui";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, IMPACT_CLASS, scoreHex } from "@/lib/ui";
@@ -21,7 +21,7 @@ function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "u
     <Card>
       <SectionHeader size="sm" title={title} />
       {moves.length === 0 ? (
-        <p className="mt-3 text-xs text-slate-500">{emptyText}</p>
+        <InlineEmpty>{emptyText}</InlineEmpty>
       ) : (
         <div className="mt-3 space-y-2">
           {moves.map((m) => (
@@ -155,7 +155,7 @@ export default async function OrgOverview({
                 </span>
               </div>
             ) : (
-              <div className="text-xs text-slate-500">Benchmark fills in once other orgs are scanned.</div>
+              <InlineEmpty>Benchmark fills in once other orgs are scanned.</InlineEmpty>
             )}
             {benchmark && (
               <div className="font-mono text-[11px] text-slate-500">
@@ -187,11 +187,11 @@ export default async function OrgOverview({
             <Card>
               <h3 className="font-mono text-[11px] uppercase tracking-widest text-accent">Common organization gaps</h3>
               {gaps.commonGaps.length === 0 ? (
-                <p className="mt-3 text-xs text-slate-500">No fleet-wide gaps — strengths are broad.</p>
+                <InlineEmpty>No fleet-wide gaps — strengths are broad.</InlineEmpty>
               ) : (
                 <ul className="mt-3 space-y-2">
                   {gaps.commonGaps.map((g) => (
-                    <li key={g.dimId} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                    <li key={g.dimId} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm text-white">{g.label}</span>
                         <span className="font-mono text-[11px] text-orange-300">weak in {g.weakCount}/{g.total}</span>
@@ -217,7 +217,7 @@ export default async function OrgOverview({
             <Card>
               <h3 className="font-mono text-[11px] uppercase tracking-widest text-slate-400">Repo-specific gaps</h3>
               {gaps.repoSpecific.length === 0 ? (
-                <p className="mt-3 text-xs text-slate-500">No notable outliers — repos move together.</p>
+                <InlineEmpty>No notable outliers — repos move together.</InlineEmpty>
               ) : (
                 <ul className="mt-3 space-y-1.5">
                   {gaps.repoSpecific.slice(0, 8).map((o, i) => (

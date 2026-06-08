@@ -36,6 +36,9 @@ export function ScanForm({
   examples?: string[];
 }) {
   const router = useRouter();
+  // Distinguish live top-scored repos (from the persisted gallery) from the static fallback, so the
+  // chips never imply "currently trending" when they're hardcoded defaults.
+  const liveExamples = examples != null && examples.length > 0;
   const chips = examples && examples.length > 0 ? examples : FALLBACK_EXAMPLES;
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -100,7 +103,7 @@ export function ScanForm({
         <button
           type="submit"
           disabled={submitting || !value.trim()}
-          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 font-mono text-xs font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 font-mono text-xs font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-400"
         >
           {submitting ? (
             <>
@@ -126,9 +129,13 @@ export function ScanForm({
         </button>
       </form>
 
+      {/* On phones the github.com/ prefix is hidden for width; surface it as a persistent hint
+          (the placeholder disappears the moment the user types). */}
+      <p className="mt-1.5 font-mono text-[11px] text-slate-500 sm:hidden">github.com/owner/repo</p>
+
       {/* Inline validation message, wired to the input via aria-describedby. */}
       {error && (
-        <p id={errorId} className="mt-2 text-sm text-danger">
+        <p id={errorId} className="mt-2 animate-fade-up text-sm text-danger">
           {error}
         </p>
       )}
@@ -139,7 +146,7 @@ export function ScanForm({
       </span>
 
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 font-mono text-xs text-slate-400">
-        <span className="uppercase tracking-widest">Try:</span>
+        <span className="uppercase tracking-widest">{liveExamples ? "Top scored:" : "Try:"}</span>
         {chips.map((ex) => {
           const chipPending = pendingChip === ex;
           return (

@@ -20,6 +20,7 @@ import {
   getInstallationIdForOwner,
   isDbConfigured,
   persistScanReport,
+  recordScanOutcome,
   setRepoSchedule,
   setRepoWatch,
 } from "@/lib/db";
@@ -27,6 +28,7 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
 import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
+import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,9 +111,12 @@ export async function POST(request: Request) {
         }
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });
 
-        // 2. Scan + persist each.
+        // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
+        // as it resolves; the SSE consumer keys off each message's repo, not arrival order). A
+        // realistic org import finishes in a fraction of the serial wall-clock and is far likelier
+        // to fit the 300s budget. `scanned` is incremented in single-threaded lanes — race-free.
         let scanned = 0;
-        for (const r of fullNames) {
+        await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
           try {
             const report = await scanRepository(r.fullName, { token, mock });
@@ -134,12 +139,17 @@ export async function POST(request: Request) {
               rigor: report.rigorScore,
               contributors: report.contributors?.length ?? 0,
             });
+            // Only record an outcome once the repo row exists (watch=true upserts it above); the
+            // public funnel (watch=false) may not have persisted a Repository row, so skip then.
+            if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
           } catch (err) {
-            send("repo", { repo: r.fullName, error: err instanceof Error ? err.message : "scan failed" });
+            const msg = err instanceof Error ? err.message : "scan failed";
+            if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
+            send("repo", { repo: r.fullName, error: msg });
           }
           scanned += 1;
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
-        }
+        });
         send("result", { org, scanned, total: fullNames.length, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });

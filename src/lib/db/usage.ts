@@ -5,10 +5,18 @@
 // GitHub App lands; until then everything is under the "public" org.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { envNumber } from "@/lib/llm/config";
 
 export interface ProviderUsage {
   provider: string;
   count: number;
+}
+
+/** Per-repo metered usage within the period — which repos drove the volume / token spend. */
+export interface RepoUsage {
+  fullName: string;
+  scans: number;
+  tokens: number; // input + output
 }
 
 /** One day's computed-scan counts, split billable (private) vs free (public). */
@@ -35,6 +43,15 @@ export interface UsageSummary {
   byProvider: ProviderUsage[];
   /** Per-day series across the period (oldest → newest), for the trend chart + export. */
   daily: UsageDay[];
+  /** LLM tokens consumed within the period (sum across scans). */
+  inputTokens: number;
+  outputTokens: number;
+  /** Estimated LLM cost (USD) within the period from the configured per-MTok rates, or null when no
+   *  rate is set (LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK) — so we show "rate not set"
+   *  rather than a fake number. */
+  estimatedCostUsd: number | null;
+  /** Top repos by metered scan volume within the period (with their token spend). */
+  byRepo: RepoUsage[];
   firstScanAt: string | null;
   lastScanAt: string | null;
 }
@@ -56,6 +73,10 @@ export async function getUsageSummary(
     distinctRepos: 0,
     byProvider: [],
     daily: emptyDailySeries(periodDays),
+    inputTokens: 0,
+    outputTokens: 0,
+    estimatedCostUsd: null,
+    byRepo: [],
     firstScanAt: null,
     lastScanAt: null,
   };
@@ -76,18 +97,58 @@ export async function getUsageSummary(
   // for a selected period would actually be the org's all-time private-scan total.
   const periodWhere = { ...where, scannedAt: { gte: since } };
 
-  const [total, period, priv, pub, distinctRepos, providerGroups, agg, daily] = await Promise.all([
-    prisma.scan.count({ where }),
-    prisma.scan.count({ where: periodWhere }),
-    prisma.scan.count({ where: { ...periodWhere, repo: { orgId: org.id, isPrivate: true } } }),
-    prisma.scan.count({ where: { ...periodWhere, repo: { orgId: org.id, isPrivate: false } } }),
-    prisma.repository.count({ where: { orgId: org.id, scans: { some: {} } } }),
-    prisma.scan.groupBy({ by: ["engineProvider"], where: periodWhere, _count: true }),
-    prisma.scan.aggregate({ where, _min: { scannedAt: true }, _max: { scannedAt: true } }),
-    // Per-day series, aggregated in SQL (one row per UTC-day × visibility) instead of streaming
-    // every period scan row back to bucket in JS — see fetchDailySeries.
-    fetchDailySeries(prisma, org.id, since, periodDays, todayUtcMs),
-  ]);
+  const [total, period, priv, pub, distinctRepos, providerGroups, agg, daily, tokenAgg, repoGroups] =
+    await Promise.all([
+      prisma.scan.count({ where }),
+      prisma.scan.count({ where: periodWhere }),
+      prisma.scan.count({ where: { ...periodWhere, repo: { orgId: org.id, isPrivate: true } } }),
+      prisma.scan.count({ where: { ...periodWhere, repo: { orgId: org.id, isPrivate: false } } }),
+      prisma.repository.count({ where: { orgId: org.id, scans: { some: {} } } }),
+      prisma.scan.groupBy({ by: ["engineProvider"], where: periodWhere, _count: true }),
+      prisma.scan.aggregate({ where, _min: { scannedAt: true }, _max: { scannedAt: true } }),
+      // Per-day series, aggregated in SQL (one row per UTC-day × visibility) instead of streaming
+      // every period scan row back to bucket in JS — see fetchDailySeries.
+      fetchDailySeries(prisma, org.id, since, periodDays, todayUtcMs),
+      // Token totals (cost basis) + the top repos by metered volume this period — both one aggregate
+      // each, no row streaming.
+      prisma.scan.aggregate({ where: periodWhere, _sum: { inputTokens: true, outputTokens: true } }),
+      prisma.scan.groupBy({
+        by: ["repoId"],
+        where: periodWhere,
+        _count: true,
+        _sum: { inputTokens: true, outputTokens: true },
+        orderBy: { _count: { repoId: "desc" } },
+        take: 10,
+      }),
+    ]);
+
+  const inputTokens = tokenAgg._sum.inputTokens ?? 0;
+  const outputTokens = tokenAgg._sum.outputTokens ?? 0;
+  // Estimate cost only when a rate is configured — show "rate not set" rather than a fake $0/number.
+  const inRate = envNumber("LLM_INPUT_COST_PER_MTOK", 0);
+  const outRate = envNumber("LLM_OUTPUT_COST_PER_MTOK", 0);
+  const estimatedCostUsd =
+    inRate > 0 || outRate > 0
+      ? (inputTokens / 1_000_000) * inRate + (outputTokens / 1_000_000) * outRate
+      : null;
+
+  // Resolve the top repoIds → fullName (a small IN query, capped at the top 10).
+  const repoIds = repoGroups.map((g) => g.repoId);
+  const nameById = new Map(
+    repoIds.length
+      ? (
+          await prisma.repository.findMany({
+            where: { id: { in: repoIds } },
+            select: { id: true, fullName: true },
+          })
+        ).map((r) => [r.id, r.fullName])
+      : [],
+  );
+  const byRepo: RepoUsage[] = repoGroups.map((g) => ({
+    fullName: nameById.get(g.repoId) ?? g.repoId,
+    scans: g._count,
+    tokens: (g._sum.inputTokens ?? 0) + (g._sum.outputTokens ?? 0),
+  }));
 
   return {
     org: orgSlug,
@@ -101,6 +162,10 @@ export async function getUsageSummary(
       .map((g) => ({ provider: g.engineProvider, count: g._count }))
       .sort((a, b) => b.count - a.count),
     daily,
+    inputTokens,
+    outputTokens,
+    estimatedCostUsd,
+    byRepo,
     firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
   };

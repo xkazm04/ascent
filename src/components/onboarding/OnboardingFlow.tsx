@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LEVEL_CLASSES } from "@/lib/ui";
+import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import { OnboardingChecklist, type ChecklistStep } from "@/components/onboarding/OnboardingChecklist";
 
@@ -338,7 +338,7 @@ export function OnboardingFlow({
           </p>
 
           {/* Sticky action bar: bulk select/clear + a filled progress pill for the cap. */}
-          <div className="sticky top-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 backdrop-blur">
+          <div className="sticky top-16 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 backdrop-blur">
             <CapPill count={selected.size} max={MAX_SELECT} />
             <div className="flex items-center gap-2">
               <button
@@ -427,6 +427,7 @@ export function OnboardingFlow({
 
   // ---- scanning + done phases ---------------------------------------------
   const completed = Object.values(rows).filter((r) => r.level || r.error).length;
+  const errorCount = Object.values(rows).filter((r) => r.error).length;
   const scanTotal = Object.keys(rows).length;
   const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
 
@@ -438,11 +439,27 @@ export function OnboardingFlow({
           {announce}
         </div>
 
-        <h1 className="text-2xl font-bold text-white">
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
+          {phase === "done" && (
+            <span
+              aria-hidden
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-base ${
+                errorCount > 0
+                  ? "border-orange-500/50 bg-orange-500/15 text-orange-300"
+                  : "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
+              }`}
+            >
+              {errorCount > 0 ? "!" : "✓"}
+            </span>
+          )}
           {phase === "done" ? "Scan complete" : "Scanning repositories"}
         </h1>
         <p className="mt-1 text-slate-400">
-          {phase === "done" ? "Here's how your repositories scored." : `Scanning ${scanTotal} repositories…`}
+          {phase === "done"
+            ? errorCount > 0
+              ? `Here's how your repositories scored — ${errorCount} couldn't be scanned.`
+              : "Here's how your repositories scored."
+            : `Scanning ${scanTotal} repositories…`}
         </p>
 
         {/* Progress bar (accessible) — eased width, role=progressbar. */}
@@ -467,7 +484,7 @@ export function OnboardingFlow({
             <button
               type="button"
               onClick={cancelScan}
-              className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-red-500/50 hover:text-red-300"
+              className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-danger/50 hover:text-danger-soft"
             >
               Cancel
             </button>
@@ -475,7 +492,7 @@ export function OnboardingFlow({
         </div>
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-400">
+          <p role="alert" className="mt-3 text-sm text-danger-soft">
             {error}
           </p>
         )}
@@ -576,7 +593,7 @@ function InstallationPicker({
 }) {
   return (
     <div className="rounded-2xl border border-accent/30 bg-accent/5 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-widest text-accent">From your GitHub App</div>
+      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">From your GitHub App</div>
       <h2 className="mt-1 font-semibold text-white">Scan an installed organization</h2>
       <p className="mt-1 text-sm text-slate-400">
         These are connected through the Ascent GitHub App, so{" "}
@@ -607,7 +624,7 @@ function InstallationPicker({
 function SeededOrgBanner({ org }: { org: string }) {
   return (
     <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-widest text-emerald-300">Ready for you</div>
+      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-emerald-300">Ready for you</div>
       <h2 className="mt-1 font-semibold text-white">
         We pre-loaded <span className="font-mono">{org}</span>&apos;s top repositories
       </h2>
@@ -617,7 +634,7 @@ function SeededOrgBanner({ org }: { org: string }) {
       </p>
       <a
         href={`/org/${encodeURIComponent(org)}`}
-        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-[#04070e] transition hover:bg-emerald-400"
+        className="focus-ring mt-4 inline-block rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-emerald-400"
       >
         View {org} dashboard →
       </a>
@@ -641,7 +658,7 @@ function SuggestedOrgs({
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-slate-500">
         Organizations you belong to
       </div>
       <h2 className="mt-1 font-semibold text-white">Scan one of your organizations</h2>
@@ -684,19 +701,28 @@ function PickForm({
   onPick: (name: string) => void;
   dimmed?: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Return focus to the org field when a submit error appears so keyboard/SR users land on the
+  // control that produced it (the error is also wired via aria-invalid + aria-describedby below).
+  useEffect(() => {
+    if (error) inputRef.current?.focus();
+  }, [error]);
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <label className="font-mono text-[11px] uppercase tracking-widest text-slate-500" htmlFor="onboarding-org">
+      <label className="font-mono text-[11px] uppercase tracking-[0.3em] text-slate-500" htmlFor="onboarding-org">
         {dimmed ? "Or scan any public organization or user" : "GitHub organization or user"}
       </label>
       <form onSubmit={onSubmit} className="mt-2">
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             id="onboarding-org"
             value={org}
             onChange={(e) => setOrg(e.target.value)}
             placeholder="e.g. vercel or torvalds"
             autoFocus={!dimmed}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "onboarding-org-error" : undefined}
             className="focus-ring flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white outline-none focus:border-accent"
           />
           <button
@@ -721,7 +747,7 @@ function PickForm({
           ))}
         </div>
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-400">
+          <p id="onboarding-org-error" role="alert" className="mt-3 text-sm text-danger-soft">
             {error}
           </p>
         )}
@@ -737,9 +763,10 @@ function ScanRowView({ row }: { row: ScanRow }) {
     <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2.5">
       <span className="flex-1 truncate font-mono text-sm text-white">{row.repo}</span>
       {row.error ? (
-        <span className="text-xs text-red-400">{row.error}</span>
+        <span className="text-xs text-danger">{row.error}</span>
       ) : done ? (
         <span className={`rounded border px-2 py-0.5 font-mono text-xs ${lc?.border} ${lc?.bg} ${lc?.text}`}>
+          {row.level && <span aria-hidden>{LEVEL_GLYPH[row.level]} </span>}
           {row.level} · {row.overall}
         </span>
       ) : (

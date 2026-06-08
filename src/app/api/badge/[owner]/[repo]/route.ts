@@ -22,7 +22,7 @@ import { scanRepository, GitHubError } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
-import { LEVEL_HEX } from "@/lib/ui";
+import { LEVEL_GLYPH, LEVEL_HEX } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -139,6 +139,9 @@ function badgeSvg(opts: {
   const big = style === "for-the-badge";
   const fontSize = big ? 11 : 12;
   const charW = big ? 7.2 : 6.7;
+  // for-the-badge renders uppercase with letter-spacing="1"; fold that 1px-per-gap into the width
+  // estimate so long values ("L5 Autonomous") aren't clipped against the value fill boundary.
+  const letterSpace = big ? 1 : 0;
   const pad = 10;
   const h = big ? 28 : style === "flat-square" ? 20 : 28;
   const rx = style === "flat-square" || big ? 0 : 4;
@@ -148,8 +151,9 @@ function badgeSvg(opts: {
   const renderValue = big ? value.toUpperCase() : value;
   const ls = big ? `letter-spacing="1"` : "";
 
-  const lw = Math.ceil(renderLabel.length * charW) + pad * 2 + logoW;
-  const vw = Math.ceil(renderValue.length * charW) + pad * 2;
+  const textW = (s: string) => Math.ceil(s.length * charW + Math.max(0, s.length - 1) * letterSpace);
+  const lw = textW(renderLabel) + pad * 2 + logoW;
+  const vw = textW(renderValue) + pad * 2;
   const w = lw + vw;
   // Vertically center the text for ANY height/font — was a +4 constant tuned for the 28px/12px default.
   const ty = Math.round(h / 2 + fontSize / 3);
@@ -169,6 +173,7 @@ function badgeSvg(opts: {
   <rect rx="${rx}" width="${w}" height="${h}" fill="#0f172a"/>
   <rect rx="${rx}" x="${lw}" width="${vw}" height="${h}" fill="${esc(color)}"/>
   ${gradientRect}
+  <rect rx="${rx}" x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" fill="none" stroke="rgba(148,163,184,0.4)" stroke-width="1"/>
   ${logoEl}
   <g font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="${fontSize}" font-weight="600" ${ls}>
     <text x="${labelX}" y="${ty}" fill="#cbd5e1">${esc(renderLabel)}</text>
@@ -271,7 +276,8 @@ export async function GET(
       return respond(
         badgeSvg({
           label,
-          value: gate.pass ? "pass" : "fail",
+          // ✓/✗ so the pass/fail verdict survives without color (red/green collapses for CVD viewers).
+          value: gate.pass ? "✓ pass" : "✗ fail",
           color: resolveColor(customColor, gate.pass ? LEVEL_HEX.L5 : LEVEL_HEX.L1),
           style,
           logo,
@@ -282,7 +288,16 @@ export async function GET(
 
     const color = resolveColor(customColor, LEVEL_HEX[report.level.id as LevelId] ?? neutral);
     return respond(
-      badgeSvg({ label, value: `${report.level.id} ${report.level.name}`, color, style, logo, href }),
+      // Prepend the level glyph (○◔◑◕●) so the red→green level isn't signalled by hue alone — the
+      // same non-color redundancy lib/ui.ts mandates everywhere a level color appears in the app.
+      badgeSvg({
+        label,
+        value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.level.id} ${report.level.name}`,
+        color,
+        style,
+        logo,
+        href,
+      }),
     );
   } catch (err) {
     // Only negative-cache a GENUINE not-found/invalid/empty repo. A transient failure (GitHub rate

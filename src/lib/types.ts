@@ -5,7 +5,12 @@ export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
 export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8" | "D9";
 export type Impact = "high" | "medium" | "low";
 export type Effort = "high" | "medium" | "low";
-export type ProviderName = "gemini" | "bedrock" | "mock" | "claude-cli";
+export type ProviderName = "gemini" | "bedrock" | "openai" | "mock" | "claude-cli";
+/** Token usage reported by an LLM provider for one assess() call — the metered cost basis. */
+export interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+}
 export type Axis = "adoption" | "rigor";
 /** How the repo is run, which selects a weighting lens. */
 export type RepoArchetype = "solo" | "team" | "org";
@@ -323,6 +328,9 @@ export interface ScanReport {
   warnings?: string[];
   scannedAt: string;
   engine: { provider: ProviderName; model: string };
+  /** LLM token usage + wall-clock latency for THIS scan's model call — the cost/usage metering basis.
+   *  Absent on a mock/keyless scan, or when the provider didn't report usage. */
+  usage?: { inputTokens?: number; outputTokens?: number; latencyMs?: number };
 }
 
 // ---------------------------------------------------------------------------

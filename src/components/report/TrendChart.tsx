@@ -4,7 +4,10 @@
 // levels so you can see when a repo crosses a level boundary. A thin hover layer
 // (chartHover) adds a crosshair + tooltip without any charting dependency.
 
+import { useId } from "react";
+import { useRouter } from "next/navigation";
 import { scoreHex } from "@/lib/ui";
+import { levelForScore } from "@/lib/maturity/model";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
 
@@ -12,6 +15,12 @@ export interface TrendPoint {
   score: number;
   at: string; // ISO
   engine?: string; // provider that produced this scan, when known (omitted for org rollups)
+  /** Permalink to this scan's pinned report. When set, the chart navigates here on click of the
+   *  hovered point — so a trend dot is no longer a dead end. Omitted for org rollup points (daily
+   *  averages with no single underlying scan), which therefore stay non-interactive. */
+  href?: string;
+  /** Short commit sha, shown in the hover tooltip as context for the point. */
+  sha?: string;
 }
 
 /** Tiny inline trend line for a single dimension's score history (0..100 scale). */
@@ -98,6 +107,11 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
 
   const hover = useChartHover(points.map((_, i) => xFor(i)), W);
   const a = hover.active;
+  const tableId = useId();
+  const router = useRouter();
+  // The hovered point's report permalink, when it has one — clicking anywhere on the plot opens it
+  // (a far bigger hit target than the small dot). Points without an href (org rollups) do nothing.
+  const activeHref = a !== null ? points[a]?.href : undefined;
 
   // Thin the x-axis date labels so interior dates don't vanish (the old rule showed only first +
   // last past 6 points) and don't collide at 60 scans: aim for ~7 evenly-spaced labels, always
@@ -117,16 +131,26 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         className="w-full"
         role="img"
         aria-label="Overall score over time"
-        style={{ touchAction: "none" }}
+        aria-describedby={tableId}
+        style={{ touchAction: "none", cursor: activeHref ? "pointer" : undefined }}
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
+        onClick={() => {
+          if (activeHref) router.push(activeHref);
+        }}
       >
-        {/* level bands */}
+        {/* level bands + their L-id labels — a non-color cue so each shaded range is identifiable
+            (the bands previously carried meaning in near-invisible fill opacity alone) */}
         {LEVEL_BANDS.map((b, i) => {
           const top = yFor(i === 0 ? 100 : LEVEL_BANDS[i - 1].min);
           const bottom = yFor(b.min);
           return (
-            <rect key={b.min} x={m.left} y={top} width={innerW} height={Math.max(0, bottom - top)} fill={b.color} />
+            <g key={b.min}>
+              <rect x={m.left} y={top} width={innerW} height={Math.max(0, bottom - top)} fill={b.color} />
+              <text x={m.left + innerW + 5} y={(top + bottom) / 2 + 3} fontSize={8} className="fill-slate-600">
+                {`L${LEVEL_BANDS.length - i}`}
+              </text>
+            </g>
           );
         })}
         {/* y gridlines / labels at band edges */}
@@ -190,9 +214,37 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             at={points[a].at}
             engine={points[a].engine}
             delta={a > 0 ? points[a].score - points[a - 1].score : null}
+            sha={points[a].sha}
+            linked={Boolean(points[a].href)}
           />
         </ChartTooltip>
       )}
+      {/* Screen-reader equivalent of the chart — the bands/points convey meaning visually, so mirror
+          the series as a table referenced by the svg's aria-describedby (matches the radar chart). */}
+      <table id={tableId} className="sr-only">
+        <caption>Overall maturity score over time</caption>
+        <thead>
+          <tr>
+            <th>Scan date</th>
+            <th>Score</th>
+            <th>Level</th>
+          </tr>
+        </thead>
+        <tbody>
+          {points.map((p, i) => {
+            const lvl = levelForScore(p.score);
+            return (
+              <tr key={i}>
+                <td>{shortDate(p.at)}</td>
+                <td>{p.score}</td>
+                <td>
+                  {lvl.id} {lvl.name}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

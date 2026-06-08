@@ -1,13 +1,41 @@
-// GET /api/history?repo=owner/repo  ->  prior scans + per-dimension scores (trends).
+// GET /api/history?repo=owner/repo[&format=csv]  ->  prior scans + per-dimension scores (trends).
+//   - default: the RepositoryHistory as JSON (ETag'd; powers the /trends charts)
+//   - format=csv: the per-scan history as a CSV file download — the portable "show my boss progress"
+//     artifact for a QBR deck / spreadsheet / CI pull.
 // Requires DATABASE_URL (Phase 2). Returns 503 when persistence is disabled.
 
 import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
-import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
+import { getRepositoryHistory, isDbConfigured, type RepositoryHistory } from "@/lib/db";
 import { getSession, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { DIMENSIONS } from "@/lib/maturity/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180). */
+function csvField(v: string | number): string {
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** Per-scan history as CSV (oldest → newest), one column per dimension. */
+function historyToCsv(history: RepositoryHistory): string {
+  const dimIds = DIMENSIONS.map((d) => d.id);
+  const header = ["scannedAt", "overall", "level", "levelName", "engine", ...dimIds].join(",");
+  const rows = [...history.scans].reverse().map((s) => {
+    const byDim = new Map(s.dimensions.map((d) => [d.dimId, d.score]));
+    const dims = dimIds.map((id) => byDim.get(id) ?? "");
+    return [s.scannedAt, s.overallScore, csvField(s.level), csvField(s.levelName), csvField(s.engineProvider), ...dims].join(",");
+  });
+  return [header, ...rows].join("\n") + "\n";
+}
+
+/** Reduce a repo full-name to a safe ASCII token for a Content-Disposition filename (no CRLF / quote
+ *  injection from a slug). The real identity lives in the payload. */
+function safeFilenameSlug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "repo";
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -39,13 +67,25 @@ export async function GET(request: Request) {
     // Scope to the org the caller may read (own org via session, else public) so a
     // name collision can't leak another tenant's history.
     const orgSlug = await readableOrgForOwner(parsed.owner);
+    const wantCsv = searchParams.get("format") === "csv";
     // `?dims=0` requests the lightweight overall-only series (skips the per-dimension fan-out) for
-    // callers that chart only the overall line; the default still returns per-dimension scores.
-    const includeDimensions = searchParams.get("dims") !== "0";
+    // callers that chart only the overall line; the default (and any CSV export) returns dimensions.
+    const includeDimensions = wantCsv || searchParams.get("dims") !== "0";
     const history = await getRepositoryHistory(parsed.owner, parsed.repo, { orgSlug, includeDimensions });
     const payload =
       history ??
       { repo: { owner: parsed.owner, name: parsed.repo, fullName: `${parsed.owner}/${parsed.repo}` }, scans: [] };
+
+    if (wantCsv) {
+      const file = `ascent-trends-${safeFilenameSlug(payload.repo.fullName)}-${payload.scans[0]?.scannedAt?.slice(0, 10) ?? "history"}.csv`;
+      return new NextResponse(historyToCsv(payload), {
+        headers: {
+          "content-type": "text/csv; charset=utf-8",
+          "content-disposition": `attachment; filename="${file}"`,
+          "cache-control": "private, no-store",
+        },
+      });
+    }
 
     // A repo's history is append-only: existing scan points are immutable snapshots; only new
     // points append. So a weak validator over (mode, count, newest-scan-id) changes iff a new scan

@@ -1,24 +1,20 @@
 import Link from "next/link";
-import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { ReportShell } from "@/components/report/ReportShell";
 import { EmptyState } from "@/components/EmptyState";
 import { DimensionTrends } from "@/components/report/DimensionTrends";
+import { Trajectory } from "@/components/org/Trajectory";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
 import { getSessionState, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { forecastTrajectory } from "@/lib/maturity/forecast";
 import { SignInNotice } from "@/components/SignInNotice";
-import { LEVEL_CLASSES } from "@/lib/ui";
+import { LevelBadge } from "@/components/LevelBadge";
 import type { LevelId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl px-5 py-10">{children}</main>
-      <SiteFooter />
-    </>
-  );
+  return <ReportShell>{children}</ReportShell>;
 }
 
 function Notice({ title, body, repo }: { title: string; body: string; repo?: string }) {
@@ -105,7 +101,14 @@ export default async function TrendsPage({
   }
 
   const latest = history.scans[0];
-  const lc = LEVEL_CLASSES[latest.level as LevelId] ?? LEVEL_CLASSES.L1;
+
+  // Forward-looking GPS for THIS repo — the same trajectory fit the org rollup already renders,
+  // but the per-repo trends page only ever drew rear-view lines. Fit over the (overall-only)
+  // history we already fetched; null until there are two distinct scan days to fit a line through,
+  // which lines up with the single-scan "baseline only" note below.
+  const forecast = forecastTrajectory(
+    history.scans.map((s) => ({ date: s.scannedAt, value: s.overallScore })),
+  );
 
   return (
     <Shell>
@@ -118,23 +121,28 @@ export default async function TrendsPage({
             <h1 className="mt-1 text-2xl font-bold text-white">{history.repo.fullName}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full border ${lc.border} ${lc.bg} px-3 py-1 text-sm font-semibold ${lc.text}`}>
-              {latest.level} · {latest.levelName}
-            </span>
+            <LevelBadge id={latest.level as LevelId} name={latest.levelName} />
             {history.scans.length >= 2 && (
               <Link
                 href={`/report/compare?repo=${encodeURIComponent(history.repo.fullName)}`}
-                className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+                className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
               >
                 Compare →
               </Link>
             )}
             <Link
               href={`/report?repo=${encodeURIComponent(history.repo.fullName)}`}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
             >
               Full report →
             </Link>
+            <a
+              href={`/api/history?repo=${encodeURIComponent(history.repo.fullName)}&format=csv`}
+              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+              title="Download this repo's scan history as CSV"
+            >
+              Export CSV ↓
+            </a>
           </div>
         </div>
 
@@ -142,6 +150,12 @@ export default async function TrendsPage({
           <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 text-sm text-slate-400">
             Only a baseline scan so far — the trend lines fill in after the next scan.
           </p>
+        )}
+
+        {forecast && (
+          <div className="mt-8">
+            <Trajectory forecast={forecast} />
+          </div>
         )}
 
         <div className="mt-8">

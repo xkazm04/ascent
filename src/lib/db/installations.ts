@@ -79,6 +79,30 @@ export async function removeInstallation(installationId: number | string): Promi
   }
 }
 
+/**
+ * Quiesce specific repos that an installation lost access to (a GitHub `installation_repositories`
+ * "removed" event, i.e. the user de-selected them on the App's Configure page). Clears watch + pauses
+ * the schedule so listDueRescans stops returning them — otherwise the row lingers watched, and its
+ * scheduled rescan mints a token that no longer covers the repo and 401s forever. Scoped to the
+ * org(s) this installation backs. No-op without a DB or with no names.
+ */
+export async function unwatchReposForInstallation(
+  installationId: number | string,
+  fullNames: string[],
+): Promise<void> {
+  if (!isDbConfigured() || fullNames.length === 0) return;
+  const prisma = getPrisma();
+  const orgs = await prisma.organization.findMany({
+    where: { githubInstallId: String(installationId) },
+    select: { id: true },
+  });
+  if (!orgs.length) return;
+  await prisma.repository.updateMany({
+    where: { orgId: { in: orgs.map((o) => o.id) }, fullName: { in: fullNames } },
+    data: { watched: false, scanSchedule: "off", nextScanAt: null },
+  });
+}
+
 /** Resolve a repo owner (login) to its stored installation id, if any. */
 export async function getInstallationIdForOwner(owner: string): Promise<string | null> {
   if (!isDbConfigured()) return null;

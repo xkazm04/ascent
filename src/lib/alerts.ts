@@ -136,6 +136,58 @@ export function buildRegressionMessage(repo: RepoAlertRef, diff: ScanDiff, verdi
   return { text, blocks };
 }
 
+/** Inputs for a weekly fleet digest — the periodic positive push, not just per-repo regressions. */
+export interface FleetDigestInput {
+  org: string;
+  url?: string;
+  repoCount: number;
+  scannedCount: number;
+  avgOverall: number;
+  level: string; // e.g. "L3 · Defined"
+  overallDelta: number | null; // vs the week's start (null = no baseline)
+  gainers: { name: string; delta: number }[];
+  regressers: { name: string; delta: number }[];
+  topRecommendation: { title: string; repoCount: number } | null;
+}
+
+/**
+ * Build a Slack-compatible weekly fleet digest. Pure (no env, no Date). Turns the dashboard's
+ * pull-only aggregates into a push channel: where regressions alert per-repo on a slide, this is the
+ * positive periodic rollup (maturity, top movers, the highest-leverage gap) a leader gets without
+ * opening the app — the habit loop org-analytics products live on.
+ */
+export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
+  const delta =
+    d.overallDelta == null
+      ? ""
+      : d.overallDelta === 0
+        ? " (no change this week)"
+        : ` (${d.overallDelta > 0 ? "+" : ""}${d.overallDelta} this week)`;
+  const headline = `📊 Ascent weekly digest: ${d.org}`;
+  const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} — ${d.scannedCount}/${d.repoCount} repos scanned`;
+  const gain = (m: { name: string; delta: number }) => `• ${m.name} ${m.delta >= 0 ? "+" : ""}${m.delta}`;
+
+  const lines: string[] = [headline, summary.replace(/\*/g, "")];
+  if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
+  if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
+  if (d.topRecommendation)
+    lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
+  if (d.url) lines.push("", d.url);
+
+  const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${summary}` } }];
+  const mv: string[] = [];
+  if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
+  if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
+  if (mv.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: mv.join("\n\n") } });
+  if (d.topRecommendation)
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Highest-leverage gap:* ${d.topRecommendation.title} _(affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})_` },
+    });
+  if (d.url) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${d.url}|Open the dashboard>` }] });
+  return { text: lines.join("\n"), blocks };
+}
+
 /** Whether an alert sink is configured (so callers can skip the work entirely when it isn't). */
 export function isAlertConfigured(): boolean {
   return Boolean(process.env.ALERT_WEBHOOK_URL);

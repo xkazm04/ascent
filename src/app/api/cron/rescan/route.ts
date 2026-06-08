@@ -9,15 +9,18 @@ import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import {
   advanceSchedule,
+  advanceScheduleAfterFailure,
   getInstallationIdForOwner,
   getOrgId,
   getScanReportByCommit,
   isDbConfigured,
   listDueRescans,
   persistScanReport,
+  recordScanOutcome,
 } from "@/lib/db";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
+import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,17 +40,26 @@ export async function GET(request: Request) {
   }
 
   const due = await listDueRescans();
-  const tokenCache = new Map<string, string | undefined>();
+
+  // Pre-resolve one installation token per distinct org up front: concurrent lanes would otherwise
+  // race to mint the same org's token. One mint per org, reused by every lane scanning it.
+  const orgSlugs = [...new Set(due.map((r) => r.orgSlug))];
+  const tokenByOrg = new Map<string, string | undefined>();
+  await Promise.all(
+    orgSlugs.map(async (slug) => {
+      const id = await getInstallationIdForOwner(slug).catch(() => null);
+      tokenByOrg.set(slug, id ? await getInstallationToken(id).catch(() => undefined) : undefined);
+    }),
+  );
+
   let scanned = 0;
   const errors: string[] = [];
 
-  for (const r of due) {
+  // Scan with bounded concurrency so a real fleet drains within the 300s budget (counters mutate in
+  // single-threaded lanes — race-free).
+  await mapPool(due, SCAN_CONCURRENCY, async (r) => {
     try {
-      if (!tokenCache.has(r.orgSlug)) {
-        const id = await getInstallationIdForOwner(r.orgSlug);
-        tokenCache.set(r.orgSlug, id ? await getInstallationToken(id).catch(() => undefined) : undefined);
-      }
-      const token = tokenCache.get(r.orgSlug);
+      const token = tokenByOrg.get(r.orgSlug);
       // Capture the prior persisted report BEFORE the new scan lands, so we can diff for a
       // regression alert once the fresh scan is stored.
       const [owner, name] = r.fullName.split("/");
@@ -68,11 +80,21 @@ export async function GET(request: Request) {
         await checkAndAlertRegression(prev, report, { orgId });
       }
       await advanceSchedule(r.repoId, r.scanSchedule);
+      await recordScanOutcome(r.orgSlug, r.fullName, { ok: true }).catch(() => {});
       scanned += 1;
     } catch (err) {
+      // ALWAYS advance, even on failure (with a backoff). The schedule used to advance only on
+      // success, so a persistently-broken repo stayed permanently due at the front of the queue and
+      // re-failed every run, starving the rest of the fleet. Back it off so it leaves the front.
+      await advanceScheduleAfterFailure(r.repoId).catch(() => {});
+      // Persist the failure so the dashboard can flag this repo as broken (not "never scanned").
+      await recordScanOutcome(r.orgSlug, r.fullName, {
+        ok: false,
+        error: err instanceof Error ? err.message : "scan failed",
+      }).catch(() => {});
       errors.push(`${r.fullName}: ${err instanceof Error ? err.message : "failed"}`);
     }
-  }
+  });
 
   return NextResponse.json({ due: due.length, scanned, errors });
 }

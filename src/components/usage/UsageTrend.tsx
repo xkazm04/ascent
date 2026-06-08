@@ -70,13 +70,13 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
               return (
                 <div
                   key={d.date}
-                  className="group relative flex flex-1 flex-col justify-end"
+                  className="group relative flex flex-1 cursor-help flex-col justify-end"
                   title={`${d.date}: ${d.billable} billable, ${d.free} free`}
                 >
                   {d.billable > 0 && (
-                    <div style={{ height: `${billH}%`, backgroundColor: BILLABLE }} className="rounded-t-sm" />
+                    <div style={{ height: `${billH}%`, backgroundColor: BILLABLE }} className="rounded-t-sm transition group-hover:brightness-125" />
                   )}
-                  {d.free > 0 && <div style={{ height: `${freeH}%`, backgroundColor: FREE }} />}
+                  {d.free > 0 && <div style={{ height: `${freeH}%`, backgroundColor: FREE }} className="transition group-hover:brightness-125" />}
                   {total === 0 && <div className="h-px bg-slate-800" />}
                 </div>
               );

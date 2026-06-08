@@ -21,6 +21,7 @@ import {
   ASSESSMENT_TOOL_DESCRIPTION,
   ASSESSMENT_TOOL_NAME,
 } from "@/lib/llm/schema";
+import { envNumber } from "@/lib/llm/config";
 
 export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
 export const DEFAULT_BEDROCK_REGION = "us-east-1";
@@ -51,7 +52,10 @@ export class BedrockProvider implements LLMProvider {
         modelId: this.model,
         system: [{ text: system }],
         messages: [{ role: "user", content: [{ text: user }] }],
-        inferenceConfig: { temperature: 0.2, maxTokens: 4096 },
+        inferenceConfig: {
+          temperature: envNumber("LLM_TEMPERATURE", 0.2),
+          maxTokens: Math.round(envNumber("BEDROCK_MAX_TOKENS", 4096)),
+        },
         // Force schema-constrained JSON via a single required tool (Converse
         // function-calling). The model must answer by calling this tool, whose
         // input schema is the same source of truth Gemini uses.
@@ -72,6 +76,7 @@ export class BedrockProvider implements LLMProvider {
       { abortSignal: opts.signal },
     );
 
+    opts.onUsage?.({ inputTokens: res.usage?.inputTokens, outputTokens: res.usage?.outputTokens });
     const blocks = res.output?.message?.content ?? [];
 
     // Happy path: the assessment comes back as a structured toolUse.input object

@@ -8,6 +8,7 @@ import { ARCHETYPE_LABEL, DIMENSION_BY_ID, LEVELS, LLM_GUARDBAND, axisScore } fr
 import { cheapestPathToNextLevel, contributions, projectDimensionClose } from "@/lib/scoring/engine";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS, LEVEL_CLASSES, LEVEL_GLYPH, LEVEL_HEX, freshness, scoreGlyph, scoreHex, timeAgo } from "@/lib/ui";
+import { LevelBadge } from "@/components/LevelBadge";
 import { PostureQuadrant, RadarChart, ScoreRing, useMounted, usePrefersReducedMotion } from "@/components/report/Charts";
 import { Sparkline, TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { DeltaPill } from "@/components/report/deltas";
@@ -18,12 +19,14 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
   // Keyless deterministic demo (no LLM). Drive every engine-related treatment off this single
   // flag so the demo signal stays consistent everywhere the engine is shown.
   const isMock = report.engine.provider === "mock";
-  const lc = LEVEL_CLASSES[level.id];
   const curIdx = LEVELS.findIndex((l) => l.id === level.id);
   const nextLevel = curIdx >= 0 && curIdx < LEVELS.length - 1 ? LEVELS[curIdx + 1] : null;
 
   const [history, setHistory] = useState<RepositoryHistory | null>(null);
   const [recs, setRecs] = useState<PersistedRecommendation[] | null>(null);
+  // Distinguishes a genuine history-fetch failure (offline / transient) from the legitimate
+  // "no history yet" baseline — otherwise both render an identical "Baseline established" panel.
+  const [histError, setHistError] = useState(false);
 
   useEffect(() => {
     const repoRef = `${repo.owner}/${repo.name}`;
@@ -37,7 +40,9 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
         if (active && h.ok) setHistory((await h.json()) as RepositoryHistory);
         if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
       } catch {
-        /* DB not configured / offline — trend & tracking degrade silently */
+        // Couldn't reach the history endpoint (offline / transient). Surface it in the trend panel
+        // instead of silently degrading to a misleading "Baseline established".
+        if (active) setHistError(true);
       }
     })();
     return () => {
@@ -185,10 +190,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
           {overallDelta !== null && <DeltaPill delta={overallDelta} suffix="since last scan" className="mt-3" />}
         </div>
         <div className="relative flex flex-col justify-center">
-          <div className={`inline-flex w-fit items-center gap-2 rounded-full border ${lc.border} ${lc.bg} px-3 py-1 text-sm font-semibold ${lc.text}`}>
-            <span aria-hidden>{LEVEL_GLYPH[level.id]}</span>
-            {level.id} — {level.name}
-          </div>
+          <LevelBadge id={level.id} name={level.name} />
           <p className="mt-3 text-lg font-medium text-white">{report.headline}</p>
           {isMock && (
             <p className="mt-1 text-sm text-sky-300/80">
@@ -213,9 +215,11 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
             <div>
               <h2 className="text-lg font-semibold text-white">Maturity over time</h2>
               <p className="text-sm text-slate-400">
-                {trendPoints.length === 1
-                  ? "Baseline established — re-scan later to track progress."
-                  : `${trendPoints.length} scans tracked.`}
+                {histError
+                  ? "Couldn't load history — showing this scan only."
+                  : trendPoints.length === 1
+                    ? "Baseline established — re-scan later to track progress."
+                    : `${trendPoints.length} scans tracked.`}
               </p>
             </div>
             {overallDelta !== null && <DeltaPill delta={overallDelta} className="mt-3" />}
@@ -281,7 +285,14 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
                 return (
                   <div key={c.login} className="flex items-center gap-3 text-sm">
                     <span className="w-40 shrink-0 truncate text-slate-200">{c.login}</span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                    <div
+                      className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800"
+                      role="progressbar"
+                      aria-valuenow={pctAI}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${c.login}: ${pctAI}% AI-attributed commits`}
+                    >
                       <div className="h-full rounded-full bg-accent" style={{ width: `${pctAI}%` }} />
                     </div>
                     <span className="w-32 shrink-0 text-right font-mono text-xs text-slate-500">
@@ -734,13 +745,9 @@ function ProvenanceTrack({ signal, llm, blended }: { signal: number; llm: number
         <circle cx={x(blended)} cy={trackY} r={3.5} fill={color} stroke="#020617" strokeWidth={1} />
         <title>Blended result: {blended}</title>
       </g>
-      {/* compact text legend (kept for non-hover/screen contexts) */}
-      <text x={padX} y={7} fontSize={7} fontFamily="monospace" className="fill-slate-500">
-        signal {signal}
-      </text>
-      <text x={W - padX} y={7} fontSize={7} fontFamily="monospace" textAnchor="end" className="fill-slate-500">
-        llm {llm} · blended {blended}
-      </text>
+      {/* The numeric values are intentionally not drawn into this 22px-tall track — a 7px legend
+          failed both legibility and contrast. They're conveyed by the svg aria-label
+          (signal/llm/blended), the per-element <title> tooltips, and the tick/marker positions. */}
     </svg>
   );
 }

@@ -186,3 +186,211 @@
 - **Section-stagger scroll-reveal** (SP#8 partial): the landing's below-fold section headings still lack the
   staggered `reveal-pre` entrance — it needs an IntersectionObserver client wrapper (only the hero got
   `animate-fade-up`, which is mount-safe).
+
+## Feature Scout Pipeline B — "Expose the dormant backend" wave (2026-06-08)
+
+### Structural facts
+- **2026-06-08** — `reportPermalink(fullName, headSha?)` now lives in `@/lib/ui` (a client-safe module) and is
+  re-exported from `@/lib/db/scans`. Client charts (TrendChart/DimensionTrends) build the same `/report/{owner}/
+  {repo}@{sha}` link as the server callers; don't re-inline the template.
+- **2026-06-08** — The trajectory GPS (`forecastTrajectory` in `maturity/forecast.ts` + the `<Trajectory>` card in
+  `components/org/Trajectory.tsx`) is **server-safe** and now rendered by BOTH the org rollup AND `/trends`. Feed it
+  `SeriesPoint[] {date,value}` (value = overall score); returns null with <2 distinct scan days.
+- **2026-06-08** — Session revocation is single-sourced on `bumpSessionVersion(login)` (sessions.ts) — called by
+  logout (one browser), uninstall, and now `POST /api/auth/revoke-sessions` ("sign out everywhere else", which
+  re-mints THIS cookie at the bumped version). The same-origin CSRF guard for POST handlers is `auth.isSameOrigin`.
+- **2026-06-08** — `/api/cron/purge` (retention) is now registered in `vercel.json` (daily 04:00 UTC). It self-no-ops
+  with no retention window configured, so it's inert until a policy is set. `vercel.json` is the ONLY place crons
+  are wired — a built cron route does nothing until it's listed there.
+- **2026-06-08** — `HistoryPoint` now carries `headSha` (added to the selects in BOTH `getRepositoryHistory` and
+  `getScanComparison` — they build HistoryPoint independently, so a new field must be added in both places + their
+  mappers, or tsc flags only the second one).
+
+### Conventions enforced
+- **2026-06-08** — A pure helper needed by both server and a client component goes in a client-safe module
+  (`@/lib/ui`) and is re-exported from the server module — never duplicated (see `reportPermalink`).
+- **2026-06-08** — Org-view mutation controls follow the optimistic-with-rollback pattern: POST, optimistic set,
+  roll back + surface error on non-2xx, `router.refresh()` on success (ScheduleSelect mirrors connect's toggleWatch).
+
+### Anti-patterns to avoid
+- **2026-06-08** — **Two Vibeman/agent runs sharing one working tree interleave commits on the same branch.** This
+  run (Feature Scout wave 2) ran concurrently with a UI-Perfectionist Pipeline-B run; both committed to
+  `vibeman/feature-scout-wave2`, and `TrendChart.tsx` was edited by both (the other's `6b675df` landed mid-flight).
+  It worked out (tsc + next build green) because edits hit different regions and were rebuilt on the latest version,
+  but it's fragile. Future: give each concurrent run its own branch/worktree, or serialize runs on a repo.
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 2 of the 60-finding scan)
+- **Trend point external links**: RPT-2 wired the in-app report permalink (click a dot → its pinned report) but
+  deferred the external GitHub-commit link and per-dimension `DimLine` deep-links. `headSha` is now on `HistoryPoint`,
+  so the commit URL is `https://github.com/{fullName}/commit/{headSha}` when wanted.
+- **Remaining Feature Scout waves**: only wave 2 (expose-backend, 6 findings) shipped. The INDEX
+  (`docs/harness/feature-scout-2026-06-08/INDEX.md`) lays out waves 1 (usage→billing), 3 (fleet reliability incl. the
+  one Critical **ORGS-1** cron starvation), 4 (GitHub App sync), 5 (scoring depth), 6 (scan reach), 7 (export/alerts/
+  compliance), plus the mediums/lows.
+
+## Feature Scout Pipeline B — "Fleet reliability" wave (2026-06-08, wave 3)
+
+### Structural facts
+- **2026-06-08** — `src/lib/pool.ts` `mapPool(items, concurrency, fn)` is the shared bounded-concurrency
+  fan-out for the fleet scan paths (`org/scan`, `org/import`, `cron/rescan`), default `SCAN_CONCURRENCY=4`.
+  `fn` owns its errors (callers try/catch + emit per repo); counters mutate race-free in single-threaded lanes.
+- **2026-06-08** — The cron rescan (`cron/rescan/route.ts`) now: pre-resolves ONE installation token per
+  distinct org (concurrent lanes would otherwise race to mint the same), scans with `mapPool`, and ALWAYS
+  advances `nextScanAt` — `advanceSchedule` (cadence) on success, `advanceScheduleAfterFailure` (6h backoff)
+  on failure. `listDueRescans` round-robins across orgs over a `limit*4` candidate set for fairness.
+- **2026-06-08** — The LLM call in `scan.ts` is resilient: an ordered plan (primary → 1 retry@500ms →
+  `LLM_FALLBACK_PROVIDER` via `providerByName()` → mock). The provider that actually scored becomes
+  `report.engine`; `llmFailed` is only set when EVERY real attempt failed. `getProvider({forceMock})` only
+  takes forceMock — use `providerByName(name)` to build a specific provider.
+- **2026-06-08** — `Repository` gained `lastScanStatus`/`lastScanError`/`lastScanAttemptAt` (additive nullable;
+  schema.prisma + init.sql). `recordScanOutcome(orgSlug, fullName, {ok,error})` writes them from the 3 scan
+  paths; surfaced on `OrgRepoRow`/`getOrgRollup` and as a "⚠ scan failed" chip on the repositories leaderboard.
+- **2026-06-08** — `POST /api/org/scan` accepts optional `repos:[]` (explicit set) and `staleOnlyDays:N`
+  (skip repos scanned within N days); `listWatchedRepos` now selects `lastScanAt` to support the stale filter.
+
+### Conventions enforced
+- **2026-06-08** — Fleet loops use `mapPool`, never bare `for ... await` over network/LLM-bound work.
+- **2026-06-08** — A scheduled-queue cursor (`nextScanAt`) must advance on FAILURE too (with backoff), or one
+  broken item blocks the whole oldest-first queue.
+
+### Notes / caveats
+- **2026-06-08** — ORGS-3's schema columns were verified by `prisma generate` + `tsc` + `next build` only — NO
+  live DB migration was run (DB-less here). Deploy must `prisma migrate deploy` / `db push`. Columns are
+  additive + nullable so this is safe; `recordScanOutcome` no-ops without a DB.
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 3)
+- **Per-row "Rescan" on the leaderboard**: ORGD-3 shipped the `repos:[fullName]` API path but not a per-row UI
+  trigger — wiring a small client control into the repositories table is a clean follow-up.
+- **Outcome on the public-funnel import**: `recordScanOutcome` is wired into `org/import` only when `watch=true`
+  (the row exists); the anonymous public funnel (watch=false) is skipped.
+- **Waves 1, 4–7 of the scan remain** (see INDEX): usage→billing, GitHub App sync, scoring depth, scan reach,
+  export/alerts/compliance.
+
+## Feature Scout Pipeline B — "GitHub App sync" wave (2026-06-08, wave 4 — 3 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — The App webhook (`app/webhook/route.ts`) now handles `installation_repositories`
+  (added/removed selected-access repos). On "removed" it calls `unwatchReposForInstallation(installId,
+  fullNames)` (installations.ts) to clear watch + pause schedule for those repos under the orgs the
+  install backs — else a de-selected repo's rescan 401s forever. **Requires the App to subscribe to the
+  "Repository" event** in its GitHub config; the handler is inert otherwise.
+- **2026-06-08** — `listInstallationRepos` (github/app.ts) now drops `fork`+`archived` repos, matching
+  `listOrgRepos` + `fetchUserRepos`. When adding repo fields to filter on, add them to the `GhRepo`
+  interface so the REST response is typed (the API already returns them).
+- **2026-06-08** — `POST /api/org/schedule` is now dual-shape: `{org,fullName,schedule}` = one repo;
+  `{org,schedule,segmentId?}` (no fullName) = the whole watched set via `setWatchedSchedule` (db/org.ts),
+  reusing `segmentScope`. Returns `{updated}` count for the bulk path.
+
+### Anti-patterns to avoid
+- **2026-06-08** — A barrel re-export (`db/index.ts`) whose two new lines belong to two different
+  definition modules can't be split across two commits with a plain `git add <file>` and stay buildable
+  (`git add -p` is unavailable here). Either bundle the findings, or temporarily delete one export line,
+  commit, then re-add it for the second commit (what this run did for APP-1 vs ORGS-6).
+
+### Notes — deferred (NOT done) this wave, with cause
+- **AUTH-2 (org member session revocation)** needs NEW infra, not a wire-up: `removeInstallation` bumps
+  only the owner-login session version, a documented no-op for ORG accounts (members are keyed by their
+  own login + carry a baked-in `installations` array). A real fix = persist member logins per install and
+  bump each, OR an org-access epoch that `verifySessionVersion` checks per embedded installation. Security-
+  sensitive cross-tenant change; left for a focused session.
+- **APP-2 (bulk watch) + APP-3 (suspension state)** live in `InstallationRepos.tsx`/`connect` — the files
+  the concurrent UI run was editing all session. Deferred to avoid an edit war; the backends are clean to
+  add later (`POST /api/org/watch/bulk`; `fetchUserInstallations` keeping `suspended_at`/`repository_selection`).
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 4)
+- **AUTH-2 / APP-2 / APP-3** deferred (see causes above) — a good focused "GitHub App UX + session
+  completeness" session once the connect UI isn't being concurrently churned.
+
+## Feature Scout Pipeline B — "Scoring depth" wave (2026-06-08, wave 5 — 2 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — `LlmScoreInput` (llm/provider.ts) now carries optional `prStats`/`governance`; the LLM
+  prompt (scoring/prompt.ts `processBlock`) renders a "PROCESS SIGNALS" section from them. The data is
+  ALREADY fetched in scan.ts (`const [prStats, governance] = await Promise.all(...)`) and folded into the
+  deterministic D3/D6/D7/D8 scores — threading it to the prompt is free (no new GitHub calls).
+- **2026-06-08** — The dimension blend in `assembleReport` (scoring/engine.ts) is now coverage-weighted:
+  `effectiveBlend = SCORE_BLEND * clamp(snap.coverage,0,1)`. At coverage=1 it equals SCORE_BLEND (full-scan
+  path unchanged — no calibration-bench regression); below 1 the LLM's pull shrinks toward the
+  coverage-robust deterministic signal. `clamp(v,min,max)` in maturity/model.ts defaults to 0..100.
+
+### Conventions enforced
+- **2026-06-08** — A derived confidence value (e.g. `coverage`) should modulate the math it describes,
+  not merely be displayed next to it. When one stage fetches rich data for ONE consumer (the scorer),
+  check the OTHER consumer (the LLM prompt) isn't being starved of the same evidence.
+
+### Notes — deferred this wave, with cause
+- **MAT-3** (discrepancies aggregator): a `GET /api/discrepancies` with no consumer view yet — defer with
+  the view. **SCAN-2** (files-inspected) + **LLM-6** (per-dim confidence): touch `ReportView` (concurrent
+  UI churn). **SCAN-4** (lockfile ingestion): the valuable half is new D9/D6 detector logic whose effect
+  needs a real scan to verify (none runnable here).
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 5)
+- **MAT-3 / SCAN-2 / SCAN-4 / LLM-6** deferred (causes above). SCAN-4 especially wants a session that can
+  run a live scan against a lockfile-bearing repo to confirm the D9/D6 signal moves.
+
+## Feature Scout Pipeline B — "Scan reach" wave (2026-06-08, wave 6 — 2 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — LLM provider tuning is env-driven via `llm/config.ts` `envNumber(name, fallback)`:
+  `LLM_TEMPERATURE` (gemini + bedrock), `BEDROCK_MAX_TOKENS` (bedrock). Defaults = the prior literals.
+- **2026-06-08** — `ProviderName` now includes `"openai"`. The fetch-based `OpenAiProvider`
+  (llm/openai.ts) uses JSON mode (`response_format: json_object`) + `buildAssessmentPrompt` +
+  `validateAssessment` — NO SDK dep. Config: `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_BASE_URL`
+  (Azure/self-hosted). A new provider must be wired in 4 seams: `ProviderName` (types.ts),
+  `resolveProviderChoice` allow-list, `getProvider` switch, AND `providerByName` (for LLM-2 failover).
+
+### Conventions enforced
+- **2026-06-08** — Add a new LLM provider as a fetch-based `LLMProvider` over the existing contract
+  (prompt + validateAssessment), not a new SDK dependency, so it inherits the abort/timeout/resilience
+  contract for free and stays portable across OpenAI-compatible endpoints.
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 6)
+- **SCAN-1 / SCAN-3** (branch selector + token field): clean backends, but the UI half is on `ScanForm`
+  (concurrent UI churn). **SCAN-6** (ingestion budget/subpath): larger, threads options through
+  FetchOptions→ScanOptions→cache key. **LLM-4** (health check): needs per-provider network calls + has no
+  admin UI consumer yet.
+
+## Feature Scout Pipeline B — "Usage → billing" wave (2026-06-08, wave 1 — 4 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — LLM token usage flows: providers call `opts.onUsage?(TokenUsage)` (an optional hook on
+  `AssessOptions`) when their response carries usage (Gemini `usageMetadata.{promptTokenCount,
+  candidatesTokenCount}`, Bedrock `res.usage.{inputTokens,outputTokens}`, OpenAI
+  `data.usage.{prompt_tokens,completion_tokens}`). `scan.ts` captures the winning provider's usage + the
+  LLM-stage latency onto `report.usage` (`{inputTokens,outputTokens,latencyMs}`); mock reports nothing.
+- **2026-06-08** — `Scan` gained `inputTokens`/`outputTokens`/`llmLatencyMs` (additive nullable;
+  schema.prisma + init.sql). `persistScanReport` writes `report.usage`. `getUsageSummary` exposes period
+  token sums, `estimatedCostUsd` (from `LLM_INPUT_COST_PER_MTOK`/`LLM_OUTPUT_COST_PER_MTOK`; null when
+  unset), and a `byRepo` top-10. The `/usage` page renders cost/tokens + a Top-repositories panel.
+- **2026-06-08** — `envNumber` (llm/config.ts) is now reused beyond the providers (db/usage.ts cost rates).
+
+### Conventions enforced
+- **2026-06-08** — Surface call metadata (token usage) via an OPTIONAL options callback (`onUsage`), not a
+  changed return shape — non-breaking, and providers that lack it simply don't call it.
+- **2026-06-08** — Show a derived figure (estimated cost) only when its rate is configured; render an
+  explicit "set the rate" affordance rather than a fake $0.
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 1)
+- **USE-6** (period-over-period + range picker, Low, usage UI) and **PERS-2** (Subscription + plan-quota +
+  Stripe webhook — the revenue plumbing; the now-persisted token cost is its input) deferred.
+
+## Feature Scout Pipeline B — "Export + alerts + compliance" wave (2026-06-08, wave 7 — 2 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — `/api/history?format=csv` exports a repo's per-scan history (scannedAt, overall, level,
+  levelName, engine, D1..D9, oldest→newest) as a download; an "Export CSV ↓" link sits on /trends. The
+  /usage CSV (api/usage/route.ts `toCsv`) is the sibling export pattern (safe-filename + content-disposition).
+- **2026-06-08** — `GET /api/cron/digest` (vercel.json weekly, Mon 13:00 UTC, CRON_SECRET-guarded) pushes a
+  weekly fleet digest per org via the pure `buildFleetDigestMessage` (alerts.ts, sibling of
+  buildRegressionMessage) + the existing `dispatchAlert` sink. `listOrgsWithWatchedRepos` (db/org.ts) lists
+  the fleets. No-op without a DB or ALERT_WEBHOOK_URL. There are now THREE crons in vercel.json:
+  rescan (06:00), purge (04:00), digest (Mon 13:00).
+
+### Conventions enforced
+- **2026-06-08** — A push channel (digest) reuses the SAME aggregate queries the dashboard pulls + an
+  existing alert sink, with a PURE message builder gated on the sink being configured (clean no-op default).
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 7)
+- **ORGD-2 / PERS-4** (CSV export across fleet/audit UI surfaces), **ORGD-4** (in-dashboard regressions
+  view), **PERS-3** (actor-attributed audit trail — needs db/users.ts ensureUser/ensureMembership wired
+  into the auth path) deferred. This was the last untouched scan wave.

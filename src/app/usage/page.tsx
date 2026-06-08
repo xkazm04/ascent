@@ -28,9 +28,11 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
 
 function Stat({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
-      <div className="mt-1 font-mono text-3xl font-bold tabular-nums text-white">{value}</div>
+      <div className="mt-1 font-mono text-3xl font-bold tabular-nums text-white">
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </div>
       {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
     </div>
   );
@@ -96,6 +98,22 @@ export default async function UsagePage({
     );
   }
 
+  // A reachable DB with zero scans is a deliberate "nothing metered yet" moment, not a populated
+  // dashboard that happens to read all zeros — route it through the canonical EmptyState with a
+  // path to the first scan instead of four 0 stats and two empty bar panels.
+  if (usage.totalScans === 0) {
+    return (
+      <Shell>
+        <EmptyState
+          icon="📊"
+          title="No scans metered yet"
+          body="Public scans are free; private scans are billable under the usage-based plan. Scan a repository to start metering usage."
+          actions={[{ label: "Scan a repo", href: "/", primary: true }]}
+        />
+      </Shell>
+    );
+  }
+
   const billable = usage.privateScans; // public scans are free; private are metered
 
   return (
@@ -123,8 +141,23 @@ export default async function UsagePage({
           <Stat label="Repos scanned" value={usage.distinctRepos} sub="distinct" />
         </div>
 
+        {/* Cost + tokens — turns metering into an actual billing view (was "per-scan rate is TBD"). */}
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Stat
+            label="Est. cost"
+            value={usage.estimatedCostUsd != null ? `$${usage.estimatedCostUsd.toFixed(2)}` : "—"}
+            sub={
+              usage.estimatedCostUsd != null
+                ? `last ${usage.periodDays}d · from configured rates`
+                : "set LLM_*_COST_PER_MTOK to estimate"
+            }
+          />
+          <Stat label="Input tokens" value={usage.inputTokens} sub={`last ${usage.periodDays}d`} />
+          <Stat label="Output tokens" value={usage.outputTokens} sub={`last ${usage.periodDays}d`} />
+        </div>
+
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="text-sm font-semibold text-white">
               Public vs private{" "}
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
@@ -134,7 +167,7 @@ export default async function UsagePage({
               <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="var(--color-accent)" />
             </div>
           </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="text-sm font-semibold text-white">
               By inference engine{" "}
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
@@ -151,9 +184,33 @@ export default async function UsagePage({
           </div>
         </div>
 
+        {/* Top repos by metered volume — which repos drove the bill / token spend (per-repo attribution). */}
+        {usage.byRepo.length > 0 && (
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+            <h2 className="text-sm font-semibold text-white">
+              Top repositories{" "}
+              <span className="font-normal text-slate-500">· by metered scans · last {usage.periodDays}d</span>
+            </h2>
+            <div className="mt-3 space-y-2 text-sm">
+              {usage.byRepo.map((r) => (
+                <div key={r.fullName} className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 truncate font-mono text-xs text-slate-300">{r.fullName}</span>
+                  <span className="shrink-0 font-mono tabular-nums text-slate-400">
+                    {r.scans.toLocaleString()} scan{r.scans === 1 ? "" : "s"}
+                    {r.tokens > 0 ? ` · ${r.tokens.toLocaleString()} tok` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p className="mt-6 text-xs text-slate-500">
           Window: {usage.firstScanAt ? `${timeAgo(usage.firstScanAt)} → ${timeAgo(usage.lastScanAt ?? undefined)}` : "no scans recorded"}.
-          Per-scan rate is TBD; per-org attribution activates with auth / the GitHub App.
+          {usage.estimatedCostUsd != null
+            ? " Cost is estimated from the configured per-MTok rates (LLM_INPUT/OUTPUT_COST_PER_MTOK)."
+            : " Set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate spend."}{" "}
+          Per-org attribution activates with auth / the GitHub App.
         </p>
       </div>
     </Shell>
@@ -179,7 +236,7 @@ function Bar({
       <div className="flex items-center justify-between">
         <span className="text-slate-300">{label}</span>
         <span className="font-mono tabular-nums text-slate-400">
-          {value} · {pct}%
+          {value.toLocaleString()} · {pct}%
         </span>
       </div>
       <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-800">
