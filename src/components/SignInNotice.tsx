@@ -16,7 +16,7 @@ export function SignInNotice({ next, expired = false }: { next: string; expired?
         expired ? (
           <p
             role="alert"
-            className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-sm text-amber-300"
+            className="mt-3 max-w-md rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-sm text-amber-300"
           >
             You were signed out after a period of inactivity. Sign in again to pick up where you left off.
           </p>
