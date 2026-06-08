@@ -5,10 +5,10 @@ import { scoreHex, timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
-function AiBar({ pct }: { pct: number }) {
+function AiBar({ pct, color }: { pct: number; color?: string }) {
   return (
     <div className="flex items-center gap-2">
-      <Meter className="w-24" size="sm" value={pct} />
+      <Meter className="w-24" size="sm" value={pct} color={color} />
       <span className="w-9 font-mono text-xs text-slate-500">{pct}%</span>
     </div>
   );
@@ -173,10 +173,7 @@ export default async function ContributorInsightsPage({
                     <td className="px-3 py-2 text-right font-mono tabular-nums">{r.contributorCount}</td>
                     <td className="px-3 py-2 font-mono text-xs text-slate-400">{r.topLogin}</td>
                     <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <Meter className="w-24" size="sm" value={r.topShare} color={r.topShare >= 80 ? "var(--color-warn)" : "var(--color-accent)"} />
-                        <span className="w-9 font-mono text-xs text-slate-500">{r.topShare}%</span>
-                      </div>
+                      <AiBar pct={r.topShare} color={r.topShare >= 80 ? "var(--color-warn)" : undefined} />
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: r.busFactor <= 1 ? "var(--color-warn)" : undefined }}>
                       {r.busFactor}
