@@ -34,6 +34,10 @@ export async function POST(request: Request) {
   const parsed = parseRepoUrl(url);
   const { token, orgSlug } = await resolveScanAuth(parsed, body.installationId);
 
+  // Hoisted so the stream's cancel() (fired when the client disconnects and tears the stream down
+  // mid-scan) can stop the heartbeat immediately, rather than letting it fire on a dead controller
+  // until start() unwinds. The scan itself already aborts via request.signal on the same disconnect.
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const enc = new TextEncoder();
@@ -49,7 +53,7 @@ export async function POST(request: Request) {
       // compose stages), which can run many seconds. Proxies/load balancers (and Vercel
       // buffering) drop idle SSE connections after ~30–60s, leaving the browser stuck mid-scan.
       // A periodic SSE comment line keeps the connection warm; it's ignored by EventSource.
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
         try {
           controller.enqueue(enc.encode(`: ping\n\n`));
         } catch {
@@ -125,13 +129,21 @@ export async function POST(request: Request) {
             : { error: "Unexpected error while scanning the repository." };
         send("error", payload);
       } finally {
-        clearInterval(heartbeat);
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = undefined;
         try {
           controller.close();
         } catch {
           /* already closed — e.g. the client disconnected and the stream was torn down */
         }
       }
+    },
+    // Client disconnected and tore the stream down while start() is still mid-scan. Stop the
+    // heartbeat now so it can't keep firing on a dead controller; the in-flight scan is already
+    // wired to request.signal (aborts on the same disconnect) and unwinds via start()'s finally.
+    cancel() {
+      if (heartbeat) clearInterval(heartbeat);
+      heartbeat = undefined;
     },
   });
 
