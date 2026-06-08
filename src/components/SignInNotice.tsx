@@ -22,7 +22,11 @@ export function SignInNotice({ next, expired = false }: { next: string; expired?
           </p>
         ) : null
       }
-      body="Connect your GitHub account to access private repositories, history, and usage."
+      body={
+        expired
+          ? "Re-authenticate with GitHub to restore access to your repositories, history, and usage."
+          : "Connect your GitHub account to access private repositories, history, and usage."
+      }
     >
       <GitHubSignInButton next={next} />
     </EmptyState>
