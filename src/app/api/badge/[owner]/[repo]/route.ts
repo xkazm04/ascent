@@ -22,7 +22,7 @@ import { scanRepository, GitHubError } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
-import { LEVEL_HEX } from "@/lib/ui";
+import { LEVEL_GLYPH, LEVEL_HEX } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -272,7 +272,8 @@ export async function GET(
       return respond(
         badgeSvg({
           label,
-          value: gate.pass ? "pass" : "fail",
+          // ✓/✗ so the pass/fail verdict survives without color (red/green collapses for CVD viewers).
+          value: gate.pass ? "✓ pass" : "✗ fail",
           color: resolveColor(customColor, gate.pass ? LEVEL_HEX.L5 : LEVEL_HEX.L1),
           style,
           logo,
@@ -283,7 +284,16 @@ export async function GET(
 
     const color = resolveColor(customColor, LEVEL_HEX[report.level.id as LevelId] ?? neutral);
     return respond(
-      badgeSvg({ label, value: `${report.level.id} ${report.level.name}`, color, style, logo, href }),
+      // Prepend the level glyph (○◔◑◕●) so the red→green level isn't signalled by hue alone — the
+      // same non-color redundancy lib/ui.ts mandates everywhere a level color appears in the app.
+      badgeSvg({
+        label,
+        value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.level.id} ${report.level.name}`,
+        color,
+        style,
+        logo,
+        href,
+      }),
     );
   } catch (err) {
     // Only negative-cache a GENUINE not-found/invalid/empty repo. A transient failure (GitHub rate
