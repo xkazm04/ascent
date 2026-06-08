@@ -10,6 +10,7 @@ import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
 import { ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
+import { envNumber } from "@/lib/llm/config";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60_000;
@@ -49,7 +50,7 @@ export class GeminiProvider implements LLMProvider {
         contents: user,
         config: {
           systemInstruction: system,
-          temperature: 0.2,
+          temperature: envNumber("LLM_TEMPERATURE", 0.2),
           responseMimeType: "application/json",
           // Constrain decoding to the assessment contract (the same JSON Schema
           // Bedrock forces as a tool). This makes a well-formed response the
