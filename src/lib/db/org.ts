@@ -266,6 +266,17 @@ export async function listWatchedRepos(orgSlug: string): Promise<RepoRef[]> {
   }));
 }
 
+/** Org slugs with at least one watched repo — the fleets a scheduled digest should summarize. */
+export async function listOrgsWithWatchedRepos(): Promise<string[]> {
+  if (!isDbConfigured()) return [];
+  const rows = await getPrisma().repository.findMany({
+    where: { watched: true },
+    select: { org: { select: { slug: true } } },
+    distinct: ["orgId"],
+  });
+  return [...new Set(rows.map((r) => r.org.slug))];
+}
+
 export interface RepoState {
   watched: boolean;
   scanSchedule: string;

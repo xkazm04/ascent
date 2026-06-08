@@ -86,6 +86,7 @@ export {
   advanceSchedule,
   advanceScheduleAfterFailure,
   recordScanOutcome,
+  listOrgsWithWatchedRepos,
   getOrgId,
   isRepoWatched,
   type DueRescan,
