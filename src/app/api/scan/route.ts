@@ -83,7 +83,12 @@ async function runScan(
   // for the full TTL and serve it to every later scanner of this commit. Cache only when the
   // report came from the requested engine (an intentional mock scan legitimately keys `::mock`).
   const degradedToMock = report.engine.provider === "mock" && !opts.mock;
-  if (lookup && !degradedToMock) cacheSet(lookup.cacheKey, report);
+  // Don't pin a low-coverage scan under the commit key for the full TTL. Per-file fetch failures
+  // (raw-host hiccup / file timeouts) degrade silently to lower coverage WITHOUT failing the LLM,
+  // so a transient blip would otherwise serve a degraded snapshot to every later scanner of this
+  // commit. Treat low coverage like the mock-degrade case — skip caching; the next scan re-resolves.
+  const lowCoverage = report.confidence < 0.5;
+  if (lookup && !degradedToMock && !lowCoverage) cacheSet(lookup.cacheKey, report);
 
   let deduped = false;
   let persistedOk = true;

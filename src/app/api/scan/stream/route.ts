@@ -104,7 +104,11 @@ export async function POST(request: Request) {
         // key — caching it would pin the mock floor under `::llm` for the full TTL and serve it to
         // every later scanner of this commit. Skip caching a mock report when the LLM was requested.
         const degradedToMock = report.engine.provider === "mock" && !mock;
-        if (lookup && !degradedToMock) cacheSet(lookup.cacheKey, report);
+        // Don't cache a low-coverage scan: silent per-file fetch failures degrade coverage without
+        // failing the LLM, so a transient blip would otherwise pin a degraded snapshot under the
+        // commit key for the full TTL. Skip like the mock-degrade case; the next scan re-resolves.
+        const lowCoverage = report.confidence < 0.5;
+        if (lookup && !degradedToMock && !lowCoverage) cacheSet(lookup.cacheKey, report);
         if (isDbConfigured()) {
           try {
             // Persist the ETag so the next re-scan can issue a free conditional request.
