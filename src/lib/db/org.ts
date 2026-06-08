@@ -98,6 +98,28 @@ export async function setRepoSchedule(orgSlug: string, fullName: string, schedul
 }
 
 /**
+ * Set the autoscan cadence for the WHOLE watched set of an org in one write — optionally scoped to a
+ * segment — so a fleet owner manages cadence as policy ("rescan the platform segment weekly") instead
+ * of clicking every repo. Reuses the same segment where-fragment as the read aggregates, so a segment
+ * id from another org matches nothing. Returns how many repos were updated.
+ */
+export async function setWatchedSchedule(
+  orgSlug: string,
+  schedule: string,
+  segmentId?: string | null,
+): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  if (!org) return 0;
+  const res = await prisma.repository.updateMany({
+    where: { orgId: org.id, watched: true, ...segmentScope(segmentId) },
+    data: { scanSchedule: schedule, nextScanAt: nextScanFor(schedule) },
+  });
+  return res.count;
+}
+
+/**
  * Pre-populate an org's watchlist from login-time auto-discovery: upsert each repo as WATCHED on a
  * weekly schedule, due immediately (nextScanAt = now) so the autoscan cron — or the dashboard's
  * "Scan all watched" — fills in scores on its next pass. This turns a brand-new user's blank org

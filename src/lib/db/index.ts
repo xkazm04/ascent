@@ -62,6 +62,7 @@ export { getSessionVersion, bumpSessionVersion } from "@/lib/db/sessions";
 export {
   setRepoWatch,
   setRepoSchedule,
+  setWatchedSchedule,
   seedWatchlist,
   listWatchedRepos,
   getOrgRollup,
