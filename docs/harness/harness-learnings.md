@@ -327,3 +327,25 @@
 ## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 5)
 - **MAT-3 / SCAN-2 / SCAN-4 / LLM-6** deferred (causes above). SCAN-4 especially wants a session that can
   run a live scan against a lockfile-bearing repo to confirm the D9/D6 signal moves.
+
+## Feature Scout Pipeline B — "Scan reach" wave (2026-06-08, wave 6 — 2 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — LLM provider tuning is env-driven via `llm/config.ts` `envNumber(name, fallback)`:
+  `LLM_TEMPERATURE` (gemini + bedrock), `BEDROCK_MAX_TOKENS` (bedrock). Defaults = the prior literals.
+- **2026-06-08** — `ProviderName` now includes `"openai"`. The fetch-based `OpenAiProvider`
+  (llm/openai.ts) uses JSON mode (`response_format: json_object`) + `buildAssessmentPrompt` +
+  `validateAssessment` — NO SDK dep. Config: `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_BASE_URL`
+  (Azure/self-hosted). A new provider must be wired in 4 seams: `ProviderName` (types.ts),
+  `resolveProviderChoice` allow-list, `getProvider` switch, AND `providerByName` (for LLM-2 failover).
+
+### Conventions enforced
+- **2026-06-08** — Add a new LLM provider as a fetch-based `LLMProvider` over the existing contract
+  (prompt + validateAssessment), not a new SDK dependency, so it inherits the abort/timeout/resilience
+  contract for free and stays portable across OpenAI-compatible endpoints.
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 6)
+- **SCAN-1 / SCAN-3** (branch selector + token field): clean backends, but the UI half is on `ScanForm`
+  (concurrent UI churn). **SCAN-6** (ingestion budget/subpath): larger, threads options through
+  FetchOptions→ScanOptions→cache key. **LLM-4** (health check): needs per-provider network calls + has no
+  admin UI consumer yet.
