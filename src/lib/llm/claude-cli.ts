@@ -62,6 +62,14 @@ function runClaude(model: string, stdin: string, signal?: AbortSignal): Promise<
       return;
     }
     const bin = process.env.CLAUDE_CLI_PATH || "claude";
+    // shell:true (needed for Windows claude.cmd resolution) re-parses argv as a shell command line,
+    // so a model value like "sonnet; rm -rf x" or "$(…)" would be executed. Validate the model as a
+    // simple token before it reaches the spawn — it is the value most likely to become
+    // per-request/org-configurable (the provider abstraction's whole point), so lock it down now.
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(model)) {
+      reject(new Error(`Invalid CLAUDE_MODEL "${model}" — expected a simple model id (no shell metacharacters).`));
+      return;
+    }
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY; // force subscription auth (not pay-per-token)
 
@@ -104,7 +112,16 @@ function runClaude(model: string, stdin: string, signal?: AbortSignal): Promise<
       else resolve(out);
     });
 
-    child.stdin.write(stdin);
-    child.stdin.end();
+    // A child that dies immediately (missing binary, bad --model, auth failure) can close its
+    // stdin; writing to a broken pipe emits an 'error' on child.stdin which, unhandled, becomes an
+    // uncaught exception that tears down the whole Node process — not just this scan. Handle it.
+    child.stdin.on("error", (e) => {
+      cleanup();
+      reject(e);
+    });
+    if (!child.stdin.destroyed) {
+      child.stdin.write(stdin);
+      child.stdin.end();
+    }
   });
 }
