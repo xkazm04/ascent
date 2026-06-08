@@ -41,3 +41,20 @@ export async function requireOrgAccess(org: string): Promise<NextResponse | null
   }
   return null;
 }
+
+/**
+ * Read-side tenant gate for org-scoped pages/APIs — distinct from requireOrgAccess (which gates
+ * mutations). Returns whether `org` may be READ in the current request context. PUBLIC_ORG is
+ * always readable (the shared funnel). When auth IS configured, a private org requires a session
+ * whose installations include it (closing the cross-tenant read IDOR). When auth is NOT
+ * configured, ONLY PUBLIC_ORG is readable: a deployment with DATABASE_URL set but OAuth unset must
+ * not serve per-tenant data to anonymous callers just because "auth is off" — a dropped
+ * AUTH_SECRET would otherwise turn every stored org's dashboard/usage public. Callers gate on
+ * isDbConfigured() first (no DB ⇒ no per-tenant data exists to leak).
+ */
+export async function canReadOrg(org: string): Promise<boolean> {
+  const slug = org.trim().toLowerCase();
+  if (slug === PUBLIC_ORG) return true;
+  if (!isAuthConfigured()) return false;
+  return sessionOwnsOrg(slug);
+}

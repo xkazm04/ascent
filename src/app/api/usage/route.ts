@@ -47,15 +47,25 @@ export async function GET(request: Request) {
   // Authorize the requested org. The /usage page gates on the session and scopes to the
   // caller's installation org, but this API must enforce the same — otherwise it's an IDOR:
   // anyone could enumerate org slugs and read another tenant's usage volume/timeline. The
-  // shared "public" org is readable by any signed-in user; a private org requires a session
-  // whose installations include it. Auth-off (local/demo) deployments skip the gate.
-  if (isAuthConfigured() && org.toLowerCase() !== "public") {
+  // shared "public" org is readable by anyone; a private org requires a session whose
+  // installations include it.
+  const orgLc = org.toLowerCase();
+  if (orgLc !== "public") {
+    if (!isAuthConfigured()) {
+      // DB-on + auth-off must NOT become an open multi-tenant usage API: with DATABASE_URL set
+      // but OAuth unconfigured (a realistic partial prod config, or a dropped AUTH_SECRET), an
+      // anonymous caller could enumerate org slugs and read each tenant's volume/timeline/repo
+      // names. Only the shared "public" org is metered without auth; a real org needs it on.
+      return NextResponse.json(
+        { error: "Per-organization usage requires authentication to be configured." },
+        { status: 403 },
+      );
+    }
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: "Sign in to view usage." }, { status: 401 });
     }
-    const member = session.installations.some((i) => i.login.toLowerCase() === org.toLowerCase());
-    if (!member) {
+    if (!session.installations.some((i) => i.login.toLowerCase() === orgLc)) {
       return NextResponse.json(
         { error: "You don't have access to this org's usage." },
         { status: 403 },

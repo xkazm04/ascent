@@ -3,7 +3,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { SignInNotice } from "@/components/SignInNotice";
 import { UsageTrend } from "@/components/usage/UsageTrend";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
-import { getActiveOrg, getSessionState, isAuthConfigured } from "@/lib/auth";
+import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +70,18 @@ export default async function UsagePage({
   // An explicit ?org= wins; otherwise follow the org remembered via the header switcher
   // (which itself falls back to the first installation, else public).
   const org = orgParam || (await getActiveOrg(session));
+
+  // Mirror /api/usage: a DB-on + auth-off deployment must not serve per-tenant usage. Without
+  // auth configured there's no session to scope by, so only the shared public org is available;
+  // an explicit ?org=<slug> for anything else is refused rather than silently served.
+  if (!isAuthConfigured() && org.toLowerCase() !== PUBLIC_ORG) {
+    return (
+      <Notice title="Per-organization usage needs authentication">
+        Configure GitHub OAuth (and the GitHub App) to view usage for a specific organization.
+        The shared public usage view is available without signing in.
+      </Notice>
+    );
+  }
 
   if (!isDbConfigured()) {
     return (
