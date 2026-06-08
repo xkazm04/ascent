@@ -17,6 +17,14 @@ export const DIMENSION_SHORT: Record<DimensionId, string> = {
   D9: "Security",
 };
 
+/** Stable permalink to a repo's report, pinned to a commit when one is known
+ *  (`/report/{owner}/{repo}` or `/report/{owner}/{repo}@{sha}`). Lives in this client-safe
+ *  module so both server callers and the client trend charts build the identical link
+ *  (re-exported from @/lib/db/scans for the existing db-barrel importers). */
+export function reportPermalink(fullName: string, headSha?: string | null): string {
+  return `/report/${fullName}${headSha ? `@${headSha}` : ""}`;
+}
+
 /**
  * Brand hex per maturity level (red -> green as you ascend).
  *

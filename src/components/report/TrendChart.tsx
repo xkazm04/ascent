@@ -5,6 +5,7 @@
 // (chartHover) adds a crosshair + tooltip without any charting dependency.
 
 import { useId } from "react";
+import { useRouter } from "next/navigation";
 import { scoreHex } from "@/lib/ui";
 import { levelForScore } from "@/lib/maturity/model";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
@@ -14,6 +15,12 @@ export interface TrendPoint {
   score: number;
   at: string; // ISO
   engine?: string; // provider that produced this scan, when known (omitted for org rollups)
+  /** Permalink to this scan's pinned report. When set, the chart navigates here on click of the
+   *  hovered point — so a trend dot is no longer a dead end. Omitted for org rollup points (daily
+   *  averages with no single underlying scan), which therefore stay non-interactive. */
+  href?: string;
+  /** Short commit sha, shown in the hover tooltip as context for the point. */
+  sha?: string;
 }
 
 /** Tiny inline trend line for a single dimension's score history (0..100 scale). */
@@ -101,6 +108,10 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
   const hover = useChartHover(points.map((_, i) => xFor(i)), W);
   const a = hover.active;
   const tableId = useId();
+  const router = useRouter();
+  // The hovered point's report permalink, when it has one — clicking anywhere on the plot opens it
+  // (a far bigger hit target than the small dot). Points without an href (org rollups) do nothing.
+  const activeHref = a !== null ? points[a]?.href : undefined;
 
   // Thin the x-axis date labels so interior dates don't vanish (the old rule showed only first +
   // last past 6 points) and don't collide at 60 scans: aim for ~7 evenly-spaced labels, always
@@ -121,9 +132,12 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         role="img"
         aria-label="Overall score over time"
         aria-describedby={tableId}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", cursor: activeHref ? "pointer" : undefined }}
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
+        onClick={() => {
+          if (activeHref) router.push(activeHref);
+        }}
       >
         {/* level bands + their L-id labels — a non-color cue so each shaded range is identifiable
             (the bands previously carried meaning in near-invisible fill opacity alone) */}
@@ -200,6 +214,8 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             at={points[a].at}
             engine={points[a].engine}
             delta={a > 0 ? points[a].score - points[a - 1].score : null}
+            sha={points[a].sha}
+            linked={Boolean(points[a].href)}
           />
         </ChartTooltip>
       )}

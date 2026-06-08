@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { scoreGlyph, scoreHex } from "@/lib/ui";
+import { reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui";
 import type { HistoryPoint, RepositoryHistory } from "@/lib/db/scans";
 import { EmptyState } from "@/components/EmptyState";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
@@ -220,6 +220,10 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
     score: s.overallScore,
     at: s.scannedAt,
     engine: s.engineProvider,
+    // Deep-link each point to that scan's pinned report (and show the short sha) when we recorded
+    // the commit — so a trend dot opens the exact report instead of being a dead end.
+    href: s.headSha ? reportPermalink(history.repo.fullName, s.headSha) : undefined,
+    sha: s.headSha ? s.headSha.slice(0, 7) : undefined,
   }));
 
   // Per-dimension rows — from the full payload once loaded, sliced by the SAME range.

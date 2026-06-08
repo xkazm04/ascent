@@ -25,6 +25,7 @@ import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
+import { reportPermalink } from "@/lib/ui";
 
 const DEFAULT_ORG_SLUG = "public";
 
@@ -510,6 +511,9 @@ export async function persistScanReport(
 
 export interface HistoryPoint {
   id: string;
+  /** Commit the scan pinned to, when recorded — lets a trend point deep-link to that exact
+   *  report (reportPermalink) and the GitHub commit. Null for legacy scans without a stored sha. */
+  headSha: string | null;
   overallScore: number;
   level: string;
   levelName: string;
@@ -571,6 +575,7 @@ export async function getRepositoryHistory(
   // branch maps through toPoint (mapping a single array type, never a union, so it stays type-safe).
   const baseSelect = {
     id: true,
+    headSha: true,
     overallScore: true,
     level: true,
     levelName: true,
@@ -582,6 +587,7 @@ export async function getRepositoryHistory(
 
   const toPoint = (s: {
     id: string;
+    headSha: string | null;
     overallScore: number;
     level: string;
     levelName: string;
@@ -591,6 +597,7 @@ export async function getRepositoryHistory(
     dimensions?: { dimId: string; score: number }[];
   }): HistoryPoint => ({
     id: s.id,
+    headSha: s.headSha,
     overallScore: s.overallScore,
     level: s.level,
     levelName: s.levelName,
@@ -760,6 +767,7 @@ export async function getScanComparison(
     take: limit,
     select: {
       id: true,
+      headSha: true,
       overallScore: true,
       level: true,
       levelName: true,
@@ -772,6 +780,7 @@ export async function getScanComparison(
 
   const scans: HistoryPoint[] = list.map((s) => ({
     id: s.id,
+    headSha: s.headSha,
     overallScore: s.overallScore,
     level: s.level,
     levelName: s.levelName,
@@ -833,11 +842,9 @@ export interface PublicScanGallery {
   totalRepos: number;
 }
 
-/** Stable permalink to a repo's report, pinned to a commit when one is known
- *  (`/report/{owner}/{repo}` or `/report/{owner}/{repo}@{sha}`). */
-export function reportPermalink(fullName: string, headSha?: string | null): string {
-  return `/report/${fullName}${headSha ? `@${headSha}` : ""}`;
-}
+// reportPermalink now lives in @/lib/ui (a client-safe module, so the trend charts can build the
+// same link); re-exported here for the existing @/lib/db barrel + server callers.
+export { reportPermalink };
 
 /**
  * Public scan gallery for the landing page: a "recently scanned" rail and a "most
