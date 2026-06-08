@@ -135,7 +135,7 @@ export function ScanForm({
 
       {/* Inline validation message, wired to the input via aria-describedby. */}
       {error && (
-        <p id={errorId} className="mt-2 text-sm text-danger">
+        <p id={errorId} className="mt-2 animate-fade-up text-sm text-danger">
           {error}
         </p>
       )}
