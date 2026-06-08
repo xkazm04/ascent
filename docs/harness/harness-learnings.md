@@ -661,3 +661,41 @@
   (the carried PR-ref headSha-stamping follow-up). Low priority.
 - All 9 criticals remain closed. Remaining: Wave 8 (OAuth/session + aggregate/UI tail) + the deferred
   DB/calibration/concurrency set.
+
+## Bug Hunter Pipeline B — "OAuth/session + UI tail" wave (2026-06-08, wave 8, FINAL — 5 closed)
+
+### Structural facts
+- **2026-06-08** — `secureCookieForRequest` (auth.ts) is now EXPORTED and used by the OAuth callback
+  so the INITIAL session cookie's Secure flag derives from `x-forwarded-proto` (matching the refresh
+  path), not the internal `url.origin`. Behind a TLS-terminating proxy the old check minted a
+  non-Secure cookie.
+- **2026-06-08** — `PostureQuadrant` (Charts.tsx) defaults `QUAD_TINT[posture.id] ?? "#475569"` — an
+  untrusted/drifted posture id no longer renders the marker with no fill.
+- **2026-06-08** — `parseRepositoryHistory` (validate.ts) now also drops a point whose `scannedAt`
+  is unparseable (`Number.isNaN(Date.parse(...))`) — it blanked the axis + fed forecastTrajectory.
+- **2026-06-08** — `OrgScanButton` counts the bulk-scan SSE `repo` events that carry `error` and
+  shows "N repos failed" — partial failure no longer reads as 10/10 success.
+- **2026-06-08** — `historyToCsv` (api/history) runs EVERY field through `csvField` (was raw for
+  scannedAt/overall/dims).
+
+### Conventions enforced
+- **2026-06-08** — Cookie security flags match the EDGE connection (x-forwarded-proto), applied on
+  every mint (initial + refresh), not one path.
+- **2026-06-08** — A render-time `RECORD[untrusted.id]` lookup must `?? fallback` or the element
+  silently disappears (same class as the chart-geometry / posture-color misses).
+
+### bug-hunt 2026-06-08 — FINAL cumulative
+- **40 findings closed via code** in 34 atomic fix commits across 8 themed waves; 1 reassessed
+  (github-app #2). **All 9 criticals closed.** Every wave: tsc 0→0, eslint clean, next build green.
+- Branch `vibeman/bug-hunt-wave1-authz` off master; INDEX + 8 FIXES-WAVE-N docs are the record.
+
+### Standing deferred backlog (needs a live DB / calibration bench / design call) — see FIXES-WAVE-8.md
+- DB/concurrency: persistence #4 (`@@unique([repoId,headSha])`), #5 (pooler), org-scanning #2/#4,
+  maturity #6 (PATCH OCC), the read-path withDb migration.
+- Calibration: maturity #5 (guardband anchor — `npm run bench`).
+- GitHub-App flow: github-app #2 (OAuth-during-install), #4 (selection-narrowing reconcile); OpenAI
+  timeout-abort (mirror llm #2).
+- OAuth posture: github-oauth #2 (fail-open revocation is a DELIBERATE access-TTL-backstopped
+  tradeoff — owner's call), #3/#4 (session rotation), #6 (Low).
+- Polish tail (Low/Medium): org-dashboard #4/#5/#6, org-scanning #5/#6/#7, report-trends #6,
+  scan-pipeline #6/#7 (known defense-in-depth, not exploitable).
