@@ -232,8 +232,9 @@ async function fetchDailySeries(
     for (const row of rows) {
       const i = idx.get(row.day);
       if (i === undefined) continue;
-      if (row.isPrivate) series[i].billable += Number(row.count);
-      else series[i].free += Number(row.count);
+      const day = series[i]!; // safe: i is a valid index into series (built from series.map)
+      if (row.isPrivate) day.billable += Number(row.count);
+      else day.free += Number(row.count);
     }
     return series;
   } catch (err) {
@@ -272,8 +273,9 @@ export function buildDailySeries(
   for (const s of scans) {
     const i = idx.get(dayKey(s.at));
     if (i === undefined) continue;
-    if (s.billable) series[i].billable += 1;
-    else series[i].free += 1;
+    const day = series[i]!; // safe: i is a valid index into series (built from series.map)
+    if (s.billable) day.billable += 1;
+    else day.free += 1;
   }
   return series;
 }

@@ -93,7 +93,7 @@ export function parseJsonLoose<T>(text: string): T {
   //    fenced block in order — the first that parses (directly or via balanced scan) wins.
   const fenceRe = /```(?:json|jsonc)?\s*([\s\S]*?)```/gi;
   for (let m = fenceRe.exec(text); m; m = fenceRe.exec(text)) {
-    const inner = m[1].trim();
+    const inner = (m[1] ?? "").trim();
     if (!inner) continue;
     try {
       return JSON.parse(inner) as T;

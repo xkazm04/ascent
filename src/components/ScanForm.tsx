@@ -21,7 +21,7 @@ export function normalizeRepo(raw: string): string | null {
   s = s.replace(/^\/+|\/+$/g, ""); // leading/trailing slashes
   const parts = s.split("/").filter(Boolean);
   if (parts.length < 2) return null;
-  const [owner, repo] = parts;
+  const [owner = "", repo = ""] = parts;
   const ok = /^[A-Za-z0-9_.-]+$/;
   if (!ok.test(owner) || !ok.test(repo)) return null;
   return `${owner}/${repo}`;

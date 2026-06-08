@@ -106,7 +106,7 @@ export default async function TrendsPage({
     );
   }
 
-  const latest = history.scans[0];
+  const latest = history.scans[0]!; // safe: history.scans.length === 0 returned above
 
   // Forward-looking GPS for THIS repo — the same trajectory fit the org rollup already renders,
   // but the per-repo trends page only ever drew rear-view lines. Fit over the (overall-only)

@@ -150,7 +150,7 @@ export async function getRepoSegmentMap(
   });
   const out: Record<string, { id: string; name: string; color: string }[]> = {};
   for (const r of rows) (out[r.repo.fullName] ||= []).push(r.segment);
-  for (const fn of Object.keys(out)) out[fn].sort((a, b) => a.name.localeCompare(b.name));
+  for (const fn of Object.keys(out)) out[fn]!.sort((a, b) => a.name.localeCompare(b.name)); // safe: fn comes from Object.keys(out)
   return out;
 }
 

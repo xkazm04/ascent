@@ -89,7 +89,7 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
 
   if (!owner || !repo) {
     const parts = s.split("/").filter(Boolean);
-    if (parts.length >= 2 && !parts[0].includes(".")) {
+    if (parts.length >= 2 && !parts[0]!.includes(".")) {
       [owner, repo] = parts;
     }
   }
@@ -232,7 +232,7 @@ async function pool<T, R>(
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (cursor < items.length) {
       const i = cursor++;
-      results[i] = await worker(items[i], i);
+      results[i] = await worker(items[i]!, i); // safe: `i < items.length` guards the loop
     }
   });
   await Promise.all(runners);

@@ -74,9 +74,9 @@ async function fleetSnapshot(orgId: string): Promise<FleetSnapshot> {
     const dims: Record<string, number> = {};
     for (const d of s.dimensions) {
       dims[d.dimId] = d.score;
-      dimSum[d.dimId] = dimSum[d.dimId] || { sum: 0, n: 0 };
-      dimSum[d.dimId].sum += d.score;
-      dimSum[d.dimId].n += 1;
+      const entry = (dimSum[d.dimId] = dimSum[d.dimId] || { sum: 0, n: 0 });
+      entry.sum += d.score;
+      entry.n += 1;
     }
     rows.push({
       fullName: r.fullName,
@@ -120,7 +120,10 @@ function dailyAvg(points: { at: Date; value: number }[]): SeriesPoint[] {
   }
   return Object.keys(byDay)
     .sort()
-    .map((date) => ({ date, value: Math.round(byDay[date].sum / byDay[date].n) }));
+    .map((date) => {
+      const entry = byDay[date]!; // safe: date comes from Object.keys(byDay)
+      return { date, value: Math.round(entry.sum / entry.n) };
+    });
 }
 
 /**

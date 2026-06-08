@@ -36,7 +36,7 @@ export function RepoSegmentsPanel({
   const [segments, setSegments] = useState<SegmentItem[]>(initialSegments);
   const [membership, setMembership] = useState<Record<string, string[]>>(initialMembership);
   const [name, setName] = useState("");
-  const [color, setColor] = useState(PALETTE[0]);
+  const [color, setColor] = useState(PALETTE[0] ?? "#3b9eff");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");

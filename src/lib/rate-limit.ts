@@ -21,7 +21,7 @@ export function clientIp(req: Request): string {
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) {
     const hops = fwd.split(",").map((s) => s.trim()).filter(Boolean);
-    if (hops.length) return hops[hops.length - 1];
+    if (hops.length) return hops[hops.length - 1]!; // safe: hops.length > 0 guarded above
   }
   return "unknown";
 }

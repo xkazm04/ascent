@@ -140,7 +140,8 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
       ))}
       {/* hovered vertex highlight */}
       {active !== null && (
-        <circle cx={dataPts[active][0]} cy={dataPts[active][1]} r={8} fill="none" stroke={scoreHex(dimensions[active].score)} strokeWidth={2} />
+        // safe: active is a valid index into dataPts/dimensions (set from dataPts.forEach, same length)
+        <circle cx={dataPts[active]![0]} cy={dataPts[active]![1]} r={8} fill="none" stroke={scoreHex(dimensions[active]!.score)} strokeWidth={2} />
       )}
       {/* labels */}
       {dimensions.map((d, i) => {
@@ -159,15 +160,16 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
       <rect x={0} y={0} width={size} height={size} fill="transparent" />
       </svg>
       {active !== null && (
-        <ChartTooltip xFrac={dataPts[active][0] / size} yFrac={dataPts[active][1] / size}>
+        // safe: active is a valid index into dataPts/dimensions (set from dataPts.forEach, same length)
+        <ChartTooltip xFrac={dataPts[active]![0] / size} yFrac={dataPts[active]![1] / size}>
           <div className="text-sm">
-            <div className="font-semibold text-white">{dimensions[active].name}</div>
+            <div className="font-semibold text-white">{dimensions[active]!.name}</div>
             <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(dimensions[active].score) }}>
-                {dimensions[active].score}
+              <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(dimensions[active]!.score) }}>
+                {dimensions[active]!.score}
               </span>
               <span className="text-sm text-slate-400">
-                {levelForScore(dimensions[active].score).id} {levelForScore(dimensions[active].score).name}
+                {levelForScore(dimensions[active]!.score).id} {levelForScore(dimensions[active]!.score).name}
               </span>
             </div>
           </div>

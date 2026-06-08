@@ -87,7 +87,7 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90): For
   if (parsed.length < 2) return null;
 
   // Collapse to one point per calendar day (mean), indexed by whole days from the first day.
-  const firstT = parsed[0].t;
+  const firstT = parsed[0]!.t; // safe: parsed.length >= 2 checked above
   const byDay = new Map<number, { sum: number; n: number }>();
   for (const p of parsed) {
     const day = Math.floor((p.t - firstT) / DAY_MS);
@@ -108,8 +108,8 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90): For
   let sxy = 0;
   let syy = 0;
   for (let i = 0; i < n; i++) {
-    const dx = xs[i] - meanX;
-    const dy = ys[i] - meanY;
+    const dx = xs[i]! - meanX; // safe: i bounded by n = xs.length
+    const dy = ys[i]! - meanY; // safe: ys has same length as xs
     sxx += dx * dx;
     sxy += dx * dy;
     syy += dy * dy;
@@ -119,12 +119,12 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90): For
   // R²: share of variance the line explains. A perfectly flat series (syy = 0) fits exactly.
   const intercept = meanY - perDay * meanX;
   let ssRes = 0;
-  for (let i = 0; i < n; i++) ssRes += (ys[i] - (intercept + perDay * xs[i])) ** 2;
+  for (let i = 0; i < n; i++) ssRes += (ys[i]! - (intercept + perDay * xs[i]!)) ** 2; // safe: i bounded by n = xs.length (ys same length)
   const fitQuality = syy === 0 ? 1 : clamp(1 - ssRes / syy, 0, 1);
 
-  const lastT = parsed[parsed.length - 1].t;
-  const current = parsed[parsed.length - 1].value; // anchor on the latest actual value
-  const spanDays = xs[xs.length - 1];
+  const lastT = parsed[parsed.length - 1]!.t; // safe: parsed.length >= 2 checked above
+  const current = parsed[parsed.length - 1]!.value; // anchor on the latest actual value (safe: parsed non-empty)
+  const spanDays = xs[xs.length - 1]!; // safe: xs.length >= 2 checked above
   const perWeek = round1(perDay * 7);
 
   const trajectory: Trajectory =
@@ -159,12 +159,12 @@ function etaToNextLevel(current: number, perDay: number, lastT: number): LevelEt
   let toLevel: LevelId;
   if (rising) {
     if (i >= LEVELS.length - 1) return null; // already at the ceiling (L5)
-    boundary = LEVELS[i + 1].band[0]; // e.g. L3→L4 crosses 65
-    toLevel = LEVELS[i + 1].id;
+    boundary = LEVELS[i + 1]!.band[0]; // e.g. L3→L4 crosses 65 (safe: i+1 < LEVELS.length, guarded above)
+    toLevel = LEVELS[i + 1]!.id; // safe: i+1 < LEVELS.length, guarded above
   } else {
     if (i <= 0) return null; // already at the floor (L1)
-    boundary = LEVELS[i - 1].band[1]; // e.g. L3→L2 crosses 44
-    toLevel = LEVELS[i - 1].id;
+    boundary = LEVELS[i - 1]!.band[1]; // e.g. L3→L2 crosses 44 (safe: i-1 >= 0, guarded above)
+    toLevel = LEVELS[i - 1]!.id; // safe: i-1 >= 0, guarded above
   }
 
   const exactDays = (boundary - current) / perDay;
@@ -173,7 +173,7 @@ function etaToNextLevel(current: number, perDay: number, lastT: number): LevelEt
 
   return {
     kind: rising ? "promotion" : "demotion",
-    fromLevel: LEVELS[i].id,
+    fromLevel: LEVELS[i]!.id, // safe: i is a valid LEVELS index (clamped to 0 or a findIndex hit)
     toLevel,
     boundary,
     days,

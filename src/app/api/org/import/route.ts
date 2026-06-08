@@ -115,7 +115,7 @@ export async function POST(request: Request) {
         let fullNames: { owner: string; name: string; fullName: string; url: string }[];
         if (body.repos?.length) {
           fullNames = body.repos.map((fn) => {
-            const [owner, name] = fn.includes("/") ? fn.split("/") : [org, fn];
+            const [owner = "", name = ""] = fn.includes("/") ? fn.split("/") : [org, fn];
             return { owner, name, fullName: `${owner}/${name}`, url: `https://github.com/${owner}/${name}` };
           });
         } else {

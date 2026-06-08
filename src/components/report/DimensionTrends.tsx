@@ -55,7 +55,8 @@ function DimLine({
   let penDown = false;
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    if (v === null) {
+    if (v == null) {
+      // null marks a gap; undefined is unreachable (i is in-bounds) but narrows v to number
       penDown = false;
       continue;
     }
@@ -67,7 +68,8 @@ function DimLine({
   const drawnCount = present.length;
   const act = a !== null ? present[a] : null;
   // Delta vs the prior PRESENT point (gaps are skipped, so this compares real scans).
-  const actDelta = a !== null && a > 0 ? present[a].v - present[a - 1].v : null;
+  // safe: a is a valid index into present (from useChartHover over present), and a > 0
+  const actDelta = a !== null && a > 0 ? present[a]!.v - present[a - 1]!.v : null;
 
   return (
     <div className="relative mt-2">
@@ -86,7 +88,7 @@ function DimLine({
       >
         {/* Shaded maturity bands — same strata as the overall chart, so both read on one frame. */}
         {LEVEL_BANDS.map((band, i) => {
-          const top = y(i === 0 ? 100 : LEVEL_BANDS[i - 1].min);
+          const top = y(i === 0 ? 100 : LEVEL_BANDS[i - 1]!.min); // safe: i > 0 here, i-1 in-bounds
           const bottom = y(band.min);
           return <rect key={band.min} x={0} y={top} width={W} height={Math.max(0, bottom - top)} fill={band.color} />;
         })}

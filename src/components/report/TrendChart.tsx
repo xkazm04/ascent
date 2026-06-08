@@ -41,7 +41,7 @@ export function Sparkline({
   const path = points
     .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.score).toFixed(1)}`)
     .join(" ");
-  const last = points[points.length - 1].score;
+  const last = points[points.length - 1]!.score; // safe: length > 0 (guarded above)
   const a = hover.active;
 
   return (
@@ -70,18 +70,19 @@ export function Sparkline({
         {a !== null && (
           <g>
             <line x1={x(a)} x2={x(a)} y1={0} y2={height} stroke="#475569" strokeWidth={1} strokeDasharray="2 2" />
-            <circle cx={x(a)} cy={y(points[a].score)} r={3.25} fill={scoreHex(points[a].score)} stroke="#020617" strokeWidth={1.25} />
+            <circle cx={x(a)} cy={y(points[a]!.score)} r={3.25} fill={scoreHex(points[a]!.score)} stroke="#020617" strokeWidth={1.25} />
           </g>
         )}
         <rect x={0} y={0} width={width} height={height} fill="transparent" />
       </svg>
       {a !== null && (
-        <ChartTooltip xFrac={x(a) / width} yFrac={y(points[a].score) / height}>
+        // safe: a is a valid index into points (from useChartHover over points); a > 0 guards a-1
+        <ChartTooltip xFrac={x(a) / width} yFrac={y(points[a]!.score) / height}>
           <PointTooltip
-            score={points[a].score}
-            at={points[a].at}
-            engine={points[a].engine}
-            delta={a > 0 ? points[a].score - points[a - 1].score : null}
+            score={points[a]!.score}
+            at={points[a]!.at}
+            engine={points[a]!.engine}
+            delta={a > 0 ? points[a]!.score - points[a - 1]!.score : null}
           />
         </ChartTooltip>
       )}
@@ -142,7 +143,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         {/* level bands + their L-id labels — a non-color cue so each shaded range is identifiable
             (the bands previously carried meaning in near-invisible fill opacity alone) */}
         {LEVEL_BANDS.map((b, i) => {
-          const top = yFor(i === 0 ? 100 : LEVEL_BANDS[i - 1].min);
+          const top = yFor(i === 0 ? 100 : LEVEL_BANDS[i - 1]!.min); // safe: i > 0 here, i-1 in-bounds
           const bottom = yFor(b.min);
           return (
             <g key={b.min}>
@@ -169,7 +170,8 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         {/* line + points */}
         {/* Line color follows the latest score (red→green ramp), matching DimLine + Sparkline. */}
         {points.length > 1 && (
-          <path d={linePath} fill="none" stroke={scoreHex(points[points.length - 1].score)} strokeWidth={2.5} />
+          // safe: length > 1, so the last index is in-bounds
+          <path d={linePath} fill="none" stroke={scoreHex(points[points.length - 1]!.score)} strokeWidth={2.5} />
         )}
         {points.map((p, i) => (
           <g key={i}>
@@ -183,7 +185,8 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         ))}
         {/* hovered point highlight */}
         {a !== null && (
-          <circle cx={xFor(a)} cy={yFor(points[a].score)} r={6.5} fill="none" stroke={scoreHex(points[a].score)} strokeWidth={2} />
+          // safe: a is a valid index into points (from useChartHover over points)
+          <circle cx={xFor(a)} cy={yFor(points[a]!.score)} r={6.5} fill="none" stroke={scoreHex(points[a]!.score)} strokeWidth={2} />
         )}
         {/* last value label — anchored to the right edge when it would otherwise spill past the
             viewBox (the last point sits at the right of the plot), so it never clips */}
@@ -191,16 +194,17 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
           (() => {
             const lastX = xFor(points.length - 1);
             const atEdge = lastX + 8 + 24 > W;
+            const lastScore = points[points.length - 1]!.score; // safe: length > 0, last index in-bounds
             return (
               <text
                 x={atEdge ? W - 2 : lastX + 8}
-                y={yFor(points[points.length - 1].score) + 3}
+                y={yFor(lastScore) + 3}
                 textAnchor={atEdge ? "end" : "start"}
                 fontSize={12}
                 fontWeight={700}
-                fill={scoreHex(points[points.length - 1].score)}
+                fill={scoreHex(lastScore)}
               >
-                {points[points.length - 1].score}
+                {lastScore}
               </text>
             );
           })()}
@@ -208,14 +212,15 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         <rect x={0} y={0} width={W} height={H} fill="transparent" />
       </svg>
       {a !== null && (
-        <ChartTooltip xFrac={xFor(a) / W} yFrac={yFor(points[a].score) / H}>
+        // safe: a is a valid index into points (from useChartHover over points); a > 0 guards a-1
+        <ChartTooltip xFrac={xFor(a) / W} yFrac={yFor(points[a]!.score) / H}>
           <PointTooltip
-            score={points[a].score}
-            at={points[a].at}
-            engine={points[a].engine}
-            delta={a > 0 ? points[a].score - points[a - 1].score : null}
-            sha={points[a].sha}
-            linked={Boolean(points[a].href)}
+            score={points[a]!.score}
+            at={points[a]!.at}
+            engine={points[a]!.engine}
+            delta={a > 0 ? points[a]!.score - points[a - 1]!.score : null}
+            sha={points[a]!.sha}
+            linked={Boolean(points[a]!.href)}
           />
         </ChartTooltip>
       )}

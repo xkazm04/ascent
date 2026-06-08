@@ -193,7 +193,7 @@ export async function listDueRescans(limit = 100): Promise<DueRescan[]> {
   const queues = [...byOrg.values()];
   const out: DueRescan[] = [];
   for (let i = 0; out.length < limit && queues.some((q) => q.length > 0); i++) {
-    const next = queues[i % queues.length].shift();
+    const next = queues[i % queues.length]!.shift(); // safe: i % queues.length is always a valid index
     if (next) out.push(next);
   }
   return out;
@@ -458,7 +458,7 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
         busFactor += 1;
         if (acc > total / 2) break;
       }
-      const topShare = total ? Math.round((sorted[0].commits / total) * 100) : 0;
+      const topShare = total ? Math.round(((sorted[0]?.commits ?? 0) / total) * 100) : 0;
       return {
         fullName,
         name,
@@ -612,13 +612,16 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   const dimSum: Record<string, { sum: number; n: number }> = {};
   for (const r of scanned)
     for (const d of r.latest!.dims) {
-      dimSum[d.dimId] = dimSum[d.dimId] || { sum: 0, n: 0 };
-      dimSum[d.dimId].sum += d.score;
-      dimSum[d.dimId].n += 1;
+      const entry = (dimSum[d.dimId] = dimSum[d.dimId] || { sum: 0, n: 0 });
+      entry.sum += d.score;
+      entry.n += 1;
     }
   const dimAverages = Object.keys(dimSum)
     .sort()
-    .map((dimId) => ({ dimId, avg: Math.round(dimSum[dimId].sum / dimSum[dimId].n) }));
+    .map((dimId) => {
+      const entry = dimSum[dimId]!; // safe: dimId comes from Object.keys(dimSum)
+      return { dimId, avg: Math.round(entry.sum / entry.n) };
+    });
 
   // Org maturity trend: avg overall per day across scans within the window.
   const allScans = await prisma.scan.findMany({
@@ -638,7 +641,10 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   }
   const trend = Object.keys(byDay)
     .sort()
-    .map((date) => ({ date, avg: Math.round(byDay[date].sum / byDay[date].n) }));
+    .map((date) => {
+      const entry = byDay[date]!; // safe: date comes from Object.keys(byDay)
+      return { date, avg: Math.round(entry.sum / entry.n) };
+    });
 
   // Project where the org maturity trend is heading from its per-day history.
   const forecast = forecastTrajectory(trend.map((t) => ({ date: t.date, value: t.avg })));
@@ -802,7 +808,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     for (const arr of byRepo.values()) {
       const now = arr[0]; // latest (rows are scannedAt desc)
       const prev = arr.find((s) => s.scannedAt <= start);
-      if (!prev || prev === now) continue; // no baseline, or nothing moved within the window
+      if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev));
     }
   } else {
@@ -820,7 +826,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     });
     for (const r of repos) {
       if (r.scans.length < 2) continue;
-      const [now, prev] = r.scans;
+      const [now, prev] = r.scans as [ScanLite, ScanLite]; // safe: length >= 2 checked above
       moves.push(buildMove(r.fullName, r.name, now, prev));
     }
   }
@@ -1896,8 +1902,8 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
         .filter((x): x is { t: TeamRollup; d: TeamDimAvg } => !!x.d);
       if (scored.length < 2) continue;
       const sorted = [...scored].sort((a, b) => b.d.avg - a.d.avg);
-      const mentor = sorted[0];
-      const learner = sorted[sorted.length - 1];
+      const mentor = sorted[0]!; // safe: scored.length >= 2 checked above
+      const learner = sorted[sorted.length - 1]!; // safe: scored.length >= 2 checked above
       if (mentor.t.slug === learner.t.slug) continue;
       if (mentor.d.avg < TEAM_STRONG || learner.d.avg >= TEAM_WEAK) continue; // need a real strong→weak gap
       const gap = mentor.d.avg - learner.d.avg;

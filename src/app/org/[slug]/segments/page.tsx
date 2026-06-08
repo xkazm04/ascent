@@ -78,7 +78,7 @@ export default async function OrgSegments({
   // when there's only one segment to compare against the org baseline).
   const aParam = first(sp.a);
   const bParam = first(sp.b);
-  const aId = aParam && ids.has(aParam) ? aParam : options[0].id;
+  const aId = aParam && ids.has(aParam) ? aParam : options[0]!.id; // safe: summaries non-empty above, each maps to an option
   const bId = bParam && ids.has(bParam) && bParam !== aId ? bParam : options.find((o) => o.id !== aId)?.id ?? null;
 
   const comparison = await compareSegments(slug, aId, bId);

@@ -118,8 +118,8 @@ export function simulateFleet(
   });
 
   const repoDeltas: RepoSimDelta[] = repos.map((r, i) => {
-    const b = before[i];
-    const a = after[i];
+    const b = before[i]!; // safe: before is repos.map(...), so same length/index as repos
+    const a = after[i]!; // safe: after is repos.map(...), so same length/index as repos
     const levelBefore = levelForScore(b.overall).id;
     const levelAfter = levelForScore(a.overall).id;
     return {

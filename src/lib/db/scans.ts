@@ -808,7 +808,7 @@ export async function getScanComparison(
   // the baseline (defaults to the scan immediately older than `after`). Honor requested
   // ids only when they belong to this repo's scan set.
   const ids = new Set(scans.map((s) => s.id));
-  const afterId = opts.afterId && ids.has(opts.afterId) ? opts.afterId : scans[0].id;
+  const afterId = opts.afterId && ids.has(opts.afterId) ? opts.afterId : scans[0]!.id; // safe: scans.length > 0 checked above
   const afterIdx = scans.findIndex((s) => s.id === afterId);
   const defaultBeforeId = scans[afterIdx + 1]?.id ?? scans.find((s) => s.id !== afterId)?.id ?? null;
   const beforeId = opts.beforeId && ids.has(opts.beforeId) ? opts.beforeId : defaultBeforeId;
@@ -1366,8 +1366,9 @@ function decodeAuditCursor(cursor: string | null | undefined): { at: Date; id: s
   if (!cursor) return null;
   try {
     const [iso, id] = Buffer.from(cursor, "base64url").toString("utf8").split("|");
+    if (!iso || !id) return null;
     const at = new Date(iso);
-    if (!id || Number.isNaN(at.getTime())) return null;
+    if (Number.isNaN(at.getTime())) return null;
     return { at, id };
   } catch {
     return null;

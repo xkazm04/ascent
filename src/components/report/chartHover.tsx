@@ -25,7 +25,7 @@ export function useChartHover(xs: number[], viewBoxWidth: number) {
     let best = 0;
     let bestDist = Infinity;
     for (let i = 0; i < xs.length; i++) {
-      const dist = Math.abs(xs[i] - vbX);
+      const dist = Math.abs(xs[i]! - vbX); // safe: i bounded by xs.length
       if (dist < bestDist) {
         bestDist = dist;
         best = i;

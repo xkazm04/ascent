@@ -233,7 +233,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     let resolved: Awaited<ReturnType<LLMProvider["assess"]>> | null = null;
     let lastErr: unknown;
     for (let i = 0; i < plan.length; i++) {
-      const step = plan[i];
+      const step = plan[i]!; // safe: i bounded by plan.length
       try {
         if (i > 0) {
           await sleep(LLM_RETRY_MS);

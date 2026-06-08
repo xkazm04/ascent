@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { DimensionId, LevelId, LlmRoadmapItem, PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
+import type { DimensionId, Effort, Impact, LevelId, LlmRoadmapItem, PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { parseRepositoryHistory } from "@/lib/report/validate";
 import { ARCHETYPE_LABEL, DIMENSION_BY_ID, LEVELS, LLM_GUARDBAND, axisScore } from "@/lib/maturity/model";
@@ -432,7 +432,7 @@ function ReportTabBar({
     else if (e.key === "End") next = last;
     else return;
     e.preventDefault();
-    onSelect(tabs[next].id);
+    onSelect(tabs[next]!.id); // safe: `next` is clamped to [0, tabs.length - 1] above
     btnRefs.current[next]?.focus();
   }
 
@@ -802,7 +802,7 @@ function DimensionCard({
                 <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Trend</span>
                 <Sparkline points={series} />
                 <span className="text-sm text-slate-500">
-                  {series[0].score} → {series[series.length - 1].score}
+                  {series[0]!.score} → {series[series.length - 1]!.score}
                 </span>
               </div>
             )}
@@ -924,8 +924,8 @@ function TrustLadder({ currentId }: { currentId: LevelId }) {
   );
 }
 
-const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
-const EFFORT_RANK: Record<string, number> = { low: 1, medium: 2, high: 3 };
+const IMPACT_RANK: Record<Impact, number> = { high: 3, medium: 2, low: 1 };
+const EFFORT_RANK: Record<Effort, number> = { low: 1, medium: 2, high: 3 };
 const priorityScore = (it: LlmRoadmapItem) => IMPACT_RANK[it.impact] * 10 - EFFORT_RANK[it.effort];
 const isQuickWin = (it: LlmRoadmapItem) => it.impact === "high" && it.effort !== "high";
 

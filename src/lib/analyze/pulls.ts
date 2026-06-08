@@ -29,7 +29,8 @@ function median(xs: number[]): number | null {
   if (!finite.length) return null;
   const s = finite.sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
-  const v = s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  // safe: `finite` is non-empty (checked above), so mid is in-bounds; for even length mid >= 1.
+  const v = s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
   return Math.round(v * 10) / 10;
 }
 // Returns null when either timestamp is missing/malformed, so a bad GraphQL date can't poison the

@@ -435,7 +435,7 @@ const d7: Detector = (idx, snap, nowMs) => {
   else if (aiCommits > 0) s.add(15, "AI/bot-attributed commits present", `${aiCommits} of ${commits.length}`);
 
   // Commit hygiene now carries more weight than mere AI attribution.
-  const convCommits = commits.filter((c) => CONVENTIONAL.test(c.message.split("\n")[0])).length;
+  const convCommits = commits.filter((c) => CONVENTIONAL.test(c.message.split("\n")[0] ?? "")).length;
   const convFrac = convCommits / commits.length;
   if (convFrac >= 0.5) s.add(35, "Conventional commit style", `${Math.round(convFrac * 100)}%`);
   else if (convFrac >= 0.2) s.add(20, "Some conventional commits", `${Math.round(convFrac * 100)}%`);

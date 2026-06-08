@@ -14,7 +14,7 @@ function parseRepo(input: string): { owner: string; repo: string } | null {
   s = s.replace(/^@/, "");
   const parts = s.split("/").filter(Boolean);
   if (parts.length < 2) return null;
-  const [owner, repo] = parts;
+  const [owner = "", repo = ""] = parts;
   const ok = /^[A-Za-z0-9_.-]+$/;
   if (!ok.test(owner) || !ok.test(repo)) return null;
   return { owner, repo };

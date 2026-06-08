@@ -83,7 +83,7 @@ export async function GET(request: Request) {
       const token = tokenByOrg.get(r.orgSlug);
       // Capture the prior persisted report BEFORE the new scan lands, so we can diff for a
       // regression alert once the fresh scan is stored.
-      const [owner, name] = r.fullName.split("/");
+      const [owner = "", name = ""] = r.fullName.split("/");
       const prev = await getScanReportByCommit(owner, name, { orgSlug: r.orgSlug }).catch(() => null);
 
       const report = await scanRepository(r.fullName, { token });

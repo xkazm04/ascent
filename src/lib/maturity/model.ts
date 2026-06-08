@@ -174,7 +174,7 @@ export function clamp(n: number, min = 0, max = 100): number {
 /** Map an overall 0..100 score to its maturity level. */
 export function levelForScore(score: number): MaturityLevel {
   const s = clamp(Math.round(score));
-  return LEVELS.find((l) => s >= l.band[0] && s <= l.band[1]) ?? LEVELS[0];
+  return LEVELS.find((l) => s >= l.band[0] && s <= l.band[1]) ?? LEVELS[0]!; // safe: LEVELS is a non-empty const
 }
 
 /**

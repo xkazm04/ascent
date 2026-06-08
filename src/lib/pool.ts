@@ -26,7 +26,7 @@ export async function mapPool<T, R>(
     // index and runs it to completion before claiming another.
     while (cursor < n) {
       const i = cursor++;
-      results[i] = await fn(items[i], i);
+      results[i] = await fn(items[i]!, i); // safe: `i < n` (= items.length) guards the loop
     }
   }
   await Promise.all(Array.from({ length: lanes }, () => worker()));
