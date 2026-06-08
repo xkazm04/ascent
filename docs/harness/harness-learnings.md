@@ -227,3 +227,41 @@
   (`docs/harness/feature-scout-2026-06-08/INDEX.md`) lays out waves 1 (usage→billing), 3 (fleet reliability incl. the
   one Critical **ORGS-1** cron starvation), 4 (GitHub App sync), 5 (scoring depth), 6 (scan reach), 7 (export/alerts/
   compliance), plus the mediums/lows.
+
+## Feature Scout Pipeline B — "Fleet reliability" wave (2026-06-08, wave 3)
+
+### Structural facts
+- **2026-06-08** — `src/lib/pool.ts` `mapPool(items, concurrency, fn)` is the shared bounded-concurrency
+  fan-out for the fleet scan paths (`org/scan`, `org/import`, `cron/rescan`), default `SCAN_CONCURRENCY=4`.
+  `fn` owns its errors (callers try/catch + emit per repo); counters mutate race-free in single-threaded lanes.
+- **2026-06-08** — The cron rescan (`cron/rescan/route.ts`) now: pre-resolves ONE installation token per
+  distinct org (concurrent lanes would otherwise race to mint the same), scans with `mapPool`, and ALWAYS
+  advances `nextScanAt` — `advanceSchedule` (cadence) on success, `advanceScheduleAfterFailure` (6h backoff)
+  on failure. `listDueRescans` round-robins across orgs over a `limit*4` candidate set for fairness.
+- **2026-06-08** — The LLM call in `scan.ts` is resilient: an ordered plan (primary → 1 retry@500ms →
+  `LLM_FALLBACK_PROVIDER` via `providerByName()` → mock). The provider that actually scored becomes
+  `report.engine`; `llmFailed` is only set when EVERY real attempt failed. `getProvider({forceMock})` only
+  takes forceMock — use `providerByName(name)` to build a specific provider.
+- **2026-06-08** — `Repository` gained `lastScanStatus`/`lastScanError`/`lastScanAttemptAt` (additive nullable;
+  schema.prisma + init.sql). `recordScanOutcome(orgSlug, fullName, {ok,error})` writes them from the 3 scan
+  paths; surfaced on `OrgRepoRow`/`getOrgRollup` and as a "⚠ scan failed" chip on the repositories leaderboard.
+- **2026-06-08** — `POST /api/org/scan` accepts optional `repos:[]` (explicit set) and `staleOnlyDays:N`
+  (skip repos scanned within N days); `listWatchedRepos` now selects `lastScanAt` to support the stale filter.
+
+### Conventions enforced
+- **2026-06-08** — Fleet loops use `mapPool`, never bare `for ... await` over network/LLM-bound work.
+- **2026-06-08** — A scheduled-queue cursor (`nextScanAt`) must advance on FAILURE too (with backoff), or one
+  broken item blocks the whole oldest-first queue.
+
+### Notes / caveats
+- **2026-06-08** — ORGS-3's schema columns were verified by `prisma generate` + `tsc` + `next build` only — NO
+  live DB migration was run (DB-less here). Deploy must `prisma migrate deploy` / `db push`. Columns are
+  additive + nullable so this is safe; `recordScanOutcome` no-ops without a DB.
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 3)
+- **Per-row "Rescan" on the leaderboard**: ORGD-3 shipped the `repos:[fullName]` API path but not a per-row UI
+  trigger — wiring a small client control into the repositories table is a clean follow-up.
+- **Outcome on the public-funnel import**: `recordScanOutcome` is wired into `org/import` only when `watch=true`
+  (the row exists); the anonymous public funnel (watch=false) is skipped.
+- **Waves 1, 4–7 of the scan remain** (see INDEX): usage→billing, GitHub App sync, scoring depth, scan reach,
+  export/alerts/compliance.
