@@ -1,0 +1,71 @@
+// OpenAI / Azure-OpenAI / OpenAI-compatible provider (vLLM, Ollama, LM Studio, …) — the most-
+// requested enterprise LLM, which the closed 4-way ProviderName union previously locked out of real
+// scans entirely. Fetch-based (no SDK dependency added). Uses JSON mode (response_format:
+// json_object) plus the shared assessment prompt + the validateAssessment safety net — the most
+// portable path across OpenAI-compatible endpoints (not all support strict json_schema).
+//
+// Config: OPENAI_API_KEY (required), OPENAI_MODEL (default gpt-4o-mini), OPENAI_BASE_URL (override
+// for Azure / self-hosted; default https://api.openai.com/v1). Select with LLM_PROVIDER=openai.
+
+import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
+import { validateAssessment } from "@/lib/llm/provider";
+import type { LlmAssessment } from "@/lib/types";
+import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
+import { parseJsonLoose } from "@/lib/llm/json";
+import { envNumber } from "@/lib/llm/config";
+
+export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60_000;
+
+export class OpenAiProvider implements LLMProvider {
+  readonly name = "openai" as const;
+  readonly model: string;
+  private apiKey: string;
+  private baseUrl: string;
+
+  constructor(opts: { apiKey?: string; model?: string; baseUrl?: string } = {}) {
+    this.apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY ?? "";
+    this.model = opts.model || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
+    this.baseUrl = (opts.baseUrl || process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
+  }
+
+  async assess(input: LlmScoreInput, opts: AssessOptions = {}): Promise<LlmAssessment> {
+    if (!this.apiKey) throw new Error("OPENAI_API_KEY is not set.");
+    const { system, user } = buildAssessmentPrompt(input);
+
+    // Abort on client disconnect OR our own timeout, whichever fires first.
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort();
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
+        body: JSON.stringify({
+          model: this.model,
+          temperature: envNumber("LLM_TEMPERATURE", 0.2),
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        }),
+        signal: ctrl.signal,
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`OpenAI request failed (${res.status}): ${body.slice(0, 200)}`);
+      }
+      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const text = data.choices?.[0]?.message?.content;
+      if (!text) throw new Error("Empty response from OpenAI.");
+      return validateAssessment(parseJsonLoose(text));
+    } finally {
+      clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onAbort);
+    }
+  }
+}

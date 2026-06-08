@@ -15,6 +15,7 @@ import type { ProviderName } from "@/lib/types";
 import { GeminiProvider } from "@/lib/llm/gemini";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { ClaudeCliProvider } from "@/lib/llm/claude-cli";
+import { OpenAiProvider } from "@/lib/llm/openai";
 import { MockProvider } from "@/lib/llm/mock";
 
 export type ProviderChoice = "auto" | ProviderName;
@@ -25,7 +26,7 @@ export function hasLlmKey(): boolean {
 
 export function resolveProviderChoice(): ProviderChoice {
   const v = (process.env.LLM_PROVIDER ?? "auto").toLowerCase();
-  return (["auto", "gemini", "bedrock", "mock", "claude-cli"] as const).includes(
+  return (["auto", "gemini", "bedrock", "openai", "mock", "claude-cli"] as const).includes(
     v as ProviderChoice,
   )
     ? (v as ProviderChoice)
@@ -44,6 +45,8 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       return new MockProvider();
     case "bedrock":
       return new BedrockProvider();
+    case "openai":
+      return new OpenAiProvider();
     case "claude-cli":
       return new ClaudeCliProvider();
     case "gemini":
@@ -66,6 +69,8 @@ export function providerByName(name: string | undefined | null): LLMProvider | n
       return geminiOrMock();
     case "bedrock":
       return new BedrockProvider();
+    case "openai":
+      return new OpenAiProvider();
     case "claude-cli":
       return new ClaudeCliProvider();
     default:
