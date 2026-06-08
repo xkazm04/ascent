@@ -4,6 +4,8 @@
 import { NextResponse } from "next/server";
 import { isAppConfigured, listInstallationRepos } from "@/lib/github/app";
 import { getInstallationIdForOwner, getRepoStates, isDbConfigured } from "@/lib/db";
+import { isAuthConfigured } from "@/lib/auth";
+import { sessionHasInstallation } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +25,19 @@ export async function GET(request: Request) {
   }
   if (!installationId) {
     return NextResponse.json({ error: "No installation found for that org." }, { status: 404 });
+  }
+
+  // Authorize BEFORE minting a token + listing PRIVATE repos: this endpoint returns an
+  // installation's full repo list (including private rows), so an unauthorized caller would be a
+  // cross-tenant IDOR. Gate on the EFFECTIVE installation id (not the ?org= param), so a caller
+  // can't pair their own ?org= with a victim's ?installation_id= — the id is what's actually used.
+  // The connect UI only lists repos for installations already in the session; a just-installed org
+  // re-syncs first (see /connect). Auth-off deploys stay open (local/demo), per the authz model.
+  if (isAuthConfigured() && !(await sessionHasInstallation(installationId))) {
+    return NextResponse.json(
+      { error: "You don't have access to this installation." },
+      { status: 403 },
+    );
   }
 
   try {

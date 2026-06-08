@@ -92,13 +92,21 @@ export default async function ConnectPage({
     );
   }
 
-  // Build the installations to display: the signed-in user's, plus any just-installed
-  // one carried in the query (auth-off mode relies entirely on the query).
+  // Build the installations to display: the signed-in user's (from the session). A just-installed
+  // org arrives via the setup redirect (?org=&installation_id=) but isn't baked into the session
+  // until a re-sync. /api/app/repos now authorizes against the session, so listing a
+  // not-yet-in-session org would 403 — when auth is on we surface a one-click re-sync for it
+  // instead of a panel that can't load. Auth-off has no session to re-sync, so the query-carried
+  // org renders directly (the API gate is open in that mode).
   const installs: { login: string; id?: string }[] = (session?.installations ?? []).map((i) => ({
     login: i.login,
     id: String(i.id),
   }));
-  if (org && !installs.some((i) => (installation_id ? i.id === installation_id : i.login.toLowerCase() === org.toLowerCase()))) {
+  const orgInSession =
+    !org ||
+    installs.some((i) => (installation_id ? i.id === installation_id : i.login.toLowerCase() === org.toLowerCase()));
+  const pendingInstall = org && isAuthConfigured() && !orgInSession ? org : null;
+  if (org && !isAuthConfigured() && !orgInSession) {
     installs.push({ login: org, id: installation_id });
   }
 
@@ -119,8 +127,8 @@ export default async function ConnectPage({
             steps={[
               {
                 label: "Install the Ascent GitHub App",
-                done: installs.length > 0,
-                href: installs.length === 0 ? installUrl ?? undefined : undefined,
+                done: installs.length > 0 || Boolean(pendingInstall),
+                href: installs.length === 0 && !pendingInstall ? installUrl ?? undefined : undefined,
                 hint: "Grant read-only access to the repos you want scanned",
               },
               { label: "Pick repositories to watch", done: false, hint: "Choose which repos Ascent should scan" },
@@ -223,7 +231,28 @@ export default async function ConnectPage({
             </div>
           </div>
         )}
-        {installs.length === 0 ? (
+        {pendingInstall && (
+          <section className="mt-8 rounded-2xl border border-accent/30 bg-accent/5 p-6">
+            <h2 className="font-semibold text-white">
+              Finish connecting <span className="font-mono">{pendingInstall}</span>
+            </h2>
+            <p className="mt-2 text-sm text-slate-400">
+              The Ascent GitHub App was installed on{" "}
+              <span className="font-mono">{pendingInstall}</span>. Re-sync your GitHub access to
+              load its repositories — this refreshes your session without signing you out.
+            </p>
+            <div className="mt-4">
+              <GitHubSignInButton
+                variant="nav"
+                resync
+                next={`/connect?org=${encodeURIComponent(pendingInstall)}`}
+                label="Re-sync to load repositories"
+                pendingLabel="Re-syncing…"
+              />
+            </div>
+          </section>
+        )}
+        {installs.length === 0 && !pendingInstall ? (
           <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="font-semibold text-white">Install the GitHub App</h2>
             <p className="mt-2 text-sm text-slate-400">
@@ -243,7 +272,7 @@ export default async function ConnectPage({
               </p>
             )}
           </div>
-        ) : (
+        ) : installs.length > 0 ? (
           <div className="mt-8 space-y-8">
             {installUrl && (
               <a
@@ -262,7 +291,7 @@ export default async function ConnectPage({
               </div>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     </Shell>
   );
