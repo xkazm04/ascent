@@ -5,6 +5,7 @@
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { bumpSessionVersion } from "@/lib/db/sessions";
+import { invalidateInstallationToken } from "@/lib/github/app";
 
 export async function upsertInstallation(opts: {
   login: string;
@@ -37,6 +38,11 @@ export async function upsertInstallation(opts: {
 }
 
 export async function removeInstallation(installationId: number | string): Promise<void> {
+  // Drop any cached installation token immediately (in-memory, independent of the DB): a cached
+  // token can outlive the installation's access, and a deleted-then-reissued installation reusing
+  // the same id must not be served the stale token. Run this before the DB guard so it fires even
+  // on a DB-less deployment (the App can be configured without a database).
+  invalidateInstallationToken(installationId);
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
   const installId = String(installationId);
