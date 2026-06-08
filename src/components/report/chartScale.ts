@@ -21,7 +21,14 @@ export const BAND_EDGES = [0, 25, 45, 65, 85, 100] as const;
  */
 export function vScale(height: number, top: number, bottom: number): (v: number) => number {
   const span = height - top - bottom;
-  return (v) => top + span * (1 - v / 100);
+  // Clamp + NaN-guard at the scale boundary: an unvalidated history point (a NaN or out-of-range
+  // score from a drifted/bad /api/history body) would otherwise produce a NaN y — silently breaking
+  // the whole <path> — or a point plotted outside the chart box. Every chart routes through vScale,
+  // so one guard protects them all. (scoreHex already clamps colour; the geometry didn't.)
+  return (v) => {
+    const c = Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+    return top + span * (1 - c / 100);
+  };
 }
 
 /**

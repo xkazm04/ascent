@@ -20,7 +20,11 @@ export function ScoreRing({
   const stroke = 14;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const offset = c * (1 - score / 100);
+  // Clamp + NaN-guard: a NaN/out-of-range score would make strokeDashoffset NaN and render the
+  // ring as a full circle (reads as a perfect 100). scoreHex already clamps the colour; clamp the
+  // geometry too so the arc length can't lie.
+  const safeScore = Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0;
+  const offset = c * (1 - safeScore / 100);
   const color = scoreHex(score);
   const cx = size / 2;
   const titleId = useId();
