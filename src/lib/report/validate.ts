@@ -121,7 +121,10 @@ export function parseRepositoryHistory(data: unknown): RepositoryHistory {
   };
   const rawScans = Array.isArray(root.scans) ? root.scans : [];
   const scans: HistoryPoint[] = rawScans.flatMap((s): HistoryPoint[] => {
-    if (!isObj(s) || !isNum(s.overallScore)) return []; // a point with no usable score is unplottable
+    // Require a usable score AND a parseable scannedAt: an unparseable date blanks the x-axis label
+    // and is fed to forecastTrajectory (date math), so a point we can't place in time is unplottable.
+    if (!isObj(s) || !isNum(s.overallScore) || !isStr(s.scannedAt) || Number.isNaN(Date.parse(s.scannedAt)))
+      return [];
     const dims = Array.isArray(s.dimensions) ? s.dimensions : [];
     return [
       {
