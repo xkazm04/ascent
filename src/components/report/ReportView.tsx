@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { DimensionId, LevelId, LlmRoadmapItem, PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
 import type { RepositoryHistory } from "@/lib/db/scans";
+import { parseRepositoryHistory } from "@/lib/report/validate";
 import { ARCHETYPE_LABEL, DIMENSION_BY_ID, LEVELS, LLM_GUARDBAND, axisScore } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, contributions, projectDimensionClose } from "@/lib/scoring/engine";
 import { evaluateGate } from "@/lib/scoring/gate";
@@ -37,7 +38,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
           fetch(`/api/history?repo=${encodeURIComponent(repoRef)}`),
           fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`),
         ]);
-        if (active && h.ok) setHistory((await h.json()) as RepositoryHistory);
+        if (active && h.ok) setHistory(parseRepositoryHistory(await h.json()));
         if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
       } catch {
         // Couldn't reach the history endpoint (offline / transient). Surface it in the trend panel

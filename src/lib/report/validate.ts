@@ -8,6 +8,7 @@
 // instead of a thrown exception.
 
 import type { ScanReport } from "@/lib/types";
+import type { HistoryPoint, RepositoryHistory } from "@/lib/db/scans";
 
 export type ParseResult =
   | { ok: true; report: ScanReport }
@@ -100,4 +101,43 @@ export function parseScanReport(data: unknown): ParseResult {
   if (!Array.isArray(r.discrepancies)) return fail("The report's discrepancies are malformed.");
 
   return { ok: true, report: data as unknown as ScanReport };
+}
+
+/**
+ * Coerce an untrusted /api/history body into a safe RepositoryHistory. The trend charts iterate
+ * `scans` and read each point's numeric (overallScore, dimensions[].score) and string fields, so a
+ * 200 with a drifted/wrong-shaped body (scans not an array, a non-numeric score, null) would throw
+ * mid-render and white-screen the trend section — the asymmetric gap vs. the streamed report, which
+ * already passes through parseScanReport. Mirror that intent: NEVER throw — always return a
+ * well-formed object (empty `scans` on junk), dropping any point that can't be coerced.
+ */
+export function parseRepositoryHistory(data: unknown): RepositoryHistory {
+  const root = isObj(data) ? data : {};
+  const repoObj = isObj(root.repo) ? root.repo : {};
+  const repo = {
+    owner: isStr(repoObj.owner) ? repoObj.owner : "",
+    name: isStr(repoObj.name) ? repoObj.name : "",
+    fullName: isStr(repoObj.fullName) ? repoObj.fullName : "",
+  };
+  const rawScans = Array.isArray(root.scans) ? root.scans : [];
+  const scans: HistoryPoint[] = rawScans.flatMap((s): HistoryPoint[] => {
+    if (!isObj(s) || !isNum(s.overallScore)) return []; // a point with no usable score is unplottable
+    const dims = Array.isArray(s.dimensions) ? s.dimensions : [];
+    return [
+      {
+        id: isStr(s.id) ? s.id : "",
+        headSha: isStr(s.headSha) ? s.headSha : null,
+        overallScore: s.overallScore,
+        level: isStr(s.level) ? s.level : "",
+        levelName: isStr(s.levelName) ? s.levelName : "",
+        confidence: isNum(s.confidence) ? s.confidence : 0,
+        engineProvider: isStr(s.engineProvider) ? s.engineProvider : "",
+        scannedAt: isStr(s.scannedAt) ? s.scannedAt : "",
+        dimensions: dims.flatMap((d) =>
+          isObj(d) && isStr(d.dimId) && isNum(d.score) ? [{ dimId: d.dimId, score: d.score }] : [],
+        ),
+      },
+    ];
+  });
+  return { repo, scans };
 }

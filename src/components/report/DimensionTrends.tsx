@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui";
 import type { HistoryPoint, RepositoryHistory } from "@/lib/db/scans";
+import { parseRepositoryHistory } from "@/lib/report/validate";
 import { EmptyState } from "@/components/EmptyState";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
@@ -186,7 +187,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
     try {
       const res = await fetch(`/api/history?repo=${encodeURIComponent(history.repo.fullName)}`);
       if (!res.ok) throw new Error(`history ${res.status}`);
-      setFull((await res.json()) as RepositoryHistory);
+      setFull(parseRepositoryHistory(await res.json()));
       setDimState("done");
     } catch {
       setDimState("error");
