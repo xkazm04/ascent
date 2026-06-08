@@ -200,10 +200,19 @@ function badgeSvg(opts: {
   return svg;
 }
 
-function respond(svg: string, init?: { status?: number; retryAfter?: number }) {
+// Cache policy is branched by OUTCOME. A transient/throttled/neutral badge must not share the long
+// public TTL of a real resolved level — otherwise a 10-min CDN entry pins "rate limited"/"unknown"
+// for every README viewer past the blip. And a query-customized body must not be served
+// cross-consumer by a path-only CDN — only the canonical, un-customized resolved badge is shared.
+const CACHE_RESOLVED = "public, max-age=600, s-maxage=600"; // a real, un-customized level / gate
+const CACHE_CUSTOM = "private, max-age=600"; //               body varies by caller params → not shared
+const CACHE_NEUTRAL = "public, max-age=30, s-maxage=30"; //   unknown / private — may change soon
+const CACHE_TRANSIENT = "no-store"; //                        429 / upstream blip — never cache
+
+function respond(svg: string, init?: { status?: number; retryAfter?: number; cache?: string }) {
   const headers: Record<string, string> = {
     "content-type": "image/svg+xml; charset=utf-8",
-    "cache-control": "public, max-age=600, s-maxage=600",
+    "cache-control": init?.cache ?? CACHE_RESOLVED,
   };
   if (init?.retryAfter) headers["retry-after"] = String(init.retryAfter);
   return new NextResponse(svg, { status: init?.status ?? 200, headers });
@@ -231,6 +240,11 @@ export async function GET(
   const defaultLabel = gateMode ? "Ascent gate" : "Ascent";
   const label = customLabel ?? defaultLabel;
 
+  // Any query param customizes the body (style/label/color/logo/gate/policy), so a shared CDN
+  // keying on path alone could serve one consumer's variant to another. Only the bare canonical
+  // badge (no query) is shared-cacheable; customized variants are marked private.
+  const customized = [...searchParams.keys()].length > 0;
+
   // 1. Normalize BEFORE validating or keying. GitHub names are case-insensitive and a route
   //    segment can arrive percent-encoded, so `Facebook/React`, `facebook/react`, and
   //    `facebook%2Dreact` must collapse to one identity — otherwise the badge keys a different
@@ -240,14 +254,14 @@ export async function GET(
 
   // 2. Validate the normalized path BEFORE touching scan/cache. Malformed → neutral badge.
   if (!validName(ownerN, 39) || !validName(repoN, 100)) {
-    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }));
+    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_NEUTRAL });
   }
 
   const key = `${ownerN}/${repoN}`;
 
   // 3. Negative cache: a recently-failed repo returns "unknown" without re-scanning.
   if (negGet(key)) {
-    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }));
+    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_NEUTRAL });
   }
 
   // Click-through to the live report (shareable permalink).
@@ -274,7 +288,7 @@ export async function GET(
       if (rateLimited(clientIp(req))) {
         return respond(
           badgeSvg({ label, value: "rate limited", color: resolveColor(customColor, neutral), style, logo }),
-          { status: 429, retryAfter: 60 },
+          { status: 429, retryAfter: 60, cache: CACHE_TRANSIENT },
         );
       }
       // Token-less by construction (noAmbientToken): never ingest a repo with the operator's
@@ -288,7 +302,7 @@ export async function GET(
     // cache can hold a private repo's report left by an AUTHENTICATED scan, so gate on the resolved
     // report too. Serve a neutral "private" badge, never the level / gate verdict.
     if (report.repo.isPrivate) {
-      return respond(badgeSvg({ label, value: "private", color: resolveColor(customColor, neutral), style, logo }));
+      return respond(badgeSvg({ label, value: "private", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_NEUTRAL });
     }
 
     // Gate badge: a green pass / red fail against the (configurable, archetype-aware) policy.
@@ -304,6 +318,7 @@ export async function GET(
           logo,
           href,
         }),
+        { cache: customized ? CACHE_CUSTOM : CACHE_RESOLVED },
       );
     }
 
@@ -319,6 +334,7 @@ export async function GET(
         logo,
         href,
       }),
+      { cache: customized ? CACHE_CUSTOM : CACHE_RESOLVED },
     );
   } catch (err) {
     // Only negative-cache a GENUINE not-found/invalid/empty repo. A transient failure (GitHub rate
@@ -330,6 +346,6 @@ export async function GET(
       err instanceof GitHubError &&
       (err.code === "NOT_FOUND" || err.code === "EMPTY" || err.code === "INVALID_URL");
     if (genuineMiss) negSet(key);
-    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }));
+    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_TRANSIENT });
   }
 }
