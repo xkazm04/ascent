@@ -266,8 +266,18 @@ export async function GET(
           { status: 429, retryAfter: 60 },
         );
       }
-      report = await scanRepository(`${ownerN}/${repoN}`, { mock: true });
+      // Token-less by construction (noAmbientToken): never ingest a repo with the operator's
+      // server PAT on this public endpoint, so a private repo simply 404s → neutral badge below.
+      report = await scanRepository(`${ownerN}/${repoN}`, { mock: true, noAmbientToken: true });
       cacheSet(mockKey, report);
+    }
+
+    // Never disclose a PRIVATE repo's maturity on this public, unauthenticated endpoint. The fresh
+    // scan above is token-less, so a private repo can't be ingested here — but the shared report
+    // cache can hold a private repo's report left by an AUTHENTICATED scan, so gate on the resolved
+    // report too. Serve a neutral "private" badge, never the level / gate verdict.
+    if (report.repo.isPrivate) {
+      return respond(badgeSvg({ label, value: "private", color: resolveColor(customColor, neutral), style, logo }));
     }
 
     // Gate badge: a green pass / red fail against the (configurable, archetype-aware) policy.

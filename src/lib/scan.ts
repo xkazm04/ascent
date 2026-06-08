@@ -31,6 +31,13 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export interface ScanOptions {
   token?: string;
   mock?: boolean;
+  /**
+   * When true, do NOT fall back to the ambient `process.env.GITHUB_TOKEN` if no explicit `token`
+   * is given. Public, unauthenticated surfaces (the README badge) set this so a private repo can't
+   * be ingested with the operator's server PAT — otherwise an anonymous caller could read a
+   * private repo's maturity. Token-less ingestion of a private repo simply 404s → neutral badge.
+   */
+  noAmbientToken?: boolean;
   source?: RepoSource;
   now?: string; // injectable timestamp (tests / determinism)
   onProgress?: ProgressFn;
@@ -97,7 +104,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     baseEmit({ provider: intendedProvider, region: providerRegion, ...p });
 
   const source = opts.source ?? new GitHubPublicSource();
-  const token = opts.token ?? process.env.GITHUB_TOKEN;
+  const token = opts.token ?? (opts.noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
   // Honor client disconnect: every downstream fetch is wired to this signal, and we re-check it
   // at each stage boundary so an abandoned scan stops before the next expensive leg.
   const signal = opts.signal;
