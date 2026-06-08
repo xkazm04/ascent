@@ -516,3 +516,41 @@
   contributor upserts) is not done.
 - Cumulative after wave 3: 6 of 9 criticals closed (added persistence #1/#2). Remaining: maturity #1
   (Wave 4), llm #1 (Wave 5).
+
+## Bug Hunter Pipeline B — "Scoring correctness" wave (2026-06-08, wave 4 — 5 closed, 2 deferred)
+
+### Structural facts
+- **2026-06-08** — `projectScore` (scoring/engine.ts) now reuses `overallScoreFor` over the
+  overridden dimension scores — the SAME weighted-mean the headline uses. It previously renormalized
+  by `Σ d.weight` (`lensW[id] ?? def.weight`) vs overallScoreFor's `lensW[id] ?? 0`; for a lens-missing
+  id those denominators diverged and `projectScore(report,{}) !== report.overallScore`. One mean now.
+- **2026-06-08** — `cheapestPathToNextLevel` checks TRUE reachability first: project all dims→100; if
+  that's below the band floor it's genuinely unreachable (e.g. zero-weight-dim headroom) → clean
+  `reachable:false`. Otherwise the greedy steps are guaranteed to cross.
+- **2026-06-08** — `DimensionSignals.failed?: boolean` (types.ts) marks a detector-THREW placeholder
+  (signalScore:0 is NOT a measurement). `analyzeSignals` sets it in the catch; `assembleReport` drops
+  a failed dim (renormalized out of `overallScoreFor`) + warns, instead of folding a fake 0.
+- **2026-06-08** — `assembleReport` now pushes a `report.warnings` entry when the LLM scored only SOME
+  of the deterministic dimensions ("AI assessed N of M …"), so a partial assessment can't read as a
+  fully AI-validated headline. The blend is unchanged (missing dims already use the signal floor).
+- **2026-06-08** — `buildFallbackRoadmap` derives `levelUnlock` via the `LEVELS` index (omit at the
+  top band), not `Number(id.slice(1))+1` (which gave "L5->L5" / "...->LNaN" on drifted ids).
+
+### Conventions enforced
+- **2026-06-08** — One roll-up, one weight source: every projection routes through `overallScoreFor`.
+- **2026-06-08** — "Couldn't measure" ≠ "measured zero": exclude + flag a failed/missing dimension;
+  never fold a placeholder 0 (deflates) or silently floor it (false confidence).
+
+### Open follow-ups (from Bug Hunter wave 4)
+- **DEFERRED maturity #5 (Medium)** — PR/governance evidence is folded into the signal, fed to the LLM
+  as the calibration anchor, AND used as the guardband center (triple-counted; auditor can't discount
+  an inflated review rate). Fix = separate capped addend or guardband vs the pre-fold signal —
+  **calibration-sensitive**, needs `npm run bench`/gate to confirm no regression. Not run here.
+- **DEFERRED maturity #6 (Medium)** — recommendation PATCH read-then-write, no concurrency guard.
+  Robust fix = version-conditional update (client version → 409); lighter = read-in-tx + withRetry
+  (DSQL-only). Needs a live DB to verify. (Note: W3-7 already moved this function's AUDIT into the tx.)
+- **maturity #1 stricter gate (follow-up)**: the partial-coverage WARNING shipped; an axis-aware
+  `isAssessmentUsable` (reject a one-axis-only assessment → mock) is a calibration-sensitive follow-up.
+- **maturity #4 mock cosmetic**: mock.ts still classifies a failed-detector label as a "strength"
+  (keyless demo only). Classify by score/polarity, not a `/^no/i` label regex.
+- Cumulative after wave 4: 7 of 9 criticals closed (added maturity #1). Remaining: llm #1 (Wave 5).
