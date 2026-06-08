@@ -17,19 +17,19 @@ function SegmentCard({ s }: { s: SegmentSummary }) {
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-medium text-white">{s.name}</span>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">{POSTURE_LABEL[s.posture] ?? s.posture}</span>
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{POSTURE_LABEL[s.posture] ?? s.posture}</span>
       </div>
       <div className="mt-2 flex items-baseline gap-2">
         <span className="font-mono text-3xl font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
           {s.avgOverall}
         </span>
-        <span className="font-mono text-[11px] text-slate-500">{level.id} · {level.name}</span>
+        <span className="font-mono text-sm text-slate-500">{level.id} · {level.name}</span>
       </div>
-      <div className="mt-2 flex gap-4 font-mono text-[11px] text-slate-400">
+      <div className="mt-2 flex gap-4 font-mono text-sm text-slate-400">
         <span>adopt {s.avgAdoption}</span>
         <span>rigor {s.avgRigor}</span>
       </div>
-      <div className="mt-1 font-mono text-[10px] text-slate-600">{s.scannedCount}/{s.repoCount} scanned</div>
+      <div className="mt-1 font-mono text-sm text-slate-600">{s.scannedCount}/{s.repoCount} scanned</div>
     </div>
   );
 }
@@ -38,12 +38,12 @@ function SegmentCard({ s }: { s: SegmentSummary }) {
 function MetricRow({ label, a, b }: { label: string; a: number; b: number }) {
   const d = a - b;
   return (
-    <div className="flex items-center gap-3 text-sm">
+    <div className="flex items-center gap-3 text-base">
       <span className="w-28 shrink-0 text-slate-400">{label}</span>
       <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreHex(a) }}>{a}</span>
       <span className="text-slate-600">·</span>
       <span className="w-10 text-right font-mono tabular-nums" style={{ color: scoreHex(b) }}>{b}</span>
-      <span className="ml-auto font-mono text-xs" style={{ color: deltaHex(d) }}>{fmtDelta(d)}</span>
+      <span className="ml-auto font-mono text-sm" style={{ color: deltaHex(d) }}>{fmtDelta(d)}</span>
     </div>
   );
 }
@@ -121,7 +121,7 @@ export default async function OrgSegments({
                   size="sm"
                   title="Headline metrics"
                   right={
-                    <span className="font-mono text-[11px] text-slate-500">
+                    <span className="font-mono text-sm text-slate-500">
                       <span className="text-slate-300">{comparison.a.name}</span> · <span className="text-slate-300">{comparison.b.name}</span> · Δ
                     </span>
                   }
@@ -138,7 +138,7 @@ export default async function OrgSegments({
                 <SectionHeader size="sm" title="By dimension" />
                 <div className="mt-4 space-y-2">
                   {comparison.dimDeltas.map((d) => (
-                    <div key={d.dimId} className="flex items-center gap-2 text-xs">
+                    <div key={d.dimId} className="flex items-center gap-2 text-sm">
                       <span className="w-16 shrink-0 text-slate-400">{DIMENSION_SHORT[d.dimId as keyof typeof DIMENSION_SHORT] ?? d.dimId}</span>
                       <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.a) }}>{d.a}</span>
                       <Meter className="flex-1" size="sm" value={d.a} color={scoreHex(d.a)} />
@@ -147,16 +147,16 @@ export default async function OrgSegments({
                       <span className="w-9 text-right font-mono" style={{ color: deltaHex(d.delta) }}>{fmtDelta(d.delta)}</span>
                     </div>
                   ))}
-                  {comparison.dimDeltas.length === 0 && <p className="text-xs text-slate-500">Neither segment has a scanned repo yet.</p>}
+                  {comparison.dimDeltas.length === 0 && <p className="text-sm text-slate-500">Neither segment has a scanned repo yet.</p>}
                 </div>
-                <p className="mt-3 font-mono text-[10px] text-slate-600">
+                <p className="mt-3 font-mono text-sm text-slate-600">
                   left bar · {comparison.a.name} · right bar · {comparison.b.name}
                 </p>
               </Card>
             </div>
           </>
         ) : (
-          <p className="mt-4 text-sm text-slate-500">Pick two segments to compare.</p>
+          <p className="mt-4 text-base text-slate-500">Pick two segments to compare.</p>
         )}
       </div>
     </div>

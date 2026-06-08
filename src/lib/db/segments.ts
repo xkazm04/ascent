@@ -94,6 +94,13 @@ export async function deleteSegment(id: string): Promise<boolean> {
   return true;
 }
 
+/** The owning org's slug for a segment id (per-row tenant gate on /api/org/segments/:id). Null = unknown id. */
+export async function getSegmentOrgSlug(id: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const s = await getPrisma().segment.findUnique({ where: { id }, select: { org: { select: { slug: true } } } });
+  return s?.org.slug ?? null;
+}
+
 /**
  * Tag (`member=true`) or untag (`member=false`) a repo into a segment, scoped to the org so a
  * caller can't touch another tenant's data. Idempotent. Returns false when the segment or repo

@@ -74,7 +74,7 @@ export function BadgeGenerator() {
   }
 
   const chip = (active: boolean) =>
-    `rounded-full border px-3 py-1 font-mono text-[11px] uppercase tracking-widest transition ${
+    `rounded-full border px-3 py-1 font-mono text-sm uppercase tracking-widest transition ${
       active ? "border-accent bg-accent/10 text-accent" : "border-slate-700 text-slate-400 hover:border-slate-600"
     }`;
 
@@ -82,7 +82,7 @@ export function BadgeGenerator() {
     <div className="space-y-5">
       {/* Repo input */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-        <label htmlFor="badge-repo" className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+        <label htmlFor="badge-repo" className="font-mono text-sm uppercase tracking-widest text-slate-500">
           Repository
         </label>
         <input
@@ -93,13 +93,13 @@ export function BadgeGenerator() {
           className="focus-ring mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white outline-none focus:border-accent"
         />
         {input && !parsed && (
-          <p className="mt-2 text-xs text-danger-soft">Enter a valid repository, e.g. facebook/react.</p>
+          <p className="mt-2 text-sm text-danger-soft">Enter a valid repository, e.g. facebook/react.</p>
         )}
 
         {/* Options */}
         <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Badge</span>
+            <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Badge</span>
             <button type="button" onClick={() => setKind("level")} className={chip(kind === "level")}>
               level
             </button>
@@ -108,7 +108,7 @@ export function BadgeGenerator() {
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Style</span>
+            <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Style</span>
             {STYLES.map((s) => (
               <button key={s} type="button" onClick={() => setStyle(s)} className={chip(style === s)}>
                 {s}
@@ -120,7 +120,7 @@ export function BadgeGenerator() {
 
       {/* Live preview */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-        <div className="font-mono text-[11px] uppercase tracking-widest text-slate-500">Preview</div>
+        <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Preview</div>
         <div className="mt-3 flex min-h-[44px] items-center">
           {parsed && badgeUrl ? (
             <a href={reportUrl} target="_blank" rel="noreferrer">
@@ -128,7 +128,7 @@ export function BadgeGenerator() {
               <img src={badgeUrl} alt={alt} className="h-7" />
             </a>
           ) : (
-            <span className="text-sm text-slate-500">Enter a repository to preview its badge.</span>
+            <span className="text-base text-slate-500">Enter a repository to preview its badge.</span>
           )}
         </div>
       </div>
@@ -147,17 +147,17 @@ export function BadgeGenerator() {
             type="button"
             onClick={copy}
             disabled={!snippet}
-            className="focus-ring rounded-lg bg-accent px-4 py-2 text-sm font-medium text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+            className="focus-ring rounded-lg bg-accent px-4 py-2 text-base font-medium text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
           >
             {copied ? "Copied!" : "Copy"}
           </button>
         </div>
-        <pre className="mt-3 overflow-x-auto rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-xs text-slate-300">
+        <pre className="mt-3 overflow-x-auto rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm text-slate-300">
           {snippet || "— enter a repository above —"}
         </pre>
       </div>
 
-      <p className="text-xs text-slate-500">
+      <p className="text-sm text-slate-500">
         Tip: the badge runs a fast deterministic scan on first request, then caches. For a full
         AI-scored report, <Link href="/" className="text-accent hover:text-accent-soft">scan the repo</Link> first.
       </p>

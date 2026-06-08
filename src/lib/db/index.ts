@@ -53,6 +53,23 @@ export {
 } from "@/lib/db/retention";
 export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
 export {
+  getCreditState,
+  grantCredits,
+  consumeScanCredit,
+  getCreditLedger,
+  isUnlimitedPlan,
+  type CreditState,
+  type CreditLedgerEntry,
+} from "@/lib/db/credits";
+export {
+  ensureOwnerMembership,
+  getMembershipRole,
+  setMembershipRole,
+  listOrgMembers,
+  type OrgRole,
+  type OrgMember,
+} from "@/lib/db/members";
+export {
   upsertInstallation,
   removeInstallation,
   unwatchReposForInstallation,
@@ -132,6 +149,7 @@ export {
   updateSegment,
   deleteSegment,
   setRepoSegment,
+  getSegmentOrgSlug,
   getRepoSegmentMap,
   compareSegments,
   listSegmentSummaries,
@@ -150,6 +168,8 @@ export {
   createInitiative,
   listInitiatives,
   updateInitiativeStatus,
+  getGoalOrgSlug,
+  getInitiativeOrgSlug,
   simulateOrgFix,
   isGoalMetric,
   metricLabel,

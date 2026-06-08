@@ -123,21 +123,12 @@ export async function getUsageSummary(
 
   const inputTokens = tokenAgg._sum.inputTokens ?? 0;
   const outputTokens = tokenAgg._sum.outputTokens ?? 0;
-  // Estimate cost only when BOTH per-MTok rates are explicitly configured. Treat an unset rate as
-  // "no estimate" (null), NOT 0 — otherwise a partial config (only the input rate set) silently
-  // bills the output side at $0 while showing a confident dollar figure (a quiet ~halving of the
-  // bill). A deliberately-set "0" is still a valid explicit price (both "0" → a real $0.00).
-  const parseRate = (raw: string | undefined): number | null => {
-    if (raw == null || raw.trim() === "") return null;
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  };
-  const inRate = parseRate(process.env.LLM_INPUT_COST_PER_MTOK);
-  const outRate = parseRate(process.env.LLM_OUTPUT_COST_PER_MTOK);
-  const estimatedCostUsd =
-    inRate != null && outRate != null
-      ? (inputTokens / 1_000_000) * inRate + (outputTokens / 1_000_000) * outRate
-      : null;
+  const estimatedCostUsd = estimateLlmCostUsd(
+    inputTokens,
+    outputTokens,
+    process.env.LLM_INPUT_COST_PER_MTOK,
+    process.env.LLM_OUTPUT_COST_PER_MTOK,
+  );
 
   // Resolve the top repoIds → fullName (a small IN query, capped at the top 10).
   const repoIds = repoGroups.map((g) => g.repoId);
@@ -176,6 +167,30 @@ export async function getUsageSummary(
     firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
   };
+}
+
+/**
+ * Estimate LLM cost in USD from token totals + the configured per-MTok rates. Returns null unless
+ * BOTH rates are explicitly set: an unset rate means "no estimate" (show "rate not set"), NEVER a
+ * silent $0 — otherwise a partial config (only the input rate set) would bill the output side at $0
+ * behind a confident dollar figure (a quiet ~halving of the bill). A deliberately-set "0" is a valid
+ * explicit price, so both rates "0" yields a real $0.00.
+ */
+export function estimateLlmCostUsd(
+  inputTokens: number,
+  outputTokens: number,
+  inRateRaw: string | undefined,
+  outRateRaw: string | undefined,
+): number | null {
+  const parseRate = (raw: string | undefined): number | null => {
+    if (raw == null || raw.trim() === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const inRate = parseRate(inRateRaw);
+  const outRate = parseRate(outRateRaw);
+  if (inRate == null || outRate == null) return null;
+  return (inputTokens / 1_000_000) * inRate + (outputTokens / 1_000_000) * outRate;
 }
 
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
@@ -247,7 +262,7 @@ function emptyDailySeries(periodDays: number, anchorUtcMs: number = utcDayStart(
 }
 
 /** Bucket scans into the zero-filled day series by UTC date (the JS fallback for fetchDailySeries). */
-function buildDailySeries(
+export function buildDailySeries(
   periodDays: number,
   anchorUtcMs: number,
   scans: { at: Date; billable: boolean }[],

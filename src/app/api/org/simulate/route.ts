@@ -4,6 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { isDbConfigured, simulateOrgFix } from "@/lib/db";
+import { requireOrgRead } from "@/lib/authz";
 import type { DimensionId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -17,6 +18,8 @@ export async function POST(request: Request) {
   if (!body.org || !body.dimId || typeof body.target !== "number") {
     return NextResponse.json({ error: "Provide { org, dimId, target }." }, { status: 400 });
   }
+  const denied = await requireOrgRead(body.org);
+  if (denied) return denied;
   if (!isDimId(body.dimId)) return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
   const repos = Array.isArray(body.repos) ? body.repos.filter((r) => typeof r === "string") : [];
   const projection = await simulateOrgFix(body.org, body.dimId, body.target, repos);

@@ -17,7 +17,7 @@ function optionLabel(s: HistoryPoint, isLatest: boolean): string {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">{label}</span>
+      <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
   );
@@ -45,7 +45,7 @@ export function ScanComparePicker({
   };
 
   const selectClass =
-    "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-accent";
+    "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-200 outline-none focus:border-accent";
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
@@ -71,7 +71,7 @@ export function ScanComparePicker({
             onClick={() => go(beforeId, afterId)}
             aria-label="Swap baseline and compared scans"
             title="Swap"
-            className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+            className="rounded-md border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white"
           >
             ⇄
           </button>

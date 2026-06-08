@@ -159,7 +159,7 @@ export function FleetMap({
 
       <div className="relative mx-auto w-full max-w-6xl px-5 py-10">
         <header className="animate-fade-up">
-          <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Mission Control</div>
+          <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Mission Control</div>
           <h1 className="mt-1 text-3xl font-bold text-white">
             Welcome back, <span className="text-accent">{userName}</span>
           </h1>
@@ -168,7 +168,7 @@ export function FleetMap({
             brightens with its maturity. Scores stream in below as Ascent reads your installations.
           </p>
 
-          <div className="mt-5 flex flex-wrap items-center gap-2 text-xs">
+          <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
             <Stat label="orgs" value={String(stats.orgs)} />
             <Stat label="repos" value={hydrating && stats.repos === 0 ? "…" : String(stats.repos)} />
             <Stat label="scanned" value={hydrating && stats.scanned === 0 ? "…" : String(stats.scanned)} />
@@ -200,13 +200,13 @@ export function FleetMap({
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Link
             href={next}
-            className="focus-ring rounded-xl bg-accent px-6 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft"
+            className="focus-ring rounded-xl bg-accent px-6 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
           >
             Enter mission control →
           </Link>
           <Link
             href="/"
-            className="focus-ring rounded-xl border border-slate-700 px-6 py-2.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+            className="focus-ring rounded-xl border border-slate-700 px-6 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
           >
             Scan a public repo
           </Link>
@@ -222,7 +222,7 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
       <span className="font-mono text-base font-bold tabular-nums" style={color ? { color } : { color: "#fff" }}>
         {value}
       </span>{" "}
-      <span className="font-mono uppercase tracking-widest text-[10px]">{label}</span>
+      <span className="font-mono uppercase tracking-widest text-sm">{label}</span>
     </span>
   );
 }
@@ -232,13 +232,13 @@ function EmptyFleet() {
     <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-8 text-center">
       <div className="text-4xl">🛰️</div>
       <h2 className="mt-3 text-lg font-semibold text-white">No constellations yet</h2>
-      <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">
+      <p className="mx-auto mt-1 max-w-md text-base text-slate-400">
         Install the Ascent GitHub App on an organization or account and your repositories will appear here as a
         star-map of maturity.
       </p>
       <Link
         href="/connect"
-        className="focus-ring mt-4 inline-block rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft"
+        className="focus-ring mt-4 inline-block rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
       >
         Connect GitHub →
       </Link>
@@ -264,12 +264,12 @@ function ConstellationField({ c }: { c: Constellation }) {
         <div className="min-w-0">
           <Link
             href={`/org/${encodeURIComponent(c.login)}`}
-            className="block truncate font-mono text-sm text-white hover:text-accent"
+            className="block truncate font-mono text-base text-white hover:text-accent"
             title={c.login}
           >
             {c.login}
           </Link>
-          <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">
+          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
             {c.status === "loading" && "charting…"}
             {c.status === "error" && "unreachable"}
             {c.status === "done" && `${scanned}/${total} scanned`}
@@ -277,7 +277,7 @@ function ConstellationField({ c }: { c: Constellation }) {
         </div>
         {avg != null && (
           <span
-            className="shrink-0 rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5 font-mono text-xs font-bold tabular-nums"
+            className="shrink-0 rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5 font-mono text-sm font-bold tabular-nums"
             style={{ color: scoreHex(avg) }}
             title="Average maturity of scanned repos"
           >
@@ -345,14 +345,14 @@ function ConstellationField({ c }: { c: Constellation }) {
 
         {c.status === "done" && total === 0 && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1 font-mono text-[10px] text-slate-500">
+            <span className="rounded-md border border-slate-800 bg-slate-900/70 px-2 py-1 font-mono text-sm text-slate-500">
               no repositories
             </span>
           </div>
         )}
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
+      <div className="mt-3 flex items-center justify-between gap-2 text-sm">
         {c.status === "error" ? (
           <span className="text-amber-400/80">{c.message}</span>
         ) : (

@@ -48,7 +48,7 @@ export class ReportErrorBoundary extends React.Component<Props, State> {
           <button
             type="button"
             onClick={this.handleRetry}
-            className="focus-ring mt-6 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-[#04070e] transition hover:bg-accent-soft"
+            className="focus-ring mt-6 rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-[#04070e] transition hover:bg-accent-soft"
           >
             Try again
           </button>

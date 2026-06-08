@@ -4,6 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { getOrgBacklog, isDbConfigured } from "@/lib/db";
+import { requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
   const segment = searchParams.get("segment");
   const backlog = await getOrgBacklog(org, segment);
   return NextResponse.json({ backlog });

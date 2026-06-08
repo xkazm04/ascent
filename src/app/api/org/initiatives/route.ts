@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { createInitiative, isDbConfigured, listInitiatives } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 import type { DimensionId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -16,15 +16,14 @@ export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Initiatives require a database." }, { status: 503 });
   const org = new URL(request.url).searchParams.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
   const items = await listInitiatives(org);
   return NextResponse.json({ initiatives: items ?? [] });
 }
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Initiatives require a database." }, { status: 503 });
-  if (isAuthConfigured() && !(await getSession())) {
-    return NextResponse.json({ error: "Sign in to create an initiative." }, { status: 401 });
-  }
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     title?: string;
@@ -36,6 +35,8 @@ export async function POST(request: Request) {
   if (!body.org || !body.title || !body.dimId || !Array.isArray(body.repos)) {
     return NextResponse.json({ error: "Provide { org, title, dimId, repos[] }." }, { status: 400 });
   }
+  const denied = await requireOrgAccess(body.org);
+  if (denied) return denied;
   if (!isDimId(body.dimId)) return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
   const created = await createInitiative(body.org, {
     title: body.title,

@@ -25,7 +25,7 @@ function scanCaption(scan: ComparableScan): string {
 function LevelChip({ id, name }: { id: LevelId; name: string }) {
   const lc = LEVEL_CLASSES[id] ?? LEVEL_CLASSES.L1;
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border ${lc.border} ${lc.bg} px-2.5 py-1 text-xs font-semibold ${lc.text}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border ${lc.border} ${lc.bg} px-2.5 py-1 text-sm font-semibold ${lc.text}`}>
       <span aria-hidden>{LEVEL_GLYPH[id]}</span>
       {id} · {name}
     </span>
@@ -47,11 +47,11 @@ function Transition({
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">{label}</span>
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</span>
         {changed ? (
-          <span className="font-mono text-[10px] uppercase tracking-widest text-accent">changed</span>
+          <span className="font-mono text-sm uppercase tracking-widest text-accent">changed</span>
         ) : (
-          <span className="font-mono text-[10px] uppercase tracking-widest text-slate-600">no change</span>
+          <span className="font-mono text-sm uppercase tracking-widest text-slate-600">no change</span>
         )}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -95,10 +95,10 @@ function GapList({ title, gaps, tone }: { title: string; gaps: string[]; tone: "
   const good = tone === "closed";
   return (
     <div>
-      <div className={`text-[11px] font-semibold uppercase tracking-wide ${good ? "text-emerald-400/80" : "text-amber-400/80"}`}>
+      <div className={`text-sm font-semibold uppercase tracking-wide ${good ? "text-emerald-400/80" : "text-amber-400/80"}`}>
         {title}
       </div>
-      <ul className="mt-1 space-y-1 text-sm">
+      <ul className="mt-1 space-y-1 text-base">
         {gaps.map((g, i) => (
           <li key={i} className={`flex gap-2 ${good ? "text-emerald-200/90" : "text-amber-200/90"}`}>
             <span aria-hidden className={good ? "text-emerald-400" : "text-amber-400"}>
@@ -119,10 +119,10 @@ function SignalList({ title, signals, tone }: { title: string; signals: string[]
   const gained = tone === "gained";
   return (
     <div>
-      <div className={`text-[11px] font-semibold uppercase tracking-wide ${gained ? "text-emerald-400/80" : "text-red-400/80"}`}>
+      <div className={`text-sm font-semibold uppercase tracking-wide ${gained ? "text-emerald-400/80" : "text-red-400/80"}`}>
         {title}
       </div>
-      <ul className="mt-1 space-y-1 text-sm">
+      <ul className="mt-1 space-y-1 text-base">
         {signals.map((sig, i) => (
           <li key={i} className={`flex gap-2 ${gained ? "text-emerald-200/90" : "text-red-200/90"}`}>
             <span aria-hidden className={gained ? "text-emerald-400" : "text-red-400"}>
@@ -141,14 +141,14 @@ function DimensionDiffCard({ d }: { d: DimensionDiff }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
       <div className="flex items-center gap-3">
-        <span className="font-mono text-xs text-slate-500">{d.id}</span>
+        <span className="font-mono text-sm text-slate-500">{d.id}</span>
         <span className="flex-1 font-semibold text-white">{d.name}</span>
         {d.delta !== null && <DeltaTag delta={d.delta} />}
-        <span className="flex items-center gap-1 font-mono text-sm tabular-nums text-slate-400">
+        <span className="flex items-center gap-1 font-mono text-base tabular-nums text-slate-400">
           <span>{d.before ?? "—"}</span>
           <span aria-hidden className="text-slate-600">→</span>
           <span className="flex items-center gap-1 font-bold" style={{ color: afterColor }}>
-            <span aria-hidden className="text-xs">{d.after !== null ? scoreGlyph(d.after) : ""}</span>
+            <span aria-hidden className="text-sm">{d.after !== null ? scoreGlyph(d.after) : ""}</span>
             {d.after ?? "—"}
           </span>
         </span>
@@ -187,8 +187,8 @@ export function WhatChanged({
       <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-accent">What changed</div>
-            <p className="mt-1 text-sm text-slate-400">
+            <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">What changed</div>
+            <p className="mt-1 text-base text-slate-400">
               <span className="text-slate-300">{scanCaption(before)}</span>
               <span aria-hidden className="mx-2 text-slate-600">→</span>
               <span className="text-slate-300">{scanCaption(after)}</span>
@@ -198,15 +198,15 @@ export function WhatChanged({
         </div>
 
         {sameScan ? (
-          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-400">
+          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-base text-slate-400">
             Same scan selected on both sides — pick two different scans to see a diff.
           </p>
         ) : diff.unchanged ? (
-          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-sm text-slate-400">
+          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-base text-slate-400">
             No measurable change between these two scans — same level, posture, scores, and open gaps.
           </p>
         ) : (
-          <div className="mt-4 flex flex-wrap gap-2 text-xs">
+          <div className="mt-4 flex flex-wrap gap-2 text-sm">
             {diff.appearedSignalCount > 0 && (
               <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 font-semibold text-emerald-300">
                 {diff.appearedSignalCount} {diff.appearedSignalCount === 1 ? "signal" : "signals"} detected
@@ -240,14 +240,14 @@ export function WhatChanged({
       {diff.movements.length > 0 && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
           <h2 className="text-lg font-semibold text-white">Why it moved</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-base text-slate-400">
             Each dimension&apos;s score change attributed to the specific signals that drove it.
           </p>
           <ul className="mt-3 space-y-2">
             {diff.movements.map((m, i) => (
               <li
                 key={i}
-                className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 font-mono text-[13px] leading-relaxed text-slate-300"
+                className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 font-mono text-sm leading-relaxed text-slate-300"
               >
                 {m}
               </li>
@@ -268,12 +268,12 @@ export function WhatChanged({
           label="Posture"
           changed={diff.posture.changed}
           before={
-            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-xs text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-sm text-slate-300">
               {diff.posture.before.label}
             </span>
           }
           after={
-            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-xs text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-sm text-slate-300">
               {diff.posture.after.label}
             </span>
           }
@@ -289,7 +289,7 @@ export function WhatChanged({
       {/* Per-dimension diff — the full dimension list, GitHub-style annotated. */}
       <div>
         <h2 className="text-lg font-semibold text-white">By dimension</h2>
-        <p className="mt-1 text-sm text-slate-400">
+        <p className="mt-1 text-base text-slate-400">
           Each dimension&apos;s score change, with the gaps that closed or opened between scans.
         </p>
         <div className="mt-4 space-y-3">
@@ -303,14 +303,14 @@ export function WhatChanged({
       {diff.recsMovedToDone.length > 0 && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
           <h2 className="text-lg font-semibold text-white">Recommendations completed</h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-base text-slate-400">
             Tracked items marked done between these two scans.
           </p>
-          <ul className="mt-3 space-y-2 text-sm">
+          <ul className="mt-3 space-y-2 text-base">
             {diff.recsMovedToDone.map((r) => (
               <li key={r.id} className="flex items-center gap-2 text-slate-300">
                 <span aria-hidden className="text-emerald-400">✓</span>
-                <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
                   {DIMENSION_SHORT[r.dimId]}
                 </span>
                 <span className="line-through decoration-slate-600">{r.title}</span>
@@ -328,8 +328,8 @@ function AxisDeltaRow({ label, axis }: { label: string; axis: ScanDiff["adoption
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-white">{label}</span>
-        <div className="flex items-center gap-2 font-mono text-sm tabular-nums">
+        <span className="text-base font-medium text-white">{label}</span>
+        <div className="flex items-center gap-2 font-mono text-base tabular-nums">
           <span className="text-slate-400">{axis.before}</span>
           <span aria-hidden className="text-slate-600">→</span>
           <span className="font-bold" style={{ color }}>{axis.after}</span>

@@ -30,14 +30,14 @@ function Notice({ title, body, repo }: { title: string; body: string; repo?: str
         {repo && (
           <Link
             href={`/report?repo=${encodeURIComponent(repo)}`}
-            className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-on-accent transition hover:bg-accent-soft"
+            className="rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-on-accent transition hover:bg-accent-soft"
           >
             Scan {repo}
           </Link>
         )}
         <Link
           href="/"
-          className="rounded-xl border border-slate-700 px-5 py-2.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+          className="rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 hover:border-accent hover:text-white"
         >
           ← Home
         </Link>
@@ -133,19 +133,19 @@ export default async function ComparePage({
       <div className="animate-fade-up space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Scan comparison</div>
+            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Scan comparison</div>
             <h1 className="mt-1 text-2xl font-bold text-white">{repoRef}</h1>
           </div>
           <div className="flex items-center gap-2">
             <Link
               href={`/trends?repo=${encodeURIComponent(repoRef)}`}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
             >
               Trends →
             </Link>
             <Link
               href={`/report?repo=${encodeURIComponent(repoRef)}`}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
             >
               Full report →
             </Link>

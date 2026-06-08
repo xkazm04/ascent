@@ -7,6 +7,7 @@ import { ReportView } from "@/components/report/ReportView";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { ReportSkeleton } from "@/components/report/ReportSkeleton";
 import { EmptyState } from "@/components/EmptyState";
+import { DIMENSIONS } from "@/lib/maturity/model";
 import { parseScanReport } from "@/lib/report/validate";
 
 type State =
@@ -246,7 +247,7 @@ const SCAN_STEPS: { stage: ScanProgress["stage"]; label: string }[] = [
   { stage: "fetch", label: "Reading repository metadata" },
   { stage: "tree", label: "Reading file tree & history" },
   { stage: "files", label: "Reading key files" },
-  { stage: "analyze", label: "Analyzing 7 dimensions" },
+  { stage: "analyze", label: `Analyzing ${DIMENSIONS.length} dimensions` },
   { stage: "score", label: "Scoring against the rubric" },
   { stage: "compose", label: "Composing your report" },
 ];
@@ -323,7 +324,7 @@ function Loading({ repo, progress }: { repo: string; progress: Progress }) {
       className="mx-auto flex w-full max-w-md flex-col items-center py-20 text-center"
       data-testid="scan-loading"
     >
-      <p className="font-mono text-sm text-slate-400">{repo}</p>
+      <p className="font-mono text-base text-slate-400">{repo}</p>
       {/* Polite live region so screen readers hear each phase change ("Asking Gemini…", "Done"). */}
       <p className="mt-2 min-h-[1.75rem] text-lg font-medium text-white" role="status" aria-live="polite">
         {headline}
@@ -342,14 +343,14 @@ function Loading({ repo, progress }: { repo: string; progress: Progress }) {
           style={{ width: `${Math.max(4, progress.pct)}%` }}
         />
       </div>
-      <p className="mt-1.5 font-mono text-[11px] tabular-nums text-slate-600">{progress.pct}%</p>
+      <p className="mt-1.5 font-mono text-sm tabular-nums text-slate-600">{progress.pct}%</p>
 
       {/* Determinate-feeling staged checklist. */}
       <ul className="mt-6 w-full space-y-2 text-left">
         {SCAN_STEPS.map((step, i) => {
           const state = done || i < activeIdx ? "done" : i === activeIdx ? "active" : "pending";
           return (
-            <li key={step.stage} className="flex items-center gap-3 font-mono text-xs">
+            <li key={step.stage} className="flex items-center gap-3 font-mono text-sm">
               <StepIcon state={state} />
               <span
                 className={
@@ -372,7 +373,7 @@ function Loading({ repo, progress }: { repo: string; progress: Progress }) {
           in via the shared animate-fade-up instead of a hard error. */}
       {progress.fallback && (
         <p
-          className="animate-fade-up mt-5 flex items-center gap-2 text-sm text-amber-300/90"
+          className="animate-fade-up mt-5 flex items-center gap-2 text-base text-amber-300/90"
           role="status"
         >
           <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="none">

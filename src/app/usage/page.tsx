@@ -6,6 +6,11 @@ import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
 import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { timeAgo } from "@/lib/ui";
 
+export const metadata = {
+  title: "Usage & metering — Ascent",
+  description: "Scan volume, token usage and estimated cost for your organization's Ascent scans.",
+};
+
 export const dynamic = "force-dynamic";
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -29,11 +34,11 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
 function Stat({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
       <div className="mt-1 font-mono text-3xl font-bold tabular-nums text-white">
         {typeof value === "number" ? value.toLocaleString() : value}
       </div>
-      {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
+      {sub && <div className="mt-1 text-sm text-slate-500">{sub}</div>}
     </div>
   );
 }
@@ -131,11 +136,11 @@ export default async function UsagePage({
   return (
     <Shell>
       <div className="animate-fade-up">
-        <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Usage &amp; metering</div>
+        <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Usage &amp; metering</div>
         <h1 className="mt-1 text-2xl font-bold text-white">
           Organization: <span className="font-mono">{usage.org}</span>
         </h1>
-        <p className="mt-2 max-w-2xl text-sm text-slate-400">
+        <p className="mt-2 max-w-2xl text-base text-slate-400">
           Each computed scan is one metered unit (cached re-scans aren&apos;t recounted). Public
           scans are free; private scans are billable under the usage-based plan.
         </p>
@@ -170,21 +175,21 @@ export default async function UsagePage({
 
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-            <h2 className="text-sm font-semibold text-white">
+            <h2 className="text-base font-semibold text-white">
               Public vs private{" "}
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
             </h2>
-            <div className="mt-3 space-y-2 text-sm">
+            <div className="mt-3 space-y-2 text-base">
               <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="#94a3b8" pattern />
               <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="var(--color-accent)" />
             </div>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-            <h2 className="text-sm font-semibold text-white">
+            <h2 className="text-base font-semibold text-white">
               By inference engine{" "}
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
             </h2>
-            <div className="mt-3 space-y-2 text-sm">
+            <div className="mt-3 space-y-2 text-base">
               {usage.byProvider.length === 0 ? (
                 <p className="text-slate-500">No scans in this period.</p>
               ) : (
@@ -199,14 +204,14 @@ export default async function UsagePage({
         {/* Top repos by metered volume — which repos drove the bill / token spend (per-repo attribution). */}
         {usage.byRepo.length > 0 && (
           <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-            <h2 className="text-sm font-semibold text-white">
+            <h2 className="text-base font-semibold text-white">
               Top repositories{" "}
               <span className="font-normal text-slate-500">· by metered scans · last {usage.periodDays}d</span>
             </h2>
-            <div className="mt-3 space-y-2 text-sm">
+            <div className="mt-3 space-y-2 text-base">
               {usage.byRepo.map((r) => (
                 <div key={r.fullName} className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 truncate font-mono text-xs text-slate-300">{r.fullName}</span>
+                  <span className="min-w-0 truncate font-mono text-sm text-slate-300">{r.fullName}</span>
                   <span className="shrink-0 font-mono tabular-nums text-slate-400">
                     {r.scans.toLocaleString()} scan{r.scans === 1 ? "" : "s"}
                     {r.tokens > 0 ? ` · ${r.tokens.toLocaleString()} tok` : ""}
@@ -217,7 +222,7 @@ export default async function UsagePage({
           </div>
         )}
 
-        <p className="mt-6 text-xs text-slate-500">
+        <p className="mt-6 text-sm text-slate-500">
           Window: {usage.firstScanAt ? `${timeAgo(usage.firstScanAt)} → ${timeAgo(usage.lastScanAt ?? undefined)}` : "no scans recorded"}.
           {usage.estimatedCostUsd != null
             ? " Cost is estimated from the configured per-MTok rates (LLM_INPUT/OUTPUT_COST_PER_MTOK)."

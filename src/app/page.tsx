@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { ScanForm } from "@/components/ScanForm";
 import { ScanGallery } from "@/components/landing/ScanGallery";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 function Kicker({ children }: { children: React.ReactNode }) {
   return (
-    <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">{children}</div>
+    <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">{children}</div>
   );
 }
 
@@ -58,7 +59,7 @@ export default async function Home() {
             <div className="mt-9 flex w-full justify-center">
               <ScanForm autoFocus examples={exampleRepos} />
             </div>
-            <p className="mt-4 font-mono text-[11px] uppercase tracking-widest text-slate-400">
+            <p className="mt-4 font-mono text-sm uppercase tracking-widest text-slate-400">
               <span>Free for public repos</span>
               <span aria-hidden> · </span>
               <span>No signup</span>
@@ -69,6 +70,40 @@ export default async function Home() {
         </section>
 
         <div className="mx-auto w-full max-w-6xl px-5">
+          {/* Try it on a whole org — links to the seeded Vercel cross-repo report, or onboarding
+              to analyze your own organization. */}
+          <section className="pt-12">
+            <div className="rounded-2xl border border-accent/30 bg-accent/[0.04] p-6 sm:p-8">
+              <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+                <div className="max-w-2xl">
+                  <Kicker>Organization view</Kicker>
+                  <h2 className="mt-2 text-2xl font-bold text-white">
+                    Analyze a whole organization, not just one repo
+                  </h2>
+                  <p className="mt-2 text-base leading-relaxed text-slate-400">
+                    Ascent scans every repository in an org and rolls the results into one cross-repo
+                    view — shared strengths, the gaps common across teams, contributor activity, and
+                    where to invest next.
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-col gap-3 sm:items-end">
+                  <Link
+                    href="/org/vercel"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
+                  >
+                    Explore the Vercel org report →
+                  </Link>
+                  <Link
+                    href="/onboarding"
+                    className="text-sm font-medium text-slate-300 transition hover:text-white"
+                  >
+                    Or analyze your own organization →
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </section>
+
           {/* Live discovery — recently scanned rail + most-AI-native leaderboard. Only rendered
               when persisted public scans exist; otherwise the landing page is unchanged. */}
           {gallery && <ScanGallery gallery={gallery} />}
@@ -87,12 +122,12 @@ export default async function Home() {
                   const c = LEVEL_CLASSES[l.id];
                   return (
                     <div key={l.id} className={`rounded-xl border ${c.border} ${c.bg} p-4 backdrop-blur-sm`}>
-                      <div className={`font-mono text-sm font-bold ${c.text}`}>{l.id}</div>
+                      <div className={`font-mono text-base font-bold ${c.text}`}>{l.id}</div>
                       <div className="mt-0.5 text-lg font-semibold text-white">{l.name}</div>
-                      <div className="mt-1 font-mono text-[10px] uppercase tracking-widest text-slate-400">
+                      <div className="mt-1 font-mono text-sm uppercase tracking-widest text-slate-400">
                         {l.band[0]}–{l.band[1]}
                       </div>
-                      <p className="mt-2 text-sm leading-relaxed text-slate-400">{l.tagline}</p>
+                      <p className="mt-2 text-base leading-relaxed text-slate-400">{l.tagline}</p>
                     </div>
                   );
                 })}
@@ -123,9 +158,9 @@ export default async function Home() {
                 },
               ].map((s) => (
                 <Panel key={s.n}>
-                  <div className="font-mono text-sm text-accent">{s.n}</div>
+                  <div className="font-mono text-base text-accent">{s.n}</div>
                   <h3 className="mt-2 text-lg font-semibold text-white">{s.t}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-400">{s.d}</p>
+                  <p className="mt-2 text-base leading-relaxed text-slate-400">{s.d}</p>
                 </Panel>
               ))}
             </div>
@@ -140,11 +175,11 @@ export default async function Home() {
                 <Panel key={d.id}>
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-white">{d.name}</h3>
-                    <span className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-xs text-slate-400">
+                    <span className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-sm text-slate-400">
                       {Math.round(d.weight * 100)}%
                     </span>
                   </div>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-400">{d.description}</p>
+                  <p className="mt-2 text-base leading-relaxed text-slate-400">{d.description}</p>
                 </Panel>
               ))}
             </div>
@@ -155,8 +190,8 @@ export default async function Home() {
             <Kicker>Pricing</Kicker>
             <h2 className="mt-2 text-2xl font-bold text-white">Usage-based — pay only for what you scan</h2>
             <p className="mt-2 max-w-2xl text-slate-400">
-              Public repositories are free on the web. Private repositories are metered per
-              scan to cover model inference and service costs — no subscription. Enterprise
+              Public repositories are free on the web. Private repositories draw on prepaid scan
+              credits — buy a balance, and each private scan uses one. No subscription. Enterprise
               is implemented to your requirements.
             </p>
             <div className="mt-8 grid gap-5 lg:grid-cols-3">
@@ -172,14 +207,14 @@ export default async function Home() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold text-white">{p.name}</h3>
                     {p.featured && (
-                      <span className="rounded-md bg-accent/15 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-accent">
-                        Pay as you go
+                      <span className="rounded-md bg-accent/15 px-2 py-0.5 font-mono text-sm uppercase tracking-widest text-accent">
+                        Prepaid credits
                       </span>
                     )}
                   </div>
                   <div className="mt-2 text-2xl font-bold text-white">{p.price}</div>
-                  <p className="mt-1 text-sm text-slate-400">{p.tagline}</p>
-                  <ul className="mt-4 flex-1 space-y-2 text-sm text-slate-300">
+                  <p className="mt-1 text-base text-slate-400">{p.tagline}</p>
+                  <ul className="mt-4 flex-1 space-y-2 text-base text-slate-300">
                     {p.features.map((f) => (
                       <li key={f} className="flex gap-2">
                         <span className="text-accent">✓</span>
@@ -187,7 +222,7 @@ export default async function Home() {
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-400">{p.note}</p>
+                  <p className="mt-4 border-t border-slate-800 pt-3 text-sm text-slate-400">{p.note}</p>
                 </div>
               ))}
             </div>
@@ -214,16 +249,16 @@ const PRICING = [
   },
   {
     name: "Private",
-    price: "Usage-based",
-    tagline: "Metered per private scan",
+    price: "Prepaid credits",
+    tagline: "One credit per private scan",
     featured: true,
     features: [
       "Private repos via token / GitHub App",
       "Scan history + progress trends",
       "Recommendation tracking",
-      "PDF export",
+      "PDF report export",
     ],
-    note: "Pay per scan to cover model inference + service costs — no subscription. Indicative; final rate TBD.",
+    note: "Buy a balance of scan credits; each private scan uses one. No subscription. Indicative; final rate TBD.",
   },
   {
     name: "Enterprise",

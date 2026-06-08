@@ -23,8 +23,8 @@ export function OnboardingChecklist({ steps }: { steps: ChecklistStep[] }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Getting started</h2>
-        <span className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+        <h2 className="text-base font-semibold text-white">Getting started</h2>
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
           {doneCount}/{steps.length} done
         </span>
       </div>
@@ -57,7 +57,7 @@ export function OnboardingChecklist({ steps }: { steps: ChecklistStep[] }) {
             >
               <span
                 aria-hidden
-                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] ${
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-sm ${
                   step.done
                     ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
                     : "border-slate-600 text-slate-500"
@@ -66,17 +66,17 @@ export function OnboardingChecklist({ steps }: { steps: ChecklistStep[] }) {
                 {step.done ? "✓" : i + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <span className={`text-sm ${step.done ? "text-slate-400 line-through decoration-slate-700" : "text-white"}`}>
+                <span className={`text-base ${step.done ? "text-slate-400 line-through decoration-slate-700" : "text-white"}`}>
                   {step.label}
                 </span>
-                {step.hint && !step.done && <p className="text-xs text-slate-500">{step.hint}</p>}
+                {step.hint && !step.done && <p className="text-sm text-slate-500">{step.hint}</p>}
               </div>
               {isNext && !step.done && (
-                <span className="rounded-full border border-accent/40 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-accent">
+                <span className="rounded-full border border-accent/40 px-2 py-0.5 font-mono text-sm uppercase tracking-widest text-accent">
                   next
                 </span>
               )}
-              {step.href && !step.done && <span className="font-mono text-xs text-accent">→</span>}
+              {step.href && !step.done && <span className="font-mono text-sm text-accent">→</span>}
             </div>
           );
           return (

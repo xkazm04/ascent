@@ -27,7 +27,7 @@ const ACTION_FILTERS = [
 function ActionBadge({ action }: { action: string }) {
   const m = ACTION_META[action] ?? { label: action, cls: "border-slate-600 bg-slate-700/30 text-slate-300" };
   return (
-    <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest ${m.cls}`}>
+    <span className={`rounded border px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest ${m.cls}`}>
       {m.label}
     </span>
   );
@@ -39,16 +39,16 @@ function Details({ entry }: { entry: AuditLogEntry }) {
     const permalink = s.repo ? `/report/${s.repo}${s.headSha ? `@${s.headSha}` : ""}` : null;
     return (
       <div className="flex flex-wrap items-center gap-2">
-        {s.repo && <span className="font-mono text-xs text-white">{s.repo}</span>}
+        {s.repo && <span className="font-mono text-sm text-white">{s.repo}</span>}
         {s.level && (
-          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-300">
             {s.level}
             {s.overall != null ? ` · ${s.overall}` : ""}
           </span>
         )}
-        {s.headSha && <span className="font-mono text-[11px] text-slate-500">{s.headSha.slice(0, 7)}</span>}
+        {s.headSha && <span className="font-mono text-sm text-slate-500">{s.headSha.slice(0, 7)}</span>}
         {permalink && (
-          <Link href={permalink} className="font-mono text-[11px] text-accent hover:text-accent-soft">
+          <Link href={permalink} className="font-mono text-sm text-accent hover:text-accent-soft">
             view report →
           </Link>
         )}
@@ -60,13 +60,13 @@ function Details({ entry }: { entry: AuditLogEntry }) {
   const id = typeof entry.meta.id === "string" ? entry.meta.id : null;
   if (status) {
     return (
-      <span className="font-mono text-xs text-slate-300">
+      <span className="font-mono text-sm text-slate-300">
         {id ? `${id.slice(0, 8)}… → ` : ""}
         <span className="text-white">{status}</span>
       </span>
     );
   }
-  return <span className="text-xs text-slate-600">—</span>;
+  return <span className="text-sm text-slate-600">—</span>;
 }
 
 export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLogPage }) {
@@ -103,13 +103,13 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <label className="flex items-center gap-2 text-sm text-slate-400">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Filter</span>
+        <label className="flex items-center gap-2 text-base text-slate-400">
+          <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Filter</span>
           <select
             value={action}
             onChange={(e) => changeAction(e.target.value)}
             aria-label="Filter by action"
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200 outline-none focus:border-accent"
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
           >
             {ACTION_FILTERS.map((f) => (
               <option key={f.value} value={f.value}>
@@ -118,23 +118,23 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
             ))}
           </select>
         </label>
-        <span className="font-mono text-[11px] text-slate-500">{entries.length} shown</span>
+        <span className="font-mono text-sm text-slate-500">{entries.length} shown</span>
       </div>
 
       {error && (
-        <div role="alert" className="mb-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-sm text-red-300">
+        <div role="alert" className="mb-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-base text-red-300">
           {error}
         </div>
       )}
 
       {entries.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-base text-slate-400">
           No entries match this filter.
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-slate-800">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead className="bg-slate-900/60 font-mono text-[10px] uppercase tracking-widest text-slate-500">
+          <table className="w-full min-w-[640px] text-base">
+            <thead className="bg-slate-900/60 font-mono text-sm uppercase tracking-widest text-slate-500">
               <tr>
                 <th className="px-4 py-2 text-left">When</th>
                 <th className="px-3 py-2 text-left">Action</th>
@@ -145,13 +145,13 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
             <tbody className="divide-y divide-slate-800">
               {entries.map((e) => (
                 <tr key={e.id} className="align-top text-slate-300">
-                  <td className="whitespace-nowrap px-4 py-2 text-xs text-slate-400" title={e.at}>
+                  <td className="whitespace-nowrap px-4 py-2 text-sm text-slate-400" title={e.at}>
                     {timeAgo(e.at)}
                   </td>
                   <td className="px-3 py-2">
                     <ActionBadge action={e.action} />
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-400">
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-sm text-slate-400">
                     {e.actorId ?? "—"}
                   </td>
                   <td className="px-4 py-2">
@@ -169,7 +169,7 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
           <button
             onClick={() => load(false, cursor, action)}
             disabled={loading}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
             {loading ? "Loading…" : "Load more"}
           </button>

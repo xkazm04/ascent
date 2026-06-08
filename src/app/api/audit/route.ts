@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { getAuditLog, isDbConfigured } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,12 +27,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing 'org' query parameter." }, { status: 400 });
   }
 
-  if (isAuthConfigured() && org.toLowerCase() !== "public") {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "Sign in to view this audit log." }, { status: 401 });
-    }
-  }
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
 
   try {
     const page = await getAuditLog(org, {

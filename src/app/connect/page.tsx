@@ -39,7 +39,7 @@ export default async function ConnectPage({
 
   const header = (
     <>
-      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Connect GitHub</div>
+      <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Connect GitHub</div>
       <h1 className="mt-1 text-3xl font-bold text-white">Scan your private repositories</h1>
       <p className="mt-2 max-w-2xl text-slate-400">
         Install the Ascent GitHub App on an organization or account. Inference runs against
@@ -49,7 +49,7 @@ export default async function ConnectPage({
       {error && (
         <div
           role="alert"
-          className="mt-5 rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-danger-soft"
+          className="mt-5 rounded-xl border border-danger/30 bg-danger/5 p-4 text-base text-danger-soft"
         >
           {ERROR_COPY[error] ?? "Something went wrong."}
         </div>
@@ -65,13 +65,13 @@ export default async function ConnectPage({
           {header}
           <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="font-semibold text-white">GitHub App not configured</h2>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-base text-slate-400">
               Set <code className="font-mono text-slate-300">GITHUB_APP_ID</code> and{" "}
               <code className="font-mono text-slate-300">GITHUB_APP_PRIVATE_KEY</code> (see{" "}
               <span className="font-mono text-slate-300">docs/GITHUB_APP.md</span>) to enable
               private-repo scanning. Public scans work without it.
             </p>
-            <Link href="/" className="mt-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-accent hover:text-white">
+            <Link href="/" className="mt-4 inline-block rounded-lg border border-slate-700 px-4 py-2 text-base text-slate-300 hover:border-accent hover:text-white">
               ← Back to public scans
             </Link>
           </div>
@@ -139,7 +139,7 @@ export default async function ConnectPage({
         {resynced && (
           <div
             role="status"
-            className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300"
+            className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-base text-emerald-300"
           >
             GitHub access re-synced — {installCount} installation{installCount === 1 ? "" : "s"} now available.
           </div>
@@ -147,7 +147,7 @@ export default async function ConnectPage({
         {revoked && (
           <div
             role="status"
-            className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300"
+            className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-base text-emerald-300"
           >
             {revoked === "others"
               ? "Signed out of all other sessions — this browser stays signed in."
@@ -157,18 +157,18 @@ export default async function ConnectPage({
         {/* Login-time org auto-discovery: a ready-to-explore seeded dashboard + orgs to connect. */}
         {(seededOrg || suggestedOrgs.length > 0) && (
           <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-            <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">
+            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">
               Discovered from your GitHub
             </div>
             {seededOrg && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-                <p className="text-sm text-slate-300">
+                <p className="text-base text-slate-300">
                   We pre-loaded <span className="font-mono text-white">{seededOrg}</span>&apos;s most
                   active repositories onto your watchlist — its dashboard is ready to scan.
                 </p>
                 <Link
                   href={`/org/${encodeURIComponent(seededOrg)}`}
-                  className="focus-ring shrink-0 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-on-accent transition hover:bg-emerald-400"
+                  className="focus-ring shrink-0 rounded-lg bg-emerald-500 px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-emerald-400"
                 >
                   View {seededOrg} dashboard →
                 </Link>
@@ -176,7 +176,7 @@ export default async function ConnectPage({
             )}
             {suggestedOrgs.length > 0 && (
               <div className="mt-3">
-                <p className="text-sm text-slate-400">
+                <p className="text-base text-slate-400">
                   You belong to {suggestedOrgs.length === 1 ? "this organization" : "these organizations"} —
                   install the App to scan private repos, or{" "}
                   <Link href="/onboarding" className="text-accent hover:text-white">
@@ -188,7 +188,7 @@ export default async function ConnectPage({
                     <Link
                       key={o}
                       href="/onboarding"
-                      className="focus-ring rounded-full border border-slate-700 px-3 py-1 font-mono text-xs text-slate-300 transition hover:border-accent hover:text-white"
+                      className="focus-ring rounded-full border border-slate-700 px-3 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
                     >
                       {o}
                     </Link>
@@ -210,7 +210,7 @@ export default async function ConnectPage({
                 label="Re-sync access"
                 pendingLabel="Re-syncing…"
               />
-              <p className="text-xs text-slate-500">
+              <p className="text-sm text-slate-500">
                 Added a repo or org on GitHub but don&apos;t see it here? Re-sync to refresh your
                 installations without signing out.
               </p>
@@ -219,12 +219,12 @@ export default async function ConnectPage({
               <form action="/api/auth/revoke-sessions" method="post" className="contents">
                 <button
                   type="submit"
-                  className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-[11px] uppercase tracking-widest text-slate-300 transition hover:border-danger hover:text-danger-soft"
+                  className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-slate-300 transition hover:border-danger hover:text-danger-soft"
                 >
                   Sign out everywhere else
                 </button>
               </form>
-              <p className="text-xs text-slate-500">
+              <p className="text-sm text-slate-500">
                 Lost or shared a device? Revoke every other signed-in session and keep only this
                 browser.
               </p>
@@ -236,7 +236,7 @@ export default async function ConnectPage({
             <h2 className="font-semibold text-white">
               Finish connecting <span className="font-mono">{pendingInstall}</span>
             </h2>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-base text-slate-400">
               The Ascent GitHub App was installed on{" "}
               <span className="font-mono">{pendingInstall}</span>. Re-sync your GitHub access to
               load its repositories — this refreshes your session without signing you out.
@@ -255,19 +255,19 @@ export default async function ConnectPage({
         {installs.length === 0 && !pendingInstall ? (
           <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="font-semibold text-white">Install the GitHub App</h2>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-base text-slate-400">
               You&apos;ll choose which repositories Ascent can read (Contents + Metadata,
               read-only). After installing, you&apos;ll land back here with your repo list.
             </p>
             {installUrl ? (
               <a
                 href={installUrl}
-                className="focus-ring mt-4 inline-block rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-accent-soft"
+                className="focus-ring mt-4 inline-block rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
               >
                 Install on GitHub →
               </a>
             ) : (
-              <p className="mt-4 text-sm text-slate-500">
+              <p className="mt-4 text-base text-slate-500">
                 Set <code className="font-mono text-slate-300">GITHUB_APP_SLUG</code> to enable the install link.
               </p>
             )}
@@ -277,7 +277,7 @@ export default async function ConnectPage({
             {installUrl && (
               <a
                 href={installUrl}
-                className="focus-ring inline-block rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-accent transition hover:border-accent hover:bg-accent/10 hover:text-accent-soft"
+                className="focus-ring inline-block rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-accent transition hover:border-accent hover:bg-accent/10 hover:text-accent-soft"
               >
                 + Add or manage repositories on GitHub →
               </a>

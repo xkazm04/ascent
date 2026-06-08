@@ -10,7 +10,9 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { cacheSet } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { isDbConfigured, persistScanReport } from "@/lib/db";
+import { consumeScanCredit, isDbConfigured, persistScanReport } from "@/lib/db";
+import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +28,7 @@ const STATUS: Record<GitHubError["code"], number> = {
 
 async function runScan(
   url: string,
-  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; peek?: boolean; signal?: AbortSignal },
+  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; peek?: boolean; signal?: AbortSignal; req?: Request },
 ) {
   const parsed = parseRepoUrl(url);
 
@@ -69,6 +71,24 @@ async function runScan(
     return new NextResponse(null, { status: 204, headers: peekHeaders });
   }
 
+  // Rate-limit the EXPENSIVE path only — a cache hit / peek above already returned for free. A
+  // flood of distinct, cache-busting (?fresh=1) scans is the main cost-abuse vector; cap per-IP +
+  // global LLM spend here so the cheap hydration paths stay unthrottled.
+  if (opts.req) {
+    const rl = rateLimitRequest(opts.req, SCAN_RATE_LIMIT);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  }
+
+  // Entitlement gate: a private (installation-token) scan draws on the org's prepaid credits. Refuse
+  // up front when the org is out of credits (and not on an unlimited plan) so we never run paid
+  // inference we can't bill. Public scans and mock scans are free and skip this. The debit happens
+  // after the scan actually produces real inference (below) — a dedup or a degrade-to-mock run is free.
+  const metered = isMeteredScan(orgSlug, opts.mock);
+  if (metered) {
+    const ent = await checkScanEntitlement(orgSlug);
+    if (!ent.allowed) return paymentRequired(ent.balance);
+  }
+
   // Pass the head sha resolved for the cache key so the scored commit matches the key (no SHA
   // drift if a push lands mid-scan). Null/SHA-less lookups pass undefined → default behavior.
   const report = await scanRepository(url, {
@@ -92,11 +112,13 @@ async function runScan(
 
   let deduped = false;
   let persistedOk = true;
+  let scanId: string | undefined;
   if (isDbConfigured()) {
     try {
       // Persist the conditional-request ETag alongside the scan so the next re-scan stays cheap.
       const persisted = await persistScanReport(report, { orgSlug, headEtag: lookup?.etag ?? undefined });
       deduped = persisted?.deduped ?? false;
+      scanId = persisted?.scanId;
       if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
         console.warn("[scan] persisted with partial write failures", {
           repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
@@ -116,14 +138,31 @@ async function runScan(
     }
   }
 
+  // Debit one credit for a metered private scan that actually ran real inference. A degrade-to-mock
+  // (transient LLM failure) produced no paid inference, so it isn't charged. Best-effort: a debit
+  // hiccup must not fail a scan the user already received — it's logged for reconciliation.
+  let creditsRemaining: number | null = null;
+  if (metered && report.engine.provider !== "mock") {
+    const debit = await consumeScanCredit(orgSlug, {
+      repoFullName: parsed ? `${parsed.owner}/${parsed.repo}` : undefined,
+      scanId,
+    }).catch((err) => {
+      console.error("[scan] credit debit failed", err);
+      return null;
+    });
+    if (debit) creditsRemaining = debit.balance;
+  }
+
   // x-ascent-dedup: "hit" means this commit was already scored, so no new row was written and no
   // extra usage was billed (the report reflects the existing snapshot).
   // x-ascent-persisted: "false" means the scan was computed and returned but NOT saved (rolled back).
+  // x-ascent-credits-remaining: the org's prepaid balance after this metered scan's debit.
   const headers: Record<string, string> = {
     "x-ascent-cache": "miss",
     "x-ascent-dedup": deduped ? "hit" : "miss",
   };
   if (!persistedOk) headers["x-ascent-persisted"] = "false";
+  if (creditsRemaining !== null) headers["x-ascent-credits-remaining"] = String(creditsRemaining);
   return NextResponse.json(report, { headers });
 }
 
@@ -164,6 +203,7 @@ export async function POST(request: Request) {
       installationId: body.installationId,
       fresh: Boolean(body.fresh),
       signal: request.signal,
+      req: request,
     });
   } catch (err) {
     return handleError(err);
@@ -181,7 +221,7 @@ export async function GET(request: Request) {
     const installationId = searchParams.get("installation_id") ?? undefined;
     const fresh = searchParams.get("fresh") === "1" || searchParams.get("fresh") === "true";
     const peek = searchParams.get("peek") === "1" || searchParams.get("peek") === "true";
-    return await runScan(url, { mock, installationId, fresh, peek, signal: request.signal });
+    return await runScan(url, { mock, installationId, fresh, peek, signal: request.signal, req: request });
   } catch (err) {
     return handleError(err);
   }

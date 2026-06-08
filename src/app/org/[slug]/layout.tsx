@@ -2,8 +2,9 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { OrgNav } from "@/components/org/OrgNav";
 import { OrgScanButton } from "@/components/org/OrgScanButton";
+import { CreditsControl } from "@/components/org/CreditsControl";
 import { OrgEmpty } from "@/components/org/ui";
-import { getOrgRollup, isDbConfigured } from "@/lib/db";
+import { getCreditState, getOrgRollup, isDbConfigured } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
@@ -83,22 +84,37 @@ export default async function OrgLayout({
   const watched = rollup.repos.filter((r) => r.watched).length;
   const level = levelForScore(rollup.avgOverall);
 
+  // Prepaid scan-credit state for the header chip (skipped for the shared public org, which is free).
+  const credit = slug === "public" ? null : await getCreditState(slug);
+  const grantsEnabled =
+    process.env.ASCENT_ALLOW_CREDIT_GRANTS === "1" || process.env.ASCENT_ALLOW_CREDIT_GRANTS === "true";
+
   return (
     <Frame>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">Org maturity</div>
+            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Org maturity</div>
             <h1 className="mt-0.5 text-2xl font-bold text-white">{slug}</h1>
           </div>
-          <span className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-xs" style={{ color: scoreHex(rollup.avgOverall) }}>
+          <span className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm" style={{ color: scoreHex(rollup.avgOverall) }}>
             {level.id} · {rollup.avgOverall}
           </span>
-          <span className="font-mono text-[11px] text-slate-500">
+          <span className="font-mono text-sm text-slate-500">
             {rollup.scannedCount}/{rollup.repoCount} scanned · {watched} watched
           </span>
         </div>
-        <OrgScanButton org={slug} watchedCount={watched} />
+        <div className="flex items-center gap-2">
+          {credit && (
+            <CreditsControl
+              org={slug}
+              initialBalance={credit.balance}
+              unlimited={credit.unlimited}
+              grantsEnabled={grantsEnabled}
+            />
+          )}
+          <OrgScanButton org={slug} watchedCount={watched} />
+        </div>
       </div>
       <OrgNav slug={slug} />
       <div className="mt-6 animate-fade-up">{children}</div>

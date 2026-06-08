@@ -4,9 +4,10 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { getInstallationIdForOwner, isDbConfigured, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, isDbConfigured, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
+import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
@@ -44,6 +45,23 @@ export async function POST(request: Request) {
   }
   const installationId = await getInstallationIdForOwner(org);
 
+  // Credit gate for the batch: each watched-repo scan draws one prepaid credit (unless the org is on
+  // an unlimited plan). Refuse up front if there are none; if the balance can't cover every repo, scan
+  // as many as it allows and report the rest as skipped-for-credits rather than failing the whole run.
+  const metered = org.toLowerCase() !== "public";
+  let unlimited = true;
+  let scanList = repos;
+  let skippedForCredits = 0;
+  if (metered) {
+    const ent = await checkScanEntitlement(org);
+    if (!ent.allowed) return paymentRequired(ent.balance);
+    unlimited = ent.unlimited;
+    if (!ent.unlimited && repos.length > ent.balance) {
+      skippedForCredits = repos.length - ent.balance;
+      scanList = repos.slice(0, ent.balance);
+    }
+  }
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const enc = new TextEncoder();
@@ -66,14 +84,20 @@ export async function POST(request: Request) {
         }
         const token = installationId ? await getInstallationToken(installationId).catch(() => undefined) : undefined;
 
+        // Tell the client up front when the prepaid balance can't cover every watched repo, so the
+        // war-room shows "scanned N · M skipped (out of credits)" rather than silently doing fewer.
+        if (skippedForCredits > 0) {
+          send("notice", { reason: "insufficient_credits", scanning: scanList.length, skipped: skippedForCredits });
+        }
+
         // Scan with bounded concurrency rather than strictly serially: each lane sends its own
         // per-repo events as it resolves (the SSE consumer already keys off each message's repo,
         // not arrival order), so the war-room fills in a fraction of the wall-clock and a realistic
         // fleet finishes inside the 300s budget. `done` is incremented in a single-threaded lane, so
         // the count is race-free.
         let done = 0;
-        await mapPool(repos, SCAN_CONCURRENCY, async (repo) => {
-          send("progress", { stage: "scan", repo: repo.fullName, index: done, total: repos.length });
+        await mapPool(scanList, SCAN_CONCURRENCY, async (repo) => {
+          send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
           try {
             const report = await scanRepository(repo.fullName, { token });
             const persisted = await persistScanReport(report, { orgSlug: org });
@@ -83,6 +107,11 @@ export async function POST(request: Request) {
                 scanId: persisted.scanId,
                 failures: persisted.failures,
               });
+            }
+            // Debit one credit per real (non-mock) scan; unlimited plans skip it. Best-effort — a
+            // debit hiccup must not fail a scan the war-room already received.
+            if (metered && !unlimited && report.engine.provider !== "mock") {
+              await consumeScanCredit(org, { repoFullName: repo.fullName, scanId: persisted?.scanId }).catch(() => {});
             }
             send("repo", {
               repo: repo.fullName,
@@ -99,9 +128,9 @@ export async function POST(request: Request) {
             send("repo", { repo: repo.fullName, error: msg });
           }
           done += 1;
-          send("progress", { stage: "scan", repo: repo.fullName, index: done, total: repos.length });
+          send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
         });
-        send("result", { scanned: done, total: repos.length });
+        send("result", { scanned: done, total: scanList.length, skippedForCredits });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Bulk scan failed." });
       } finally {

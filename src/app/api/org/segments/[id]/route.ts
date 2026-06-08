@@ -2,22 +2,26 @@
 // DELETE /api/org/segments/:id                     -> remove the segment and its memberships
 
 import { NextResponse } from "next/server";
-import { deleteSegment, isDbConfigured, updateSegment } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { deleteSegment, getSegmentOrgSlug, isDbConfigured, updateSegment } from "@/lib/db";
+import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import type { OrgRole } from "@/lib/db/members";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function gate(): Promise<NextResponse | null> {
+// DB + per-row tenant gate: the segment must exist and the caller must hold at least `min` in its org.
+// PATCH (rename/recolor) is a member-level write; DELETE is destructive, so it requires admin.
+async function gate(id: string, min: OrgRole = "member"): Promise<NextResponse | null> {
   if (!isDbConfigured()) return NextResponse.json({ error: "Segments require a database." }, { status: 503 });
-  if (isAuthConfigured() && !(await getSession())) return NextResponse.json({ error: "Sign in to edit segments." }, { status: 401 });
-  return null;
+  const org = await getSegmentOrgSlug(id);
+  if (!org) return NextResponse.json({ error: "Segment not found." }, { status: 404 });
+  return min === "member" ? requireOrgAccess(org) : requireOrgRole(org, min);
 }
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
-  const blocked = await gate();
-  if (blocked) return blocked;
   const { id } = await ctx.params;
+  const blocked = await gate(id);
+  if (blocked) return blocked;
   const body = (await request.json().catch(() => ({}))) as { name?: string; color?: string };
   try {
     await updateSegment(id, body);
@@ -30,9 +34,9 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
 }
 
 export async function DELETE(_request: Request, ctx: { params: Promise<{ id: string }> }) {
-  const blocked = await gate();
-  if (blocked) return blocked;
   const { id } = await ctx.params;
+  const blocked = await gate(id, "admin");
+  if (blocked) return blocked;
   try {
     await deleteSegment(id);
     return NextResponse.json({ ok: true });

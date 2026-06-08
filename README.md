@@ -178,8 +178,10 @@ npm run dev
 ```
 
 Everything that touches the DB **degrades gracefully** when `DATABASE_URL` is unset.
-Scripts: `db:push` (sync schema), `db:migrate` (create a migration), `db:studio`
-(browse), `db:generate` (regenerate client). Schema: [`prisma/schema.prisma`](./prisma/schema.prisma)
+Scripts: `db:push` (sync schema in dev), `db:migrate` (create a migration), `db:deploy`
+(`prisma migrate deploy` — apply committed migrations in CI/production), `db:studio`
+(browse), `db:generate` (regenerate client). Migrations live in
+[`prisma/migrations/`](./prisma/migrations) (baseline `0_init`). Schema: [`prisma/schema.prisma`](./prisma/schema.prisma)
 — DSQL-safe (`relationMode = "prisma"`, UUID PKs, no FK constraints). See
 [`docs/features/data-model.md`](./docs/features/data-model.md) and
 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) §"Local development & Aurora DSQL".
@@ -230,6 +232,31 @@ alerts · Bedrock enterprise inference · optional GitHub OAuth.
 Next: a live **Aurora DSQL** cluster (IAM-token auth), enforced **multi-user org roles**,
 **Stripe** billing on the existing usage meter, and **PDF/report export**.
 See [`docs/PLAN.md`](./docs/PLAN.md).
+
+## Deploying
+
+Ascent targets **Vercel**. Production requirements:
+
+- **Vercel Pro (or higher).** The scan, org-import, cron and webhook routes set `maxDuration` of
+  120–300s (a full scan + LLM scoring, or a bulk org import, runs long). Vercel's Hobby plan caps
+  serverless functions at 60s and would truncate them — Pro is required.
+- **Environment:** set the variables you need from [`.env.example`](./.env.example) (LLM provider,
+  `DATABASE_URL`/DSQL, GitHub App, OAuth `AUTH_SECRET`). With none set, the app runs keyless in mock
+  mode.
+- **Migrations:** apply the committed Prisma migrations with `npm run db:deploy`
+  (`prisma migrate deploy`) — not `db:push`. Baseline is `prisma/migrations/0_init`; an existing DB
+  first built with `db push` needs a one-time `prisma migrate resolve --applied 0_init`.
+- **Autoscans:** set `CRON_SECRET` (the cron routes fail closed without it) and configure the GitHub
+  App. Verify readiness at `GET /api/health` → `autoscan.ready`.
+
+## License
+
+Ascent is source-available under the **Business Source License 1.1** (SPDX `BUSL-1.1`) —
+see [`LICENSE`](./LICENSE). You may read, modify, and self-host it, and the published
+GitHub Action (`action.yml`) and maturity badge are free to use in your own CI. The one
+restriction: you may not offer Ascent to third parties as a competing hosted/managed
+repository-maturity service. Each release converts to **Apache-2.0** on its Change Date
+(2030-06-08). For other arrangements, open an issue.
 
 ---
 Scored by Ascent · #H0Hackathon

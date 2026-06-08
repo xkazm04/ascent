@@ -75,22 +75,22 @@ export function InitiativesPanel({ slug, initial, seeds }: { slug: string; initi
       />
 
       <div className="mt-4 space-y-3">
-        {items.length === 0 && <p className="text-sm text-slate-500">No initiatives yet — start one from a fleet move below.</p>}
+        {items.length === 0 && <p className="text-base text-slate-500">No initiatives yet — start one from a fleet move below.</p>}
         {items.map((i) => {
           const pct = i.progress.total ? Math.round((i.progress.atTarget / i.progress.total) * 100) : 0;
           return (
             <div key={i.id} className="rounded-xl border border-slate-800 bg-slate-950/30 p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-white">{i.title}</div>
-                  <div className="font-mono text-[11px] text-slate-500">
+                  <div className="text-base font-medium text-white">{i.title}</div>
+                  <div className="font-mono text-sm text-slate-500">
                     {i.dimId} {i.dimLabel} · target {i.targetScore} · {i.progress.atTarget}/{i.progress.total} repos there
                   </div>
                 </div>
                 <select
                   value={i.status}
                   onChange={(e) => setStatus(i.id, e.target.value)}
-                  className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[11px] text-slate-200"
+                  className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
                 >
                   {STATUSES.map((s) => (
                     <option key={s} value={s}>
@@ -107,18 +107,18 @@ export function InitiativesPanel({ slug, initial, seeds }: { slug: string; initi
 
       {available.length > 0 && (
         <div className="mt-4 border-t border-slate-800 pt-4">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">Start from a fleet move</div>
+          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Start from a fleet move</div>
           <div className="mt-2 space-y-2">
             {available.map((s) => (
               <div key={s.title} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-2">
                 <div className="min-w-0">
-                  <div className="truncate text-sm text-slate-200">{s.title}</div>
-                  <div className="font-mono text-[11px] text-slate-500">{s.dimId} · affects {s.repoCount} repos</div>
+                  <div className="truncate text-base text-slate-200">{s.title}</div>
+                  <div className="font-mono text-sm text-slate-500">{s.dimId} · affects {s.repoCount} repos</div>
                 </div>
                 <button
                   onClick={() => track(s)}
                   disabled={busy === s.title}
-                  className="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
+                  className="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
                 >
                   {busy === s.title ? "…" : "Track"}
                 </button>
@@ -127,7 +127,7 @@ export function InitiativesPanel({ slug, initial, seeds }: { slug: string; initi
           </div>
         </div>
       )}
-      {error && <p className="mt-2 text-xs text-orange-300">{error}</p>}
+      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
     </Card>
   );
 }
