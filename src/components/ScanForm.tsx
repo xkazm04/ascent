@@ -103,7 +103,7 @@ export function ScanForm({
         <button
           type="submit"
           disabled={submitting || !value.trim()}
-          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 font-mono text-xs font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+          className="focus-ring inline-flex items-center gap-2 bg-accent px-6 font-mono text-xs font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-400"
         >
           {submitting ? (
             <>
