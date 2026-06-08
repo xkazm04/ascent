@@ -15,6 +15,7 @@ const ERROR_COPY: Record<string, string> = {
   setup_failed: "We couldn't finish setting up the installation. Please try again.",
   oauth: "Sign-in could not be verified. Please try again.",
   oauth_failed: "Sign-in failed. Please try again.",
+  revoke: "We couldn't sign out your other sessions. Please try again.",
 };
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -30,9 +31,9 @@ function Shell({ children }: { children: React.ReactNode }) {
 export default async function ConnectPage({
   searchParams,
 }: {
-  searchParams: Promise<{ org?: string; installation_id?: string; error?: string; resynced?: string }>;
+  searchParams: Promise<{ org?: string; installation_id?: string; error?: string; resynced?: string; revoked?: string }>;
 }) {
-  const { org, installation_id, error, resynced } = await searchParams;
+  const { org, installation_id, error, resynced, revoked } = await searchParams;
   const installUrl = appInstallUrl();
   const { session, status } = await getSessionState();
 
@@ -135,6 +136,16 @@ export default async function ConnectPage({
             GitHub access re-synced — {installCount} installation{installCount === 1 ? "" : "s"} now available.
           </div>
         )}
+        {revoked && (
+          <div
+            role="status"
+            className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300"
+          >
+            {revoked === "others"
+              ? "Signed out of all other sessions — this browser stays signed in."
+              : "Your session was refreshed, but other sessions can't be centrally revoked without a database."}
+          </div>
+        )}
         {/* Login-time org auto-discovery: a ready-to-explore seeded dashboard + orgs to connect. */}
         {(seededOrg || suggestedOrgs.length > 0) && (
           <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
@@ -182,18 +193,34 @@ export default async function ConnectPage({
         {/* Self-serve refresh: re-fetch installations and re-issue the session without waiting
             out the 7-day cookie, so a repo/org just added on GitHub shows up immediately. */}
         {session && (
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <GitHubSignInButton
-              variant="nav"
-              resync
-              next="/connect"
-              label="Re-sync access"
-              pendingLabel="Re-syncing…"
-            />
-            <p className="text-xs text-slate-500">
-              Added a repo or org on GitHub but don&apos;t see it here? Re-sync to refresh your
-              installations without signing out.
-            </p>
+          <div className="mt-6 space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <GitHubSignInButton
+                variant="nav"
+                resync
+                next="/connect"
+                label="Re-sync access"
+                pendingLabel="Re-syncing…"
+              />
+              <p className="text-xs text-slate-500">
+                Added a repo or org on GitHub but don&apos;t see it here? Re-sync to refresh your
+                installations without signing out.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <form action="/api/auth/revoke-sessions" method="post" className="contents">
+                <button
+                  type="submit"
+                  className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-[11px] uppercase tracking-widest text-slate-300 transition hover:border-danger hover:text-danger-soft"
+                >
+                  Sign out everywhere else
+                </button>
+              </form>
+              <p className="text-xs text-slate-500">
+                Lost or shared a device? Revoke every other signed-in session and keep only this
+                browser.
+              </p>
+            </div>
           </div>
         )}
         {installs.length === 0 ? (

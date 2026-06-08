@@ -9,7 +9,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { cookies, headers } from "next/headers";
 import { isDbConfigured } from "@/lib/db/client";
-import { getSessionVersion } from "@/lib/db/sessions";
+import { bumpSessionVersion, getSessionVersion } from "@/lib/db/sessions";
 
 export const SESSION_COOKIE = "ascent_session";
 export const STATE_COOKIE = "ascent_oauth_state";
@@ -266,6 +266,24 @@ export async function getSession(): Promise<Session | null> {
 }
 
 /**
+ * "Sign out everywhere else": revoke every OTHER session for this login while keeping the current
+ * browser signed in. Bumps the login's stored session version — so every token minted at the prior
+ * version (other devices, or a leaked/stolen cookie copy) is rejected on its next resolve — then
+ * re-mints THIS browser's cookie at the new version so it alone survives. Returns whether the
+ * revocation actually had authority: with no DB, bumpSessionVersion is a no-op (version 0) and
+ * there is nothing to revoke, so this returns false (the cookie is still refreshed, harmlessly).
+ * Must run inside a Route Handler / Server Action — it writes the session cookie.
+ */
+export async function revokeOtherSessions(session: Session): Promise<boolean> {
+  const newVersion = await bumpSessionVersion(session.login); // 0 in stateless mode (no authority)
+  const now = Date.now();
+  const renewed: Session = { ...session, sv: newVersion, exp: now + ACCESS_TTL_MS, rexp: now + SESSION_TTL_MS };
+  const store = await cookies();
+  store.set(SESSION_COOKIE, encodeSession(renewed), sessionCookieAttrs(await secureCookieForRequest()));
+  return isDbConfigured();
+}
+
+/**
  * The org slug a viewer is allowed to read scan data for `owner` under. Private
  * GitHub-App scans are stored under the owner's own org (login, lowercased); public
  * scans live under the shared "public" org. A viewer may read the owner's org only when
@@ -314,6 +332,25 @@ export async function getActiveOrg(session?: Session | null): Promise<string> {
     if (match) return match;
   }
   return s?.installations[0]?.login ?? PUBLIC_ORG;
+}
+
+/**
+ * True when a request demonstrably comes from this same origin — the CSRF guard shared by the
+ * state-changing POST handlers (logout, session revocation). Prefers the Origin header's host;
+ * for same-origin top-level navigations that omit Origin, falls back to the Sec-Fetch-Site
+ * fetch-metadata. Single-sourced here so the handlers can't drift apart.
+ */
+export function isSameOrigin(request: Request): boolean {
+  const host = request.headers.get("host");
+  const origin = request.headers.get("origin");
+  if (origin) {
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  }
+  return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
 /**

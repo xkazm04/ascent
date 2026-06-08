@@ -13,26 +13,11 @@
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, decodeSession } from "@/lib/auth";
+import { SESSION_COOKIE, decodeSession, isSameOrigin } from "@/lib/auth";
 import { bumpSessionVersion } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** True when the request demonstrably comes from this same origin. */
-function isSameOrigin(request: Request): boolean {
-  const host = request.headers.get("host");
-  const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      return new URL(origin).host === host;
-    } catch {
-      return false;
-    }
-  }
-  // No Origin header (some same-origin top-level navigations): require fetch metadata.
-  return request.headers.get("sec-fetch-site") === "same-origin";
-}
 
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) {
