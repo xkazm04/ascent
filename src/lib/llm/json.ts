@@ -22,6 +22,16 @@ export class ProviderParseError extends Error {
   }
 }
 
+// The balanced recovery below is O(starts × N): each failed start re-scans toward end-of-string.
+// A truncated/adversarial reply full of unclosed "{" (no valid JSON) would otherwise pin the
+// single-threaded event loop for the whole reply — and a SYNCHRONOUS loop can't be interrupted by
+// the per-request AbortSignal. Bound both dimensions: skip recovery above MAX_RECOVERY_BYTES (a
+// clean reply of any size still parses on the O(N) fast path — only the scan is gated), and cap the
+// number of structural starts tried (a real model puts its JSON within the first few structural
+// chars; thousands of failed starts means there is no JSON value to find).
+const MAX_RECOVERY_BYTES = 256 * 1024;
+const MAX_START_ATTEMPTS = 512;
+
 /**
  * Scan from `start` for one balanced JSON value beginning with `{` or `[`, respecting string
  * literals and escapes. Returns the matched substring, or null if no balanced value is found.
@@ -73,6 +83,12 @@ export function parseJsonLoose<T>(text: string): T {
     /* fall through */
   }
 
+  // Bound the recovery scans below (fence + balanced) so an oversized unparseable reply can't stall
+  // the event loop. The clean fast path above already handled any size in O(N).
+  if (text.length > MAX_RECOVERY_BYTES) {
+    throw new ProviderParseError(`Model output too large to recover (${text.length} bytes)`, text);
+  }
+
   // 2. Markdown code fences anywhere in the text (```json … ``` or ``` … ```). Try each
   //    fenced block in order — the first that parses (directly or via balanced scan) wins.
   const fenceRe = /```(?:json|jsonc)?\s*([\s\S]*?)```/gi;
@@ -99,7 +115,9 @@ export function parseJsonLoose<T>(text: string): T {
 /** Try every structural start index, returning the first that parses to a value. */
 function balancedParse<T>(text: string): { ok: true; value: T } | { ok: false } {
   let idx = firstStructuralIndex(text, 0);
-  while (idx >= 0) {
+  let attempts = 0;
+  while (idx >= 0 && attempts < MAX_START_ATTEMPTS) {
+    attempts++;
     const candidate = extractBalanced(text, idx);
     if (candidate) {
       try {
