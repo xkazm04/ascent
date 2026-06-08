@@ -197,6 +197,32 @@ export async function advanceScheduleAfterFailure(repoId: string): Promise<void>
   });
 }
 
+/**
+ * Record the outcome of a scan ATTEMPT on a repo so the dashboard can tell "scanning is broken"
+ * (revoked token, deleted repo, rate-limited) apart from "never scanned" — previously every bulk/cron
+ * failure was only console-logged and thrown away, so a repo failing for weeks looked identical to one
+ * never scanned. A success clears any prior error. Keyed by (orgSlug, fullName); a safe no-op when the
+ * repo row doesn't exist yet. Best-effort: callers don't let a bookkeeping write fail the scan loop.
+ */
+export async function recordScanOutcome(
+  orgSlug: string,
+  fullName: string,
+  outcome: { ok: boolean; error?: string },
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  if (!org) return;
+  await prisma.repository.updateMany({
+    where: { orgId: org.id, fullName },
+    data: {
+      lastScanStatus: outcome.ok ? "ok" : "error",
+      lastScanError: outcome.ok ? null : (outcome.error ?? "scan failed").slice(0, 500),
+      lastScanAttemptAt: new Date(),
+    },
+  });
+}
+
 /** Watched repos for an org (for bulk scan / cron). */
 export async function listWatchedRepos(orgSlug: string): Promise<RepoRef[]> {
   if (!isDbConfigured()) return [];
@@ -442,6 +468,10 @@ export interface OrgRepoRow {
   watched: boolean;
   scanSchedule: string;
   lastScanAt: string | null;
+  /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
+  lastScanStatus: string | null;
+  /** Failure reason when lastScanStatus is "error", for a "needs attention" affordance. */
+  lastScanError: string | null;
   latest: {
     level: string;
     overall: number;
@@ -525,6 +555,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       watched: r.watched,
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
+      lastScanStatus: r.lastScanStatus,
+      lastScanError: r.lastScanError,
       latest: s
         ? {
             level: s.level,

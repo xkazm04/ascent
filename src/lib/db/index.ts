@@ -83,6 +83,7 @@ export {
   listDueRescans,
   advanceSchedule,
   advanceScheduleAfterFailure,
+  recordScanOutcome,
   getOrgId,
   isRepoWatched,
   type DueRescan,

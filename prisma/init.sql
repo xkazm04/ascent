@@ -61,6 +61,9 @@ CREATE TABLE "Repository" (
     "scanSchedule" TEXT NOT NULL DEFAULT 'off',
     "lastScanAt" TIMESTAMP(3),
     "nextScanAt" TIMESTAMP(3),
+    "lastScanStatus" TEXT,
+    "lastScanError" TEXT,
+    "lastScanAttemptAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

@@ -65,6 +65,14 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                       <Link href={`/report?repo=${encodeURIComponent(r.fullName)}`} className="font-mono text-xs text-white hover:text-accent">
                         {r.fullName}
                       </Link>
+                      {r.lastScanStatus === "error" && (
+                        <span
+                          title={r.lastScanError ?? "The most recent scan attempt failed."}
+                          className="ml-2 rounded border border-danger/40 bg-danger/10 px-1.5 py-0.5 font-mono text-[10px] text-danger-soft"
+                        >
+                          ⚠ scan failed
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       {l && rlc ? <span className={`font-mono text-xs ${rlc.text}`}>{l.level}</span> : <span className="text-slate-600">—</span>}

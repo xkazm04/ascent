@@ -20,6 +20,7 @@ import {
   getInstallationIdForOwner,
   isDbConfigured,
   persistScanReport,
+  recordScanOutcome,
   setRepoSchedule,
   setRepoWatch,
 } from "@/lib/db";
@@ -138,8 +139,13 @@ export async function POST(request: Request) {
               rigor: report.rigorScore,
               contributors: report.contributors?.length ?? 0,
             });
+            // Only record an outcome once the repo row exists (watch=true upserts it above); the
+            // public funnel (watch=false) may not have persisted a Repository row, so skip then.
+            if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
           } catch (err) {
-            send("repo", { repo: r.fullName, error: err instanceof Error ? err.message : "scan failed" });
+            const msg = err instanceof Error ? err.message : "scan failed";
+            if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
+            send("repo", { repo: r.fullName, error: msg });
           }
           scanned += 1;
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });

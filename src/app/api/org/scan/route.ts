@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { getInstallationIdForOwner, isDbConfigured, listWatchedRepos, persistScanReport } from "@/lib/db";
+import { getInstallationIdForOwner, isDbConfigured, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -92,8 +92,11 @@ export async function POST(request: Request) {
               adoption: report.adoptionScore,
               rigor: report.rigorScore,
             });
+            await recordScanOutcome(org, repo.fullName, { ok: true }).catch(() => {});
           } catch (err) {
-            send("repo", { repo: repo.fullName, error: err instanceof Error ? err.message : "scan failed" });
+            const msg = err instanceof Error ? err.message : "scan failed";
+            await recordScanOutcome(org, repo.fullName, { ok: false, error: msg }).catch(() => {});
+            send("repo", { repo: repo.fullName, error: msg });
           }
           done += 1;
           send("progress", { stage: "scan", repo: repo.fullName, index: done, total: repos.length });

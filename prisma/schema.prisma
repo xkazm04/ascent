@@ -88,6 +88,11 @@ model Repository {
   scanSchedule    String    @default("off") // off | daily | weekly | monthly
   lastScanAt      DateTime?
   nextScanAt      DateTime?
+  // Outcome of the most recent scan ATTEMPT (bulk/cron), so the dashboard can tell "never scanned"
+  // apart from "scanning is broken" (revoked token, deleted repo, rate-limited). Null until first try.
+  lastScanStatus    String? // "ok" | "error"
+  lastScanError     String?
+  lastScanAttemptAt DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

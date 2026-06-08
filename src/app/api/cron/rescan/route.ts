@@ -16,6 +16,7 @@ import {
   isDbConfigured,
   listDueRescans,
   persistScanReport,
+  recordScanOutcome,
 } from "@/lib/db";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
@@ -79,12 +80,18 @@ export async function GET(request: Request) {
         await checkAndAlertRegression(prev, report, { orgId });
       }
       await advanceSchedule(r.repoId, r.scanSchedule);
+      await recordScanOutcome(r.orgSlug, r.fullName, { ok: true }).catch(() => {});
       scanned += 1;
     } catch (err) {
       // ALWAYS advance, even on failure (with a backoff). The schedule used to advance only on
       // success, so a persistently-broken repo stayed permanently due at the front of the queue and
       // re-failed every run, starving the rest of the fleet. Back it off so it leaves the front.
       await advanceScheduleAfterFailure(r.repoId).catch(() => {});
+      // Persist the failure so the dashboard can flag this repo as broken (not "never scanned").
+      await recordScanOutcome(r.orgSlug, r.fullName, {
+        ok: false,
+        error: err instanceof Error ? err.message : "scan failed",
+      }).catch(() => {});
       errors.push(`${r.fullName}: ${err instanceof Error ? err.message : "failed"}`);
     }
   });
