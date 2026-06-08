@@ -15,23 +15,6 @@ import { envNumber } from "@/lib/llm/config";
 export const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60_000;
 
-/** Reject a promise if it doesn't settle within `ms` (so a hung LLM call falls back). */
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(label)), ms);
-    p.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        reject(e);
-      },
-    );
-  });
-}
-
 export class GeminiProvider implements LLMProvider {
   readonly name = "gemini" as const;
   readonly model: string;
@@ -44,27 +27,37 @@ export class GeminiProvider implements LLMProvider {
 
   async assess(input: LlmScoreInput, opts: AssessOptions = {}): Promise<LlmAssessment> {
     const { system, user } = buildAssessmentPrompt(input);
-    const response = await withTimeout(
-      this.client.models.generateContent({
+    // Drive the timeout through an AbortController so a hung model request is actually CANCELLED
+    // (frees the socket, stops token billing) — not merely abandoned by a promise race that left the
+    // original call running in the background while retry/fallback fired (a retry storm that doubled
+    // in-flight requests on every timeout). Combine it with the client-disconnect signal so either
+    // one cancels the call.
+    const timeoutCtrl = new AbortController();
+    const timer = setTimeout(
+      () => timeoutCtrl.abort(new Error("Gemini request timed out.")),
+      LLM_TIMEOUT_MS,
+    );
+    const abortSignal = opts.signal
+      ? AbortSignal.any([opts.signal, timeoutCtrl.signal])
+      : timeoutCtrl.signal;
+    let response;
+    try {
+      response = await this.client.models.generateContent({
         model: this.model,
         contents: user,
         config: {
           systemInstruction: system,
           temperature: envNumber("LLM_TEMPERATURE", 0.2),
           responseMimeType: "application/json",
-          // Constrain decoding to the assessment contract (the same JSON Schema
-          // Bedrock forces as a tool). This makes a well-formed response the
-          // contract, not the hope; parseJsonLoose + validateAssessment below
-          // remain the safety net for anything that still slips through.
+          // Constrain decoding to the assessment contract (the same JSON Schema Bedrock forces as a
+          // tool); parseJsonLoose + validateAssessment below remain the safety net.
           responseJsonSchema: ASSESSMENT_JSON_SCHEMA,
-          // Abort the request if the client disconnects, so an abandoned scan stops
-          // waiting on (and reading from) the model instead of running to completion.
-          abortSignal: opts.signal,
+          abortSignal,
         },
-      }),
-      LLM_TIMEOUT_MS,
-      "Gemini request timed out.",
-    );
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     const text = response.text;
     if (!text) throw new Error("Empty response from Gemini.");
     const um = response.usageMetadata;
