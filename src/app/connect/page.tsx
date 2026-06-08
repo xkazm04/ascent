@@ -246,7 +246,10 @@ export default async function ConnectPage({
         ) : (
           <div className="mt-8 space-y-8">
             {installUrl && (
-              <a href={installUrl} className="focus-ring rounded-sm font-mono text-xs uppercase tracking-widest text-accent hover:text-accent-soft">
+              <a
+                href={installUrl}
+                className="focus-ring inline-block rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-accent transition hover:border-accent hover:bg-accent/10 hover:text-accent-soft"
+              >
                 + Add or manage repositories on GitHub →
               </a>
             )}
