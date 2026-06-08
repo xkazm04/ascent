@@ -475,7 +475,7 @@ export function OnboardingFlow({
         </div>
 
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-400">
+          <p role="alert" className="mt-3 text-sm text-danger-soft">
             {error}
           </p>
         )}
@@ -721,7 +721,7 @@ function PickForm({
           ))}
         </div>
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-400">
+          <p role="alert" className="mt-3 text-sm text-danger-soft">
             {error}
           </p>
         )}
@@ -737,7 +737,7 @@ function ScanRowView({ row }: { row: ScanRow }) {
     <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2.5">
       <span className="flex-1 truncate font-mono text-sm text-white">{row.repo}</span>
       {row.error ? (
-        <span className="text-xs text-red-400">{row.error}</span>
+        <span className="text-xs text-danger">{row.error}</span>
       ) : done ? (
         <span className={`rounded border px-2 py-0.5 font-mono text-xs ${lc?.border} ${lc?.bg} ${lc?.text}`}>
           {row.level && <span aria-hidden>{LEVEL_GLYPH[row.level]} </span>}
