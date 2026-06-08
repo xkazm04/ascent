@@ -129,6 +129,10 @@ export function ScanForm({
         </button>
       </form>
 
+      {/* On phones the github.com/ prefix is hidden for width; surface it as a persistent hint
+          (the placeholder disappears the moment the user types). */}
+      <p className="mt-1.5 font-mono text-[11px] text-slate-500 sm:hidden">github.com/owner/repo</p>
+
       {/* Inline validation message, wired to the input via aria-describedby. */}
       {error && (
         <p id={errorId} className="mt-2 text-sm text-danger">
