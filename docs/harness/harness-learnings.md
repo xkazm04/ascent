@@ -593,3 +593,38 @@
 - **ALL 9 criticals are closed (8 via code + github-app #2 reassessed).** Remaining scan work is
   High→Low: Wave 6 (LLM cost/billing — llm #2/#3, scan-pipeline #2, org-scanning #4, usage #5/#6),
   Wave 7 (cache/dedup & GitHub App sync), Wave 8 (session/OAuth + aggregate/UI tail). See INDEX.
+
+## Bug Hunter Pipeline B — "LLM cost / billing integrity" wave (2026-06-08, wave 6 — 3 closed, 3 deferred)
+
+### Structural facts
+- **2026-06-08** — `scan.ts` attemptAssess now captures each attempt's usage into a LOCAL and assigns
+  `capturedUsage` only AFTER the usability gate passes (commit-on-success). Providers call onUsage
+  before the parse/usability check, so a failed attempt's tokens used to ride onto report.usage even
+  after degrading to mock.
+- **2026-06-08** — `gemini.ts` drives the LLM timeout through an `AbortController` (abort on timer)
+  combined with the client signal via `AbortSignal.any`, passed as `abortSignal` to generateContent —
+  so a timeout CANCELS the request (frees socket, stops billing) instead of a promise-race that left
+  it running. The old `withTimeout` helper was removed.
+- **2026-06-08** — `db/usage.ts` estimatedCost now requires BOTH `LLM_INPUT/OUTPUT_COST_PER_MTOK`
+  parsed from raw env (null when blank, NOT 0 — envNumber(name,0) couldn't tell unset from 0). A
+  deliberate "0" is a valid price; a missing rate → null ("rate not set"). envNumber import dropped.
+
+### Conventions enforced
+- **2026-06-08** — Meter on commit, not on attempt: fold per-attempt usage into the billable total
+  only on the winning attempt.
+- **2026-06-08** — A timeout must CANCEL (AbortController), not just abandon (promise race) — else the
+  guarded request keeps running and billing.
+
+### Open follow-ups (from Bug Hunter wave 6)
+- **DEFERRED usage #5 (Medium)** — mock/keyless private scans counted as billable. "billable=private"
+  is woven through priv count + per-day SQL series (fetchDailySeries) + JS fallback + CSV + UsageTrend;
+  excluding mock consistently is metering-wide, unverifiable DB-less. Lower impact now (W6-1 zeroed
+  mock tokens, W6-4 fixed cost rates) — residual is the private-scan UNIT count.
+- **DEFERRED scan-pipeline #2 (High)** — cache-stampede double-bill. Singleflight is clean for the JSON
+  route but the primary path is the SSE STREAM route (per-client progress can't share one computation's
+  stream). Needs a stream-aware design + load test.
+- **DEFERRED org-scanning #4 (Medium)** — cron at-least-once retry re-burn; ties to the deferred
+  `@@unique([repoId, headSha])` (persistence #4). DB-concurrency, unverifiable DB-less.
+- **OpenAI timeout** — the W6-2 AbortController pattern should also be applied to openai.ts (it wires
+  opts.signal but not a timeout-abort).
+- All 9 criticals remain closed. Remaining INDEX waves 7–8 are High→Low.
