@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
-import { LEVEL_CLASSES, timeAgo } from "@/lib/ui";
+import { LEVEL_CLASSES, LEVEL_GLYPH, timeAgo } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
 interface RepoState {
@@ -280,6 +280,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
                       ) : null}
                       {st?.level && lc && (
                         <span className={`rounded border ${lc.border} ${lc.bg} px-1.5 py-0.5 font-mono text-[10px] ${lc.text}`}>
+                          <span aria-hidden>{LEVEL_GLYPH[st.level as LevelId]} </span>
                           {st.level} · {st.overall}
                         </span>
                       )}

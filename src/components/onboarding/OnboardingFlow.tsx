@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LEVEL_CLASSES } from "@/lib/ui";
+import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import { OnboardingChecklist, type ChecklistStep } from "@/components/onboarding/OnboardingChecklist";
 
@@ -740,6 +740,7 @@ function ScanRowView({ row }: { row: ScanRow }) {
         <span className="text-xs text-red-400">{row.error}</span>
       ) : done ? (
         <span className={`rounded border px-2 py-0.5 font-mono text-xs ${lc?.border} ${lc?.bg} ${lc?.text}`}>
+          {row.level && <span aria-hidden>{LEVEL_GLYPH[row.level]} </span>}
           {row.level} · {row.overall}
         </span>
       ) : (
