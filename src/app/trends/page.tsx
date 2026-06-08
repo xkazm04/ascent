@@ -8,7 +8,7 @@ import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
 import { getSessionState, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
 import { forecastTrajectory } from "@/lib/maturity/forecast";
 import { SignInNotice } from "@/components/SignInNotice";
-import { LEVEL_CLASSES } from "@/lib/ui";
+import { LevelBadge } from "@/components/LevelBadge";
 import type { LevelId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -107,7 +107,6 @@ export default async function TrendsPage({
   }
 
   const latest = history.scans[0];
-  const lc = LEVEL_CLASSES[latest.level as LevelId] ?? LEVEL_CLASSES.L1;
 
   // Forward-looking GPS for THIS repo — the same trajectory fit the org rollup already renders,
   // but the per-repo trends page only ever drew rear-view lines. Fit over the (overall-only)
@@ -128,9 +127,7 @@ export default async function TrendsPage({
             <h1 className="mt-1 text-2xl font-bold text-white">{history.repo.fullName}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full border ${lc.border} ${lc.bg} px-3 py-1 text-sm font-semibold ${lc.text}`}>
-              {latest.level} · {latest.levelName}
-            </span>
+            <LevelBadge id={latest.level as LevelId} name={latest.levelName} />
             {history.scans.length >= 2 && (
               <Link
                 href={`/report/compare?repo=${encodeURIComponent(history.repo.fullName)}`}

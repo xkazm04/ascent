@@ -8,6 +8,7 @@ import { ARCHETYPE_LABEL, DIMENSION_BY_ID, LEVELS, LLM_GUARDBAND, axisScore } fr
 import { cheapestPathToNextLevel, contributions, projectDimensionClose } from "@/lib/scoring/engine";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS, LEVEL_CLASSES, LEVEL_GLYPH, LEVEL_HEX, freshness, scoreGlyph, scoreHex, timeAgo } from "@/lib/ui";
+import { LevelBadge } from "@/components/LevelBadge";
 import { PostureQuadrant, RadarChart, ScoreRing, useMounted, usePrefersReducedMotion } from "@/components/report/Charts";
 import { Sparkline, TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { DeltaPill } from "@/components/report/deltas";
@@ -18,7 +19,6 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
   // Keyless deterministic demo (no LLM). Drive every engine-related treatment off this single
   // flag so the demo signal stays consistent everywhere the engine is shown.
   const isMock = report.engine.provider === "mock";
-  const lc = LEVEL_CLASSES[level.id];
   const curIdx = LEVELS.findIndex((l) => l.id === level.id);
   const nextLevel = curIdx >= 0 && curIdx < LEVELS.length - 1 ? LEVELS[curIdx + 1] : null;
 
@@ -190,10 +190,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
           {overallDelta !== null && <DeltaPill delta={overallDelta} suffix="since last scan" className="mt-3" />}
         </div>
         <div className="relative flex flex-col justify-center">
-          <div className={`inline-flex w-fit items-center gap-2 rounded-full border ${lc.border} ${lc.bg} px-3 py-1 text-sm font-semibold ${lc.text}`}>
-            <span aria-hidden>{LEVEL_GLYPH[level.id]}</span>
-            {level.id} — {level.name}
-          </div>
+          <LevelBadge id={level.id} name={level.name} />
           <p className="mt-3 text-lg font-medium text-white">{report.headline}</p>
           {isMock && (
             <p className="mt-1 text-sm text-sky-300/80">
