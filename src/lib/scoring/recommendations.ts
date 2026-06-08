@@ -4,7 +4,7 @@
 // is steered toward tooling/tests/docs rather than org-scale CI it doesn't need yet.
 
 import type { DimensionId, DimensionSignals, LlmRoadmapItem, RepoArchetype } from "@/lib/types";
-import { DIMENSION_BY_ID, levelForScore, weightsFor } from "@/lib/maturity/model";
+import { DIMENSION_BY_ID, LEVELS, levelForScore, weightsFor } from "@/lib/maturity/model";
 
 interface RecTemplate {
   title: string;
@@ -126,8 +126,12 @@ export function buildFallbackRoadmap(
   archetype: RepoArchetype = "org",
 ): LlmRoadmapItem[] {
   const current = levelForScore(overallScore);
-  const nextLevelNum = Math.min(5, Number(current.id.slice(1)) + 1);
-  const unlock = `${current.id}->L${nextLevelNum}`;
+  // Derive the next level from the canonical LEVELS ordering (as cheapestPathToNextLevel does), not
+  // by slicing + incrementing the id string: a top-band repo otherwise yields a self-referential
+  // "L5->L5", and a drifted/hand-edited id ("L5b", "") makes Number(...) NaN -> "...->LNaN".
+  const curIdx = LEVELS.findIndex((l) => l.id === current.id);
+  const nextLevel = curIdx >= 0 && curIdx < LEVELS.length - 1 ? LEVELS[curIdx + 1] : null;
+  const unlock = nextLevel ? `${current.id}->${nextLevel.id}` : undefined;
   const w = weightsFor(archetype);
 
   return [...signals]
