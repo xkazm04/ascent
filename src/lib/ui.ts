@@ -64,13 +64,19 @@ export function scoreGlyph(score: number): string {
   return LEVEL_GLYPH[levelForScore(score).id];
 }
 
-/** Tailwind text/border/bg class triplets per level, for consistent theming. */
+/**
+ * Tailwind text/border/bg class triplets per level. The `text` shade is locked to the SAME stop and
+ * hue as LEVEL_HEX above (the canonical red→green ramp the rings/charts/heatmap/badge all use), so a
+ * level pill and the score ring beside it render ONE colour, not two. The text was previously -400
+ * while LEVEL_HEX is -500, and L5 was `emerald` while LEVEL_HEX.L5 is `green` (#22c55e) — the same
+ * level showed up as two different greens side by side. Keep this in lockstep with LEVEL_HEX.
+ */
 export const LEVEL_CLASSES: Record<LevelId, { text: string; border: string; bg: string }> = {
-  L1: { text: "text-red-400", border: "border-red-500/40", bg: "bg-red-500/10" },
-  L2: { text: "text-orange-400", border: "border-orange-500/40", bg: "bg-orange-500/10" },
-  L3: { text: "text-yellow-400", border: "border-yellow-500/40", bg: "bg-yellow-500/10" },
-  L4: { text: "text-lime-400", border: "border-lime-500/40", bg: "bg-lime-500/10" },
-  L5: { text: "text-emerald-400", border: "border-emerald-500/40", bg: "bg-emerald-500/10" },
+  L1: { text: "text-red-500", border: "border-red-500/40", bg: "bg-red-500/10" },
+  L2: { text: "text-orange-500", border: "border-orange-500/40", bg: "bg-orange-500/10" },
+  L3: { text: "text-yellow-500", border: "border-yellow-500/40", bg: "bg-yellow-500/10" },
+  L4: { text: "text-lime-500", border: "border-lime-500/40", bg: "bg-lime-500/10" },
+  L5: { text: "text-green-500", border: "border-green-500/40", bg: "bg-green-500/10" },
 };
 
 /**
