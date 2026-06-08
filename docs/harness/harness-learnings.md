@@ -373,3 +373,24 @@
 ## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 1)
 - **USE-6** (period-over-period + range picker, Low, usage UI) and **PERS-2** (Subscription + plan-quota +
   Stripe webhook — the revenue plumbing; the now-persisted token cost is its input) deferred.
+
+## Feature Scout Pipeline B — "Export + alerts + compliance" wave (2026-06-08, wave 7 — 2 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — `/api/history?format=csv` exports a repo's per-scan history (scannedAt, overall, level,
+  levelName, engine, D1..D9, oldest→newest) as a download; an "Export CSV ↓" link sits on /trends. The
+  /usage CSV (api/usage/route.ts `toCsv`) is the sibling export pattern (safe-filename + content-disposition).
+- **2026-06-08** — `GET /api/cron/digest` (vercel.json weekly, Mon 13:00 UTC, CRON_SECRET-guarded) pushes a
+  weekly fleet digest per org via the pure `buildFleetDigestMessage` (alerts.ts, sibling of
+  buildRegressionMessage) + the existing `dispatchAlert` sink. `listOrgsWithWatchedRepos` (db/org.ts) lists
+  the fleets. No-op without a DB or ALERT_WEBHOOK_URL. There are now THREE crons in vercel.json:
+  rescan (06:00), purge (04:00), digest (Mon 13:00).
+
+### Conventions enforced
+- **2026-06-08** — A push channel (digest) reuses the SAME aggregate queries the dashboard pulls + an
+  existing alert sink, with a PURE message builder gated on the sink being configured (clean no-op default).
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 7)
+- **ORGD-2 / PERS-4** (CSV export across fleet/audit UI surfaces), **ORGD-4** (in-dashboard regressions
+  view), **PERS-3** (actor-attributed audit trail — needs db/users.ts ensureUser/ensureMembership wired
+  into the auth path) deferred. This was the last untouched scan wave.
