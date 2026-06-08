@@ -52,6 +52,14 @@ export function assembleReport(
   const lensW = weightsFor(archetype);
   const warnings: string[] = [];
 
+  // Confidence-weighted blend: scale the LLM's pull by how much of the repo we actually inspected.
+  // `coverage` (0..1) was computed and surfaced as report.confidence but never touched the math, so a
+  // half-seen, rate-limited, or truncated repo blended the LLM with the same weight as a full scan —
+  // false precision. Now a low-coverage scan leans HARDER on the deterministic signals (which are
+  // coverage-robust). At full coverage this is exactly SCORE_BLEND, so the calibrated full-scan path
+  // is unchanged.
+  const effectiveBlend = SCORE_BLEND * clamp(snap.coverage, 0, 1);
+
   const dimensions: DimensionResult[] = signals.flatMap((s) => {
     const def = DIMENSION_BY_ID[s.id];
     // Guard against signal ids with no rubric definition (a persisted scan, a duplicated
@@ -70,7 +78,7 @@ export function assembleReport(
     const guarded = clamp(
       Math.max(s.signalScore - LLM_GUARDBAND, Math.min(s.signalScore + LLM_GUARDBAND, llmScore)),
     );
-    const score = Math.round(SCORE_BLEND * guarded + (1 - SCORE_BLEND) * s.signalScore);
+    const score = Math.round(effectiveBlend * guarded + (1 - effectiveBlend) * s.signalScore);
 
     return [{
       id: s.id,
