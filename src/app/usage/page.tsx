@@ -30,7 +30,9 @@ function Stat({ label, value, sub }: { label: string; value: string | number; su
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
       <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
-      <div className="mt-1 font-mono text-3xl font-bold tabular-nums text-white">{value}</div>
+      <div className="mt-1 font-mono text-3xl font-bold tabular-nums text-white">
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </div>
       {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
     </div>
   );
@@ -195,7 +197,7 @@ function Bar({
       <div className="flex items-center justify-between">
         <span className="text-slate-300">{label}</span>
         <span className="font-mono tabular-nums text-slate-400">
-          {value} · {pct}%
+          {value.toLocaleString()} · {pct}%
         </span>
       </div>
       <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-800">
