@@ -349,3 +349,27 @@
   (concurrent UI churn). **SCAN-6** (ingestion budget/subpath): larger, threads options through
   FetchOptions→ScanOptions→cache key. **LLM-4** (health check): needs per-provider network calls + has no
   admin UI consumer yet.
+
+## Feature Scout Pipeline B — "Usage → billing" wave (2026-06-08, wave 1 — 4 of 6 shipped)
+
+### Structural facts
+- **2026-06-08** — LLM token usage flows: providers call `opts.onUsage?(TokenUsage)` (an optional hook on
+  `AssessOptions`) when their response carries usage (Gemini `usageMetadata.{promptTokenCount,
+  candidatesTokenCount}`, Bedrock `res.usage.{inputTokens,outputTokens}`, OpenAI
+  `data.usage.{prompt_tokens,completion_tokens}`). `scan.ts` captures the winning provider's usage + the
+  LLM-stage latency onto `report.usage` (`{inputTokens,outputTokens,latencyMs}`); mock reports nothing.
+- **2026-06-08** — `Scan` gained `inputTokens`/`outputTokens`/`llmLatencyMs` (additive nullable;
+  schema.prisma + init.sql). `persistScanReport` writes `report.usage`. `getUsageSummary` exposes period
+  token sums, `estimatedCostUsd` (from `LLM_INPUT_COST_PER_MTOK`/`LLM_OUTPUT_COST_PER_MTOK`; null when
+  unset), and a `byRepo` top-10. The `/usage` page renders cost/tokens + a Top-repositories panel.
+- **2026-06-08** — `envNumber` (llm/config.ts) is now reused beyond the providers (db/usage.ts cost rates).
+
+### Conventions enforced
+- **2026-06-08** — Surface call metadata (token usage) via an OPTIONAL options callback (`onUsage`), not a
+  changed return shape — non-breaking, and providers that lack it simply don't call it.
+- **2026-06-08** — Show a derived figure (estimated cost) only when its rate is configured; render an
+  explicit "set the rate" affordance rather than a fake $0.
+
+## Open follow-ups (from Feature Scout Pipeline B, 2026-06-08 — wave 1)
+- **USE-6** (period-over-period + range picker, Low, usage UI) and **PERS-2** (Subscription + plan-quota +
+  Stripe webhook — the revenue plumbing; the now-persisted token cost is its input) deferred.
