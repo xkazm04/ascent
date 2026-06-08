@@ -1260,15 +1260,24 @@ export async function updateRecommendation(
   const updated = await prisma.$transaction(async (tx) => {
     const row = await tx.recommendation.update({ where: { id }, data });
     await tx.recommendationEvent.createMany({ data: events });
+    // Audit IN the same transaction (was a best-effort post-tx recordAudit that could leave a
+    // committed status change with NO audit row — a compliance gap for the audit product). Mirrors
+    // recordAudit's shape; now the audit row shares the mutation's atomicity (rolls back together).
+    await tx.auditLog.create({
+      data: {
+        action: "recommendation.updated",
+        meta: JSON.stringify({
+          id,
+          actor,
+          changes: events.map((e) => ({ kind: e.kind, from: e.fromValue, to: e.toValue })),
+        }),
+        orgId: null,
+        actorId: null,
+      },
+    });
     return row;
   });
 
-  // Best-effort audit (the durable timeline above is the source of truth). Records the actor and a
-  // compact summary of what moved so the org audit viewer reflects backlog activity too.
-  await recordAudit(
-    "recommendation.updated",
-    { id, actor, changes: events.map((e) => ({ kind: e.kind, from: e.fromValue, to: e.toValue })) },
-  );
   return toPersistedRec(updated);
 }
 
