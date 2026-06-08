@@ -280,7 +280,10 @@ export function PostureQuadrant({
   const toY = (v: number) => y0 + (1 - Math.max(0, Math.min(100, v)) / 100) * h;
   const thX = toX(POSTURE_THRESHOLD);
   const thY = toY(POSTURE_THRESHOLD);
-  const color = QUAD_TINT[posture.id];
+  // posture.id comes from the (untrusted) report; an unexpected/drifted id would yield undefined
+  // and the "you are here" marker would render with no stroke/fill and vanish. Fall back to the
+  // same neutral slate the inactive labels use.
+  const color = QUAD_TINT[posture.id] ?? "#475569";
 
   const dotX = toX(adoption);
   const dotY = toY(rigor);
