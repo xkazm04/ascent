@@ -4,7 +4,9 @@
 // levels so you can see when a repo crosses a level boundary. A thin hover layer
 // (chartHover) adds a crosshair + tooltip without any charting dependency.
 
+import { useId } from "react";
 import { scoreHex } from "@/lib/ui";
+import { levelForScore } from "@/lib/maturity/model";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
 
@@ -98,6 +100,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
 
   const hover = useChartHover(points.map((_, i) => xFor(i)), W);
   const a = hover.active;
+  const tableId = useId();
 
   // Thin the x-axis date labels so interior dates don't vanish (the old rule showed only first +
   // last past 6 points) and don't collide at 60 scans: aim for ~7 evenly-spaced labels, always
@@ -117,16 +120,23 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         className="w-full"
         role="img"
         aria-label="Overall score over time"
+        aria-describedby={tableId}
         style={{ touchAction: "none" }}
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
       >
-        {/* level bands */}
+        {/* level bands + their L-id labels — a non-color cue so each shaded range is identifiable
+            (the bands previously carried meaning in near-invisible fill opacity alone) */}
         {LEVEL_BANDS.map((b, i) => {
           const top = yFor(i === 0 ? 100 : LEVEL_BANDS[i - 1].min);
           const bottom = yFor(b.min);
           return (
-            <rect key={b.min} x={m.left} y={top} width={innerW} height={Math.max(0, bottom - top)} fill={b.color} />
+            <g key={b.min}>
+              <rect x={m.left} y={top} width={innerW} height={Math.max(0, bottom - top)} fill={b.color} />
+              <text x={m.left + innerW + 5} y={(top + bottom) / 2 + 3} fontSize={8} className="fill-slate-600">
+                {`L${LEVEL_BANDS.length - i}`}
+              </text>
+            </g>
           );
         })}
         {/* y gridlines / labels at band edges */}
@@ -193,6 +203,32 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
           />
         </ChartTooltip>
       )}
+      {/* Screen-reader equivalent of the chart — the bands/points convey meaning visually, so mirror
+          the series as a table referenced by the svg's aria-describedby (matches the radar chart). */}
+      <table id={tableId} className="sr-only">
+        <caption>Overall maturity score over time</caption>
+        <thead>
+          <tr>
+            <th>Scan date</th>
+            <th>Score</th>
+            <th>Level</th>
+          </tr>
+        </thead>
+        <tbody>
+          {points.map((p, i) => {
+            const lvl = levelForScore(p.score);
+            return (
+              <tr key={i}>
+                <td>{shortDate(p.at)}</td>
+                <td>{p.score}</td>
+                <td>
+                  {lvl.id} {lvl.name}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
