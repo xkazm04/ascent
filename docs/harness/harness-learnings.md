@@ -628,3 +628,36 @@
 - **OpenAI timeout** — the W6-2 AbortController pattern should also be applied to openai.ts (it wires
   opts.signal but not a timeout-abort).
 - All 9 criticals remain closed. Remaining INDEX waves 7–8 are High→Low.
+
+## Bug Hunter Pipeline B — "Cache/dedup & GitHub App sync" wave (2026-06-08, wave 7 — 5 closed, 3 deferred)
+
+### Structural facts
+- **2026-06-08** — `removeInstallation` (installations.ts) calls `invalidateInstallationToken` BEFORE
+  the DB guard, so the in-memory token cache (github/app.ts) is dropped on uninstall even DB-less.
+- **2026-06-08** — Both scan routes skip `cacheSet` when `report.confidence < 0.5` (low coverage):
+  silent per-file fetch failures degrade coverage without failing the LLM, so a transient blip would
+  otherwise pin a degraded snapshot under the commit key for the full TTL. The cache key encodes
+  identity (commit) but not completeness (coverage) — so gate on coverage.
+- **2026-06-08** — `ReportClient` peek now verifies the peeked report's `owner/name` matches the
+  normalized requested repo before rendering (else falls through to a fresh scan), and a non-timeout
+  AbortError now surfaces an error instead of an infinite spinner.
+- **2026-06-08** — `listInstallationRepos` warns when listed < total_count (silent MAX_PAGES
+  truncation). `githubGraphql` returns partial `data` + logs `errors` instead of throwing on any
+  error (one bad PR node no longer fails ingestion).
+
+### Conventions enforced
+- **2026-06-08** — A cache key that encodes identity but not completeness will cache incompleteness;
+  gate caching on a quality signal (coverage), not just the commit.
+- **2026-06-08** — Re-verify a peeked/cached response is for what you asked before rendering it.
+
+### Open follow-ups (from Bug Hunter wave 7)
+- **DEFERRED org-scanning #2 (High)** — cross-instance duplicate Scan rows; fix is the DB
+  `@@unique([repoId, headSha])` = the deferred **persistence #4** (needs a live DB; fails if dups
+  exist). Tracked there.
+- **DEFERRED github-app #4 (High)** — installation_repositories selection-narrowing leaves orphaned
+  watched repos; robust fix reconciles the watch-set vs a fresh `listInstallationRepos` (needs a new
+  "watched repos for installation" query + a GitHub re-list; unverifiable DB-less).
+- **DEFERRED scan-pipeline #5 (Medium)** — headSha = tree sha not commit sha on the no-lookup path
+  (the carried PR-ref headSha-stamping follow-up). Low priority.
+- All 9 criticals remain closed. Remaining: Wave 8 (OAuth/session + aggregate/UI tail) + the deferred
+  DB/calibration/concurrency set.
