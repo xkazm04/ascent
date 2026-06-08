@@ -62,6 +62,8 @@ export interface RepoRef {
   fullName: string;
   url?: string;
   isPrivate?: boolean;
+  /** ISO of the repo's last scan, when known — lets a bulk scan skip still-fresh repos. */
+  lastScanAt?: string | null;
 }
 
 /** Upsert a repo (from an installation listing) and set its watched flag. */
@@ -203,10 +205,17 @@ export async function listWatchedRepos(orgSlug: string): Promise<RepoRef[]> {
   if (!org) return [];
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, watched: true },
-    select: { owner: true, name: true, fullName: true, url: true, isPrivate: true },
+    select: { owner: true, name: true, fullName: true, url: true, isPrivate: true, lastScanAt: true },
     orderBy: { fullName: "asc" },
   });
-  return repos;
+  return repos.map((r) => ({
+    owner: r.owner,
+    name: r.name,
+    fullName: r.fullName,
+    url: r.url,
+    isPrivate: r.isPrivate,
+    lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
+  }));
 }
 
 export interface RepoState {
