@@ -576,7 +576,7 @@ function InstallationPicker({
 }) {
   return (
     <div className="rounded-2xl border border-accent/30 bg-accent/5 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-widest text-accent">From your GitHub App</div>
+      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">From your GitHub App</div>
       <h2 className="mt-1 font-semibold text-white">Scan an installed organization</h2>
       <p className="mt-1 text-sm text-slate-400">
         These are connected through the Ascent GitHub App, so{" "}
@@ -607,7 +607,7 @@ function InstallationPicker({
 function SeededOrgBanner({ org }: { org: string }) {
   return (
     <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-widest text-emerald-300">Ready for you</div>
+      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-emerald-300">Ready for you</div>
       <h2 className="mt-1 font-semibold text-white">
         We pre-loaded <span className="font-mono">{org}</span>&apos;s top repositories
       </h2>
@@ -641,7 +641,7 @@ function SuggestedOrgs({
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <div className="font-mono text-[11px] uppercase tracking-widest text-slate-500">
+      <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-slate-500">
         Organizations you belong to
       </div>
       <h2 className="mt-1 font-semibold text-white">Scan one of your organizations</h2>
@@ -686,7 +686,7 @@ function PickForm({
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <label className="font-mono text-[11px] uppercase tracking-widest text-slate-500" htmlFor="onboarding-org">
+      <label className="font-mono text-[11px] uppercase tracking-[0.3em] text-slate-500" htmlFor="onboarding-org">
         {dimmed ? "Or scan any public organization or user" : "GitHub organization or user"}
       </label>
       <form onSubmit={onSubmit} className="mt-2">

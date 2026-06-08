@@ -149,7 +149,7 @@ export default async function ConnectPage({
         {/* Login-time org auto-discovery: a ready-to-explore seeded dashboard + orgs to connect. */}
         {(seededOrg || suggestedOrgs.length > 0) && (
           <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-            <div className="font-mono text-[11px] uppercase tracking-widest text-accent">
+            <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-accent">
               Discovered from your GitHub
             </div>
             {seededOrg && (
