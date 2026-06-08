@@ -169,6 +169,7 @@ function badgeSvg(opts: {
   <rect rx="${rx}" width="${w}" height="${h}" fill="#0f172a"/>
   <rect rx="${rx}" x="${lw}" width="${vw}" height="${h}" fill="${esc(color)}"/>
   ${gradientRect}
+  <rect rx="${rx}" x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" fill="none" stroke="rgba(148,163,184,0.4)" stroke-width="1"/>
   ${logoEl}
   <g font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="${fontSize}" font-weight="600" ${ls}>
     <text x="${labelX}" y="${ty}" fill="#cbd5e1">${esc(renderLabel)}</text>
