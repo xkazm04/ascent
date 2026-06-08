@@ -394,3 +394,51 @@
 - **ORGD-2 / PERS-4** (CSV export across fleet/audit UI surfaces), **ORGD-4** (in-dashboard regressions
   view), **PERS-3** (actor-attributed audit trail — needs db/users.ts ensureUser/ensureMembership wired
   into the auth path) deferred. This was the last untouched scan wave.
+
+## Bug Hunter Pipeline B — "Multi-tenant authz / IDOR" wave (2026-06-08, wave 1 of a 68-finding scan)
+
+### Structural facts
+- **2026-06-08** — `canReadOrg(org)` (authz.ts) is the READ-side tenant gate, sibling to the
+  mutation gate `requireOrgAccess`: PUBLIC_ORG open; private org needs a session that owns it when
+  auth is on; NO non-public org served when auth is OFF (a DB-on + auth-off deploy must not expose
+  per-tenant data). Used by `/org/[slug]/layout.tsx`, `/api/usage`, `/usage`.
+- **2026-06-08** — `/org/[slug]/layout.tsx` is the single authorization choke point for the WHOLE
+  org dashboard: it wraps every sub-page (page, contributors, delivery, practices, repositories,
+  **plus** audit, backlog, live, plan, segments, teams). One `canReadOrg` gate there protects all
+  of them — sub-pages "assume valid data" per the layout's own doc-comment.
+- **2026-06-08** — `/api/app/repos` now authorizes on the EFFECTIVE installation id via
+  `sessionHasInstallation` (not the `?org=` param — a caller could pair their own org with a
+  victim's `?installation_id=`). Consequence: a just-installed org (carried in the setup redirect's
+  query, not yet in the session) must re-sync before its repos list — the connect page shows a
+  "Re-sync to load repositories" prompt for that pending org instead of a panel that would 403.
+
+### Conventions enforced
+- **2026-06-08** — "Auth off = open" applies ONLY to the shared `public` tenant. Any per-tenant
+  read surface (dashboard, usage) must refuse non-public slugs when auth is unconfigured — decouple
+  "is this multi-tenant data" from "is auth turned on". (Closed org-dashboard #2 + usage #7.)
+- **2026-06-08** — Gate on the resource actually USED, not a friendlier sibling param: authorizing
+  `?org=` while the handler resolves and uses `?installation_id=` is bypassable.
+
+### Anti-patterns to avoid
+- **2026-06-08** — A verified report finding can still mis-state the mechanism. github-app #2
+  ("/api/app/setup installation hijack", reported Critical) is NOT exploitable as a hijack: setup
+  derives `login` from `getInstallation(id)` (GitHub-authoritative), so `upsertInstallation` always
+  writes a truthful `(login, id)` pair. Residual is only unauth enumeration + org-row write-amp
+  (~Medium). Always confirm the mechanism in live source before fixing — and before trusting a
+  severity.
+
+### Open follow-ups (from Bug Hunter wave 1)
+- **github-app #2 (`/api/app/setup`)** proper fix = enable GitHub-App "Request user authorization
+  (OAuth) during installation" so the redirect carries a `code` to confirm the installer via
+  `GET /user/installations`. Code-only can't verify the installer (the user's GitHub token isn't
+  persisted). Deferred to a focused session; residual is Medium (enumeration + DB write-amp).
+- **Behavior change shipped**: DB-on + auth-off deployments can now only view `/org/public` and
+  public `/api/usage`; per-org dashboards/usage require OAuth configured. Intended security posture
+  (user-approved), but it narrows the local/demo experience for non-public orgs.
+- **Mutating org-API authz sweep still owed** (reinforces the prior security_protector follow-up):
+  `/api/org/{goals,initiatives,segments,simulate,backlog,active}` were not audited for
+  `requireOrgAccess`. The `/org/[slug]/*` *read* sub-pages are now covered by the layout gate; the
+  *mutating* APIs are the remaining gap.
+- **Remaining bug-hunt waves 2–8** (see `docs/harness/bug-hunt-2026-06-08/INDEX.md`): 6 criticals
+  remain (Waves 2–5) across unauth endpoints/leaks, persistence/DSQL token expiry, scoring
+  correctness, and resource lifecycle.
