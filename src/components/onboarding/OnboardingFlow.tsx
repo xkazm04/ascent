@@ -467,7 +467,7 @@ export function OnboardingFlow({
             <button
               type="button"
               onClick={cancelScan}
-              className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-red-500/50 hover:text-red-300"
+              className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:border-danger/50 hover:text-danger-soft"
             >
               Cancel
             </button>
