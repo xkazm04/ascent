@@ -191,7 +191,7 @@ export default async function OrgOverview({
               ) : (
                 <ul className="mt-3 space-y-2">
                   {gaps.commonGaps.map((g) => (
-                    <li key={g.dimId} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                    <li key={g.dimId} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm text-white">{g.label}</span>
                         <span className="font-mono text-[11px] text-orange-300">weak in {g.weakCount}/{g.total}</span>
