@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,8 +15,9 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Ascent — the maturity index for AI-native engineering",
-  description:
-    "Score how AI-native your engineering org is from a GitHub repo: a 5-level maturity ladder across 7 dimensions, with evidence and a roadmap to the next level.",
+  // Built from the canonical rubric so the share/search snippet can never drift from the model
+  // (it previously hardcoded "7 dimensions" while the model defines 9 and the hero rendered 9).
+  description: `Score how AI-native your engineering org is from a GitHub repo: a ${LEVELS.length}-level maturity ladder across ${DIMENSIONS.length} dimensions, with evidence and a roadmap to the next level.`,
 };
 
 export default function RootLayout({
