@@ -9,9 +9,11 @@ import type {
   DimensionSignals,
   Discrepancy,
   FetchedFile,
+  Governance,
   LlmAssessment,
   LlmDimensionScore,
   LlmRoadmapItem,
+  PrStats,
   ProviderName,
   RepoArchetype,
   RepoMeta,
@@ -24,6 +26,12 @@ export interface LlmScoreInput {
   files: FetchedFile[];
   commitSample: string[];
   archetype: RepoArchetype;
+  /** PR review/velocity/AI-governance stats — already fetched and folded into the deterministic
+   *  D3/D6/D7/D8 scores. Threaded here so the LLM auditor sees the same behavioral evidence instead
+   *  of reasoning blind about review discipline. Null when scanned without a token. */
+  prStats?: PrStats | null;
+  /** Default-branch protection — likewise already in hand from the scan. Null without a token. */
+  governance?: Governance | null;
 }
 
 /** Per-call options. `signal` aborts the (often long) provider call when the client disconnects. */

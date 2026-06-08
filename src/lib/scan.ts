@@ -151,6 +151,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     files: snapshot.files,
     commitSample: snapshot.commits.map((c) => c.message).slice(0, 15),
     archetype,
+    // Already fetched above and folded into the deterministic D3/D6/D7/D8 scores — also hand them to
+    // the LLM auditor so it reasons about review/governance with the real evidence (MAT-1).
+    prStats,
+    governance,
   };
 
   let llmFailed = false;

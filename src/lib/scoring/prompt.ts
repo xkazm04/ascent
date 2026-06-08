@@ -2,7 +2,43 @@
 // (Phase 2) Bedrock share identical instructions and output contract.
 
 import type { LlmScoreInput } from "@/lib/llm/provider";
+import type { Governance, PrStats } from "@/lib/types";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
+
+const pct = (n: number): string => `${Math.round(n * 100)}%`;
+
+/**
+ * Render the PR + branch-protection evidence the scan already computed (and folded into the
+ * deterministic D3/D6/D7/D8 scores) so the LLM auditor reasons about review discipline, merge
+ * velocity, AI governance, and merge gating instead of guessing. Degrades to a one-line note when
+ * the repo was scanned without a token (no PR/governance access).
+ */
+function processBlock(prStats?: PrStats | null, governance?: Governance | null): string {
+  if (!prStats && !governance) {
+    return "(unavailable — scanned without a token, so PR and branch-protection signals were skipped.)";
+  }
+  const lines: string[] = [];
+  if (prStats && prStats.analyzed > 0) {
+    const h = (v: number | null) => (v == null ? "n/a" : `${v}h`);
+    const aiGov = prStats.aiGovernedRate == null ? "n/a (too few AI PRs)" : pct(prStats.aiGovernedRate);
+    lines.push(
+      `- Pull requests: ${prStats.analyzed} analyzed of ${prStats.totalCount} total; merge rate ${pct(prStats.mergeRate)}, reviewed rate ${pct(prStats.reviewedRate)} (merged PRs with an approving review), avg ${prStats.avgReviews} reviews/PR.`,
+      `- Velocity & size: median time-to-merge ${h(prStats.medianHoursToMerge)}, median time-to-first-review ${h(prStats.medianHoursToFirstReview)}; small-PR rate ${pct(prStats.smallPrRate)} (≤200 line changes).`,
+      `- AI in PRs: AI-involved rate ${pct(prStats.aiInvolvedRate)}; of those, governed (reviewed) rate ${aiGov}.`,
+    );
+  } else if (prStats) {
+    lines.push("- Pull requests: none analyzed in the window.");
+  }
+  if (governance) {
+    const yn = (b: boolean) => (b ? "yes" : "no");
+    lines.push(
+      !governance.readable
+        ? `- Branch protection (${governance.defaultBranch}): could not be read (insufficient permission).`
+        : `- Branch protection (${governance.defaultBranch}): ${governance.protected ? "protected" : "NOT protected"}; requires PR ${yn(governance.requiresPullRequest)}, required approvals ${governance.requiredApprovals}, status checks ${yn(governance.requiresStatusChecks)}, code-owner review ${yn(governance.requiresCodeOwnerReview)}, signatures ${yn(governance.requiresSignatures)}, linear history ${yn(governance.linearHistory)}, ${governance.ruleCount} ruleset rule(s).`,
+    );
+  }
+  return lines.join("\n");
+}
 
 const SYSTEM = `You are Ascent, an expert assessor of how "AI-native" a software engineering organization is, based on evidence read from a GitHub repository. You apply a fixed, published rubric and you are rigorous and evidence-driven. You never invent facts: every judgment must be supported by the signals and file excerpts provided. Calibrate dimension scores to the deterministic signal scores you are given (nuance within a small band). However, the deterministic detectors are imperfect — in the "discrepancies" field you SHOULD actively flag any signal you believe is wrong given the file excerpts (e.g. tests or config clearly present but the signal missed them). Catching detector misses is part of your job; don't be shy. Respond with JSON only, matching the requested schema exactly.`;
 
@@ -25,7 +61,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   system: string;
   user: string;
 } {
-  const { repo, signals, files, commitSample, archetype } = input;
+  const { repo, signals, files, commitSample, archetype, prStats, governance } = input;
 
   const signalBlock = signals
     .map((s) => {
@@ -71,6 +107,9 @@ ${rubric()}
 
 DETERMINISTIC SIGNALS (computed from the repo; treat as ground truth and calibrate to these):
 ${signalBlock}
+
+PROCESS SIGNALS (review discipline, merge velocity, AI governance, branch protection — the behavioral evidence behind D3/D6/D7/D8; calibrate those dimensions to this too):
+${processBlock(prStats, governance)}
 
 RECENT COMMIT MESSAGES (sample):
 ${commitBlock}
