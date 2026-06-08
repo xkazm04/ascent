@@ -28,7 +28,7 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
 
 function Stat({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="font-mono text-[10px] uppercase tracking-widest text-slate-500">{label}</div>
       <div className="mt-1 font-mono text-3xl font-bold tabular-nums text-white">
         {typeof value === "number" ? value.toLocaleString() : value}
@@ -141,8 +141,23 @@ export default async function UsagePage({
           <Stat label="Repos scanned" value={usage.distinctRepos} sub="distinct" />
         </div>
 
+        {/* Cost + tokens — turns metering into an actual billing view (was "per-scan rate is TBD"). */}
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Stat
+            label="Est. cost"
+            value={usage.estimatedCostUsd != null ? `$${usage.estimatedCostUsd.toFixed(2)}` : "—"}
+            sub={
+              usage.estimatedCostUsd != null
+                ? `last ${usage.periodDays}d · from configured rates`
+                : "set LLM_*_COST_PER_MTOK to estimate"
+            }
+          />
+          <Stat label="Input tokens" value={usage.inputTokens} sub={`last ${usage.periodDays}d`} />
+          <Stat label="Output tokens" value={usage.outputTokens} sub={`last ${usage.periodDays}d`} />
+        </div>
+
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="text-sm font-semibold text-white">
               Public vs private{" "}
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
@@ -152,7 +167,7 @@ export default async function UsagePage({
               <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="var(--color-accent)" />
             </div>
           </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
             <h2 className="text-sm font-semibold text-white">
               By inference engine{" "}
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
