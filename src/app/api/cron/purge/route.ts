@@ -15,12 +15,16 @@ export const maxDuration = 300;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = request.headers.get("authorization");
-    const key = new URL(request.url).searchParams.get("key");
-    if (auth !== `Bearer ${secret}` && key !== secret) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    }
+  if (!secret) {
+    // Fail closed: a missing/empty CRON_SECRET must NOT leave this endpoint open. The check was
+    // opt-in (`if (secret)`), so a forgotten env var on a new deploy silently disabled auth on a
+    // route that DELETES data under the retention policy. Refuse rather than run unauthed.
+    return NextResponse.json({ error: "Cron is not configured (CRON_SECRET unset)." }, { status: 503 });
+  }
+  const auth = request.headers.get("authorization");
+  const key = new URL(request.url).searchParams.get("key");
+  if (auth !== `Bearer ${secret}` && key !== secret) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   if (!isDbConfigured()) {
     return NextResponse.json({ skipped: "Database required." });
