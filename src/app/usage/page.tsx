@@ -96,6 +96,22 @@ export default async function UsagePage({
     );
   }
 
+  // A reachable DB with zero scans is a deliberate "nothing metered yet" moment, not a populated
+  // dashboard that happens to read all zeros — route it through the canonical EmptyState with a
+  // path to the first scan instead of four 0 stats and two empty bar panels.
+  if (usage.totalScans === 0) {
+    return (
+      <Shell>
+        <EmptyState
+          icon="📊"
+          title="No scans metered yet"
+          body="Public scans are free; private scans are billable under the usage-based plan. Scan a repository to start metering usage."
+          actions={[{ label: "Scan a repo", href: "/", primary: true }]}
+        />
+      </Shell>
+    );
+  }
+
   const billable = usage.privateScans; // public scans are free; private are metered
 
   return (
