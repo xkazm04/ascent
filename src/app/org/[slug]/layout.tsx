@@ -73,7 +73,7 @@ export default async function OrgLayout({
           <span className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-xs" style={{ color: scoreHex(rollup.avgOverall) }}>
             {level.id} · {rollup.avgOverall}
           </span>
-          <span className="hidden font-mono text-[11px] text-slate-500 sm:inline">
+          <span className="font-mono text-[11px] text-slate-500">
             {rollup.scannedCount}/{rollup.repoCount} scanned · {watched} watched
           </span>
         </div>
