@@ -176,6 +176,15 @@ export function SectionEmpty({ children }: { children: React.ReactNode }) {
   return <EmptyState variant="section" body={children} />;
 }
 
+/**
+ * InlineEmpty — a single muted line for an in-card "no data yet" state, lighter than the dashed
+ * EmptyState section variant. One treatment for the per-card empties scattered across the org
+ * overview (movers, benchmark, gaps, outliers) so they stop drifting in spacing/markup.
+ */
+export function InlineEmpty({ children }: { children: React.ReactNode }) {
+  return <p className="mt-3 text-xs text-slate-500">{children}</p>;
+}
+
 export function OrgEmpty({ title, body, href, cta }: { title: string; body: string; href?: string; cta?: string }) {
   // Page-scale org empty — delegates to the canonical EmptyState (was a near-duplicate scaffold).
   return <EmptyState icon="🏔️" title={title} body={body} actions={[{ label: cta ?? "← Home", href: href ?? "/" }]} />;
