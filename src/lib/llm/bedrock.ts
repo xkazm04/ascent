@@ -76,6 +76,7 @@ export class BedrockProvider implements LLMProvider {
       { abortSignal: opts.signal },
     );
 
+    opts.onUsage?.({ inputTokens: res.usage?.inputTokens, outputTokens: res.usage?.outputTokens });
     const blocks = res.output?.message?.content ?? [];
 
     // Happy path: the assessment comes back as a structured toolUse.input object

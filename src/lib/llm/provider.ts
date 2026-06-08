@@ -17,6 +17,7 @@ import type {
   ProviderName,
   RepoArchetype,
   RepoMeta,
+  TokenUsage,
 } from "@/lib/types";
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
 
@@ -37,6 +38,9 @@ export interface LlmScoreInput {
 /** Per-call options. `signal` aborts the (often long) provider call when the client disconnects. */
 export interface AssessOptions {
   signal?: AbortSignal;
+  /** Reports token usage when the provider's response carries it — the cost/usage metering hook.
+   *  Optional and best-effort: mock/keyless providers (and any that don't surface usage) never call it. */
+  onUsage?: (usage: TokenUsage) => void;
 }
 
 export interface LLMProvider {

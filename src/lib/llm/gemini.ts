@@ -67,6 +67,8 @@ export class GeminiProvider implements LLMProvider {
     );
     const text = response.text;
     if (!text) throw new Error("Empty response from Gemini.");
+    const um = response.usageMetadata;
+    opts.onUsage?.({ inputTokens: um?.promptTokenCount, outputTokens: um?.candidatesTokenCount });
     return validateAssessment(parseJsonLoose(text));
   }
 }

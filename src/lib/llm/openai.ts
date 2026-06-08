@@ -59,9 +59,13 @@ export class OpenAiProvider implements LLMProvider {
         const body = await res.text().catch(() => "");
         throw new Error(`OpenAI request failed (${res.status}): ${body.slice(0, 200)}`);
       }
-      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const data = (await res.json()) as {
+        choices?: { message?: { content?: string } }[];
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
       const text = data.choices?.[0]?.message?.content;
       if (!text) throw new Error("Empty response from OpenAI.");
+      opts.onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens });
       return validateAssessment(parseJsonLoose(text));
     } finally {
       clearTimeout(timer);

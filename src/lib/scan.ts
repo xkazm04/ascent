@@ -20,7 +20,7 @@ import { isAssessmentUsable } from "@/lib/llm/provider";
 import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { assembleReport } from "@/lib/scoring/engine";
 import { extractTeamOwnership } from "@/lib/github/codeowners";
-import type { Governance, PrStats, ScanReport } from "@/lib/types";
+import type { Governance, PrStats, ScanReport, TokenUsage } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
 
@@ -172,8 +172,11 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // assessment scoring (almost) no dimensions. Left unchecked it would render the deterministic
   // floor under the provider's name with no caveat. Treat it exactly like a thrown failure so the
   // retry/failover below can recover. (Mock is never gated — it always returns a full assessment.)
+  // Capture token usage from the call that ultimately succeeds — the metering basis. Each attempt's
+  // onUsage overwrites this; a thrown attempt never reports, so the winning provider's usage stands.
+  let capturedUsage: TokenUsage = {};
   const attemptAssess = async (p: LLMProvider) => {
-    const a = await p.assess(scoreInput, { signal });
+    const a = await p.assess(scoreInput, { signal, onUsage: (u) => { capturedUsage = u; } });
     if (p.name !== "mock" && !isAssessmentUsable(a, signals.length)) {
       throw new Error(
         `LLM returned an unusable assessment (${a.dimensions.length}/${signals.length} dimensions scored).`,
@@ -187,6 +190,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // bounded retry of it, then a configured LLM_FALLBACK_PROVIDER (e.g. bedrock → gemini) when set
   // and different — only THEN the mock degrade. Aborts propagate immediately so an abandoned scan
   // stops. The provider that actually produced the assessment becomes the report's engine.
+  const llmStartedAt = Date.now();
   let assessment: Awaited<ReturnType<LLMProvider["assess"]>>;
   let usedProvider: LLMProvider = provider;
   {
@@ -238,6 +242,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     }
   }
   provider = usedProvider;
+  const llmLatencyMs = Date.now() - llmStartedAt;
 
   // The mock fallback (and any provider that ignores the signal) can resolve even after a
   // disconnect — re-check before composing/persisting so we don't do that work for no one.
@@ -250,6 +255,9 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Team attribution from CODEOWNERS (the file is already in the snapshot — no extra GitHub call).
   // Display + persist only; it doesn't move the score. Empty array = no CODEOWNERS teams found.
   report.teams = extractTeamOwnership(snapshot.files);
+  // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
+  // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
+  report.usage = { ...capturedUsage, latencyMs: llmLatencyMs };
 
   // Surface non-fatal reliability caveats so the score is interpreted in context.
   const warnings: string[] = [...detectorWarnings];
