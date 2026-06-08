@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { ReportShell } from "@/components/report/ReportShell";
 import { EmptyState } from "@/components/EmptyState";
 import { DimensionTrends } from "@/components/report/DimensionTrends";
 import { Trajectory } from "@/components/org/Trajectory";
@@ -14,13 +14,7 @@ import type { LevelId } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl px-5 py-10">{children}</main>
-      <SiteFooter />
-    </>
-  );
+  return <ReportShell>{children}</ReportShell>;
 }
 
 function Notice({ title, body, repo }: { title: string; body: string; repo?: string }) {
