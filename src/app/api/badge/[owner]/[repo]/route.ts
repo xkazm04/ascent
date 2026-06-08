@@ -43,9 +43,20 @@ const RATE_WINDOW_MS = 60_000; // …per minute, per IP
 const hits = new Map<string, number[]>();
 
 function clientIp(req: Request): string {
+  // The LEFT-most X-Forwarded-For entry is client-supplied: keying on it lets a caller send a fresh
+  // value per request and mint a brand-new rate-limit bucket every time, so the limiter never trips.
+  // Trust the platform's real-client header first (Vercel/most proxies set x-real-ip to the true
+  // client and strip client copies); otherwise use the RIGHT-most XFF hop (appended by the trusted
+  // proxy), never the left-most. With no trustworthy source, fall back to a single shared "unknown"
+  // bucket (fail closed) — so unidentifiable callers are limited collectively, not per spoofed value.
+  const real = req.headers.get("x-real-ip")?.trim();
+  if (real) return real;
   const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0].trim();
-  return req.headers.get("x-real-ip") ?? "unknown";
+  if (fwd) {
+    const hops = fwd.split(",").map((s) => s.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1];
+  }
+  return "unknown";
 }
 
 /** True when this IP is over its window budget. Also prunes the window in place. */
