@@ -94,7 +94,19 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
           if (peek.status === 200) {
             const parsed = parseScanReport(await peek.json().catch(() => null));
             if (cancelled) return;
-            if (parsed.ok) {
+            // Verify the peeked report is actually for the repo we asked about before rendering it:
+            // a stale/colliding cache entry on the ?peek= path could otherwise show another repo's
+            // report. On mismatch fall through to a fresh streaming scan (which re-resolves).
+            const reqKey = repo
+              .toLowerCase()
+              .replace(/^https?:\/\/github\.com\//, "")
+              .replace(/^github\.com\//, "")
+              .replace(/\.git$/, "")
+              .replace(/^\/+|\/+$/g, "");
+            const gotKey = parsed.ok
+              ? `${parsed.report.repo.owner}/${parsed.report.repo.name}`.toLowerCase()
+              : "";
+            if (parsed.ok && gotKey === reqKey) {
               setState({ status: "done", report: parsed.report });
               clearTimeout(timeout);
               return;
@@ -191,6 +203,10 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
         if ((e as Error).name === "AbortError") {
           if (timedOut) {
             setState({ status: "error", message: "The scan timed out. Try again, or try a smaller repository." });
+          } else {
+            // A non-timeout abort that isn't an intentional unmount (cancelled is false by here) —
+            // e.g. a connection reset — would otherwise leave the checklist spinning forever.
+            setState({ status: "error", message: "The scan was interrupted. Please try again." });
           }
         } else {
           setState({ status: "error", message: "Network error while scanning." });
