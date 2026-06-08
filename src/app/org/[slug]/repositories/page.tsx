@@ -112,7 +112,7 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                 <tr className="font-mono text-[10px] uppercase tracking-widest text-slate-500">
                   <th className="px-2 py-1 text-left" />
                   {DIMS.map((d) => (
-                    <th key={d} className="px-2 py-1 text-center">
+                    <th key={d} scope="col" className="px-2 py-1 text-center">
                       {DIMENSION_SHORT[d as keyof typeof DIMENSION_SHORT]}
                     </th>
                   ))}
@@ -125,7 +125,7 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                     const byId = Object.fromEntries(r.latest!.dims.map((d) => [d.dimId, d.score]));
                     return (
                       <tr key={r.fullName}>
-                        <td className="px-2 py-1 font-mono text-xs text-slate-300">{r.name}</td>
+                        <th scope="row" className="px-2 py-1 text-left font-mono text-xs font-normal text-slate-300">{r.name}</th>
                         {DIMS.map((d) => {
                           const v = byId[d] ?? 0;
                           const cell = heatCell(v, 0.25 + (v / 100) * 0.75);
