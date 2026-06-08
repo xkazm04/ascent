@@ -92,6 +92,11 @@ function DimLine({
         {BAND_EDGES.filter((e) => e > 0 && e < 100).map((b) => (
           <line key={b} x1={0} x2={W} y1={y(b)} y2={y(b)} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 4" />
         ))}
+        {/* One mid-scale reference so the sparkline reads as a quantitative chart, not a floating
+            squiggle — the L4 "Integrated" threshold (65) anchors the otherwise-unlabeled bands. */}
+        <text x={3} y={y(65) - 2} fontSize={8} className="fill-slate-600">
+          65
+        </text>
         {act && <line x1={x(act.i)} x2={x(act.i)} y1={0} y2={H} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />}
         {drawnCount > 1 && <path d={path.trim()} fill="none" stroke={scoreHex(lastReal)} strokeWidth={2.25} />}
         {values.map((v, i) =>
