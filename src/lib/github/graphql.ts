@@ -60,8 +60,18 @@ async function githubGraphql<T>(
     });
     if (!res.ok) throw new Error(`GitHub GraphQL ${res.status}`);
     const json = (await res.json()) as { data?: T; errors?: { message: string }[] };
-    if (json.errors?.length) throw new Error(json.errors.map((e) => e.message).join("; "));
-    if (!json.data) throw new Error("GraphQL returned no data");
+    // GitHub GraphQL can return BOTH partial `data` AND `errors` (e.g. one PR node failed to
+    // resolve). Discarding the whole response on any error throws away usable PR signals and fails
+    // the scan over one bad node. Prefer partial data: throw only when there is NO data at all;
+    // otherwise log the errors and return what resolved.
+    if (!json.data) {
+      throw new Error(
+        json.errors?.length ? json.errors.map((e) => e.message).join("; ") : "GraphQL returned no data",
+      );
+    }
+    if (json.errors?.length) {
+      console.warn(`[graphql] partial result with errors: ${json.errors.map((e) => e.message).join("; ")}`);
+    }
     return json.data;
   } finally {
     clearTimeout(timer);
