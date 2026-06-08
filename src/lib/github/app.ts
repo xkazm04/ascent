@@ -160,6 +160,8 @@ interface GhRepo {
   language: string | null;
   stargazers_count: number;
   pushed_at: string | null;
+  fork: boolean;
+  archived: boolean;
 }
 
 /**
@@ -202,16 +204,21 @@ export async function listInstallationRepos(installationId: number | string): Pr
     }
   }
 
-  return raw.map((r) => ({
-    fullName: r.full_name,
-    owner: r.owner.login,
-    name: r.name,
-    private: r.private,
-    url: r.html_url,
-    language: r.language,
-    stars: r.stargazers_count,
-    pushedAt: r.pushed_at,
-  }));
+  // Drop forks + archived repos, matching the public listing (listOrgRepos) and discovery
+  // (fetchUserRepos): that isn't where active engineering happens, and otherwise they clutter the
+  // connect watch-list and can burn a user's onboarding/watch budget on dead mirrors.
+  return raw
+    .filter((r) => !r.fork && !r.archived)
+    .map((r) => ({
+      fullName: r.full_name,
+      owner: r.owner.login,
+      name: r.name,
+      private: r.private,
+      url: r.html_url,
+      language: r.language,
+      stars: r.stargazers_count,
+      pushedAt: r.pushed_at,
+    }));
 }
 
 /** Verify a webhook payload against the X-Hub-Signature-256 header. */
