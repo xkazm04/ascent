@@ -82,6 +82,7 @@ export {
   rollupTeams,
   listDueRescans,
   advanceSchedule,
+  advanceScheduleAfterFailure,
   getOrgId,
   isRepoWatched,
   type DueRescan,

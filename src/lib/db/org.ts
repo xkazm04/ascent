@@ -141,23 +141,58 @@ export interface DueRescan {
   scanSchedule: string;
 }
 
-/** Repos whose autoscan is due (watched, scheduled, nextScanAt in the past). */
-export async function listDueRescans(limit = 50): Promise<DueRescan[]> {
+/**
+ * Repos whose autoscan is due (watched, scheduled, nextScanAt in the past), fairly interleaved
+ * across orgs so one large fleet can't starve every other org within a single cron run.
+ *
+ * A pure `orderBy nextScanAt asc` + `take` lets the single most-overdue org monopolize each run, so
+ * past `limit` due repos the back of the fleet never gets scanned. Instead we fetch a wider candidate
+ * set (still oldest-due first), group by org, and round-robin across orgs — each run spreads work
+ * fleet-wide while still preferring the most-overdue repo within each org.
+ */
+export async function listDueRescans(limit = 100): Promise<DueRescan[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
   const due = await prisma.repository.findMany({
     where: { watched: true, scanSchedule: { not: "off" }, nextScanAt: { lte: new Date() } },
     select: { id: true, fullName: true, scanSchedule: true, org: { select: { slug: true } } },
     orderBy: { nextScanAt: "asc" },
-    take: limit,
+    take: limit * 4, // wider candidate pool to interleave; capped back to `limit` below
   });
-  return due.map((r) => ({ orgSlug: r.org.slug, fullName: r.fullName, repoId: r.id, scanSchedule: r.scanSchedule }));
+  const byOrg = new Map<string, DueRescan[]>();
+  for (const r of due) {
+    const item: DueRescan = { orgSlug: r.org.slug, fullName: r.fullName, repoId: r.id, scanSchedule: r.scanSchedule };
+    const q = byOrg.get(item.orgSlug);
+    if (q) q.push(item);
+    else byOrg.set(item.orgSlug, [item]);
+  }
+  const queues = [...byOrg.values()];
+  const out: DueRescan[] = [];
+  for (let i = 0; out.length < limit && queues.some((q) => q.length > 0); i++) {
+    const next = queues[i % queues.length].shift();
+    if (next) out.push(next);
+  }
+  return out;
 }
 
-/** After an autoscan, advance the repo's next due time. */
+/** After a SUCCESSFUL autoscan, advance the repo's next due time by its full cadence. */
 export async function advanceSchedule(repoId: string, schedule: string): Promise<void> {
   if (!isDbConfigured()) return;
   await getPrisma().repository.update({ where: { id: repoId }, data: { nextScanAt: nextScanFor(schedule) } });
+}
+
+/** Retry backoff after a FAILED autoscan. Critical for queue fairness: the schedule used to advance
+ *  only on success, so a persistently-broken repo (revoked token, deleted repo) stayed permanently
+ *  due at the front of the oldest-first queue and re-failed every run, crowding out healthy repos.
+ *  Pushing nextScanAt a fixed backoff out moves it off the front and retries it on a later cron,
+ *  without waiting the full cadence. */
+const FAILED_RESCAN_BACKOFF_MS = 6 * 60 * 60_000; // 6h
+export async function advanceScheduleAfterFailure(repoId: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  await getPrisma().repository.update({
+    where: { id: repoId },
+    data: { nextScanAt: new Date(Date.now() + FAILED_RESCAN_BACKOFF_MS) },
+  });
 }
 
 /** Watched repos for an org (for bulk scan / cron). */
