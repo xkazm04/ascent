@@ -27,6 +27,7 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
 import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
+import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,9 +110,12 @@ export async function POST(request: Request) {
         }
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });
 
-        // 2. Scan + persist each.
+        // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
+        // as it resolves; the SSE consumer keys off each message's repo, not arrival order). A
+        // realistic org import finishes in a fraction of the serial wall-clock and is far likelier
+        // to fit the 300s budget. `scanned` is incremented in single-threaded lanes — race-free.
         let scanned = 0;
-        for (const r of fullNames) {
+        await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
           try {
             const report = await scanRepository(r.fullName, { token, mock });
@@ -139,7 +143,7 @@ export async function POST(request: Request) {
           }
           scanned += 1;
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
-        }
+        });
         send("result", { org, scanned, total: fullNames.length, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });

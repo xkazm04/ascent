@@ -7,6 +7,7 @@ import { scanRepository } from "@/lib/scan";
 import { getInstallationIdForOwner, isDbConfigured, listWatchedRepos, persistScanReport } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
+import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,8 +45,13 @@ export async function POST(request: Request) {
         }
         const token = installationId ? await getInstallationToken(installationId).catch(() => undefined) : undefined;
 
+        // Scan with bounded concurrency rather than strictly serially: each lane sends its own
+        // per-repo events as it resolves (the SSE consumer already keys off each message's repo,
+        // not arrival order), so the war-room fills in a fraction of the wall-clock and a realistic
+        // fleet finishes inside the 300s budget. `done` is incremented in a single-threaded lane, so
+        // the count is race-free.
         let done = 0;
-        for (const repo of repos) {
+        await mapPool(repos, SCAN_CONCURRENCY, async (repo) => {
           send("progress", { stage: "scan", repo: repo.fullName, index: done, total: repos.length });
           try {
             const report = await scanRepository(repo.fullName, { token });
@@ -70,7 +76,7 @@ export async function POST(request: Request) {
           }
           done += 1;
           send("progress", { stage: "scan", repo: repo.fullName, index: done, total: repos.length });
-        }
+        });
         send("result", { scanned: done, total: repos.length });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Bulk scan failed." });
