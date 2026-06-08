@@ -52,11 +52,18 @@ export interface LLMProvider {
 const VALID_DIM_IDS = new Set(DIMENSIONS.map((d) => d.id));
 const IMPACTS = new Set(["high", "medium", "low"]);
 
+// Cap each model-supplied string. validateAssessment bounds array COUNT but not string LENGTH, so a
+// model emitting a multi-megabyte summary/headline/rationale (verbose, hallucinated repetition, or a
+// prompt-injected payload) yields a "valid" assessment that bloats the persisted DB row, the SSE
+// payload, and UI rendering. Bound field size like field count.
+const MAX_FIELD_LEN = 2000;
+const cap = (s: string): string => (s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN) : s);
+
 function asStringArray(v: unknown, max = 6): string[] {
   if (!Array.isArray(v)) return [];
   return v
     .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
-    .map((x) => x.trim())
+    .map((x) => cap(x.trim()))
     .slice(0, max);
 }
 
@@ -98,7 +105,7 @@ export function validateAssessment(raw: unknown): LlmAssessment {
       dims.push({
         id: id as DimensionId,
         score: clamp(Math.round(rawScore)),
-        summary: typeof d.summary === "string" ? d.summary.trim() : "",
+        summary: typeof d.summary === "string" ? cap(d.summary.trim()) : "",
         strengths: asStringArray(d.strengths),
         gaps: asStringArray(d.gaps),
       });
@@ -108,7 +115,7 @@ export function validateAssessment(raw: unknown): LlmAssessment {
   const roadmap: LlmRoadmapItem[] = [];
   if (Array.isArray(obj.roadmap)) {
     for (const r of obj.roadmap as Record<string, unknown>[]) {
-      const title = typeof r?.title === "string" ? r.title.trim() : "";
+      const title = typeof r?.title === "string" ? cap(r.title.trim()) : "";
       if (!title) continue;
       // Drop a roadmap entry whose dimension is missing or unparseable instead of silently
       // re-tagging it to D1 ("AI Tooling & Conventions") — a confidently wrong attribution in the
@@ -123,7 +130,7 @@ export function validateAssessment(raw: unknown): LlmAssessment {
         dimension: dim,
         impact: asLevel(r.impact, "medium"),
         effort: asLevel(r.effort, "medium"),
-        rationale: typeof r.rationale === "string" ? r.rationale.trim() : "",
+        rationale: typeof r.rationale === "string" ? cap(r.rationale.trim()) : "",
         explore: asStringArray(r.explore, 3),
         levelUnlock: typeof r.levelUnlock === "string" ? r.levelUnlock.trim() : undefined,
       });
@@ -137,14 +144,14 @@ export function validateAssessment(raw: unknown): LlmAssessment {
         typeof d?.dimension === "string" && VALID_DIM_IDS.has(d.dimension as DimensionId)
           ? (d.dimension as DimensionId)
           : null;
-      const claim = typeof d?.claim === "string" ? d.claim.trim() : "";
+      const claim = typeof d?.claim === "string" ? cap(d.claim.trim()) : "";
       if (dim && claim) discrepancies.push({ dimension: dim, claim });
     }
   }
 
   return {
     dimensions: dims,
-    headline: typeof obj.headline === "string" ? obj.headline.trim() : "",
+    headline: typeof obj.headline === "string" ? cap(obj.headline.trim()) : "",
     strengths: asStringArray(obj.strengths),
     risks: asStringArray(obj.risks),
     roadmap: roadmap.slice(0, 6),

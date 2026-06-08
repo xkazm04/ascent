@@ -83,7 +83,12 @@ export class BedrockProvider implements LLMProvider {
     // (already parsed) — no text extraction or JSON repair needed.
     for (const part of blocks) {
       const input = (part as { toolUse?: { input?: unknown } }).toolUse?.input;
-      if (input != null) return validateAssessment(input);
+      // Some models/regions/SDK paths surface the tool input as a JSON STRING rather than a parsed
+      // object. validateAssessment(string) would coerce to a zero-dimension assessment, so the scan
+      // silently degrades to mock — masking that Bedrock actually answered. Repair-parse a string
+      // first; only short-circuit on a real (object) input, else fall through to the text path.
+      if (typeof input === "string" && input.trim()) return validateAssessment(parseJsonLoose(input));
+      if (input && typeof input === "object") return validateAssessment(input);
     }
 
     // Safety net: a model/region that ignores forced tool use may still answer
