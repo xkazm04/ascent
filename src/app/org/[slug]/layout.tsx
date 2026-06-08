@@ -14,7 +14,7 @@ function Frame({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-6xl px-5 py-8">{children}</main>
+      <main id="main" className="mx-auto w-full max-w-6xl px-5 py-8">{children}</main>
       <SiteFooter />
     </>
   );

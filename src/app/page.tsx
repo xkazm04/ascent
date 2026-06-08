@@ -25,7 +25,7 @@ export default async function Home() {
   return (
     <>
       <SiteHeader />
-      <main className="w-full">
+      <main id="main" className="w-full">
         {/* Hero */}
         <section className="relative isolate overflow-hidden px-5 py-20 sm:py-28">
           <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
