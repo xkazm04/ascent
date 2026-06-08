@@ -172,6 +172,10 @@ export interface DimensionSignals {
   signals: Signal[];
   /** Optional notes passed to the LLM as extra context. */
   notes?: string;
+  /** Set when the detector THREW and this is a placeholder (signalScore is NOT a real measurement).
+   *  The engine excludes a failed dimension from the overall instead of folding a fake 0 that would
+   *  deflate the score as if the repo genuinely scored zero on it. */
+  failed?: boolean;
 }
 
 // ---------------------------------------------------------------------------

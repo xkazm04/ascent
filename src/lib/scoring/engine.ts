@@ -75,6 +75,16 @@ export function assembleReport(
       console.warn(`[engine] ${msg}`);
       return [];
     }
+    // A detector that THREW emits a placeholder signalScore:0 (not a real measurement). Folding that
+    // 0 into the weighted mean would deflate the overall as if the repo genuinely scored 0 on this
+    // dimension. Drop it like a missing/dropped dim (overallScoreFor renormalizes over present dims)
+    // and warn, rather than penalize the repo for our own extraction failure.
+    if (s.failed) {
+      const msg = `Dimension "${s.id}" was not measured (detector error) and is excluded from the score.`;
+      warnings.push(msg);
+      console.warn(`[engine] ${msg}`);
+      return [];
+    }
     const llm = llmById.get(s.id);
     if (!llm) llmMissing.push(s.id);
     const llmScore = llm ? clamp(llm.score) : s.signalScore;

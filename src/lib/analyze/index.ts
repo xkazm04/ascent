@@ -608,6 +608,7 @@ export function analyzeSignals(
       return {
         id,
         signalScore: 0,
+        failed: true,
         signals: [
           { label: "Signal extraction failed for this dimension", detail: "scored 0; other dimensions unaffected" },
         ],
