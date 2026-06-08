@@ -86,6 +86,7 @@ async function runScan(
   if (lookup && !degradedToMock) cacheSet(lookup.cacheKey, report);
 
   let deduped = false;
+  let persistedOk = true;
   if (isDbConfigured()) {
     try {
       // Persist the conditional-request ETag alongside the scan so the next re-scan stays cheap.
@@ -100,15 +101,25 @@ async function runScan(
         });
       }
     } catch (err) {
+      // persistScanReport is atomic — a throw means the WHOLE scan rolled back and NOTHING was
+      // saved. Returning a clean 200 would make the user believe it persisted (a later history /
+      // permalink read then finds nothing, read as "no data" rather than "save failed"). The report
+      // itself is still valid to render, so surface a degraded header rather than failing the
+      // response — clients and monitoring can see the save failed (and a tracked caller can retry).
+      persistedOk = false;
       console.error("[scan] persistence failed", err);
     }
   }
 
-  // x-ascent-dedup: "hit" means this commit was already scored, so no new row was
-  // written and no extra usage was billed (the report reflects the existing snapshot).
-  return NextResponse.json(report, {
-    headers: { "x-ascent-cache": "miss", "x-ascent-dedup": deduped ? "hit" : "miss" },
-  });
+  // x-ascent-dedup: "hit" means this commit was already scored, so no new row was written and no
+  // extra usage was billed (the report reflects the existing snapshot).
+  // x-ascent-persisted: "false" means the scan was computed and returned but NOT saved (rolled back).
+  const headers: Record<string, string> = {
+    "x-ascent-cache": "miss",
+    "x-ascent-dedup": deduped ? "hit" : "miss",
+  };
+  if (!persistedOk) headers["x-ascent-persisted"] = "false";
+  return NextResponse.json(report, { headers });
 }
 
 function handleError(err: unknown) {
