@@ -36,6 +36,9 @@ export function ScanForm({
   examples?: string[];
 }) {
   const router = useRouter();
+  // Distinguish live top-scored repos (from the persisted gallery) from the static fallback, so the
+  // chips never imply "currently trending" when they're hardcoded defaults.
+  const liveExamples = examples != null && examples.length > 0;
   const chips = examples && examples.length > 0 ? examples : FALLBACK_EXAMPLES;
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -139,7 +142,7 @@ export function ScanForm({
       </span>
 
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 font-mono text-xs text-slate-400">
-        <span className="uppercase tracking-widest">Try:</span>
+        <span className="uppercase tracking-widest">{liveExamples ? "Top scored:" : "Try:"}</span>
         {chips.map((ex) => {
           const chipPending = pendingChip === ex;
           return (
