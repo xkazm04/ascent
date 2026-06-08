@@ -136,6 +136,13 @@ export default async function TrendsPage({
             >
               Full report →
             </Link>
+            <a
+              href={`/api/history?repo=${encodeURIComponent(history.repo.fullName)}&format=csv`}
+              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white"
+              title="Download this repo's scan history as CSV"
+            >
+              Export CSV ↓
+            </a>
           </div>
         </div>
 
