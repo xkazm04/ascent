@@ -139,6 +139,9 @@ function badgeSvg(opts: {
   const big = style === "for-the-badge";
   const fontSize = big ? 11 : 12;
   const charW = big ? 7.2 : 6.7;
+  // for-the-badge renders uppercase with letter-spacing="1"; fold that 1px-per-gap into the width
+  // estimate so long values ("L5 Autonomous") aren't clipped against the value fill boundary.
+  const letterSpace = big ? 1 : 0;
   const pad = 10;
   const h = big ? 28 : style === "flat-square" ? 20 : 28;
   const rx = style === "flat-square" || big ? 0 : 4;
@@ -148,8 +151,9 @@ function badgeSvg(opts: {
   const renderValue = big ? value.toUpperCase() : value;
   const ls = big ? `letter-spacing="1"` : "";
 
-  const lw = Math.ceil(renderLabel.length * charW) + pad * 2 + logoW;
-  const vw = Math.ceil(renderValue.length * charW) + pad * 2;
+  const textW = (s: string) => Math.ceil(s.length * charW + Math.max(0, s.length - 1) * letterSpace);
+  const lw = textW(renderLabel) + pad * 2 + logoW;
+  const vw = textW(renderValue) + pad * 2;
   const w = lw + vw;
   // Vertically center the text for ANY height/font — was a +4 constant tuned for the 28px/12px default.
   const ty = Math.round(h / 2 + fontSize / 3);
