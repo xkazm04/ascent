@@ -4,7 +4,8 @@ import { OrgNav } from "@/components/org/OrgNav";
 import { OrgScanButton } from "@/components/org/OrgScanButton";
 import { OrgEmpty } from "@/components/org/ui";
 import { getOrgRollup, isDbConfigured } from "@/lib/db";
-import { getSessionState, isAuthConfigured } from "@/lib/auth";
+import { getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
+import { sessionOwnsOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -46,6 +47,26 @@ export default async function OrgLayout({
     return (
       <Frame>
         <SignInNotice next={`/org/${slug}`} expired={status === "expired"} />
+      </Frame>
+    );
+  }
+
+  // Authorize the TENANT, not just authentication. Without this, any signed-in user could read
+  // another org's private fleet (repo names, maturity scores, contributor logins/commit counts)
+  // simply by visiting its slug — a cross-tenant IDOR. This mirrors the write-path gate
+  // (requireOrgAccess on /api/org/scan|watch) and readableOrgForOwner: the shared PUBLIC_ORG is
+  // open to anyone, any other slug requires a session whose installations include it. Checked
+  // before getOrgRollup so a non-member can't even distinguish "exists with data" from "no data".
+  // (Auth-off deploys stay open — consistent with the rest of the authz model; see W1-4 follow-up.)
+  if (isAuthConfigured() && slug.toLowerCase() !== PUBLIC_ORG && !(await sessionOwnsOrg(slug))) {
+    return (
+      <Frame>
+        <OrgEmpty
+          title={`No access to ${slug}`}
+          body="This organization's dashboard is private to members who've installed the Ascent GitHub App on it. If you just installed it, re-sync your GitHub access on Connect."
+          href="/connect"
+          cta="Go to Connect"
+        />
       </Frame>
     );
   }
