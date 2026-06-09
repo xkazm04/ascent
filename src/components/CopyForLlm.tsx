@@ -1,0 +1,79 @@
+"use client";
+
+// Reusable "copy a markdown payload to the clipboard, to paste into Claude Code / an LLM" button.
+// This is the baseline of the LLM-consumption direction: every Ascent surface that produces results
+// (briefings, reports, gap analyses, security findings) can hand a dev a ready-to-paste brief. Uses
+// the async Clipboard API with a legacy execCommand fallback for non-secure contexts.
+
+import { useState } from "react";
+
+export function CopyForLlm({
+  text,
+  label = "Copy for LLM",
+  className = "",
+}: {
+  text: string;
+  label?: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function copy() {
+    setFailed(false);
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+    if (!ok) ok = legacyCopy(text); // insecure-context / older-browser fallback
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } else {
+      setFailed(true);
+      setTimeout(() => setFailed(false), 2500);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title="Copy a markdown briefing to paste into Claude Code or another LLM"
+      aria-live="polite"
+      className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
+        copied
+          ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+          : failed
+            ? "border-danger/50 text-danger"
+            : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
+      } ${className}`}
+    >
+      <span aria-hidden>{copied ? "✓" : failed ? "⚠" : "⧉"}</span>
+      {copied ? "Copied" : failed ? "Copy failed" : label}
+    </button>
+  );
+}
+
+/** Fallback for contexts where navigator.clipboard is unavailable (http, older browsers). */
+function legacyCopy(text: string): boolean {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
