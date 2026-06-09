@@ -22,7 +22,7 @@ function deferred<T>() {
 describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", () => {
   it("runs the factory once for concurrent same-key calls and shares the result", async () => {
     const d = deferred<ScanReport>();
-    const factory = vi.fn((_signal: AbortSignal) => d.promise);
+    const factory = vi.fn(() => d.promise);
 
     const a = coalesceScan("repo@sha::llm", factory);
     const b = coalesceScan("repo@sha::llm", factory);
@@ -37,7 +37,7 @@ describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", ()
   });
 
   it("re-runs the factory for a new call after the previous run settled", async () => {
-    const factory = vi.fn(async (_signal: AbortSignal) => fakeReport("r"));
+    const factory = vi.fn(async () => fakeReport("r"));
     await coalesceScan("repo2::llm", factory);
     await coalesceScan("repo2::llm", factory); // prior run already evicted → fresh run
     expect(factory).toHaveBeenCalledTimes(2);
