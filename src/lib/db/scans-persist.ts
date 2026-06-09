@@ -218,25 +218,29 @@ export async function persistScanReport(
           select: { id: true },
         });
 
-        // Recent contributors (top 50, with AI-attribution) for org-wide comparison — in the same
-        // tx so they share the scan's fate (no orphaned scan with a half-written contributor set).
-        for (const c of report.contributors.slice(0, 50)) {
-          await tx.repoContributor.upsert({
-            where: { repoId_login: { repoId: repo.id, login: c.login } },
-            update: {
-              name: c.name ?? null,
-              commits: c.commits,
-              aiCommits: c.aiCommits,
-              lastActiveAt: c.lastActiveAt ? new Date(c.lastActiveAt) : null,
-            },
-            create: {
+        // Recent contributors (top 50, with AI-attribution) for org-wide comparison — in the same tx
+        // so they share the scan's fate (no orphaned scan with a half-written contributor set).
+        // RepoContributor is a per-repo LATEST-scan snapshot (see org-contributors.ts), so replace the
+        // whole set in two round-trips instead of up to 50 sequential upserts. This also drops
+        // contributors that fell out of the latest top-50 — the old upsert loop left them to accumulate
+        // and inflate the org aggregates — and shrinks how much work a withRetry re-runs on a DSQL OCC
+        // conflict (the ~50-round-trip contributor loop was the bulk of the transaction). Skip the
+        // replace when the scan carries no contributors (a reconstructed snapshot) so it can't wipe the
+        // stored set, mirroring the RepoTeam guard below.
+        const contributors = report.contributors.slice(0, 50);
+        if (contributors.length > 0) {
+          const byLogin = new Map<string, (typeof contributors)[number]>();
+          for (const c of contributors) byLogin.set(c.login, c); // de-dupe: @@unique([repoId, login])
+          await tx.repoContributor.deleteMany({ where: { repoId: repo.id } });
+          await tx.repoContributor.createMany({
+            data: [...byLogin.values()].map((c) => ({
               repoId: repo.id,
               login: c.login,
               name: c.name ?? null,
               commits: c.commits,
               aiCommits: c.aiCommits,
               lastActiveAt: c.lastActiveAt ? new Date(c.lastActiveAt) : null,
-            },
+            })),
           });
         }
 
@@ -246,14 +250,16 @@ export async function persistScanReport(
         // that never ran ingestion carries no team data, and must not wipe the stored attribution.
         if (report.teams) {
           await tx.repoTeam.deleteMany({ where: { repoId: repo.id } });
-          for (const t of report.teams) {
-            await tx.repoTeam.create({
-              data: {
+          if (report.teams.length > 0) {
+            // createMany instead of a per-team create loop — one round-trip, not N — same retry-cost
+            // reduction as the contributor set above.
+            await tx.repoTeam.createMany({
+              data: report.teams.map((t) => ({
                 repoId: repo.id,
                 slug: t.slug,
                 ownedPaths: t.ownedPaths,
                 isDefaultOwner: t.isDefaultOwner,
-              },
+              })),
             });
           }
         }
