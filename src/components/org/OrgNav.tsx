@@ -15,6 +15,7 @@ export function OrgNav({ slug }: { slug: string }) {
     { href: `${base}/repositories`, label: "Repositories" },
     { href: `${base}/segments`, label: "Segments" },
     { href: `${base}/contributors`, label: "Contributors" },
+    { href: `${base}/adoption`, label: "Adoption" },
     { href: `${base}/teams`, label: "Teams" },
     { href: `${base}/delivery`, label: "Delivery" },
     { href: `${base}/practices`, label: "Practices" },
