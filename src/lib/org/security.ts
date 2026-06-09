@@ -6,6 +6,7 @@
 import { getOrgGovernance, getOrgRollup, type OrgWindow } from "@/lib/db";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { DEFAULT_SECURITY_MIN } from "@/lib/scoring/gate";
+import type { OrgSupplyChain } from "@/lib/security/supply-chain";
 
 export interface SecurityRepo {
   name: string;
@@ -102,8 +103,9 @@ export async function buildSecurityOverview(
   };
 }
 
-/** A security-focused markdown brief for the "Copy for LLM" action — ends with a remediation ASK. */
-export function securityMarkdown(o: SecurityOverview): string {
+/** A security-focused markdown brief for the "Copy for LLM" action — ends with a remediation ASK.
+ *  `supply` (optional) appends the Dependabot supply-chain signal when scanning is enabled. */
+export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | null): string {
   const out: string[] = [];
   out.push(`# Ascent — security posture: ${o.org}`);
   out.push(`Generated ${o.generatedOn} · period: ${o.periodTitle}`);
@@ -128,6 +130,14 @@ export function securityMarkdown(o: SecurityOverview): string {
   out.push(`- Policy: Security (D9) >= ${o.securityGate.minSecurity}, no "ungoverned" posture`);
   out.push(`- ${o.securityGate.failing} of ${o.scanned} repos FAIL the gate`);
   for (const r of o.securityGate.failingRepos) out.push(`  - ${r.name}: ${r.reason}`);
+  if (supply && supply.scanned > 0) {
+    out.push("");
+    out.push(`## Supply chain (Dependabot${supply.demo ? " — demo data" : ""})`);
+    out.push(`- Open advisories: ${supply.totals.critical} critical · ${supply.totals.high} high · ${supply.totals.medium} medium · ${supply.totals.low} low`);
+    for (const r of supply.repos.filter((x) => x.total > 0).slice(0, 6)) {
+      out.push(`- ${r.name}: ${r.critical} critical, ${r.high} high (${r.total} total)`);
+    }
+  }
   out.push("");
   out.push("## Ask");
   out.push(

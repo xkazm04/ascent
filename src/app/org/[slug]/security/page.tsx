@@ -3,6 +3,7 @@
 // "Copy for LLM" remediation brief. Pure assembly of existing aggregates (rollup D9 + governance).
 
 import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
+import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { resolveWindow } from "@/lib/window";
@@ -22,13 +23,16 @@ export default async function OrgSecurity({
   const { slug } = await params;
   const sp = await searchParams;
   const period = resolveWindow(sp);
-  const sec = await buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title);
+  const [sec, supply] = await Promise.all([
+    buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title),
+    getOrgSupplyChain(slug),
+  ]);
 
   if (!sec) {
     return <SectionEmpty>No scanned repositories yet — scan some of this org&apos;s repos to assess security.</SectionEmpty>;
   }
 
-  const md = securityMarkdown(sec);
+  const md = securityMarkdown(sec, supply);
   const atRisk = sec.band.critical + sec.band.weak;
   const gov = sec.governance;
 
@@ -104,6 +108,36 @@ export default async function OrgSecurity({
         )}
       </Card>
 
+      {supply && supply.scanned > 0 && (
+        <Card>
+          <SectionHeader
+            size="sm"
+            title="Supply chain"
+            description={`Open Dependabot advisories across ${supply.scanned} repos.${supply.demo ? " Demo data — set SUPPLY_CHAIN_PROVIDER=github for live alerts." : ""}`}
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <SevChip label="Critical" n={supply.totals.critical} color="#dc2626" />
+            <SevChip label="High" n={supply.totals.high} color="#d97706" />
+            <SevChip label="Medium" n={supply.totals.medium} color="#ca8a04" />
+            <SevChip label="Low" n={supply.totals.low} color="#64748b" />
+          </div>
+          {supply.repos.filter((r) => r.total > 0).length > 0 && (
+            <ul className="mt-3 space-y-1">
+              {supply.repos.filter((r) => r.total > 0).slice(0, 8).map((r) => (
+                <li key={r.fullName} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate font-mono text-slate-300" title={r.fullName}>{r.name}</span>
+                  <span className="shrink-0 font-mono text-sm text-slate-400">
+                    {r.critical > 0 ? <span className="text-red-300">{r.critical}C </span> : null}
+                    {r.high > 0 ? <span className="text-orange-300">{r.high}H </span> : null}
+                    {r.total} total
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionHeader size="sm" title="Weakest on security" />
@@ -152,6 +186,14 @@ export default async function OrgSecurity({
         </Card>
       </div>
     </div>
+  );
+}
+
+function SevChip({ label, n, color }: { label: string; n: number; color: string }) {
+  return (
+    <span className="rounded-md border border-slate-800 bg-slate-950/40 px-3 py-1.5 font-mono text-sm" style={{ color: n > 0 ? color : "#64748b" }}>
+      {n} {label}
+    </span>
   );
 }
 
