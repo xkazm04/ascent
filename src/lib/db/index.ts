@@ -74,6 +74,7 @@ export {
   upsertInstallation,
   removeInstallation,
   unwatchReposForInstallation,
+  reconcileWatchedRepos,
   getInstallationIdForOwner,
 } from "@/lib/db/installations";
 export { getSessionVersion, bumpSessionVersion } from "@/lib/db/sessions";

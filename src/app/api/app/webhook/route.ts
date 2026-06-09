@@ -10,7 +10,14 @@
 // GitHub doesn't retry on our transient issues.
 
 import { NextResponse, after } from "next/server";
-import { AppApiError, getInstallation, getInstallationToken, isAppConfigured, verifyWebhook } from "@/lib/github/app";
+import {
+  AppApiError,
+  getInstallation,
+  getInstallationToken,
+  isAppConfigured,
+  listInstallationRepos,
+  verifyWebhook,
+} from "@/lib/github/app";
 import {
   getInstallationIdForOwner,
   getOrgId,
@@ -18,6 +25,7 @@ import {
   isDbConfigured,
   isRepoWatched,
   persistScanReport,
+  reconcileWatchedRepos,
   removeInstallation,
   reportPermalink,
   unwatchReposForInstallation,
@@ -237,6 +245,31 @@ async function runPrGate(ref: PrGateRef) {
   }
 }
 
+/**
+ * Reconcile the DB watch state against an installation's CURRENT accessible repos. Re-lists the live
+ * set from GitHub and drops watch for any watched repo no longer in it — catching access changes the
+ * webhook payload doesn't itemize as explicit "removed" rows (a "selected → all" flip, a paginated
+ * "all → selected" narrowing). Best-effort + deferred: a listing failure SKIPS (so a transient GitHub
+ * error can't be misread as "zero repos" and wipe the whole watch set); a later event re-reconciles.
+ */
+async function reconcileInstallationRepos(installationId: number) {
+  try {
+    const live = await listInstallationRepos(installationId);
+    const dropped = await reconcileWatchedRepos(
+      installationId,
+      live.map((r) => r.fullName),
+    );
+    if (dropped > 0) {
+      console.warn(`[webhook] installation ${installationId}: unwatched ${dropped} repo(s) no longer accessible`);
+    }
+  } catch (err) {
+    console.warn(
+      `[webhook] installation_repositories reconcile failed for ${installationId}`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
 /** Re-scan a watched repo on push, persist, and alert on a regression vs the prior scan. */
 async function runPushRescan(installationId: number, owner: string, repo: string, deliveryId?: string) {
   try {
@@ -311,14 +344,21 @@ export async function POST(request: Request) {
       }
     } else if (event === "installation_repositories" && isDbConfigured()) {
       // The user changed WHICH repos an installation can see (Add/Remove on GitHub's Configure page).
-      // Quiesce repos that lost access so their scheduled rescan stops minting a token that no longer
-      // covers them and 401ing forever. (Added repos surface on the next connect-list refresh / re-sync.)
       const id = payload.installation?.id;
+      // Fast path: immediately quiesce the repos GitHub itemized as removed (no API call), so their
+      // scheduled rescan stops minting a token that no longer covers them and 401ing forever.
       const removed = (payload.repositories_removed ?? [])
         .map((r) => r.full_name)
         .filter((n): n is string => Boolean(n));
       if (id != null && removed.length > 0) {
         await unwatchReposForInstallation(id, removed);
+      }
+      // Full reconciliation (deferred, after the 2xx — it re-lists from GitHub): catch access changes
+      // the payload does NOT itemize as explicit "removed" rows. A "selected → all" flip sends an empty
+      // repositories_removed (the fast path above does nothing), and an "all → selected" narrowing can
+      // paginate the removals — both leave stale watched repos 401ing forever without this.
+      if (id != null && isAppConfigured()) {
+        after(() => reconcileInstallationRepos(id));
       }
     } else if (event === "pull_request" && isAppConfigured()) {
       const installationId = payload.installation?.id;
