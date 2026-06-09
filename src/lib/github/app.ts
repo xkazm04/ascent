@@ -24,6 +24,9 @@ export interface InstallationInfo {
   id: number;
   account: string; // login
   type: string; // "User" | "Organization"
+  /** ISO timestamp when GitHub suspended the installation, or null if active. Lets a destructive
+   *  webhook (suspend) be confirmed against GitHub's authoritative state before we act on it. */
+  suspendedAt: string | null;
 }
 
 export function isAppConfigured(): boolean {
@@ -107,15 +110,28 @@ async function ghApp<T>(path: string, auth: string, init: RequestInit = {}): Pro
 
 export async function getInstallation(installationId: number | string): Promise<InstallationInfo> {
   const jwt = createAppJwt();
-  const data = await ghApp<{ id: number; account: { login: string; type: string } }>(
-    `/app/installations/${installationId}`,
-    jwt,
-  );
-  return { id: data.id, account: data.account.login, type: data.account.type };
+  const data = await ghApp<{
+    id: number;
+    account: { login: string; type: string };
+    suspended_at?: string | null;
+  }>(`/app/installations/${installationId}`, jwt);
+  return {
+    id: data.id,
+    account: data.account.login,
+    type: data.account.type,
+    suspendedAt: data.suspended_at ?? null,
+  };
 }
 
 // Cache installation tokens (valid ~1h) to avoid minting one per request.
 const tokenCache = new Map<string, { token: string; expires: number }>();
+
+// Re-mint this far BEFORE GitHub's stated expiry. The buffer absorbs (a) a token expiring mid-request
+// and (b) host-clock skew vs GitHub's clock: if the host clock runs behind real time by up to this
+// margin, a token GitHub already considers expired would otherwise still look fresh locally and 401.
+// 60s only covered (a); under-provisioned hosts without reliable NTP can drift minutes, so widen to
+// 3 min — negligible against a ~1h token lifetime.
+const TOKEN_EXPIRY_SKEW_MS = 180_000;
 
 /** Drop a cached installation token (e.g. after a 401 — the installation may be suspended,
  *  uninstalled, or its access changed). The next call re-mints. */
@@ -135,7 +151,7 @@ export async function getInstallationToken(
     !forceRefresh &&
     cached &&
     Number.isFinite(cached.expires) &&
-    cached.expires > Date.now() + 60_000
+    cached.expires > Date.now() + TOKEN_EXPIRY_SKEW_MS
   ) {
     return cached.token;
   }
