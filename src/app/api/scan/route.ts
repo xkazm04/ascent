@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
-import { cacheSet } from "@/lib/cache";
+import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { consumeScanCredit, isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
@@ -91,12 +91,19 @@ async function runScan(
 
   // Pass the head sha resolved for the cache key so the scored commit matches the key (no SHA
   // drift if a push lands mid-scan). Null/SHA-less lookups pass undefined → default behavior.
-  const report = await scanRepository(url, {
-    token,
-    mock: opts.mock,
-    signal: opts.signal,
-    headSha: lookup?.headSha ?? undefined,
-  });
+  const runScan = (signal?: AbortSignal) =>
+    scanRepository(url, {
+      token,
+      mock: opts.mock,
+      signal,
+      headSha: lookup?.headSha ?? undefined,
+    });
+  // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto one
+  // run so two callers don't each pay a full ingest + LLM. The token (private) path is per-tenant and
+  // never shared, so it scans directly.
+  const report = lookup
+    ? await coalesceScan(lookup.cacheKey, (signal) => runScan(signal), opts.signal)
+    : await runScan(opts.signal);
   // Don't poison the shared `::llm` cache entry with a deterministic mock report produced by a
   // transient LLM failure: a single Gemini timeout/429 degrades to MockProvider, but the lookup
   // key is still the llm key, so caching it would pin the mock floor under `owner/repo@sha::llm`

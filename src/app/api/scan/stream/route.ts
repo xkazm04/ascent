@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
-import { cacheSet } from "@/lib/cache";
+import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
@@ -94,17 +94,24 @@ export async function POST(request: Request) {
           }
         }
 
-        const report = await scanRepository(url, {
-          token,
-          mock,
-          onProgress: (p) => send("progress", p),
-          // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan
-          // can't key the report under a different commit than it actually scored.
-          headSha: lookup?.headSha ?? undefined,
-          // Abort the scan (GitHub ingest + LLM) when the browser navigates away or aborts
-          // the SSE stream, instead of running it to completion for a closed connection.
-          signal: request.signal,
-        });
+        const runScan = (signal: AbortSignal) =>
+          scanRepository(url, {
+            token,
+            mock,
+            onProgress: (p) => send("progress", p),
+            // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan
+            // can't key the report under a different commit than it actually scored.
+            headSha: lookup?.headSha ?? undefined,
+            // Abort the scan (GitHub ingest + LLM) when the browser navigates away or aborts the SSE
+            // stream, instead of running it to completion for a closed connection.
+            signal,
+          });
+        // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto a
+        // single run, so a double-mount / peek-then-stream / two tabs don't each pay a full ingest+LLM.
+        // The token path is per-tenant — never shared — so it scans directly.
+        const report = lookup
+          ? await coalesceScan(lookup.cacheKey, runScan, request.signal)
+          : await runScan(request.signal);
 
         // A transient LLM failure degrades to MockProvider, but the lookup key is still the llm
         // key — caching it would pin the mock floor under `::llm` for the full TTL and serve it to
