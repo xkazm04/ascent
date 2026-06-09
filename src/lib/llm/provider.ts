@@ -75,6 +75,18 @@ function asLevel(v: unknown, fallback: "high" | "medium" | "low"): "high" | "med
   return typeof v === "string" && IMPACTS.has(v) ? (v as "high" | "medium" | "low") : fallback;
 }
 
+// Canonical "Lx->Ly" maturity-unlock shape (level ids are L1..L5). The deterministic roadmap derives
+// this from canonical LEVELS, but the LLM path took r.levelUnlock verbatim — so a hallucinated
+// "L5->L7" (out of range), "L3->L2"/"L3→L2" (a downgrade), or garbage reached the user-facing roadmap
+// unchecked. Accept either arrow form, require an ACTUAL advance, and normalize to the canonical form.
+const LEVEL_UNLOCK_RE = /^L([1-5])\s*(?:->|→)\s*L([1-5])$/;
+function validLevelUnlock(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const m = LEVEL_UNLOCK_RE.exec(v.trim());
+  if (!m) return undefined;
+  return Number(m[2]) > Number(m[1]) ? `L${m[1]}->L${m[2]}` : undefined;
+}
+
 /**
  * Defensively coerce arbitrary parsed JSON into a well-formed LlmAssessment.
  * Never throws — bad fields are dropped/defaulted so a flaky LLM response can't
@@ -144,7 +156,7 @@ export function validateAssessment(raw: unknown): LlmAssessment {
         effort: asLevel(r.effort, "medium"),
         rationale: typeof r.rationale === "string" ? cap(r.rationale.trim()) : "",
         explore: asStringArray(r.explore, 3),
-        levelUnlock: typeof r.levelUnlock === "string" ? r.levelUnlock.trim() : undefined,
+        levelUnlock: validLevelUnlock(r.levelUnlock),
       });
     }
   }
