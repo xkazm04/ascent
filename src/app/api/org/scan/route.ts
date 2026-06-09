@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { consumeScanCredit, getInstallationIdForOwner, isDbConfigured, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isDbConfigured, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
@@ -57,6 +57,10 @@ export async function POST(request: Request) {
     if (!ent.allowed) return paymentRequired(ent.balance);
     unlimited = ent.unlimited;
     if (!ent.unlimited && repos.length > ent.balance) {
+      // Optimistic cap from a point-in-time balance read: don't even attempt repos beyond the current
+      // balance. The AUTHORITATIVE enforcement is the per-repo atomic reservation in the loop below —
+      // two concurrent batches each read the same balance here, but only one can win each credit at
+      // debit time, so they can no longer both scan the same slice for free.
       skippedForCredits = repos.length - ent.balance;
       scanList = repos.slice(0, ent.balance);
     }
@@ -97,6 +101,27 @@ export async function POST(request: Request) {
         // the count is race-free.
         let done = 0;
         await mapPool(scanList, SCAN_CONCURRENCY, async (repo) => {
+          // RESERVE the credit BEFORE scanning (metered, non-unlimited plans). consumeScanCredit is an
+          // atomic conditional decrement (WHERE scanCredits > 0), so two concurrent batches can't both
+          // spend the same credit. A failed reservation means the balance was exhausted (often by
+          // another in-flight batch) — skip this repo rather than scan it for free, which is what the
+          // old "scan first, best-effort debit afterwards" path silently did. Refunded below if the
+          // scan degrades to mock or throws (no real inference billed).
+          let reserved = false;
+          if (metered && !unlimited) {
+            const res = await consumeScanCredit(org, { repoFullName: repo.fullName }).catch(() => null);
+            if (!res || (!res.unlimited && !res.ok)) {
+              skippedForCredits += 1;
+              send("repo", { repo: repo.fullName, skipped: "insufficient_credits" });
+              done += 1;
+              send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
+              return;
+            }
+            reserved = res.ok && !res.unlimited;
+          }
+          const refundCredit = async () => {
+            if (reserved) await grantCredits(org, 1, { reason: "refund", actor: "system" }).catch(() => {});
+          };
           send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
           try {
             const report = await scanRepository(repo.fullName, { token });
@@ -108,11 +133,8 @@ export async function POST(request: Request) {
                 failures: persisted.failures,
               });
             }
-            // Debit one credit per real (non-mock) scan; unlimited plans skip it. Best-effort — a
-            // debit hiccup must not fail a scan the war-room already received.
-            if (metered && !unlimited && report.engine.provider !== "mock") {
-              await consumeScanCredit(org, { repoFullName: repo.fullName, scanId: persisted?.scanId }).catch(() => {});
-            }
+            // No real inference billed (degraded to mock) — refund the reservation made above.
+            if (report.engine.provider === "mock") await refundCredit();
             send("repo", {
               repo: repo.fullName,
               level: report.level.id,
@@ -123,6 +145,8 @@ export async function POST(request: Request) {
             });
             await recordScanOutcome(org, repo.fullName, { ok: true }).catch(() => {});
           } catch (err) {
+            // Scan threw — no inference to bill, so refund the reservation.
+            await refundCredit();
             const msg = err instanceof Error ? err.message : "scan failed";
             await recordScanOutcome(org, repo.fullName, { ok: false, error: msg }).catch(() => {});
             send("repo", { repo: repo.fullName, error: msg });
