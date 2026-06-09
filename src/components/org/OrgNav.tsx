@@ -10,6 +10,7 @@ export function OrgNav({ slug }: { slug: string }) {
   const tabs = [
     { href: base, label: "Overview" },
     { href: `${base}/executive`, label: "Briefing" },
+    { href: `${base}/security`, label: "Security" },
     { href: `${base}/live`, label: "Live" },
     { href: `${base}/repositories`, label: "Repositories" },
     { href: `${base}/segments`, label: "Segments" },
