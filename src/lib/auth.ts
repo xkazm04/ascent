@@ -147,6 +147,10 @@ export interface SessionState {
   status: SessionStatus;
   /** Epoch ms when the (possibly renewed) session expires, when active. */
   expiresAt?: number;
+  /** True when the access window is within the renew threshold but the cookie could NOT be re-minted
+   *  here (a read-only Server Component render). A mutable context (Route Handler / Server Action) can
+   *  read this and re-mint on the next request, so a read-mostly surface doesn't starve the refresh. */
+  needsRefresh?: boolean;
 }
 
 function sessionCookieAttrs(secure: boolean) {
@@ -254,7 +258,15 @@ export async function getSessionState(): Promise<SessionState> {
       store.set(SESSION_COOKIE, encodeSession(renewed), sessionCookieAttrs(await secureCookieForRequest()));
       return { session: renewed, status: "active", expiresAt: renewed.rexp };
     } catch {
-      /* read-only cookie store (Server Component render) — refresh on a later request. */
+      // Read-only cookie store (Server Component render) — the re-mint can't be written here. A
+      // read-mostly surface (dashboards rendered as Server Components) can otherwise starve the refresh
+      // until the short access exp lapses and abruptly log out an actively-browsing user. Surface it:
+      // return active + needsRefresh so a Route Handler / Server Action re-mints on the next mutable
+      // request, and log so the starvation is observable instead of silently swallowed.
+      console.warn(
+        `[auth] session re-mint skipped (read-only store) for ${session.login}; will refresh on next mutable request`,
+      );
+      return { session, status: "active", expiresAt: horizon, needsRefresh: true };
     }
   }
   return { session, status: "active", expiresAt: horizon };
