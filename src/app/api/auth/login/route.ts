@@ -1,7 +1,16 @@
 // GET /api/auth/login?next=/path  — start GitHub OAuth (sets CSRF state cookie).
 
 import { NextResponse } from "next/server";
-import { buildAuthorizeUrl, isAuthConfigured, newState, NEXT_COOKIE, RESYNC_COOKIE, safeNext, STATE_COOKIE } from "@/lib/auth";
+import {
+  buildAuthorizeUrl,
+  isAuthConfigured,
+  newState,
+  NEXT_COOKIE,
+  RESYNC_COOKIE,
+  safeNext,
+  secureCookieForRequest,
+  STATE_COOKIE,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +27,11 @@ export async function GET(request: Request) {
   // in place rather than replaying the first-login /launch cinematic.
   const resync = url.searchParams.get("resync") === "1";
   const state = newState();
-  const secure = origin.startsWith("https");
+  // Derive Secure from x-forwarded-proto (like the session cookie in the callback), NOT the internal
+  // request origin: behind a TLS-terminating proxy `url.origin` is the internal http origin, so
+  // origin.startsWith("https") is false and the security-critical CSRF state cookie would be minted
+  // WITHOUT Secure — transmissible over plaintext. Single-source the decision via secureCookieForRequest.
+  const secure = await secureCookieForRequest();
 
   const res = NextResponse.redirect(buildAuthorizeUrl(origin, state));
   res.cookies.set(STATE_COOKIE, state, { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: 600 });
