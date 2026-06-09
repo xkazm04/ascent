@@ -403,8 +403,27 @@ model Playbook {
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  org Organization @relation(fields: [orgId], references: [id])
+  org          Organization          @relation(fields: [orgId], references: [id])
+  applications PlaybookApplication[]
 
+  @@index([orgId])
+}
+
+// Records that a playbook was applied to a repo — the explicit adoption signal (there's no scan
+// signal for "this repo adopted playbook X"). Adoption analytics count distinct applied repos and
+// measure the dimension-score lift in those repos since `appliedAt`. One row per (playbook, repo).
+model PlaybookApplication {
+  id           String   @id @default(uuid())
+  playbookId   String
+  orgId        String // denormalized for org-scoped aggregation
+  repoFullName String
+  appliedBy    String? // GitHub login who marked it applied
+  appliedAt    DateTime @default(now())
+
+  playbook Playbook @relation(fields: [playbookId], references: [id])
+
+  @@unique([playbookId, repoFullName])
+  @@index([playbookId])
   @@index([orgId])
 }
 

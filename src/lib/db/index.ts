@@ -184,8 +184,12 @@ export {
   updatePlaybook,
   deletePlaybook,
   getPlaybookOrgSlug,
+  applyPlaybook,
+  unapplyPlaybook,
+  getPlaybookAdoption,
   type PlaybookRow,
   type PlaybookInput,
+  type PlaybookAdoption,
 } from "@/lib/db/playbooks";
 export {
   forecastTrajectory,

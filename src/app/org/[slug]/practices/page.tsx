@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Card, Meter, SectionEmpty, SectionHeader } from "@/components/org/ui";
 import { PracticeApply } from "@/components/org/PracticeApply";
 import { PlaybooksPanel } from "@/components/org/PlaybooksPanel";
-import { getOrgPractices, listPlaybooks } from "@/lib/db";
+import { getOrgPractices, getOrgRollup, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -10,12 +10,24 @@ export const dynamic = "force-dynamic";
 
 export default async function OrgPractices({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const [playbooks, practices] = await Promise.all([listPlaybooks(slug), getOrgPractices(slug)]);
+  const [playbooks, adoption, rollup, practices] = await Promise.all([
+    listPlaybooks(slug),
+    getPlaybookAdoption(slug),
+    getOrgRollup(slug),
+    getOrgPractices(slug),
+  ]);
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
+  const repoOptions = (rollup?.repos ?? []).map((r) => r.fullName).sort();
 
   return (
     <div className="space-y-6">
-      <PlaybooksPanel slug={slug} initial={playbooks ?? []} dimOptions={dimOptions} />
+      <PlaybooksPanel
+        slug={slug}
+        initial={playbooks ?? []}
+        dimOptions={dimOptions}
+        adoption={adoption}
+        repoOptions={repoOptions}
+      />
 
       <SectionHeader
         descriptionClassName="max-w-3xl"

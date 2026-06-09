@@ -6,16 +6,27 @@
 
 import { useState } from "react";
 import { Card, SectionHeader } from "@/components/org/ui";
-import { CopyForLlm } from "@/components/CopyForLlm";
-import { playbookMarkdown } from "@/lib/org/playbook-brief";
-import type { PlaybookRow } from "@/lib/db";
+import { PlaybookCard } from "@/components/org/PlaybookCard";
+import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
 interface DimOption {
   id: string;
   label: string;
 }
 
-export function PlaybooksPanel({ slug, initial, dimOptions }: { slug: string; initial: PlaybookRow[]; dimOptions: DimOption[] }) {
+export function PlaybooksPanel({
+  slug,
+  initial,
+  dimOptions,
+  adoption,
+  repoOptions,
+}: {
+  slug: string;
+  initial: PlaybookRow[];
+  dimOptions: DimOption[];
+  adoption: Record<string, PlaybookAdoption>;
+  repoOptions: string[];
+}) {
   const [playbooks, setPlaybooks] = useState<PlaybookRow[]>(initial);
   const [title, setTitle] = useState("");
   const [dimId, setDimId] = useState(dimOptions[0]?.id ?? "D1");
@@ -68,34 +79,14 @@ export function PlaybooksPanel({ slug, initial, dimOptions }: { slug: string; in
       <div className="mt-4 space-y-3">
         {playbooks.length === 0 && <p className="text-base text-slate-500">No playbooks yet — define your first standard below.</p>}
         {playbooks.map((p) => (
-          <div key={p.id} className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="min-w-0">
-                <span className="font-medium text-white">{p.title}</span>
-                <span className="ml-2 rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
-                  {p.dimId} · {dimLabel.get(p.dimId) ?? p.dimId}
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <CopyForLlm text={playbookMarkdown(p, dimLabel.get(p.dimId) ?? p.dimId)} label="Copy" />
-                <button onClick={() => remove(p.id)} className="font-mono text-sm text-slate-600 hover:text-orange-300">
-                  remove
-                </button>
-              </div>
-            </div>
-            {p.summary && <p className="mt-1 text-base text-slate-400">{p.summary}</p>}
-            {p.steps.length > 0 && (
-              <ul className="mt-2 space-y-1 text-sm text-slate-300">
-                {p.steps.map((s, i) => (
-                  <li key={i} className="flex gap-2">
-                    <span className="select-none text-slate-600">·</span>
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {p.createdBy && <div className="mt-2 font-mono text-sm text-slate-600">by {p.createdBy}</div>}
-          </div>
+          <PlaybookCard
+            key={p.id}
+            playbook={p}
+            dimLabel={dimLabel.get(p.dimId) ?? p.dimId}
+            adoption={adoption[p.id]}
+            repoOptions={repoOptions}
+            onRemove={() => remove(p.id)}
+          />
         ))}
       </div>
 
