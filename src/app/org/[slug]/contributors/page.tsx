@@ -61,8 +61,10 @@ export default async function ContributorInsightsPage({
           <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} />
         </div>
 
-        {/* AI champions */}
-        {insights.champions.length > 0 && (
+        {/* AI champions — only a meaningful "leaderboard" once the population is large enough. Below 3
+            contributors a single Copilot user becomes a celebrated "#1 ★ champion" and the tiles read
+            "100% AI-active" for a team of one — success theater that overstates a barely-adopted fleet. */}
+        {insights.champions.length > 0 && insights.totalContributors >= 3 && (
           <div className="mt-8">
             <SectionHeader
               title="AI champions"
