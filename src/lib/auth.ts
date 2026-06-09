@@ -422,8 +422,12 @@ export async function exchangeCodeForToken(code: string, origin: string): Promis
     }),
     cache: "no-store",
   });
-  const data = (await res.json()) as { access_token?: string; error?: string };
-  if (!data.access_token) throw new Error(`OAuth token exchange failed: ${data.error ?? res.status}`);
+  const data = (await res.json()) as { access_token?: string; error?: string; error_description?: string };
+  if (!data.access_token) {
+    // Surface GitHub's human-readable error_description (e.g. "The code passed is incorrect or
+    // expired.") rather than just the terse error code / HTTP status — it's the diagnosable detail.
+    throw new Error(`OAuth token exchange failed: ${data.error_description ?? data.error ?? res.status}`);
+  }
   return data.access_token;
 }
 

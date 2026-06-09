@@ -113,9 +113,18 @@ export async function GET(request: Request) {
     // control" fleet map rather than jumping straight to the next path; the intended
     // destination rides along as `next` so the entrance can hand off to it (its "Enter
     // mission control" affordance). `next` is already validated by safeNext above.
-    const dest = resync
-      ? `${next}${next.includes("?") ? "&" : "?"}resynced=1`
-      : `/launch?next=${encodeURIComponent(next)}`;
+    let dest: string;
+    if (resync) {
+      // Build via URL so `resynced=1` lands as a real query param regardless of an existing query or a
+      // #fragment in `next` (safeNext preserves fragments). The old string concat produced
+      // "/path#frag?resynced=1" (the param swallowed into the fragment, never seen by the page) or
+      // appended after the fragment — so the post-resync confirmation silently never showed.
+      const u = new URL(next, request.url);
+      u.searchParams.set("resynced", "1");
+      dest = u.pathname + u.search + u.hash;
+    } else {
+      dest = `/launch?next=${encodeURIComponent(next)}`;
+    }
     const res = NextResponse.redirect(new URL(dest, request.url));
     res.cookies.set(SESSION_COOKIE, encodeSession(session), {
       httpOnly: true,

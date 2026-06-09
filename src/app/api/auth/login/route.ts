@@ -39,6 +39,9 @@ export async function GET(request: Request) {
   // Set or clear explicitly so a stale flag from an abandoned re-sync can't make a later
   // fresh sign-in skip the launch screen.
   if (resync) res.cookies.set(RESYNC_COOKIE, "1", { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: 600 });
-  else res.cookies.delete(RESYNC_COOKIE);
+  // Clear with the SAME path + secure the cookie was set with (not a bare delete with default attrs):
+  // a delete whose attributes don't match the original can leave the cookie in place, so a stale
+  // resync=1 from an abandoned flow could make the next FRESH sign-in take the resync branch.
+  else res.cookies.set(RESYNC_COOKIE, "", { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: 0 });
   return res;
 }
