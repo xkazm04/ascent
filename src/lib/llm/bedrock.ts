@@ -87,7 +87,17 @@ export class BedrockProvider implements LLMProvider {
       // object. validateAssessment(string) would coerce to a zero-dimension assessment, so the scan
       // silently degrades to mock — masking that Bedrock actually answered. Repair-parse a string
       // first; only short-circuit on a real (object) input, else fall through to the text path.
-      if (typeof input === "string" && input.trim()) return validateAssessment(parseJsonLoose(input));
+      if (typeof input === "string" && input.trim()) {
+        // parseJsonLoose THROWS on a truncated/malformed tool-input string (observed on long Converse
+        // responses). A throw here escapes the whole loop and skips the text-path safety net below,
+        // degrading a recoverable answer to the mock floor — the opposite of "fall through to the text
+        // path." Swallow the repair failure so the text block still gets a chance.
+        try {
+          return validateAssessment(parseJsonLoose(input));
+        } catch {
+          /* malformed tool-input string — fall through to the text path */
+        }
+      }
       if (input && typeof input === "object") return validateAssessment(input);
     }
 
