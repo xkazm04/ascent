@@ -117,7 +117,14 @@ export async function fetchCommitActivity(
           );
           return null;
         }
-        await new Promise((r) => setTimeout(r, DELAYS_MS[attempt]));
+        // Abortable backoff: a plain setTimeout would hold the connection open for the full delay
+        // (up to 3s) after the client disconnects — resolve early on abort so the loop-top check bails
+        // immediately instead of re-requesting after a dead wait.
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) return resolve();
+          const t = setTimeout(resolve, DELAYS_MS[attempt]);
+          signal?.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+        });
         continue;
       }
       if (status !== 200 || !Array.isArray(body)) return null;

@@ -138,13 +138,24 @@ export async function POST(request: Request) {
             console.error("[scan/stream] persistence failed", err);
           }
         }
+        // Stop the keepalive at the terminal frame (co-located), not only in finally, so a 15s ping
+        // can't interleave after the result on a slow close.
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = undefined;
         send("result", report);
       } catch (err) {
-        const payload =
-          err instanceof GitHubError
-            ? { error: err.message, code: err.code }
-            : { error: "Unexpected error while scanning the repository." };
-        send("error", payload);
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = undefined;
+        // A deliberate abort (client disconnect / scan timeout) is not a scan error to report — the
+        // consumer is already gone and the scan stopped as intended. Don't emit a misleading
+        // "Unexpected error" frame (the JSON route maps the same AbortError to a 499); just unwind.
+        if (!(err instanceof Error && err.name === "AbortError") && !request.signal.aborted) {
+          const payload =
+            err instanceof GitHubError
+              ? { error: err.message, code: err.code }
+              : { error: "Unexpected error while scanning the repository." };
+          send("error", payload);
+        }
       } finally {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;
