@@ -467,39 +467,95 @@ export interface OrgBenchmark {
   corpusAvgOverall: number;
   corpusAvgAdoption: number;
   corpusAvgRigor: number;
+  /** Peer cohort — corpus repos sharing this org's dominant primary language, for a "vs your peers"
+   *  read (more meaningful than the whole corpus). Null when the org has no dominant language or no
+   *  same-language peers exist; the percentiles are null below COHORT_MIN peers (too few to rank). */
+  cohort: {
+    language: string;
+    repos: number;
+    overallPercentile: number | null;
+    adoptionPercentile: number | null;
+    avgOverall: number;
+  } | null;
 }
 
-/** Compare an org's averages against every other repo Ascent has scored (the corpus). */
+/** Minimum same-language peers before a cohort percentile is statistically worth showing. */
+const COHORT_MIN = 5;
+
+/** Compare an org's averages against every other repo Ascent has scored (the corpus), plus a
+ *  same-language peer cohort for a sharper "vs your peers" read. */
 export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
-  // Latest scan per repo, for every repo NOT in this org.
+  // Latest scan + primary language per repo, for every repo NOT in this org.
   const repos = await prisma.repository.findMany({
     where: { orgId: { not: org.id } },
-    select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true, adoptionScore: true, rigorScore: true } } },
+    select: {
+      primaryLanguage: true,
+      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true, adoptionScore: true, rigorScore: true } },
+    },
   });
-  const corpus = repos.map((r) => r.scans[0]).filter((s): s is NonNullable<typeof s> => !!s);
-  if (corpus.length === 0) return { corpusRepos: 0, overallPercentile: null, corpusAvgOverall: 0, corpusAvgAdoption: 0, corpusAvgRigor: 0 };
+  const corpus: { lang: string | null; overall: number; adoption: number; rigor: number }[] = [];
+  for (const r of repos) {
+    const s = r.scans[0];
+    if (s) corpus.push({ lang: r.primaryLanguage, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore });
+  }
+  if (corpus.length === 0) {
+    return { corpusRepos: 0, overallPercentile: null, corpusAvgOverall: 0, corpusAvgAdoption: 0, corpusAvgRigor: 0, cohort: null };
+  }
 
-  // This org's average overall (latest scan per repo).
+  // This org's averages + dominant language (latest scan per repo).
   const mine = await prisma.repository.findMany({
     where: { orgId: org.id },
-    select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true } } },
+    select: {
+      primaryLanguage: true,
+      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true, adoptionScore: true } },
+    },
   });
-  const myScores = mine.map((r) => r.scans[0]?.overallScore).filter((x): x is number => x != null);
-  const myAvg = myScores.length ? myScores.reduce((a, b) => a + b, 0) / myScores.length : 0;
+  const myOverall: number[] = [];
+  const myAdoption: number[] = [];
+  const langCounts = new Map<string, number>();
+  for (const r of mine) {
+    const s = r.scans[0];
+    if (!s) continue;
+    myOverall.push(s.overallScore);
+    myAdoption.push(s.adoptionScore);
+    if (r.primaryLanguage) langCounts.set(r.primaryLanguage, (langCounts.get(r.primaryLanguage) ?? 0) + 1);
+  }
 
-  const avg = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
-  const below = corpus.filter((s) => s.overallScore <= myAvg).length;
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  const avg = (xs: number[]) => Math.round(mean(xs));
+  const pctile = (xs: number[], v: number) => (xs.length ? Math.round((xs.filter((x) => x <= v).length / xs.length) * 100) : null);
+  const myAvgOverall = mean(myOverall);
+  const myAvgAdoption = mean(myAdoption);
+
+  // Peer cohort = corpus repos in the org's dominant language.
+  const domLang = [...langCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  let cohort: OrgBenchmark["cohort"] = null;
+  if (domLang) {
+    const peers = corpus.filter((c) => c.lang === domLang);
+    if (peers.length > 0) {
+      const enough = peers.length >= COHORT_MIN;
+      cohort = {
+        language: domLang,
+        repos: peers.length,
+        overallPercentile: enough ? pctile(peers.map((p) => p.overall), myAvgOverall) : null,
+        adoptionPercentile: enough ? pctile(peers.map((p) => p.adoption), myAvgAdoption) : null,
+        avgOverall: avg(peers.map((p) => p.overall)),
+      };
+    }
+  }
+
   return {
     corpusRepos: corpus.length,
-    overallPercentile: Math.round((below / corpus.length) * 100),
-    corpusAvgOverall: avg(corpus.map((s) => s.overallScore)),
-    corpusAvgAdoption: avg(corpus.map((s) => s.adoptionScore)),
-    corpusAvgRigor: avg(corpus.map((s) => s.rigorScore)),
+    overallPercentile: pctile(corpus.map((c) => c.overall), myAvgOverall),
+    corpusAvgOverall: avg(corpus.map((c) => c.overall)),
+    corpusAvgAdoption: avg(corpus.map((c) => c.adoption)),
+    corpusAvgRigor: avg(corpus.map((c) => c.rigor)),
+    cohort,
   };
 }
 

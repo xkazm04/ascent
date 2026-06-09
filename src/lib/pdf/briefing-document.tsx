@@ -97,6 +97,13 @@ export function BriefingDocument({ briefing }: { briefing: ExecBriefing }) {
           <Text style={styles.line}>Change vs {b.periodTitle} start: {b.periodDelta >= 0 ? "+" : ""}{b.periodDelta}</Text>
         )}
         {b.forecastHeadline ? <Text style={styles.traj}>Trajectory: {b.forecastHeadline}</Text> : null}
+        {b.benchmark?.cohort && b.benchmark.cohort.overallPercentile != null ? (
+          <Text style={styles.line}>
+            Peer cohort ({b.benchmark.cohort.language}): {b.benchmark.cohort.overallPercentile}th percentile vs{" "}
+            {b.benchmark.cohort.repos} {b.benchmark.cohort.language} repos
+            {b.benchmark.cohort.adoptionPercentile != null ? ` · ${b.benchmark.cohort.adoptionPercentile}th on AI adoption` : ""}
+          </Text>
+        ) : null}
         <Text style={styles.line}>Coverage: {b.coverage.scanned}/{b.coverage.total} repositories scanned</Text>
 
         <View style={styles.rule} />

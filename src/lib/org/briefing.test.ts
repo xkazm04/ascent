@@ -12,7 +12,12 @@ const fixture: ExecBriefing = {
   coverage: { scanned: 8, total: 12 },
   periodDelta: 4,
   forecastHeadline: "On track to reach L4 in 6 weeks.",
-  benchmark: { percentile: 71, corpusRepos: 240, corpusAvgOverall: 54 },
+  benchmark: {
+    percentile: 71,
+    corpusRepos: 240,
+    corpusAvgOverall: 54,
+    cohort: { language: "TypeScript", repos: 60, overallPercentile: 68, adoptionPercentile: 55 },
+  },
   strengths: [{ dimId: "D2", label: "Testing", avg: 80 }],
   risks: [{ dimId: "D9", label: "Security", avg: 41 }],
   security: { dimId: "D9", label: "Security", avg: 41 },
@@ -32,6 +37,7 @@ describe("briefingMarkdown", () => {
 
   it("includes benchmark, strengths, weakest dims, trajectory and movement", () => {
     expect(md).toContain("71th percentile vs 240 repos");
+    expect(md).toContain("Peer cohort (TypeScript): 68th percentile overall vs 60 TypeScript repos; 55th on AI adoption");
     expect(md).toContain("Trajectory: On track to reach L4 in 6 weeks.");
     expect(md).toContain("D2 Testing: 80/100");
     expect(md).toContain("D9 Security: 41/100");

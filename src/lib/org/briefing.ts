@@ -44,7 +44,13 @@ export interface ExecBriefing {
   /** Overall-score delta vs the window's start, or null for all-time / no baseline. */
   periodDelta: number | null;
   forecastHeadline: string | null;
-  benchmark: { percentile: number | null; corpusRepos: number; corpusAvgOverall: number } | null;
+  benchmark: {
+    percentile: number | null;
+    corpusRepos: number;
+    corpusAvgOverall: number;
+    /** Same-language peer cohort (sharper than the whole corpus); null when too few peers. */
+    cohort: { language: string; repos: number; overallPercentile: number | null; adoptionPercentile: number | null } | null;
+  } | null;
   strengths: BriefingDim[];
   risks: BriefingDim[];
   security: BriefingDim | null;
@@ -99,7 +105,19 @@ export async function buildExecBriefing(
     periodDelta: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
     forecastHeadline: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
     benchmark: benchmark
-      ? { percentile: benchmark.overallPercentile, corpusRepos: benchmark.corpusRepos, corpusAvgOverall: benchmark.corpusAvgOverall }
+      ? {
+          percentile: benchmark.overallPercentile,
+          corpusRepos: benchmark.corpusRepos,
+          corpusAvgOverall: benchmark.corpusAvgOverall,
+          cohort: benchmark.cohort
+            ? {
+                language: benchmark.cohort.language,
+                repos: benchmark.cohort.repos,
+                overallPercentile: benchmark.cohort.overallPercentile,
+                adoptionPercentile: benchmark.cohort.adoptionPercentile,
+              }
+            : null,
+        }
       : null,
     strengths: dimSorted.slice(0, 3).map(named),
     risks: dimSorted.slice(-3).reverse().map(named),
@@ -138,6 +156,12 @@ export function briefingMarkdown(b: ExecBriefing): string {
   out.push(`- Coverage: ${b.coverage.scanned}/${b.coverage.total} repositories scanned`);
   if (b.benchmark?.percentile != null) {
     out.push(`- Benchmark: ${b.benchmark.percentile}th percentile vs ${b.benchmark.corpusRepos} repos (corpus avg ${b.benchmark.corpusAvgOverall})`);
+  }
+  if (b.benchmark?.cohort && b.benchmark.cohort.overallPercentile != null) {
+    const c = b.benchmark.cohort;
+    out.push(
+      `- Peer cohort (${c.language}): ${c.overallPercentile}th percentile overall vs ${c.repos} ${c.language} repos${c.adoptionPercentile != null ? `; ${c.adoptionPercentile}th on AI adoption` : ""}`,
+    );
   }
   if (b.forecastHeadline) out.push(`- Trajectory: ${b.forecastHeadline}`);
   out.push("");

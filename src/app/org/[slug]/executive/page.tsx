@@ -72,6 +72,15 @@ export default async function OrgExecutive({
         />
       </div>
 
+      {benchmark?.cohort?.overallPercentile != null && (
+        <p className="-mt-2 font-mono text-sm text-slate-500">
+          Peer cohort:{" "}
+          <span className="text-slate-300">{benchmark.cohort.overallPercentile}th percentile</span> vs{" "}
+          {benchmark.cohort.repos} {benchmark.cohort.language} repos
+          {benchmark.cohort.adoptionPercentile != null ? ` · ${benchmark.cohort.adoptionPercentile}th on AI adoption` : ""}
+        </p>
+      )}
+
       {(briefing.forecastHeadline || briefing.regressionCount > 0) && (
         <Card>
           <SectionHeader size="sm" title="Trajectory" />
