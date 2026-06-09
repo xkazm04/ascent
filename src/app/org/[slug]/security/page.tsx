@@ -74,6 +74,36 @@ export default async function OrgSecurity({
         </div>
       </Card>
 
+      <Card>
+        <SectionHeader
+          size="sm"
+          title="Security gate"
+          description={`Security (D9) ≥ ${sec.securityGate.minSecurity} and no "ungoverned" posture. Enforce in CI: /api/gate/owner/repo?security=1`}
+        />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 font-mono text-sm text-emerald-300">
+            {sec.securityGate.passing} pass
+          </span>
+          <span
+            className={`rounded-md border px-3 py-1.5 font-mono text-sm ${
+              sec.securityGate.failing > 0 ? "border-red-500/40 bg-red-500/10 text-red-300" : "border-slate-700 text-slate-400"
+            }`}
+          >
+            {sec.securityGate.failing} fail
+          </span>
+        </div>
+        {sec.securityGate.failingRepos.length > 0 && (
+          <ul className="mt-3 space-y-1">
+            {sec.securityGate.failingRepos.map((r) => (
+              <li key={r.fullName} className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate font-mono text-slate-300" title={r.fullName}>{r.name}</span>
+                <span className="shrink-0 font-mono text-sm text-red-300">{r.reason}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionHeader size="sm" title="Weakest on security" />

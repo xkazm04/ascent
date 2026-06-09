@@ -18,6 +18,12 @@ const fixture: SecurityOverview = {
   ],
   governance: { repos: 10, protectedRate: 60, requireReviewRate: 50, requireChecksRate: 40, signedRate: 10 },
   unprotected: [{ name: "legacy-api", fullName: "acme/legacy-api" }],
+  securityGate: {
+    minSecurity: 50,
+    passing: 5,
+    failing: 5,
+    failingRepos: [{ name: "legacy-api", fullName: "acme/legacy-api", score: 22, reason: "Security 22 < 50" }],
+  },
 };
 
 describe("securityMarkdown", () => {
@@ -34,6 +40,12 @@ describe("securityMarkdown", () => {
     expect(md).toContain("web: 51/100");
     expect(md).not.toContain("web: 51/100 (no branch protection)");
     expect(md).toContain("## Repos with no default-branch protection");
+  });
+
+  it("reports the security gate status", () => {
+    expect(md).toContain('Policy: Security (D9) >= 50, no "ungoverned" posture');
+    expect(md).toContain("5 of 10 repos FAIL the gate");
+    expect(md).toContain("legacy-api: Security 22 < 50");
   });
 
   it("ends with a remediation ASK", () => {

@@ -5,6 +5,7 @@
 
 import { getOrgGovernance, getOrgRollup, type OrgWindow } from "@/lib/db";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { DEFAULT_SECURITY_MIN } from "@/lib/scoring/gate";
 
 export interface SecurityRepo {
   name: string;
@@ -25,6 +26,8 @@ export interface SecurityOverview {
   weakest: SecurityRepo[]; // lowest-D9 repos, worst first
   governance: { repos: number; protectedRate: number; requireReviewRate: number; requireChecksRate: number; signedRate: number } | null;
   unprotected: { name: string; fullName: string }[]; // repos with no default-branch protection
+  /** Fleet status against the default security gate: Security (D9) >= minSecurity AND not "ungoverned". */
+  securityGate: { minSecurity: number; passing: number; failing: number; failingRepos: { name: string; fullName: string; score: number; reason: string }[] };
 }
 
 export async function buildSecurityOverview(
@@ -39,23 +42,37 @@ export async function buildSecurityOverview(
   const avgSecurity = rollup.dimAverages.find((d) => d.dimId === "D9")?.avg ?? null;
   const govByRepo = new Map((gov?.perRepo ?? []).map((g) => [g.fullName, g]));
 
-  const weakest: SecurityRepo[] = rollup.repos
+  // All scanned repos with their Security (D9) score, posture, and branch-protection state.
+  const repos = rollup.repos
     .filter((r) => r.latest)
     .map((r) => ({
       name: r.name,
       fullName: r.fullName,
       score: r.latest!.dims.find((d) => d.dimId === "D9")?.score ?? 0, // safe: filtered to r.latest above
+      posture: r.latest!.posture, // safe: filtered to r.latest above
       protected: govByRepo.get(r.fullName)?.protected ?? false,
     }))
     .sort((a, b) => a.score - b.score);
 
   const band = { critical: 0, weak: 0, ok: 0, strong: 0 };
-  for (const r of weakest) {
+  for (const r of repos) {
     if (r.score < 40) band.critical += 1;
     else if (r.score < 60) band.weak += 1;
     else if (r.score < 80) band.ok += 1;
     else band.strong += 1;
   }
+
+  // Fleet security gate: Security (D9) >= minSecurity AND posture is not "ungoverned" (mirrors the CI
+  // gate's `?security=1` policy). Repos are already sorted weakest-first.
+  const minSecurity = DEFAULT_SECURITY_MIN;
+  const failing = repos
+    .filter((r) => r.score < minSecurity || r.posture === "ungoverned")
+    .map((r) => ({
+      name: r.name,
+      fullName: r.fullName,
+      score: r.score,
+      reason: r.score < minSecurity ? `Security ${r.score} < ${minSecurity}` : "ungoverned posture",
+    }));
 
   return {
     org: orgSlug,
@@ -63,9 +80,9 @@ export async function buildSecurityOverview(
     generatedOn: new Date().toISOString().slice(0, 10),
     dimLabel,
     avgSecurity,
-    scanned: weakest.length,
+    scanned: repos.length,
     band,
-    weakest: weakest.slice(0, 8),
+    weakest: repos.slice(0, 8).map((r) => ({ name: r.name, fullName: r.fullName, score: r.score, protected: r.protected })),
     governance: gov
       ? {
           repos: gov.repos,
@@ -76,6 +93,12 @@ export async function buildSecurityOverview(
         }
       : null,
     unprotected: (gov?.perRepo ?? []).filter((g) => !g.protected).slice(0, 8).map((g) => ({ name: g.name, fullName: g.fullName })),
+    securityGate: {
+      minSecurity,
+      passing: repos.length - failing.length,
+      failing: failing.length,
+      failingRepos: failing.slice(0, 8),
+    },
   };
 }
 
@@ -100,6 +123,11 @@ export function securityMarkdown(o: SecurityOverview): string {
     out.push("## Repos with no default-branch protection");
     for (const r of o.unprotected) out.push(`- ${r.name}`);
   }
+  out.push("");
+  out.push("## Security gate");
+  out.push(`- Policy: Security (D9) >= ${o.securityGate.minSecurity}, no "ungoverned" posture`);
+  out.push(`- ${o.securityGate.failing} of ${o.scanned} repos FAIL the gate`);
+  for (const r of o.securityGate.failingRepos) out.push(`  - ${r.name}: ${r.reason}`);
   out.push("");
   out.push("## Ask");
   out.push(

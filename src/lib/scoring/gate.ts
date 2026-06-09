@@ -3,8 +3,12 @@
 // and returns the specific failing conditions; defaults are archetype-aware (a solo repo is
 // held to a lower bar than an org/platform). Consumed by the public badge and the CI endpoint.
 
-import type { LevelId, Posture, RepoArchetype, ScanReport } from "@/lib/types";
+import type { DimensionId, LevelId, Posture, RepoArchetype, ScanReport } from "@/lib/types";
 import { LEVELS } from "@/lib/maturity/model";
+
+/** The Security dimension + the default floor a security gate holds it to (`?security=1`). */
+export const SECURITY_DIM: DimensionId = "D9";
+export const DEFAULT_SECURITY_MIN = 50;
 
 export interface GatePolicy {
   /** Minimum overall maturity level (inclusive), e.g. "L3". */
@@ -13,6 +17,8 @@ export interface GatePolicy {
   minOverall?: number;
   /** No single dimension may score below this. */
   minDimension?: number;
+  /** Per-dimension floors (e.g. a security gate: { D9: 50 }) — checked in addition to minDimension. */
+  minDimensionFor?: Partial<Record<DimensionId, number>>;
   /** Postures that fail the gate outright (e.g. "ungoverned" = heavy AI, light guardrails). */
   forbidPostures?: Posture["id"][];
 }
@@ -77,6 +83,20 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
       });
     }
   }
+  if (pol.minDimensionFor) {
+    const floors = pol.minDimensionFor;
+    for (const d of report.dimensions) {
+      const floor = floors[d.id];
+      // Skip dims already failed by the global minDimension to avoid a duplicate failure for the same dim.
+      const alreadyFailed = typeof pol.minDimension === "number" && d.score < pol.minDimension;
+      if (typeof floor === "number" && d.score < floor && !alreadyFailed) {
+        failures.push({
+          code: "dimension",
+          message: `${d.id} ${d.name} scored ${d.score}, below the required ${floor}.`,
+        });
+      }
+    }
+  }
   if (pol.forbidPostures?.includes(report.posture.id)) {
     failures.push({
       code: "posture",
@@ -97,12 +117,21 @@ export function policyFromParams(params: URLSearchParams, archetype: RepoArchety
   const minOverall = Number(params.get("min_overall"));
   const minDimension = Number(params.get("min_dimension"));
   const noUngoverned = params.get("no_ungoverned");
+
+  // Security gate: `?security=1` (default D9 floor) or `?min_security=N` (explicit floor). Both pin a
+  // per-dimension floor on Security (D9) AND forbid the "ungoverned" posture — the security policy.
+  const minSecurity = Number(params.get("min_security"));
+  const hasMinSecurity = Number.isFinite(minSecurity) && params.get("min_security") != null;
+  const wantSecurity = params.get("security") === "1" || params.get("security") === "true" || hasMinSecurity;
+  const securityFloor = hasMinSecurity ? minSecurity : DEFAULT_SECURITY_MIN;
+
   return {
     minLevel: isLevelId(minLevel) ? minLevel : base.minLevel,
     minOverall: Number.isFinite(minOverall) && params.get("min_overall") != null ? minOverall : base.minOverall,
     minDimension:
       Number.isFinite(minDimension) && params.get("min_dimension") != null ? minDimension : base.minDimension,
+    minDimensionFor: wantSecurity ? { [SECURITY_DIM]: securityFloor } : base.minDimensionFor,
     forbidPostures:
-      noUngoverned === "1" || noUngoverned === "true" ? ["ungoverned"] : base.forbidPostures,
+      noUngoverned === "1" || noUngoverned === "true" || wantSecurity ? ["ungoverned"] : base.forbidPostures,
   };
 }
