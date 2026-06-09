@@ -31,7 +31,11 @@ function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "u
             <div key={m.fullName} className="flex items-center justify-between gap-3 text-base">
               <span className="min-w-0 truncate font-mono text-sm text-slate-200">{m.name}</span>
               <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
-                {m.levelDelta !== 0 && (
+                {/* Show the level pair only when its direction AGREES with the score tone (gainer→up,
+                    regresser→down). A repo can gain score while its level dropped (or vice versa); the
+                    old `levelDelta !== 0` showed a contradictory "L4→L3" next to a green ▲, so omit the
+                    level pair when it would contradict the headline arrow. */}
+                {((tone === "up" && m.levelDelta > 0) || (tone === "down" && m.levelDelta < 0)) && (
                   <span className="text-slate-500">
                     {m.levelFrom}→{m.levelTo}
                   </span>

@@ -180,8 +180,16 @@ export default async function UsagePage({
               <span className="font-normal text-slate-500">· last {usage.periodDays}d</span>
             </h2>
             <div className="mt-3 space-y-2 text-base">
-              <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="#94a3b8" pattern />
-              <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="var(--color-accent)" />
+              {usage.periodScans === 0 ? (
+                // Match the "By engine" panel's empty state — without this the bars divide by a zero
+                // period total and render as silent zero-width bars rather than a clear "no scans".
+                <p className="text-slate-500">No scans in this period.</p>
+              ) : (
+                <>
+                  <Bar label="Public (free)" value={usage.publicScans} total={usage.periodScans} color="#94a3b8" pattern />
+                  <Bar label="Private (billable)" value={usage.privateScans} total={usage.periodScans} color="var(--color-accent)" />
+                </>
+              )}
             </div>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
@@ -223,7 +231,13 @@ export default async function UsagePage({
         )}
 
         <p className="mt-6 text-sm text-slate-500">
-          Window: {usage.firstScanAt ? `${timeAgo(usage.firstScanAt)} → ${timeAgo(usage.lastScanAt ?? undefined)}` : "no scans recorded"}.
+          Window:{" "}
+          {usage.firstScanAt
+            ? usage.lastScanAt
+              ? `${timeAgo(usage.firstScanAt)} → ${timeAgo(usage.lastScanAt)}`
+              : timeAgo(usage.firstScanAt) /* single point — don't render "→ unknown" */
+            : "no scans recorded"}
+          .
           {usage.estimatedCostUsd != null
             ? " Cost is estimated from the configured per-MTok rates (LLM_INPUT/OUTPUT_COST_PER_MTOK)."
             : " Set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate spend."}{" "}
