@@ -13,9 +13,16 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180). */
-function csvField(v: string | number): string {
-  const s = String(v);
+/** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180). Total by design: a value
+ *  whose String() throws (a throwing toString, an unexpected object from a future DB shape) must not
+ *  blow up the whole export — it degrades to an empty cell, not a generic 500 for every scan. */
+function csvField(v: unknown): string {
+  let s: string;
+  try {
+    s = v == null ? "" : String(v);
+  } catch {
+    s = "";
+  }
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -24,7 +31,7 @@ function historyToCsv(history: RepositoryHistory): string {
   const dimIds = DIMENSIONS.map((d) => d.id);
   const header = ["scannedAt", "overall", "level", "levelName", "engine", ...dimIds].join(",");
   const rows = [...history.scans].reverse().map((s) => {
-    const byDim = new Map(s.dimensions.map((d) => [d.dimId, d.score]));
+    const byDim = new Map((s.dimensions ?? []).map((d) => [d.dimId, d.score]));
     const dims = dimIds.map((id) => csvField(byDim.get(id) ?? ""));
     // Quote EVERY field uniformly (was raw for scannedAt/overall/dims): if any value ever gains a
     // comma (a comma'd locale timestamp, a stringy dim cell), an unquoted field shifts the column
@@ -97,7 +104,13 @@ export async function GET(request: Request) {
     // re-transfer an unchanged series. Caching is `private` (not `s-maxage`): the payload is
     // org-scoped and may be auth-gated, so it must never sit in a shared proxy cache where another
     // tenant could receive it.
-    const etag = `W/"h${includeDimensions ? "f" : "l"}${payload.scans.length}-${payload.scans[0]?.id ?? "none"}"`;
+    // Fold a content signature of the newest scan (scannedAt + overallScore) into the validator, not
+    // just (mode, count, newest id): a malformed newest row later CORRECTED in place — same id, same
+    // total count — left the weak ETag unchanged, so a client holding it got a 304 forever and never
+    // saw the fix. The signature changes when the newest row's timestamp or score changes.
+    const newest = payload.scans[0];
+    const sig = newest ? `${newest.id}-${newest.scannedAt}-${newest.overallScore}` : "none";
+    const etag = `W/"h${includeDimensions ? "f" : "l"}${payload.scans.length}-${sig}"`;
     const headers: Record<string, string> = {
       etag,
       "cache-control": "private, max-age=30, stale-while-revalidate=300",

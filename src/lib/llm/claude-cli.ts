@@ -46,10 +46,14 @@ export class ClaudeCliProvider implements LLMProvider {
     try {
       outer = JSON.parse(raw) as CliResult;
     } catch {
-      throw new Error("Claude CLI did not return JSON envelope.");
+      // Preserve the actual stdout so the diagnosable reason survives (a "/login" subscription-auth
+      // prompt, rate-limit text, a CLI-not-installed message) instead of collapsing every non-JSON
+      // outcome into one opaque error that reads as "model unavailable, deterministic scores."
+      throw new Error(`Claude CLI did not return a JSON envelope: ${raw.slice(0, 300) || "(empty stdout)"}`);
     }
     if (outer.is_error || typeof outer.result !== "string") {
-      throw new Error(`Claude CLI returned an error (${outer.subtype ?? "unknown"}).`);
+      const detail = typeof outer.result === "string" ? outer.result : raw;
+      throw new Error(`Claude CLI returned an error (${outer.subtype ?? "unknown"}): ${detail.slice(0, 300)}`);
     }
     return validateAssessment(parseJsonLoose(outer.result));
   }
@@ -83,6 +87,13 @@ function runClaude(model: string, stdin: string, signal?: AbortSignal): Promise<
 
     let out = "";
     let err = "";
+    // Cap the accumulated subprocess output. json.ts caps recovery at 256KB, but the subprocess layer
+    // that FEEDS it had no upstream byte cap — a runaway/looping CLI (compromised binary, a giant
+    // `.result`, a never-ending progress stream) grows the heap during accumulation, before
+    // parseJsonLoose ever runs, and OOMs the whole Node server (not just this scan). A real scan
+    // envelope is KBs.
+    const MAX_OUT_BYTES = 4 * 1024 * 1024; // 4 MB
+    const MAX_ERR_BYTES = 16 * 1024; //       16 KB — only err.slice(0,200) is ever surfaced
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error("Claude CLI timed out."));
@@ -100,8 +111,18 @@ function runClaude(model: string, stdin: string, signal?: AbortSignal): Promise<
       signal?.removeEventListener("abort", onAbort);
     };
 
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (err += d));
+    child.stdout.on("data", (d) => {
+      if (out.length > MAX_OUT_BYTES) return; // already over cap and being killed — stop accumulating
+      out += d;
+      if (out.length > MAX_OUT_BYTES) {
+        child.kill("SIGKILL");
+        cleanup();
+        reject(new Error(`Claude CLI output exceeded ${MAX_OUT_BYTES} bytes (possible runaway output).`));
+      }
+    });
+    child.stderr.on("data", (d) => {
+      if (err.length < MAX_ERR_BYTES) err += d; // only a short prefix is ever surfaced
+    });
     child.on("error", (e) => {
       cleanup();
       reject(e);

@@ -9,13 +9,33 @@ import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { ChartTooltip } from "@/components/report/chartHover";
 
 export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionResult[]; size?: number }) {
+  const titleId = useId();
+  const descId = useId();
+  // Hover: snap to the nearest data vertex (within a small radius) and show its exact
+  // score + level — dependency-free, mirroring the time-series charts' tooltip.
+  const [active, setActive] = useState<number | null>(null);
+
+  // Self-guard against an empty dimension set: angleFor (below) divides by `n`, so n === 0 makes every
+  // vertex NaN and silently collapses the polygon/labels to nothing — reading as a CSS glitch, not a
+  // data problem. The streamed report path rejects empty dimensions upstream, but a direct caller
+  // (e.g. RoadmapSandbox) can pass [], so guard here. Placed AFTER the hooks to satisfy Rules of Hooks.
+  if (dimensions.length === 0) {
+    return (
+      <div
+        className="mx-auto flex aspect-square w-full max-w-[340px] items-center justify-center text-sm text-slate-500"
+        role="img"
+        aria-label="No dimension data to chart"
+      >
+        No dimension data
+      </div>
+    );
+  }
+
   const cx = size / 2;
   const cy = size / 2;
   const radius = size / 2 - 56;
   const n = dimensions.length;
   const angleFor = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
-  const titleId = useId();
-  const descId = useId();
 
   const point = (i: number, frac: number) => {
     const a = angleFor(i);
@@ -25,10 +45,6 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
   const rings = [0.25, 0.5, 0.75, 1];
   const dataPts = dimensions.map((d, i) => point(i, Math.max(0.04, d.score / 100)));
   const dataPath = dataPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-
-  // Hover: snap to the nearest data vertex (within a small radius) and show its exact
-  // score + level — dependency-free, mirroring the time-series charts' tooltip.
-  const [active, setActive] = useState<number | null>(null);
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
     if (!rect.width || !rect.height) return;

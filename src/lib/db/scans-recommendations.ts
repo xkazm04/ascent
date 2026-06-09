@@ -57,6 +57,17 @@ export async function updateRecommendation(
     });
   }
 
+  // Resolve the owning org so the audit row below is READABLE. getAuditLog filters `where: { orgId }`,
+  // so the old `orgId: null` made every backlog-mutation audit row durable but permanently invisible in
+  // the audit viewer — re-opening the compliance gap the in-transaction audit was added to close. The
+  // recommendation -> scan -> repo -> org chain is the tenant scope. (actorId stays null: the actor is
+  // a login string carried in `meta`, not a resolvable User FK.)
+  const orgChain = await prisma.recommendation.findUnique({
+    where: { id },
+    select: { scan: { select: { repo: { select: { orgId: true } } } } },
+  });
+  const orgId = orgChain?.scan?.repo?.orgId ?? null;
+
   const actor = opts.actor?.trim() || null;
   const note = opts.note?.trim() || null;
   const data: Prisma.RecommendationUpdateInput = {};
@@ -102,7 +113,7 @@ export async function updateRecommendation(
           actor,
           changes: events.map((e) => ({ kind: e.kind, from: e.fromValue, to: e.toValue })),
         }),
-        orgId: null,
+        orgId,
         actorId: null,
       },
     });

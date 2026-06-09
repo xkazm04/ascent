@@ -19,6 +19,7 @@ import { scanRepository } from "@/lib/scan";
 import {
   consumeScanCredit,
   getInstallationIdForOwner,
+  grantCredits,
   isDbConfigured,
   persistScanReport,
   recordScanOutcome,
@@ -145,6 +146,26 @@ export async function POST(request: Request) {
         // to fit the 300s budget. `scanned` is incremented in single-threaded lanes — race-free.
         let scanned = 0;
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
+          // RESERVE the credit BEFORE scanning (metered, non-unlimited, non-mock imports). The atomic
+          // conditional decrement enforces the prepaid balance even under concurrency, so two in-flight
+          // imports can't both scan the same slice for free — the old path scanned first and only
+          // best-effort-debited afterwards (failure swallowed). Refunded below if the scan degrades to
+          // mock or throws.
+          let reserved = false;
+          if (metered && !unlimited) {
+            const res = await consumeScanCredit(org, { repoFullName: r.fullName }).catch(() => null);
+            if (!res || (!res.unlimited && !res.ok)) {
+              skippedForCredits += 1;
+              send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
+              scanned += 1;
+              send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+              return;
+            }
+            reserved = res.ok && !res.unlimited;
+          }
+          const refundCredit = async () => {
+            if (reserved) await grantCredits(org, 1, { reason: "refund", actor: "system" }).catch(() => {});
+          };
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
           try {
             const report = await scanRepository(r.fullName, { token, mock });
@@ -156,10 +177,8 @@ export async function POST(request: Request) {
                 failures: persisted.failures,
               });
             }
-            // Debit one credit per real (non-mock) scan; unlimited plans and mock imports skip it.
-            if (metered && !unlimited && report.engine.provider !== "mock") {
-              await consumeScanCredit(org, { repoFullName: r.fullName, scanId: persisted?.scanId }).catch(() => {});
-            }
+            // No real inference billed (degraded to mock) — refund the reservation made above.
+            if (report.engine.provider === "mock") await refundCredit();
             if (watch) await setRepoWatch(org, r, true);
             if (watch && schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
             send("repo", {
@@ -175,6 +194,8 @@ export async function POST(request: Request) {
             // public funnel (watch=false) may not have persisted a Repository row, so skip then.
             if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
           } catch (err) {
+            // Scan threw — no inference to bill, so refund the reservation made above.
+            await refundCredit();
             const msg = err instanceof Error ? err.message : "scan failed";
             if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
             send("repo", { repo: r.fullName, error: msg });

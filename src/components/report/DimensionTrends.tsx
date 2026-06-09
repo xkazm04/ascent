@@ -33,14 +33,21 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
   const loadDimensions = useCallback(async () => {
     setDimState("loading");
     try {
-      const res = await fetch(`/api/history?repo=${encodeURIComponent(history.repo.fullName)}`);
+      // Match the overall series' length (history.scans) so the per-dimension sections plot the SAME
+      // range. The overall series comes from a limit-60 server payload; the dim fetch defaulted to
+      // limit 30, so a repo with >30 scans showed 30 dim points beside up to 60 overall points while
+      // the header's "N scans" label (derived from the overall series) overstated what was drawn.
+      const limit = Math.max(1, history.scans.length);
+      const res = await fetch(
+        `/api/history?repo=${encodeURIComponent(history.repo.fullName)}&limit=${limit}`,
+      );
       if (!res.ok) throw new Error(`history ${res.status}`);
       setFull(parseRepositoryHistory(await res.json()));
       setDimState("done");
     } catch {
       setDimState("error");
     }
-  }, [history.repo.fullName]);
+  }, [history.repo.fullName, history.scans.length]);
 
   // Fetch the per-dimension data once its section nears the viewport (or immediately where there's
   // no IntersectionObserver, e.g. a test/SSR-less env).

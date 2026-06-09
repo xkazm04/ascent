@@ -41,6 +41,24 @@ export async function findScanByCommit(
 }
 
 /**
+ * Dedup fallback for a scan with NO resolvable commit SHA. A sha-less report can't dedup by commit, so
+ * the persist path matches on the report's own `scannedAt`: the SAME computed report persisted more
+ * than once (coalesced followers, a double-submit, a retried lane) carries an identical timestamp and
+ * reuses the first row instead of inserting duplicate sha-less Scan rows. A genuinely new re-score has
+ * a later `scannedAt`, so it is not suppressed.
+ */
+export async function findScanByScannedAt(
+  repoId: string,
+  scannedAt: Date,
+): Promise<{ id: string } | null> {
+  if (!isDbConfigured()) return null;
+  return getPrisma().scan.findFirst({
+    where: { repoId, scannedAt },
+    select: { id: true },
+  });
+}
+
+/**
  * The persisted head hint for a repo — the durable backing for a conditional re-scan. Returns
  * the last-seen head sha and the GitHub ETag to send as `If-None-Match`, so a cold serverless
  * instance (in-memory hint gone) can still re-validate an unchanged repo for free. Scoped to
@@ -101,7 +119,10 @@ export async function getRepositoryHistory(
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
-  const limit = opts.limit ?? 30;
+  // Clamp to a positive bounded range: a NEGATIVE `take` makes Prisma return rows from the OTHER end,
+  // so a caller passing limit<0 (a buggy/probing query param) would silently get the OLDEST scans
+  // instead of the newest — and an unbounded large limit is a cheap heavy query. Coerce NaN to 30.
+  const limit = Math.max(1, Math.min(200, Math.trunc(opts.limit ?? 30) || 30));
   const includeDimensions = opts.includeDimensions ?? true;
   const fullName = `${owner}/${name}`;
 

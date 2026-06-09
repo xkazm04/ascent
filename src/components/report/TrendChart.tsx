@@ -173,6 +173,20 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
           // safe: length > 1, so the last index is in-bounds
           <path d={linePath} fill="none" stroke={scoreHex(points[points.length - 1]!.score)} strokeWidth={2.5} />
         )}
+        {points.length > 1 && points.every((p) => p.score === points[0]!.score) && (
+          // A flat (zero-variance) series sits on a horizontal line that can coincide with a band
+          // gridline — label it so a genuine "holding steady" trend doesn't read as a rendering glitch.
+          <text
+            x={m.left + innerW / 2}
+            y={yFor(points[0]!.score) - 8}
+            textAnchor="middle"
+            fontSize={10}
+            fontWeight={600}
+            fill={scoreHex(points[0]!.score)}
+          >
+            Holding at {points[0]!.score}
+          </text>
+        )}
         {points.map((p, i) => (
           <g key={i}>
             <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke="#020617" strokeWidth={1.5} />

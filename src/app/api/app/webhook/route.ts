@@ -10,7 +10,14 @@
 // GitHub doesn't retry on our transient issues.
 
 import { NextResponse, after } from "next/server";
-import { getInstallation, getInstallationToken, isAppConfigured, verifyWebhook } from "@/lib/github/app";
+import {
+  AppApiError,
+  getInstallation,
+  getInstallationToken,
+  isAppConfigured,
+  listInstallationRepos,
+  verifyWebhook,
+} from "@/lib/github/app";
 import {
   getInstallationIdForOwner,
   getOrgId,
@@ -18,6 +25,7 @@ import {
   isDbConfigured,
   isRepoWatched,
   persistScanReport,
+  reconcileWatchedRepos,
   removeInstallation,
   reportPermalink,
   unwatchReposForInstallation,
@@ -75,6 +83,17 @@ function deliveryAlreadySeen(id: string): boolean {
   return false;
 }
 
+/**
+ * Release a delivery id from the seen-set so a redelivery can be retried. The handler marks a delivery
+ * seen at the top (replay protection) BEFORE the deferred after() scan runs; if that scan then fails
+ * transiently (DB blip, token mint failure), the delivery would stay "seen" and a GitHub/manual
+ * redelivery of the same id would be silently deduped — dropping the scan forever. Calling this in the
+ * deferred work's failure path frees the slot so the retry actually runs. (Process-local, like the map.)
+ */
+function forgetDelivery(id: string): void {
+  seenDeliveries.delete(id);
+}
+
 /** Bind a webhook's claimed installation to its owner before we mint a token / scan. For a KNOWN
  *  owner, the stored mapping must agree. For an UNKNOWN owner (no mapping yet), the HMAC proves the
  *  delivery is authentic but NOT that a forged/replayed payload's (installationId, owner) pair is
@@ -82,7 +101,19 @@ function deliveryAlreadySeen(id: string): boolean {
  *  the claimed owner, and fail closed if we can't. (Previously unknown owners were allowed through,
  *  i.e. fail-open.) */
 async function installationMatchesOwner(installationId: number, owner: string): Promise<boolean> {
-  const known = await getInstallationIdForOwner(owner).catch(() => null);
+  let known: string | null;
+  try {
+    known = await getInstallationIdForOwner(owner);
+  } catch (err) {
+    // A DB error must NOT collapse "no mapping exists" and "couldn't determine if a mapping exists"
+    // into the same value — the old `.catch(() => null)` silently downgraded the strict stored-id
+    // match to the looser GitHub-confirmation path whenever the lookup hiccupped. Fail closed.
+    console.warn(
+      `[webhook] owner-mapping lookup failed for ${owner}; failing closed`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
   if (known) {
     if (known !== String(installationId)) {
       console.warn(
@@ -110,6 +141,35 @@ async function installationMatchesOwner(installationId: number, owner: string): 
   }
 }
 
+/**
+ * Confirm a DESTRUCTIVE installation event against GitHub (App-JWT authoritative) before acting on it.
+ * A validly-signed but forged/misrouted `installation.deleted`/`suspend` naming a VICTIM's still-active
+ * installation id would otherwise wipe their watch/schedule, null their install id, and revoke their
+ * live sessions — a single-delivery DoS. We only tear down when GitHub itself confirms the revocation:
+ *  - `deleted`  → `getInstallation` 404s (the installation is genuinely gone).
+ *  - `suspend`  → `getInstallation` returns it with `suspendedAt` set.
+ * Any other outcome (still active, or a transient error we can't interpret) fails CLOSED: we do not
+ * remove. A genuinely-revoked installation self-heals anyway — token mints 401 and invalidate.
+ */
+async function confirmRevocationWithGitHub(installationId: number, action: "deleted" | "suspend"): Promise<boolean> {
+  try {
+    const info = await getInstallation(installationId);
+    // GitHub still has the installation. Only a confirmed suspension is a real revocation here; a
+    // "deleted" event for a still-present installation is forged/misrouted.
+    if (action === "suspend") return info.suspendedAt != null;
+    console.warn(`[webhook] installation ${installationId} still active on GitHub; ignoring forged "deleted"`);
+    return false;
+  } catch (err) {
+    // A 404 is GitHub confirming the installation is gone — the legitimate "deleted" case.
+    if (err instanceof AppApiError && err.status === 404) return action === "deleted";
+    console.warn(
+      `[webhook] could not confirm ${action} of installation ${installationId}; failing closed`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
+
 function publicBase(): string {
   return (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
 }
@@ -123,6 +183,8 @@ interface PrGateRef {
   headSha: string;
   /** PR base branch (e.g. "main") — the ref we diff against to show the PR's impact. */
   baseRef: string;
+  /** GitHub delivery id, released from the seen-set if this deferred run fails so a redelivery retries. */
+  deliveryId?: string;
 }
 
 /**
@@ -178,11 +240,38 @@ async function runPrGate(ref: PrGateRef) {
     );
   } catch (err) {
     console.error("[webhook] PR gate failed", err instanceof Error ? err.message : err);
+    // The deferred gate failed after we already 2xx'd — release the delivery so a redelivery retries.
+    if (ref.deliveryId) forgetDelivery(ref.deliveryId);
+  }
+}
+
+/**
+ * Reconcile the DB watch state against an installation's CURRENT accessible repos. Re-lists the live
+ * set from GitHub and drops watch for any watched repo no longer in it — catching access changes the
+ * webhook payload doesn't itemize as explicit "removed" rows (a "selected → all" flip, a paginated
+ * "all → selected" narrowing). Best-effort + deferred: a listing failure SKIPS (so a transient GitHub
+ * error can't be misread as "zero repos" and wipe the whole watch set); a later event re-reconciles.
+ */
+async function reconcileInstallationRepos(installationId: number) {
+  try {
+    const live = await listInstallationRepos(installationId);
+    const dropped = await reconcileWatchedRepos(
+      installationId,
+      live.map((r) => r.fullName),
+    );
+    if (dropped > 0) {
+      console.warn(`[webhook] installation ${installationId}: unwatched ${dropped} repo(s) no longer accessible`);
+    }
+  } catch (err) {
+    console.warn(
+      `[webhook] installation_repositories reconcile failed for ${installationId}`,
+      err instanceof Error ? err.message : err,
+    );
   }
 }
 
 /** Re-scan a watched repo on push, persist, and alert on a regression vs the prior scan. */
-async function runPushRescan(installationId: number, owner: string, repo: string) {
+async function runPushRescan(installationId: number, owner: string, repo: string, deliveryId?: string) {
   try {
     const fullName = `${owner}/${repo}`;
     const orgSlug = owner.toLowerCase();
@@ -198,6 +287,8 @@ async function runPushRescan(installationId: number, owner: string, repo: string
     }
   } catch (err) {
     console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err);
+    // The deferred rescan failed after we already 2xx'd — release the delivery so a redelivery retries.
+    if (deliveryId) forgetDelivery(deliveryId);
   }
 }
 
@@ -240,19 +331,34 @@ export async function POST(request: Request) {
             );
           }
         } else if (payload.action === "deleted" || payload.action === "suspend") {
-          await removeInstallation(id);
+          // Destructive + cascading (removeInstallation unwatches every repo, nulls the install id, and
+          // revokes live sessions), so confirm with GitHub before acting — symmetric with the create
+          // branch above. This blocks a forged/misrouted but signed delete/suspend naming a victim's
+          // still-active installation from silently disabling their scanning and signing them out.
+          if (await confirmRevocationWithGitHub(id, payload.action)) {
+            await removeInstallation(id);
+          } else {
+            console.warn(`[webhook] ignoring unconfirmed installation ${payload.action} for id ${id}`);
+          }
         }
       }
     } else if (event === "installation_repositories" && isDbConfigured()) {
       // The user changed WHICH repos an installation can see (Add/Remove on GitHub's Configure page).
-      // Quiesce repos that lost access so their scheduled rescan stops minting a token that no longer
-      // covers them and 401ing forever. (Added repos surface on the next connect-list refresh / re-sync.)
       const id = payload.installation?.id;
+      // Fast path: immediately quiesce the repos GitHub itemized as removed (no API call), so their
+      // scheduled rescan stops minting a token that no longer covers them and 401ing forever.
       const removed = (payload.repositories_removed ?? [])
         .map((r) => r.full_name)
         .filter((n): n is string => Boolean(n));
       if (id != null && removed.length > 0) {
         await unwatchReposForInstallation(id, removed);
+      }
+      // Full reconciliation (deferred, after the 2xx — it re-lists from GitHub): catch access changes
+      // the payload does NOT itemize as explicit "removed" rows. A "selected → all" flip sends an empty
+      // repositories_removed (the fast path above does nothing), and an "all → selected" narrowing can
+      // paginate the removals — both leave stale watched repos 401ing forever without this.
+      if (id != null && isAppConfigured()) {
+        after(() => reconcileInstallationRepos(id));
       }
     } else if (event === "pull_request" && isAppConfigured()) {
       const installationId = payload.installation?.id;
@@ -262,8 +368,9 @@ export async function POST(request: Request) {
       const headSha = payload.pull_request?.head?.sha;
       const baseRef = payload.pull_request?.base?.ref ?? payload.repository?.default_branch;
       if (installationId && owner && repo && prNumber && headSha && baseRef && PR_ACTIONS.has(payload.action ?? "")) {
-        // Defer the scan to after the response so GitHub gets its fast 2xx.
-        after(() => runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef }));
+        // Defer the scan to after the response so GitHub gets its fast 2xx. Pass the delivery id so a
+        // transient failure in the deferred gate releases the dedup slot for a redelivery retry.
+        after(() => runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef, deliveryId: delivery ?? undefined }));
       }
     } else if (event === "push" && isAppConfigured() && isDbConfigured()) {
       const installationId = payload.installation?.id;
@@ -273,7 +380,7 @@ export async function POST(request: Request) {
       const onDefault = defaultBranch != null && payload.ref === `refs/heads/${defaultBranch}`;
       const headMoved = !payload.deleted && !!payload.after && !/^0+$/.test(payload.after);
       if (installationId && owner && repo && onDefault && headMoved) {
-        after(() => runPushRescan(installationId, owner, repo));
+        after(() => runPushRescan(installationId, owner, repo, delivery ?? undefined));
       }
     }
   } catch (err) {

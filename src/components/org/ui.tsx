@@ -10,6 +10,16 @@ export const POSTURE_LABEL: Record<string, string> = {
   early: "Getting Started",
 };
 export const POSTURE_ORDER = ["ai-native", "ungoverned", "manual", "early"];
+
+/**
+ * POSTURE_LABEL lookup with a safe fallback for an unknown/legacy posture id (a new or renamed posture
+ * the map doesn't cover yet). Renders a humanized form of the raw id ("ai-native" → "Ai Native")
+ * rather than a blank cell or the raw slug, so a fleet table can never show an empty/garbled posture.
+ */
+export function postureLabel(posture: string | null | undefined): string {
+  if (!posture) return "—";
+  return POSTURE_LABEL[posture] ?? posture.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 // Heatmap / dimension-average columns, derived from the canonical dimension map (the same source
 // that supplies the column labels) so adding a dimension — e.g. D9 Security — widens every fleet
 // view automatically. Was frozen at D1–D8, which silently dropped D9 Security from the heatmap.

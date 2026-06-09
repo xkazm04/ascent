@@ -33,8 +33,17 @@ export const dynamic = "force-dynamic";
 // GitHub's name grammar: owners ≤39 chars, repos ≤100, [A-Za-z0-9._-], and never "."/"..".
 const NAME_RE = /^[A-Za-z0-9_.-]+$/;
 function validName(s: string, max: number): boolean {
-  return Boolean(s) && s.length <= max && NAME_RE.test(s) && s !== "." && s !== "..";
+  // Reject a LEADING dot (".", "..", ".git", "..foo") and any CONSECUTIVE dots ("a..b"): GitHub names
+  // never start with a dot, and the prior "s !== '.' && s !== '..'" only caught the two bare forms — the
+  // comment promised path-traversal-style segments were blocked but `.git`/`a..b`/`..foo` slipped through.
+  return Boolean(s) && s.length <= max && NAME_RE.test(s) && !s.startsWith(".") && !s.includes("..");
 }
+
+// Caps on caller-supplied badge customization. The SVG width and response size scale with these, and
+// both are unauthenticated query params on a publicly-embeddable endpoint — an uncapped ?label= or a
+// multi-MB ?logo=data:image/... is a response-amplification lever (and renders a broken giant badge).
+const MAX_LABEL_LEN = 80; // a badge label is a few words
+const MAX_LOGO_LEN = 4096; // a small inline data:image icon (~4 KB)
 
 // ---- per-IP rate limiting (in-memory sliding window) ------------------------
 
@@ -230,11 +239,15 @@ export async function GET(
   const { searchParams } = new URL(req.url);
   const gateMode = searchParams.has("gate");
   const style = parseStyle(searchParams.get("style"));
-  const customLabel = searchParams.get("label");
+  // Length-cap the caller-supplied label (truncate, don't reject — a slightly long label still renders).
+  const customLabelRaw = searchParams.get("label");
+  const customLabel = customLabelRaw != null ? customLabelRaw.slice(0, MAX_LABEL_LEN) : null;
   const customColor = searchParams.get("color");
-  // Only embed a self-contained data: URI logo — never fetch an external URL (SSRF).
+  // Only embed a self-contained data: URI logo — never fetch an external URL (SSRF) — and only when
+  // it's within the size cap, so a multi-MB data URI can't bloat the response.
   const logoParam = searchParams.get("logo");
-  const logo = logoParam && logoParam.startsWith("data:image/") ? logoParam : null;
+  const logo =
+    logoParam && logoParam.startsWith("data:image/") && logoParam.length <= MAX_LOGO_LEN ? logoParam : null;
   const neutral = "#64748b";
 
   const defaultLabel = gateMode ? "Ascent gate" : "Ascent";
@@ -276,6 +289,11 @@ export async function GET(
     // 304, so a README badge hit by every viewer doesn't burn a rate-limit unit per request.
     // Null on failure falls back to a SHA-less key.
     const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
+    // A SHA-less badge (head resolution failed: a transient blip, no GITHUB_TOKEN, or a rate-limited
+    // head lookup) is keyed by the un-pinned owner/repo::mode form and is best-effort/possibly stale —
+    // don't let a CDN pin it for the full 10-min resolved TTL for every README viewer. Downgrade to the
+    // short neutral TTL so the next hit re-resolves the head once the blip clears.
+    const resolvedCache = sha ? CACHE_RESOLVED : CACHE_NEUTRAL;
     // One key scheme shared with the scan/cache layer (makeCacheKey), so the badge reflects a
     // real LLM scan when one exists instead of resolving to a duplicate mock entry.
     const mockKey = makeCacheKey(ownerN, repoN, false, sha);
@@ -318,7 +336,7 @@ export async function GET(
           logo,
           href,
         }),
-        { cache: customized ? CACHE_CUSTOM : CACHE_RESOLVED },
+        { cache: customized ? CACHE_CUSTOM : resolvedCache },
       );
     }
 
@@ -334,7 +352,7 @@ export async function GET(
         logo,
         href,
       }),
-      { cache: customized ? CACHE_CUSTOM : CACHE_RESOLVED },
+      { cache: customized ? CACHE_CUSTOM : resolvedCache },
     );
   } catch (err) {
     // Only negative-cache a GENUINE not-found/invalid/empty repo. A transient failure (GitHub rate

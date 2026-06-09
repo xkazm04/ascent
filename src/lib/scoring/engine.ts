@@ -62,7 +62,12 @@ export function assembleReport(
   // false precision. Now a low-coverage scan leans HARDER on the deterministic signals (which are
   // coverage-robust). At full coverage this is exactly SCORE_BLEND, so the calibrated full-scan path
   // is unchanged.
-  const effectiveBlend = SCORE_BLEND * clamp(snap.coverage, 0, 1);
+  // Guard the trust boundary: a non-finite coverage (NaN/Infinity from a broken estimate) would pass
+  // straight through clamp (Math.max/min PROPAGATE NaN) and poison effectiveBlend — every blended
+  // dimension score, the overall, axes, level, and posture would silently collapse to NaN with no
+  // warning. Default a non-finite coverage to full (1) — the calibrated SCORE_BLEND path.
+  const coverage = Number.isFinite(snap.coverage) ? snap.coverage : 1;
+  const effectiveBlend = SCORE_BLEND * clamp(coverage, 0, 1);
 
   const dimensions: DimensionResult[] = signals.flatMap((s) => {
     const def = DIMENSION_BY_ID[s.id];
@@ -127,9 +132,14 @@ export function assembleReport(
   // omit the weak ones — which then fall back to their signal floor while the present dims blend up,
   // and nothing warns. Surface it so the headline can't read as fully AI-validated when it isn't.
   if (llmMissing.length > 0 && assessment.dimensions.length > 0) {
-    const assessed = signals.length - llmMissing.length;
+    // Count over the BLENDED dimensions, not raw signals.length: a dimension dropped earlier (failed
+    // detector or no rubric def) never reaches the blend and is never added to llmMissing, so
+    // `signals.length - llmMissing.length` would overstate coverage (e.g. "9 of 9" when one signal
+    // failed and the LLM scored the other 8). `dimensions` is exactly the set that was scored.
+    const scorable = dimensions.length;
+    const assessed = scorable - llmMissing.length;
     warnings.push(
-      `AI assessed ${assessed} of ${signals.length} dimensions; ${llmMissing.join(", ")} reflect ` +
+      `AI assessed ${assessed} of ${scorable} dimensions; ${llmMissing.join(", ")} reflect ` +
         `detected signals only (no AI nuance) — the overall is not fully AI-validated.`,
     );
   }
@@ -353,6 +363,9 @@ export function contributions(report: ScanReport): ContributionBreakdown {
       weight: d.weight,
       normalizedWeight,
       points: normalizedWeight * d.score,
+      // Intentionally re-centered on the DISPLAYED rounded headline (not the parts' weighted mean):
+      // sum(signed) then surfaces the gap between the parts and the headline (rounding + any guardband
+      // adjustment), which a glass-box wants to show. See the "residual = rounding only" engine test.
       signed: normalizedWeight * (d.score - overall),
     };
   });

@@ -38,17 +38,54 @@ function geminiOrMock(): LLMProvider {
   return key ? new GeminiProvider(key) : new MockProvider();
 }
 
+/**
+ * Cheap, synchronous prerequisite check so a misconfigured provider degrades to mock (in the picker)
+ * or is skipped (in the failover) INSTEAD of spending the full retry/failover budget proving the
+ * obvious. Only Gemini had the "construct mock when the prerequisite is absent" shortcut; bedrock,
+ * openai, and claude-cli trusted that selecting them implied their prerequisites existed — so e.g. a
+ * `bedrock → openai` failover would pick a keyless OpenAiProvider and waste a guaranteed-failing round
+ * trip, and `LLM_PROVIDER=claude-cli` accidentally deployed to Vercel burned every plan step before
+ * the inevitable mock. Construction is side-effect-free; this just gates it on env presence.
+ */
+export function providerAvailable(name: ProviderName): boolean {
+  switch (name) {
+    case "gemini":
+      return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+    case "openai":
+      return Boolean(process.env.OPENAI_API_KEY);
+    case "bedrock":
+      return Boolean(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION);
+    case "claude-cli":
+      // Local-only by design; the `claude` binary can't be cheaply verified synchronously, but it
+      // definitely can't run on Vercel — guard that named misconfiguration. Elsewhere trust the
+      // operator's explicit LLM_PROVIDER=claude-cli (a missing binary still fails fast on spawn error).
+      return !process.env.VERCEL;
+    case "mock":
+      return true;
+    default:
+      return false;
+  }
+}
+
 export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
   if (opts.forceMock) return new MockProvider();
-  switch (resolveProviderChoice()) {
+  const choice = resolveProviderChoice();
+  // A selected-but-unavailable real provider pre-degrades to mock (logged so the misconfig is visible),
+  // rather than the orchestrator discovering it the slow way across the whole retry/failover plan.
+  const orMockIf = (available: boolean, make: () => LLMProvider, why: string): LLMProvider => {
+    if (available) return make();
+    console.warn(`[llm] LLM_PROVIDER=${choice} but ${why} — using mock`);
+    return new MockProvider();
+  };
+  switch (choice) {
     case "mock":
       return new MockProvider();
     case "bedrock":
-      return new BedrockProvider();
+      return orMockIf(providerAvailable("bedrock"), () => new BedrockProvider(), "no AWS region configured");
     case "openai":
-      return new OpenAiProvider();
+      return orMockIf(providerAvailable("openai"), () => new OpenAiProvider(), "OPENAI_API_KEY is unset");
     case "claude-cli":
-      return new ClaudeCliProvider();
+      return orMockIf(providerAvailable("claude-cli"), () => new ClaudeCliProvider(), "the claude CLI isn't available here");
     case "gemini":
       return geminiOrMock();
     case "auto":
@@ -66,13 +103,16 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
 export function providerByName(name: string | undefined | null): LLMProvider | null {
   switch ((name ?? "").trim().toLowerCase()) {
     case "gemini":
-      return geminiOrMock();
+      return geminiOrMock(); // already returns mock without a key
+    // A failover to an unavailable provider returns null so the orchestrator SKIPS the doomed attempt
+    // (a keyless openai / region-less bedrock / CLI-less claude would otherwise waste a round trip
+    // that always throws) and degrades to MockProvider itself.
     case "bedrock":
-      return new BedrockProvider();
+      return providerAvailable("bedrock") ? new BedrockProvider() : null;
     case "openai":
-      return new OpenAiProvider();
+      return providerAvailable("openai") ? new OpenAiProvider() : null;
     case "claude-cli":
-      return new ClaudeCliProvider();
+      return providerAvailable("claude-cli") ? new ClaudeCliProvider() : null;
     default:
       return null;
   }

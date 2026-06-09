@@ -90,6 +90,81 @@ export function cacheDelete(key: string): void {
   store.delete(key);
 }
 
+// ---- In-flight scan coalescing ----------------------------------------------
+// The scan cache is only populated AFTER scanRepository() finishes, so two requests for the SAME
+// uncached commit (a React StrictMode double-mount, a /report peek-miss immediately followed by the
+// streaming scan, two browser tabs, two anonymous users) each run the full GitHub ingest + LLM
+// completion in parallel and pay duplicate cost + rate-limit. This coalesces concurrent scans for the
+// same cache key onto ONE run: the first caller computes; later callers await the same promise.
+//
+// Abort is REFCOUNTED so coalescing doesn't weaken the existing abort-on-disconnect optimization: the
+// shared scan is aborted only when the LAST interested caller disconnects. One client navigating away
+// can no longer kill a scan that other callers (or a still-open SSE stream) are still waiting on.
+
+interface InflightScan {
+  promise: Promise<ScanReport>;
+  controller: AbortController;
+  waiters: number;
+}
+const inflightScans = new Map<string, InflightScan>();
+
+/** Number of distinct scan computations currently in flight (test/observability hook). */
+export function inflightScanCount(): number {
+  return inflightScans.size;
+}
+
+/**
+ * Run `factory` for `key`, or — if an identical scan is already in flight — join it and await the same
+ * result instead of starting a second one. `factory` receives an AbortSignal that fires only once
+ * EVERY joined caller has aborted (refcounted), so a single disconnect can't cancel work others want.
+ * The entry is evicted as soon as the run settles, so a later scan of the same commit starts fresh.
+ */
+export function coalesceScan(
+  key: string,
+  factory: (signal: AbortSignal) => Promise<ScanReport>,
+  signal?: AbortSignal,
+): Promise<ScanReport> {
+  let entry = inflightScans.get(key);
+  if (!entry) {
+    const controller = new AbortController();
+    const created: InflightScan = { controller, waiters: 0, promise: factory(controller.signal) };
+    const evict = () => {
+      if (inflightScans.get(key) === created) inflightScans.delete(key);
+    };
+    created.promise.then(evict, evict);
+    inflightScans.set(key, created);
+    entry = created;
+  }
+  const e = entry;
+  e.waiters += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    e.waiters -= 1;
+    // Abort the shared scan only when no interested caller remains (and this is still the live entry).
+    if (e.waiters <= 0 && inflightScans.get(key) === e) e.controller.abort(signal?.reason);
+  };
+  if (signal) {
+    if (signal.aborted) release();
+    else signal.addEventListener("abort", release, { once: true });
+  }
+  const detach = () => {
+    released = true; // settled: stop this caller's abort from later decrementing/aborting a done scan
+    if (signal) signal.removeEventListener("abort", release);
+  };
+  return e.promise.then(
+    (report) => {
+      detach();
+      return report;
+    },
+    (err) => {
+      detach();
+      throw err;
+    },
+  );
+}
+
 // ---- Conditional-request head hint ------------------------------------------
 // To check the per-commit scan cache (keyed `owner/repo@sha`) we first need the repo's current
 // head sha — but a plain head lookup costs a rate-limit unit. The hint remembers the last

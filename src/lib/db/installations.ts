@@ -109,6 +109,43 @@ export async function unwatchReposForInstallation(
   });
 }
 
+/**
+ * Reconcile the watched set against an installation's CURRENT accessible repos (the live set from
+ * listInstallationRepos). Unwatches any WATCHED repo for the installation's org(s) that is no longer in
+ * that set — catching access changes GitHub does NOT itemize as explicit "removed" rows: a
+ * "selected → all" flip sends an empty `repositories_removed`, and an "all → selected" narrowing may
+ * paginate them. Leaving such repos watched mints a token that no longer covers them and 401s their
+ * scheduled rescan forever. Added repos are deliberately NOT auto-watched (watching stays opt-in).
+ * Returns the number of repos unwatched. CALLER MUST only pass a live set from a SUCCESSFUL listing —
+ * an empty array means "zero accessible repos" and will unwatch all of them, so never call this with
+ * the result of a failed/throwing list. No-op without a DB.
+ */
+export async function reconcileWatchedRepos(
+  installationId: number | string,
+  liveFullNames: string[],
+): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const prisma = getPrisma();
+  const orgs = await prisma.organization.findMany({
+    where: { githubInstallId: String(installationId) },
+    select: { id: true },
+  });
+  if (!orgs.length) return 0;
+  const orgIds = orgs.map((o) => o.id);
+  const live = new Set(liveFullNames.map((n) => n.toLowerCase()));
+  const watched = await prisma.repository.findMany({
+    where: { orgId: { in: orgIds }, watched: true },
+    select: { id: true, fullName: true },
+  });
+  const staleIds = watched.filter((r) => !live.has(r.fullName.toLowerCase())).map((r) => r.id);
+  if (staleIds.length === 0) return 0;
+  await prisma.repository.updateMany({
+    where: { id: { in: staleIds } },
+    data: { watched: false, scanSchedule: "off", nextScanAt: null },
+  });
+  return staleIds.length;
+}
+
 /** Resolve a repo owner (login) to its stored installation id, if any. */
 export async function getInstallationIdForOwner(owner: string): Promise<string | null> {
   if (!isDbConfigured()) return null;

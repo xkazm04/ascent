@@ -180,6 +180,28 @@ export async function advanceSchedule(repoId: string, schedule: string): Promise
   await getPrisma().repository.update({ where: { id: repoId }, data: { nextScanAt: nextScanFor(schedule) } });
 }
 
+/**
+ * Atomically CLAIM a due repo BEFORE scanning it, so two overlapping cron runs (a long batch near the
+ * 300s ceiling, a manual `?key=` retry, or a re-fired schedule) can't both pick up the same repo and
+ * double-scan + double-bill it. The conditional `updateMany` advances `nextScanAt` to the next cadence
+ * ONLY while the repo is still due (watched, scheduled, `nextScanAt` in the past); the first run to win
+ * the DB-serialized update flips the repo out of the due window, so the loser's update matches 0 rows
+ * and skips. This is cross-instance safe (unlike the process-local {@link withRepoLock}). Returns true
+ * iff this caller won the claim. On a scan FAILURE the caller overrides this cadence with
+ * {@link advanceScheduleAfterFailure}'s shorter backoff; on success the cadence set here stands, so a
+ * separate post-success advance is unnecessary.
+ */
+export async function claimRescan(repoId: string, schedule: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const next = nextScanFor(schedule);
+  if (!next) return false; // "off"/unknown schedule isn't claimable (and listDueRescans excludes it)
+  const res = await getPrisma().repository.updateMany({
+    where: { id: repoId, watched: true, scanSchedule: { not: "off" }, nextScanAt: { lte: new Date() } },
+    data: { nextScanAt: next },
+  });
+  return res.count === 1;
+}
+
 /** Retry backoff after a FAILED autoscan. Critical for queue fairness: the schedule used to advance
  *  only on success, so a persistently-broken repo (revoked token, deleted repo) stayed permanently
  *  due at the front of the oldest-first queue and re-failed every run, crowding out healthy repos.

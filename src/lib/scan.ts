@@ -29,6 +29,10 @@ import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 
 /** Backoff before a single LLM retry — fixed (no jitter) to keep the scan path deterministic-friendly. */
 const LLM_RETRY_MS = 500;
+/** Total wall-clock budget for ALL LLM attempts (primary + retry + failover) in one scan. Sits under
+ *  the route's maxDuration (120s) so the mock degrade is always reached before the platform hard-kills
+ *  the function. Overridable via env for slower self-hosted models. */
+const LLM_TOTAL_BUDGET_MS = Number(process.env.LLM_TOTAL_BUDGET_MS) || 90_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface ScanOptions {
@@ -198,13 +202,13 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Capture token usage from the call that ultimately succeeds — the metering basis. Each attempt's
   // onUsage overwrites this; a thrown attempt never reports, so the winning provider's usage stands.
   let capturedUsage: TokenUsage = {};
-  const attemptAssess = async (p: LLMProvider) => {
+  const attemptAssess = async (p: LLMProvider, attemptSignal: AbortSignal | undefined) => {
     // Capture this attempt's usage into a LOCAL and commit it to capturedUsage only AFTER the
     // attempt is proven usable. Providers call onUsage BEFORE the parse/usability check, so a failed
     // attempt (malformed JSON, unusable coverage) would otherwise leave its tokens on report.usage
     // even though the scan degraded to mock — billing the user for an attempt that never contributed.
     let attemptUsage: TokenUsage = {};
-    const a = await p.assess(scoreInput, { signal, onUsage: (u) => { attemptUsage = u; } });
+    const a = await p.assess(scoreInput, { signal: attemptSignal, onUsage: (u) => { attemptUsage = u; } });
     if (p.name !== "mock" && !isAssessmentUsable(a, signals.length)) {
       throw new Error(
         `LLM returned an unusable assessment (${a.dimensions.length}/${signals.length} dimensions scored).`,
@@ -222,7 +226,20 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   const llmStartedAt = Date.now();
   let assessment: Awaited<ReturnType<LLMProvider["assess"]>>;
   let usedProvider: LLMProvider = provider;
-  {
+  // Scan-wide LLM deadline. Each attempt enforces its own per-call timeout (LLM_TIMEOUT_MS), but the
+  // resilience plan (primary + retry + failover) MULTIPLIES them — three ~60s attempts can burn ~181s
+  // and blow the serverless function timeout BEFORE the mock degrade ever runs, so the user gets a 500
+  // instead of the deterministic floor. Cap the TOTAL time across attempts: when the budget expires the
+  // in-flight call and every remaining attempt abort, and we fall through to mock — well under the
+  // platform limit. The budget signal is distinct from the client's `signal` so a budget expiry
+  // degrades to mock while a real client disconnect still unwinds the whole scan.
+  const llmDeadline = new AbortController();
+  const llmDeadlineTimer = setTimeout(
+    () => llmDeadline.abort(new Error("LLM total budget exceeded")),
+    LLM_TOTAL_BUDGET_MS,
+  );
+  const llmSignal = signal ? AbortSignal.any([signal, llmDeadline.signal]) : llmDeadline.signal;
+  try {
     const fallback =
       intendedProvider === "mock" ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
     const plan: { p: LLMProvider; note?: string }[] = [{ p: provider }];
@@ -236,16 +253,18 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
       const step = plan[i]!; // safe: i bounded by plan.length
       try {
         if (i > 0) {
+          if (llmDeadline.signal.aborted) break; // budget spent — don't sleep before a doomed retry
           await sleep(LLM_RETRY_MS);
           signal?.throwIfAborted();
           emit({ stage: "score", message: step.note ?? "Retrying…", pct: 80, provider: step.p.name });
         }
-        resolved = await attemptAssess(step.p);
+        resolved = await attemptAssess(step.p, llmSignal);
         usedProvider = step.p;
         break;
       } catch (err) {
-        // Client disconnected mid-call — don't spend further attempts + a compose pass on a report
-        // nobody will receive. Propagate the abort so the whole scan unwinds.
+        // CLIENT disconnect mid-call — don't spend further attempts + a compose pass on a report
+        // nobody will receive. Propagate so the whole scan unwinds. A BUDGET (deadline) abort is NOT
+        // a client abort: it falls through to the next step (which aborts fast) and then to mock.
         if (signal?.aborted) throw err;
         lastErr = err;
       }
@@ -254,8 +273,8 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     if (resolved) {
       assessment = resolved;
     } else {
-      // Every real attempt failed — degrade to deterministic. Only flag it when an LLM was actually
-      // expected (not an intentional/keyless mock).
+      // Every real attempt failed (or the budget expired) — degrade to deterministic. Only flag it
+      // when an LLM was actually expected (not an intentional/keyless mock).
       llmFailed = intendedProvider !== "mock";
       if (llmFailed) {
         console.error("[scan] LLM provider failed after retry/failover, using mock:", lastErr);
@@ -267,8 +286,12 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
         });
       }
       usedProvider = new MockProvider();
-      assessment = await usedProvider.assess(scoreInput);
+      // Honor the client signal here too (the degrade path is the one most likely to run after a
+      // disconnect) so the cancellation contract is uniform across providers.
+      assessment = await usedProvider.assess(scoreInput, { signal });
     }
+  } finally {
+    clearTimeout(llmDeadlineTimer);
   }
   provider = usedProvider;
   const llmLatencyMs = Date.now() - llmStartedAt;

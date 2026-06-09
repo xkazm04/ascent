@@ -69,7 +69,16 @@ export async function PATCH(
   }
 
   if (body.targetDate !== undefined) {
-    if (body.targetDate !== null && Number.isNaN(Date.parse(body.targetDate))) {
+    // Enforce the documented YYYY-MM-DD contract, not merely "Date.parse-able": the old check accepted
+    // "June 9 2026", a full ISO datetime, "2026/06/09", etc. (implementation-dependent) and stored them
+    // verbatim despite the type + error message promising a date-only ISO string. Require the exact
+    // shape AND a real calendar date (so "2026-13-45" is rejected).
+    if (
+      body.targetDate !== null &&
+      (typeof body.targetDate !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(body.targetDate) ||
+        Number.isNaN(Date.parse(body.targetDate)))
+    ) {
       return NextResponse.json({ error: "targetDate must be an ISO date (YYYY-MM-DD) or null." }, { status: 400 });
     }
     patch.targetDate = body.targetDate;

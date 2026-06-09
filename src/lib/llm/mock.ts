@@ -2,7 +2,7 @@
 // (and keeps CI/build green). It derives a credible assessment directly from the
 // deterministic signals, so the report is real — just without LLM-written nuance.
 
-import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
+import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import type { DimensionSignals, LlmAssessment, LlmDimensionScore } from "@/lib/types";
 import { DIMENSION_BY_ID, levelForScore, overallScoreFor } from "@/lib/maturity/model";
 import { buildFallbackRoadmap } from "@/lib/scoring/recommendations";
@@ -43,7 +43,11 @@ export class MockProvider implements LLMProvider {
   readonly name = "mock" as const;
   readonly model = "deterministic-rubric";
 
-  async assess(input: LlmScoreInput): Promise<LlmAssessment> {
+  async assess(input: LlmScoreInput, opts: AssessOptions = {}): Promise<LlmAssessment> {
+    // Honor the cancellation contract uniformly across providers (provider.ts AssessOptions): the mock
+    // is the degrade path most likely to run AFTER a client disconnect, so bail at entry if aborted
+    // rather than compose + persist a report nobody will receive.
+    opts.signal?.throwIfAborted();
     const cacheKey = assessKey(input);
     const cached = assessCache.get(cacheKey);
     if (cached) {

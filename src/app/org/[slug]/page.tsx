@@ -8,7 +8,7 @@ import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { OrgStanding } from "@/components/org/OrgStanding";
 import { OrgGapsSection } from "@/components/org/OrgGapsSection";
 import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
-import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID, POSTURE_LABEL, POSTURE_ORDER } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
@@ -31,7 +31,11 @@ function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "u
             <div key={m.fullName} className="flex items-center justify-between gap-3 text-base">
               <span className="min-w-0 truncate font-mono text-sm text-slate-200">{m.name}</span>
               <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
-                {m.levelDelta !== 0 && (
+                {/* Show the level pair only when its direction AGREES with the score tone (gainer→up,
+                    regresser→down). A repo can gain score while its level dropped (or vice versa); the
+                    old `levelDelta !== 0` showed a contradictory "L4→L3" next to a green ▲, so omit the
+                    level pair when it would contradict the headline arrow. */}
+                {((tone === "up" && m.levelDelta > 0) || (tone === "down" && m.levelDelta < 0)) && (
                   <span className="text-slate-500">
                     {m.levelFrom}→{m.levelTo}
                   </span>
@@ -68,7 +72,20 @@ export default async function OrgOverview({
   const segmentId = activeSegment?.id ?? null;
 
   const rollup = await getOrgRollup(slug, win, segmentId);
-  if (!rollup) return null;
+  // The layout decides whether to render the org shell at all (org exists + has data); reaching here
+  // with a null rollup means this view's scoped query (period + segment) found nothing where the
+  // layout's did — e.g. a segment that matches no repos or a window with no scans. Render a page-scale
+  // empty state with a way out, not a silent blank panel inside the shell.
+  if (!rollup) {
+    return (
+      <OrgEmpty
+        title="No data for this view"
+        body="No scans match the selected period or segment yet. Widen the time range, clear the segment filter, or scan some repositories to populate the dashboard."
+        href={`/org/${slug}/repositories`}
+        cta="View repositories"
+      />
+    );
+  }
 
   const level = levelForScore(rollup.avgOverall);
   const trend: TrendPoint[] = rollup.trend.map((t) => ({ score: t.avg, at: t.date }));
@@ -160,7 +177,7 @@ export default async function OrgOverview({
               const n = rollup.postureCounts[p] ?? 0;
               return (
                 <div key={p} className="flex items-center gap-3 text-base">
-                  <span className="w-36 shrink-0 text-slate-300">{POSTURE_LABEL[p]}</span>
+                  <span className="w-36 shrink-0 text-slate-300">{postureLabel(p)}</span>
                   <Meter className="flex-1" value={(n / maxPosture) * 100} />
                   <span className="w-6 text-right font-mono tabular-nums text-slate-400">{n}</span>
                 </div>

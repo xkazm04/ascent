@@ -135,7 +135,12 @@ export function summarizePullRequests(nodes: PrNode[], totalCount: number): PrSt
     smallPrRate: pct(small, analyzed),
     botAuthoredRate: pct(bot, analyzed),
     aiInvolvedRate: pct(aiInvolved, analyzed),
-    aiGovernedRate: aiInvolved >= 3 ? pct(aiApprovedCount, aiInvolved) : null,
+    // Require a meaningful sample before deriving a governance RATE that drags a scored dimension (D8,
+    // 12% weight) via applyPrSignals. At the old `>= 3` floor, a single unreviewed AI PR in a 3-PR
+    // window swings the rate ~33pts and can flip the rigor axis / posture near the 50 threshold off a
+    // 3-PR sample. 5 is the minimum where the rate isn't dominated by one PR; below it stays null
+    // (D8 gets no PR-governance signal, the same as 1-2 AI PRs).
+    aiGovernedRate: aiInvolved >= 5 ? pct(aiApprovedCount, aiInvolved) : null,
     revertRate: pct(revert, analyzed),
     draftRate: pct(draft, analyzed),
     tools,

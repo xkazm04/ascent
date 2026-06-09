@@ -45,7 +45,11 @@ export default async function OrgPractices({ params }: { params: Promise<{ slug:
         <SectionEmpty>No mined practices yet — scan some of this org&apos;s repositories to surface them.</SectionEmpty>
       )}
       {(practices ?? []).map((p) => {
-        const adoptionPct = p.total ? Math.round((p.strongCount / p.total) * 100) : 0;
+        // `total` is the # of repos evaluated for this practice. When it's 0 (no repo scored on the
+        // practice's dimension yet) the old tile rendered a meaningless "0/0 · 0%" with a flat meter;
+        // show a "not yet measured" state instead so an unmeasured practice doesn't read as 0% adoption.
+        const measured = p.total > 0;
+        const adoptionPct = measured ? Math.round((p.strongCount / p.total) * 100) : 0;
         return (
           <Card key={p.id}>
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -54,14 +58,19 @@ export default async function OrgPractices({ params }: { params: Promise<{ slug:
                 <p className="mt-1 text-base text-slate-400">{p.what}</p>
               </div>
               <div className="shrink-0 text-right">
-                <div className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(adoptionPct) }}>
-                  {p.strongCount}/{p.total}
+                <div
+                  className="font-mono text-2xl font-bold tabular-nums"
+                  style={{ color: measured ? scoreHex(adoptionPct) : undefined }}
+                >
+                  {measured ? `${p.strongCount}/${p.total}` : "—"}
                 </div>
-                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">repos strong</div>
+                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
+                  {measured ? "repos strong" : "not yet measured"}
+                </div>
               </div>
             </div>
 
-            <Meter className="mt-3" size="sm" value={adoptionPct} color={scoreHex(adoptionPct)} />
+            {measured && <Meter className="mt-3" size="sm" value={adoptionPct} color={scoreHex(adoptionPct)} />}
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
               {/* Exemplar + gaps */}

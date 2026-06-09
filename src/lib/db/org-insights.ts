@@ -101,7 +101,11 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     }
     for (const arr of byRepo.values()) {
       const now = arr[0]; // latest (rows are scannedAt desc)
-      const prev = arr.find((s) => s.scannedAt <= start);
+      // Baseline = latest scan at-or-before the window start. A repo ONBOARDED mid-period has no scan
+      // before `start`, so fall back to its EARLIEST in-window scan (arr is desc, so the last element)
+      // rather than dropping it from movers entirely — it genuinely moved (first score → now) within
+      // the window. A repo with a single in-window scan collapses to prev === now and is skipped below.
+      const prev = arr.find((s) => s.scannedAt <= start) ?? arr[arr.length - 1];
       if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev));
     }

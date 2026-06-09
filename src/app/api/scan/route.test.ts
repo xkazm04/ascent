@@ -16,7 +16,12 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn(), resolveScanAuth: vi.fn() }));
 vi.mock("@/lib/scan-cache", () => ({ lookupCachedScan: vi.fn() }));
-vi.mock("@/lib/cache", () => ({ cacheSet: vi.fn() }));
+vi.mock("@/lib/cache", () => ({
+  cacheSet: vi.fn(),
+  // Passthrough: run the scan factory directly so these tests exercise the real cache-write path.
+  coalesceScan: (_key: string, factory: (s: AbortSignal) => Promise<unknown>) =>
+    factory(new AbortController().signal),
+}));
 vi.mock("@/lib/db", () => ({ isDbConfigured: () => false, persistScanReport: vi.fn() }));
 
 import { POST } from "./route";

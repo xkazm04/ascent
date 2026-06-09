@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { DIMS, OrgTable, POSTURE_LABEL, SectionHeader } from "@/components/org/ui";
+import { DIMS, OrgEmpty, OrgTable, postureLabel, SectionHeader } from "@/components/org/ui";
 import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
 import { ScheduleSelect } from "@/components/org/ScheduleSelect";
 import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
@@ -12,7 +12,18 @@ export const dynamic = "force-dynamic";
 export default async function OrgRepositories({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const rollup = await getOrgRollup(slug);
-  if (!rollup) return null;
+  // Same empty-state contract as the overview: don't render a blank panel inside the org shell when
+  // there's no fleet data to table — point the user at how to populate it.
+  if (!rollup) {
+    return (
+      <OrgEmpty
+        title="No repositories to show"
+        body="This organization has no scanned repositories yet. Scan some repositories to populate the fleet view."
+        href={`/org/${slug}`}
+        cta="← Org overview"
+      />
+    );
+  }
 
   // Autoscan scheduling needs the GitHub App (the route 503s without it); the org dashboard already
   // implies a DB. When the App isn't configured, the cadence control renders disabled with a hint
@@ -82,7 +93,7 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{l ? l.adoption : "—"}</td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{l ? l.rigor : "—"}</td>
-                    <td className="px-3 py-2 text-sm text-slate-400">{l ? POSTURE_LABEL[l.posture] ?? l.posture : "—"}</td>
+                    <td className="px-3 py-2 text-sm text-slate-400">{l ? postureLabel(l.posture) : "—"}</td>
                     <td className="px-3 py-2 text-sm text-slate-500">{l ? l.scannedAt.slice(0, 10) : "not scanned"}</td>
                     <td className="px-3 py-2">
                       <ScheduleSelect

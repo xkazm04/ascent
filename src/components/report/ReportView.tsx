@@ -59,8 +59,26 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
   // last point in agreement: no double-counting when the current scan IS stored, and no
   // skipping the true previous when it ISN'T.
   const scans = history?.scans ?? [];
-  const currentStored = scans.some((s) => s.scannedAt === report.scannedAt);
-  const baselineScan = scans.find((s) => s.scannedAt < report.scannedAt) ?? null;
+  // Reconcile by parsed INSTANT, not byte-identical ISO strings. The stored scannedAt
+  // (Date.toISOString) and the live report.scannedAt are serialized independently and can differ by a
+  // character (ms precision, "+00:00" vs "Z") for the same instant — an exact-string compare would
+  // then mis-detect the current scan as absent and append a phantom duplicate trend point, and a
+  // lexicographic "<" diverges from chronological order under mixed ISO offsets. Match within a 1s
+  // tolerance; fall back to raw-string compare only when a timestamp isn't Date-parseable.
+  const reportAt = Date.parse(report.scannedAt);
+  const sameInstant = (a: string) => {
+    const ta = Date.parse(a);
+    return Number.isNaN(ta) || Number.isNaN(reportAt) ? a === report.scannedAt : Math.abs(ta - reportAt) < 1000;
+  };
+  const currentStored = scans.some((s) => sameInstant(s.scannedAt));
+  // Baseline = most recent scan STRICTLY older than this report (and not the current scan itself,
+  // which can be stored at a near-identical instant), compared as instants rather than lexically.
+  const baselineScan =
+    scans.find((s) => {
+      const ts = Date.parse(s.scannedAt);
+      if (Number.isNaN(ts) || Number.isNaN(reportAt)) return s.scannedAt < report.scannedAt;
+      return ts < reportAt && !sameInstant(s.scannedAt);
+    }) ?? null;
 
   // Overall-score series (oldest → newest). Append the current point when it isn't persisted
   // yet, so the last trend dot always matches the ScoreRing rather than omitting it.

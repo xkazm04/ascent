@@ -61,7 +61,11 @@ const cap = (s: string): string => (s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FI
 
 function asStringArray(v: unknown, max = 6): string[] {
   if (!Array.isArray(v)) return [];
+  // Pre-slice the INPUT before filter/map: the trailing .slice can't prevent the transient allocation
+  // of mapping a hostile million-element array. A generous headroom over `max` tolerates entries that
+  // get filtered out as empty/non-string. (Array.slice on a huge array is O(headroom), not O(n).)
   return v
+    .slice(0, max * 4)
     .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
     .map((x) => cap(x.trim()))
     .slice(0, max);
@@ -69,6 +73,18 @@ function asStringArray(v: unknown, max = 6): string[] {
 
 function asLevel(v: unknown, fallback: "high" | "medium" | "low"): "high" | "medium" | "low" {
   return typeof v === "string" && IMPACTS.has(v) ? (v as "high" | "medium" | "low") : fallback;
+}
+
+// Canonical "Lx->Ly" maturity-unlock shape (level ids are L1..L5). The deterministic roadmap derives
+// this from canonical LEVELS, but the LLM path took r.levelUnlock verbatim — so a hallucinated
+// "L5->L7" (out of range), "L3->L2"/"L3→L2" (a downgrade), or garbage reached the user-facing roadmap
+// unchecked. Accept either arrow form, require an ACTUAL advance, and normalize to the canonical form.
+const LEVEL_UNLOCK_RE = /^L([1-5])\s*(?:->|→)\s*L([1-5])$/;
+function validLevelUnlock(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const m = LEVEL_UNLOCK_RE.exec(v.trim());
+  if (!m) return undefined;
+  return Number(m[2]) > Number(m[1]) ? `L${m[1]}->L${m[2]}` : undefined;
 }
 
 /**
@@ -86,10 +102,17 @@ export function validateAssessment(raw: unknown): LlmAssessment {
   const obj = (raw ?? {}) as Record<string, unknown>;
 
   const dims: LlmDimensionScore[] = [];
+  const seenDimIds = new Set<string>();
   if (Array.isArray(obj.dimensions)) {
-    for (const d of obj.dimensions as Record<string, unknown>[]) {
+    // Bound the INPUT and de-dupe by id. roadmap/discrepancies are trailing-sliced, but `dimensions`
+    // was not — a hostile/verbose reply can send a huge array of valid-id duplicates (all passing
+    // VALID_DIM_IDS) that survive validation and bloat the persisted row, SSE payload, and UI. There
+    // are only DIMENSIONS.length valid ids; slicing the input (cheap on a large array) bounds the work
+    // and de-duping keeps the first score per dimension.
+    for (const d of (obj.dimensions as Record<string, unknown>[]).slice(0, DIMENSIONS.length * 4)) {
       const id = d?.id;
       if (typeof id !== "string" || !VALID_DIM_IDS.has(id as DimensionId)) continue;
+      if (seenDimIds.has(id)) continue; // first score per dimension wins
       // Distinguish "scored 0" from "no score supplied". The old `clamp(Math.round(Number(d.score))) || 0`
       // turned a missing/non-numeric score into a real 0 (clamp(NaN) -> NaN, then NaN || 0 -> 0), which
       // isAssessmentUsable then counted toward coverage — so a model that returned valid ids with no real
@@ -102,6 +125,7 @@ export function validateAssessment(raw: unknown): LlmAssessment {
             ? Number(d.score)
             : NaN;
       if (!Number.isFinite(rawScore)) continue;
+      seenDimIds.add(id);
       dims.push({
         id: id as DimensionId,
         score: clamp(Math.round(rawScore)),
@@ -132,7 +156,7 @@ export function validateAssessment(raw: unknown): LlmAssessment {
         effort: asLevel(r.effort, "medium"),
         rationale: typeof r.rationale === "string" ? cap(r.rationale.trim()) : "",
         explore: asStringArray(r.explore, 3),
-        levelUnlock: typeof r.levelUnlock === "string" ? r.levelUnlock.trim() : undefined,
+        levelUnlock: validLevelUnlock(r.levelUnlock),
       });
     }
   }
