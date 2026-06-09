@@ -1,0 +1,152 @@
+"use client";
+
+import { useState } from "react";
+import { REC_STATUSES, type RecEvent } from "@/lib/types";
+import type { BacklogItem } from "@/lib/db";
+import { EVENT_LABEL, STATUS_ACCENT, STATUS_LABEL, dueLabel, eventValue } from "@/components/org/backlogShared";
+
+export function ItemRow({
+  item,
+  assignees,
+  saving,
+  error,
+  onPatch,
+}: {
+  item: BacklogItem;
+  assignees: string[];
+  saving: boolean;
+  error?: string;
+  onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
+}) {
+  const [history, setHistory] = useState<RecEvent[] | "loading" | null>(null);
+
+  // The current owner may no longer be a tracked contributor — keep them selectable.
+  const options = item.assigneeLogin && !assignees.includes(item.assigneeLogin)
+    ? [item.assigneeLogin, ...assignees]
+    : assignees;
+
+  async function toggleHistory() {
+    if (history) {
+      setHistory(null);
+      return;
+    }
+    setHistory("loading");
+    try {
+      const res = await fetch(`/api/recommendations/${item.id}/events`);
+      const data = res.ok ? ((await res.json()) as { events: RecEvent[] }) : { events: [] };
+      setHistory(data.events);
+    } catch {
+      setHistory([]);
+    }
+  }
+
+  const due = dueLabel(item);
+
+  return (
+    <div
+      aria-busy={saving}
+      className="rounded-xl border bg-slate-900/40 p-4"
+      style={{ borderLeftWidth: 3, borderLeftColor: item.overdue ? "#f97316" : STATUS_ACCENT[item.status] }}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-medium text-white">{item.title}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-sm text-slate-500">
+            <span className="text-slate-400">{item.repo}</span>
+            <span>· {item.dimId} {item.dimLabel}</span>
+            <span>· impact {item.impact}</span>
+            <span>· effort {item.effort}</span>
+          </div>
+        </div>
+        {due && (
+          <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-sm ${item.overdue ? "bg-orange-500/10 text-orange-300" : "text-slate-400"}`}>
+            {due}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+          status
+          <select
+            value={item.status}
+            disabled={saving}
+            onChange={(e) => onPatch(item.id, { status: e.target.value })}
+            aria-label="Status"
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+            style={{ color: STATUS_ACCENT[item.status] }}
+          >
+            {REC_STATUSES.map((s) => (
+              <option key={s} value={s} className="text-slate-200">
+                {STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+          owner
+          <select
+            value={item.assigneeLogin ?? ""}
+            disabled={saving}
+            onChange={(e) => onPatch(item.id, { assigneeLogin: e.target.value || null })}
+            aria-label="Owner"
+            className="max-w-[10rem] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+          >
+            <option value="">Unassigned</option>
+            {options.map((login) => (
+              <option key={login} value={login}>
+                @{login}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+          due
+          <input
+            type="date"
+            value={item.targetDate ?? ""}
+            disabled={saving}
+            onChange={(e) => onPatch(item.id, { targetDate: e.target.value || null })}
+            aria-label="Due date"
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+          />
+        </label>
+
+        <button
+          onClick={toggleHistory}
+          className="ml-auto rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-400 transition hover:text-white"
+        >
+          {history ? "Hide history" : "History"}
+        </button>
+        {saving && <span className="font-mono text-sm text-slate-500">saving…</span>}
+      </div>
+
+      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+
+      {history && (
+        <div className="mt-3 border-t border-slate-800 pt-3">
+          {history === "loading" ? (
+            <p className="font-mono text-sm text-slate-500">Loading history…</p>
+          ) : history.length === 0 ? (
+            <p className="font-mono text-sm text-slate-500">No changes recorded yet.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {history.map((ev) => (
+                <li key={ev.id} className="flex flex-wrap items-baseline gap-x-2 text-sm text-slate-400">
+                  <span className="font-mono text-sm text-slate-600">{new Date(ev.at).toLocaleString()}</span>
+                  <span className="text-slate-300">{ev.actor ? `@${ev.actor}` : "system"}</span>
+                  <span>
+                    set {EVENT_LABEL[ev.kind] ?? ev.kind} {eventValue(ev.kind, ev.from)} → <span className="text-slate-200">{eventValue(ev.kind, ev.to)}</span>
+                  </span>
+                  {ev.note && <span className="text-slate-500">“{ev.note}”</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

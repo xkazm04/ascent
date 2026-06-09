@@ -5,10 +5,13 @@ import { GoalsOverview } from "@/components/org/GoalsOverview";
 import { PeriodSummary } from "@/components/org/PeriodSummary";
 import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
+import { OrgStanding } from "@/components/org/OrgStanding";
+import { OrgGapsSection } from "@/components/org/OrgGapsSection";
+import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID, POSTURE_LABEL, POSTURE_ORDER } from "@/components/org/ui";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
-import { DIMENSION_SHORT, IMPACT_CLASS, scoreHex } from "@/lib/ui";
+import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { resolveWindow } from "@/lib/window";
 import type { RepoMove } from "@/lib/db";
 
@@ -140,104 +143,12 @@ export default async function OrgOverview({
       {/* Goals & standing */}
       <div className="grid gap-6 lg:grid-cols-2">
         <GoalsOverview slug={slug} goals={goals ?? []} />
-
-        <Card>
-          <SectionHeader size="sm" title="Standing" />
-          <div className="mt-4 space-y-3 text-base">
-            {benchmark && benchmark.overallPercentile != null ? (
-              <div className="flex items-baseline justify-between">
-                <span className="text-slate-300">vs the Ascent corpus</span>
-                <span>
-                  <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(benchmark.overallPercentile) }}>
-                    {benchmark.overallPercentile}
-                  </span>
-                  <span className="ml-1 font-mono text-sm text-slate-500">pctile · {benchmark.corpusRepos} repos</span>
-                </span>
-              </div>
-            ) : (
-              <InlineEmpty>Benchmark fills in once other orgs are scanned.</InlineEmpty>
-            )}
-            {benchmark && (
-              <div className="font-mono text-sm text-slate-500">
-                corpus avg: overall {benchmark.corpusAvgOverall} · adopt {benchmark.corpusAvgAdoption} · rigor {benchmark.corpusAvgRigor}
-              </div>
-            )}
-            <div className="flex items-center gap-2 pt-1">
-              {regressionCount > 0 ? (
-                <span className="rounded-full border border-orange-500/40 bg-orange-500/10 px-2.5 py-1 font-mono text-sm text-orange-300">
-                  ⚠ {regressionCount} repo{regressionCount > 1 ? "s" : ""} regressed {period.start ? "this period" : "since last scan"}
-                </span>
-              ) : (
-                <span className="rounded-full border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-400">no regressions</span>
-              )}
-            </div>
-          </div>
-        </Card>
+        <OrgStanding benchmark={benchmark} regressionCount={regressionCount} periodStart={Boolean(period.start)} />
       </div>
 
       {/* Where the gaps live — common org gaps vs repo-specific */}
       {gaps && (gaps.commonGaps.length > 0 || gaps.repoSpecific.length > 0) && (
-        <div>
-          <SectionHeader
-            title="Where the gaps live"
-            description="Common across the org (fix once — reuse a practice) vs repo-specific (outliers lagging what the rest already handles)."
-          />
-          <div className="mt-3 grid gap-6 lg:grid-cols-2">
-            {/* Common organization gaps */}
-            <Card>
-              <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Common organization gaps</h3>
-              {gaps.commonGaps.length === 0 ? (
-                <InlineEmpty>No fleet-wide gaps — strengths are broad.</InlineEmpty>
-              ) : (
-                <ul className="mt-3 space-y-2">
-                  {gaps.commonGaps.map((g) => (
-                    <li key={g.dimId} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-base text-white">{g.label}</span>
-                        <span className="font-mono text-sm text-orange-300">weak in {g.weakCount}/{g.total}</span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-sm text-slate-500">
-                        <span>org avg {g.avg}</span>
-                        {g.exemplar && (
-                          <span>
-                            learn from <span className="text-slate-300">{g.exemplar.name}</span> ({g.exemplar.score})
-                          </span>
-                        )}
-                        <Link href={`/org/${slug}/practices`} className="text-accent hover:text-white">
-                          reuse a practice →
-                        </Link>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-
-            {/* Repo-specific gaps */}
-            <Card>
-              <h3 className="font-mono text-sm uppercase tracking-widest text-slate-400">Repo-specific gaps</h3>
-              {gaps.repoSpecific.length === 0 ? (
-                <InlineEmpty>No notable outliers — repos move together.</InlineEmpty>
-              ) : (
-                <ul className="mt-3 space-y-1.5">
-                  {gaps.repoSpecific.slice(0, 8).map((o, i) => (
-                    <li key={`${o.fullName}-${o.dimId}-${i}`} className="flex items-center justify-between gap-3 text-base">
-                      <span className="min-w-0 truncate">
-                        <Link href={`/report?repo=${encodeURIComponent(o.fullName)}`} className="font-mono text-sm text-white hover:text-accent">
-                          {o.name}
-                        </Link>{" "}
-                        <span className="text-slate-500">{o.label}</span>
-                      </span>
-                      <span className="shrink-0 font-mono text-sm text-slate-500">
-                        {o.score} vs {o.orgAvg} org
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-          </div>
-        </div>
+        <OrgGapsSection gaps={gaps} slug={slug} />
       )}
 
       {/* Posture + dimension averages */}
@@ -293,42 +204,7 @@ export default async function OrgOverview({
       )}
 
       {/* Highest-leverage moves */}
-      {orgRecs && orgRecs.length > 0 && (
-        <div>
-          <SectionHeader
-            title="Gaps to explore across the fleet"
-            description="Trust gaps ranked by how many repos they touch — inputs to explore and apply systematically, not a to-do list."
-          />
-          <div className="mt-3 space-y-2">
-            {orgRecs.map((rec, i) => (
-              <div key={`${rec.dimId}-${rec.title}`} className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-base text-slate-300">{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-white">{rec.title}</span>
-                    <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
-                      {DIMENSION_SHORT[rec.dimId as keyof typeof DIMENSION_SHORT] ?? rec.dimId}
-                    </span>
-                    <span className={`rounded border px-1.5 py-0.5 font-mono text-sm ${IMPACT_CLASS[rec.impact] ?? "border-slate-700 text-slate-400"}`}>
-                      {rec.impact} impact
-                    </span>
-                  </div>
-                  <div className="mt-1.5 font-mono text-sm text-slate-500">
-                    affects {rec.repoCount} repo{rec.repoCount > 1 ? "s" : ""}: {rec.repos.slice(0, 6).join(", ")}
-                    {rec.repos.length > 6 ? ` +${rec.repos.length - 6}` : ""}
-                  </div>
-                </div>
-                <span className="shrink-0 font-mono text-sm text-slate-500" title="leverage = repos × impact × dimension weight">
-                  ⚡{rec.leverage}
-                </span>
-              </div>
-            ))}
-          </div>
-          <Link href={`/org/${slug}/repositories`} className="mt-3 inline-block font-mono text-sm uppercase tracking-widest text-accent hover:text-white">
-            Browse all repositories →
-          </Link>
-        </div>
-      )}
+      {orgRecs && orgRecs.length > 0 && <OrgLeverageMoves recs={orgRecs} slug={slug} />}
     </div>
   );
 }

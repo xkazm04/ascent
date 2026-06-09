@@ -3,61 +3,15 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
-import { LEVEL_CLASSES, LEVEL_GLYPH, timeAgo } from "@/lib/ui";
-import type { LevelId } from "@/lib/types";
-
-interface RepoState {
-  watched: boolean;
-  scanSchedule: string;
-  level: string | null;
-  overall: number | null;
-}
-interface AppRepo {
-  fullName: string;
-  owner: string;
-  name: string;
-  private: boolean;
-  url: string;
-  language: string | null;
-  stars: number;
-  pushedAt: string | null;
-  state: RepoState | null;
-}
+import { RepoFilterBar } from "./RepoFilterBar";
+import { RepoListSkeleton } from "./RepoListSkeleton";
+import { RepoRow } from "./RepoRow";
+import { type AppRepo, type RepoState, type Visibility } from "./installationRepoTypes";
 
 type View =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "done"; repos: AppRepo[] };
-
-type Visibility = "all" | "public" | "private";
-
-const SCHEDULES = ["off", "daily", "weekly", "monthly"];
-
-/** Skeleton rows that mirror the real row layout, so the panel keeps a stable height and
- *  signals structure before GitHub responds (no spinner → snap-in layout shift). */
-function RepoListSkeleton() {
-  return (
-    <div>
-      <div className="mb-3 h-4 w-40 animate-pulse rounded bg-slate-800" />
-      <div
-        className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/40"
-        aria-hidden
-      >
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
-            <div className="min-w-0 flex-1">
-              <div className="h-4 w-48 animate-pulse rounded bg-slate-800" />
-              <div className="mt-2 h-3 w-32 animate-pulse rounded bg-slate-800/70" />
-            </div>
-            <div className="h-4 w-12 animate-pulse rounded bg-slate-800/70" />
-            <div className="h-7 w-24 animate-pulse rounded-md bg-slate-800/70" />
-            <div className="h-8 w-16 animate-pulse rounded-lg bg-slate-800/70" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function InstallationRepos({ org, installationId }: { org: string; installationId?: string }) {
   const [view, setView] = useState<View>({ status: "loading" });
@@ -203,10 +157,6 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     );
 
   const watchedCount = view.repos.filter((r) => r.state?.watched).length;
-  const chip = (active: boolean) =>
-    `rounded-full border px-3 py-1 font-mono text-sm uppercase tracking-widest transition ${
-      active ? "border-accent bg-accent/10 text-accent" : "border-slate-700 text-slate-400 hover:border-slate-600"
-    }`;
 
   return (
     <div className="animate-fade-up">
@@ -223,115 +173,31 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       </div>
 
       {/* Search + filters — type to find a repo instead of scrolling hundreds. */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search repositories…"
-          aria-label="Search repositories"
-          className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white outline-none focus:border-accent"
-        />
-        <div className="flex flex-wrap items-center gap-1.5">
-          {(["all", "public", "private"] as Visibility[]).map((v) => (
-            <button key={v} type="button" onClick={() => setVisibility(v)} className={chip(visibility === v)}>
-              {v}
-            </button>
-          ))}
-          <button type="button" onClick={() => setWatchedOnly((w) => !w)} className={chip(watchedOnly)} aria-pressed={watchedOnly}>
-            watched
-          </button>
-          {languages.length > 0 && (
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              aria-label="Filter by language"
-              className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 font-mono text-sm text-slate-300 outline-none focus:border-accent"
-            >
-              <option value="all">all languages</option>
-              {languages.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      </div>
+      <RepoFilterBar
+        query={query}
+        setQuery={setQuery}
+        visibility={visibility}
+        setVisibility={setVisibility}
+        watchedOnly={watchedOnly}
+        setWatchedOnly={setWatchedOnly}
+        language={language}
+        setLanguage={setLanguage}
+        languages={languages}
+      />
 
       {filtered.length === 0 ? (
         <EmptyState variant="section" body="No repositories match your search and filters." />
       ) : (
         <div className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/40">
-          {filtered.map((r) => {
-            const st = r.state;
-            const lc = st?.level ? LEVEL_CLASSES[st.level as LevelId] : null;
-            const rowError = errors[r.fullName];
-            return (
-              <div key={r.fullName} className="p-4">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-mono text-base text-white">{r.fullName}</span>
-                      {r.private ? (
-                        <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-accent">
-                          private
-                        </span>
-                      ) : null}
-                      {st?.level && lc && (
-                        <span className={`rounded border ${lc.border} ${lc.bg} px-1.5 py-0.5 font-mono text-sm ${lc.text}`}>
-                          <span aria-hidden>{LEVEL_GLYPH[st.level as LevelId]} </span>
-                          {st.level} · {st.overall}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-sm text-slate-500">
-                      {r.language && <span>{r.language}</span>}
-                      <span>★ {r.stars.toLocaleString()}</span>
-                      <span>updated {timeAgo(r.pushedAt ?? undefined)}</span>
-                    </div>
-                  </div>
-
-                  <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-400">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(st?.watched)}
-                      onChange={(e) => toggleWatch(r, e.target.checked)}
-                      className="h-4 w-4 accent-accent"
-                    />
-                    watch
-                  </label>
-
-                  <select
-                    value={st?.scanSchedule ?? "off"}
-                    onChange={(e) => changeSchedule(r, e.target.value)}
-                    disabled={!st?.watched}
-                    aria-label="Autoscan schedule"
-                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-40"
-                  >
-                    {SCHEDULES.map((s) => (
-                      <option key={s} value={s}>
-                        {s === "off" ? "no autoscan" : s}
-                      </option>
-                    ))}
-                  </select>
-
-                  <span aria-hidden className="hidden h-7 w-px self-center bg-slate-800 sm:block" />
-                  <Link
-                    href={`/report?repo=${encodeURIComponent(r.fullName)}`}
-                    className="focus-ring shrink-0 rounded-lg bg-accent px-4 py-2 font-mono text-sm font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft"
-                  >
-                    Scan
-                  </Link>
-                </div>
-                {rowError && (
-                  <p role="alert" className="mt-2 text-sm text-danger">
-                    {rowError}
-                  </p>
-                )}
-              </div>
-            );
-          })}
+          {filtered.map((r) => (
+            <RepoRow
+              key={r.fullName}
+              r={r}
+              rowError={errors[r.fullName]}
+              onToggleWatch={toggleWatch}
+              onChangeSchedule={changeSchedule}
+            />
+          ))}
         </div>
       )}
     </div>

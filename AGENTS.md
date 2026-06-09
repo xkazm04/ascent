@@ -19,4 +19,4 @@ Keep every React component file (`.tsx`) at **300 lines of code or fewer**. A fi
     Where-Object { $_.LOC -gt 300 } | Sort-Object LOC -Descending
   ```
   (Use `-LiteralPath` so App Router `[slug]`/`[owner]` bracket dirs aren't treated as wildcards.)
-- **Grandfathered exceedances** (split each when you next substantially edit it; do not let them grow): `components/onboarding/OnboardingFlow.tsx`, `components/org/LiveWarRoom.tsx`, `components/report/RoadmapSandbox.tsx`, `components/report/ReportClient.tsx`, `components/report/Charts.tsx`, `components/launch/FleetMap.tsx`, `components/report/ReportView.tsx`, `components/report/DimensionTrends.tsx`, `components/org/BacklogPanel.tsx`, `components/report/WhatChanged.tsx`, `components/connect/InstallationRepos.tsx`. New `.tsx` files must comply from the start.
+- **Status:** the codebase currently has **zero** `.tsx` files over 300 LOC — keep it that way. New and edited `.tsx` files must comply from the start; if an edit would push a file over the limit, extract first (don't commit the over-limit file).
