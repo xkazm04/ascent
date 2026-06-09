@@ -49,8 +49,11 @@ export function OrgNav({ slug }: { slug: string }) {
       ],
     },
     {
-      label: "Audit",
-      tabs: [{ href: `${base}/audit`, label: "Audit" }],
+      label: "Govern",
+      tabs: [
+        { href: `${base}/governance`, label: "Governance" },
+        { href: `${base}/audit`, label: "Audit" },
+      ],
     },
   ];
 

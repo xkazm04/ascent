@@ -4,7 +4,7 @@
 // held to a lower bar than an org/platform). Consumed by the public badge and the CI endpoint.
 
 import type { DimensionId, LevelId, Posture, RepoArchetype, ScanReport } from "@/lib/types";
-import { LEVELS } from "@/lib/maturity/model";
+import { LEVELS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 
 /** The Security dimension + the default floor a security gate holds it to (`?security=1`). */
 export const SECURITY_DIM: DimensionId = "D9";
@@ -105,6 +105,54 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
   }
 
   return { pass: failures.length === 0, policy: pol, failures };
+}
+
+/**
+ * The minimal repo snapshot the fleet gate needs — exactly what the org rollup already carries per
+ * repo (no full ScanReport, so we can gate the whole fleet without re-scanning).
+ */
+export interface GateSnapshot {
+  level: string; // e.g. "L3"
+  overall: number;
+  posture: string; // posture id, e.g. "ungoverned"
+  dims: { dimId: string; score: number }[];
+}
+
+/**
+ * Evaluate a lightweight snapshot against a policy — the SAME rules as evaluateGate(), so the
+ * dashboard's fleet status and the CI gate agree. Used to compute org-wide gate analytics cheaply.
+ */
+export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateResult {
+  const failures: GateFailure[] = [];
+  const dimName = (id: string) => DIMENSION_BY_ID[id as DimensionId]?.name ?? id;
+
+  if (policy.minLevel && (Number(snap.level.replace(/^L/i, "")) || 0) < levelNum(policy.minLevel)) {
+    failures.push({ code: "level", message: `Level ${snap.level} is below the required ${policy.minLevel}.` });
+  }
+  if (typeof policy.minOverall === "number" && snap.overall < policy.minOverall) {
+    failures.push({ code: "overall", message: `Overall score ${snap.overall} is below the required ${policy.minOverall}.` });
+  }
+  if (typeof policy.minDimension === "number") {
+    const min = policy.minDimension;
+    for (const d of snap.dims.filter((x) => x.score < min)) {
+      failures.push({ code: "dimension", message: `${d.dimId} ${dimName(d.dimId)} scored ${d.score}, below the required ${min}.` });
+    }
+  }
+  if (policy.minDimensionFor) {
+    const floors = policy.minDimensionFor;
+    for (const d of snap.dims) {
+      const floor = floors[d.dimId as DimensionId];
+      // Skip dims already failed by the global minDimension to avoid a duplicate failure for the same dim.
+      const alreadyFailed = typeof policy.minDimension === "number" && d.score < policy.minDimension;
+      if (typeof floor === "number" && d.score < floor && !alreadyFailed) {
+        failures.push({ code: "dimension", message: `${d.dimId} ${dimName(d.dimId)} scored ${d.score}, below the required ${floor}.` });
+      }
+    }
+  }
+  if (policy.forbidPostures?.some((p) => p === snap.posture)) {
+    failures.push({ code: "posture", message: `Posture "${snap.posture}" is not permitted by the gate.` });
+  }
+  return { pass: failures.length === 0, policy, failures };
 }
 
 /**
