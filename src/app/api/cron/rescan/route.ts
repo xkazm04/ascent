@@ -48,19 +48,30 @@ export async function GET(request: Request) {
   const due = await listDueRescans();
 
   // Pre-resolve one installation token per distinct org up front: concurrent lanes would otherwise
-  // race to mint the same org's token. One mint per org, reused by every lane scanning it.
+  // race to mint the same org's token. One mint per org, reused by every lane scanning it. Track orgs
+  // that HAVE an install id but whose token mint FAILED separately from orgs with no install at all: the
+  // former is a likely-revoked/suspended install (every private repo would 404), the latter is a public
+  // org whose repos legitimately scan via the tokenless path.
   const orgSlugs = [...new Set(due.map((r) => r.orgSlug))];
   const tokenByOrg = new Map<string, string | undefined>();
+  const brokenInstallOrgs = new Set<string>();
   await Promise.all(
     orgSlugs.map(async (slug) => {
       const id = await getInstallationIdForOwner(slug).catch(() => null);
-      tokenByOrg.set(slug, id ? await getInstallationToken(id).catch(() => undefined) : undefined);
+      if (!id) {
+        tokenByOrg.set(slug, undefined); // no install — a public org; scans use the tokenless path
+        return;
+      }
+      const tok = await getInstallationToken(id).catch(() => undefined);
+      tokenByOrg.set(slug, tok);
+      if (!tok) brokenInstallOrgs.add(slug); // had an install but the mint failed → likely revoked
     }),
   );
 
   let scanned = 0;
   let skippedForCredits = 0;
   let skippedAlreadyClaimed = 0;
+  let skippedNoToken = 0;
   const errors: string[] = [];
 
   // Scan with bounded concurrency so a real fleet drains within the 300s budget (counters mutate in
@@ -74,6 +85,16 @@ export async function GET(request: Request) {
     const claimed = await claimRescan(r.repoId, r.scanSchedule).catch(() => false);
     if (!claimed) {
       skippedAlreadyClaimed += 1;
+      return;
+    }
+
+    // Short-circuit a whole org whose installation token couldn't be minted (likely revoked/suspended):
+    // don't reserve a credit, re-mint, or scan with no token (every private repo would 404, refund, and
+    // get a 6h failure backoff — so the dead fleet was re-attempted EVERY daily cron pass). The claim
+    // above already advanced nextScanAt to the full cadence, so it now waits the cadence, not 6h.
+    if (brokenInstallOrgs.has(r.orgSlug)) {
+      skippedNoToken += 1;
+      await recordScanOutcome(r.orgSlug, r.fullName, { ok: false, error: "installation token unavailable" }).catch(() => {});
       return;
     }
 
@@ -134,5 +155,5 @@ export async function GET(request: Request) {
     }
   });
 
-  return NextResponse.json({ due: due.length, scanned, skippedForCredits, skippedAlreadyClaimed, errors });
+  return NextResponse.json({ due: due.length, scanned, skippedForCredits, skippedAlreadyClaimed, skippedNoToken, errors });
 }

@@ -86,6 +86,13 @@ export async function POST(request: Request) {
           });
           return;
         }
+        // Distinct from "no watched repos": the watchlist is non-empty but the prepaid balance sliced
+        // scanList to nothing. Without this, the pool runs over zero items and the client gets a
+        // silent, successful-looking 0/0 result with no actionable stop — surface the real reason.
+        if (scanList.length === 0) {
+          send("error", { error: `Out of scan credits — ${repos.length} watched repos couldn't be scanned.` });
+          return;
+        }
         const token = installationId ? await getInstallationToken(installationId).catch(() => undefined) : undefined;
 
         // Tell the client up front when the prepaid balance can't cover every watched repo, so the
