@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { grantCredits, isDbConfigured } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
-import { getSession } from "@/lib/auth";
+import { getSession, isSameOrigin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +20,8 @@ function grantsEnabled(): boolean {
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Credits require a database." }, { status: 503 });
+  // CSRF defense-in-depth on this money-adjacent mutation (the session cookie is already SameSite=Lax).
+  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
   if (!grantsEnabled()) {
     return NextResponse.json(
       { error: "Manual credit grants are disabled on this deployment. Credits are added via billing." },

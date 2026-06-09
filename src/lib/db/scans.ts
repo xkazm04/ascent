@@ -36,6 +36,7 @@ export {
   updateRecommendation,
   updateRecommendationStatus,
   getRecommendationEvents,
+  getRecommendationOrgSlug,
   type RecommendationPatch,
   type RecommendationActor,
 } from "@/lib/db/scans-recommendations";

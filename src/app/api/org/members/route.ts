@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { isDbConfigured, listOrgMembers, setMembershipRole } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
+import { isSameOrigin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Members require a database." }, { status: 503 });
+  // CSRF defense-in-depth on this privilege-changing mutation (the session cookie is already SameSite=Lax).
+  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
   const body = (await request.json().catch(() => ({}))) as { org?: string; login?: string; role?: string };
   if (!body.org || !body.login || !body.role || !isOrgRole(body.role)) {
     return NextResponse.json({ error: "Provide { org, login, role: owner|admin|member|viewer }." }, { status: 400 });

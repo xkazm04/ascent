@@ -11,6 +11,7 @@ import { openDraftPr } from "@/lib/github/write";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner, getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
+import { requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,12 @@ export async function POST(request: Request) {
   if (!parsed || !body.practiceId) {
     return NextResponse.json({ error: "Provide { repo: 'owner/name', practiceId }." }, { status: 400 });
   }
+
+  // Tenant gate: this opens a PR (a WRITE) using the org's installation token, so require the caller
+  // to OWN that org — not merely be signed in. Without this, any signed-in user could open a draft PR
+  // in any org that has the App installed (a cross-tenant write IDOR).
+  const denied = await requireOrgAccess(parsed.owner);
+  if (denied) return denied;
 
   const installId = isDbConfigured() ? await getInstallationIdForOwner(parsed.owner).catch(() => null) : null;
   if (!installId) {

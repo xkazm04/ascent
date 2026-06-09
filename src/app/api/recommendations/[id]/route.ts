@@ -7,8 +7,9 @@
 
 import { NextResponse } from "next/server";
 import { REC_STATUSES, type RecStatus } from "@/lib/types";
-import { isDbConfigured, updateRecommendation, type RecommendationPatch } from "@/lib/db";
+import { getRecommendationOrgSlug, isDbConfigured, updateRecommendation, type RecommendationPatch } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
+import { requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,13 +31,17 @@ export async function PATCH(
       { status: 503 },
     );
   }
-  // Mutations are attributed to the signed-in user (recorded as the timeline actor).
-  const session = isAuthConfigured() ? await getSession() : null;
-  if (isAuthConfigured() && !session) {
-    return NextResponse.json({ error: "Sign in to update a recommendation." }, { status: 401 });
-  }
-
   const { id } = await ctx.params;
+  // Tenant gate: authorize the caller against the org that OWNS this recommendation (resolved from the
+  // row), not merely "is signed in" — otherwise any signed-in user could mutate another tenant's
+  // backlog (status/assignee/due-date) and write to its audit log by guessing/lifting a rec id.
+  const org = await getRecommendationOrgSlug(id);
+  if (!org) return NextResponse.json({ error: "Recommendation not found." }, { status: 404 });
+  const denied = await requireOrgAccess(org);
+  if (denied) return denied;
+  // Attribute the change to the signed-in user (recorded as the timeline actor).
+  const session = isAuthConfigured() ? await getSession() : null;
+
   const body = (await request.json().catch(() => ({}))) as PatchBody;
 
   const patch: RecommendationPatch = {};

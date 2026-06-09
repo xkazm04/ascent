@@ -112,6 +112,20 @@ export async function updateRecommendation(
   return toPersistedRec(updated);
 }
 
+/**
+ * Resolve the org slug that owns a recommendation (Recommendation → Scan → Repository → Organization),
+ * so a per-row route can authorize the CALLER against the recommendation's tenant before reading or
+ * mutating it. Returns null when the recommendation doesn't exist (or the DB is off) → 404 / no access.
+ */
+export async function getRecommendationOrgSlug(id: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const rec = await getPrisma().recommendation.findUnique({
+    where: { id },
+    select: { scan: { select: { repo: { select: { org: { select: { slug: true } } } } } } },
+  });
+  return rec?.scan.repo.org.slug ?? null;
+}
+
 /** Update only a recommendation's status (back-compat wrapper over updateRecommendation). */
 export async function updateRecommendationStatus(
   id: string,

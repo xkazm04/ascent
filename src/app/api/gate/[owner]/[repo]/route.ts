@@ -9,6 +9,7 @@ import { scanRepository } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,13 @@ export async function GET(
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
+  // Rate-limit the EXPENSIVE real-LLM path only (?mock=0). Default mock gating is cheap/deterministic
+  // and stays unthrottled for CI; only ?mock=0 (optionally with distinct ?ref= values that bypass the
+  // cache) spends LLM budget, so cap it per-IP/global to prevent unauthenticated cost amplification.
+  if (!mock) {
+    const rl = rateLimitRequest(req, SCAN_RATE_LIMIT);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  }
   try {
     let report;
     if (ref) {

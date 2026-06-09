@@ -20,6 +20,7 @@ export {
   updateRecommendation,
   updateRecommendationStatus,
   getRecommendationEvents,
+  getRecommendationOrgSlug,
   recordAudit,
   getAuditLog,
   getPublicScanGallery,

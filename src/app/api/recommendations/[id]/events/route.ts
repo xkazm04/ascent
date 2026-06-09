@@ -3,7 +3,8 @@
 // Requires DATABASE_URL (Phase 2); returns 503 when persistence is disabled.
 
 import { NextResponse } from "next/server";
-import { getRecommendationEvents, isDbConfigured } from "@/lib/db";
+import { getRecommendationEvents, getRecommendationOrgSlug, isDbConfigured } from "@/lib/db";
+import { requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,12 @@ export async function GET(
     );
   }
   const { id } = await ctx.params;
+  // Read gate: the timeline (assignee logins, free-text notes, due-date history) is per-tenant data,
+  // so resolve the owning org from the id and require read access — closes a cross-tenant read IDOR.
+  const org = await getRecommendationOrgSlug(id);
+  if (!org) return NextResponse.json({ error: "Recommendation not found." }, { status: 404 });
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
   try {
     const events = await getRecommendationEvents(id);
     return NextResponse.json({ events: events ?? [] });
