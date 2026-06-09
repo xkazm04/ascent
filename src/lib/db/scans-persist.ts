@@ -11,7 +11,7 @@ import {
   upsertRacing,
   withRepoLock,
 } from "@/lib/db/scans-shared";
-import { findScanByCommit } from "@/lib/db/scans-read";
+import { findScanByCommit, findScanByScannedAt } from "@/lib/db/scans-read";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
 export interface PersistResult {
@@ -126,6 +126,16 @@ export async function persistScanReport(
       const existing = await findScanByCommit(repo.id, headSha);
       if (existing) {
         return { scanId: existing.id, deduped: true, headSha, failures: { audit: false, contributors: 0 } };
+      }
+    } else {
+      // No commit SHA to dedup on: a sha-less report (head resolution failed, a reconstructed snapshot)
+      // would otherwise skip dedup entirely and insert a fresh row on every persist. Fall back to the
+      // report's own scannedAt so the SAME computed report persisted more than once — coalesced
+      // followers, a double-submit, a retried lane — reuses the first row instead of duplicating it. A
+      // genuinely new re-score carries a later scannedAt and is not suppressed.
+      const existing = await findScanByScannedAt(repo.id, new Date(report.scannedAt));
+      if (existing) {
+        return { scanId: existing.id, deduped: true, headSha: null, failures: { audit: false, contributors: 0 } };
       }
     }
 
