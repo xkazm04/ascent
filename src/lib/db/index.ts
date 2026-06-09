@@ -103,6 +103,7 @@ export {
   listDueRescans,
   advanceSchedule,
   advanceScheduleAfterFailure,
+  claimRescan,
   recordScanOutcome,
   listOrgsWithWatchedRepos,
   getOrgId,

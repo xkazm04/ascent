@@ -12,6 +12,7 @@ export {
   listDueRescans,
   advanceSchedule,
   advanceScheduleAfterFailure,
+  claimRescan,
   recordScanOutcome,
   listWatchedRepos,
   listOrgsWithWatchedRepos,
