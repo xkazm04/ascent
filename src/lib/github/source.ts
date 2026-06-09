@@ -452,7 +452,7 @@ export class GitHubPublicSource implements RepoSource {
     // Keep deterministic order for stable prompts/caching.
     files.sort((a, b) => a.path.localeCompare(b.path));
 
-    const coverage = estimateCoverage(blobs.length, files.length, treeRes.truncated);
+    const coverage = estimateCoverage(blobs.length, files.length, picks.length, treeRes.truncated);
 
     return {
       meta: repoMeta,
@@ -627,10 +627,16 @@ function pickFilesToFetch(blobs: RepoFile[]): string[] {
   return [...picked];
 }
 
-function estimateCoverage(totalBlobs: number, fetched: number, truncated: boolean): number {
+function estimateCoverage(totalBlobs: number, fetched: number, attempted: number, truncated: boolean): number {
   // Heuristic: how confident are we that we've seen the signal-bearing files?
   // Small repos -> high coverage; truncated giant repos -> lower.
-  let c = totalBlobs <= MAX_FILES ? 0.95 : Math.min(0.9, 0.4 + fetched / totalBlobs);
+  // Factor in the fetch SUCCESS RATE of the files we actually tried to read: a small repo used to pin
+  // 0.95 regardless of how many picks failed, so a transient raw-host blip that dropped half the files
+  // still read as fully covered — and the scan routes then CACHED that degraded snapshot for the full
+  // TTL (their guard keys off this coverage). Scaling by fetched/attempted pushes a blip-degraded scan
+  // below the cache threshold so it isn't pinned; a few legitimately-empty files barely move it.
+  const fetchRate = attempted > 0 ? fetched / attempted : 1;
+  let c = totalBlobs <= MAX_FILES ? 0.95 * fetchRate : Math.min(0.9, 0.4 + fetched / totalBlobs);
   if (truncated) c = Math.min(c, 0.6);
   return Math.round(c * 100) / 100;
 }
