@@ -78,10 +78,11 @@ async function githubGraphql<T>(
   }
 }
 
-const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!){
+const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!,$after:String){
   repository(owner:$owner,name:$repo){
-    pullRequests(first:$num, orderBy:{field:CREATED_AT,direction:DESC}){
+    pullRequests(first:$num, after:$after, orderBy:{field:CREATED_AT,direction:DESC}){
       totalCount
+      pageInfo{ hasNextPage endCursor }
       nodes{
         number title bodyText isDraft state createdAt mergedAt closedAt
         additions deletions changedFiles
@@ -94,7 +95,18 @@ const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!){
   }
 }`;
 
-/** One GraphQL request: the most recent `limit` PRs with reviews/labels/size attached. */
+interface PrPage extends PullRequestsResult {
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+}
+
+/**
+ * The most recent `limit` PRs (newest-first) with reviews/labels/size attached. GraphQL caps a single
+ * `first:` at 100, so this walks pages with a cursor until it has `limit` nodes or the repo runs out —
+ * the previous single request silently truncated at 100 for any caller asking for more (and the score
+ * was then computed off a non-representative slice with no signal of the truncation). `totalCount` is
+ * the repo-wide PR count (callers surface it as "N analyzed of M total"). Bounded by MAX_PAGES so a
+ * pathological repo can't loop forever.
+ */
 export async function fetchPullRequests(
   owner: string,
   repo: string,
@@ -102,11 +114,28 @@ export async function fetchPullRequests(
   limit = 40,
   signal?: AbortSignal,
 ): Promise<PullRequestsResult> {
-  const data = await githubGraphql<{ repository: { pullRequests: PullRequestsResult } | null }>(
-    token,
-    PR_QUERY,
-    { owner, repo, num: Math.min(100, Math.max(1, limit)) },
-    signal,
-  );
-  return data.repository?.pullRequests ?? { totalCount: 0, nodes: [] };
+  const target = Math.max(1, limit);
+  const PER_PAGE = 100;
+  const MAX_PAGES = 10; // safety bound — up to 1000 PRs even if `limit` is huge
+  const nodes: PrNode[] = [];
+  let totalCount = 0;
+  let after: string | null = null;
+
+  for (let page = 0; page < MAX_PAGES && nodes.length < target; page++) {
+    const num = Math.min(PER_PAGE, target - nodes.length);
+    const data: { repository: { pullRequests: PrPage } | null } = await githubGraphql(
+      token,
+      PR_QUERY,
+      { owner, repo, num, after },
+      signal,
+    );
+    const pr: PrPage | undefined = data.repository?.pullRequests;
+    if (!pr) break;
+    totalCount = pr.totalCount;
+    nodes.push(...pr.nodes);
+    if (!pr.pageInfo?.hasNextPage || pr.nodes.length === 0) break; // last (or short) page
+    after = pr.pageInfo.endCursor;
+  }
+
+  return { totalCount, nodes };
 }
