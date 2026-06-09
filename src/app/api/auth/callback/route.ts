@@ -3,6 +3,7 @@
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createHash, timingSafeEqual } from "crypto";
 import {
   buildSession,
   encodeSession,
@@ -31,19 +32,50 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Constant-time string equality. Hashing both sides to a fixed 32 bytes first keeps the comparison
+ *  constant-time regardless of input length, so the CSRF state check can't leak the saved value via
+ *  timing — mirroring the session HMAC's own timingSafeEqual check. */
+function constantTimeEqual(a: string, b: string): boolean {
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const origin = url.origin;
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
+  const oauthError = url.searchParams.get("error");
+
+  // GitHub redirected back with an explicit error — the user cancelled on the consent screen, the
+  // authorization expired, or the App was suspended. This arrives WITH a valid state cookie and no
+  // code, so it must be handled before the CSRF/missing-code guard below, or it would be misreported
+  // as a generic "oauth" failure indistinguishable from a forged-state attack (and the user would get
+  // no "you cancelled — try again" guidance). Surface a distinct, actionable code and log the reason.
+  if (oauthError) {
+    console.warn(
+      `[auth/callback] GitHub OAuth error: ${oauthError}`,
+      url.searchParams.get("error_description") ?? "",
+    );
+    const res = NextResponse.redirect(new URL("/connect?error=denied", request.url));
+    res.cookies.delete(RESYNC_COOKIE);
+    return res;
+  }
 
   const store = await cookies();
   const savedState = store.get(STATE_COOKIE)?.value;
   const next = safeNext(store.get(NEXT_COOKIE)?.value);
   const resync = store.get(RESYNC_COOKIE)?.value === "1";
 
-  if (!isAuthConfigured() || !code || !state || !savedState || state !== savedState) {
+  if (!isAuthConfigured() || !code || !state || !savedState) {
     return NextResponse.redirect(new URL("/connect?error=oauth", request.url));
+  }
+  // Constant-time CSRF state comparison (not a plain `!==`), kept as its own branch so a genuine
+  // mismatch surfaces a distinct `error=csrf` for logs/incident response rather than the generic code.
+  if (!constantTimeEqual(state, savedState)) {
+    console.warn("[auth/callback] CSRF state mismatch");
+    return NextResponse.redirect(new URL("/connect?error=csrf", request.url));
   }
 
   try {
