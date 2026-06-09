@@ -34,7 +34,11 @@ function safeFilenameSlug(org: string): string {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org") ?? "public";
-  const days = Math.min(365, Math.max(1, Number(searchParams.get("days")) || 30));
+  const orgLc = org.toLowerCase();
+  // Bound the window. A private (authenticated) org may request up to a year; the UNAUTHENTICATED
+  // public org is capped tighter (90d) so an anonymous caller can't repeatedly force a 365-day,
+  // ~10-aggregate full-window scan as a cheap DoS lever. Non-numeric input falls back to 30.
+  const days = Math.min(orgLc === "public" ? 90 : 365, Math.max(1, Number(searchParams.get("days")) || 30));
   const format = searchParams.get("format");
 
   if (!isDbConfigured()) {
@@ -49,7 +53,6 @@ export async function GET(request: Request) {
   // anyone could enumerate org slugs and read another tenant's usage volume/timeline. The
   // shared "public" org is readable by anyone; a private org requires a session whose
   // installations include it.
-  const orgLc = org.toLowerCase();
   if (orgLc !== "public") {
     if (!isAuthConfigured()) {
       // DB-on + auth-off must NOT become an open multi-tenant usage API: with DATABASE_URL set
