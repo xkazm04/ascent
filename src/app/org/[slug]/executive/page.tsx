@@ -41,7 +41,16 @@ export default async function OrgExecutive({
           title="Executive briefing"
           description={`Board-ready standing for ${slug} — maturity, benchmark, trajectory, movement and goals over ${period.title.toLowerCase()}. Copy it as a markdown brief to drop into Claude Code for next actions.`}
         />
-        <CopyForLlm text={md} label="Copy briefing for LLM" />
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}`}
+            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+            title="Download the briefing as a board-ready PDF"
+          >
+            <span aria-hidden>↓</span> Download PDF
+          </a>
+          <CopyForLlm text={md} label="Copy briefing for LLM" />
+        </div>
       </div>
 
       <div className={TILE_GRID}>

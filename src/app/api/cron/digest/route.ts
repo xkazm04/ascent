@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import {
+  getOrgBenchmark,
   getOrgMovers,
   getOrgRecommendations,
   getOrgRollup,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/db";
 import { buildFleetDigestMessage, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
 import { levelForScore } from "@/lib/maturity/model";
+import { forecastHeadline } from "@/lib/maturity/forecast";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,15 +48,17 @@ export async function GET(request: Request) {
     try {
       const rollup = await getOrgRollup(org, win);
       if (!rollup || rollup.scannedCount === 0) continue; // nothing to report on yet
-      const [movers, recs] = await Promise.all([
+      const [movers, recs, benchmark] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
+        getOrgBenchmark(org).catch(() => null),
       ]);
       const level = levelForScore(rollup.avgOverall);
       const top = recs?.[0];
       const msg = buildFleetDigestMessage({
         org,
-        url: base ? `${base}/org/${encodeURIComponent(org)}` : undefined,
+        // Link straight to the exec briefing — the digest is its push-channel summary.
+        url: base ? `${base}/org/${encodeURIComponent(org)}/executive` : undefined,
         repoCount: rollup.repoCount,
         scannedCount: rollup.scannedCount,
         avgOverall: rollup.avgOverall,
@@ -63,6 +67,8 @@ export async function GET(request: Request) {
         gainers: (movers?.gainers ?? []).slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         regressers: (movers?.regressers ?? []).slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
+        percentile: benchmark?.overallPercentile ?? null,
+        trajectory: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
       });
       if (await dispatchAlert(msg)) sent += 1;
     } catch (err) {

@@ -148,6 +148,10 @@ export interface FleetDigestInput {
   gainers: { name: string; delta: number }[];
   regressers: { name: string; delta: number }[];
   topRecommendation: { title: string; repoCount: number } | null;
+  /** Corpus percentile (0..100) for the exec digest, or null/undefined when no corpus yet. */
+  percentile?: number | null;
+  /** One-line forecast trajectory headline, or null/undefined when there's too little history. */
+  trajectory?: string | null;
 }
 
 /**
@@ -164,17 +168,21 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
         ? " (no change this week)"
         : ` (${d.overallDelta > 0 ? "+" : ""}${d.overallDelta} this week)`;
   const headline = `📊 Ascent weekly digest: ${d.org}`;
-  const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} — ${d.scannedCount}/${d.repoCount} repos scanned`;
+  const pctile = d.percentile != null ? ` · ${d.percentile}th pctile` : "";
+  const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} — ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${m.delta >= 0 ? "+" : ""}${m.delta}`;
 
   const lines: string[] = [headline, summary.replace(/\*/g, "")];
+  if (d.trajectory) lines.push(d.trajectory);
   if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
   if (d.topRecommendation)
     lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
   if (d.url) lines.push("", d.url);
 
-  const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${summary}` } }];
+  const blocks: unknown[] = [
+    { type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${summary}${d.trajectory ? `\n_${d.trajectory}_` : ""}` } },
+  ];
   const mv: string[] = [];
   if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
   if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
