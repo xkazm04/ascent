@@ -21,7 +21,11 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
   const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "", failed: 0 });
 
   async function run(scope?: { staleOnlyDays?: number }) {
-    setP({ running: true, done: 0, total: watchedCount, current: "starting…", failed: 0 });
+    // For a SCOPED (stale-only) scan the count isn't known up front — the server picks the stale subset
+    // — so start the denominator at 0 and let the server's first progress/notice event fill it in,
+    // rather than showing a misleading "0/<all watched>" (or an instant 100% on a tiny stale subset).
+    const initialTotal = scope ? 0 : watchedCount;
+    setP({ running: true, done: 0, total: initialTotal, current: "starting…", failed: 0 });
     try {
       const res = await fetch("/api/org/scan", {
         method: "POST",
@@ -62,7 +66,11 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           title={watchedCount === 0 ? "Watch repositories on Connect to enable scanning" : undefined}
           className="rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {p.running ? `Scanning ${p.done}/${p.total}…` : `Scan all watched (${watchedCount})`}
+          {p.running
+            ? p.total
+              ? `Scanning ${p.done}/${p.total}…`
+              : "Scanning…"
+            : `Scan all watched (${watchedCount})`}
         </button>
         <button
           type="button"
