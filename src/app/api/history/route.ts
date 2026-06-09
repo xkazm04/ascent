@@ -13,9 +13,16 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180). */
-function csvField(v: string | number): string {
-  const s = String(v);
+/** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180). Total by design: a value
+ *  whose String() throws (a throwing toString, an unexpected object from a future DB shape) must not
+ *  blow up the whole export — it degrades to an empty cell, not a generic 500 for every scan. */
+function csvField(v: unknown): string {
+  let s: string;
+  try {
+    s = v == null ? "" : String(v);
+  } catch {
+    s = "";
+  }
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -24,7 +31,7 @@ function historyToCsv(history: RepositoryHistory): string {
   const dimIds = DIMENSIONS.map((d) => d.id);
   const header = ["scannedAt", "overall", "level", "levelName", "engine", ...dimIds].join(",");
   const rows = [...history.scans].reverse().map((s) => {
-    const byDim = new Map(s.dimensions.map((d) => [d.dimId, d.score]));
+    const byDim = new Map((s.dimensions ?? []).map((d) => [d.dimId, d.score]));
     const dims = dimIds.map((id) => csvField(byDim.get(id) ?? ""));
     // Quote EVERY field uniformly (was raw for scannedAt/overall/dims): if any value ever gains a
     // comma (a comma'd locale timestamp, a stringy dim cell), an unquoted field shifts the column
