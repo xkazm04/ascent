@@ -75,14 +75,20 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
   let owner: string | undefined;
   let repo: string | undefined;
 
+  const hadScheme = s.includes("://");
   try {
-    const url = new URL(s.includes("://") ? s : `https://${s}`);
-    if (!/github\.com$/i.test(url.hostname)) {
-      // Not a github host — fall through to bare owner/repo parsing below.
-    } else {
+    const url = new URL(hadScheme ? s : `https://${s}`);
+    if (/github\.com$/i.test(url.hostname)) {
       const parts = url.pathname.split("/").filter(Boolean);
       [owner, repo] = parts;
+    } else if (hadScheme) {
+      // An EXPLICIT URL (it carried a scheme) pointing at a non-GitHub host is not a GitHub repo
+      // reference — reject it outright rather than fall through to bare-parsing its scheme/host/path
+      // segments as GitHub coordinates. A scheme-less "owner/repo" shorthand still falls through to the
+      // bare parser below, where the leading-dot heuristic rejects host-like inputs ("gitlab.com/a/b").
+      return null;
     }
+    // scheme-less, non-github "host" → fall through to the bare owner/repo shorthand parser below.
   } catch {
     // not a URL
   }
