@@ -179,6 +179,15 @@ export {
   type InitiativeRow,
 } from "@/lib/db/plan";
 export {
+  listPlaybooks,
+  createPlaybook,
+  updatePlaybook,
+  deletePlaybook,
+  getPlaybookOrgSlug,
+  type PlaybookRow,
+  type PlaybookInput,
+} from "@/lib/db/playbooks";
+export {
   forecastTrajectory,
   forecastHeadline,
   humanizeDays,

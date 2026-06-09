@@ -48,6 +48,7 @@ model Organization {
   goals         Goal[]
   initiatives   Initiative[]
   segments      Segment[]
+  playbooks     Playbook[]
 }
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
@@ -384,6 +385,27 @@ model Initiative {
 
   @@index([orgId])
   @@index([status])
+}
+
+// A company best-practice "playbook" authored by an org owner/admin — the org's own reusable
+// standard for a maturity dimension (e.g. "Our CI standard", "Our AGENTS.md template"). Devs browse
+// and apply them; later phases tie adoption to dimension lift. `steps` is a JSON string[] of the
+// concrete actions. Org-scoped; see src/lib/db/playbooks.ts. Distinct from the DERIVED practice
+// library (getOrgPractices), which is inferred from scans rather than authored.
+model Playbook {
+  id        String   @id @default(uuid())
+  orgId     String
+  title     String
+  dimId     String // "D1".."D9" — the dimension this playbook strengthens
+  summary   String   @default("") // what it is / why it matters
+  steps     String   @default("[]") // JSON string[] — the concrete starter steps
+  createdBy String? // GitHub login of the author
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
 }
 
 // Server-side session revocation. The signed session cookie embeds the `sv` (session

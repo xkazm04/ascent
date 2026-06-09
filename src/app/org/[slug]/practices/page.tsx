@@ -1,20 +1,22 @@
 import Link from "next/link";
 import { Card, Meter, SectionEmpty, SectionHeader } from "@/components/org/ui";
 import { PracticeApply } from "@/components/org/PracticeApply";
-import { getOrgPractices } from "@/lib/db";
+import { PlaybooksPanel } from "@/components/org/PlaybooksPanel";
+import { getOrgPractices, listPlaybooks } from "@/lib/db";
+import { DIMENSIONS } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrgPractices({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const practices = await getOrgPractices(slug);
-  if (!practices) {
-    return <SectionEmpty>No practice data yet — scan some of this org&apos;s repositories first.</SectionEmpty>;
-  }
+  const [playbooks, practices] = await Promise.all([listPlaybooks(slug), getOrgPractices(slug)]);
+  const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
 
   return (
     <div className="space-y-6">
+      <PlaybooksPanel slug={slug} initial={playbooks ?? []} dimOptions={dimOptions} />
+
       <SectionHeader
         descriptionClassName="max-w-3xl"
         title="Practice Library"
@@ -27,7 +29,10 @@ export default async function OrgPractices({ params }: { params: Promise<{ slug:
         }
       />
 
-      {practices.map((p) => {
+      {(!practices || practices.length === 0) && (
+        <SectionEmpty>No mined practices yet — scan some of this org&apos;s repositories to surface them.</SectionEmpty>
+      )}
+      {(practices ?? []).map((p) => {
         const adoptionPct = p.total ? Math.round((p.strongCount / p.total) * 100) : 0;
         return (
           <Card key={p.id}>
