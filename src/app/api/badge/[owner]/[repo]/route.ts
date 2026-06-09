@@ -289,6 +289,11 @@ export async function GET(
     // 304, so a README badge hit by every viewer doesn't burn a rate-limit unit per request.
     // Null on failure falls back to a SHA-less key.
     const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
+    // A SHA-less badge (head resolution failed: a transient blip, no GITHUB_TOKEN, or a rate-limited
+    // head lookup) is keyed by the un-pinned owner/repo::mode form and is best-effort/possibly stale —
+    // don't let a CDN pin it for the full 10-min resolved TTL for every README viewer. Downgrade to the
+    // short neutral TTL so the next hit re-resolves the head once the blip clears.
+    const resolvedCache = sha ? CACHE_RESOLVED : CACHE_NEUTRAL;
     // One key scheme shared with the scan/cache layer (makeCacheKey), so the badge reflects a
     // real LLM scan when one exists instead of resolving to a duplicate mock entry.
     const mockKey = makeCacheKey(ownerN, repoN, false, sha);
@@ -331,7 +336,7 @@ export async function GET(
           logo,
           href,
         }),
-        { cache: customized ? CACHE_CUSTOM : CACHE_RESOLVED },
+        { cache: customized ? CACHE_CUSTOM : resolvedCache },
       );
     }
 
@@ -347,7 +352,7 @@ export async function GET(
         logo,
         href,
       }),
-      { cache: customized ? CACHE_CUSTOM : CACHE_RESOLVED },
+      { cache: customized ? CACHE_CUSTOM : resolvedCache },
     );
   } catch (err) {
     // Only negative-cache a GENUINE not-found/invalid/empty repo. A transient failure (GitHub rate

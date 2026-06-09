@@ -104,7 +104,13 @@ export async function GET(request: Request) {
     // re-transfer an unchanged series. Caching is `private` (not `s-maxage`): the payload is
     // org-scoped and may be auth-gated, so it must never sit in a shared proxy cache where another
     // tenant could receive it.
-    const etag = `W/"h${includeDimensions ? "f" : "l"}${payload.scans.length}-${payload.scans[0]?.id ?? "none"}"`;
+    // Fold a content signature of the newest scan (scannedAt + overallScore) into the validator, not
+    // just (mode, count, newest id): a malformed newest row later CORRECTED in place — same id, same
+    // total count — left the weak ETag unchanged, so a client holding it got a 304 forever and never
+    // saw the fix. The signature changes when the newest row's timestamp or score changes.
+    const newest = payload.scans[0];
+    const sig = newest ? `${newest.id}-${newest.scannedAt}-${newest.overallScore}` : "none";
+    const etag = `W/"h${includeDimensions ? "f" : "l"}${payload.scans.length}-${sig}"`;
     const headers: Record<string, string> = {
       etag,
       "cache-control": "private, max-age=30, stale-while-revalidate=300",
