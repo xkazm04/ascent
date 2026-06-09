@@ -10,7 +10,7 @@
 // GitHub doesn't retry on our transient issues.
 
 import { NextResponse, after } from "next/server";
-import { getInstallation, getInstallationToken, isAppConfigured, verifyWebhook } from "@/lib/github/app";
+import { AppApiError, getInstallation, getInstallationToken, isAppConfigured, verifyWebhook } from "@/lib/github/app";
 import {
   getInstallationIdForOwner,
   getOrgId,
@@ -93,7 +93,19 @@ function forgetDelivery(id: string): void {
  *  the claimed owner, and fail closed if we can't. (Previously unknown owners were allowed through,
  *  i.e. fail-open.) */
 async function installationMatchesOwner(installationId: number, owner: string): Promise<boolean> {
-  const known = await getInstallationIdForOwner(owner).catch(() => null);
+  let known: string | null;
+  try {
+    known = await getInstallationIdForOwner(owner);
+  } catch (err) {
+    // A DB error must NOT collapse "no mapping exists" and "couldn't determine if a mapping exists"
+    // into the same value — the old `.catch(() => null)` silently downgraded the strict stored-id
+    // match to the looser GitHub-confirmation path whenever the lookup hiccupped. Fail closed.
+    console.warn(
+      `[webhook] owner-mapping lookup failed for ${owner}; failing closed`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
   if (known) {
     if (known !== String(installationId)) {
       console.warn(
@@ -115,6 +127,35 @@ async function installationMatchesOwner(installationId: number, owner: string): 
   } catch (err) {
     console.warn(
       `[webhook] could not confirm installation ${installationId} for ${owner}; skipping`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
+
+/**
+ * Confirm a DESTRUCTIVE installation event against GitHub (App-JWT authoritative) before acting on it.
+ * A validly-signed but forged/misrouted `installation.deleted`/`suspend` naming a VICTIM's still-active
+ * installation id would otherwise wipe their watch/schedule, null their install id, and revoke their
+ * live sessions — a single-delivery DoS. We only tear down when GitHub itself confirms the revocation:
+ *  - `deleted`  → `getInstallation` 404s (the installation is genuinely gone).
+ *  - `suspend`  → `getInstallation` returns it with `suspendedAt` set.
+ * Any other outcome (still active, or a transient error we can't interpret) fails CLOSED: we do not
+ * remove. A genuinely-revoked installation self-heals anyway — token mints 401 and invalidate.
+ */
+async function confirmRevocationWithGitHub(installationId: number, action: "deleted" | "suspend"): Promise<boolean> {
+  try {
+    const info = await getInstallation(installationId);
+    // GitHub still has the installation. Only a confirmed suspension is a real revocation here; a
+    // "deleted" event for a still-present installation is forged/misrouted.
+    if (action === "suspend") return info.suspendedAt != null;
+    console.warn(`[webhook] installation ${installationId} still active on GitHub; ignoring forged "deleted"`);
+    return false;
+  } catch (err) {
+    // A 404 is GitHub confirming the installation is gone — the legitimate "deleted" case.
+    if (err instanceof AppApiError && err.status === 404) return action === "deleted";
+    console.warn(
+      `[webhook] could not confirm ${action} of installation ${installationId}; failing closed`,
       err instanceof Error ? err.message : err,
     );
     return false;
@@ -257,7 +298,15 @@ export async function POST(request: Request) {
             );
           }
         } else if (payload.action === "deleted" || payload.action === "suspend") {
-          await removeInstallation(id);
+          // Destructive + cascading (removeInstallation unwatches every repo, nulls the install id, and
+          // revokes live sessions), so confirm with GitHub before acting — symmetric with the create
+          // branch above. This blocks a forged/misrouted but signed delete/suspend naming a victim's
+          // still-active installation from silently disabling their scanning and signing them out.
+          if (await confirmRevocationWithGitHub(id, payload.action)) {
+            await removeInstallation(id);
+          } else {
+            console.warn(`[webhook] ignoring unconfirmed installation ${payload.action} for id ${id}`);
+          }
         }
       }
     } else if (event === "installation_repositories" && isDbConfigured()) {
