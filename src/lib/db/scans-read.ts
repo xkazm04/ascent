@@ -119,7 +119,10 @@ export async function getRepositoryHistory(
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
-  const limit = opts.limit ?? 30;
+  // Clamp to a positive bounded range: a NEGATIVE `take` makes Prisma return rows from the OTHER end,
+  // so a caller passing limit<0 (a buggy/probing query param) would silently get the OLDEST scans
+  // instead of the newest — and an unbounded large limit is a cheap heavy query. Coerce NaN to 30.
+  const limit = Math.max(1, Math.min(200, Math.trunc(opts.limit ?? 30) || 30));
   const includeDimensions = opts.includeDimensions ?? true;
   const fullName = `${owner}/${name}`;
 

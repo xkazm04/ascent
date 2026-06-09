@@ -312,7 +312,12 @@ export function getPrisma(): PrismaClient {
   // synchronous accessor always has a client, then immediately refresh in the background to mint
   // our own short-lived token.
   const client = newClient(process.env.DATABASE_URL);
-  g.__ascentPrisma = { client, expiresAt: cfg ? Date.now() + cfg.ttlSeconds * 1000 : Infinity };
+  // Mark the seed STALE-NOW (expiresAt 0), not a full fresh TTL. The deploy-time token may already be
+  // aged or expired (a frozen instance thawing past the TTL), so crediting it a full TTL blinds
+  // tokenIsStale and skips proactive refresh — and if the very next refresh then FAILS, that optimistic
+  // far-future expiresAt would pin the stale client and suppress ALL further refreshes (findings #2+#3).
+  // At 0, every getPrisma keeps kicking the single-flighted refresh until our own token actually lands.
+  g.__ascentPrisma = { client, expiresAt: cfg ? 0 : Infinity };
   if (cfg) {
     void refresh(cfg).catch((err) =>
       console.error("[db] DSQL IAM token refresh failed:", errorInfo(err).message),
