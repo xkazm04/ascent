@@ -75,6 +75,17 @@ function deliveryAlreadySeen(id: string): boolean {
   return false;
 }
 
+/**
+ * Release a delivery id from the seen-set so a redelivery can be retried. The handler marks a delivery
+ * seen at the top (replay protection) BEFORE the deferred after() scan runs; if that scan then fails
+ * transiently (DB blip, token mint failure), the delivery would stay "seen" and a GitHub/manual
+ * redelivery of the same id would be silently deduped — dropping the scan forever. Calling this in the
+ * deferred work's failure path frees the slot so the retry actually runs. (Process-local, like the map.)
+ */
+function forgetDelivery(id: string): void {
+  seenDeliveries.delete(id);
+}
+
 /** Bind a webhook's claimed installation to its owner before we mint a token / scan. For a KNOWN
  *  owner, the stored mapping must agree. For an UNKNOWN owner (no mapping yet), the HMAC proves the
  *  delivery is authentic but NOT that a forged/replayed payload's (installationId, owner) pair is
@@ -123,6 +134,8 @@ interface PrGateRef {
   headSha: string;
   /** PR base branch (e.g. "main") — the ref we diff against to show the PR's impact. */
   baseRef: string;
+  /** GitHub delivery id, released from the seen-set if this deferred run fails so a redelivery retries. */
+  deliveryId?: string;
 }
 
 /**
@@ -178,11 +191,13 @@ async function runPrGate(ref: PrGateRef) {
     );
   } catch (err) {
     console.error("[webhook] PR gate failed", err instanceof Error ? err.message : err);
+    // The deferred gate failed after we already 2xx'd — release the delivery so a redelivery retries.
+    if (ref.deliveryId) forgetDelivery(ref.deliveryId);
   }
 }
 
 /** Re-scan a watched repo on push, persist, and alert on a regression vs the prior scan. */
-async function runPushRescan(installationId: number, owner: string, repo: string) {
+async function runPushRescan(installationId: number, owner: string, repo: string, deliveryId?: string) {
   try {
     const fullName = `${owner}/${repo}`;
     const orgSlug = owner.toLowerCase();
@@ -198,6 +213,8 @@ async function runPushRescan(installationId: number, owner: string, repo: string
     }
   } catch (err) {
     console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err);
+    // The deferred rescan failed after we already 2xx'd — release the delivery so a redelivery retries.
+    if (deliveryId) forgetDelivery(deliveryId);
   }
 }
 
@@ -262,8 +279,9 @@ export async function POST(request: Request) {
       const headSha = payload.pull_request?.head?.sha;
       const baseRef = payload.pull_request?.base?.ref ?? payload.repository?.default_branch;
       if (installationId && owner && repo && prNumber && headSha && baseRef && PR_ACTIONS.has(payload.action ?? "")) {
-        // Defer the scan to after the response so GitHub gets its fast 2xx.
-        after(() => runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef }));
+        // Defer the scan to after the response so GitHub gets its fast 2xx. Pass the delivery id so a
+        // transient failure in the deferred gate releases the dedup slot for a redelivery retry.
+        after(() => runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef, deliveryId: delivery ?? undefined }));
       }
     } else if (event === "push" && isAppConfigured() && isDbConfigured()) {
       const installationId = payload.installation?.id;
@@ -273,7 +291,7 @@ export async function POST(request: Request) {
       const onDefault = defaultBranch != null && payload.ref === `refs/heads/${defaultBranch}`;
       const headMoved = !payload.deleted && !!payload.after && !/^0+$/.test(payload.after);
       if (installationId && owner && repo && onDefault && headMoved) {
-        after(() => runPushRescan(installationId, owner, repo));
+        after(() => runPushRescan(installationId, owner, repo, delivery ?? undefined));
       }
     }
   } catch (err) {
