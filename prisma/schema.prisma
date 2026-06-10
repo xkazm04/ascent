@@ -441,3 +441,19 @@ model SessionRevocation {
   version   Int      @default(0)
   updatedAt DateTime @updatedAt
 }
+
+// Soft weekly quota for anonymous public scans, keyed by a SALTED HASH of the client IP (never the
+// raw IP — avoids persisting PII). Persistent + cross-instance, which is the whole point: a 7-day
+// window can't live in the per-minute in-memory burst limiter (src/lib/rate-limit.ts), since
+// serverless instances reset and each keeps its own Map. This is a deliberately SOFT gate —
+// knowingly attackable (IP rotation, shared NAT/CGNAT collisions) — that caps casual repeat use of
+// the free, no-signup public scan and nudges heavy users to sign in. Enforced only when persistence
+// is configured; the scan path fails OPEN if this store hiccups. `hits` is a JSON number[] of
+// epoch-ms scan timestamps inside the rolling window, trimmed on each write. See
+// src/lib/public-scan-quota.ts. Standalone under relationMode = "prisma" (no FKs); read/written by
+// its primary key. Stale rows are swept by the retention purge job (src/lib/db/retention.ts).
+model PublicScanQuota {
+  ipHash    String   @id // SHA-256(salt + ":" + clientIp), hex — never the raw IP
+  hits      String   @default("[]") // JSON number[] of epoch-ms timestamps in the rolling 7-day window
+  updatedAt DateTime @updatedAt
+}

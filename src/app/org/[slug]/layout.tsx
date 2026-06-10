@@ -6,6 +6,7 @@ import { CreditsControl } from "@/components/org/CreditsControl";
 import { OrgEmpty } from "@/components/org/ui";
 import { getCreditState, getOrgRollup, isDbConfigured } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
@@ -43,6 +44,17 @@ export default async function OrgLayout({
       </Frame>
     );
   }
+  // Supabase login wall (layered on the dormant custom OAuth): when enforced, require a signed-in
+  // viewer before reading any org data. Any signed-in viewer may view any org (simple-wall semantics);
+  // canReadOrg below then returns true for them.
+  if (authGateEnabled() && !(await getViewer())) {
+    return (
+      <Frame>
+        <SignInNotice next={`/org/${slug}`} provider="supabase" />
+      </Frame>
+    );
+  }
+
   const { session, status } = await getSessionState();
   if (isAuthConfigured() && !session) {
     return (

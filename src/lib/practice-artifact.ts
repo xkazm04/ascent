@@ -35,7 +35,7 @@ export interface ArtifactSpec {
   prBody: string;
 }
 
-interface LangCommands {
+export interface LangCommands {
   install: string;
   test: string;
   lint: string;
@@ -44,7 +44,9 @@ interface LangCommands {
   ci: "node" | "python" | "go" | "rust" | "generic";
 }
 
-function commandsFor(language?: string | null): LangCommands {
+/** Map a repo's primary language to its canonical install/test/lint/build commands + CI setup id.
+ *  The single source of truth for language→commands; reused by the onboarding-skill generator. */
+export function commandsFor(language?: string | null): LangCommands {
   switch ((language ?? "").toLowerCase()) {
     case "typescript":
     case "javascript":

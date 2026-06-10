@@ -6,8 +6,19 @@
 
 import { EmptyState } from "@/components/EmptyState";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
+import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
 
-export function SignInNotice({ next, expired = false }: { next: string; expired?: boolean }) {
+export function SignInNotice({
+  next,
+  expired = false,
+  provider = "github",
+}: {
+  next: string;
+  expired?: boolean;
+  /** Which OAuth backend the CTA drives. "supabase" = the active Supabase GitHub login; "github" =
+   *  the dormant custom-OAuth button (default, used by the legacy flow). */
+  provider?: "github" | "supabase";
+}) {
   return (
     <EmptyState
       icon={expired ? "⏳" : "🔐"}
@@ -28,7 +39,11 @@ export function SignInNotice({ next, expired = false }: { next: string; expired?
           : "Connect your GitHub account to access private repositories, history, and usage."
       }
     >
-      <GitHubSignInButton next={next} />
+      {provider === "supabase" ? (
+        <SupabaseSignInButton next={next} />
+      ) : (
+        <GitHubSignInButton next={next} />
+      )}
     </EmptyState>
   );
 }

@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { getSession, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
+import { authGateEnabled, getViewer, requireViewer } from "@/lib/access";
 import { ensureOwnerMembership, getMembershipRole, roleAtLeast, type OrgRole } from "@/lib/db/members";
 
 /** True when the current session's installations include `org` (case-insensitive). */
@@ -30,6 +31,11 @@ export async function sessionHasInstallation(installationId: string | number): P
  * include it. Call at the top of every mutating /api/org/* (and token-minting /api/app/*) handler.
  */
 export async function requireOrgAccess(org: string): Promise<NextResponse | null> {
+  // Supabase login wall (layered on top): when enforced, require a signed-in viewer first. Past
+  // this, the existing installation-based model governs (and is open when custom OAuth is off, so a
+  // signed-in Supabase viewer may act on any org — the agreed simple-wall semantics).
+  const gate = await requireViewer();
+  if (gate) return gate;
   if (!isAuthConfigured()) return null;
   const slug = org.trim().toLowerCase();
   if (slug === PUBLIC_ORG) return null;
@@ -56,6 +62,9 @@ export async function requireOrgAccess(org: string): Promise<NextResponse | null
 export async function canReadOrg(org: string): Promise<boolean> {
   const slug = org.trim().toLowerCase();
   if (slug === PUBLIC_ORG) return true;
+  // Supabase login wall active: any signed-in viewer may read any org (simple-wall semantics);
+  // signed-out is refused. Checked before the custom-OAuth model below (which stays dormant).
+  if (authGateEnabled()) return Boolean(await getViewer());
   if (!isAuthConfigured()) return openOrgDashboardsEnabled();
   return sessionOwnsOrg(slug);
 }
@@ -69,6 +78,10 @@ export async function canReadOrg(org: string): Promise<boolean> {
  */
 export async function requireOrgRead(org: string): Promise<NextResponse | null> {
   if (await canReadOrg(org)) return null;
+  // Supabase login wall: canReadOrg only returns false here when the viewer is signed out.
+  if (authGateEnabled()) {
+    return NextResponse.json({ error: "Sign in to view this organization." }, { status: 401 });
+  }
   if (isAuthConfigured()) {
     const session = await getSession();
     if (!session) {
@@ -103,6 +116,10 @@ export function openOrgDashboardsEnabled(): boolean {
  * deletes. For "any member may act" use requireOrgAccess; for reads use requireOrgRead.
  */
 export async function requireOrgRole(org: string, min: OrgRole): Promise<NextResponse | null> {
+  // Supabase login wall first (see requireOrgAccess). When custom OAuth is off, role checks below
+  // are open, so a signed-in Supabase viewer passes — matching the agreed simple-wall semantics.
+  const gate = await requireViewer();
+  if (gate) return gate;
   if (!isAuthConfigured()) return null;
   const slug = org.trim().toLowerCase();
   if (slug === PUBLIC_ORG) return null;

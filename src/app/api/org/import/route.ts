@@ -29,6 +29,7 @@ import {
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, getViewer } from "@/lib/access";
 import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -92,6 +93,12 @@ export async function POST(request: Request) {
   // import and the public funnel are free (mock runs no inference). Refuse up front when out of credits;
   // the per-repo slice below caps the batch to the balance. Enterprise is unlimited.
   const metered = !mock && org !== "public";
+  // Supabase login wall on the PRIVATE/metered import path only — a real-inference import into a
+  // tenant org is a gated "org feature". The free funnel (mock import, or the shared public org)
+  // stays open / no-signup. Mirrors the scan-route gate (orgSlug !== "public").
+  if (metered && authGateEnabled() && !(await getViewer())) {
+    return NextResponse.json({ error: "Sign in to import a private organization." }, { status: 401 });
+  }
   let unlimited = true;
   let creditBalance = 0;
   if (metered) {

@@ -196,18 +196,61 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
   );
 }
 
-export function Empty({ title, message, repo }: { title: string; message: string; repo?: string }) {
+export function Empty({
+  title,
+  message,
+  repo,
+  // Suppress the "Try again" CTA when an immediate retry can't succeed — e.g. the weekly public-scan
+  // quota is exhausted, where retrying just re-trips the gate.
+  allowRetry = true,
+}: {
+  title: string;
+  message: string;
+  repo?: string;
+  allowRetry?: boolean;
+}) {
   return (
     <EmptyState
       icon="🧭"
       title={title}
       body={message}
       actions={[
-        ...(repo
+        ...(repo && allowRetry
           ? [{ label: "Try again", href: `/report?repo=${encodeURIComponent(repo)}`, primary: true }]
           : []),
         { label: "← Back home", href: "/" },
       ]}
     />
+  );
+}
+
+/** Human-friendly date a weekly quota window resets on (epoch ms). Coarse — a day is precise enough. */
+export function formatResetAt(resetAt: number | null): string {
+  if (!resetAt || !Number.isFinite(resetAt)) return "in a few days";
+  return `on ${new Date(resetAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
+/**
+ * Subtle banner shown above a finished report for anonymous public scans, surfacing the free
+ * weekly per-IP allowance (from the x-ascent-quota-* response headers). Quiet by design — it informs
+ * without alarming, and only renders when the weekly gate actually counted this scan.
+ */
+export function QuotaBanner({ remaining, resetAt }: { remaining: number; resetAt: number | null }) {
+  const last = remaining <= 0;
+  return (
+    <div
+      role="status"
+      className="mx-auto mb-4 flex max-w-3xl items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-sm text-slate-400"
+    >
+      <span aria-hidden>◷</span>
+      {last ? (
+        <span>That was your last free public scan this week — the limit resets {formatResetAt(resetAt)}.</span>
+      ) : (
+        <span>
+          <span className="font-medium text-slate-200">{remaining}</span> free public scan
+          {remaining === 1 ? "" : "s"} left this week.
+        </span>
+      )}
+    </div>
   );
 }

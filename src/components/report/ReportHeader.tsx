@@ -60,6 +60,13 @@ export function ReportHeader({ report, onRetest }: { report: ScanReport; onRetes
           >
             <span aria-hidden>↓</span> Export PDF
           </a>
+          <a
+            href={`/api/report/skill?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
+            className="focus-ring inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-sm font-medium text-accent transition hover:border-accent hover:text-white"
+            title="Download a personalized Claude Code onboarding skill (drop it in .claude/skills/ and run it to act on this report)"
+          >
+            <span aria-hidden>✦</span> Onboarding skill
+          </a>
         </div>
       </div>
     </div>

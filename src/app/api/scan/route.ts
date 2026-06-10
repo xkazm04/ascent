@@ -12,7 +12,9 @@ import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { consumeScanCredit, isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+import { consumePublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
+import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +41,13 @@ async function runScan(
     const resolved = await resolveScanAuth(parsed, opts.installationId);
     token = resolved.token;
     orgSlug = resolved.orgSlug;
+  }
+
+  // Supabase login wall — private/org scans only. A non-public orgSlug means an installation token
+  // was resolved (a private/tenant scan), which is a gated feature; anonymous public scans stay free
+  // and no-signup. No-op when the gate is disabled (Supabase unconfigured / dev bypass).
+  if (orgSlug !== "public" && authGateEnabled() && !(await getViewer())) {
+    return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
   }
 
   // Only cache anonymous (tokenless) scans — installation scans are per-tenant. The shared
@@ -74,9 +83,25 @@ async function runScan(
   // Rate-limit the EXPENSIVE path only — a cache hit / peek above already returned for free. A
   // flood of distinct, cache-busting (?fresh=1) scans is the main cost-abuse vector; cap per-IP +
   // global LLM spend here so the cheap hydration paths stay unthrottled.
+  let quotaRemaining: number | null = null;
+  let quotaResetAt: number | null = null;
   if (opts.req) {
     const rl = rateLimitRequest(opts.req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+
+    // Weekly SOFT gate: anonymous public scans get a small free per-IP allowance over a rolling
+    // 7-day window (persistent — see src/lib/public-scan-quota.ts). Only real, anonymous, public
+    // scans count: a cache hit / peek above already returned for free, and private (token) scans
+    // are credit-metered below. Consume one slot here, on the same expensive path as the burst
+    // limiter; fails open when persistence isn't configured.
+    if (orgSlug === "public" && !token && !opts.mock) {
+      const quota = await consumePublicScanQuota(opts.req);
+      if (quota.enforced && !quota.allowed) return weeklyQuotaExceeded(quota);
+      if (quota.enforced) {
+        quotaRemaining = quota.remaining;
+        quotaResetAt = quota.resetAt;
+      }
+    }
   }
 
   // Entitlement gate: a private (installation-token) scan draws on the org's prepaid credits. Refuse
@@ -170,6 +195,10 @@ async function runScan(
   };
   if (!persistedOk) headers["x-ascent-persisted"] = "false";
   if (creditsRemaining !== null) headers["x-ascent-credits-remaining"] = String(creditsRemaining);
+  // Free public scans left in this IP's rolling weekly window (after this scan), so the UI can warn
+  // before the gate trips. Only present when the weekly gate actually enforced (anonymous public).
+  if (quotaRemaining !== null) headers["x-ascent-quota-remaining"] = String(quotaRemaining);
+  if (quotaResetAt !== null) headers["x-ascent-quota-reset"] = String(quotaResetAt);
   return NextResponse.json(report, { headers });
 }
 

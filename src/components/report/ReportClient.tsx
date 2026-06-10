@@ -6,13 +6,23 @@ import type { ScanProgress, ScanReport } from "@/lib/types";
 import { ReportView } from "@/components/report/ReportView";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { parseScanReport } from "@/lib/report/validate";
-import { Empty, Loading, parseSSE, type Progress } from "@/components/report/ReportClientStatus";
+import {
+  Empty,
+  Loading,
+  QuotaBanner,
+  formatResetAt,
+  parseSSE,
+  type Progress,
+} from "@/components/report/ReportClientStatus";
 
 type State =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; blocked?: boolean }
   | { status: "done"; report: ScanReport };
+
+/** Free weekly public-scan allowance surfaced from the x-ascent-quota-* response headers. */
+type Quota = { remaining: number; resetAt: number | null };
 
 export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   const params = useSearchParams();
@@ -23,6 +33,8 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   const initialFresh = params.get("fresh") === "1" || params.get("fresh") === "true";
   const [state, setState] = useState<State>({ status: "idle" });
   const [progress, setProgress] = useState<Progress>({ message: "Starting…", pct: 0 });
+  // Set from the scan response headers when the free weekly public-scan gate counted this scan.
+  const [quota, setQuota] = useState<Quota | null>(null);
   // Bumped by the report's "Re-test" button to re-run the scan in place; > 0 also implies fresh.
   const [retestNonce, setRetestNonce] = useState(0);
   const fresh = initialFresh || retestNonce > 0;
@@ -45,6 +57,7 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
     (async () => {
       setState({ status: "loading" });
       setProgress({ message: "Starting…", pct: 0 });
+      setQuota(null);
 
       // Fast path: hydrate instantly from a persisted/in-memory snapshot of the repo's current head
       // before opening a live SSE scan. A non-fresh /report?repo= visit used to ALWAYS stream a full
@@ -98,9 +111,32 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
         });
         if (cancelled) return;
         if (!res.ok || !res.body) {
-          const data = (await res.json().catch(() => null)) as { error?: string } | null;
-          if (!cancelled) setState({ status: "error", message: data?.error ?? `Scan failed (${res.status}).` });
+          const data = (await res.json().catch(() => null)) as
+            | { error?: string; code?: string; resetAt?: number }
+            | null;
+          if (cancelled) return;
+          // Weekly public-scan gate tripped — an immediate retry can't succeed, so present it as a
+          // calm "come back later" state (no Try-again CTA) with when the window resets.
+          if (res.status === 429 && data?.code === "weekly_quota") {
+            setState({
+              status: "error",
+              message: `You've used all your free public scans for this week. The limit resets ${formatResetAt(
+                data.resetAt ?? null,
+              )}.`,
+              blocked: true,
+            });
+          } else {
+            setState({ status: "error", message: data?.error ?? `Scan failed (${res.status}).` });
+          }
           return;
+        }
+
+        // Surface the free weekly allowance left for this IP (header present only on anonymous
+        // public scans the gate counted), shown as a quiet banner above the finished report.
+        const remainingRaw = res.headers.get("x-ascent-quota-remaining");
+        if (remainingRaw !== null) {
+          const resetRaw = res.headers.get("x-ascent-quota-reset");
+          setQuota({ remaining: Number(remainingRaw), resetAt: resetRaw ? Number(resetRaw) : null });
         }
 
         const reader = res.body.getReader();
@@ -199,10 +235,15 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
     return <Loading repo={repo} progress={progress} />;
   }
   if (state.status === "error") {
-    return <Empty title="Couldn't scan that repo" message={state.message} repo={repo} />;
+    return state.blocked ? (
+      <Empty title="Weekly scan limit reached" message={state.message} repo={repo} allowRetry={false} />
+    ) : (
+      <Empty title="Couldn't scan that repo" message={state.message} repo={repo} />
+    );
   }
   return (
     <ReportErrorBoundary>
+      {quota && <QuotaBanner remaining={quota.remaining} resetAt={quota.resetAt} />}
       <ReportView report={state.report} onRetest={() => setRetestNonce((n) => n + 1)} />
     </ReportErrorBoundary>
   );

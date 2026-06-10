@@ -1,0 +1,54 @@
+// Next.js 16 Proxy (formerly Middleware). Its sole job here is to keep the Supabase auth cookies
+// fresh: on each request it reads the session, lets supabase-js re-mint an expiring token, and
+// writes the refreshed cookies back onto the response. Without this, a user whose access token
+// lapsed mid-session would be silently signed out on the next navigation.
+//
+// This must use the request/response cookie adapter (NOT next/headers), so it can't reuse
+// src/lib/access.ts (server-only). The env checks are inlined to match authGateEnabled():
+// when Supabase isn't configured, or the dev bypass is on, there is nothing to refresh — pass through.
+
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+
+function gateInactive(): boolean {
+  const configured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  );
+  const bypass = process.env.ASCENT_AUTH_BYPASS === "1" || process.env.ASCENT_AUTH_BYPASS === "true";
+  return !configured || bypass;
+}
+
+export async function proxy(request: NextRequest) {
+  if (gateInactive()) return NextResponse.next({ request });
+
+  let response = NextResponse.next({ request });
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet) {
+          for (const { name, value } of cookiesToSet) request.cookies.set(name, value);
+          response = NextResponse.next({ request });
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    },
+  );
+
+  // Touch the session so an expiring token is refreshed and the new cookies ride `response`.
+  // Do not gate routing here — authorization happens at the data sources (gate + Route Handlers).
+  await supabase.auth.getUser();
+  return response;
+}
+
+export const config = {
+  // Run on everything except Next's static assets and common image files — auth cookies should be
+  // refreshed on real navigations and API calls, not on static fetches.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+};

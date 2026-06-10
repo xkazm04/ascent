@@ -1,8 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
+import { SupabaseSignInButton, SignOutButton } from "@/components/SupabaseAuthButtons";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
+import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured } from "@/lib/db";
 
 /** Generated ascending-chevron mark + mono wordmark (Altimeter identity). */
@@ -28,6 +30,10 @@ export async function SiteHeader() {
   const session = await getSession();
   const authOn = isAuthConfigured();
   const dbOn = isDbConfigured();
+  // Supabase is the active login when configured; when it isn't, the header falls back to the
+  // dormant custom-OAuth branches below (unchanged).
+  const supaOn = supabaseAuthConfigured();
+  const viewer = supaOn ? await getViewer() : null;
   // Show the org switcher only when the viewer actually has an org to switch to — with no
   // installations the menu would just read "Public" and be pointless.
   const showSwitcher = Boolean(authOn && session && session.installations.length > 0);
@@ -57,7 +63,24 @@ export async function SiteHeader() {
               Org demo
             </Link>
           )}
-          {authOn && session ? (
+          {supaOn ? (
+            viewer ? (
+              <span className="flex items-center gap-3">
+                <span className="flex items-center gap-2 text-slate-200">
+                  {viewer.avatar && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={viewer.avatar} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
+                  )}
+                  <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">
+                    {viewer.login}
+                  </span>
+                </span>
+                <SignOutButton />
+              </span>
+            ) : (
+              <SupabaseSignInButton variant="nav" next="/" />
+            )
+          ) : authOn && session ? (
             <span className="flex items-center gap-3">
               {showSwitcher && <OrgSwitcher orgs={orgOptions} active={activeOrg} />}
               <Link href="/connect" className="focus-ring flex items-center gap-2 rounded-sm text-slate-200 hover:text-white">

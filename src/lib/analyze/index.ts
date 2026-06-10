@@ -119,6 +119,40 @@ function guidanceQuality(text: string): { points: number; label: string }[] {
   return out;
 }
 
+/**
+ * Score adoption of the `.ai/` standard — and score it by EVIDENCE OF USE, not mere presence, so a
+ * dropped-in empty scaffold can't game the rubric (the Goodhart guard). Presence earns a little; the
+ * real points require the doctor to be *wired* into CI or a local hook (verified, not just sitting
+ * there) and the memory store to be *used* beyond its seed entry. Split across D1 (the agent-facing
+ * contract) and D8 (the executable harness + memory).
+ */
+function aiStandard(idx: RepoIndex): {
+  d1: { points: number; label: string }[];
+  d8: { points: number; label: string }[];
+} {
+  const d1: { points: number; label: string }[] = [];
+  const d8: { points: number; label: string }[] = [];
+  if (idx.has(/^\.ai\/manifest\.ya?ml$/)) {
+    d1.push({ points: 2, label: "Found .ai/manifest.yaml (agent-facing contract)" });
+    const m = idx.content(".ai/manifest.yaml") || "";
+    if (/schema:\s*ai-manifest/.test(m) && /\ncapabilities:/.test(m) && /\ncontrols:/.test(m))
+      d1.push({ points: 4, label: "Manifest declares capabilities + control placement" });
+  }
+  if (idx.has(/^\.ai\/doctor\.mjs$/)) {
+    const lefthook = (idx.content("lefthook.yml") || idx.content("lefthook.yaml") || "").toLowerCase();
+    const wired = /doctor\.mjs/.test(idx.workflowText) || /doctor\.mjs/.test(lefthook);
+    d8.push(
+      wired
+        ? { points: 8, label: "Executable conformance (.ai/doctor.mjs) wired into CI/hook" }
+        : { points: 2, label: ".ai/doctor.mjs present (not yet wired into CI/hook)" },
+    );
+  }
+  const mem = idx.count(/^\.ai\/memory\/\d{4}-.*\.md$/);
+  if (mem >= 2) d8.push({ points: 6, label: `Structured memory in use (.ai/memory, ${mem} entries)` });
+  else if (mem === 1) d8.push({ points: 1, label: ".ai/memory seeded (not yet used)" });
+  return { d1, d8 };
+}
+
 const d1: Detector = (idx) => {
   const s = new Scorer();
   // Presence (reduced caps so guidance *quality* can contribute meaningfully).
@@ -137,6 +171,9 @@ const d1: Detector = (idx) => {
   // Content quality — substantive guidance with advanced patterns beats a token stub.
   const guidance = idx.content("claude.md") || idx.content("agents.md") || idx.content("agent.md");
   if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label);
+
+  // The `.ai/` standard's agent-facing contract is high-signal machine-readable guidance.
+  for (const g of aiStandard(idx).d1) s.add(g.points, g.label);
 
   if (s.signals.length === 0)
     s.note("No machine-readable AI/agent guidance detected", "e.g. CLAUDE.md, AGENTS.md, .cursorrules");
@@ -502,6 +539,9 @@ const d8: Detector = (idx) => {
   // agent a well-formed task to work from, not a one-line prompt.
   if (idx.has(/^\.github\/issue_template(\/|\.)/) || idx.has(/^\.github\/issue_template$/))
     s.add(10, "Structured issue templates");
+
+  // The `.ai/` standard's executable conformance + structured memory — scored by evidence of use.
+  for (const g of aiStandard(idx).d8) s.add(g.points, g.label);
 
   if (s.signals.length === 0)
     s.note("No dedicated AI process/harness detected", "e.g. evals, prompt library, agent runbooks");

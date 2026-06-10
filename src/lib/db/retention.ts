@@ -22,6 +22,7 @@
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans";
+import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 
 /** Audit action recorded by the purge job for each org it enforces a policy on. */
 export const PURGE_ACTION = "retention.purged";
@@ -273,6 +274,15 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
     } catch (err) {
       errors.push(`(orphan): ${err instanceof Error ? err.message : "purge failed"}`);
     }
+  }
+
+  // Sweep PublicScanQuota rows whose rolling window has fully aged out — they carry no live state
+  // (only a re-grantable full allowance), so the IP-keyed table can't be allowed to grow unbounded.
+  // Always runs (it's not governed by a per-org retention window); best-effort.
+  try {
+    await purgeStalePublicScanQuota();
+  } catch (err) {
+    errors.push(`(public-scan-quota): ${err instanceof Error ? err.message : "purge failed"}`);
   }
 
   return {

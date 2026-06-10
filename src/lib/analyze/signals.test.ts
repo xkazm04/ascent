@@ -68,3 +68,52 @@ describe("AI-attribution single source (#9)", () => {
     expect(u.commitFraction).toBe(0);
   });
 });
+
+describe(".ai/ standard scoring — verified, not present (Goodhart guard)", () => {
+  function fileSnap(files: { path: string; content?: string }[]): RepoSnapshot {
+    return {
+      meta: { owner: "o", name: "r", url: "", stars: 0, forks: 0, defaultBranch: "main" },
+      tree: files.map((f) => ({ path: f.path, type: "blob" as const })),
+      files: files
+        .filter((f) => f.content !== undefined)
+        .map((f) => ({ path: f.path, content: f.content as string, bytes: (f.content as string).length })),
+      commits: [],
+      truncated: false,
+      coverage: 1,
+    };
+  }
+  const score = (s: RepoSnapshot, id: "D1" | "D8") =>
+    analyzeSignals(s, "2026-06-10T00:00:00Z").find((d) => d.id === id)!.signalScore;
+
+  const MANIFEST =
+    "schema: ai-manifest\nschemaVersion: 0.1.0\ncapabilities:\n  test: { command: \"npm test\", verified: false }\ncontrols:\n  prePush: [test]\n";
+  const bare = fileSnap([{ path: "README.md", content: "# r" }]);
+  const scaffoldOnly = fileSnap([
+    { path: ".ai/manifest.yaml", content: MANIFEST },
+    { path: ".ai/doctor.mjs", content: "// doctor" },
+    { path: ".ai/memory/0001-adopt.md", content: "seed" },
+  ]);
+  const wiredAndUsed = fileSnap([
+    { path: ".ai/manifest.yaml", content: MANIFEST },
+    { path: ".ai/doctor.mjs", content: "// doctor" },
+    { path: ".github/workflows/ai-conformance.yml", content: "run: node .ai/doctor.mjs" },
+    { path: ".ai/memory/0001-adopt.md", content: "seed" },
+    { path: ".ai/memory/0002-gotcha.md", content: "a learned fact" },
+  ]);
+
+  it("the manifest contributes machine-readable-guidance signal to D1", () => {
+    expect(score(scaffoldOnly, "D1")).toBeGreaterThan(score(bare, "D1"));
+  });
+
+  it("rewards a WIRED, USED standard far above a dropped-in empty scaffold", () => {
+    expect(score(wiredAndUsed, "D8")).toBeGreaterThan(score(scaffoldOnly, "D8"));
+    expect(score(scaffoldOnly, "D8")).toBeGreaterThan(score(bare, "D8")); // a little, not a lot
+  });
+
+  it("labels the doctor as unwired until it is in CI or a hook", () => {
+    const labels = (s: RepoSnapshot) =>
+      analyzeSignals(s, "2026-06-10T00:00:00Z").find((d) => d.id === "D8")!.signals.map((x) => x.label).join(" | ");
+    expect(labels(scaffoldOnly)).toMatch(/not yet wired/i);
+    expect(labels(wiredAndUsed)).toMatch(/wired into CI\/hook/i);
+  });
+});

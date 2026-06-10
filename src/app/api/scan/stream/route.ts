@@ -9,6 +9,8 @@ import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+import { consumePublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
+import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +41,27 @@ export async function POST(request: Request) {
   const fresh = Boolean(body.fresh);
   const parsed = parseRepoUrl(url);
   const { token, orgSlug } = await resolveScanAuth(parsed, body.installationId);
+
+  // Supabase login wall — private/org scans only (see /api/scan). A non-public orgSlug is a
+  // private/tenant scan and requires sign-in; public scans stay free. Fail fast before the stream.
+  if (orgSlug !== "public" && authGateEnabled() && !(await getViewer())) {
+    return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
+  }
+
+  // Weekly SOFT gate: anonymous public scans get a small free per-IP allowance over a rolling 7-day
+  // window (persistent — see src/lib/public-scan-quota.ts). The /report flow peeks the cache first
+  // (cheap, unconsumed); reaching the stream means a real scan, so consume one slot here. Fails open
+  // when persistence isn't configured. Private (token) scans are credit-metered and skip this.
+  let quotaRemaining: number | null = null;
+  let quotaResetAt: number | null = null;
+  if (orgSlug === "public" && !token && !mock) {
+    const quota = await consumePublicScanQuota(request);
+    if (quota.enforced && !quota.allowed) return weeklyQuotaExceeded(quota);
+    if (quota.enforced) {
+      quotaRemaining = quota.remaining;
+      quotaResetAt = quota.resetAt;
+    }
+  }
 
   // Hoisted so the stream's cancel() (fired when the client disconnects and tears the stream down
   // mid-scan) can stop the heartbeat immediately, rather than letting it fire on a dead controller
@@ -181,6 +204,11 @@ export async function POST(request: Request) {
       "cache-control": "no-cache, no-transform",
       "x-accel-buffering": "no",
       connection: "keep-alive",
+      // Free public scans left in this IP's rolling weekly window (after this scan), plus when the
+      // window resets; only set when the weekly gate enforced (anonymous public). Lets the client
+      // warn before the gate trips.
+      ...(quotaRemaining !== null ? { "x-ascent-quota-remaining": String(quotaRemaining) } : {}),
+      ...(quotaResetAt !== null ? { "x-ascent-quota-reset": String(quotaResetAt) } : {}),
     },
   });
 }
