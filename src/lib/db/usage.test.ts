@@ -1,12 +1,19 @@
 // Billing-aggregation invariants: the cost estimate must never silently bill at $0 when a rate is
-// unset (the half-billing trap), and the per-day series must bucket by UTC day with a billable/free
-// split on a stable axis. Pure functions — the DB client is mocked so the import never loads Prisma.
+// unset (the half-billing trap), the per-day series must bucket by UTC day with a billable/free
+// split on a stable axis, and the "top repos by metered scans" aggregate must scope to PRIVATE
+// repos (free public scans are not metered volume). The DB client is mocked so the import never
+// loads Prisma; getUsageSummary runs against a stubbed client.
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/db/client", () => ({ getPrisma: vi.fn(), isDbConfigured: () => false }));
+const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
+  mockIsDbConfigured: vi.fn(() => false),
+  mockGetPrisma: vi.fn(),
+}));
 
-import { buildDailySeries, estimateLlmCostUsd } from "./usage";
+vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
+
+import { buildDailySeries, estimateLlmCostUsd, getUsageSummary } from "./usage";
 
 describe("estimateLlmCostUsd", () => {
   it("returns null unless BOTH per-MTok rates are set", () => {
@@ -26,6 +33,42 @@ describe("estimateLlmCostUsd", () => {
   it("rejects negative or non-numeric rates as unset", () => {
     expect(estimateLlmCostUsd(1_000_000, 1_000_000, "-1", "2")).toBeNull();
     expect(estimateLlmCostUsd(1_000_000, 1_000_000, "abc", "2")).toBeNull();
+  });
+});
+
+describe("getUsageSummary byRepo scope (usage-metering 06-11 #4)", () => {
+  beforeEach(() => {
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReset();
+  });
+
+  it("groups the top-repos aggregate over PRIVATE repos only (metered = billable)", async () => {
+    const groupBy = vi.fn(async () => []);
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org1", slug: "acme" })) },
+      scan: {
+        count: vi.fn(async () => 0),
+        groupBy,
+        aggregate: vi.fn(async () => ({
+          _min: { scannedAt: null },
+          _max: { scannedAt: null },
+          _sum: { inputTokens: 0, outputTokens: 0 },
+        })),
+      },
+      repository: { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
+      $queryRaw: vi.fn(async () => []),
+    });
+
+    const summary = await getUsageSummary("acme", 30);
+
+    expect(summary).not.toBeNull();
+    const byRepoCall = groupBy.mock.calls
+      .map((c) => (c as unknown[])[0] as { by: string[]; where: Record<string, unknown> })
+      .find((args) => args.by.includes("repoId"));
+    expect(byRepoCall).toBeDefined();
+    // The metered-attribution panel must not count FREE public scans as billable volume.
+    expect(byRepoCall!.where.repo).toEqual({ orgId: "org1", isPrivate: true });
   });
 });
 

@@ -11,7 +11,7 @@ export interface ProviderUsage {
   count: number;
 }
 
-/** Per-repo metered usage within the period — which repos drove the volume / token spend. */
+/** Per-repo METERED (private/billable) usage within the period — which repos drove the bill. */
 export interface RepoUsage {
   fullName: string;
   scans: number;
@@ -49,7 +49,9 @@ export interface UsageSummary {
    *  rate is set (LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK) — so we show "rate not set"
    *  rather than a fake number. */
   estimatedCostUsd: number | null;
-  /** Top repos by metered scan volume within the period (with their token spend). */
+  /** Top repos by METERED (private) scan volume within the period (with their token spend).
+   *  Scoped private-only to match the "metered/billable" framing — free public scans are
+   *  excluded, so the attribution answers "which repos drove the bill", not raw volume. */
   byRepo: RepoUsage[];
   firstScanAt: string | null;
   lastScanAt: string | null;
@@ -109,11 +111,13 @@ export async function getUsageSummary(
       // every period scan row back to bucket in JS — see fetchDailySeries.
       fetchDailySeries(prisma, org.id, since, periodDays, todayUtcMs),
       // Token totals (cost basis) + the top repos by metered volume this period — both one aggregate
-      // each, no row streaming.
+      // each, no row streaming. byRepo is scoped to PRIVATE repos (the same predicate as the `priv`
+      // count above) so the "by metered scans" attribution can't mix free public scans into the
+      // answer to "which repos drove the bill".
       prisma.scan.aggregate({ where: periodWhere, _sum: { inputTokens: true, outputTokens: true } }),
       prisma.scan.groupBy({
         by: ["repoId"],
-        where: periodWhere,
+        where: { ...periodWhere, repo: { orgId: org.id, isPrivate: true } },
         _count: true,
         _sum: { inputTokens: true, outputTokens: true },
         orderBy: { _count: { repoId: "desc" } },
