@@ -48,18 +48,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
   }
 
-  // Weekly SOFT gate: anonymous public scans get a small free per-IP allowance over a rolling 7-day
-  // window (persistent — see src/lib/public-scan-quota.ts). The /report flow peeks the cache first
-  // (cheap, unconsumed); reaching the stream means a real scan, so consume one slot here. Fails open
-  // when persistence isn't configured. Private (token) scans are credit-metered and skip this.
+  // Weekly SOFT gate: public scans get a free per-window allowance (persistent — see
+  // src/lib/public-scan-quota.ts). A SIGNED-IN viewer gets an elevated, per-user allowance; an
+  // anonymous caller gets the smaller per-IP one. The /report flow peeks the cache first (cheap,
+  // unconsumed); reaching the stream means a real scan, so consume one slot here. Fails open when
+  // persistence isn't configured. Private (token) scans are credit-metered and skip this.
   let quotaRemaining: number | null = null;
   let quotaResetAt: number | null = null;
+  let quotaScope: "anon" | "user" | null = null;
   if (orgSlug === "public" && !token && !mock) {
-    const quota = await consumePublicScanQuota(request);
+    const viewer = await getViewer();
+    const quota = await consumePublicScanQuota(request, { viewerId: viewer?.id });
     if (quota.enforced && !quota.allowed) return weeklyQuotaExceeded(quota);
     if (quota.enforced) {
       quotaRemaining = quota.remaining;
       quotaResetAt = quota.resetAt;
+      quotaScope = quota.signedIn ? "user" : "anon";
     }
   }
 
@@ -209,6 +213,7 @@ export async function POST(request: Request) {
       // warn before the gate trips.
       ...(quotaRemaining !== null ? { "x-ascent-quota-remaining": String(quotaRemaining) } : {}),
       ...(quotaResetAt !== null ? { "x-ascent-quota-reset": String(quotaResetAt) } : {}),
+      ...(quotaScope !== null ? { "x-ascent-quota-scope": quotaScope } : {}),
     },
   });
 }

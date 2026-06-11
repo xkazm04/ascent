@@ -6,23 +6,22 @@ import type { ScanProgress, ScanReport } from "@/lib/types";
 import { ReportView } from "@/components/report/ReportView";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { parseScanReport } from "@/lib/report/validate";
+import { Empty, Loading, parseSSE, type Progress } from "@/components/report/ReportClientStatus";
 import {
-  Empty,
-  Loading,
   QuotaBanner,
+  QuotaBlocked,
   formatResetAt,
-  parseSSE,
-  type Progress,
-} from "@/components/report/ReportClientStatus";
+  type QuotaScope,
+} from "@/components/report/QuotaNotice";
 
 type State =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "error"; message: string; blocked?: boolean }
+  | { status: "error"; message: string; blocked?: { scope: QuotaScope } }
   | { status: "done"; report: ScanReport };
 
 /** Free weekly public-scan allowance surfaced from the x-ascent-quota-* response headers. */
-type Quota = { remaining: number; resetAt: number | null };
+type Quota = { remaining: number; resetAt: number | null; scope: QuotaScope };
 
 export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   const params = useSearchParams();
@@ -112,18 +111,17 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
         if (cancelled) return;
         if (!res.ok || !res.body) {
           const data = (await res.json().catch(() => null)) as
-            | { error?: string; code?: string; resetAt?: number }
+            | { error?: string; code?: string; resetAt?: number; scope?: QuotaScope }
             | null;
           if (cancelled) return;
           // Weekly public-scan gate tripped — an immediate retry can't succeed, so present it as a
-          // calm "come back later" state (no Try-again CTA) with when the window resets.
+          // calm "come back later" state (no Try-again CTA) with the reset date and, for an
+          // anonymous caller, a sign-in CTA that lifts the limit.
           if (res.status === 429 && data?.code === "weekly_quota") {
             setState({
               status: "error",
-              message: `You've used all your free public scans for this week. The limit resets ${formatResetAt(
-                data.resetAt ?? null,
-              )}.`,
-              blocked: true,
+              message: data.error ?? `You've used all your free public scans for this week. The limit resets ${formatResetAt(data.resetAt ?? null)}.`,
+              blocked: { scope: data.scope === "user" ? "user" : "anon" },
             });
           } else {
             setState({ status: "error", message: data?.error ?? `Scan failed (${res.status}).` });
@@ -131,12 +129,13 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
           return;
         }
 
-        // Surface the free weekly allowance left for this IP (header present only on anonymous
-        // public scans the gate counted), shown as a quiet banner above the finished report.
+        // Surface the free weekly allowance left (headers present only on public scans the gate
+        // counted), shown as a quiet banner above the finished report.
         const remainingRaw = res.headers.get("x-ascent-quota-remaining");
         if (remainingRaw !== null) {
           const resetRaw = res.headers.get("x-ascent-quota-reset");
-          setQuota({ remaining: Number(remainingRaw), resetAt: resetRaw ? Number(resetRaw) : null });
+          const scope = res.headers.get("x-ascent-quota-scope") === "user" ? "user" : "anon";
+          setQuota({ remaining: Number(remainingRaw), resetAt: resetRaw ? Number(resetRaw) : null, scope });
         }
 
         const reader = res.body.getReader();
@@ -236,14 +235,25 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   }
   if (state.status === "error") {
     return state.blocked ? (
-      <Empty title="Weekly scan limit reached" message={state.message} repo={repo} allowRetry={false} />
+      <QuotaBlocked
+        message={state.message}
+        scope={state.blocked.scope}
+        signInNext={`/report?repo=${encodeURIComponent(repo)}`}
+      />
     ) : (
       <Empty title="Couldn't scan that repo" message={state.message} repo={repo} />
     );
   }
   return (
     <ReportErrorBoundary>
-      {quota && <QuotaBanner remaining={quota.remaining} resetAt={quota.resetAt} />}
+      {quota && (
+        <QuotaBanner
+          remaining={quota.remaining}
+          resetAt={quota.resetAt}
+          scope={quota.scope}
+          signInNext={`/report?repo=${encodeURIComponent(repo)}`}
+        />
+      )}
       <ReportView report={state.report} onRetest={() => setRetestNonce((n) => n + 1)} />
     </ReportErrorBoundary>
   );

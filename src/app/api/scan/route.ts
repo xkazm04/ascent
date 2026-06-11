@@ -85,21 +85,25 @@ async function runScan(
   // global LLM spend here so the cheap hydration paths stay unthrottled.
   let quotaRemaining: number | null = null;
   let quotaResetAt: number | null = null;
+  let quotaScope: "anon" | "user" | null = null;
   if (opts.req) {
     const rl = rateLimitRequest(opts.req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
 
-    // Weekly SOFT gate: anonymous public scans get a small free per-IP allowance over a rolling
-    // 7-day window (persistent — see src/lib/public-scan-quota.ts). Only real, anonymous, public
-    // scans count: a cache hit / peek above already returned for free, and private (token) scans
-    // are credit-metered below. Consume one slot here, on the same expensive path as the burst
-    // limiter; fails open when persistence isn't configured.
+    // Weekly SOFT gate: public scans get a free per-window allowance (persistent — see
+    // src/lib/public-scan-quota.ts). A SIGNED-IN viewer gets an elevated, per-user allowance; an
+    // anonymous caller gets the smaller per-IP one. Only real, public scans count: a cache hit /
+    // peek above already returned for free, and private (token) scans are credit-metered below.
+    // Consume one slot here, on the same expensive path as the burst limiter; fails open when
+    // persistence isn't configured.
     if (orgSlug === "public" && !token && !opts.mock) {
-      const quota = await consumePublicScanQuota(opts.req);
+      const viewer = await getViewer();
+      const quota = await consumePublicScanQuota(opts.req, { viewerId: viewer?.id });
       if (quota.enforced && !quota.allowed) return weeklyQuotaExceeded(quota);
       if (quota.enforced) {
         quotaRemaining = quota.remaining;
         quotaResetAt = quota.resetAt;
+        quotaScope = quota.signedIn ? "user" : "anon";
       }
     }
   }
@@ -199,6 +203,7 @@ async function runScan(
   // before the gate trips. Only present when the weekly gate actually enforced (anonymous public).
   if (quotaRemaining !== null) headers["x-ascent-quota-remaining"] = String(quotaRemaining);
   if (quotaResetAt !== null) headers["x-ascent-quota-reset"] = String(quotaResetAt);
+  if (quotaScope !== null) headers["x-ascent-quota-scope"] = quotaScope;
   return NextResponse.json(report, { headers });
 }
 

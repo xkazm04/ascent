@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { decideQuota, parseHits, hashIp, publicScanWeeklyLimit } from "./public-scan-quota";
+import {
+  decideQuota,
+  parseHits,
+  hashIp,
+  hashKey,
+  publicScanWeeklyLimit,
+  signedInScanWeeklyLimit,
+} from "./public-scan-quota";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const NOW = 1_700_000_000_000; // fixed epoch for deterministic windows
@@ -77,6 +84,12 @@ describe("hashIp", () => {
   it("maps different IPs to different hashes", () => {
     expect(hashIp("203.0.113.7")).not.toBe(hashIp("203.0.113.8"));
   });
+
+  it("namespaces IP and user buckets apart (no collision on the same raw value)", () => {
+    const v = "203.0.113.7";
+    expect(hashIp(v)).toBe(hashKey(`ip:${v}`));
+    expect(hashKey(`ip:${v}`)).not.toBe(hashKey(`u:${v}`));
+  });
 });
 
 describe("publicScanWeeklyLimit", () => {
@@ -93,5 +106,40 @@ describe("publicScanWeeklyLimit", () => {
     expect(publicScanWeeklyLimit()).toBe(10);
     if (prev === undefined) delete process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
     else process.env.PUBLIC_SCAN_WEEKLY_LIMIT = prev;
+  });
+});
+
+describe("signedInScanWeeklyLimit", () => {
+  const KEYS = ["PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN", "PUBLIC_SCAN_WEEKLY_LIMIT"] as const;
+  function withEnv(vals: Partial<Record<(typeof KEYS)[number], string>>, fn: () => void) {
+    const prev = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+    for (const k of KEYS) {
+      if (vals[k] === undefined) delete process.env[k];
+      else process.env[k] = vals[k];
+    }
+    try {
+      fn();
+    } finally {
+      for (const k of KEYS) {
+        if (prev[k] === undefined) delete process.env[k];
+        else process.env[k] = prev[k]!;
+      }
+    }
+  }
+
+  it("defaults to 20", () => {
+    withEnv({}, () => expect(signedInScanWeeklyLimit()).toBe(20));
+  });
+
+  it("honors a positive override", () => {
+    withEnv({ PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN: "50" }, () =>
+      expect(signedInScanWeeklyLimit()).toBe(50),
+    );
+  });
+
+  it("never drops below the anonymous limit (signing in can't grant less)", () => {
+    withEnv({ PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN: "2", PUBLIC_SCAN_WEEKLY_LIMIT: "5" }, () =>
+      expect(signedInScanWeeklyLimit()).toBe(5),
+    );
   });
 });

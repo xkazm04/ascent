@@ -23,10 +23,21 @@ import { isDbConfigured, withDb, withRetry } from "@/lib/db";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Max free public scans per IP per rolling 7-day window. Env-overridable; default 3. */
+/** Max free public scans per ANONYMOUS IP per rolling 7-day window. Env-overridable; default 3. */
 export function publicScanWeeklyLimit(): number {
   const n = Number(process.env.PUBLIC_SCAN_WEEKLY_LIMIT);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 3;
+}
+
+/**
+ * Elevated weekly allowance for a SIGNED-IN viewer — the reward for authenticating. Keyed per-user
+ * (IP-independent) rather than per-IP, so a signed-in user gets their own bucket. Env-overridable;
+ * default 20. Clamped to be no lower than the anonymous limit (signing in must never grant *less*).
+ */
+export function signedInScanWeeklyLimit(): number {
+  const n = Number(process.env.PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN);
+  const elevated = Number.isFinite(n) && n > 0 ? Math.floor(n) : 20;
+  return Math.max(elevated, publicScanWeeklyLimit());
 }
 
 /** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the weekly gate off (dev / incident). */
@@ -36,13 +47,19 @@ export function publicScanQuotaDisabled(): boolean {
 }
 
 /**
- * Salted SHA-256 of the client IP, hex. The salt (PUBLIC_SCAN_QUOTA_SALT) makes the stored hashes
+ * Salted SHA-256 of a bucket key, hex. The salt (PUBLIC_SCAN_QUOTA_SALT) makes the stored hashes
  * non-reversible without it; a fixed fallback keeps the gate working out of the box (it's a soft
- * gate, not a secret), but production should set a real salt so buckets aren't predictable.
+ * gate, not a secret), but production should set a real salt so buckets aren't predictable. The key
+ * carries a namespace prefix ("ip:" / "u:") so an IP bucket and a user bucket can never collide.
  */
-export function hashIp(ip: string): string {
+export function hashKey(value: string): string {
   const salt = process.env.PUBLIC_SCAN_QUOTA_SALT?.trim() || "ascent-public-scan-quota";
-  return createHash("sha256").update(`${salt}:${ip}`).digest("hex");
+  return createHash("sha256").update(`${salt}:${value}`).digest("hex");
+}
+
+/** Anonymous bucket key for a client IP. */
+export function hashIp(ip: string): string {
+  return hashKey(`ip:${ip}`);
 }
 
 /** Parse the stored JSON number[] of hit timestamps, tolerating null/garbage as an empty window. */
@@ -91,6 +108,14 @@ export interface QuotaResult {
   remaining: number;
   retryAfterSec: number;
   resetAt: number | null;
+  /** True when this scan was counted against a SIGNED-IN viewer's (elevated, per-user) allowance. */
+  signedIn: boolean;
+}
+
+/** Who the scan is attributed to. A signed-in viewer id buckets per-user at the elevated limit; */
+/** absent, it falls back to the per-IP anonymous bucket and limit. */
+export interface QuotaIdentity {
+  viewerId?: string | null;
 }
 
 function retryAfterSec(resetAt: number | null, now: number): number {
@@ -104,13 +129,19 @@ function retryAfterSec(resetAt: number | null, now: number): number {
  * DSQL's optimistic concurrency. Returns `enforced: false` (allow) when persistence is unconfigured,
  * the gate is disabled, or the store errors — the free funnel never fails because the quota store did.
  */
-export async function consumePublicScanQuota(req: Request): Promise<QuotaResult> {
-  const limit = publicScanWeeklyLimit();
+export async function consumePublicScanQuota(
+  req: Request,
+  identity: QuotaIdentity = {},
+): Promise<QuotaResult> {
+  const signedIn = Boolean(identity.viewerId);
+  const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
   if (!isDbConfigured() || publicScanQuotaDisabled()) {
-    return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null };
+    return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn };
   }
 
-  const ipHash = hashIp(clientIp(req));
+  // Signed-in viewers bucket per-USER (their own elevated allowance, IP-independent); anonymous
+  // callers bucket per-IP. The namespace prefix keeps the two key spaces disjoint.
+  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
   const now = Date.now();
   try {
     return await withDb((db) =>
@@ -125,6 +156,7 @@ export async function consumePublicScanQuota(req: Request): Promise<QuotaResult>
               remaining: 0,
               retryAfterSec: retryAfterSec(decision.resetAt, now),
               resetAt: decision.resetAt,
+              signedIn,
             };
           }
           const hits = JSON.stringify(decision.hits);
@@ -139,6 +171,7 @@ export async function consumePublicScanQuota(req: Request): Promise<QuotaResult>
             remaining: decision.remaining,
             retryAfterSec: 0,
             resetAt: decision.resetAt,
+            signedIn,
           };
         },
         { label: "public-scan-quota" },
@@ -147,26 +180,27 @@ export async function consumePublicScanQuota(req: Request): Promise<QuotaResult>
   } catch (err) {
     // Soft gate: a quota-store failure must not block a scan the user is entitled to. Fail OPEN.
     console.error("[public-scan-quota] check failed; failing open", err);
-    return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null };
+    return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn };
   }
 }
 
 /** A ready-made 429 JSON Response for a tripped weekly quota, with Retry-After + quota headers. */
 export function weeklyQuotaExceeded(result: QuotaResult): Response {
+  const scope = result.signedIn ? "user" : "anon";
+  // Anonymous callers can lift the limit by signing in (per-user elevated bucket); signed-in
+  // callers have already used their elevated allowance, so the message just points at the reset.
+  const error = result.signedIn
+    ? "You've used all your free public scans for this week. Please try again once the weekly window resets."
+    : "You've used all your free public scans for this week. Sign in for a higher weekly limit, or try again once the window resets.";
   return new Response(
-    JSON.stringify({
-      error:
-        "You've used all your free public scans for this week. Please try again once the weekly window resets.",
-      code: "weekly_quota",
-      remaining: 0,
-      resetAt: result.resetAt,
-    }),
+    JSON.stringify({ error, code: "weekly_quota", remaining: 0, resetAt: result.resetAt, scope }),
     {
       status: 429,
       headers: {
         "content-type": "application/json; charset=utf-8",
         "retry-after": String(result.retryAfterSec),
         "x-ascent-quota-remaining": "0",
+        "x-ascent-quota-scope": scope,
         ...(result.resetAt ? { "x-ascent-quota-reset": String(result.resetAt) } : {}),
       },
     },
