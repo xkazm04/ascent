@@ -178,6 +178,7 @@ async function runScan(
   // (transient LLM failure) produced no paid inference, so it isn't charged. Best-effort: a debit
   // hiccup must not fail a scan the user already received — it's logged for reconciliation.
   let creditsRemaining: number | null = null;
+  let unbilled = false;
   if (metered && report.engine.provider !== "mock") {
     const debit = await consumeScanCredit(orgSlug, {
       repoFullName: parsed ? `${parsed.owner}/${parsed.repo}` : undefined,
@@ -186,6 +187,18 @@ async function runScan(
       console.error("[scan] credit debit failed", err);
       return null;
     });
+    // ok:false means the atomic conditional decrement found the balance already at zero — a
+    // concurrent scan won the race after our optimistic entitlement check. The inference already
+    // ran and the user gets the report, but nothing was billed: surface it for reconciliation
+    // rather than silently serving paid inference for free.
+    if (debit && !debit.ok && !debit.unlimited) {
+      unbilled = true;
+      console.warn("[scan] metered scan ran but debit failed — unbilled", {
+        org: orgSlug,
+        repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
+        scanId,
+      });
+    }
     if (debit) creditsRemaining = debit.balance;
   }
 
@@ -199,6 +212,9 @@ async function runScan(
   };
   if (!persistedOk) headers["x-ascent-persisted"] = "false";
   if (creditsRemaining !== null) headers["x-ascent-credits-remaining"] = String(creditsRemaining);
+  // x-ascent-unbilled: the metered scan ran real inference but the debit found no credit to take
+  // (lost a race with a concurrent scan) — observable signal for billing reconciliation.
+  if (unbilled) headers["x-ascent-unbilled"] = "true";
   // Free public scans left in this IP's rolling weekly window (after this scan), so the UI can warn
   // before the gate trips. Only present when the weekly gate actually enforced (anonymous public).
   if (quotaRemaining !== null) headers["x-ascent-quota-remaining"] = String(quotaRemaining);
