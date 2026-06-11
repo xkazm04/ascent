@@ -109,7 +109,14 @@ export async function consumeScanCredit(
         data: { scanCredits: { decrement: 1 } },
       });
       if (dec.count === 0) return { ok: false, balance: org.scanCredits, unlimited: false };
-      const balanceAfter = org.scanCredits - 1;
+      // Re-read AFTER the decrement (same tx) so the ledger stamps the real post-debit balance.
+      // Deriving it from the initial read races with concurrent debits: under READ COMMITTED each
+      // tx's stale snapshot would stamp the same balanceAfter, corrupting the reconciliation trail.
+      const after = await tx.organization.findUniqueOrThrow({
+        where: { id: org.id },
+        select: { scanCredits: true },
+      });
+      const balanceAfter = after.scanCredits;
       await tx.creditLedger.create({
         data: {
           orgId: org.id,
