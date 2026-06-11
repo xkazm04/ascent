@@ -54,7 +54,22 @@ export function providerAvailable(name: ProviderName): boolean {
     case "openai":
       return Boolean(process.env.OPENAI_API_KEY);
     case "bedrock":
-      return Boolean(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION);
+      // BedrockProvider ALWAYS resolves a region (BEDROCK_REGION > AWS_REGION > the us-east-1
+      // default), so region is never a hard prerequisite — this sniffs for ANY sign the host is
+      // wired for AWS (its own documented BEDROCK_REGION knob, a generic region, or a credential
+      // signal incl. profile/role/container creds). Checking only AWS_REGION false-negatived
+      // correctly-configured deploys (BEDROCK_REGION-only, key-only) into a silent mock degrade.
+      return Boolean(
+        process.env.BEDROCK_REGION ||
+          process.env.AWS_REGION ||
+          process.env.AWS_DEFAULT_REGION ||
+          process.env.AWS_ACCESS_KEY_ID ||
+          process.env.AWS_PROFILE ||
+          process.env.AWS_ROLE_ARN ||
+          process.env.AWS_WEB_IDENTITY_TOKEN_FILE ||
+          process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ||
+          process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
+      );
     case "claude-cli":
       // Local-only by design; the `claude` binary can't be cheaply verified synchronously, but it
       // definitely can't run on Vercel — guard that named misconfiguration. Elsewhere trust the
@@ -81,7 +96,14 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
     case "mock":
       return new MockProvider();
     case "bedrock":
-      return orMockIf(providerAvailable("bedrock"), () => new BedrockProvider(), "no AWS region configured");
+      // Trust the operator's EXPLICIT LLM_PROVIDER=bedrock (same stance as claude-cli): region
+      // always resolves inside BedrockProvider, and credentials may be ambient (EC2/ECS role) —
+      // invisible to any cheap env sniff. Pre-degrading here set intendedProvider="mock", which
+      // suppressed the llmFailed warning entirely, so a falsely-gated healthy deploy served mock
+      // scores with no caveat. A genuinely broken config still fails fast at assess() and the
+      // retry → failover → mock chain degrades WITH the honest accounting. providerAvailable
+      // still gates the implicit failover path in providerByName below.
+      return new BedrockProvider();
     case "openai":
       return orMockIf(providerAvailable("openai"), () => new OpenAiProvider(), "OPENAI_API_KEY is unset");
     case "claude-cli":
