@@ -12,7 +12,7 @@ import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { consumeScanCredit, isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
-import { consumePublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
+import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
 import { authGateEnabled, getViewer } from "@/lib/access";
 
@@ -86,6 +86,10 @@ async function runScan(
   let quotaRemaining: number | null = null;
   let quotaResetAt: number | null = null;
   let quotaScope: "anon" | "user" | null = null;
+  // Set when a weekly slot was actually consumed, so the failure paths below can REFUND it — the
+  // free tier meters on commit, not attempt (same policy as credit metering). Carries the viewer
+  // identity the slot was charged to, so the refund recomputes the identical bucket key.
+  let quotaCharged: { viewerId: string | null } | null = null;
   if (opts.req) {
     const rl = rateLimitRequest(opts.req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
@@ -104,9 +108,16 @@ async function runScan(
         quotaRemaining = quota.remaining;
         quotaResetAt = quota.resetAt;
         quotaScope = quota.signedIn ? "user" : "anon";
+        quotaCharged = { viewerId: viewer?.id ?? null };
       }
     }
   }
+  const refundQuota = async () => {
+    if (quotaCharged && opts.req) {
+      await refundPublicScanQuota(opts.req, { viewerId: quotaCharged.viewerId });
+      quotaCharged = null; // at most one refund per consumed slot
+    }
+  };
 
   // Entitlement gate: a private (installation-token) scan draws on the org's prepaid credits. Refuse
   // up front when the org is out of credits (and not on an unlimited plan) so we never run paid
@@ -130,15 +141,28 @@ async function runScan(
   // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto one
   // run so two callers don't each pay a full ingest + LLM. The token (private) path is per-tenant and
   // never shared, so it scans directly.
-  const report = lookup
-    ? await coalesceScan(lookup.cacheKey, (signal) => runScan(signal), opts.signal)
-    : await runScan(opts.signal);
+  let report: Awaited<ReturnType<typeof scanRepository>>;
+  try {
+    report = lookup
+      ? await coalesceScan(lookup.cacheKey, (signal) => runScan(signal), opts.signal)
+      : await runScan(opts.signal);
+  } catch (err) {
+    // The scan delivered nothing — invalid URL / 404 / upstream failure / rate limit / client
+    // abort. Refund the weekly slot before handleError maps the failure: a typo or a mid-scan
+    // refresh must not burn one of the anonymous tier's 3 free slots.
+    await refundQuota();
+    throw err;
+  }
   // Don't poison the shared `::llm` cache entry with a deterministic mock report produced by a
   // transient LLM failure: a single Gemini timeout/429 degrades to MockProvider, but the lookup
   // key is still the llm key, so caching it would pin the mock floor under `owner/repo@sha::llm`
   // for the full TTL and serve it to every later scanner of this commit. Cache only when the
   // report came from the requested engine (an intentional mock scan legitimately keys `::mock`).
   const degradedToMock = report.engine.provider === "mock" && !opts.mock;
+  // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not the
+  // product the slot pays for — refund it, mirroring the credit rule ("a degrade-to-mock run is
+  // free"). The quota headers below may overstate usage by this one refunded slot (soft gate).
+  if (degradedToMock) await refundQuota();
   // Don't pin a low-coverage scan under the commit key for the full TTL. Per-file fetch failures
   // (raw-host hiccup / file timeouts) degrade silently to lower coverage WITHOUT failing the LLM,
   // so a transient blip would otherwise serve a degraded snapshot to every later scanner of this

@@ -184,6 +184,53 @@ export async function consumePublicScanQuota(
   }
 }
 
+/**
+ * Pure: drop the single NEWEST hit from a window — the one `consumePublicScanQuota` just appended.
+ * Exported (and unit-tested) independently of the DB, like `decideQuota`. Removes exactly one entry
+ * even when timestamps collide (two consumes in the same millisecond).
+ */
+export function removeNewestHit(hits: number[]): number[] {
+  if (hits.length === 0) return hits;
+  const newest = Math.max(...hits);
+  const idx = hits.indexOf(newest);
+  return [...hits.slice(0, idx), ...hits.slice(idx + 1)];
+}
+
+/**
+ * REFUND the slot a just-allowed `consumePublicScanQuota` recorded — the free tier meters on
+ * commit, not attempt (the same policy as credit metering: a dedup or degrade-to-mock run is
+ * free). Called when the scan delivered nothing chargeable: an invalid/404 repo, an upstream
+ * failure, a client abort, an in-stream cache hit, or an LLM degrade-to-mock. Recomputes the
+ * bucket key exactly as consume does, drops the newest hit, and writes the window back.
+ * Best-effort and FAIL-OPEN like the rest of this module: a refund hiccup just leaves one slot
+ * consumed (soft gate); it never fails the response. Quota headers emitted at consume time may
+ * overstate usage by the one refunded slot — acceptable staleness for a soft gate.
+ */
+export async function refundPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<void> {
+  if (!isDbConfigured() || publicScanQuotaDisabled()) return;
+  const signedIn = Boolean(identity.viewerId);
+  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
+  try {
+    await withDb((db) =>
+      withRetry(
+        async () => {
+          const row = await db.publicScanQuota.findUnique({ where: { ipHash } });
+          const prior = parseHits(row?.hits);
+          if (!row || prior.length === 0) return;
+          await db.publicScanQuota.update({
+            where: { ipHash },
+            data: { hits: JSON.stringify(removeNewestHit(prior)) },
+          });
+        },
+        { label: "public-scan-quota-refund" },
+      ),
+    );
+  } catch (err) {
+    // Soft gate: losing a refund only costs the caller one slot — never fail the response over it.
+    console.error("[public-scan-quota] refund failed; slot stays consumed", err);
+  }
+}
+
 /** A ready-made 429 JSON Response for a tripped weekly quota, with Retry-After + quota headers. */
 export function weeklyQuotaExceeded(result: QuotaResult): Response {
   const scope = result.signedIn ? "user" : "anon";

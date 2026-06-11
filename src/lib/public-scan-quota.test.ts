@@ -5,6 +5,7 @@ import {
   hashIp,
   hashKey,
   publicScanWeeklyLimit,
+  removeNewestHit,
   signedInScanWeeklyLimit,
 } from "./public-scan-quota";
 
@@ -55,6 +56,38 @@ describe("decideQuota", () => {
     const d = decideQuota([atCutoff, atCutoff, atCutoff], NOW, 3);
     expect(d.allowed).toBe(true);
     expect(d.hits).toEqual([NOW]);
+  });
+});
+
+// The refund policy (meter on commit, not attempt): a consumed slot whose scan delivered nothing —
+// invalid/404 repo, upstream failure, client abort, degrade-to-mock, in-stream cache hit — is given
+// back by dropping the NEWEST hit (the one consume just appended).
+describe("removeNewestHit", () => {
+  it("returns an empty window unchanged", () => {
+    expect(removeNewestHit([])).toEqual([]);
+  });
+
+  it("undoes a consume exactly: decide-then-refund restores the trimmed window", () => {
+    const prior = [NOW - 3000, NOW - 1000];
+    const d = decideQuota(prior, NOW, 3);
+    expect(d.allowed).toBe(true);
+    expect(removeNewestHit(d.hits)).toEqual([NOW - 3000, NOW - 1000]);
+  });
+
+  it("removes the newest hit regardless of array order", () => {
+    expect(removeNewestHit([NOW, NOW - 2000, NOW - 1000])).toEqual([NOW - 2000, NOW - 1000]);
+  });
+
+  it("removes exactly ONE entry when timestamps collide", () => {
+    expect(removeNewestHit([NOW, NOW, NOW - 1000])).toEqual([NOW, NOW - 1000]);
+  });
+
+  it("a refunded slot is immediately consumable again at the limit", () => {
+    const full = decideQuota([NOW - 2000, NOW - 1000], NOW, 3); // 3rd of 3 consumed
+    expect(full.remaining).toBe(0);
+    const refunded = removeNewestHit(full.hits);
+    const retry = decideQuota(refunded, NOW + 1, 3);
+    expect(retry.allowed).toBe(true); // the refund freed the slot the failed scan took
   });
 });
 
