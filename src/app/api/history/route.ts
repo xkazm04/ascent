@@ -81,7 +81,14 @@ export async function GET(request: Request) {
     // `?dims=0` requests the lightweight overall-only series (skips the per-dimension fan-out) for
     // callers that chart only the overall line; the default (and any CSV export) returns dimensions.
     const includeDimensions = wantCsv || searchParams.get("dims") !== "0";
-    const history = await getRepositoryHistory(parsed.owner, parsed.repo, { orgSlug, includeDimensions });
+    // Honor `?limit=` so callers (DimensionTrends sends the overall series' length) can align ranges
+    // with the server-fetched trend series; the DB layer clamps it to 1..200 and coerces junk to 30.
+    // CSV defaults to the 200 retention cap so an export isn't silently truncated to the newest 30
+    // scans of a possibly years-long history; JSON keeps the default (30) when no limit is given.
+    const limitParam = searchParams.get("limit");
+    const limitRaw = limitParam == null ? NaN : Number(limitParam);
+    const limit = Number.isFinite(limitRaw) ? limitRaw : wantCsv ? 200 : undefined;
+    const history = await getRepositoryHistory(parsed.owner, parsed.repo, { orgSlug, includeDimensions, limit });
     const payload =
       history ??
       { repo: { owner: parsed.owner, name: parsed.repo, fullName: `${parsed.owner}/${parsed.repo}` }, scans: [] };
