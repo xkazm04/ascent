@@ -62,7 +62,6 @@ export default async function UsagePage({
   searchParams: Promise<{ org?: string; days?: string }>;
 }) {
   const { org: orgParam, days: daysParam } = await searchParams;
-  const days = Math.min(365, Math.max(1, Number(daysParam) || 30));
 
   const { session, status } = await getSessionState();
   if (isAuthConfigured() && !session) {
@@ -75,6 +74,11 @@ export default async function UsagePage({
   // An explicit ?org= wins; otherwise follow the org remembered via the header switcher
   // (which itself falls back to the first installation, else public).
   const org = orgParam || (await getActiveOrg(session));
+
+  // Bound the window AFTER the org is known, mirroring /api/usage: the UNAUTHENTICATED public org
+  // is capped tighter (90d) so an anonymous caller can't force the 365-day full-window aggregate
+  // the API path refuses (this page computes the same summary directly). Non-numeric input → 30.
+  const days = Math.min(org.toLowerCase() === PUBLIC_ORG ? 90 : 365, Math.max(1, Number(daysParam) || 30));
 
   // Mirror /api/usage: a DB-on + auth-off deployment must not serve per-tenant usage. Without
   // auth configured there's no session to scope by, so only the shared public org is available;
