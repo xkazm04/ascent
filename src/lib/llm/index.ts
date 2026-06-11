@@ -124,11 +124,14 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
  */
 export function providerByName(name: string | undefined | null): LLMProvider | null {
   switch ((name ?? "").trim().toLowerCase()) {
-    case "gemini":
-      return geminiOrMock(); // already returns mock without a key
     // A failover to an unavailable provider returns null so the orchestrator SKIPS the doomed attempt
     // (a keyless openai / region-less bedrock / CLI-less claude would otherwise waste a round trip
-    // that always throws) and degrades to MockProvider itself.
+    // that always throws) and degrades to MockProvider itself. Gemini included: geminiOrMock()'s
+    // keyless branch IS a MockProvider, which scan.ts would run as a "successful" failover step —
+    // suppressing the llmFailed warning, the fallback SSE event, and the operator's error log while
+    // serving deterministic-floor scores. Keyless-by-name must be null, per this function's contract.
+    case "gemini":
+      return providerAvailable("gemini") ? geminiOrMock() : null;
     case "bedrock":
       return providerAvailable("bedrock") ? new BedrockProvider() : null;
     case "openai":

@@ -85,3 +85,28 @@ describe("providerByName('bedrock') — failover skip stays env-gated (#1)", () 
     expect(providerByName("bedrock")?.name).toBe("bedrock");
   });
 });
+
+describe("providerByName('gemini') — keyless must NOT masquerade as a real failover (#4)", () => {
+  it("returns null without a key, so the scan's degradation accounting stays truthful", () => {
+    // geminiOrMock()'s keyless branch is a MockProvider; returned from here it ran as a
+    // "successful" failover in scan.ts and suppressed the llmFailed warning + fallback event.
+    expect(providerByName("gemini")).toBeNull();
+  });
+
+  it("returns the real GeminiProvider when a key is present", () => {
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    expect(providerByName("gemini")?.name).toBe("gemini");
+  });
+
+  it("honors the GOOGLE_API_KEY alias too", () => {
+    vi.stubEnv("GOOGLE_API_KEY", "test-key");
+    expect(providerByName("gemini")?.name).toBe("gemini");
+  });
+
+  it("still returns null for mock/unknown/empty per the contract", () => {
+    expect(providerByName("mock")).toBeNull();
+    expect(providerByName("nonsense")).toBeNull();
+    expect(providerByName("")).toBeNull();
+    expect(providerByName(undefined)).toBeNull();
+  });
+});
