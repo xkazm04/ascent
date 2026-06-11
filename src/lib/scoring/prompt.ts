@@ -5,7 +5,9 @@ import type { LlmScoreInput } from "@/lib/llm/provider";
 import type { Governance, PrStats } from "@/lib/types";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 
-const pct = (n: number): string => `${Math.round(n * 100)}%`;
+// PrStats rates are ALREADY 0..100 integers (pulls.ts `pct`; "All rates are 0..100", types.ts) —
+// render as-is. A second ×100 here told the model "merge rate 8500%" on every tokened scan.
+const pct = (n: number): string => `${Math.round(n)}%`;
 
 /**
  * Render the PR + branch-protection evidence the scan already computed (and folded into the
