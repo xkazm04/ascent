@@ -18,8 +18,24 @@
 // private/org scans are metered by prepaid credits (src/lib/entitlement.ts) and skip this entirely.
 
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { clientIp } from "@/lib/rate-limit";
 import { isDbConfigured, withDb, withRetry } from "@/lib/db";
+import { readDsqlConfig } from "@/lib/db/client";
+
+/**
+ * Isolation for the quota's read-modify-write transactions. Vanilla Postgres defaults to READ
+ * COMMITTED, where two concurrent consumers both read the same window and the last upsert silently
+ * wins (lost update — no error is ever raised, so withRetry never fires); SERIALIZABLE makes one of
+ * the racers abort with a 40001 that withRetry retries. Aurora DSQL runs snapshot OCC natively and
+ * does not accept explicit isolation levels — its commit-time write-write conflict on the shared
+ * row already aborts the loser with a retryable OC### error, so pass no option there.
+ */
+function quotaTxOptions(): { isolationLevel: Prisma.TransactionIsolationLevel } | undefined {
+  return readDsqlConfig()
+    ? undefined
+    : { isolationLevel: Prisma.TransactionIsolationLevel.Serializable };
+}
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -125,9 +141,12 @@ function retryAfterSec(resetAt: number | null, now: number): number {
 
 /**
  * Check the weekly quota for the request's client IP and, when allowed, CONSUME one slot (record the
- * hit). Read-modify-write under withRetry so concurrent scans from the same IP serialize cleanly on
- * DSQL's optimistic concurrency. Returns `enforced: false` (allow) when persistence is unconfigured,
- * the gate is disabled, or the store errors — the free funnel never fails because the quota store did.
+ * hit). The read-decide-write runs inside ONE interactive transaction (see quotaTxOptions) so two
+ * concurrent consumers of the same bucket genuinely conflict — one aborts with a serialization error
+ * that withRetry retries against the updated window. (As separate statements each auto-committed,
+ * neither Postgres nor DSQL would ever raise a conflict and parallel clients could overrun the gate.)
+ * Returns `enforced: false` (allow) when persistence is unconfigured, the gate is disabled, or the
+ * store errors — the free funnel never fails because the quota store did.
  */
 export async function consumePublicScanQuota(
   req: Request,
@@ -146,34 +165,35 @@ export async function consumePublicScanQuota(
   try {
     return await withDb((db) =>
       withRetry(
-        async () => {
-          const row = await db.publicScanQuota.findUnique({ where: { ipHash } });
-          const decision = decideQuota(parseHits(row?.hits), now, limit);
-          if (!decision.allowed) {
+        () =>
+          db.$transaction(async (tx) => {
+            const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
+            const decision = decideQuota(parseHits(row?.hits), now, limit);
+            if (!decision.allowed) {
+              return {
+                enforced: true,
+                allowed: false,
+                remaining: 0,
+                retryAfterSec: retryAfterSec(decision.resetAt, now),
+                resetAt: decision.resetAt,
+                signedIn,
+              };
+            }
+            const hits = JSON.stringify(decision.hits);
+            await tx.publicScanQuota.upsert({
+              where: { ipHash },
+              create: { ipHash, hits },
+              update: { hits },
+            });
             return {
               enforced: true,
-              allowed: false,
-              remaining: 0,
-              retryAfterSec: retryAfterSec(decision.resetAt, now),
+              allowed: true,
+              remaining: decision.remaining,
+              retryAfterSec: 0,
               resetAt: decision.resetAt,
               signedIn,
             };
-          }
-          const hits = JSON.stringify(decision.hits);
-          await db.publicScanQuota.upsert({
-            where: { ipHash },
-            create: { ipHash, hits },
-            update: { hits },
-          });
-          return {
-            enforced: true,
-            allowed: true,
-            remaining: decision.remaining,
-            retryAfterSec: 0,
-            resetAt: decision.resetAt,
-            signedIn,
-          };
-        },
+          }, quotaTxOptions()),
         { label: "public-scan-quota" },
       ),
     );
@@ -213,15 +233,18 @@ export async function refundPublicScanQuota(req: Request, identity: QuotaIdentit
   try {
     await withDb((db) =>
       withRetry(
-        async () => {
-          const row = await db.publicScanQuota.findUnique({ where: { ipHash } });
-          const prior = parseHits(row?.hits);
-          if (!row || prior.length === 0) return;
-          await db.publicScanQuota.update({
-            where: { ipHash },
-            data: { hits: JSON.stringify(removeNewestHit(prior)) },
-          });
-        },
+        // Same one-transaction read-modify-write as consume (see quotaTxOptions): a refund racing
+        // a concurrent consume must not silently drop the consume's freshly-recorded hit.
+        () =>
+          db.$transaction(async (tx) => {
+            const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
+            const prior = parseHits(row?.hits);
+            if (!row || prior.length === 0) return;
+            await tx.publicScanQuota.update({
+              where: { ipHash },
+              data: { hits: JSON.stringify(removeNewestHit(prior)) },
+            });
+          }, quotaTxOptions()),
         { label: "public-scan-quota-refund" },
       ),
     );
