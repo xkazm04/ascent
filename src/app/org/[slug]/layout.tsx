@@ -84,7 +84,13 @@ export default async function OrgLayout({
     );
   }
 
-  const rollup = await getOrgRollup(slug);
+  // Rollup + credit state are independent (both keyed on the slug alone), so fetch them together —
+  // this shell wraps EVERY org tab, so its waterfall taxes every dashboard view. Prepaid scan-credit
+  // state feeds the header chip (null for the shared public org, which is free).
+  const [rollup, credit] = await Promise.all([
+    getOrgRollup(slug),
+    slug === "public" ? Promise.resolve(null) : getCreditState(slug),
+  ]);
   if (!rollup || rollup.repoCount === 0) {
     return (
       <Frame>
@@ -96,8 +102,6 @@ export default async function OrgLayout({
   const watched = rollup.repos.filter((r) => r.watched).length;
   const level = levelForScore(rollup.avgOverall);
 
-  // Prepaid scan-credit state for the header chip (skipped for the shared public org, which is free).
-  const credit = slug === "public" ? null : await getCreditState(slug);
   const grantsEnabled =
     process.env.ASCENT_ALLOW_CREDIT_GRANTS === "1" || process.env.ASCENT_ALLOW_CREDIT_GRANTS === "true";
 
