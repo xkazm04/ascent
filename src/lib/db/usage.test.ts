@@ -13,7 +13,7 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
 
-import { buildDailySeries, estimateLlmCostUsd, getUsageSummary } from "./usage";
+import { buildDailySeries, estimateLlmCostFromTable, estimateLlmCostUsd, getUsageSummary } from "./usage";
 
 describe("estimateLlmCostUsd", () => {
   it("returns null unless BOTH per-MTok rates are set", () => {
@@ -33,6 +33,37 @@ describe("estimateLlmCostUsd", () => {
   it("rejects negative or non-numeric rates as unset", () => {
     expect(estimateLlmCostUsd(1_000_000, 1_000_000, "-1", "2")).toBeNull();
     expect(estimateLlmCostUsd(1_000_000, 1_000_000, "abc", "2")).toBeNull();
+  });
+});
+
+describe("estimateLlmCostFromTable (built-in per-model basis, llm 06-11 #2)", () => {
+  it("prices a mixed-provider fleet per model, not at one global rate", () => {
+    // 1M in + 1M out on Gemini 3 Flash ($0.50 + $3.00) and on Sonnet 4.6 via Bedrock ($3 + $15).
+    const cost = estimateLlmCostFromTable([
+      { model: "gemini-3-flash-preview", inputTokens: 1_000_000, outputTokens: 1_000_000 },
+      { model: "us.anthropic.claude-sonnet-4-6", inputTokens: 1_000_000, outputTokens: 1_000_000 },
+    ]);
+    expect(cost).toBeCloseTo(0.5 + 3 + 3 + 15, 6);
+  });
+
+  it("returns null when ANY token-bearing model is unpriceable (no partial half-bill)", () => {
+    expect(
+      estimateLlmCostFromTable([
+        { model: "gemini-3-flash-preview", inputTokens: 1_000_000, outputTokens: 0 },
+        { model: "local-llama", inputTokens: 5, outputTokens: 5 },
+      ]),
+    ).toBeNull();
+  });
+
+  it("ignores token-less rows (mock) and returns null when nothing consumed tokens", () => {
+    expect(
+      estimateLlmCostFromTable([
+        { model: "mock", inputTokens: 0, outputTokens: 0 },
+        { model: "gemini-3-flash-preview", inputTokens: 2_000_000, outputTokens: 0 },
+      ]),
+    ).toBeCloseTo(1.0, 6);
+    expect(estimateLlmCostFromTable([{ model: "mock", inputTokens: 0, outputTokens: 0 }])).toBeNull();
+    expect(estimateLlmCostFromTable([])).toBeNull();
   });
 });
 

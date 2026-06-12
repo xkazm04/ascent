@@ -5,6 +5,7 @@
 // GitHub App lands; until then everything is under the "public" org.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { priceForModel } from "@/lib/llm/config";
 
 export interface ProviderUsage {
   provider: string;
@@ -45,10 +46,15 @@ export interface UsageSummary {
   /** LLM tokens consumed within the period (sum across scans). */
   inputTokens: number;
   outputTokens: number;
-  /** Estimated LLM cost (USD) within the period from the configured per-MTok rates, or null when no
-   *  rate is set (LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK) — so we show "rate not set"
-   *  rather than a fake number. */
+  /** Estimated LLM cost (USD) within the period. Basis precedence: the configured env rates
+   *  (LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK — a global override) win when both are
+   *  set; otherwise the built-in per-model price table (MODEL_PRICES) prices each model's tokens
+   *  at its own approximate list rate, so mixed-provider fleets aren't all billed at one number.
+   *  Null when neither basis can price the period's tokens — show "no estimate", never a fake $. */
   estimatedCostUsd: number | null;
+  /** Which basis produced estimatedCostUsd: operator-configured env rates, the built-in
+   *  approximate table, or null when there is no estimate. Drives the UI's labeling. */
+  costBasis: "env" | "builtin" | null;
   /** Top repos by METERED (private) scan volume within the period (with their token spend).
    *  Scoped private-only to match the "metered/billable" framing — free public scans are
    *  excluded, so the attribution answers "which repos drove the bill", not raw volume. */
@@ -77,6 +83,7 @@ export async function getUsageSummary(
     inputTokens: 0,
     outputTokens: 0,
     estimatedCostUsd: null,
+    costBasis: null,
     byRepo: [],
     firstScanAt: null,
     lastScanAt: null,
@@ -98,7 +105,7 @@ export async function getUsageSummary(
   // for a selected period would actually be the org's all-time private-scan total.
   const periodWhere = { ...where, scannedAt: { gte: since } };
 
-  const [total, period, priv, pub, distinctRepos, providerGroups, agg, daily, tokenAgg, repoGroups] =
+  const [total, period, priv, pub, distinctRepos, providerGroups, agg, daily, modelGroups, repoGroups] =
     await Promise.all([
       prisma.scan.count({ where }),
       prisma.scan.count({ where: periodWhere }),
@@ -110,11 +117,16 @@ export async function getUsageSummary(
       // Per-day series, aggregated in SQL (one row per UTC-day × visibility) instead of streaming
       // every period scan row back to bucket in JS — see fetchDailySeries.
       fetchDailySeries(prisma, org.id, since, periodDays, todayUtcMs),
-      // Token totals (cost basis) + the top repos by metered volume this period — both one aggregate
-      // each, no row streaming. byRepo is scoped to PRIVATE repos (the same predicate as the `priv`
-      // count above) so the "by metered scans" attribution can't mix free public scans into the
-      // answer to "which repos drove the bill".
-      prisma.scan.aggregate({ where: periodWhere, _sum: { inputTokens: true, outputTokens: true } }),
+      // Token totals (cost basis) grouped PER MODEL — one aggregate, no row streaming. The split
+      // matters because failover legitimately mixes models in one window (Gemini Flash cents/MTok
+      // beside Claude Sonnet dollars/MTok); a single global rate can't price that correctly. byRepo
+      // is scoped to PRIVATE repos (the same predicate as the `priv` count above) so the "by
+      // metered scans" attribution can't mix free public scans into "which repos drove the bill".
+      prisma.scan.groupBy({
+        by: ["engineModel"],
+        where: periodWhere,
+        _sum: { inputTokens: true, outputTokens: true },
+      }),
       prisma.scan.groupBy({
         by: ["repoId"],
         where: { ...periodWhere, repo: { orgId: org.id, isPrivate: true } },
@@ -125,14 +137,23 @@ export async function getUsageSummary(
       }),
     ]);
 
-  const inputTokens = tokenAgg._sum.inputTokens ?? 0;
-  const outputTokens = tokenAgg._sum.outputTokens ?? 0;
-  const estimatedCostUsd = estimateLlmCostUsd(
+  const modelUsage: ModelTokenUsage[] = modelGroups.map((g) => ({
+    model: g.engineModel,
+    inputTokens: g._sum.inputTokens ?? 0,
+    outputTokens: g._sum.outputTokens ?? 0,
+  }));
+  const inputTokens = modelUsage.reduce((a, m) => a + m.inputTokens, 0);
+  const outputTokens = modelUsage.reduce((a, m) => a + m.outputTokens, 0);
+  // Cost basis precedence: env rates (operator override, both set) > built-in per-model table > null.
+  const envEstimate = estimateLlmCostUsd(
     inputTokens,
     outputTokens,
     process.env.LLM_INPUT_COST_PER_MTOK,
     process.env.LLM_OUTPUT_COST_PER_MTOK,
   );
+  const estimatedCostUsd = envEstimate ?? estimateLlmCostFromTable(modelUsage);
+  const costBasis: UsageSummary["costBasis"] =
+    envEstimate != null ? "env" : estimatedCostUsd != null ? "builtin" : null;
 
   // Resolve the top repoIds → fullName (a small IN query, capped at the top 10).
   const repoIds = repoGroups.map((g) => g.repoId);
@@ -167,6 +188,7 @@ export async function getUsageSummary(
     inputTokens,
     outputTokens,
     estimatedCostUsd,
+    costBasis,
     byRepo,
     firstScanAt: agg._min.scannedAt ? agg._min.scannedAt.toISOString() : null,
     lastScanAt: agg._max.scannedAt ? agg._max.scannedAt.toISOString() : null,
@@ -195,6 +217,33 @@ export function estimateLlmCostUsd(
   const outRate = parseRate(outRateRaw);
   if (inRate == null || outRate == null) return null;
   return (inputTokens / 1_000_000) * inRate + (outputTokens / 1_000_000) * outRate;
+}
+
+/** One model's token totals within the period — the input to the per-model cost fold. */
+export interface ModelTokenUsage {
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/**
+ * Fold per-model token usage into a USD estimate using the built-in MODEL_PRICES table (the
+ * out-of-the-box default basis; env rates override upstream). Pure and unit-tested. Returns null
+ * when ANY token-bearing model lacks a table price — a partial figure that silently omits the
+ * unpriceable tokens would be the same half-billing trap estimateLlmCostUsd refuses — and null
+ * when no tokens were consumed at all (mock-only periods show "no estimate", not $0.00 "spend").
+ */
+export function estimateLlmCostFromTable(usage: ModelTokenUsage[]): number | null {
+  let cost = 0;
+  let pricedAny = false;
+  for (const m of usage) {
+    if (m.inputTokens + m.outputTokens === 0) continue; // token-less rows (mock) price as nothing
+    const price = priceForModel(m.model);
+    if (!price) return null;
+    cost += (m.inputTokens / 1_000_000) * price.inPerMTok + (m.outputTokens / 1_000_000) * price.outPerMTok;
+    pricedAny = true;
+  }
+  return pricedAny ? cost : null;
 }
 
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);

@@ -222,9 +222,11 @@ export default async function UsagePage({
             label="Est. cost"
             value={usage.estimatedCostUsd != null ? `$${usage.estimatedCostUsd.toFixed(2)}` : "—"}
             sub={
-              usage.estimatedCostUsd != null
-                ? `last ${usage.periodDays}d · from configured rates`
-                : "set LLM_*_COST_PER_MTOK to estimate"
+              usage.costBasis === "env"
+                ? `last ${usage.periodDays}d · configured rates`
+                : usage.costBasis === "builtin"
+                  ? `last ${usage.periodDays}d · built-in rates (approx.)`
+                  : "set LLM_*_COST_PER_MTOK to estimate"
             }
           />
           <Stat label="Input tokens" value={usage.inputTokens} sub={`last ${usage.periodDays}d`} />
@@ -296,9 +298,11 @@ export default async function UsagePage({
               : timeAgo(usage.firstScanAt) /* single point — don't render "→ unknown" */
             : "no scans recorded"}
           .
-          {usage.estimatedCostUsd != null
+          {usage.costBasis === "env"
             ? " Cost is estimated from the configured per-MTok rates (LLM_INPUT/OUTPUT_COST_PER_MTOK)."
-            : " Set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate spend."}{" "}
+            : usage.costBasis === "builtin"
+              ? " Cost is an approximate estimate from built-in per-model list prices; set LLM_INPUT/OUTPUT_COST_PER_MTOK to override with your rates."
+              : " No built-in rate matches this period's models — set LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK to estimate spend."}{" "}
           Per-org attribution activates with auth / the GitHub App.
         </p>
       </div>
