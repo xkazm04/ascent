@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { CREDIT_ESTIMATE_NOTE, estimateMonthlyCredits } from "@/lib/credit-estimate";
+import { appConfigureUrl } from "@/lib/ui";
 import { RepoFilterBar } from "./RepoFilterBar";
 import { RepoListSkeleton } from "./RepoListSkeleton";
 import { RepoRow } from "./RepoRow";
@@ -183,6 +184,14 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       <EmptyState
         variant="section"
         body="No repositories accessible to this installation. Adjust access on GitHub, then refresh."
+        // Deep-link straight to THIS installation's Configure page — the screen where repos are
+        // granted — instead of leaving the user to navigate GitHub settings by hand (the most
+        // common selected-repo onboarding dead-end). Hidden when the id isn't known.
+        actions={
+          installationId
+            ? [{ label: "Adjust repository access on GitHub →", href: appConfigureUrl(installationId), primary: true }]
+            : []
+        }
       />
     );
 
