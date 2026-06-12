@@ -25,6 +25,13 @@ export function reportPermalink(fullName: string, headSha?: string | null): stri
   return `/report/${fullName}${headSha ? `@${headSha}` : ""}`;
 }
 
+/** External jump to the exact commit a scan pinned to — the "what landed?" half of the trend
+ *  investigation loop (reportPermalink is the in-app half). Client-safe sibling so every chart
+ *  builds the identical URL. Null without a sha. */
+export function githubCommitUrl(fullName: string, headSha?: string | null): string | null {
+  return headSha ? `https://github.com/${fullName}/commit/${headSha}` : null;
+}
+
 /**
  * Brand hex per maturity level (red -> green as you ascend).
  *

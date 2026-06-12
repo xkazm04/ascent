@@ -21,6 +21,9 @@ export interface TrendPoint {
   href?: string;
   /** Short commit sha, shown in the hover tooltip as context for the point. */
   sha?: string;
+  /** External GitHub commit URL (githubCommitUrl) — shift-click on the hovered point opens it in
+   *  a new tab, closing the "what landed here?" investigation loop. Omitted = no external jump. */
+  commitUrl?: string;
 }
 
 /** Tiny inline trend line for a single dimension's score history (0..100 scale). */
@@ -113,6 +116,9 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
   // The hovered point's report permalink, when it has one — clicking anywhere on the plot opens it
   // (a far bigger hit target than the small dot). Points without an href (org rollups) do nothing.
   const activeHref = a !== null ? points[a]?.href : undefined;
+  // Shift-click escape hatch to the exact GitHub commit (new tab, noopener) — the external half
+  // of the investigation loop. Plain click keeps the in-app permalink as the primary action.
+  const activeCommitUrl = a !== null ? points[a]?.commitUrl : undefined;
 
   // Thin the x-axis date labels so interior dates don't vanish (the old rule showed only first +
   // last past 6 points) and don't collide at 60 scans: aim for ~7 evenly-spaced labels, always
@@ -133,11 +139,12 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         role="img"
         aria-label="Overall score over time"
         aria-describedby={tableId}
-        style={{ touchAction: "none", cursor: activeHref ? "pointer" : undefined }}
+        style={{ touchAction: "none", cursor: activeHref || activeCommitUrl ? "pointer" : undefined }}
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
-        onClick={() => {
-          if (activeHref) router.push(activeHref);
+        onClick={(e) => {
+          if (e.shiftKey && activeCommitUrl) window.open(activeCommitUrl, "_blank", "noopener");
+          else if (activeHref) router.push(activeHref);
         }}
       >
         {/* level bands + their L-id labels — a non-color cue so each shaded range is identifiable
@@ -235,6 +242,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             delta={a > 0 ? points[a]!.score - points[a - 1]!.score : null}
             sha={points[a]!.sha}
             linked={Boolean(points[a]!.href)}
+            commitLinked={Boolean(points[a]!.commitUrl)}
           />
         </ChartTooltip>
       )}

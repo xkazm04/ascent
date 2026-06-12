@@ -95,6 +95,7 @@ export function PointTooltip({
   label,
   sha,
   linked,
+  commitLinked,
 }: {
   score: number;
   at?: string;
@@ -105,6 +106,8 @@ export function PointTooltip({
   sha?: string;
   /** Whether the point links somewhere (the chart opens it on click) — adds an affordance hint. */
   linked?: boolean;
+  /** Whether shift-click jumps to the GitHub commit — adds the external-jump hint. */
+  commitLinked?: boolean;
 }) {
   return (
     <div className="text-sm">
@@ -130,6 +133,7 @@ export function PointTooltip({
         )}
       </div>
       {linked && <div className="mt-0.5 text-sm text-accent">click to open this scan&apos;s report →</div>}
+      {commitLinked && <div className="text-sm text-slate-500">shift-click for the GitHub commit ↗</div>}
     </div>
   );
 }
