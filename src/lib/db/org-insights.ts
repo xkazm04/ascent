@@ -467,7 +467,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
 
 export interface OrgBenchmark {
   corpusRepos: number; // repos in the comparison corpus (other orgs)
-  overallPercentile: number | null; // org avg overall vs corpus (null if no corpus)
+  overallPercentile: number | null; // org avg overall vs corpus (null below CORPUS_MIN repos — a 1-repo corpus would rank everyone 0th or 100th)
   corpusAvgOverall: number;
   corpusAvgAdoption: number;
   corpusAvgRigor: number;
@@ -485,6 +485,16 @@ export interface OrgBenchmark {
 
 /** Minimum same-language peers before a cohort percentile is statistically worth showing. */
 const COHORT_MIN = 5;
+/** Minimum corpus size before the headline percentile is worth showing — same discipline as
+ *  COHORT_MIN: a 1–4 repo corpus yields a confidently-wrong "you beat 100% of orgs". */
+const CORPUS_MIN = 5;
+
+/** Share of `xs` at-or-below `v`, as 0..100 — null below `min` samples, because a 1-repo corpus
+ *  ranks everyone a hard 0th or 100th percentile (no-sample is not a rank). Pure, for unit tests. */
+export function percentileOf(xs: readonly number[], v: number, min = 1): number | null {
+  if (xs.length < Math.max(1, min)) return null;
+  return Math.round((xs.filter((x) => x <= v).length / xs.length) * 100);
+}
 
 /** Compare an org's averages against every other repo Ascent has scored (the corpus), plus a
  *  same-language peer cohort for a sharper "vs your peers" read. */
@@ -532,7 +542,6 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   const avg = (xs: number[]) => Math.round(mean(xs));
-  const pctile = (xs: number[], v: number) => (xs.length ? Math.round((xs.filter((x) => x <= v).length / xs.length) * 100) : null);
   const myAvgOverall = mean(myOverall);
   const myAvgAdoption = mean(myAdoption);
 
@@ -542,12 +551,11 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   if (domLang) {
     const peers = corpus.filter((c) => c.lang === domLang);
     if (peers.length > 0) {
-      const enough = peers.length >= COHORT_MIN;
       cohort = {
         language: domLang,
         repos: peers.length,
-        overallPercentile: enough ? pctile(peers.map((p) => p.overall), myAvgOverall) : null,
-        adoptionPercentile: enough ? pctile(peers.map((p) => p.adoption), myAvgAdoption) : null,
+        overallPercentile: percentileOf(peers.map((p) => p.overall), myAvgOverall, COHORT_MIN),
+        adoptionPercentile: percentileOf(peers.map((p) => p.adoption), myAvgAdoption, COHORT_MIN),
         avgOverall: avg(peers.map((p) => p.overall)),
       };
     }
@@ -555,7 +563,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   return {
     corpusRepos: corpus.length,
-    overallPercentile: pctile(corpus.map((c) => c.overall), myAvgOverall),
+    overallPercentile: percentileOf(corpus.map((c) => c.overall), myAvgOverall, CORPUS_MIN),
     corpusAvgOverall: avg(corpus.map((c) => c.overall)),
     corpusAvgAdoption: avg(corpus.map((c) => c.adoption)),
     corpusAvgRigor: avg(corpus.map((c) => c.rigor)),
