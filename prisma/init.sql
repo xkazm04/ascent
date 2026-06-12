@@ -3,7 +3,11 @@
 -- Source of truth is prisma/schema.prisma; this file mirrors it for a plain `psql -f`
 -- bootstrap. Regenerate after schema changes with:
 --   npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script
--- On Aurora DSQL, use `prisma migrate` (or CREATE INDEX ASYNC) instead — see docs/ARCHITECTURE.md.
+-- then re-apply this header and the "public" org seed at the bottom of the file.
+-- Parity is enforced by src/lib/db/init-sql.test.ts (every schema.prisma model must have its
+-- CREATE TABLE here) — the 2026-06 drift left six tables and two columns behind and broke the
+-- documented psql bootstrap. On Aurora DSQL, use `prisma migrate` (or CREATE INDEX ASYNC)
+-- instead — see docs/ARCHITECTURE.md.
 
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
@@ -14,7 +18,7 @@ CREATE TABLE "Organization" (
     "slug" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "plan" TEXT NOT NULL DEFAULT 'free',
-    -- Per-org data-retention overrides (enterprise); null = inherit env default, 0 = unlimited.
+    "scanCredits" INTEGER NOT NULL DEFAULT 0,
     "retentionMaxScans" INTEGER,
     "retentionAuditDays" INTEGER,
     "githubInstallId" TEXT,
@@ -24,9 +28,25 @@ CREATE TABLE "Organization" (
 );
 
 -- CreateTable
+CREATE TABLE "CreditLedger" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "delta" INTEGER NOT NULL,
+    "balanceAfter" INTEGER NOT NULL,
+    "reason" TEXT NOT NULL DEFAULT 'scan',
+    "repoFullName" TEXT,
+    "scanId" TEXT,
+    "actor" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "CreditLedger_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
+    "githubLogin" TEXT,
     "name" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -71,6 +91,27 @@ CREATE TABLE "Repository" (
 );
 
 -- CreateTable
+CREATE TABLE "Segment" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "color" TEXT NOT NULL DEFAULT '#3b9eff',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Segment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RepoSegment" (
+    "id" TEXT NOT NULL,
+    "segmentId" TEXT NOT NULL,
+    "repoId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RepoSegment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "RepoContributor" (
     "id" TEXT NOT NULL,
     "repoId" TEXT NOT NULL,
@@ -85,7 +126,6 @@ CREATE TABLE "RepoContributor" (
 );
 
 -- CreateTable
--- Team attribution parsed from a repo's CODEOWNERS at scan time; backs getOrgTeamRollup.
 CREATE TABLE "RepoTeam" (
     "id" TEXT NOT NULL,
     "repoId" TEXT NOT NULL,
@@ -96,29 +136,6 @@ CREATE TABLE "RepoTeam" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "RepoTeam_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
--- A user-defined slice of the fleet (a named tag grouping repos); backs the org segment filter.
-CREATE TABLE "Segment" (
-    "id" TEXT NOT NULL,
-    "orgId" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "color" TEXT NOT NULL DEFAULT '#3b9eff',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "Segment_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
--- Membership of a repo in a segment (the tag join, many-to-many).
-CREATE TABLE "RepoSegment" (
-    "id" TEXT NOT NULL,
-    "segmentId" TEXT NOT NULL,
-    "repoId" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "RepoSegment_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -139,6 +156,7 @@ CREATE TABLE "Scan" (
     "headline" TEXT NOT NULL,
     "strengths" TEXT NOT NULL DEFAULT '[]',
     "risks" TEXT NOT NULL DEFAULT '[]',
+    "discrepancies" TEXT NOT NULL DEFAULT '[]',
     "prStats" TEXT,
     "governance" TEXT,
     "commitActivity" TEXT,
@@ -181,8 +199,6 @@ CREATE TABLE "Recommendation" (
     "explore" TEXT NOT NULL DEFAULT '[]',
     "levelUnlock" TEXT,
     "status" TEXT NOT NULL DEFAULT 'open',
-    -- Ownership + planning layer (backs the org-wide backlog view); both carry forward across
-    -- re-scans (matched by dimId+title). null = unassigned / no deadline.
     "assigneeLogin" TEXT,
     "targetDate" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -191,8 +207,6 @@ CREATE TABLE "Recommendation" (
 );
 
 -- CreateTable
--- Append-only activity timeline for a recommendation (status / assignee / due-date changes), with
--- the actor, the from→to values, and an optional note — what makes the backlog trustworthy.
 CREATE TABLE "RecommendationEvent" (
     "id" TEXT NOT NULL,
     "recommendationId" TEXT NOT NULL,
@@ -230,8 +244,62 @@ CREATE TABLE "Subscription" (
 );
 
 -- CreateTable
--- Per-login session version backing server-side session revocation (see src/lib/auth.ts);
--- bumping the version invalidates every outstanding cookie for that login immediately.
+CREATE TABLE "Goal" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "metric" TEXT NOT NULL DEFAULT 'overall',
+    "target" INTEGER NOT NULL DEFAULT 50,
+    "targetDate" TIMESTAMP(3),
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Goal_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Initiative" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "dimId" TEXT NOT NULL,
+    "practiceId" TEXT,
+    "targetScore" INTEGER NOT NULL DEFAULT 70,
+    "repos" TEXT NOT NULL DEFAULT '[]',
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Initiative_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Playbook" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "dimId" TEXT NOT NULL,
+    "summary" TEXT NOT NULL DEFAULT '',
+    "steps" TEXT NOT NULL DEFAULT '[]',
+    "createdBy" TEXT,
+    "archived" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Playbook_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PlaybookApplication" (
+    "id" TEXT NOT NULL,
+    "playbookId" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "appliedBy" TEXT,
+    "appliedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PlaybookApplication_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "SessionRevocation" (
     "login" TEXT NOT NULL,
     "version" INTEGER NOT NULL DEFAULT 0,
@@ -240,11 +308,29 @@ CREATE TABLE "SessionRevocation" (
     CONSTRAINT "SessionRevocation_pkey" PRIMARY KEY ("login")
 );
 
+-- CreateTable
+CREATE TABLE "PublicScanQuota" (
+    "ipHash" TEXT NOT NULL,
+    "hits" TEXT NOT NULL DEFAULT '[]',
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PublicScanQuota_pkey" PRIMARY KEY ("ipHash")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "Organization_slug_key" ON "Organization"("slug");
 
 -- CreateIndex
+CREATE INDEX "CreditLedger_orgId_idx" ON "CreditLedger"("orgId");
+
+-- CreateIndex
+CREATE INDEX "CreditLedger_orgId_createdAt_idx" ON "CreditLedger"("orgId", "createdAt");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_githubLogin_key" ON "User"("githubLogin");
 
 -- CreateIndex
 CREATE INDEX "Membership_orgId_idx" ON "Membership"("orgId");
@@ -268,18 +354,6 @@ CREATE INDEX "Repository_watched_idx" ON "Repository"("watched");
 CREATE UNIQUE INDEX "Repository_orgId_fullName_key" ON "Repository"("orgId", "fullName");
 
 -- CreateIndex
-CREATE INDEX "RepoContributor_repoId_idx" ON "RepoContributor"("repoId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "RepoContributor_repoId_login_key" ON "RepoContributor"("repoId", "login");
-
--- CreateIndex
-CREATE INDEX "RepoTeam_repoId_idx" ON "RepoTeam"("repoId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "RepoTeam_repoId_slug_key" ON "RepoTeam"("repoId", "slug");
-
--- CreateIndex
 CREATE INDEX "Segment_orgId_idx" ON "Segment"("orgId");
 
 -- CreateIndex
@@ -295,13 +369,24 @@ CREATE INDEX "RepoSegment_repoId_idx" ON "RepoSegment"("repoId");
 CREATE UNIQUE INDEX "RepoSegment_segmentId_repoId_key" ON "RepoSegment"("segmentId", "repoId");
 
 -- CreateIndex
+CREATE INDEX "RepoContributor_repoId_idx" ON "RepoContributor"("repoId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RepoContributor_repoId_login_key" ON "RepoContributor"("repoId", "login");
+
+-- CreateIndex
+CREATE INDEX "RepoTeam_repoId_idx" ON "RepoTeam"("repoId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RepoTeam_repoId_slug_key" ON "RepoTeam"("repoId", "slug");
+
+-- CreateIndex
 CREATE INDEX "Scan_repoId_idx" ON "Scan"("repoId");
 
 -- CreateIndex
 CREATE INDEX "Scan_repoId_scannedAt_idx" ON "Scan"("repoId", "scannedAt");
 
 -- CreateIndex
--- Powers scan deduplication by commit (findScanByCommit: WHERE repoId AND headSha).
 CREATE INDEX "Scan_repoId_headSha_idx" ON "Scan"("repoId", "headSha");
 
 -- CreateIndex
@@ -314,7 +399,6 @@ CREATE INDEX "Recommendation_scanId_idx" ON "Recommendation"("scanId");
 CREATE INDEX "Recommendation_status_idx" ON "Recommendation"("status");
 
 -- CreateIndex
--- Powers the by-owner grouping of the org-wide backlog (getOrgBacklog).
 CREATE INDEX "Recommendation_assigneeLogin_idx" ON "Recommendation"("assigneeLogin");
 
 -- CreateIndex
@@ -330,11 +414,32 @@ CREATE INDEX "AuditLog_orgId_idx" ON "AuditLog"("orgId");
 CREATE INDEX "AuditLog_at_idx" ON "AuditLog"("at");
 
 -- CreateIndex
--- Serves the org-scoped audit viewer's keyset query (WHERE orgId ORDER BY at DESC, id DESC).
 CREATE INDEX "AuditLog_orgId_at_idx" ON "AuditLog"("orgId", "at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Subscription_orgId_key" ON "Subscription"("orgId");
+
+-- CreateIndex
+CREATE INDEX "Goal_orgId_idx" ON "Goal"("orgId");
+
+-- CreateIndex
+CREATE INDEX "Initiative_orgId_idx" ON "Initiative"("orgId");
+
+-- CreateIndex
+CREATE INDEX "Initiative_status_idx" ON "Initiative"("status");
+
+-- CreateIndex
+CREATE INDEX "Playbook_orgId_idx" ON "Playbook"("orgId");
+
+-- CreateIndex
+CREATE INDEX "PlaybookApplication_playbookId_idx" ON "PlaybookApplication"("playbookId");
+
+-- CreateIndex
+CREATE INDEX "PlaybookApplication_orgId_idx" ON "PlaybookApplication"("orgId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PlaybookApplication_playbookId_repoFullName_key" ON "PlaybookApplication"("playbookId", "repoFullName");
+
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
