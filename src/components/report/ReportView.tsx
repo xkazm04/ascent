@@ -39,6 +39,11 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
           fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`),
         ]);
         if (active && h.ok) setHistory(parseRepositoryHistory(await h.json()));
+        // A non-OK history response is a FAILURE, not "no history yet" — without this branch an
+        // HTTP 500 (e.g. a transient DB token expiry) silently rendered "Baseline established"
+        // over months of real history. 503 (persistence off) and 401 (signed-out viewer) are
+        // legitimate no-trends modes and keep the quiet baseline path.
+        else if (active && h.status !== 503 && h.status !== 401) setHistError(true);
         if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
       } catch {
         // Couldn't reach the history endpoint (offline / transient). Surface it in the trend panel
