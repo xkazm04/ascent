@@ -51,12 +51,25 @@ vi.mock("@/lib/scan-alerts", () => ({ checkAndAlertRegression: vi.fn() }));
 vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn() }));
 
 import { POST } from "./route";
-import { AppApiError, getInstallation } from "@/lib/github/app";
-import { removeInstallation, upsertInstallation } from "@/lib/db";
+import { after } from "next/server";
+import { AppApiError, getInstallation, listInstallationRepos } from "@/lib/github/app";
+import { reconcileWatchedRepos, removeInstallation, unwatchReposForInstallation, upsertInstallation } from "@/lib/db";
 
 const mockGetInstallation = vi.mocked(getInstallation);
 const mockUpsert = vi.mocked(upsertInstallation);
 const mockRemove = vi.mocked(removeInstallation);
+const mockAfter = vi.mocked(after);
+const mockListRepos = vi.mocked(listInstallationRepos);
+const mockReconcile = vi.mocked(reconcileWatchedRepos);
+const mockUnwatch = vi.mocked(unwatchReposForInstallation);
+
+/** Run the work the route deferred via after() — the test stands in for the post-response phase. */
+async function runDeferred(): Promise<void> {
+  for (const call of mockAfter.mock.calls) {
+    await (call[0] as () => Promise<void>)();
+  }
+  mockAfter.mockClear();
+}
 
 const installation = (over: Partial<InstallationInfo> = {}): InstallationInfo => ({
   id: 42,
@@ -139,5 +152,49 @@ describe("POST /api/app/webhook — installation lifecycle redelivery net", () =
     const second = await post("installation", "del-deleted-dbblip", { action: "deleted", installation: { id: 42 } });
     expect(second.duplicate).toBeUndefined();
     expect(mockRemove).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Pins github-app-connect 06-11 #4: `repositories_removed` must NOT be acted on verbatim — a valid
+// signature proves authenticity, not ownership/freshness, so a forged-but-signed delivery naming a
+// victim's installation could otherwise silently unwatch their repos with no self-heal. Teardown
+// goes through the deferred reconcile, which unwatches only what GitHub confirms is gone.
+describe("POST /api/app/webhook — installation_repositories confirmation discipline", () => {
+  it("never unwatches straight from the payload's repositories_removed", async () => {
+    mockListRepos.mockResolvedValueOnce([
+      { fullName: "acme/still-accessible" } as Awaited<ReturnType<typeof listInstallationRepos>>[number],
+    ]);
+    await post("installation_repositories", "del-repos-forged", {
+      action: "removed_repositories" as never,
+      installation: { id: 42 },
+      repositories_removed: [{ full_name: "acme/still-accessible" }],
+    });
+    // The blind fast path is gone: nothing is unwatched from the payload before the response.
+    expect(mockUnwatch).not.toHaveBeenCalled();
+
+    // The deferred reconcile consults GitHub's live list — the authoritative set — instead.
+    await runDeferred();
+    expect(mockUnwatch).not.toHaveBeenCalled();
+    expect(mockReconcile).toHaveBeenCalledWith(42, ["acme/still-accessible"]);
+  });
+
+  it("releases the delivery when the GitHub-confirmed reconcile fails transiently", async () => {
+    mockListRepos.mockRejectedValueOnce(new AppApiError(502, "/installation/repositories"));
+    await post("installation_repositories", "del-repos-blip", {
+      installation: { id: 42 },
+      repositories_removed: [{ full_name: "acme/gone" }],
+    });
+    await runDeferred();
+    expect(mockReconcile).not.toHaveBeenCalled();
+
+    // Redelivery is NOT deduped; this time GitHub answers and the repo is confirmed gone.
+    mockListRepos.mockResolvedValueOnce([]);
+    const second = await post("installation_repositories", "del-repos-blip", {
+      installation: { id: 42 },
+      repositories_removed: [{ full_name: "acme/gone" }],
+    });
+    expect(second.duplicate).toBeUndefined();
+    await runDeferred();
+    expect(mockReconcile).toHaveBeenCalledWith(42, []);
   });
 });

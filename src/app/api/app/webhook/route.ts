@@ -28,7 +28,6 @@ import {
   reconcileWatchedRepos,
   removeInstallation,
   reportPermalink,
-  unwatchReposForInstallation,
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
@@ -360,18 +359,15 @@ export async function POST(request: Request) {
     } else if (event === "installation_repositories" && isDbConfigured()) {
       // The user changed WHICH repos an installation can see (Add/Remove on GitHub's Configure page).
       const id = payload.installation?.id;
-      // Fast path: immediately quiesce the repos GitHub itemized as removed (no API call), so their
-      // scheduled rescan stops minting a token that no longer covers them and 401ing forever.
-      const removed = (payload.repositories_removed ?? [])
-        .map((r) => r.full_name)
-        .filter((n): n is string => Boolean(n));
-      if (id != null && removed.length > 0) {
-        await unwatchReposForInstallation(id, removed);
-      }
-      // Full reconciliation (deferred, after the 2xx — it re-lists from GitHub): catch access changes
-      // the payload does NOT itemize as explicit "removed" rows. A "selected → all" flip sends an empty
-      // repositories_removed (the fast path above does nothing), and an "all → selected" narrowing can
-      // paginate the removals — both leave stale watched repos 401ing forever without this.
+      // Deliberately NO payload-trusting fast path here: a valid signature proves authenticity, not
+      // freshness/ownership, so acting on `repositories_removed` verbatim would let a forged/misrouted
+      // but signed delivery name a victim's installation id and silently unwatch their actively-watched
+      // repos — destructive, and the reconcile below never re-watches (added repos stay opt-in), so the
+      // damage wouldn't self-heal. Destructive webhook actions must be GitHub-confirmed (the same
+      // discipline as confirmRevocationWithGitHub on delete/suspend): the deferred reconcile re-lists
+      // the installation's live repos from GitHub and unwatches only what GitHub confirms is gone. It
+      // runs in this same request's after(), so legitimate quiescing is barely delayed, and it also
+      // catches changes the payload doesn't itemize (a "selected → all" flip, paginated narrowing).
       if (id != null && isAppConfigured()) {
         after(() => reconcileInstallationRepos(id, delivery ?? undefined));
       }
