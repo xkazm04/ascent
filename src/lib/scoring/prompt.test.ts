@@ -73,6 +73,14 @@ describe("buildAssessmentPrompt — PROCESS SIGNALS rate rendering (#1)", () => 
     expect(user).toContain("governed (reviewed) rate n/a (too few AI PRs)");
   });
 
+  it("renders a null reviewedRate as n/a instead of a fabricated 0% (#3)", () => {
+    const { user } = buildAssessmentPrompt(
+      input({ prStats: { ...prStats, reviewedRate: null } }),
+    );
+    expect(user).toContain("reviewed rate n/a (no human-merged PRs)");
+    expect(user).not.toContain("reviewed rate 0%");
+  });
+
   it("degrades to the token-less note when prStats and governance are absent", () => {
     const { user } = buildAssessmentPrompt(input({ prStats: null, governance: null }));
     expect(user).toContain("scanned without a token");

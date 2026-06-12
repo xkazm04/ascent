@@ -23,7 +23,7 @@ export interface AdoptionOverview {
   distribution: { high: number; some: number; none: number };
   champions: AdoptionChampion[]; // top culture carriers by championScore
   /** Delivery signals shown as CONTEXT next to adoption (no causal claim). Null when no PR data. */
-  delivery: { typicalHoursToMerge: number | null; reviewedRate: number; mergeRate: number; aiInvolvedRate: number; prs: number } | null;
+  delivery: { typicalHoursToMerge: number | null; reviewedRate: number | null; mergeRate: number; aiInvolvedRate: number; prs: number } | null;
   knowledgeLeader: { name: string; aiCommitShare: number } | null;
 }
 
@@ -72,7 +72,7 @@ export function adoptionMarkdown(a: AdoptionOverview): string {
     out.push("## Delivery (context — not a causal claim)");
     const d = a.delivery;
     out.push(
-      `- ${d.typicalHoursToMerge != null ? `${d.typicalHoursToMerge}h typical PR merge time · ` : ""}${d.reviewedRate}% reviewed · ${d.mergeRate}% merged · ${d.aiInvolvedRate}% AI-involved PRs (${d.prs} PRs)`,
+      `- ${d.typicalHoursToMerge != null ? `${d.typicalHoursToMerge}h typical PR merge time · ` : ""}${d.reviewedRate != null ? `${d.reviewedRate}% reviewed · ` : ""}${d.mergeRate}% merged · ${d.aiInvolvedRate}% AI-involved PRs (${d.prs} PRs)`,
     );
   }
   out.push("");

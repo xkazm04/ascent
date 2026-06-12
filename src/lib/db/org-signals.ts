@@ -8,7 +8,7 @@ export interface OrgPrSignals {
   repos: number; // repos that have PR data
   totalPrs: number; // PRs analyzed across the fleet
   avgMergeRate: number;
-  avgReviewedRate: number;
+  avgReviewedRate: number | null; // mean of repo reviewedRate (where a human-merged sample exists)
   avgSmallPrRate: number;
   avgAiInvolvedRate: number;
   avgAiGovernedRate: number | null; // mean of repo aiGovernedRate (where it has a sample)
@@ -44,6 +44,7 @@ export async function getOrgPrSignals(orgSlug: string): Promise<OrgPrSignals | n
   const mean = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0);
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
   const governed = stats.map((s) => s.aiGovernedRate).filter((x): x is number => x != null);
+  const reviewed = stats.map((s) => s.reviewedRate).filter((x): x is number => x != null);
   const toolMap = new Map<string, number>();
   for (const s of stats) for (const t of s.tools) toolMap.set(t.name, (toolMap.get(t.name) ?? 0) + t.count);
 
@@ -51,7 +52,7 @@ export async function getOrgPrSignals(orgSlug: string): Promise<OrgPrSignals | n
     repos: stats.length,
     totalPrs: stats.reduce((a, s) => a + s.analyzed, 0),
     avgMergeRate: mean(stats.map((s) => s.mergeRate)),
-    avgReviewedRate: mean(stats.map((s) => s.reviewedRate)),
+    avgReviewedRate: reviewed.length ? mean(reviewed) : null,
     avgSmallPrRate: mean(stats.map((s) => s.smallPrRate)),
     avgAiInvolvedRate: mean(stats.map((s) => s.aiInvolvedRate)),
     avgAiGovernedRate: governed.length ? mean(governed) : null,

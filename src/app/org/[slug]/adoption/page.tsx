@@ -94,7 +94,7 @@ export default async function OrgAdoption({ params }: { params: Promise<{ slug: 
             <InlineEmpty>No pull-request data — connect a GitHub token/App to read PR signals.</InlineEmpty>
           ) : (
             <div className="mt-3 space-y-2">
-              <DeliveryRow label="Reviewed PRs" value={`${d.reviewedRate}%`} rate={d.reviewedRate} />
+              {d.reviewedRate != null && <DeliveryRow label="Reviewed PRs" value={`${d.reviewedRate}%`} rate={d.reviewedRate} />}
               <DeliveryRow label="Merge rate" value={`${d.mergeRate}%`} rate={d.mergeRate} />
               <DeliveryRow label="AI-involved PRs" value={`${d.aiInvolvedRate}%`} rate={d.aiInvolvedRate} />
               <div className="flex items-center justify-between border-t border-slate-800 pt-2 text-sm">

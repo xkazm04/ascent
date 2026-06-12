@@ -254,7 +254,9 @@ export interface PrStats {
   merged: number;
   closedUnmerged: number;
   mergeRate: number; // merged / (merged + closed-unmerged)
-  reviewedRate: number; // merged PRs that had an approving review
+  /** Of human-authored merged PRs, the share with an approving review. Null when NO human-authored
+   * PR merged in the window (all-bot fleets): no sample is not "0% reviewed". */
+  reviewedRate: number | null;
   avgReviews: number;
   avgComments: number;
   medianHoursToMerge: number | null;

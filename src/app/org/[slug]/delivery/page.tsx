@@ -60,7 +60,12 @@ export default async function OrgDelivery({ params }: { params: Promise<{ slug: 
             }
           />
           <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-            <Tile label="Review coverage" value={`${pr.avgReviewedRate}%`} color={scoreHex(pr.avgReviewedRate)} />
+            <Tile
+              label="Review coverage"
+              value={pr.avgReviewedRate == null ? "—" : `${pr.avgReviewedRate}%`}
+              sub={pr.avgReviewedRate == null ? "no human-merged PRs" : undefined}
+              color={pr.avgReviewedRate == null ? "#fff" : scoreHex(pr.avgReviewedRate)}
+            />
             <Tile label="Merge rate" value={`${pr.avgMergeRate}%`} color={scoreHex(pr.avgMergeRate)} />
             <Tile label="Small PRs" value={`${pr.avgSmallPrRate}%`} color={scoreHex(pr.avgSmallPrRate)} />
             <Tile label="AI-involved PRs" value={`${pr.avgAiInvolvedRate}%`} color={scoreHex(pr.avgAiInvolvedRate)} />

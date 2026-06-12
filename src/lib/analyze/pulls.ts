@@ -125,7 +125,11 @@ export function summarizePullRequests(nodes: PrNode[], totalCount: number): PrSt
     merged,
     closedUnmerged,
     mergeRate: pct(merged, merged + closedUnmerged),
-    reviewedRate: pct(reviewedHumanMerged, mergedHuman),
+    // No human-authored merged PR in the window (e.g. an all-bot/agent fleet) means review
+    // discipline was never measurable — null, NOT a fabricated "0% reviewed" that would drag D6
+    // and feed the LLM auditor a stated falsehood (same measured-zero vs no-sample class as
+    // aiGovernedRate below and the failed-detector exclusion).
+    reviewedRate: mergedHuman > 0 ? pct(reviewedHumanMerged, mergedHuman) : null,
     avgReviews: analyzed ? Math.round((reviewsSum / analyzed) * 10) / 10 : 0,
     avgComments: analyzed ? Math.round((commentsSum / analyzed) * 10) / 10 : 0,
     medianHoursToMerge: median(ttm),
@@ -161,7 +165,15 @@ export function applyPrSignals(
   if (!pr || pr.analyzed === 0) return signals;
 
   // PR-derived rigor: review discipline dominates; PR hygiene + stability round it out.
-  const prRigor = clamp(0.5 * pr.reviewedRate + 0.3 * pr.smallPrRate + 0.2 * Math.max(0, 100 - pr.revertRate * 6));
+  // When review coverage has NO sample (reviewedRate null — zero human-authored merged PRs),
+  // drop the review term and renormalize the remaining weights (0.3/0.5 and 0.2/0.5) so the
+  // measurable hygiene/stability signals still count without a fabricated 0% dragging D6.
+  const stability = Math.max(0, 100 - pr.revertRate * 6);
+  const prRigor = clamp(
+    pr.reviewedRate == null
+      ? 0.6 * pr.smallPrRate + 0.4 * stability
+      : 0.5 * pr.reviewedRate + 0.3 * pr.smallPrRate + 0.2 * stability,
+  );
 
   return signals.map((s) => {
     if (s.id === "D6") {
@@ -171,7 +183,10 @@ export function applyPrSignals(
         signals: [
           ...s.signals,
           {
-            label: `PR review coverage ${pr.reviewedRate}%`,
+            label:
+              pr.reviewedRate == null
+                ? "PR review coverage n/a (no human-merged PRs in window)"
+                : `PR review coverage ${pr.reviewedRate}%`,
             detail: `${pr.merged} merged · ${pr.smallPrRate}% small · ${pr.revertRate}% reverted`,
           },
         ],
