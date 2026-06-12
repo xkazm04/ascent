@@ -374,7 +374,25 @@ export function withDb<T>(op: (client: PrismaClient) => Promise<T>): Promise<T> 
   const cfg = readDsqlConfig();
   return runWithReconnect(op, {
     getClient: async () => {
-      if (cfg && tokenIsStale(g.__ascentPrisma, cfg)) await refresh(cfg);
+      if (cfg && tokenIsStale(g.__ascentPrisma, cfg)) {
+        try {
+          await refresh(cfg);
+        } catch (err) {
+          // A failed PROACTIVE mint is only fatal when there is no client to fall back on. Inside
+          // the refresh margin the cached client's token is still VALID by definition, so a
+          // transient STS/IAM blip (throttle, momentary credentials hiccup) must not fail the op —
+          // that made the protected write path strictly MORE fragile than the raw getPrisma()
+          // read path, which shrugs off the same background-refresh failure. Fall through to the
+          // cached client: either the op succeeds on the still-valid token, or it throws a real
+          // auth-expiry that runWithReconnect recovers via reconnectDb — where a second mint
+          // failure is rightly fatal (the REACTIVE path is the authority on a genuinely dead token).
+          if (!g.__ascentPrisma) throw err;
+          console.warn(
+            "[db] proactive DSQL token refresh failed; continuing on the cached client:",
+            errorInfo(err).message,
+          );
+        }
+      }
       return getPrisma();
     },
     reconnect: reconnectDb,

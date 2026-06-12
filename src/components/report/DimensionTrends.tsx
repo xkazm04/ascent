@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui";
+import { githubCommitUrl, reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui";
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { parseRepositoryHistory } from "@/lib/report/validate";
 import { EmptyState } from "@/components/EmptyState";
@@ -82,15 +82,25 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
     at: s.scannedAt,
     engine: s.engineProvider,
     // Deep-link each point to that scan's pinned report (and show the short sha) when we recorded
-    // the commit — so a trend dot opens the exact report instead of being a dead end.
+    // the commit — so a trend dot opens the exact report instead of being a dead end. Shift-click
+    // jumps to the GitHub commit itself (the external half of the investigation loop).
     href: s.headSha ? reportPermalink(history.repo.fullName, s.headSha) : undefined,
     sha: s.headSha ? s.headSha.slice(0, 7) : undefined,
+    commitUrl: githubCommitUrl(history.repo.fullName, s.headSha) ?? undefined,
   }));
 
-  // Per-dimension rows — from the full payload once loaded, sliced by the SAME range.
+  // Per-dimension rows — from the full payload once loaded, sliced by the SAME range. The meta
+  // carries the same per-scan deep links as the overall chart, so the small-multiples — where
+  // movements are actually localized — open the pinned report / GitHub commit too.
   const dimScans = full ? withinRange(full.scans, days) : [];
   const dimChrono = [...dimScans].reverse();
-  const meta: ScanMeta[] = dimChrono.map((s) => ({ at: s.scannedAt, engine: s.engineProvider }));
+  const meta: ScanMeta[] = dimChrono.map((s) => ({
+    at: s.scannedAt,
+    engine: s.engineProvider,
+    sha: s.headSha ? s.headSha.slice(0, 7) : undefined,
+    href: s.headSha ? reportPermalink(history.repo.fullName, s.headSha) : undefined,
+    commitUrl: githubCommitUrl(history.repo.fullName, s.headSha) ?? undefined,
+  }));
   const latest = dimScans[0];
   const prev = dimScans[1];
   const rows = DIMENSIONS.map((def) => {

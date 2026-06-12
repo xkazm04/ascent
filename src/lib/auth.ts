@@ -181,6 +181,32 @@ export async function secureCookieForRequest(): Promise<boolean> {
   }
 }
 
+/** Hostname[:port] grammar for forwarded-host values. Anything outside it (slashes, `@`, spaces,
+ *  control chars) could rewrite the path/userinfo of a URL it is interpolated into, so such values
+ *  are ignored rather than trusted. */
+const FORWARDED_HOST_GRAMMAR = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
+
+/**
+ * The request's EXTERNAL origin — scheme + host as the browser actually used them. Behind a
+ * TLS-terminating proxy `new URL(request.url).origin` is the INTERNAL origin (http://, internal
+ * host) — the same divergence that moved the session cookie's Secure flag onto
+ * `x-forwarded-proto` (see secureCookieForRequest). The OAuth `redirect_uri` must be built from
+ * the EXTERNAL origin or it won't match the callback URL registered with GitHub and the
+ * authorize/token-exchange is rejected outright. Both the authorize URL and the code exchange
+ * must derive their redirect_uri from this one helper — GitHub requires the two values to be
+ * identical. Forwarded values are validated against the expected grammar before use; anything
+ * else falls back to the request-derived origin (correct for direct connections / Vercel, which
+ * reconstructs request.url from the public host).
+ */
+export function publicOriginForRequest(request: Request): string {
+  const url = new URL(request.url);
+  const fwdProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const proto = fwdProto === "https" || fwdProto === "http" ? fwdProto : url.protocol.replace(/:$/, "");
+  const fwdHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = fwdHost && FORWARDED_HOST_GRAMMAR.test(fwdHost) ? fwdHost : url.host;
+  return `${proto}://${host}`;
+}
+
 /** Outcome of checking a token's `sv` against the per-login stored version:
  *  - `valid`   — the revocation store confirmed this token is current.
  *  - `revoked` — a newer version exists; the token is dead (logout / access change).
@@ -378,8 +404,11 @@ export function safeNext(next: string | null | undefined, fallback = "/connect")
   // ("/\\host") — both resolve to an external origin in browsers / the URL parser.
   if (next[0] !== "/" || next[1] === "/" || next[1] === "\\") return fallback;
   if (next.includes("\\")) return fallback;
-  // Reject control chars / whitespace that can smuggle a host past naive checks.
-  if (/[ -\s]/.test(next)) return fallback;
+  // Reject control chars / whitespace that can smuggle a host past naive checks. The class is
+  // spelled with ESCAPES (C0 controls, DEL, all whitespace) on purpose: it was previously written
+  // with raw control bytes, which render as `[ -\s]` in most editors/diffs — unreviewable, easy
+  // to mangle into the Annex-B hyphen-matching `[ -\s]` union, and twice misread in audits.
+  if (/[\x00-\x1F\x7F\s]/.test(next)) return fallback;
   try {
     const url = new URL(next, "https://ascent.invalid");
     if (url.origin !== "https://ascent.invalid") return fallback;
@@ -399,12 +428,17 @@ export function buildAuthorizeUrl(origin: string, state: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GITHUB_OAUTH_CLIENT_ID ?? "",
     redirect_uri: `${origin}/api/auth/callback`,
-    // `read:org` lets the callback list the orgs the user belongs to (GET /user/orgs) so we can
-    // suggest which to scan first and pre-seed the watchlist for their most-active org — the
-    // Vercel/Dependabot onboarding pattern. (For a GitHub App user-to-server token this scope is
-    // advisory; access is governed by the App's permissions. Org discovery degrades gracefully
-    // if the listing is denied — see src/lib/github/discover.ts.)
-    scope: "read:user read:org",
+    // Least-privilege first touch: `read:user` only. The consent screen is the most
+    // conversion-sensitive step of the funnel, and the broader `read:org` previously requested
+    // here funded ONLY a best-effort onboarding nicety (org suggestions / watchlist seeding via
+    // the callback's discoverOrgs) — which already degrades gracefully without it:
+    // fetchUserOrgs is `.catch(() => [])`, and without `read:org` GET /user/orgs simply returns
+    // the user's PUBLIC org memberships (fewer suggestions, never an error), while the repo-based
+    // ranking (fetchUserRepos) needs no org scope at all. A token that DOES carry `read:org` (an
+    // earlier broader grant) still gets full discovery — the consuming code is unchanged. If
+    // explicit org discovery is ever wanted, request the extra scope from an in-app opt-in
+    // ("Discover my orgs"), not on every first sign-in. See src/lib/github/discover.ts.
+    scope: "read:user",
     state,
   });
   return `https://github.com/login/oauth/authorize?${params.toString()}`;

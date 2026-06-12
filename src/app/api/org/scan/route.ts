@@ -8,6 +8,7 @@ import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isDbConfigu
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
+import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
@@ -125,6 +126,9 @@ export async function POST(request: Request) {
               return;
             }
             reserved = res.ok && !res.unlimited;
+            // Proactive lifecycle push when this debit landed on the low-water mark (or zero) —
+            // the SSE notice above only reaches whoever happens to be watching this stream.
+            if (reserved) await maybeAlertLowCredits(org, res.balance);
           }
           const refundCredit = async () => {
             if (reserved) await grantCredits(org, 1, { reason: "refund", actor: "system" }).catch(() => {});
@@ -140,8 +144,10 @@ export async function POST(request: Request) {
                 failures: persisted.failures,
               });
             }
-            // No real inference billed (degraded to mock) — refund the reservation made above.
-            if (report.engine.provider === "mock") await refundCredit();
+            // Refund the reservation when nothing billable was produced: either the scan degraded to
+            // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
+            // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
+            if (report.engine.provider === "mock" || persisted?.deduped) await refundCredit();
             send("repo", {
               repo: repo.fullName,
               level: report.level.id,

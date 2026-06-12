@@ -101,8 +101,43 @@ export interface OrgRollup {
     avgAdoption: number;
     avgRigor: number;
   } | null;
-  /** Current minus baseline for the headline metrics — the per-tile period delta. Null without a baseline. */
+  /** Cohort-matched current-minus-baseline for the headline metrics — the per-tile period delta.
+   * Measured only over repos present on BOTH sides of the window, so onboarding repos mid-period
+   * reads as growth, not fabricated score movement. Null without a baseline (or no overlap). */
   deltas: { overall: number; adoption: number; rigor: number } | null;
+}
+
+/** One repo's score snapshot on one side of the window — input to `computeWindowDeltas`. */
+export interface RepoScoreSnap {
+  repoId: string;
+  overall: number;
+  adoption: number;
+  rigor: number;
+}
+
+/**
+ * Cohort-matched period deltas: movement is measured ONLY over repos present on BOTH sides of the
+ * window. Averaging the whole current fleet against the baseline cohort folds composition change
+ * into what is presented as score movement — onboarding 5 low-scoring repos mid-quarter used to
+ * read as the fleet "slipping" 25 points no repo experienced (and onboarding strong repos
+ * manufactured a fake climb), while the movers panel below correctly showed zero regressions.
+ * Returns null when the cohorts don't overlap.
+ */
+export function computeWindowDeltas(
+  current: readonly RepoScoreSnap[],
+  baseline: readonly RepoScoreSnap[],
+): { overall: number; adoption: number; rigor: number } | null {
+  const currentIds = new Set(current.map((c) => c.repoId));
+  const before = baseline.filter((b) => currentIds.has(b.repoId));
+  const beforeIds = new Set(before.map((b) => b.repoId));
+  const now = current.filter((c) => beforeIds.has(c.repoId));
+  if (!before.length || !now.length) return null;
+  const avg = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+  return {
+    overall: avg(now.map((c) => c.overall)) - avg(before.map((b) => b.overall)),
+    adoption: avg(now.map((c) => c.adoption)) - avg(before.map((b) => b.adoption)),
+    rigor: avg(now.map((c) => c.rigor)) - avg(before.map((b) => b.rigor)),
+  };
 }
 
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null): Promise<OrgRollup | null> {
@@ -206,7 +241,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   const avgRigor = avg(scanned.map((r) => r.latest!.rigor));
 
   // Baseline = the fleet as it stood at the window start: latest scan per repo at-or-before `start`.
-  // Powers the per-tile period delta (current avg − baseline avg) and the period-in-review banner.
+  // Powers the per-tile period delta and the period-in-review banner. Deltas are cohort-matched
+  // (computeWindowDeltas): the tiles keep the fleet-wide averages as their main values, but the
+  // movement number compares only repos that exist on both sides of the window.
   let baseline: OrgRollup["baseline"] = null;
   let deltas: OrgRollup["deltas"] = null;
   if (start) {
@@ -230,11 +267,18 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
         avgAdoption: avg(latestPerRepo.map((s) => s.adoptionScore)),
         avgRigor: avg(latestPerRepo.map((s) => s.rigorScore)),
       };
-      deltas = {
-        overall: avgOverall - baseline.avgOverall,
-        adoption: avgAdoption - baseline.avgAdoption,
-        rigor: avgRigor - baseline.avgRigor,
-      };
+      const currentSnaps: RepoScoreSnap[] = repos
+        .filter((r) => r.scans[0])
+        .map((r) => ({
+          repoId: r.id,
+          overall: r.scans[0]!.overallScore,
+          adoption: r.scans[0]!.adoptionScore,
+          rigor: r.scans[0]!.rigorScore,
+        }));
+      deltas = computeWindowDeltas(
+        currentSnaps,
+        latestPerRepo.map((s) => ({ repoId: s.repoId, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore })),
+      );
     }
   }
 

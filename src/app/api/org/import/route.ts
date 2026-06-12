@@ -32,6 +32,7 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
+import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequest, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
   // unaffected: an anonymous caller's ownsOrg is false, so no token is minted and only public repos
   // resolve via the env GITHUB_TOKEN. Auth-off (local/demo) deployments keep the prior open behavior.
   let token = process.env.GITHUB_TOKEN || undefined;
+  let appTokenMinted = false;
   if (isAppConfigured()) {
     const ownsOrg = !isAuthConfigured() || (await sessionOwnsOrg(org));
     if (ownsOrg) {
@@ -84,10 +86,25 @@ export async function POST(request: Request) {
       if (!installationId) installationId = (await getInstallationIdForOwner(org)) || undefined;
       if (installationId) {
         const appToken = await getInstallationToken(installationId).catch(() => undefined);
-        if (appToken) token = appToken;
+        if (appToken) {
+          token = appToken;
+          appTokenMinted = true;
+        }
       }
     }
   }
+
+  // Public surfaces are token-less by construction (the README-badge convention,
+  // ScanOptions.noAmbientToken): the ambient GITHUB_TOKEN is an operator PAT that commonly
+  // carries private `repo` scope, and this route is a deliberately anonymous funnel that accepts
+  // an explicit `repos[]` list — scanning with the PAT would let an anonymous caller name
+  // "victim/secret" and exfiltrate a PRIVATE repo's report into the open org (confused deputy).
+  // So unless a session-gated installation token was minted above, the SCANS run token-less
+  // (private repos 404 instead of ingesting); the env token still feeds only the public
+  // `listOrgRepos` listing below, for rate-limit relief. Auth-off (local/demo) deployments keep
+  // the prior open behavior — they are operator-only by design and this is the documented
+  // seeding path (scripts/seed-org.mjs).
+  const scanOpts = appTokenMinted || !isAuthConfigured() ? { token, mock } : { noAmbientToken: true, mock };
 
   // Credits: a real-LLM import into a private org dashboard draws on prepaid credits. The default mock
   // import and the public funnel are free (mock runs no inference). Refuse up front when out of credits;
@@ -169,13 +186,16 @@ export async function POST(request: Request) {
               return;
             }
             reserved = res.ok && !res.unlimited;
+            // Proactive lifecycle push when this debit landed on the low-water mark (or zero) —
+            // the SSE notice above only reaches whoever happens to be watching this stream.
+            if (reserved) await maybeAlertLowCredits(org, res.balance);
           }
           const refundCredit = async () => {
             if (reserved) await grantCredits(org, 1, { reason: "refund", actor: "system" }).catch(() => {});
           };
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
           try {
-            const report = await scanRepository(r.fullName, { token, mock });
+            const report = await scanRepository(r.fullName, scanOpts);
             const persisted = await persistScanReport(report, { orgSlug: org });
             if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
               console.warn("[org/import] persisted with partial write failures", {
@@ -184,8 +204,10 @@ export async function POST(request: Request) {
                 failures: persisted.failures,
               });
             }
-            // No real inference billed (degraded to mock) — refund the reservation made above.
-            if (report.engine.provider === "mock") await refundCredit();
+            // Refund the reservation when nothing billable was produced: either the scan degraded to
+            // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
+            // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
+            if (report.engine.provider === "mock" || persisted?.deduped) await refundCredit();
             if (watch) await setRepoWatch(org, r, true);
             if (watch && schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
             send("repo", {

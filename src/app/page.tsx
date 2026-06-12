@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ScanForm } from "@/components/ScanForm";
 import { ScanGallery } from "@/components/landing/ScanGallery";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
-import { getPublicScanGallery } from "@/lib/db";
+import { getPublicScanGallery, isDbConfigured } from "@/lib/db";
+import { publicScanQuotaDisabled, publicScanWeeklyLimit, signedInScanWeeklyLimit } from "@/lib/public-scan-quota";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { LEVEL_CLASSES } from "@/lib/ui";
 
@@ -28,6 +29,16 @@ export default async function Home() {
   // off or nothing has been scored yet — the page then keeps its static examples.
   const gallery = await getPublicScanGallery().catch(() => null);
   const exampleRepos = gallery?.topAiNative.slice(0, 3).map((c) => c.fullName);
+
+  // The weekly free-scan gate (src/lib/public-scan-quota.ts) only enforces when persistence is on
+  // and the kill switch is off. Advertise the REAL terms then — the limits come from the same
+  // functions the gate enforces, so copy and enforcement can't drift — and only then: a DB-less
+  // deploy genuinely has no limit, and promising numbers a gate can't enforce would be the same
+  // dishonesty in the other direction. The signed-in tier doubles as the sign-up pitch.
+  const quota =
+    isDbConfigured() && !publicScanQuotaDisabled()
+      ? { anon: publicScanWeeklyLimit(), member: signedInScanWeeklyLimit() }
+      : null;
 
   return (
     <>
@@ -60,11 +71,25 @@ export default async function Home() {
               <ScanForm autoFocus examples={exampleRepos} />
             </div>
             <p className="mt-4 font-mono text-sm uppercase tracking-widest text-slate-400">
-              <span>Free for public repos</span>
-              <span aria-hidden> · </span>
-              <span>No signup</span>
-              <span aria-hidden> · </span>
-              <span>Results in under a minute</span>
+              {quota ? (
+                <>
+                  <span>
+                    {quota.anon} free scans a week — no signup
+                  </span>
+                  <span aria-hidden> · </span>
+                  <span>Sign in for {quota.member}</span>
+                  <span aria-hidden> · </span>
+                  <span>Results in under a minute</span>
+                </>
+              ) : (
+                <>
+                  <span>Free for public repos</span>
+                  <span aria-hidden> · </span>
+                  <span>No signup</span>
+                  <span aria-hidden> · </span>
+                  <span>Results in under a minute</span>
+                </>
+              )}
             </p>
           </div>
         </section>
@@ -195,7 +220,7 @@ export default async function Home() {
               is implemented to your requirements.
             </p>
             <div className="mt-8 grid gap-5 lg:grid-cols-3">
-              {PRICING.map((p) => (
+              {buildPricing(quota).map((p) => (
                 <div
                   key={p.name}
                   className={`flex flex-col rounded-xl border p-6 ${
@@ -234,19 +259,35 @@ export default async function Home() {
   );
 }
 
-const PRICING = [
-  {
-    name: "Public",
-    price: "Free",
-    tagline: "Any public repo, on the web",
-    featured: false,
-    features: [
-      "Unlimited public-repo scans",
-      "Full report · radar · roadmap",
-      "Shareable maturity badge",
-    ],
-    note: "No signup. Free forever for public repositories.",
-  },
+/**
+ * Pricing cards. The Public card states the freemium ladder honestly: when the weekly gate is
+ * live, its first feature carries the REAL limits (from the gate's own limit functions) and sells
+ * the free-account upgrade — the worst place to learn the marketing was false is the 429 wall.
+ * Only a deploy with no enforceable gate (`quota: null`) may say "unlimited".
+ */
+function buildPricing(quota: { anon: number; member: number } | null) {
+  return [
+    {
+      name: "Public",
+      price: "Free",
+      tagline: "Any public repo, on the web",
+      featured: false,
+      features: [
+        quota
+          ? `${quota.anon} free scans a week — ${quota.member} with a free account`
+          : "Unlimited public-repo scans",
+        "Full report · radar · roadmap",
+        "Shareable maturity badge",
+      ],
+      note: quota
+        ? "No signup needed to start. Free for public repositories — sign in to lift the weekly limit."
+        : "No signup. Free forever for public repositories.",
+    },
+    ...PRICING_PAID,
+  ];
+}
+
+const PRICING_PAID = [
   {
     name: "Private",
     price: "Prepaid credits",

@@ -9,7 +9,7 @@ import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
-import { consumePublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
+import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
@@ -40,6 +40,15 @@ export async function POST(request: Request) {
   const mock = Boolean(body.mock);
   const fresh = Boolean(body.fresh);
   const parsed = parseRepoUrl(url);
+  // Reject a provably-invalid URL BEFORE the quota block below: scanRepository would throw
+  // INVALID_URL anyway, but only after the weekly slot was consumed — a typo must not burn one of
+  // the anonymous tier's free slots. Mirrors the JSON route's INVALID_URL → 400 mapping.
+  if (!parsed) {
+    return NextResponse.json(
+      { error: "Enter a valid GitHub repository URL, e.g. https://github.com/owner/repo.", code: "INVALID_URL" },
+      { status: 400 },
+    );
+  }
   const { token, orgSlug } = await resolveScanAuth(parsed, body.installationId);
 
   // Supabase login wall — private/org scans only (see /api/scan). A non-public orgSlug is a
@@ -48,20 +57,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
   }
 
-  // Weekly SOFT gate: anonymous public scans get a small free per-IP allowance over a rolling 7-day
-  // window (persistent — see src/lib/public-scan-quota.ts). The /report flow peeks the cache first
-  // (cheap, unconsumed); reaching the stream means a real scan, so consume one slot here. Fails open
-  // when persistence isn't configured. Private (token) scans are credit-metered and skip this.
+  // Weekly SOFT gate: public scans get a free per-window allowance (persistent — see
+  // src/lib/public-scan-quota.ts). A SIGNED-IN viewer gets an elevated, per-user allowance; an
+  // anonymous caller gets the smaller per-IP one. The /report flow peeks the cache first (cheap,
+  // unconsumed); reaching the stream means a real scan, so consume one slot here. Fails open when
+  // persistence isn't configured. Private (token) scans are credit-metered and skip this.
   let quotaRemaining: number | null = null;
   let quotaResetAt: number | null = null;
+  let quotaScope: "anon" | "user" | null = null;
+  // Set when a weekly slot was actually consumed, so the in-stream no-delivery paths below can
+  // REFUND it — the free tier meters on commit, not attempt (same policy as credit metering).
+  // Carries the viewer identity the slot was charged to, so the refund hits the same bucket.
+  let quotaCharged: { viewerId: string | null } | null = null;
   if (orgSlug === "public" && !token && !mock) {
-    const quota = await consumePublicScanQuota(request);
+    const viewer = await getViewer();
+    const quota = await consumePublicScanQuota(request, { viewerId: viewer?.id });
     if (quota.enforced && !quota.allowed) return weeklyQuotaExceeded(quota);
     if (quota.enforced) {
       quotaRemaining = quota.remaining;
       quotaResetAt = quota.resetAt;
+      quotaScope = quota.signedIn ? "user" : "anon";
+      quotaCharged = { viewerId: viewer?.id ?? null };
     }
   }
+  const refundQuota = async () => {
+    if (quotaCharged) {
+      await refundPublicScanQuota(request, { viewerId: quotaCharged.viewerId });
+      quotaCharged = null; // at most one refund per consumed slot
+    }
+  };
 
   // Hoisted so the stream's cancel() (fired when the client disconnects and tears the stream down
   // mid-scan) can stop the heartbeat immediately, rather than letting it fire on a dead controller
@@ -107,6 +131,10 @@ export async function POST(request: Request) {
               : undefined;
           lookup = await lookupCachedScan({ parsed, useLLM: !mock, orgSlug: "public", fresh, preResolved });
           if (lookup.cached) {
+            // The JSON route serves cache hits BEFORE its quota block; the stream consumes first
+            // (the cache probe lives inside start()), so refund the slot — a cached report is
+            // free everywhere. The quota headers already sent overstate usage by this one slot.
+            await refundQuota();
             send("progress", {
               stage: "done",
               message: lookup.source === "db" ? "Loaded from a saved scan" : "Loaded from cache",
@@ -140,6 +168,10 @@ export async function POST(request: Request) {
         // key — caching it would pin the mock floor under `::llm` for the full TTL and serve it to
         // every later scanner of this commit. Skip caching a mock report when the LLM was requested.
         const degradedToMock = report.engine.provider === "mock" && !mock;
+        // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not
+        // the product the slot pays for — refund it, mirroring the credit rule ("a degrade-to-mock
+        // run is free").
+        if (degradedToMock) await refundQuota();
         // Don't cache a low-coverage scan: silent per-file fetch failures degrade coverage without
         // failing the LLM, so a transient blip would otherwise pin a degraded snapshot under the
         // commit key for the full TTL. Skip like the mock-degrade case; the next scan re-resolves.
@@ -169,6 +201,10 @@ export async function POST(request: Request) {
       } catch (err) {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;
+        // No report was delivered — 404/typo, upstream failure, or a client abort mid-scan. Refund
+        // the weekly slot in every case: the user received nothing, and a mid-scan refresh or a
+        // GitHub blip must not burn one of the anonymous tier's 3 free slots.
+        await refundQuota();
         // A deliberate abort (client disconnect / scan timeout) is not a scan error to report — the
         // consumer is already gone and the scan stopped as intended. Don't emit a misleading
         // "Unexpected error" frame (the JSON route maps the same AbortError to a 499); just unwind.
@@ -209,6 +245,7 @@ export async function POST(request: Request) {
       // warn before the gate trips.
       ...(quotaRemaining !== null ? { "x-ascent-quota-remaining": String(quotaRemaining) } : {}),
       ...(quotaResetAt !== null ? { "x-ascent-quota-reset": String(quotaResetAt) } : {}),
+      ...(quotaScope !== null ? { "x-ascent-quota-scope": quotaScope } : {}),
     },
   });
 }

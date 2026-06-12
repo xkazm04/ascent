@@ -56,6 +56,17 @@ export function ItemRow({
             <span>· {item.dimId} {item.dimLabel}</span>
             <span>· impact {item.impact}</span>
             <span>· effort {item.effort}</span>
+            {/* Engine-true ROI (same math as the report's payoff chip) — the glass-box upgrade
+                over the qualitative impact/effort words. Hidden when the scan predates persisted
+                dimensions (null) or the gap moves nothing (0). */}
+            {item.projectedPoints != null && item.projectedPoints > 0 && (
+              <span
+                title="Engine projection: overall-score points this repo gains if this gap is fully closed"
+                className="rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 text-accent"
+              >
+                ↑ +{item.projectedPoints} pts{item.unlocks ? ` · unlocks ${item.unlocks}` : ""}
+              </span>
+            )}
           </div>
         </div>
         {due && (

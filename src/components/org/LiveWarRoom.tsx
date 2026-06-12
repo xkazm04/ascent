@@ -8,6 +8,7 @@ import {
   CELEBRATION_MS,
   POSTURE_HEX,
   TICKER_MAX,
+  classifyRepoEvent,
   shortName,
   type Celebration,
   type LiveRepo,
@@ -38,6 +39,10 @@ export function LiveWarRoom({
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState({ done: 0, total: watchedCount, current: "" });
   const [error, setError] = useState<string | null>(null);
+  // Repos the server skipped for lack of prepaid scan credits (`notice` up front, per-repo
+  // `skipped` events mid-run, authoritative total on `result`). Surfaced as a warn line so a
+  // credit-truncated run can never read as a clean full-fleet success.
+  const [skipped, setSkipped] = useState(0);
   const [ticker, setTicker] = useState<Mover[]>([]);
   const [celebrations, setCelebrations] = useState<Celebration[]>([]);
 
@@ -72,27 +77,39 @@ export function LiveWarRoom({
   }, []);
 
   // Fold one streamed `repo` result into the live state: update the repo, push to the ticker,
-  // and fire a celebration when it crosses the threshold into AI-Native.
+  // and fire a celebration when it crosses the threshold into AI-Native. Skipped/error/malformed
+  // events are ticker-only (or dropped) — they must never overwrite a repo's real seeded standing.
   const onRepo = useCallback(
     (d: Record<string, unknown>) => {
       const fullName = String(d.repo ?? "");
       if (!fullName) return;
+      const ev = classifyRepoEvent(d);
+      // Malformed payload (no error/skip marker, non-finite overall): drop it rather than fold
+      // NaN into the wall — the seeded standing stays.
+      if (ev.kind === "invalid") return;
       const id = ++idRef.current;
       const prev = reposRef.current[fullName];
       const name = prev?.name ?? shortName(fullName);
 
-      if (d.error) {
+      if (ev.kind === "error") {
         setTicker((t) =>
           [{ id, fullName, name, overall: null, level: null, posture: null, delta: null, failed: true }, ...t].slice(0, TICKER_MAX),
         );
         return;
       }
+      if (ev.kind === "skipped") {
+        // Out of scan credits: count it and show a muted ticker entry; no score was produced.
+        setSkipped((n) => n + 1);
+        setTicker((t) =>
+          [
+            { id, fullName, name, overall: null, level: null, posture: null, delta: null, failed: false, skipped: true },
+            ...t,
+          ].slice(0, TICKER_MAX),
+        );
+        return;
+      }
 
-      const overall = Number(d.overall);
-      const adoption = Number(d.adoption);
-      const rigor = Number(d.rigor);
-      const level = d.level != null ? String(d.level) : null;
-      const posture = d.posture != null ? String(d.posture) : null;
+      const { overall, adoption, rigor, level, posture } = ev;
       const next: LiveRepo = { fullName, name, overall, adoption, rigor, level, posture, updatedAt: id };
       const updated = { ...reposRef.current, [fullName]: next };
       reposRef.current = updated;
@@ -111,6 +128,7 @@ export function LiveWarRoom({
   const launch = useCallback(async () => {
     if (abortRef.current) return; // already running
     setError(null);
+    setSkipped(0);
     setTicker([]);
     setCelebrations([]);
     setPhase("running");
@@ -136,7 +154,20 @@ export function LiveWarRoom({
         if (event === "progress")
           setProgress({ done: Number(data.index) || 0, total: Number(data.total) || watchedCount, current: String(data.repo ?? "") });
         else if (event === "repo") onRepo(data);
-        else if (event === "error") {
+        else if (event === "notice") {
+          // Up-front partial coverage: the prepaid balance can't cover every watched repo, so the
+          // server is scanning a slice and skipping the rest. Count the skips and shrink the
+          // denominator to what will actually run.
+          const skippedN = Number(data.skipped);
+          if (Number.isFinite(skippedN) && skippedN > 0) setSkipped((n) => n + skippedN);
+          const scanning = Number(data.scanning);
+          if (Number.isFinite(scanning) && scanning > 0) setProgress((p) => ({ ...p, total: scanning }));
+        } else if (event === "result") {
+          // Final summary — its skippedForCredits is authoritative (up-front slice + mid-run
+          // reservation losses), so prefer it over our incremental count.
+          const skippedN = Number(data.skippedForCredits);
+          if (Number.isFinite(skippedN)) setSkipped(skippedN);
+        } else if (event === "error") {
           sawError = true;
           setError(String(data.error));
         }
@@ -210,6 +241,7 @@ export function LiveWarRoom({
         progress={progress}
         pct={pct}
         error={error}
+        skipped={skipped}
         launchLabel={launchLabel}
         onStop={stop}
         onLaunch={launch}

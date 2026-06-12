@@ -37,6 +37,11 @@ model Organization {
   // Enforced by the /api/cron/purge job — see src/lib/db/retention.ts.
   retentionMaxScans  Int?
   retentionAuditDays Int?
+  // Per-org alert sink (Slack-compatible incoming webhook). Regression alerts, low-credit pushes and
+  // the weekly digest route HERE when set, falling back to the global ALERT_WEBHOOK_URL env — so each
+  // tenant receives its own fleet intelligence instead of everything landing in the operator's channel.
+  // null = inherit the global sink (or a clean no-op when that's unset too). See src/lib/db/org-alerts.ts.
+  alertWebhookUrl String?
   githubInstallId String?
   createdAt       DateTime @default(now())
 

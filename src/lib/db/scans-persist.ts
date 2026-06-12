@@ -5,6 +5,7 @@ import type { ScanReport } from "@/lib/types";
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
+import { matchRecommendations } from "@/lib/report/compare";
 import {
   DEFAULT_ORG_SLUG,
   ensureOrgId,
@@ -140,18 +141,22 @@ export async function persistScanReport(
     }
 
     // Carry forward recommendation status + ownership (assignee, due date) from this repo's previous
-    // scan, so neither progress nor the backlog's planning state is lost on re-scan. Match on
-    // dimension + title (stable for mock + low-temp LLM). The per-row event timeline is anchored to
-    // the scan's recommendation rows, so it begins fresh each scan while the carried state persists.
+    // scan, so neither progress nor the backlog's planning state is lost on re-scan. Matching runs
+    // through the shared tiered matcher (exact dim+title → dim+normalized title → unambiguous
+    // dimension): the raw LLM title is NOT stable across live scans (temperature, evidence drift,
+    // provider failover all rephrase it), and an exact-title miss used to silently reset a tracked
+    // item to open/unassigned. The per-row event timeline is anchored to the scan's recommendation
+    // rows, so it begins fresh each scan while the carried state persists.
     const previous = await prisma.scan.findFirst({
       where: { repoId: repo.id },
       orderBy: { scannedAt: "desc" },
       select: { recommendations: { select: { dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true } } },
     });
-    const carry = new Map<string, { status: string; assigneeLogin: string | null; targetDate: Date | null }>();
-    for (const r of previous?.recommendations ?? []) {
-      carry.set(`${r.dimId}::${r.title}`, { status: r.status, assigneeLogin: r.assigneeLogin, targetDate: r.targetDate });
-    }
+    const prevRecs = previous?.recommendations ?? [];
+    const carryMatch = matchRecommendations(
+      prevRecs.map((r) => ({ dim: r.dimId, title: r.title })),
+      report.roadmap.map((r) => ({ dim: r.dimension, title: r.title })),
+    );
 
     // Atomic write: the scan graph (scan + dimensions + recommendations), the contributor upserts,
     // and the audit entry commit together or roll back together — closing the partial-write hole
@@ -198,8 +203,9 @@ export async function persistScanReport(
               })),
             },
             recommendations: {
-              create: report.roadmap.map((r) => {
-                const carried = carry.get(`${r.dimension}::${r.title}`);
+              create: report.roadmap.map((r, i) => {
+                const m = carryMatch[i];
+                const carried = m == null ? undefined : prevRecs[m];
                 return {
                   title: r.title,
                   dimId: r.dimension,

@@ -5,7 +5,15 @@ import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 // side-effect-free in a plain Node test environment.
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 
-import { buildSession, encodeSession, decodeSession, type Session, type UserInstallation } from "./auth";
+import {
+  buildSession,
+  encodeSession,
+  decodeSession,
+  publicOriginForRequest,
+  safeNext,
+  type Session,
+  type UserInstallation,
+} from "./auth";
 
 // hmac() reads AUTH_SECRET lazily at call time, so setting it before the tests run is enough.
 beforeAll(() => {
@@ -127,6 +135,82 @@ describe("buildSession", () => {
     const value = encodeSession(session);
     expect(value.length).toBeLessThan(BROWSER_COOKIE_LIMIT);
     expect(warn).toHaveBeenCalledOnce();
+  });
+});
+
+describe("safeNext", () => {
+  // GitHub org/repo names use hyphens constantly and encodeURIComponent does not encode `-`, so
+  // hyphenated paths MUST round-trip — the control-char class was once misread as the Annex-B
+  // `[ -\s]` union (which matches a literal hyphen) and would have bounced these to the fallback.
+  it("accepts root-relative paths containing hyphens", () => {
+    expect(safeNext("/org/acme-corp")).toBe("/org/acme-corp");
+    expect(safeNext("/report/next-forge/create-react-app")).toBe("/report/next-forge/create-react-app");
+    expect(safeNext("/trends?repo=my-org/my-repo")).toBe("/trends?repo=my-org/my-repo");
+  });
+
+  it("preserves query and fragment on a safe path", () => {
+    expect(safeNext("/trends?repo=a/b#dimensions")).toBe("/trends?repo=a/b#dimensions");
+  });
+
+  it("falls back for absolute, protocol-relative, and backslash targets", () => {
+    expect(safeNext("https://evil.example")).toBe("/connect");
+    expect(safeNext("//evil.example/phish")).toBe("/connect");
+    expect(safeNext("/\\evil.example")).toBe("/connect");
+    expect(safeNext("/a\\b")).toBe("/connect");
+  });
+
+  it("falls back for control chars and whitespace that could smuggle a host", () => {
+    expect(safeNext("/a b")).toBe("/connect");
+    expect(safeNext("/a\tb")).toBe("/connect");
+    expect(safeNext("/a\nb")).toBe("/connect");
+    expect(safeNext(`/a${String.fromCharCode(0)}b`)).toBe("/connect");
+    expect(safeNext(`/a${String.fromCharCode(0x1f)}b`)).toBe("/connect");
+    expect(safeNext(`/a${String.fromCharCode(0x7f)}b`)).toBe("/connect");
+  });
+
+  it("falls back for empty / non-path values, honoring a custom fallback", () => {
+    expect(safeNext(null)).toBe("/connect");
+    expect(safeNext(undefined)).toBe("/connect");
+    expect(safeNext("connect")).toBe("/connect");
+    expect(safeNext("javascript:alert(1)", "/home")).toBe("/home");
+  });
+});
+
+describe("publicOriginForRequest", () => {
+  const req = (url: string, headers: Record<string, string> = {}) => new Request(url, { headers });
+
+  it("derives the external origin from x-forwarded-proto/host behind a TLS-terminating proxy", () => {
+    const r = req("http://10.0.0.5:3000/api/auth/login", {
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "app.example.com",
+    });
+    expect(publicOriginForRequest(r)).toBe("https://app.example.com");
+  });
+
+  it("keeps the request host when only the proto is forwarded (proxy preserving Host)", () => {
+    const r = req("http://app.example.com/api/auth/callback", { "x-forwarded-proto": "https" });
+    expect(publicOriginForRequest(r)).toBe("https://app.example.com");
+  });
+
+  it("uses the first value of a comma-separated forwarded chain", () => {
+    const r = req("http://internal:3000/x", {
+      "x-forwarded-proto": "https, http",
+      "x-forwarded-host": "edge.example.com, internal:3000",
+    });
+    expect(publicOriginForRequest(r)).toBe("https://edge.example.com");
+  });
+
+  it("falls back to the request-derived origin with no forwarded headers (direct / localhost)", () => {
+    expect(publicOriginForRequest(req("http://localhost:3000/api/auth/login"))).toBe("http://localhost:3000");
+    expect(publicOriginForRequest(req("https://ascent.example/api/auth/login"))).toBe("https://ascent.example");
+  });
+
+  it("ignores forwarded values outside the expected grammar instead of interpolating them", () => {
+    const r = req("https://app.example.com/x", {
+      "x-forwarded-proto": "gopher",
+      "x-forwarded-host": "evil.example/phish@host",
+    });
+    expect(publicOriginForRequest(r)).toBe("https://app.example.com");
   });
 });
 

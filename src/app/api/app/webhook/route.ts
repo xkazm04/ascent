@@ -28,7 +28,6 @@ import {
   reconcileWatchedRepos,
   removeInstallation,
   reportPermalink,
-  unwatchReposForInstallation,
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
@@ -252,7 +251,7 @@ async function runPrGate(ref: PrGateRef) {
  * "all → selected" narrowing). Best-effort + deferred: a listing failure SKIPS (so a transient GitHub
  * error can't be misread as "zero repos" and wipe the whole watch set); a later event re-reconciles.
  */
-async function reconcileInstallationRepos(installationId: number) {
+async function reconcileInstallationRepos(installationId: number, deliveryId?: string) {
   try {
     const live = await listInstallationRepos(installationId);
     const dropped = await reconcileWatchedRepos(
@@ -267,6 +266,10 @@ async function reconcileInstallationRepos(installationId: number) {
       `[webhook] installation_repositories reconcile failed for ${installationId}`,
       err instanceof Error ? err.message : err,
     );
+    // The deferred reconcile failed after we already 2xx'd — release the delivery so a redelivery
+    // retries (same net as runPrGate/runPushRescan); otherwise a transient listing failure dedupes
+    // the redelivery and the access change is lost until some later event happens to re-reconcile.
+    if (deliveryId) forgetDelivery(deliveryId);
   }
 }
 
@@ -283,7 +286,7 @@ async function runPushRescan(installationId: number, owner: string, repo: string
     const persisted = await persistScanReport(report, { orgSlug });
     if (persisted && !persisted.deduped) {
       const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
-      await checkAndAlertRegression(prev, report, { orgId });
+      await checkAndAlertRegression(prev, report, { orgId, orgSlug });
     }
   } catch (err) {
     console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err);
@@ -329,6 +332,11 @@ export async function POST(request: Request) {
               `[webhook] could not confirm installation ${id}; skipping upsert`,
               err instanceof Error ? err.message : err,
             );
+            // The install was NOT persisted (transient GitHub/DB failure). The delivery was already
+            // marked seen at the top, so without this release GitHub's redelivery — the only retry —
+            // would be deduped and the installation silently never recorded (broken /connect, every
+            // scan falling back to public). Same forget-on-failure net as the deferred after() paths.
+            if (delivery) forgetDelivery(delivery);
           }
         } else if (payload.action === "deleted" || payload.action === "suspend") {
           // Destructive + cascading (removeInstallation unwatches every repo, nulls the install id, and
@@ -339,26 +347,29 @@ export async function POST(request: Request) {
             await removeInstallation(id);
           } else {
             console.warn(`[webhook] ignoring unconfirmed installation ${payload.action} for id ${id}`);
+            // "Unconfirmed" covers two cases confirmRevocationWithGitHub can't distinguish: a forged
+            // delivery (GitHub still has the installation — replaying it re-runs only the confirm and
+            // refuses again, no state change) and a TRANSIENT confirm failure on a genuine uninstall.
+            // Release the delivery so the genuine case stays retryable via redelivery; the security
+            // control here is the GitHub confirmation gate, not the dedup map.
+            if (delivery) forgetDelivery(delivery);
           }
         }
       }
     } else if (event === "installation_repositories" && isDbConfigured()) {
       // The user changed WHICH repos an installation can see (Add/Remove on GitHub's Configure page).
       const id = payload.installation?.id;
-      // Fast path: immediately quiesce the repos GitHub itemized as removed (no API call), so their
-      // scheduled rescan stops minting a token that no longer covers them and 401ing forever.
-      const removed = (payload.repositories_removed ?? [])
-        .map((r) => r.full_name)
-        .filter((n): n is string => Boolean(n));
-      if (id != null && removed.length > 0) {
-        await unwatchReposForInstallation(id, removed);
-      }
-      // Full reconciliation (deferred, after the 2xx — it re-lists from GitHub): catch access changes
-      // the payload does NOT itemize as explicit "removed" rows. A "selected → all" flip sends an empty
-      // repositories_removed (the fast path above does nothing), and an "all → selected" narrowing can
-      // paginate the removals — both leave stale watched repos 401ing forever without this.
+      // Deliberately NO payload-trusting fast path here: a valid signature proves authenticity, not
+      // freshness/ownership, so acting on `repositories_removed` verbatim would let a forged/misrouted
+      // but signed delivery name a victim's installation id and silently unwatch their actively-watched
+      // repos — destructive, and the reconcile below never re-watches (added repos stay opt-in), so the
+      // damage wouldn't self-heal. Destructive webhook actions must be GitHub-confirmed (the same
+      // discipline as confirmRevocationWithGitHub on delete/suspend): the deferred reconcile re-lists
+      // the installation's live repos from GitHub and unwatches only what GitHub confirms is gone. It
+      // runs in this same request's after(), so legitimate quiescing is barely delayed, and it also
+      // catches changes the payload doesn't itemize (a "selected → all" flip, paginated narrowing).
       if (id != null && isAppConfigured()) {
-        after(() => reconcileInstallationRepos(id));
+        after(() => reconcileInstallationRepos(id, delivery ?? undefined));
       }
     } else if (event === "pull_request" && isAppConfigured()) {
       const installationId = payload.installation?.id;
@@ -385,7 +396,11 @@ export async function POST(request: Request) {
     }
   } catch (err) {
     console.error("[app/webhook] handler error", err);
-    // Still 200 so GitHub doesn't endlessly retry on our transient DB issues.
+    // Still 200 so GitHub doesn't endlessly retry on our transient DB issues — but release the
+    // delivery from the seen-set so a GitHub/manual REDELIVERY isn't deduped: the synchronous work
+    // (installation upsert/removal, repo unwatch) did NOT complete, and dedup must mean
+    // "successfully processed", not merely "HTTP acknowledged".
+    if (delivery) forgetDelivery(delivery);
   }
 
   return NextResponse.json({ ok: true, event });

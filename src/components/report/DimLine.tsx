@@ -1,13 +1,21 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
 import { scoreHex } from "@/lib/ui";
 
-/** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips). */
+/** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips + deep links). */
 export interface ScanMeta {
   at: string;
   engine: string;
+  /** Short commit sha this scan pinned to, shown in the tooltip as context. */
+  sha?: string;
+  /** Pinned-report permalink (reportPermalink) — click on the hovered point opens it, so a
+   *  per-dimension movement leads straight to the scan where it happened (mirrors TrendChart). */
+  href?: string;
+  /** External GitHub commit URL (githubCommitUrl) — shift-click opens it in a new tab. */
+  commitUrl?: string;
 }
 
 /**
@@ -61,6 +69,11 @@ export function DimLine({
   // safe: a is a valid index into present (from useChartHover over present), and a > 0
   const actDelta = a !== null && a > 0 ? present[a]!.v - present[a - 1]!.v : null;
 
+  // Deep links for the hovered point (mirrors TrendChart): click → the pinned report where this
+  // dimension moved; shift-click → the exact GitHub commit. Points without metadata stay inert.
+  const router = useRouter();
+  const actMeta = act ? meta[act.i] : undefined;
+
   return (
     <div className="relative mt-2">
       <svg
@@ -72,9 +85,13 @@ export function DimLine({
             ? `${name} score trend${current !== undefined ? `, currently ${current} of 100` : ""}`
             : "Dimension trend"
         }
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", cursor: actMeta?.href || actMeta?.commitUrl ? "pointer" : undefined }}
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
+        onClick={(e) => {
+          if (e.shiftKey && actMeta?.commitUrl) window.open(actMeta.commitUrl, "_blank", "noopener");
+          else if (actMeta?.href) router.push(actMeta.href);
+        }}
       >
         {/* Shaded maturity bands — same strata as the overall chart, so both read on one frame. */}
         {LEVEL_BANDS.map((band, i) => {
@@ -106,9 +123,12 @@ export function DimLine({
         <ChartTooltip xFrac={x(act.i) / W} yFrac={y(act.v) / H}>
           <PointTooltip
             score={act.v}
-            at={meta[act.i]?.at}
-            engine={meta[act.i]?.engine}
+            at={actMeta?.at}
+            engine={actMeta?.engine}
             delta={actDelta}
+            sha={actMeta?.sha}
+            linked={Boolean(actMeta?.href)}
+            commitLinked={Boolean(actMeta?.commitUrl)}
           />
         </ChartTooltip>
       )}

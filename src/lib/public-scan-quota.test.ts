@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { decideQuota, parseHits, hashIp, publicScanWeeklyLimit } from "./public-scan-quota";
+import {
+  decideQuota,
+  parseHits,
+  hashIp,
+  hashKey,
+  publicScanWeeklyLimit,
+  removeNewestHit,
+  signedInScanWeeklyLimit,
+} from "./public-scan-quota";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const NOW = 1_700_000_000_000; // fixed epoch for deterministic windows
@@ -51,6 +59,38 @@ describe("decideQuota", () => {
   });
 });
 
+// The refund policy (meter on commit, not attempt): a consumed slot whose scan delivered nothing —
+// invalid/404 repo, upstream failure, client abort, degrade-to-mock, in-stream cache hit — is given
+// back by dropping the NEWEST hit (the one consume just appended).
+describe("removeNewestHit", () => {
+  it("returns an empty window unchanged", () => {
+    expect(removeNewestHit([])).toEqual([]);
+  });
+
+  it("undoes a consume exactly: decide-then-refund restores the trimmed window", () => {
+    const prior = [NOW - 3000, NOW - 1000];
+    const d = decideQuota(prior, NOW, 3);
+    expect(d.allowed).toBe(true);
+    expect(removeNewestHit(d.hits)).toEqual([NOW - 3000, NOW - 1000]);
+  });
+
+  it("removes the newest hit regardless of array order", () => {
+    expect(removeNewestHit([NOW, NOW - 2000, NOW - 1000])).toEqual([NOW - 2000, NOW - 1000]);
+  });
+
+  it("removes exactly ONE entry when timestamps collide", () => {
+    expect(removeNewestHit([NOW, NOW, NOW - 1000])).toEqual([NOW, NOW - 1000]);
+  });
+
+  it("a refunded slot is immediately consumable again at the limit", () => {
+    const full = decideQuota([NOW - 2000, NOW - 1000], NOW, 3); // 3rd of 3 consumed
+    expect(full.remaining).toBe(0);
+    const refunded = removeNewestHit(full.hits);
+    const retry = decideQuota(refunded, NOW + 1, 3);
+    expect(retry.allowed).toBe(true); // the refund freed the slot the failed scan took
+  });
+});
+
 describe("parseHits", () => {
   it("returns [] for null/empty/garbage", () => {
     expect(parseHits(null)).toEqual([]);
@@ -77,6 +117,12 @@ describe("hashIp", () => {
   it("maps different IPs to different hashes", () => {
     expect(hashIp("203.0.113.7")).not.toBe(hashIp("203.0.113.8"));
   });
+
+  it("namespaces IP and user buckets apart (no collision on the same raw value)", () => {
+    const v = "203.0.113.7";
+    expect(hashIp(v)).toBe(hashKey(`ip:${v}`));
+    expect(hashKey(`ip:${v}`)).not.toBe(hashKey(`u:${v}`));
+  });
 });
 
 describe("publicScanWeeklyLimit", () => {
@@ -93,5 +139,40 @@ describe("publicScanWeeklyLimit", () => {
     expect(publicScanWeeklyLimit()).toBe(10);
     if (prev === undefined) delete process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
     else process.env.PUBLIC_SCAN_WEEKLY_LIMIT = prev;
+  });
+});
+
+describe("signedInScanWeeklyLimit", () => {
+  const KEYS = ["PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN", "PUBLIC_SCAN_WEEKLY_LIMIT"] as const;
+  function withEnv(vals: Partial<Record<(typeof KEYS)[number], string>>, fn: () => void) {
+    const prev = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+    for (const k of KEYS) {
+      if (vals[k] === undefined) delete process.env[k];
+      else process.env[k] = vals[k];
+    }
+    try {
+      fn();
+    } finally {
+      for (const k of KEYS) {
+        if (prev[k] === undefined) delete process.env[k];
+        else process.env[k] = prev[k]!;
+      }
+    }
+  }
+
+  it("defaults to 20", () => {
+    withEnv({}, () => expect(signedInScanWeeklyLimit()).toBe(20));
+  });
+
+  it("honors a positive override", () => {
+    withEnv({ PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN: "50" }, () =>
+      expect(signedInScanWeeklyLimit()).toBe(50),
+    );
+  });
+
+  it("never drops below the anonymous limit (signing in can't grant less)", () => {
+    withEnv({ PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN: "2", PUBLIC_SCAN_WEEKLY_LIMIT: "5" }, () =>
+      expect(signedInScanWeeklyLimit()).toBe(5),
+    );
   });
 });

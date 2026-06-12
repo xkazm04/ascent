@@ -25,6 +25,23 @@ export function reportPermalink(fullName: string, headSha?: string | null): stri
   return `/report/${fullName}${headSha ? `@${headSha}` : ""}`;
 }
 
+/** External jump to the exact commit a scan pinned to — the "what landed?" half of the trend
+ *  investigation loop (reportPermalink is the in-app half). Client-safe sibling so every chart
+ *  builds the identical URL. Null without a sha. */
+export function githubCommitUrl(fullName: string, headSha?: string | null): string | null {
+  return headSha ? `https://github.com/${fullName}/commit/${headSha}` : null;
+}
+
+/** The per-installation Configure page on GitHub — where repository access is actually granted
+ *  (GitHub redirects org-owned installations to the org-scoped settings path). Use this, not the
+ *  generic install page (appInstallUrl), whenever the installation id is known: "I don't see my
+ *  repo" is the most common onboarding dead-end and this is the screen that fixes it. Lives in
+ *  this client-safe module (no env read) so the connect client components can build it; re-exported
+ *  from @/lib/github/app for server callers. */
+export function appConfigureUrl(installationId: string | number): string {
+  return `https://github.com/settings/installations/${installationId}`;
+}
+
 /**
  * Brand hex per maturity level (red -> green as you ascend).
  *

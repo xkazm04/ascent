@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
+import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
 import { DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 
@@ -503,6 +504,10 @@ export async function getLatestRecommendations(
     orderBy: { scannedAt: "desc" },
     select: {
       id: true,
+      // Dimension scores + archetype feed projectedGain — engine-true "+N pts · unlocks LX" per
+      // item, mirroring the live report's PayoffChip on the persisted read path.
+      archetype: true,
+      dimensions: { select: { dimId: true, score: true } },
       recommendations: {
         orderBy: { createdAt: "asc" },
         select: {
@@ -523,7 +528,14 @@ export async function getLatestRecommendations(
   });
   if (!scan) return null;
 
-  return { scanId: scan.id, items: scan.recommendations.map(toPersistedRec) };
+  const dims = scan.dimensions.map((d) => ({ id: d.dimId, score: d.score }));
+  const items = scan.recommendations.map((r) => {
+    const base = toPersistedRec(r);
+    if (dims.length === 0) return base; // pre-dimension scan rows — no projection, not a fake 0
+    const gain = projectedGain(dims, scan.archetype, r.dimId);
+    return { ...base, projectedPoints: gain.points, unlocks: gain.unlocks };
+  });
+  return { scanId: scan.id, items };
 }
 
 // ---- Pinned snapshot reconstruction (shareable permalinks) -------------------

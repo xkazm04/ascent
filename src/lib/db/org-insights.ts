@@ -5,6 +5,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
+import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { IMPACT_WEIGHT, LEVEL_RANK, isBot, segmentScope } from "@/lib/db/org-shared";
 import type { OrgWindow } from "@/lib/db/org-rollup";
@@ -258,6 +259,12 @@ export interface BacklogItem {
   repoName: string;
   /** Most recent activity (latest event) or the row's creation time, ISO. */
   lastActivityAt: string;
+  /** Engine-true ROI: overall-score points the repo gains if this dimension's gap is fully
+   * closed (projectedGain over the scan's stored dims + archetype). Null when the scan
+   * predates persisted dimensions. Display-only — never feeds back into scoring. */
+  projectedPoints: number | null;
+  /** The maturity level closing this gap crosses into (e.g. "L3"), or null when it stays in band. */
+  unlocks: string | null;
 }
 
 /** Status tallies shared by the overall summary and each owner group. */
@@ -321,6 +328,10 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
         orderBy: { scannedAt: "desc" },
         take: 1,
         select: {
+          // Dimension scores + archetype feed projectedGain — the engine-true "+N pts · unlocks LX"
+          // per item, so the backlog can be prioritized on points, not just impact words.
+          archetype: true,
+          dimensions: { select: { dimId: true, score: true } },
           recommendations: {
             orderBy: { createdAt: "asc" },
             select: {
@@ -359,8 +370,14 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
   let contributingRepos = 0;
 
   for (const repo of repos) {
-    const recs = repo.scans[0]?.recommendations ?? [];
+    const scan = repo.scans[0];
+    const recs = scan?.recommendations ?? [];
     if (recs.length > 0) contributingRepos += 1;
+    // Engine-true ROI per dimension, computed once per repo (each scan has ≤ ~6 roadmap rows
+    // across ≤ 9 dims). Scans persisted before dimension rows existed project null, not 0.
+    const dims = (scan?.dimensions ?? []).map((d) => ({ id: d.dimId, score: d.score }));
+    const gainFor = (dimId: string) =>
+      dims.length > 0 && scan ? projectedGain(dims, scan.archetype, dimId) : null;
     for (const r of recs) {
       tracked += 1;
       if (r.status === "open") counts.open += 1;
@@ -374,6 +391,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
       const dueInDays = r.targetDate ? daysUntil(r.targetDate, now) : null;
       const overdue = dueInDays != null && dueInDays < 0;
       if (overdue) counts.overdue += 1;
+      const gain = gainFor(r.dimId);
       items.push({
         id: r.id,
         title: r.title,
@@ -390,6 +408,8 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
         repo: repo.fullName,
         repoName: repo.name,
         lastActivityAt: (r.events[0]?.createdAt ?? r.createdAt).toISOString(),
+        projectedPoints: gain ? gain.points : null,
+        unlocks: gain ? gain.unlocks : null,
       });
     }
   }
@@ -467,7 +487,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
 
 export interface OrgBenchmark {
   corpusRepos: number; // repos in the comparison corpus (other orgs)
-  overallPercentile: number | null; // org avg overall vs corpus (null if no corpus)
+  overallPercentile: number | null; // org avg overall vs corpus (null below CORPUS_MIN repos — a 1-repo corpus would rank everyone 0th or 100th)
   corpusAvgOverall: number;
   corpusAvgAdoption: number;
   corpusAvgRigor: number;
@@ -485,6 +505,16 @@ export interface OrgBenchmark {
 
 /** Minimum same-language peers before a cohort percentile is statistically worth showing. */
 const COHORT_MIN = 5;
+/** Minimum corpus size before the headline percentile is worth showing — same discipline as
+ *  COHORT_MIN: a 1–4 repo corpus yields a confidently-wrong "you beat 100% of orgs". */
+const CORPUS_MIN = 5;
+
+/** Share of `xs` at-or-below `v`, as 0..100 — null below `min` samples, because a 1-repo corpus
+ *  ranks everyone a hard 0th or 100th percentile (no-sample is not a rank). Pure, for unit tests. */
+export function percentileOf(xs: readonly number[], v: number, min = 1): number | null {
+  if (xs.length < Math.max(1, min)) return null;
+  return Math.round((xs.filter((x) => x <= v).length / xs.length) * 100);
+}
 
 /** Compare an org's averages against every other repo Ascent has scored (the corpus), plus a
  *  same-language peer cohort for a sharper "vs your peers" read. */
@@ -532,7 +562,6 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   const avg = (xs: number[]) => Math.round(mean(xs));
-  const pctile = (xs: number[], v: number) => (xs.length ? Math.round((xs.filter((x) => x <= v).length / xs.length) * 100) : null);
   const myAvgOverall = mean(myOverall);
   const myAvgAdoption = mean(myAdoption);
 
@@ -542,12 +571,11 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   if (domLang) {
     const peers = corpus.filter((c) => c.lang === domLang);
     if (peers.length > 0) {
-      const enough = peers.length >= COHORT_MIN;
       cohort = {
         language: domLang,
         repos: peers.length,
-        overallPercentile: enough ? pctile(peers.map((p) => p.overall), myAvgOverall) : null,
-        adoptionPercentile: enough ? pctile(peers.map((p) => p.adoption), myAvgAdoption) : null,
+        overallPercentile: percentileOf(peers.map((p) => p.overall), myAvgOverall, COHORT_MIN),
+        adoptionPercentile: percentileOf(peers.map((p) => p.adoption), myAvgAdoption, COHORT_MIN),
         avgOverall: avg(peers.map((p) => p.overall)),
       };
     }
@@ -555,7 +583,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   return {
     corpusRepos: corpus.length,
-    overallPercentile: pctile(corpus.map((c) => c.overall), myAvgOverall),
+    overallPercentile: percentileOf(corpus.map((c) => c.overall), myAvgOverall, CORPUS_MIN),
     corpusAvgOverall: avg(corpus.map((c) => c.overall)),
     corpusAvgAdoption: avg(corpus.map((c) => c.adoption)),
     corpusAvgRigor: avg(corpus.map((c) => c.rigor)),

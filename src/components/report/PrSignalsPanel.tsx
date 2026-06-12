@@ -38,7 +38,12 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
         )}
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <PrMetric label="Review coverage" value={`${stats.reviewedRate}%`} color={scoreHex(stats.reviewedRate)} hint="human PRs reviewed" />
+        <PrMetric
+          label="Review coverage"
+          value={stats.reviewedRate == null ? "n/a" : `${stats.reviewedRate}%`}
+          color={stats.reviewedRate == null ? undefined : scoreHex(stats.reviewedRate)}
+          hint={stats.reviewedRate == null ? "no human-merged PRs" : "human PRs reviewed"}
+        />
         <PrMetric label="Merge rate" value={`${stats.mergeRate}%`} color={scoreHex(stats.mergeRate)} hint="vs closed unmerged" />
         <PrMetric label="Small PRs" value={`${stats.smallPrRate}%`} color={scoreHex(stats.smallPrRate)} hint="≤200 lines" />
         <PrMetric label="Time to merge" value={fmtHours(stats.medianHoursToMerge)} hint="median" />

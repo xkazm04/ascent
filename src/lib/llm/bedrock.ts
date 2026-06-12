@@ -25,6 +25,7 @@ import { envNumber } from "@/lib/llm/config";
 
 export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
 export const DEFAULT_BEDROCK_REGION = "us-east-1";
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60_000;
 
 export class BedrockProvider implements LLMProvider {
   readonly name = "bedrock" as const;
@@ -47,34 +48,54 @@ export class BedrockProvider implements LLMProvider {
     const client = new BedrockRuntimeClient({ region: this.region });
     const { system, user } = buildAssessmentPrompt(input);
 
-    const res = await client.send(
-      new ConverseCommand({
-        modelId: this.model,
-        system: [{ text: system }],
-        messages: [{ role: "user", content: [{ text: user }] }],
-        inferenceConfig: {
-          temperature: envNumber("LLM_TEMPERATURE", 0.2),
-          maxTokens: Math.round(envNumber("BEDROCK_MAX_TOKENS", 4096)),
-        },
-        // Force schema-constrained JSON via a single required tool (Converse
-        // function-calling). The model must answer by calling this tool, whose
-        // input schema is the same source of truth Gemini uses.
-        toolConfig: {
-          tools: [
-            {
-              toolSpec: {
-                name: ASSESSMENT_TOOL_NAME,
-                description: ASSESSMENT_TOOL_DESCRIPTION,
-                inputSchema: { json: ASSESSMENT_JSON_SCHEMA },
-              },
-            },
-          ],
-          toolChoice: { tool: { name: ASSESSMENT_TOOL_NAME } },
-        },
-      }),
-      // Abort the in-flight Bedrock call if the client disconnects.
-      { abortSignal: opts.signal },
+    // Per-call timeout via AbortController (the W6-2 pattern shared with gemini/openai): a hung
+    // Converse call must be CANCELLED at LLM_TIMEOUT_MS, not left to run until scan.ts's 90s
+    // total budget expires — Bedrock was the only provider without one, so a single hang ate the
+    // whole budget and structurally starved the retry + LLM_FALLBACK_PROVIDER steps for the
+    // enterprise path (straight to mock), while the open request kept billing for the extra 30s.
+    // Combined with the client-disconnect signal so either one cancels the call.
+    const timeoutCtrl = new AbortController();
+    const timer = setTimeout(
+      () => timeoutCtrl.abort(new Error("Bedrock request timed out.")),
+      LLM_TIMEOUT_MS,
     );
+    const abortSignal = opts.signal
+      ? AbortSignal.any([opts.signal, timeoutCtrl.signal])
+      : timeoutCtrl.signal;
+
+    let res;
+    try {
+      res = await client.send(
+        new ConverseCommand({
+          modelId: this.model,
+          system: [{ text: system }],
+          messages: [{ role: "user", content: [{ text: user }] }],
+          inferenceConfig: {
+            temperature: envNumber("LLM_TEMPERATURE", 0.2),
+            maxTokens: Math.round(envNumber("BEDROCK_MAX_TOKENS", 4096)),
+          },
+          // Force schema-constrained JSON via a single required tool (Converse
+          // function-calling). The model must answer by calling this tool, whose
+          // input schema is the same source of truth Gemini uses.
+          toolConfig: {
+            tools: [
+              {
+                toolSpec: {
+                  name: ASSESSMENT_TOOL_NAME,
+                  description: ASSESSMENT_TOOL_DESCRIPTION,
+                  inputSchema: { json: ASSESSMENT_JSON_SCHEMA },
+                },
+              },
+            ],
+            toolChoice: { tool: { name: ASSESSMENT_TOOL_NAME } },
+          },
+        }),
+        // Abort the in-flight Bedrock call on client disconnect OR our own timeout.
+        { abortSignal },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
 
     opts.onUsage?.({ inputTokens: res.usage?.inputTokens, outputTokens: res.usage?.outputTokens });
     const blocks = res.output?.message?.content ?? [];

@@ -38,6 +38,11 @@ export function appInstallUrl(): string | null {
   return slug ? `https://github.com/apps/${slug}/installations/new` : null;
 }
 
+// The per-installation Configure page (where repo access is granted) lives in @/lib/ui — a
+// client-safe module, since the connect client components build it too — and is re-exported
+// here so server callers keep importing all App URLs from one place.
+export { appConfigureUrl } from "@/lib/ui";
+
 /** Accepts a raw PEM (with literal or escaped newlines) or a base64-encoded PEM. */
 function getPrivateKey(): string {
   const raw = process.env.GITHUB_APP_PRIVATE_KEY ?? "";

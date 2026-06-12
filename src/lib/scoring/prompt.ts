@@ -5,7 +5,9 @@ import type { LlmScoreInput } from "@/lib/llm/provider";
 import type { Governance, PrStats } from "@/lib/types";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 
-const pct = (n: number): string => `${Math.round(n * 100)}%`;
+// PrStats rates are ALREADY 0..100 integers (pulls.ts `pct`; "All rates are 0..100", types.ts) —
+// render as-is. A second ×100 here told the model "merge rate 8500%" on every tokened scan.
+const pct = (n: number): string => `${Math.round(n)}%`;
 
 /**
  * Render the PR + branch-protection evidence the scan already computed (and folded into the
@@ -21,8 +23,9 @@ function processBlock(prStats?: PrStats | null, governance?: Governance | null):
   if (prStats && prStats.analyzed > 0) {
     const h = (v: number | null) => (v == null ? "n/a" : `${v}h`);
     const aiGov = prStats.aiGovernedRate == null ? "n/a (too few AI PRs)" : pct(prStats.aiGovernedRate);
+    const reviewed = prStats.reviewedRate == null ? "n/a (no human-merged PRs)" : pct(prStats.reviewedRate);
     lines.push(
-      `- Pull requests: ${prStats.analyzed} analyzed of ${prStats.totalCount} total; merge rate ${pct(prStats.mergeRate)}, reviewed rate ${pct(prStats.reviewedRate)} (merged PRs with an approving review), avg ${prStats.avgReviews} reviews/PR.`,
+      `- Pull requests: ${prStats.analyzed} analyzed of ${prStats.totalCount} total; merge rate ${pct(prStats.mergeRate)}, reviewed rate ${reviewed} (merged PRs with an approving review), avg ${prStats.avgReviews} reviews/PR.`,
       `- Velocity & size: median time-to-merge ${h(prStats.medianHoursToMerge)}, median time-to-first-review ${h(prStats.medianHoursToFirstReview)}; small-PR rate ${pct(prStats.smallPrRate)} (≤200 line changes).`,
       `- AI in PRs: AI-involved rate ${pct(prStats.aiInvolvedRate)}; of those, governed (reviewed) rate ${aiGov}.`,
     );

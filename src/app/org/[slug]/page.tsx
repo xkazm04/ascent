@@ -71,7 +71,18 @@ export default async function OrgOverview({
   const activeSegment = segments.find((s) => s.id === segParam) ?? null;
   const segmentId = activeSegment?.id ?? null;
 
-  const rollup = await getOrgRollup(slug, win, segmentId);
+  // The six section queries are independent of each other — only `segmentId` (validated from
+  // `listSegments` above) feeds them — so fetch concurrently rather than as a ~6-stage await
+  // waterfall (each helper is itself 2-3 DB round trips; serialized they dominated the landing
+  // tab's TTFB). The sibling tabs (practices/plan/delivery) already use Promise.all.
+  const [rollup, movers, orgRecs, benchmark, gaps, goals] = await Promise.all([
+    getOrgRollup(slug, win, segmentId),
+    getOrgMovers(slug, win, segmentId),
+    getOrgRecommendations(slug, 5, segmentId),
+    getOrgBenchmark(slug),
+    getOrgGapAnalysis(slug, segmentId),
+    listGoals(slug),
+  ]);
   // The layout decides whether to render the org shell at all (org exists + has data); reaching here
   // with a null rollup means this view's scoped query (period + segment) found nothing where the
   // layout's did — e.g. a segment that matches no repos or a window with no scans. Render a page-scale
@@ -90,11 +101,6 @@ export default async function OrgOverview({
   const level = levelForScore(rollup.avgOverall);
   const trend: TrendPoint[] = rollup.trend.map((t) => ({ score: t.avg, at: t.date }));
   const maxPosture = Math.max(1, ...POSTURE_ORDER.map((p) => rollup.postureCounts[p] ?? 0));
-  const movers = await getOrgMovers(slug, win, segmentId);
-  const orgRecs = await getOrgRecommendations(slug, 5, segmentId);
-  const benchmark = await getOrgBenchmark(slug);
-  const gaps = await getOrgGapAnalysis(slug, segmentId);
-  const goals = await listGoals(slug);
   const regressionCount = movers?.regressers.length ?? 0;
   const moversEmpty = period.start ? "None this period." : "None since last scan.";
 

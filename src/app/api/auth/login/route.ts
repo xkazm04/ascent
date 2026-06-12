@@ -6,6 +6,7 @@ import {
   isAuthConfigured,
   newState,
   NEXT_COOKIE,
+  publicOriginForRequest,
   RESYNC_COOKIE,
   safeNext,
   secureCookieForRequest,
@@ -20,7 +21,11 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL("/connect?error=not_configured", request.url));
   }
   const url = new URL(request.url);
-  const origin = url.origin;
+  // The EXTERNAL origin (x-forwarded-proto/host aware), NOT url.origin: behind a TLS-terminating
+  // proxy url.origin is the internal http origin, and a redirect_uri built from it doesn't match
+  // the registered public callback — GitHub rejects the authorize request and sign-in can't start.
+  // Must agree with the origin the callback hands to exchangeCodeForToken (same helper).
+  const origin = publicOriginForRequest(request);
   const next = safeNext(url.searchParams.get("next"));
   // A "re-sync access" round-trip reuses the whole OAuth flow (GitHub skips the consent
   // screen for an already-authorized user), but the callback should refresh installations

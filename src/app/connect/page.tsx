@@ -4,7 +4,7 @@ import { SignInNotice } from "@/components/SignInNotice";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { InstallationRepos } from "@/components/connect/InstallationRepos";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
-import { appInstallUrl, isAppConfigured } from "@/lib/github/app";
+import { appConfigureUrl, appInstallUrl, isAppConfigured } from "@/lib/github/app";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,8 @@ const ERROR_COPY: Record<string, string> = {
   setup_failed: "We couldn't finish setting up the installation. Please try again.",
   oauth: "Sign-in could not be verified. Please try again.",
   oauth_failed: "Sign-in failed. Please try again.",
+  denied: "Sign-in was cancelled on GitHub. Granting access lets Ascent scan your repositories — sign in again when you're ready.",
+  csrf: "Your sign-in attempt expired or didn't match this browser session. Please try signing in again.",
   revoke: "We couldn't sign out your other sessions. Please try again.",
 };
 
@@ -274,14 +276,21 @@ export default async function ConnectPage({
           </div>
         ) : installs.length > 0 ? (
           <div className="mt-8 space-y-8">
-            {installUrl && (
-              <a
-                href={installUrl}
-                className="focus-ring inline-block rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-accent transition hover:border-accent hover:bg-accent/10 hover:text-accent-soft"
-              >
-                + Add or manage repositories on GitHub →
-              </a>
-            )}
+            {/* "Add or manage" should land on the screen where repos are actually granted: the
+                installation's Configure page when it's unambiguous (a single install with a known
+                id — also works without GITHUB_APP_SLUG), else the generic install page. */}
+            {(() => {
+              const soleId = installs.length === 1 ? installs[0]?.id : undefined;
+              const manageUrl = soleId ? appConfigureUrl(soleId) : installUrl;
+              return manageUrl ? (
+                <a
+                  href={manageUrl}
+                  className="focus-ring inline-block rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-accent transition hover:border-accent hover:bg-accent/10 hover:text-accent-soft"
+                >
+                  + Add or manage repositories on GitHub →
+                </a>
+              ) : null;
+            })()}
             {installs.map((inst) => (
               <div key={`${inst.login}:${inst.id ?? ""}`}>
                 <h2 className="mb-3 text-lg font-semibold text-white">

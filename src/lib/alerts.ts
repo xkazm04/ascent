@@ -4,8 +4,10 @@
 // for: a maturity demotion, a slide into "ungoverned", or a material score/dimension drop.
 //
 // The detector + message builder are PURE (unit-tested). dispatchAlert() is the only side-effect:
-// it POSTs a Slack-compatible payload to ALERT_WEBHOOK_URL when set, and is otherwise a graceful
-// no-op so the feature degrades cleanly with no configuration.
+// it POSTs a Slack-compatible payload to the resolved sink — the org's own webhook
+// (Organization.alertWebhookUrl, threaded in by the caller) when set, else the global
+// ALERT_WEBHOOK_URL — and is otherwise a graceful no-op so the feature degrades cleanly with no
+// configuration. Per-org routing keeps one tenant's fleet intelligence out of another's channel.
 
 import type { ScanDiff } from "@/lib/report/compare";
 
@@ -152,6 +154,8 @@ export interface FleetDigestInput {
   percentile?: number | null;
   /** One-line forecast trajectory headline, or null/undefined when there's too little history. */
   trajectory?: string | null;
+  /** Prepaid credits remaining, when the org is metered and running low — null/undefined omits the line. */
+  creditsRemaining?: number | null;
 }
 
 /**
@@ -178,6 +182,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
   if (d.topRecommendation)
     lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
+  if (d.creditsRemaining != null)
+    lines.push("", `Credits remaining: ${d.creditsRemaining} — top up to keep autoscans flowing`);
   if (d.url) lines.push("", d.url);
 
   const blocks: unknown[] = [
@@ -192,22 +198,127 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
       type: "section",
       text: { type: "mrkdwn", text: `*Highest-leverage gap:* ${d.topRecommendation.title} _(affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})_` },
     });
+  if (d.creditsRemaining != null)
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Credits remaining:* ${d.creditsRemaining} — top up to keep autoscans flowing` },
+    });
   if (d.url) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${d.url}|Open the dashboard>` }] });
   return { text: lines.join("\n"), blocks };
 }
 
-/** Whether an alert sink is configured (so callers can skip the work entirely when it isn't). */
-export function isAlertConfigured(): boolean {
-  return Boolean(process.env.ALERT_WEBHOOK_URL);
+/** Inputs for a prepaid-credit lifecycle alert (low-water crossing or depletion). */
+export interface LowCreditsInput {
+  org: string;
+  /** Balance after the debit that triggered the alert. */
+  balance: number;
+  /** The configured low-water mark the balance just landed on. */
+  threshold: number;
+  /** Link to the org dashboard (where the credits control lives), when a public base is known. */
+  url?: string;
+}
+
+const DEFAULT_CREDITS_ALERT_THRESHOLD = 5;
+
+/** Low-water mark for credit alerts: CREDITS_ALERT_THRESHOLD (non-negative integer), default 5.
+ *  A blank/missing var means "default", never 0 — same blank-vs-zero rule as the cost rates. */
+export function creditsAlertThreshold(): number {
+  const raw = process.env.CREDITS_ALERT_THRESHOLD;
+  if (raw == null || raw.trim() === "") return DEFAULT_CREDITS_ALERT_THRESHOLD;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : DEFAULT_CREDITS_ALERT_THRESHOLD;
 }
 
 /**
- * POST an alert to ALERT_WEBHOOK_URL (Slack incoming-webhook compatible). Returns true on a 2xx,
- * false on any failure or when no sink is configured — never throws, so a flaky webhook can't
- * fail the scan that produced the alert. `signal` lets a caller abort with the surrounding work.
+ * Whether a debit landing on `balanceAfter` crosses an alert line. Pure. Debits are unit-sized
+ * (one credit per scan), so the balance lands EXACTLY on the threshold once on the way down and
+ * exactly on 0 once at depletion — each crossing fires once with no dedupe state.
  */
-export async function dispatchAlert(message: AlertMessage, opts: { signal?: AbortSignal } = {}): Promise<boolean> {
-  const url = process.env.ALERT_WEBHOOK_URL;
+export function isLowCreditsCrossing(balanceAfter: number, threshold: number): boolean {
+  return balanceAfter === 0 || balanceAfter === threshold;
+}
+
+/**
+ * Build a Slack-compatible low-credits / depleted-balance alert. Pure (no env, no Date). Running
+ * out of credits is a prepaid model's silent churn moment — autoscans stop and the trends the org
+ * paid for flatline — so the crossing gets a proactive push through the same sink as regressions
+ * and the weekly digest.
+ */
+export function buildLowCreditsMessage(d: LowCreditsInput): AlertMessage {
+  const depleted = d.balance <= 0;
+  const headline = depleted
+    ? `🪫 Ascent: ${d.org} is out of scan credits`
+    : `🪫 Ascent: ${d.org} is low on scan credits — ${d.balance} left`;
+  const body = depleted
+    ? "Private scans (manual and scheduled) are paused until the balance is topped up — maturity trends stop updating."
+    : `The prepaid balance just hit the low-water mark (${d.threshold}). Top up before it runs out to keep scheduled scans flowing.`;
+
+  const textParts = [headline, body];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${body}` } }];
+  if (d.url) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${d.url}|Manage credits>` }] });
+  return { text: textParts.join("\n"), blocks };
+}
+
+/**
+ * Resolve the sink an alert should POST to: the org's own webhook when set (multi-tenant routing —
+ * each tenant gets its own fleet intelligence), else the global ALERT_WEBHOOK_URL (single-tenant /
+ * operator deployments), else null (no-op). Pure given its argument — the env read is the only
+ * ambient input, matching the layer's existing convention.
+ */
+export function resolveAlertWebhook(orgWebhookUrl?: string | null): string | null {
+  const org = orgWebhookUrl?.trim();
+  if (org) return org;
+  const global = process.env.ALERT_WEBHOOK_URL?.trim();
+  return global || null;
+}
+
+/** Whether an alert sink is configured (so callers can skip the work entirely when it isn't).
+ *  Pass the org's webhook (when known) so a tenant with its own sink counts even with no global. */
+export function isAlertConfigured(orgWebhookUrl?: string | null): boolean {
+  return resolveAlertWebhook(orgWebhookUrl) !== null;
+}
+
+/**
+ * Validate a caller-supplied org webhook URL before storing it. Pure (unit-tested). The server
+ * POSTs org data to this URL, so it must parse, be https, carry no inline credentials, and not
+ * target an obviously-internal host (localhost / private-range IP literals) — the established
+ * "validate outbound URLs built from caller input" rule. DNS-rebinding is out of scope here.
+ */
+export function validateAlertWebhookUrl(raw: string): { ok: true; url: string } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (trimmed.length > 1000) return { ok: false, error: "Webhook URL is too long (max 1000 chars)." };
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { ok: false, error: "Not a valid URL." };
+  }
+  if (parsed.protocol !== "https:") return { ok: false, error: "Webhook must be an https:// URL." };
+  if (parsed.username || parsed.password) return { ok: false, error: "Credentials in the URL are not allowed." };
+  const host = parsed.hostname.toLowerCase();
+  const isPrivate =
+    host === "localhost" ||
+    host === "[::1]" ||
+    /^(127|10|0)\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+  if (isPrivate) return { ok: false, error: "Webhook host must be publicly reachable." };
+  return { ok: true, url: parsed.toString() };
+}
+
+/**
+ * POST an alert to its sink (Slack incoming-webhook compatible): `opts.webhookUrl` (the org's own
+ * sink) when set, falling back to the global ALERT_WEBHOOK_URL. Returns true on a 2xx, false on any
+ * failure or when no sink is configured — never throws, so a flaky webhook can't fail the scan that
+ * produced the alert. `signal` lets a caller abort with the surrounding work.
+ */
+export async function dispatchAlert(
+  message: AlertMessage,
+  opts: { signal?: AbortSignal; webhookUrl?: string | null } = {},
+): Promise<boolean> {
+  const url = resolveAlertWebhook(opts.webhookUrl);
   if (!url) return false;
   try {
     const res = await fetch(url, {

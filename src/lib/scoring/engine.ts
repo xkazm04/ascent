@@ -9,6 +9,7 @@ import type {
   DimensionId,
   DimensionResult,
   DimensionSignals,
+  LevelId,
   LevelPath,
   LevelPathStep,
   LlmAssessment,
@@ -229,6 +230,39 @@ export function projectScore(
 export function projectDimensionClose(report: ScanReport, dim: DimensionId): ScoreProjection {
   const cur = report.dimensions.find((d) => d.id === dim)?.score ?? 0;
   return projectScore(report, { [dim]: Math.max(cur, 100) });
+}
+
+export interface ProjectedGain {
+  /** Overall-score points gained if this dimension's gap were fully closed (never negative). */
+  points: number;
+  /** The maturity level the projection crosses into, or null when it stays in band. */
+  unlocks: LevelId | null;
+}
+
+/**
+ * Persisted-scan sibling of {@link projectDimensionClose}: the engine-true ROI of fully closing
+ * one dimension (raising it to 100), computed straight from a scan's stored dimension rows +
+ * archetype — no assembled ScanReport needed, so the org backlog and the recommendations API can
+ * stamp "+N pts · unlocks LX" on every item instead of fuzzy impact/effort words. Reuses the exact
+ * headline math (overallScoreFor + levelForScore), display-only — it never feeds back into scoring.
+ * Defensive against persisted drift: an unknown dim id carries zero lens weight, an unknown
+ * archetype falls back to the org lens, and an absent target dimension projects a 0-point gain.
+ */
+export function projectedGain(
+  dims: { id: string; score: number }[],
+  archetype: string,
+  dimId: string,
+): ProjectedGain {
+  const scored = dims.map((d) => ({ id: d.id as DimensionId, score: d.score }));
+  const lens = archetype as RepoArchetype; // weightsFor falls back to the org lens for unknowns
+  const current = overallScoreFor(scored, lens);
+  const raised = scored.map((d) => (d.id === dimId ? { ...d, score: 100 } : d));
+  const projected = overallScoreFor(raised, lens);
+  // Same -1 clamp as projectScore: an unrecognized current band must not read as "above everything".
+  const fromIdx = Math.max(0, LEVELS.findIndex((l) => l.id === levelForScore(current).id));
+  const to = levelForScore(projected);
+  const toIdx = LEVELS.findIndex((l) => l.id === to.id);
+  return { points: Math.max(0, projected - current), unlocks: toIdx > fromIdx ? to.id : null };
 }
 
 /**
