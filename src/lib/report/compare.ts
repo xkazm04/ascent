@@ -86,8 +86,88 @@ export interface ScanDiff {
  *  correctly reads as one signal disappearing and another appearing (the movement we want). */
 const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 
-/** Stable identity for a recommendation across scans — the same key scan carry-forward uses. */
-const recKey = (r: { dimId: string; title: string }) => `${r.dimId}::${r.title}`;
+/** A recommendation's cross-scan identity inputs: its dimension + free-form title. */
+export interface RecIdentity {
+  dim: string;
+  title: string;
+}
+
+/** Normalize a recommendation title for cross-scan identity: case, punctuation, and whitespace are
+ *  presentation noise a live LLM rephrases freely between scans ("…to go on" vs "…to go on here."). */
+export function normalizeRecTitle(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Match next-scan recommendations to previous-scan rows by STABLE identity — the single matcher
+ * behind both scan-persist carry-forward (status/assignee/due-date survive a re-scan) and this
+ * module's recsMovedToDone. Raw titles are NOT stable across live-LLM scans (temperature, evidence
+ * drift, provider failover all rephrase them), so matching runs in three tiers:
+ *  1. exact dimension + title (mock / low-temp identical output);
+ *  2. dimension + normalized title (pure rephrasing of case/punctuation/whitespace);
+ *  3. unambiguous dimension: exactly ONE unmatched prior row and ONE unmatched next item share a
+ *     dimension — a dimension's gap statement is the same gap restated, so pair them. Genuine
+ *     ambiguity (two unmatched on either side) stays unmatched rather than guessing.
+ * Each prior row matches at most one next item. Returns, for each `next` index, the matched
+ * `prev` index (or null when nothing matched).
+ */
+export function matchRecommendations(
+  prev: readonly RecIdentity[],
+  next: readonly RecIdentity[],
+): (number | null)[] {
+  const result: (number | null)[] = next.map(() => null);
+  const usedPrev = new Set<number>();
+
+  // Tiers 1+2: claim by a dim-scoped key — exact first, then normalized.
+  const claim = (key: (r: RecIdentity) => string) => {
+    const byKey = new Map<string, number[]>();
+    prev.forEach((p, i) => {
+      if (usedPrev.has(i)) return;
+      const k = key(p);
+      const list = byKey.get(k);
+      if (list) list.push(i);
+      else byKey.set(k, [i]);
+    });
+    next.forEach((n, j) => {
+      if (result[j] !== null) return;
+      const pick = byKey.get(key(n))?.find((i) => !usedPrev.has(i));
+      if (pick !== undefined) {
+        result[j] = pick;
+        usedPrev.add(pick);
+      }
+    });
+  };
+  claim((r) => `${r.dim}::${r.title}`);
+  claim((r) => `${r.dim}::${normalizeRecTitle(r.title)}`);
+
+  // Tier 3: pair the lone unmatched prior row and lone unmatched next item of the same dimension.
+  const leftoverPrev = new Map<string, number[]>();
+  prev.forEach((p, i) => {
+    if (usedPrev.has(i)) return;
+    const list = leftoverPrev.get(p.dim);
+    if (list) list.push(i);
+    else leftoverPrev.set(p.dim, [i]);
+  });
+  const leftoverNext = new Map<string, number[]>();
+  next.forEach((n, j) => {
+    if (result[j] !== null) return;
+    const list = leftoverNext.get(n.dim);
+    if (list) list.push(j);
+    else leftoverNext.set(n.dim, [j]);
+  });
+  for (const [dim, [j, ...restNext]] of leftoverNext) {
+    const [i, ...restPrev] = leftoverPrev.get(dim) ?? [];
+    if (j !== undefined && i !== undefined && restNext.length === 0 && restPrev.length === 0) {
+      result[j] = i;
+      usedPrev.add(i);
+    }
+  }
+  return result;
+}
 
 /** Signed integer for an attribution line ("+12" / "-7"). */
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
@@ -192,13 +272,20 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     .sort((x, y) => Math.abs(y.delta ?? 0) - Math.abs(x.delta ?? 0))
     .map((d) => d.attribution as string);
 
-  // Recommendations that moved to done: done in `after`, and NOT already done in `before`
-  // (matched by dim::title). A brand-new done item — no `before` match — counts too.
-  const beforeStatus = new Map<string, string>();
-  for (const r of before.recommendations) beforeStatus.set(recKey(r), r.status);
-  const recsMovedToDone: RecMovedToDone[] = after.recommendations
-    .filter((r) => r.status === "done" && beforeStatus.get(recKey(r)) !== "done")
-    .map((r) => ({ id: r.id, title: r.title, dimId: r.dimId as DimensionId }));
+  // Recommendations that moved to done: done in `after`, and NOT already done in `before` —
+  // matched by the same tiered identity carry-forward uses, so a rephrased title still pairs
+  // with its prior row. A brand-new done item — no `before` match — counts too.
+  const recMatches = matchRecommendations(
+    before.recommendations.map((r) => ({ dim: r.dimId, title: r.title })),
+    after.recommendations.map((r) => ({ dim: r.dimId, title: r.title })),
+  );
+  const recsMovedToDone: RecMovedToDone[] = [];
+  after.recommendations.forEach((r, i) => {
+    if (r.status !== "done") return;
+    const m = recMatches[i];
+    if (m != null && before.recommendations[m]?.status === "done") return;
+    recsMovedToDone.push({ id: r.id, title: r.title, dimId: r.dimId as DimensionId });
+  });
 
   const beforeLevel = LEVEL_BY_ID[before.level as LevelId] ?? levelForScore(before.overallScore);
   const afterLevel = LEVEL_BY_ID[after.level as LevelId] ?? levelForScore(after.overallScore);

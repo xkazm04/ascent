@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { diffScans } from "./compare";
+import { diffScans, matchRecommendations } from "./compare";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import { DIMENSIONS } from "@/lib/maturity/model";
 
@@ -153,5 +153,59 @@ describe("diffScans", () => {
     expect(d8.appearedSignals).toEqual([]); // no signal movement invented from one side
     expect(d8.disappearedSignals).toEqual([]);
     expect(d8.attribution).toBeNull();
+  });
+});
+
+describe("matchRecommendations", () => {
+  it("matches exact dimension + title (tier 1)", () => {
+    const prev = [{ dim: "D2", title: "Add tests" }, { dim: "D5", title: "Write docs" }];
+    const next = [{ dim: "D5", title: "Write docs" }, { dim: "D2", title: "Add tests" }];
+    expect(matchRecommendations(prev, next)).toEqual([1, 0]);
+  });
+
+  it("matches a rephrased title within the dimension (tier 2: case/punctuation/whitespace)", () => {
+    const prev = [{ dim: "D1", title: "Agent guidance is thin — agents have little to go on" }];
+    const next = [{ dim: "D1", title: "Agent guidance is thin: agents have little  to go on." }];
+    expect(matchRecommendations(prev, next)).toEqual([0]);
+  });
+
+  it("pairs the lone unmatched prior and next item of a dimension (tier 3 reworded gap)", () => {
+    const prev = [
+      { dim: "D2", title: "Add a test suite" },
+      { dim: "D6", title: "Require PR review before merge" },
+    ];
+    const next = [
+      { dim: "D6", title: "Enforce mandatory code review on every pull request" },
+      { dim: "D2", title: "Add a test suite" },
+    ];
+    expect(matchRecommendations(prev, next)).toEqual([1, 0]);
+  });
+
+  it("leaves ambiguous same-dimension pairs unmatched rather than guessing", () => {
+    const prev = [
+      { dim: "D2", title: "Add unit tests" },
+      { dim: "D2", title: "Add integration tests" },
+    ];
+    const next = [
+      { dim: "D2", title: "Establish a testing culture" },
+      { dim: "D2", title: "Track coverage in CI" },
+    ];
+    expect(matchRecommendations(prev, next)).toEqual([null, null]);
+  });
+
+  it("consumes each prior row at most once", () => {
+    const prev = [{ dim: "D3", title: "Adopt AI code review" }];
+    const next = [
+      { dim: "D3", title: "Adopt AI code review" },
+      { dim: "D3", title: "adopt ai code review!" },
+    ];
+    expect(matchRecommendations(prev, next)).toEqual([0, null]);
+  });
+
+  it("returns null matches for new dimensions and an empty previous scan", () => {
+    expect(matchRecommendations([], [{ dim: "D1", title: "x" }])).toEqual([null]);
+    expect(
+      matchRecommendations([{ dim: "D4", title: "y" }], [{ dim: "D1", title: "x" }]),
+    ).toEqual([null]);
   });
 });
