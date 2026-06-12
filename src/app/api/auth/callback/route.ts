@@ -105,11 +105,13 @@ export async function GET(request: Request) {
       /* DB optional */
     }
 
-    // Auto-discover the orgs the user belongs to (read:org) so a brand-new user doesn't land on a
-    // blank dashboard: suggest which orgs to scan first in onboarding, and pre-seed the watchlist
-    // for their most-active org so its rollup/trends fill in. Entirely best-effort — any failure
-    // here (denied scope, rate limit, DB blip) must never block sign-in, so the whole block is
-    // guarded and falls back to the installations-only session.
+    // Auto-discover the orgs the user belongs to so a brand-new user doesn't land on a blank
+    // dashboard: suggest which orgs to scan first in onboarding, and pre-seed the watchlist for
+    // their most-active org so its rollup/trends fill in. The default scope is read:user only
+    // (least-privilege consent — see buildAuthorizeUrl), so /user/orgs lists just PUBLIC org
+    // memberships; a token carrying read:org (an earlier broader grant) yields full discovery.
+    // Entirely best-effort — any failure here (denied scope, rate limit, DB blip) must never
+    // block sign-in, so the whole block is guarded and falls back to the installations-only session.
     const discovery = await discoverOrgs(token, user.login, installations.map((i) => i.login));
 
     const session = buildSession(user, installations, sv, discovery);

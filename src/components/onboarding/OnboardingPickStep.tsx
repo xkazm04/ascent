@@ -124,9 +124,10 @@ export function SeededOrgBanner({ org }: { org: string }) {
 }
 
 /**
- * Orgs auto-discovered from the user's GitHub account (read:org) that aren't connected through the
- * App yet. Each is a one-click shortcut into the same select+scan flow as the public-handle form,
- * so a new user can act on an org they already belong to instead of typing a handle from scratch.
+ * Orgs auto-discovered from the user's GitHub account (public memberships + repo activity under
+ * the default read:user scope) that aren't connected through the App yet. Each is a one-click
+ * shortcut into the same select+scan flow as the public-handle form, so a new user can act on an
+ * org they already belong to instead of typing a handle from scratch.
  */
 export function SuggestedOrgs({
   orgs,

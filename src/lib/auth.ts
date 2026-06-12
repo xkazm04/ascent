@@ -428,12 +428,17 @@ export function buildAuthorizeUrl(origin: string, state: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GITHUB_OAUTH_CLIENT_ID ?? "",
     redirect_uri: `${origin}/api/auth/callback`,
-    // `read:org` lets the callback list the orgs the user belongs to (GET /user/orgs) so we can
-    // suggest which to scan first and pre-seed the watchlist for their most-active org — the
-    // Vercel/Dependabot onboarding pattern. (For a GitHub App user-to-server token this scope is
-    // advisory; access is governed by the App's permissions. Org discovery degrades gracefully
-    // if the listing is denied — see src/lib/github/discover.ts.)
-    scope: "read:user read:org",
+    // Least-privilege first touch: `read:user` only. The consent screen is the most
+    // conversion-sensitive step of the funnel, and the broader `read:org` previously requested
+    // here funded ONLY a best-effort onboarding nicety (org suggestions / watchlist seeding via
+    // the callback's discoverOrgs) — which already degrades gracefully without it:
+    // fetchUserOrgs is `.catch(() => [])`, and without `read:org` GET /user/orgs simply returns
+    // the user's PUBLIC org memberships (fewer suggestions, never an error), while the repo-based
+    // ranking (fetchUserRepos) needs no org scope at all. A token that DOES carry `read:org` (an
+    // earlier broader grant) still gets full discovery — the consuming code is unchanged. If
+    // explicit org discovery is ever wanted, request the extra scope from an in-app opt-in
+    // ("Discover my orgs"), not on every first sign-in. See src/lib/github/discover.ts.
+    scope: "read:user",
     state,
   });
   return `https://github.com/login/oauth/authorize?${params.toString()}`;

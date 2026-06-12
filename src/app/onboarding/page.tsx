@@ -17,8 +17,10 @@ export default async function OnboardingPage() {
   const session = await getSession();
   const installations = (session?.installations ?? []).map((i) => ({ login: i.login, id: String(i.id) }));
   const hasInstallation = installations.length > 0;
-  // Orgs auto-discovered at login (read:org): not-yet-installed orgs to suggest scanning, and the
-  // most-active org whose watchlist we pre-seeded so its dashboard already has data to explore.
+  // Orgs auto-discovered at login (public memberships + repo activity under the default read:user
+  // scope; full membership only when the token carries read:org — see buildAuthorizeUrl): not-yet-
+  // installed orgs to suggest scanning, and the most-active org whose watchlist we pre-seeded so
+  // its dashboard already has data to explore.
   const suggestedOrgs = session?.suggestedOrgs ?? [];
   const seededOrg = session?.seededOrg;
 
