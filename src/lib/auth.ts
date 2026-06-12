@@ -181,6 +181,32 @@ export async function secureCookieForRequest(): Promise<boolean> {
   }
 }
 
+/** Hostname[:port] grammar for forwarded-host values. Anything outside it (slashes, `@`, spaces,
+ *  control chars) could rewrite the path/userinfo of a URL it is interpolated into, so such values
+ *  are ignored rather than trusted. */
+const FORWARDED_HOST_GRAMMAR = /^[A-Za-z0-9.-]+(:\d{1,5})?$/;
+
+/**
+ * The request's EXTERNAL origin — scheme + host as the browser actually used them. Behind a
+ * TLS-terminating proxy `new URL(request.url).origin` is the INTERNAL origin (http://, internal
+ * host) — the same divergence that moved the session cookie's Secure flag onto
+ * `x-forwarded-proto` (see secureCookieForRequest). The OAuth `redirect_uri` must be built from
+ * the EXTERNAL origin or it won't match the callback URL registered with GitHub and the
+ * authorize/token-exchange is rejected outright. Both the authorize URL and the code exchange
+ * must derive their redirect_uri from this one helper — GitHub requires the two values to be
+ * identical. Forwarded values are validated against the expected grammar before use; anything
+ * else falls back to the request-derived origin (correct for direct connections / Vercel, which
+ * reconstructs request.url from the public host).
+ */
+export function publicOriginForRequest(request: Request): string {
+  const url = new URL(request.url);
+  const fwdProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const proto = fwdProto === "https" || fwdProto === "http" ? fwdProto : url.protocol.replace(/:$/, "");
+  const fwdHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = fwdHost && FORWARDED_HOST_GRAMMAR.test(fwdHost) ? fwdHost : url.host;
+  return `${proto}://${host}`;
+}
+
 /** Outcome of checking a token's `sv` against the per-login stored version:
  *  - `valid`   — the revocation store confirmed this token is current.
  *  - `revoked` — a newer version exists; the token is dead (logout / access change).

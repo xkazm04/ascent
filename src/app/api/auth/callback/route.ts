@@ -12,6 +12,7 @@ import {
   fetchUserInstallations,
   isAuthConfigured,
   NEXT_COOKIE,
+  publicOriginForRequest,
   RESYNC_COOKIE,
   safeNext,
   secureCookieForRequest,
@@ -43,7 +44,11 @@ function constantTimeEqual(a: string, b: string): boolean {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const origin = url.origin;
+  // The EXTERNAL origin (x-forwarded-proto/host aware), NOT url.origin: the token exchange's
+  // redirect_uri must be byte-identical to the one the authorize request sent, and the login
+  // route builds that from the same helper — behind a TLS-terminating proxy url.origin is the
+  // internal http origin and the exchange would be rejected with a redirect_uri mismatch.
+  const origin = publicOriginForRequest(request);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const oauthError = url.searchParams.get("error");

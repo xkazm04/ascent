@@ -9,6 +9,7 @@ import {
   buildSession,
   encodeSession,
   decodeSession,
+  publicOriginForRequest,
   safeNext,
   type Session,
   type UserInstallation,
@@ -172,6 +173,44 @@ describe("safeNext", () => {
     expect(safeNext(undefined)).toBe("/connect");
     expect(safeNext("connect")).toBe("/connect");
     expect(safeNext("javascript:alert(1)", "/home")).toBe("/home");
+  });
+});
+
+describe("publicOriginForRequest", () => {
+  const req = (url: string, headers: Record<string, string> = {}) => new Request(url, { headers });
+
+  it("derives the external origin from x-forwarded-proto/host behind a TLS-terminating proxy", () => {
+    const r = req("http://10.0.0.5:3000/api/auth/login", {
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "app.example.com",
+    });
+    expect(publicOriginForRequest(r)).toBe("https://app.example.com");
+  });
+
+  it("keeps the request host when only the proto is forwarded (proxy preserving Host)", () => {
+    const r = req("http://app.example.com/api/auth/callback", { "x-forwarded-proto": "https" });
+    expect(publicOriginForRequest(r)).toBe("https://app.example.com");
+  });
+
+  it("uses the first value of a comma-separated forwarded chain", () => {
+    const r = req("http://internal:3000/x", {
+      "x-forwarded-proto": "https, http",
+      "x-forwarded-host": "edge.example.com, internal:3000",
+    });
+    expect(publicOriginForRequest(r)).toBe("https://edge.example.com");
+  });
+
+  it("falls back to the request-derived origin with no forwarded headers (direct / localhost)", () => {
+    expect(publicOriginForRequest(req("http://localhost:3000/api/auth/login"))).toBe("http://localhost:3000");
+    expect(publicOriginForRequest(req("https://ascent.example/api/auth/login"))).toBe("https://ascent.example");
+  });
+
+  it("ignores forwarded values outside the expected grammar instead of interpolating them", () => {
+    const r = req("https://app.example.com/x", {
+      "x-forwarded-proto": "gopher",
+      "x-forwarded-host": "evil.example/phish@host",
+    });
+    expect(publicOriginForRequest(r)).toBe("https://app.example.com");
   });
 });
 
