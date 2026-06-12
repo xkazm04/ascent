@@ -10,6 +10,14 @@ import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import type { OrgRepo } from "@/components/onboarding/types";
 import { runImportScan } from "@/components/onboarding/importScan";
 
+/** Credit context for the select step's cost disclosure, tagged with the org it was read for so a
+ *  late response from a previously-picked org can never label the current one. */
+interface OrgCredit {
+  org: string;
+  balance: number;
+  unlimited: boolean;
+}
+
 type Phase = "pick" | "select" | "scanning" | "done";
 
 /** Rank repos for preselection: most-starred first, then most-recently-pushed. The recency
@@ -52,6 +60,10 @@ export function OnboardingFlow({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [announce, setAnnounce] = useState("");
+  // Prepaid balance for the picked installation org — feeds the select step's cost disclosure
+  // (the scan auto-watches repos on a weekly schedule, a recurring credit commitment). Read only
+  // on the App path (the viewer owns that org); the public-handle path can't read tenant credits.
+  const [credit, setCredit] = useState<OrgCredit | null>(null);
 
   // Abort controller for the streaming import — aborted on Cancel and on unmount.
   const abortRef = useRef<AbortController | null>(null);
@@ -96,6 +108,17 @@ export function OnboardingFlow({
     setRepos([]);
     setSourceInstallId(id);
     setPhase("select");
+    // Fire-and-forget: the balance enriches the cost disclosure but must never block the repo
+    // list. The response is tagged with its org slug, so a stale resolution can't mislabel.
+    const creditOrg = login.toLowerCase();
+    fetch(`/api/org/credits?org=${encodeURIComponent(creditOrg)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.balance === "number") {
+          setCredit({ org: creditOrg, balance: d.balance, unlimited: Boolean(d.unlimited) });
+        }
+      })
+      .catch(() => {});
     try {
       const qs = new URLSearchParams({ org: login, installation_id: id });
       const res = await fetch(`/api/app/repos?${qs.toString()}`);
@@ -248,6 +271,7 @@ export function OnboardingFlow({
           loading={loading}
           sourceLabel={sourceLabel}
           sourceInstallId={sourceInstallId}
+          credit={credit && credit.org === sourceLabel ? credit : null}
           maxSelect={MAX_SELECT}
           onToggle={toggle}
           onSelectTop={selectTop}

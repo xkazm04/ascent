@@ -4,6 +4,11 @@ import type { LevelId } from "@/lib/types";
 // recoverable error instead of an indefinite "Scanning…" hang.
 const STALL_MS = 45_000;
 
+/** Watch schedule the onboarding import commits every scanned repo to (sent with watch:true).
+ *  Exported so the select step can DISCLOSE the recurring-cost commitment before the user scans —
+ *  the copy and the POST body must never drift apart. */
+export const IMPORT_WATCH_SCHEDULE = "weekly";
+
 export interface ImportScanRequest {
   org: string;
   repos: string[];
@@ -57,7 +62,7 @@ export async function runImportScan(
         installationId: request.installationId ?? undefined,
         mock: true,
         watch: true,
-        schedule: "weekly",
+        schedule: IMPORT_WATCH_SCHEDULE,
       }),
       signal: controller.signal,
     });

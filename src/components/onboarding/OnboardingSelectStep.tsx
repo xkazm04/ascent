@@ -1,6 +1,8 @@
 "use client";
 
+import { IMPORT_WATCH_SCHEDULE } from "@/components/onboarding/importScan";
 import type { OrgRepo } from "@/components/onboarding/types";
+import { CREDIT_ESTIMATE_NOTE, MONTHLY_RUNS } from "@/lib/credit-estimate";
 
 /** The "choose up to maxSelect repos" phase: sticky action bar, repo list (or skeleton), scan/back. */
 export function SelectStep({
@@ -9,6 +11,7 @@ export function SelectStep({
   loading,
   sourceLabel,
   sourceInstallId,
+  credit,
   maxSelect,
   onToggle,
   onSelectTop,
@@ -21,6 +24,8 @@ export function SelectStep({
   loading: boolean;
   sourceLabel: string;
   sourceInstallId: string | null;
+  /** Prepaid balance for the source org (App path only) — null hides the balance half. */
+  credit: { balance: number; unlimited: boolean } | null;
   maxSelect: number;
   onToggle: (fullName: string) => void;
   onSelectTop: () => void;
@@ -30,6 +35,10 @@ export function SelectStep({
 }) {
   const listing = loading && repos.length === 0;
   const atCap = selected.size >= maxSelect;
+  // The scan button also COMMITS these repos to a weekly autoscan (watch:true in the import) —
+  // a recurring prepaid-credit draw that was previously invisible at this exact decision moment.
+  const monthlyCredits = selected.size * (MONTHLY_RUNS[IMPORT_WATCH_SCHEDULE] ?? 0);
+  const underAMonth = credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
   return (
     <div key="select" className="animate-phase-in">
       <h1 className="text-2xl font-bold text-white">Choose repositories</h1>
@@ -105,21 +114,47 @@ export function SelectStep({
       </div>
 
       {!listing && (
-        <div className="mt-5 flex items-center gap-3">
-          <button
-            onClick={onScan}
-            disabled={selected.size === 0}
-            className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
-          >
-            Scan {selected.size} {selected.size === 1 ? "repo" : "repos"}
-          </button>
-          <button
-            onClick={onBack}
-            className="focus-ring rounded-lg border border-slate-700 px-4 py-2.5 text-base text-slate-300 hover:border-slate-600"
-          >
-            Back
-          </button>
-        </div>
+        <>
+          <div className="mt-5 flex items-center gap-3">
+            <button
+              onClick={onScan}
+              disabled={selected.size === 0}
+              className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
+            >
+              Scan {selected.size} {selected.size === 1 ? "repo" : "repos"}
+            </button>
+            <button
+              onClick={onBack}
+              className="focus-ring rounded-lg border border-slate-700 px-4 py-2.5 text-base text-slate-300 hover:border-slate-600"
+            >
+              Back
+            </button>
+          </div>
+          {/* Cost disclosure AT the commitment button: scanning also schedules a recurring,
+              credit-metered autoscan — say so (with the balance when readable) instead of letting
+              the cron's insufficient-credit skips reveal it weeks later. */}
+          {selected.size > 0 && (
+            <p className="mt-3 max-w-xl text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
+              Scanning also watches {selected.size === 1 ? "this repo" : `these ${selected.size} repos`} with a{" "}
+              {IMPORT_WATCH_SCHEDULE} autoscan ≈{" "}
+              <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
+              {monthlyCredits === 1 ? "" : "s"}/month
+              {credit != null &&
+                (credit.unlimited ? (
+                  <> · unlimited plan</>
+                ) : (
+                  <>
+                    {" "}
+                    · balance: <span className="font-mono text-slate-300">{credit.balance}</span>
+                  </>
+                ))}
+              {underAMonth && (
+                <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
+              )}
+              . Adjust or turn off anytime on Connect.
+            </p>
+          )}
+        </>
       )}
     </div>
   );

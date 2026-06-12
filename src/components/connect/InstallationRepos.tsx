@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
+import { CREDIT_ESTIMATE_NOTE, estimateMonthlyCredits } from "@/lib/credit-estimate";
 import { RepoFilterBar } from "./RepoFilterBar";
 import { RepoListSkeleton } from "./RepoListSkeleton";
 import { RepoRow } from "./RepoRow";
@@ -13,9 +14,18 @@ type View =
   | { status: "error"; message: string }
   | { status: "done"; repos: AppRepo[] };
 
+interface CreditInfo {
+  balance: number;
+  unlimited: boolean;
+}
+
 export function InstallationRepos({ org, installationId }: { org: string; installationId?: string }) {
   const [view, setView] = useState<View>({ status: "loading" });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Prepaid-credit context for the commitment moment: every scheduled autoscan on this org draws
+  // one credit per run, so the header shows what the current watch/schedule choices cost against
+  // the balance. Best-effort — a failed read (DB-less deploy, no access) just hides the strip.
+  const [credit, setCredit] = useState<CreditInfo | null>(null);
 
   // Search / filter state (Phase 7 — large orgs have hundreds of repos).
   const [query, setQuery] = useState("");
@@ -51,6 +61,26 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       controller.abort();
     };
   }, [org, installationId]);
+
+  useEffect(() => {
+    // Same cancellation contract as the repo fetch: only the latest org's credit state may land.
+    const controller = new AbortController();
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset so a stale org's balance never shows
+    setCredit(null);
+    fetch(`/api/org/credits?org=${encodeURIComponent(org)}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && d && typeof d.balance === "number") {
+          setCredit({ balance: d.balance, unlimited: Boolean(d.unlimited) });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [org]);
 
   function patch(fullName: string, next: Partial<RepoState>) {
     setView((v) =>
@@ -157,6 +187,17 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     );
 
   const watchedCount = view.repos.filter((r) => r.state?.watched).length;
+  // Live cost line for the watch/schedule decisions being made right here: derived from the SAME
+  // rows the list renders (optimistic patches included), so flipping a repo to daily moves the
+  // figure instantly. Upper-bound — dedup/degraded runs are refunded (see CREDIT_ESTIMATE_NOTE).
+  const scheduledCount = view.repos.filter(
+    (r) => r.state?.watched && (r.state?.scanSchedule ?? "off") !== "off",
+  ).length;
+  const monthlyCredits = estimateMonthlyCredits(
+    view.repos.map((r) => ({ watched: r.state?.watched, schedule: r.state?.scanSchedule })),
+  );
+  const underAMonth =
+    credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
 
   return (
     <div className="animate-fade-up">
@@ -171,6 +212,35 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
           Org dashboard →
         </Link>
       </div>
+
+      {/* Cost/quota context at the moment of commitment: schedules below are billable units, so
+          say what they add up to — and what's in the tank — before the cron finds out. Hidden
+          when nothing is scheduled and no balance could be read (e.g. DB-less local). */}
+      {(monthlyCredits > 0 || (credit != null && !credit.unlimited)) && (
+        <p className="-mt-2 mb-3 text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
+          {scheduledCount > 0 ? (
+            <>
+              {scheduledCount} scheduled autoscan{scheduledCount === 1 ? "" : "s"} ≈{" "}
+              <span className="font-mono text-slate-300">{monthlyCredits}</span> credit
+              {monthlyCredits === 1 ? "" : "s"}/month
+            </>
+          ) : (
+            <>Each scheduled autoscan run draws 1 prepaid credit</>
+          )}
+          {credit != null &&
+            (credit.unlimited ? (
+              <> · unlimited plan</>
+            ) : (
+              <>
+                {" "}
+                · balance: <span className="font-mono text-slate-300">{credit.balance}</span>
+              </>
+            ))}
+          {underAMonth && (
+            <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
+          )}
+        </p>
+      )}
 
       {/* Search + filters — type to find a repo instead of scrolling hundreds. */}
       <RepoFilterBar
