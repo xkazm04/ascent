@@ -24,11 +24,16 @@ export function PeriodSummary({
 
   const promoted = movers?.levelChanges.filter((m) => m.levelDelta > 0).length ?? 0;
   const demoted = movers?.levelChanges.filter((m) => m.levelDelta < 0).length ?? 0;
+  // Deltas are cohort-matched (repos present on both sides of the window), so the sentence's "to"
+  // is the cohort's current average — NOT the fleet-wide average, which folds in repos onboarded
+  // mid-period. Onboarding is reported separately as growth, below.
+  const cohortNow = baseline.avgOverall + deltas.overall;
+  const onboarded = Math.max(0, rollup.scannedCount - baseline.repos);
 
   const maturity =
     deltas.overall === 0
-      ? `Fleet maturity held at ${rollup.avgOverall}.`
-      : `Fleet maturity ${deltas.overall > 0 ? "climbed" : "slipped"} ${signedDelta(deltas.overall)} to ${rollup.avgOverall} (from ${baseline.avgOverall}).`;
+      ? `Fleet maturity held at ${cohortNow}.`
+      : `Fleet maturity ${deltas.overall > 0 ? "climbed" : "slipped"} ${signedDelta(deltas.overall)} to ${cohortNow} (from ${baseline.avgOverall}).`;
 
   const levels =
     promoted || demoted
@@ -49,7 +54,7 @@ export function PeriodSummary({
             </p>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-sm text-slate-400">
               <span>
-                overall {baseline.avgOverall} → {rollup.avgOverall}
+                overall {baseline.avgOverall} → {cohortNow}
               </span>
               <span>
                 adoption <span style={{ color: deltaHex(deltas.adoption) }}>{signedDelta(deltas.adoption)}</span>
@@ -60,6 +65,7 @@ export function PeriodSummary({
               {promoted > 0 && <span className="text-lime-400">▲ {promoted} promoted</span>}
               {demoted > 0 && <span className="text-orange-400">▼ {demoted} demoted</span>}
               <span className="text-slate-600">across {baseline.repos} {plural(baseline.repos, "repo")}</span>
+              {onboarded > 0 && <span className="text-sky-400">+ {onboarded} {plural(onboarded, "repo")} onboarded this period</span>}
             </div>
           </div>
         </div>
