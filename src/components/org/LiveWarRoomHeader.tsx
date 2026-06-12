@@ -7,6 +7,7 @@ export function WarRoomHeader({
   progress,
   pct,
   error,
+  skipped,
   launchLabel,
   onStop,
   onLaunch,
@@ -16,6 +17,8 @@ export function WarRoomHeader({
   progress: { done: number; total: number; current: string };
   pct: number;
   error: string | null;
+  /** Repos the run skipped for lack of prepaid scan credits — partial coverage must be visible. */
+  skipped: number;
   launchLabel: string;
   onStop: () => void;
   onLaunch: () => void;
@@ -80,6 +83,11 @@ export function WarRoomHeader({
       )}
       {error && (
         <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-base text-danger-soft">{error}</p>
+      )}
+      {skipped > 0 && (
+        <p className="mt-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-base text-warn">
+          {skipped} {skipped === 1 ? "repo" : "repos"} skipped — out of scan credits.
+        </p>
       )}
     </>
   );

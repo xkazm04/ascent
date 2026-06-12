@@ -55,6 +55,8 @@ export function MoversTicker({ ticker, running }: { ticker: Mover[]; running: bo
               </span>
               {m.failed ? (
                 <span className="shrink-0 font-mono text-sm text-orange-400">scan failed</span>
+              ) : m.skipped ? (
+                <span className="shrink-0 font-mono text-sm text-slate-500">skipped · no credits</span>
               ) : (
                 <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
                   {m.posture === "ai-native" && <span aria-hidden>🎉</span>}

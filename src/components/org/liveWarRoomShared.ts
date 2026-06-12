@@ -24,6 +24,8 @@ export interface Mover {
   /** Overall-score change vs this repo's previous scan, or null when first-ever scan. */
   delta: number | null;
   failed: boolean;
+  /** True when the repo was skipped for lack of scan credits (no score produced, not a failure). */
+  skipped?: boolean;
 }
 
 export interface Celebration {
@@ -50,3 +52,44 @@ export const POSTURE_HEX: Record<string, string> = {
 };
 
 export const shortName = (fullName: string) => fullName.split("/").pop() || fullName;
+
+/** A bulk-scan SSE `repo` event, classified into the shapes the server emits. */
+export type RepoEventClass =
+  | { kind: "error"; message: string }
+  | { kind: "skipped"; reason: string }
+  | {
+      kind: "scored";
+      overall: number;
+      adoption: number | null;
+      rigor: number | null;
+      level: string | null;
+      posture: string | null;
+    }
+  | { kind: "invalid" };
+
+const finiteOrNull = (v: unknown): number | null => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Classify one streamed `repo` payload from POST /api/org/scan. The server emits THREE shapes —
+ * `{repo, error}` (scan failed), `{repo, skipped: "insufficient_credits"}` (credit reservation
+ * lost, no score produced), and `{repo, overall, …}` (scored) — and the scored fold must never
+ * accept a non-finite overall: an unhandled skip used to fall through to `Number(undefined)`,
+ * overwrite the repo's real seeded standing with NaN, and render literal "NaN" headline tiles.
+ */
+export function classifyRepoEvent(d: Record<string, unknown>): RepoEventClass {
+  if (d.error) return { kind: "error", message: String(d.error) };
+  if (d.skipped) return { kind: "skipped", reason: String(d.skipped) };
+  const overall = Number(d.overall);
+  if (!Number.isFinite(overall)) return { kind: "invalid" };
+  return {
+    kind: "scored",
+    overall,
+    adoption: finiteOrNull(d.adoption),
+    rigor: finiteOrNull(d.rigor),
+    level: d.level != null ? String(d.level) : null,
+    posture: d.posture != null ? String(d.posture) : null,
+  };
+}
