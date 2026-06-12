@@ -5,6 +5,7 @@ import {
   isSerializationConflictError,
   readDsqlConfig,
   runWithReconnect,
+  withDb,
   withRetry,
 } from "@/lib/db/client";
 
@@ -210,6 +211,59 @@ describe("runWithReconnect", () => {
         },
       ),
     ).rejects.toMatchObject({ code: "28P01" });
+  });
+});
+
+// Pins persistence 06-11 #1: inside the refresh margin the cached client's token is still VALID,
+// so a transient IAM-mint failure during withDb's PROACTIVE refresh must fall through to the
+// cached client instead of failing the op (which lost scan persists and triggered cron backoffs
+// during STS blips). The mint failure here is real: @aws-sdk/dsql-signer is deliberately not
+// installed in this repo, so refresh() rejects exactly like a prod mint outage.
+describe("withDb — proactive refresh is best-effort while a client is cached", () => {
+  const g = globalThis as unknown as {
+    __ascentPrisma?: { client: unknown; expiresAt: number };
+    __ascentPrismaRefresh?: Promise<unknown>;
+  };
+  const savedEnv: Record<string, string | undefined> = {};
+  let savedState: typeof g.__ascentPrisma;
+
+  beforeEach(() => {
+    for (const k of ["DSQL_ENDPOINT", "DSQL_REGION", "DATABASE_URL"]) savedEnv[k] = process.env[k];
+    process.env.DSQL_ENDPOINT = "test.dsql.us-east-1.on.aws";
+    process.env.DSQL_REGION = "us-east-1";
+    savedState = g.__ascentPrisma;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(async () => {
+    // Let the single-flighted background refresh kicked by getPrisma() settle before restoring.
+    await g.__ascentPrismaRefresh?.catch(() => {});
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    g.__ascentPrisma = savedState;
+    vi.restoreAllMocks();
+  });
+
+  it("runs the op on the cached client when the proactive mint fails inside the margin", async () => {
+    const cached = { id: "cached" } as never;
+    g.__ascentPrisma = { client: cached, expiresAt: 0 }; // stale → refresh attempted → mint fails
+    const result = await withDb(async (client) => {
+      expect(client).toBe(cached);
+      return "persisted";
+    });
+    expect(result).toBe("persisted");
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("proactive DSQL token refresh failed"),
+      expect.any(String),
+    );
+  });
+
+  it("still fails when no client exists at all (nothing usable to fall back on)", async () => {
+    g.__ascentPrisma = undefined;
+    delete process.env.DATABASE_URL;
+    await expect(withDb(async () => "unreachable")).rejects.toThrow(/dsql-signer/i);
   });
 });
 
