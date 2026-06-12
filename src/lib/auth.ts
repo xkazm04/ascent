@@ -378,8 +378,11 @@ export function safeNext(next: string | null | undefined, fallback = "/connect")
   // ("/\\host") — both resolve to an external origin in browsers / the URL parser.
   if (next[0] !== "/" || next[1] === "/" || next[1] === "\\") return fallback;
   if (next.includes("\\")) return fallback;
-  // Reject control chars / whitespace that can smuggle a host past naive checks.
-  if (/[ -\s]/.test(next)) return fallback;
+  // Reject control chars / whitespace that can smuggle a host past naive checks. The class is
+  // spelled with ESCAPES (C0 controls, DEL, all whitespace) on purpose: it was previously written
+  // with raw control bytes, which render as `[ -\s]` in most editors/diffs — unreviewable, easy
+  // to mangle into the Annex-B hyphen-matching `[ -\s]` union, and twice misread in audits.
+  if (/[\x00-\x1F\x7F\s]/.test(next)) return fallback;
   try {
     const url = new URL(next, "https://ascent.invalid");
     if (url.origin !== "https://ascent.invalid") return fallback;

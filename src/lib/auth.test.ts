@@ -5,7 +5,14 @@ import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 // side-effect-free in a plain Node test environment.
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 
-import { buildSession, encodeSession, decodeSession, type Session, type UserInstallation } from "./auth";
+import {
+  buildSession,
+  encodeSession,
+  decodeSession,
+  safeNext,
+  type Session,
+  type UserInstallation,
+} from "./auth";
 
 // hmac() reads AUTH_SECRET lazily at call time, so setting it before the tests run is enough.
 beforeAll(() => {
@@ -127,6 +134,44 @@ describe("buildSession", () => {
     const value = encodeSession(session);
     expect(value.length).toBeLessThan(BROWSER_COOKIE_LIMIT);
     expect(warn).toHaveBeenCalledOnce();
+  });
+});
+
+describe("safeNext", () => {
+  // GitHub org/repo names use hyphens constantly and encodeURIComponent does not encode `-`, so
+  // hyphenated paths MUST round-trip — the control-char class was once misread as the Annex-B
+  // `[ -\s]` union (which matches a literal hyphen) and would have bounced these to the fallback.
+  it("accepts root-relative paths containing hyphens", () => {
+    expect(safeNext("/org/acme-corp")).toBe("/org/acme-corp");
+    expect(safeNext("/report/next-forge/create-react-app")).toBe("/report/next-forge/create-react-app");
+    expect(safeNext("/trends?repo=my-org/my-repo")).toBe("/trends?repo=my-org/my-repo");
+  });
+
+  it("preserves query and fragment on a safe path", () => {
+    expect(safeNext("/trends?repo=a/b#dimensions")).toBe("/trends?repo=a/b#dimensions");
+  });
+
+  it("falls back for absolute, protocol-relative, and backslash targets", () => {
+    expect(safeNext("https://evil.example")).toBe("/connect");
+    expect(safeNext("//evil.example/phish")).toBe("/connect");
+    expect(safeNext("/\\evil.example")).toBe("/connect");
+    expect(safeNext("/a\\b")).toBe("/connect");
+  });
+
+  it("falls back for control chars and whitespace that could smuggle a host", () => {
+    expect(safeNext("/a b")).toBe("/connect");
+    expect(safeNext("/a\tb")).toBe("/connect");
+    expect(safeNext("/a\nb")).toBe("/connect");
+    expect(safeNext(`/a${String.fromCharCode(0)}b`)).toBe("/connect");
+    expect(safeNext(`/a${String.fromCharCode(0x1f)}b`)).toBe("/connect");
+    expect(safeNext(`/a${String.fromCharCode(0x7f)}b`)).toBe("/connect");
+  });
+
+  it("falls back for empty / non-path values, honoring a custom fallback", () => {
+    expect(safeNext(null)).toBe("/connect");
+    expect(safeNext(undefined)).toBe("/connect");
+    expect(safeNext("connect")).toBe("/connect");
+    expect(safeNext("javascript:alert(1)", "/home")).toBe("/home");
   });
 });
 
