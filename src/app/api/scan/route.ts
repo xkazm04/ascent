@@ -14,6 +14,7 @@ import { consumeScanCredit, isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
+import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
@@ -224,6 +225,10 @@ async function runScan(
       });
     }
     if (debit) creditsRemaining = debit.balance;
+    // Proactive lifecycle push: a debit landing the balance on the low-water mark (or zero)
+    // fires a low-credits alert — never throws, no-op without a configured sink. Deliberately
+    // not tied to the client's abort signal: the debit is a server-side fact either way.
+    if (debit?.ok && !debit.unlimited) await maybeAlertLowCredits(orgSlug, debit.balance);
   }
 
   // x-ascent-dedup: "hit" means this commit was already scored, so no new row was written and no

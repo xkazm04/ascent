@@ -152,6 +152,8 @@ export interface FleetDigestInput {
   percentile?: number | null;
   /** One-line forecast trajectory headline, or null/undefined when there's too little history. */
   trajectory?: string | null;
+  /** Prepaid credits remaining, when the org is metered and running low — null/undefined omits the line. */
+  creditsRemaining?: number | null;
 }
 
 /**
@@ -178,6 +180,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
   if (d.topRecommendation)
     lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
+  if (d.creditsRemaining != null)
+    lines.push("", `Credits remaining: ${d.creditsRemaining} — top up to keep autoscans flowing`);
   if (d.url) lines.push("", d.url);
 
   const blocks: unknown[] = [
@@ -192,8 +196,66 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
       type: "section",
       text: { type: "mrkdwn", text: `*Highest-leverage gap:* ${d.topRecommendation.title} _(affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})_` },
     });
+  if (d.creditsRemaining != null)
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Credits remaining:* ${d.creditsRemaining} — top up to keep autoscans flowing` },
+    });
   if (d.url) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${d.url}|Open the dashboard>` }] });
   return { text: lines.join("\n"), blocks };
+}
+
+/** Inputs for a prepaid-credit lifecycle alert (low-water crossing or depletion). */
+export interface LowCreditsInput {
+  org: string;
+  /** Balance after the debit that triggered the alert. */
+  balance: number;
+  /** The configured low-water mark the balance just landed on. */
+  threshold: number;
+  /** Link to the org dashboard (where the credits control lives), when a public base is known. */
+  url?: string;
+}
+
+const DEFAULT_CREDITS_ALERT_THRESHOLD = 5;
+
+/** Low-water mark for credit alerts: CREDITS_ALERT_THRESHOLD (non-negative integer), default 5.
+ *  A blank/missing var means "default", never 0 — same blank-vs-zero rule as the cost rates. */
+export function creditsAlertThreshold(): number {
+  const raw = process.env.CREDITS_ALERT_THRESHOLD;
+  if (raw == null || raw.trim() === "") return DEFAULT_CREDITS_ALERT_THRESHOLD;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : DEFAULT_CREDITS_ALERT_THRESHOLD;
+}
+
+/**
+ * Whether a debit landing on `balanceAfter` crosses an alert line. Pure. Debits are unit-sized
+ * (one credit per scan), so the balance lands EXACTLY on the threshold once on the way down and
+ * exactly on 0 once at depletion — each crossing fires once with no dedupe state.
+ */
+export function isLowCreditsCrossing(balanceAfter: number, threshold: number): boolean {
+  return balanceAfter === 0 || balanceAfter === threshold;
+}
+
+/**
+ * Build a Slack-compatible low-credits / depleted-balance alert. Pure (no env, no Date). Running
+ * out of credits is a prepaid model's silent churn moment — autoscans stop and the trends the org
+ * paid for flatline — so the crossing gets a proactive push through the same sink as regressions
+ * and the weekly digest.
+ */
+export function buildLowCreditsMessage(d: LowCreditsInput): AlertMessage {
+  const depleted = d.balance <= 0;
+  const headline = depleted
+    ? `🪫 Ascent: ${d.org} is out of scan credits`
+    : `🪫 Ascent: ${d.org} is low on scan credits — ${d.balance} left`;
+  const body = depleted
+    ? "Private scans (manual and scheduled) are paused until the balance is topped up — maturity trends stop updating."
+    : `The prepaid balance just hit the low-water mark (${d.threshold}). Top up before it runs out to keep scheduled scans flowing.`;
+
+  const textParts = [headline, body];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${body}` } }];
+  if (d.url) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${d.url}|Manage credits>` }] });
+  return { text: textParts.join("\n"), blocks };
 }
 
 /** Whether an alert sink is configured (so callers can skip the work entirely when it isn't). */

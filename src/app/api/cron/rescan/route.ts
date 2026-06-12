@@ -20,7 +20,7 @@ import {
   persistScanReport,
   recordScanOutcome,
 } from "@/lib/db";
-import { checkAndAlertRegression } from "@/lib/scan-alerts";
+import { checkAndAlertRegression, maybeAlertLowCredits } from "@/lib/scan-alerts";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
@@ -108,6 +108,9 @@ export async function GET(request: Request) {
       return;
     }
     const charged = reservation.ok && !reservation.unlimited;
+    // Proactive lifecycle push when this debit landed on the low-water mark (or zero): the cron
+    // drains credits with nobody watching, which is exactly when depletion must reach a human.
+    if (charged) await maybeAlertLowCredits(r.orgSlug, reservation.balance);
     const refundCredit = async () => {
       if (charged) await grantCredits(r.orgSlug, 1, { reason: "refund", actor: "system" }).catch(() => {});
     };

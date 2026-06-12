@@ -1,5 +1,14 @@
-import { describe, it, expect } from "vitest";
-import { detectRegression, buildRegressionMessage, DEFAULT_THRESHOLDS } from "./alerts";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import {
+  detectRegression,
+  buildRegressionMessage,
+  buildFleetDigestMessage,
+  buildLowCreditsMessage,
+  creditsAlertThreshold,
+  isLowCreditsCrossing,
+  DEFAULT_THRESHOLDS,
+  type FleetDigestInput,
+} from "./alerts";
 import type { ScanDiff } from "@/lib/report/compare";
 import { postureFor } from "@/lib/maturity/model";
 
@@ -87,5 +96,77 @@ describe("buildRegressionMessage", () => {
     expect(msg.text).toContain("D2 -20");
     expect(msg.text).toContain("https://x/report");
     expect(Array.isArray(msg.blocks)).toBe(true);
+  });
+});
+
+describe("isLowCreditsCrossing", () => {
+  it("fires exactly on the threshold and on zero, nowhere else", () => {
+    expect(isLowCreditsCrossing(5, 5)).toBe(true);
+    expect(isLowCreditsCrossing(0, 5)).toBe(true);
+    expect(isLowCreditsCrossing(6, 5)).toBe(false);
+    expect(isLowCreditsCrossing(4, 5)).toBe(false);
+    expect(isLowCreditsCrossing(1, 5)).toBe(false);
+  });
+  it("a zero threshold fires only at depletion (and only once)", () => {
+    expect(isLowCreditsCrossing(0, 0)).toBe(true);
+    expect(isLowCreditsCrossing(1, 0)).toBe(false);
+  });
+});
+
+describe("creditsAlertThreshold", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("defaults to 5 when unset or blank (blank means default, never 0)", () => {
+    vi.stubEnv("CREDITS_ALERT_THRESHOLD", "");
+    expect(creditsAlertThreshold()).toBe(5);
+  });
+  it("honors an explicit value, including a deliberate 0", () => {
+    vi.stubEnv("CREDITS_ALERT_THRESHOLD", "12");
+    expect(creditsAlertThreshold()).toBe(12);
+    vi.stubEnv("CREDITS_ALERT_THRESHOLD", "0");
+    expect(creditsAlertThreshold()).toBe(0);
+  });
+  it("rejects junk and negatives back to the default", () => {
+    vi.stubEnv("CREDITS_ALERT_THRESHOLD", "lots");
+    expect(creditsAlertThreshold()).toBe(5);
+    vi.stubEnv("CREDITS_ALERT_THRESHOLD", "-3");
+    expect(creditsAlertThreshold()).toBe(5);
+  });
+});
+
+describe("buildLowCreditsMessage", () => {
+  it("low-water crossing names the org, balance, threshold and manage link", () => {
+    const msg = buildLowCreditsMessage({ org: "acme", balance: 5, threshold: 5, url: "https://x/org/acme" });
+    expect(msg.text).toContain("acme is low on scan credits — 5 left");
+    expect(msg.text).toContain("low-water mark (5)");
+    expect(msg.text).toContain("https://x/org/acme");
+    expect(Array.isArray(msg.blocks)).toBe(true);
+  });
+  it("depletion says scans are paused, and omits the link cleanly when no base URL", () => {
+    const msg = buildLowCreditsMessage({ org: "acme", balance: 0, threshold: 5 });
+    expect(msg.text).toContain("acme is out of scan credits");
+    expect(msg.text).toContain("paused");
+    expect(msg.text).not.toContain("undefined");
+  });
+});
+
+describe("buildFleetDigestMessage credits line", () => {
+  const base: FleetDigestInput = {
+    org: "acme",
+    repoCount: 3,
+    scannedCount: 3,
+    avgOverall: 60,
+    level: "L3 · Defined",
+    overallDelta: null,
+    gainers: [],
+    regressers: [],
+    topRecommendation: null,
+  };
+  it("appends the top-up line when creditsRemaining is set (0 included)", () => {
+    expect(buildFleetDigestMessage({ ...base, creditsRemaining: 3 }).text).toContain("Credits remaining: 3");
+    expect(buildFleetDigestMessage({ ...base, creditsRemaining: 0 }).text).toContain("Credits remaining: 0");
+  });
+  it("omits it for unmetered / healthy orgs (null or undefined)", () => {
+    expect(buildFleetDigestMessage(base).text).not.toContain("Credits remaining");
+    expect(buildFleetDigestMessage({ ...base, creditsRemaining: null }).text).not.toContain("Credits remaining");
   });
 });

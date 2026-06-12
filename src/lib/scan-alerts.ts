@@ -8,7 +8,16 @@
 
 import type { ScanReport } from "@/lib/types";
 import { diffReports } from "@/lib/scoring/engine";
-import { buildRegressionMessage, detectRegression, dispatchAlert, isAlertConfigured, type RegressionVerdict } from "@/lib/alerts";
+import {
+  buildLowCreditsMessage,
+  buildRegressionMessage,
+  creditsAlertThreshold,
+  detectRegression,
+  dispatchAlert,
+  isAlertConfigured,
+  isLowCreditsCrossing,
+  type RegressionVerdict,
+} from "@/lib/alerts";
 import { recordAudit, reportPermalink } from "@/lib/db";
 
 export interface RegressionOutcome {
@@ -18,10 +27,14 @@ export interface RegressionOutcome {
   dispatched: boolean;
 }
 
+/** Public base URL for absolute links in pushed alerts ("" when none is configured). */
+function publicBase(): string {
+  return (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
+}
+
 /** Absolute report URL when a public base is configured, else the relative permalink. */
 function reportUrl(fullName: string, headSha?: string | null): string {
-  const base = (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-  return `${base}${reportPermalink(fullName, headSha)}`;
+  return `${publicBase()}${reportPermalink(fullName, headSha)}`;
 }
 
 /**
@@ -62,5 +75,35 @@ export async function checkAndAlertRegression(
   } catch (err) {
     console.error("[scan-alerts] regression check failed", err instanceof Error ? err.message : err);
     return { regressed: false, verdict: null, dispatched: false };
+  }
+}
+
+/**
+ * Fire a low-credits / depleted alert when a debit's resulting balance lands on the alert line
+ * (CREDITS_ALERT_THRESHOLD, default 5, or zero). Sibling of checkAndAlertRegression: called after
+ * each successful unit debit at the metered scan paths; debits are unit-sized so each crossing
+ * fires exactly once with no dedupe table. Never throws, and a clean no-op when ALERT_WEBHOOK_URL
+ * isn't configured — without this push, depletion is only discoverable via the next 402, possibly
+ * weeks after the scheduled fleet quietly stopped updating. Returns whether an alert was sent.
+ */
+export async function maybeAlertLowCredits(
+  orgSlug: string,
+  balanceAfter: number,
+  opts: { signal?: AbortSignal } = {},
+): Promise<boolean> {
+  try {
+    if (!isLowCreditsCrossing(balanceAfter, creditsAlertThreshold())) return false;
+    if (!isAlertConfigured()) return false;
+    const base = publicBase();
+    const message = buildLowCreditsMessage({
+      org: orgSlug,
+      balance: balanceAfter,
+      threshold: creditsAlertThreshold(),
+      url: base ? `${base}/org/${encodeURIComponent(orgSlug)}` : undefined,
+    });
+    return await dispatchAlert(message, { signal: opts.signal });
+  } catch (err) {
+    console.error("[scan-alerts] low-credits alert failed", err instanceof Error ? err.message : err);
+    return false;
   }
 }

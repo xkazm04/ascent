@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import {
+  getCreditState,
   getOrgBenchmark,
   getOrgMovers,
   getOrgRecommendations,
@@ -14,7 +15,8 @@ import {
   isDbConfigured,
   listOrgsWithWatchedRepos,
 } from "@/lib/db";
-import { buildFleetDigestMessage, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { buildFleetDigestMessage, creditsAlertThreshold, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { PUBLIC_ORG } from "@/lib/auth";
 import { levelForScore } from "@/lib/maturity/model";
 import { forecastHeadline } from "@/lib/maturity/forecast";
 
@@ -48,10 +50,12 @@ export async function GET(request: Request) {
     try {
       const rollup = await getOrgRollup(org, win);
       if (!rollup || rollup.scannedCount === 0) continue; // nothing to report on yet
-      const [movers, recs, benchmark] = await Promise.all([
+      const [movers, recs, benchmark, credit] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
         getOrgBenchmark(org).catch(() => null),
+        // Credit runway for the digest's "top up" line — public org is free/unmetered, skip it.
+        org === PUBLIC_ORG ? Promise.resolve(null) : getCreditState(org).catch(() => null),
       ]);
       const level = levelForScore(rollup.avgOverall);
       const top = recs?.[0];
@@ -69,6 +73,11 @@ export async function GET(request: Request) {
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
         percentile: benchmark?.overallPercentile ?? null,
         trajectory: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
+        // Carry the balance only when the org is metered (prepaid, non-unlimited) AND running low
+        // (within 2× the alert threshold) — the weekly digest is the one push a leader reliably
+        // reads, so a depleting balance gets a standing line there, not just the crossing alert.
+        creditsRemaining:
+          credit && !credit.unlimited && credit.balance <= creditsAlertThreshold() * 2 ? credit.balance : null,
       });
       if (await dispatchAlert(msg)) sent += 1;
     } catch (err) {

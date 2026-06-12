@@ -32,6 +32,7 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
+import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequest, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 
@@ -185,6 +186,9 @@ export async function POST(request: Request) {
               return;
             }
             reserved = res.ok && !res.unlimited;
+            // Proactive lifecycle push when this debit landed on the low-water mark (or zero) —
+            // the SSE notice above only reaches whoever happens to be watching this stream.
+            if (reserved) await maybeAlertLowCredits(org, res.balance);
           }
           const refundCredit = async () => {
             if (reserved) await grantCredits(org, 1, { reason: "refund", actor: "system" }).catch(() => {});
