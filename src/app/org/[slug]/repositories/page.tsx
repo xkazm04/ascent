@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DIMS, OrgEmpty, OrgTable, postureLabel, SectionHeader } from "@/components/org/ui";
 import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
+import { RepoRescanButton } from "@/components/org/RepoRescanButton";
 import { ScheduleSelect } from "@/components/org/ScheduleSelect";
 import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
@@ -64,6 +65,9 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
               <th className="px-3 py-2 text-left">Posture</th>
               <th className="px-3 py-2 text-left">Last scan</th>
               <th className="px-3 py-2 text-left">Autoscan</th>
+              <th className="px-3 py-2 text-left">
+                <span className="sr-only">Rescan</span>
+              </th>
             </tr>
           }
         >
@@ -103,6 +107,20 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                         disabled={!schedulable}
                         disabledHint="Autoscan scheduling requires the GitHub App."
                       />
+                    </td>
+                    <td className="px-3 py-2">
+                      {/* The scan route scopes to listWatchedRepos — an unwatched fullName would
+                          silently match nothing, so only watched rows get the trigger. */}
+                      {r.watched ? (
+                        <RepoRescanButton
+                          org={slug}
+                          fullName={r.fullName}
+                          disabled={!schedulable}
+                          disabledHint="Rescanning requires the GitHub App."
+                        />
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
                     </td>
                   </tr>
                 );
