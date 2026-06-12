@@ -54,6 +54,47 @@ export function QuotaBlocked({
 }
 
 /**
+ * Notice above a report served from the LAST SAVED scan because the weekly limit blocked a fresh
+ * one — the "stale + quota" salvage path. Louder than QuotaBanner (warn-tinted: the data shown is
+ * not head-fresh) but still a banner, not a wall: the user keeps the answer they came for while
+ * the reset date and sign-in upsell stay visible.
+ */
+export function QuotaStaleNotice({
+  scannedAt,
+  resetAt,
+  scope,
+  signInNext,
+}: {
+  /** ISO timestamp of the served (stale) scan, from report.scannedAt. */
+  scannedAt: string;
+  resetAt: number | null;
+  scope: QuotaScope;
+  signInNext: string;
+}) {
+  const scannedMs = Date.parse(scannedAt);
+  const scannedOn = Number.isFinite(scannedMs)
+    ? ` from ${new Date(scannedMs).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+    : "";
+  return (
+    <div
+      role="status"
+      className="mx-auto mb-4 flex max-w-3xl items-center gap-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-slate-300"
+    >
+      <span aria-hidden className="text-warn">
+        ◷
+      </span>
+      <span className="flex-1">
+        Showing the last saved scan{scannedOn} — your free weekly limit is used; it resets{" "}
+        {formatResetAt(resetAt)}.
+      </span>
+      {canOfferSignIn(scope) && (
+        <SupabaseSignInButton variant="nav" label="Sign in for more" next={signInNext} />
+      )}
+    </div>
+  );
+}
+
+/**
  * Subtle banner shown above a finished report for public scans, surfacing the free weekly allowance
  * left (from the x-ascent-quota-* response headers). Quiet by design — informs without alarming, and
  * only renders when the weekly gate counted this scan. For an anonymous caller it also offers a

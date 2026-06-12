@@ -10,6 +10,7 @@ import { Empty, Loading, parseSSE, type Progress } from "@/components/report/Rep
 import {
   QuotaBanner,
   QuotaBlocked,
+  QuotaStaleNotice,
   formatResetAt,
   type QuotaScope,
 } from "@/components/report/QuotaNotice";
@@ -18,10 +19,22 @@ type State =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string; blocked?: { scope: QuotaScope } }
-  | { status: "done"; report: ScanReport };
+  // `stale` marks a report salvaged from the last persisted scan because the weekly quota blocked
+  // a fresh one — rendered with the warn-tinted stale notice instead of the regular quota banner.
+  | { status: "done"; report: ScanReport; stale?: { resetAt: number | null; scope: QuotaScope } };
 
 /** Free weekly public-scan allowance surfaced from the x-ascent-quota-* response headers. */
 type Quota = { remaining: number; resetAt: number | null; scope: QuotaScope };
+
+/** Canonical `owner/repo` key for comparing what we asked for against what a peek returned. */
+function repoKey(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/^https?:\/\/github\.com\//, "")
+    .replace(/^github\.com\//, "")
+    .replace(/\.git$/, "")
+    .replace(/^\/+|\/+$/g, "");
+}
 
 export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   const params = useSearchParams();
@@ -78,12 +91,7 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
             // Verify the peeked report is actually for the repo we asked about before rendering it:
             // a stale/colliding cache entry on the ?peek= path could otherwise show another repo's
             // report. On mismatch fall through to a fresh streaming scan (which re-resolves).
-            const reqKey = repo
-              .toLowerCase()
-              .replace(/^https?:\/\/github\.com\//, "")
-              .replace(/^github\.com\//, "")
-              .replace(/\.git$/, "")
-              .replace(/^\/+|\/+$/g, "");
+            const reqKey = repoKey(repo);
             const gotKey = parsed.ok
               ? `${parsed.report.repo.owner}/${parsed.report.repo.name}`.toLowerCase()
               : "";
@@ -114,14 +122,39 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
             | { error?: string; code?: string; resetAt?: number; scope?: QuotaScope }
             | null;
           if (cancelled) return;
-          // Weekly public-scan gate tripped — an immediate retry can't succeed, so present it as a
-          // calm "come back later" state (no Try-again CTA) with the reset date and, for an
-          // anonymous caller, a sign-in CTA that lifts the limit.
+          // Weekly public-scan gate tripped — an immediate retry can't succeed. Before showing a
+          // dead-end wall, SALVAGE: the product may already hold a persisted report of this repo
+          // from an earlier commit (`peek=1&latest=1` is cache-only — it never scans). Serving it
+          // with a stale+quota notice keeps the answer the user came for at zero LLM/GitHub cost;
+          // only when nothing is saved (204) does the full blocked state remain.
           if (res.status === 429 && data?.code === "weekly_quota") {
+            const scope: QuotaScope = data.scope === "user" ? "user" : "anon";
+            const resetAt = data.resetAt ?? null;
+            try {
+              const peek = await fetch(`/api/scan?url=${encodeURIComponent(repo)}&peek=1&latest=1`, {
+                signal: controller.signal,
+              });
+              if (cancelled) return;
+              if (peek.status === 200 && peek.headers.get("x-ascent-stale") === "true") {
+                const parsed = parseScanReport(await peek.json().catch(() => null));
+                if (cancelled) return;
+                // Same identity check as the fast-path peek: never render another repo's report.
+                const gotKey = parsed.ok
+                  ? `${parsed.report.repo.owner}/${parsed.report.repo.name}`.toLowerCase()
+                  : "";
+                if (parsed.ok && gotKey === repoKey(repo)) {
+                  setState({ status: "done", report: parsed.report, stale: { resetAt, scope } });
+                  return;
+                }
+              }
+            } catch {
+              if (cancelled) return;
+              // Salvage peek failed — fall through to the blocked wall below.
+            }
             setState({
               status: "error",
-              message: data.error ?? `You've used all your free public scans for this week. The limit resets ${formatResetAt(data.resetAt ?? null)}.`,
-              blocked: { scope: data.scope === "user" ? "user" : "anon" },
+              message: data.error ?? `You've used all your free public scans for this week. The limit resets ${formatResetAt(resetAt)}.`,
+              blocked: { scope },
             });
           } else {
             setState({ status: "error", message: data?.error ?? `Scan failed (${res.status}).` });
@@ -246,13 +279,22 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   }
   return (
     <ReportErrorBoundary>
-      {quota && (
-        <QuotaBanner
-          remaining={quota.remaining}
-          resetAt={quota.resetAt}
-          scope={quota.scope}
+      {state.stale ? (
+        <QuotaStaleNotice
+          scannedAt={state.report.scannedAt}
+          resetAt={state.stale.resetAt}
+          scope={state.stale.scope}
           signInNext={`/report?repo=${encodeURIComponent(repo)}`}
         />
+      ) : (
+        quota && (
+          <QuotaBanner
+            remaining={quota.remaining}
+            resetAt={quota.resetAt}
+            scope={quota.scope}
+            signInNext={`/report?repo=${encodeURIComponent(repo)}`}
+          />
+        )
       )}
       <ReportView report={state.report} onRetest={() => setRetestNonce((n) => n + 1)} />
     </ReportErrorBoundary>

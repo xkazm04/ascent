@@ -10,7 +10,7 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { consumeScanCredit, isDbConfigured, persistScanReport } from "@/lib/db";
+import { consumeScanCredit, getScanReportByCommit, isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
@@ -31,7 +31,7 @@ const STATUS: Record<GitHubError["code"], number> = {
 
 async function runScan(
   url: string,
-  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; peek?: boolean; signal?: AbortSignal; req?: Request },
+  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; peek?: boolean; latest?: boolean; signal?: AbortSignal; req?: Request },
 ) {
   const parsed = parseRepoUrl(url);
 
@@ -77,6 +77,18 @@ async function runScan(
     if (lookup?.headSha) {
       peekHeaders["x-ascent-head-sha"] = lookup.headSha;
       if (lookup.etag) peekHeaders["x-ascent-head-etag"] = lookup.etag;
+    }
+    // Any-commit fallback (peek=1&latest=1): the head-pinned lookup above missed, but a
+    // quota-blocked client can still be served this repo's most recent PERSISTED report instead
+    // of a dead-end wall — one DB read, zero GitHub/LLM cost, still cache-only (never scans).
+    // Anonymous public funnel only (token scans are per-tenant and never quota-blocked), and the
+    // report must not be private (same defense-in-depth gate as the badge: the shared store could
+    // in principle hold a private snapshot). x-ascent-stale flags that it isn't head-fresh.
+    if (opts.latest && parsed && !token) {
+      const last = await getScanReportByCommit(parsed.owner, parsed.repo, {}).catch(() => null);
+      if (last && !last.repo.isPrivate) {
+        return NextResponse.json(last, { headers: { ...peekHeaders, "x-ascent-stale": "true" } });
+      }
     }
     return new NextResponse(null, { status: 204, headers: peekHeaders });
   }
@@ -307,7 +319,10 @@ export async function GET(request: Request) {
     const installationId = searchParams.get("installation_id") ?? undefined;
     const fresh = searchParams.get("fresh") === "1" || searchParams.get("fresh") === "true";
     const peek = searchParams.get("peek") === "1" || searchParams.get("peek") === "true";
-    return await runScan(url, { mock, installationId, fresh, peek, signal: request.signal, req: request });
+    // `latest=1` (peek-only) allows falling back to the most recent persisted report of ANY
+    // commit when the head-pinned probe misses — used by the quota-blocked salvage path.
+    const latest = searchParams.get("latest") === "1" || searchParams.get("latest") === "true";
+    return await runScan(url, { mock, installationId, fresh, peek, latest, signal: request.signal, req: request });
   } catch (err) {
     return handleError(err);
   }
