@@ -15,6 +15,8 @@ const ERROR_COPY: Record<string, string> = {
   setup_failed: "We couldn't finish setting up the installation. Please try again.",
   oauth: "Sign-in could not be verified. Please try again.",
   oauth_failed: "Sign-in failed. Please try again.",
+  denied: "Sign-in was cancelled on GitHub. Granting access lets Ascent scan your repositories — sign in again when you're ready.",
+  csrf: "Your sign-in attempt expired or didn't match this browser session. Please try signing in again.",
   revoke: "We couldn't sign out your other sessions. Please try again.",
 };
 
