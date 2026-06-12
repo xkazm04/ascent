@@ -252,7 +252,7 @@ async function runPrGate(ref: PrGateRef) {
  * "all → selected" narrowing). Best-effort + deferred: a listing failure SKIPS (so a transient GitHub
  * error can't be misread as "zero repos" and wipe the whole watch set); a later event re-reconciles.
  */
-async function reconcileInstallationRepos(installationId: number) {
+async function reconcileInstallationRepos(installationId: number, deliveryId?: string) {
   try {
     const live = await listInstallationRepos(installationId);
     const dropped = await reconcileWatchedRepos(
@@ -267,6 +267,10 @@ async function reconcileInstallationRepos(installationId: number) {
       `[webhook] installation_repositories reconcile failed for ${installationId}`,
       err instanceof Error ? err.message : err,
     );
+    // The deferred reconcile failed after we already 2xx'd — release the delivery so a redelivery
+    // retries (same net as runPrGate/runPushRescan); otherwise a transient listing failure dedupes
+    // the redelivery and the access change is lost until some later event happens to re-reconcile.
+    if (deliveryId) forgetDelivery(deliveryId);
   }
 }
 
@@ -329,6 +333,11 @@ export async function POST(request: Request) {
               `[webhook] could not confirm installation ${id}; skipping upsert`,
               err instanceof Error ? err.message : err,
             );
+            // The install was NOT persisted (transient GitHub/DB failure). The delivery was already
+            // marked seen at the top, so without this release GitHub's redelivery — the only retry —
+            // would be deduped and the installation silently never recorded (broken /connect, every
+            // scan falling back to public). Same forget-on-failure net as the deferred after() paths.
+            if (delivery) forgetDelivery(delivery);
           }
         } else if (payload.action === "deleted" || payload.action === "suspend") {
           // Destructive + cascading (removeInstallation unwatches every repo, nulls the install id, and
@@ -339,6 +348,12 @@ export async function POST(request: Request) {
             await removeInstallation(id);
           } else {
             console.warn(`[webhook] ignoring unconfirmed installation ${payload.action} for id ${id}`);
+            // "Unconfirmed" covers two cases confirmRevocationWithGitHub can't distinguish: a forged
+            // delivery (GitHub still has the installation — replaying it re-runs only the confirm and
+            // refuses again, no state change) and a TRANSIENT confirm failure on a genuine uninstall.
+            // Release the delivery so the genuine case stays retryable via redelivery; the security
+            // control here is the GitHub confirmation gate, not the dedup map.
+            if (delivery) forgetDelivery(delivery);
           }
         }
       }
@@ -358,7 +373,7 @@ export async function POST(request: Request) {
       // repositories_removed (the fast path above does nothing), and an "all → selected" narrowing can
       // paginate the removals — both leave stale watched repos 401ing forever without this.
       if (id != null && isAppConfigured()) {
-        after(() => reconcileInstallationRepos(id));
+        after(() => reconcileInstallationRepos(id, delivery ?? undefined));
       }
     } else if (event === "pull_request" && isAppConfigured()) {
       const installationId = payload.installation?.id;
@@ -385,7 +400,11 @@ export async function POST(request: Request) {
     }
   } catch (err) {
     console.error("[app/webhook] handler error", err);
-    // Still 200 so GitHub doesn't endlessly retry on our transient DB issues.
+    // Still 200 so GitHub doesn't endlessly retry on our transient DB issues — but release the
+    // delivery from the seen-set so a GitHub/manual REDELIVERY isn't deduped: the synchronous work
+    // (installation upsert/removal, repo unwatch) did NOT complete, and dedup must mean
+    // "successfully processed", not merely "HTTP acknowledged".
+    if (delivery) forgetDelivery(delivery);
   }
 
   return NextResponse.json({ ok: true, event });
