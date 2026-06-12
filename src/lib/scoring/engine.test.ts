@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assembleReport, contributions, diffReports, projectSandbox } from "./engine";
+import { assembleReport, contributions, diffReports, projectDimensionClose, projectSandbox, projectedGain } from "./engine";
 import { DIMENSIONS, LEVEL_BY_ID, axisScore, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
 import { MockProvider } from "@/lib/llm/mock";
 import type { DimensionResult, DimensionSignals, LlmAssessment, RepoSnapshot, ScanReport } from "@/lib/types";
@@ -319,5 +319,45 @@ describe("projectSandbox — live what-if recompute", () => {
     expect(byId.get("D2")).toBe(100);
     expect(byId.get("D3")).toBe(0);
     expect(byId.get("D5")).toBe(33);
+  });
+
+  describe("projectedGain — persisted-scan ROI for the backlog", () => {
+    /** Persisted-row shape: just {id, score} pairs, the way getOrgBacklog reads them. */
+    const rows = (report: ScanReport) => report.dimensions.map((d) => ({ id: d.id, score: d.score }));
+
+    it("matches projectDimensionClose on a self-consistent assembled report", () => {
+      const report = consistent({ D2: 20, D5: 35 });
+      for (const d of DIMENSIONS) {
+        const viaReport = projectDimensionClose(report, d.id);
+        const viaRows = projectedGain(rows(report), report.archetype, d.id);
+        expect(viaRows.points).toBe(Math.max(0, viaReport.deltaScore));
+        expect(viaRows.unlocks).toBe(viaReport.levelUp ? viaReport.level : null);
+      }
+    });
+
+    it("an already-100 dimension projects a 0-point gain and no unlock", () => {
+      const report = consistent({ D2: 100 });
+      expect(projectedGain(rows(report), "org", "D2")).toEqual({ points: 0, unlocks: null });
+    });
+
+    it("an unknown / absent dimension id projects 0, never a fake gain", () => {
+      const report = consistent({});
+      expect(projectedGain(rows(report), "org", "D99")).toEqual({ points: 0, unlocks: null });
+    });
+
+    it("reports the level the projection crosses into", () => {
+      // Everything at 40 (overall 40, L2); fully closing a heavyweight dim should cross 45 (L3).
+      const all40 = Object.fromEntries(DIMENSIONS.map((d) => [d.id, 40]));
+      const report = consistent(all40);
+      const gain = projectedGain(rows(report), "org", "D1");
+      expect(gain.points).toBeGreaterThan(0);
+      expect(gain.unlocks).toBe("L3");
+    });
+
+    it("an unknown archetype falls back to the org lens instead of throwing", () => {
+      const report = consistent({ D2: 10 });
+      const viaOrg = projectedGain(rows(report), "org", "D2");
+      expect(projectedGain(rows(report), "not-a-lens", "D2")).toEqual(viaOrg);
+    });
   });
 });

@@ -5,6 +5,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
+import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { IMPACT_WEIGHT, LEVEL_RANK, isBot, segmentScope } from "@/lib/db/org-shared";
 import type { OrgWindow } from "@/lib/db/org-rollup";
@@ -258,6 +259,12 @@ export interface BacklogItem {
   repoName: string;
   /** Most recent activity (latest event) or the row's creation time, ISO. */
   lastActivityAt: string;
+  /** Engine-true ROI: overall-score points the repo gains if this dimension's gap is fully
+   * closed (projectedGain over the scan's stored dims + archetype). Null when the scan
+   * predates persisted dimensions. Display-only — never feeds back into scoring. */
+  projectedPoints: number | null;
+  /** The maturity level closing this gap crosses into (e.g. "L3"), or null when it stays in band. */
+  unlocks: string | null;
 }
 
 /** Status tallies shared by the overall summary and each owner group. */
@@ -321,6 +328,10 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
         orderBy: { scannedAt: "desc" },
         take: 1,
         select: {
+          // Dimension scores + archetype feed projectedGain — the engine-true "+N pts · unlocks LX"
+          // per item, so the backlog can be prioritized on points, not just impact words.
+          archetype: true,
+          dimensions: { select: { dimId: true, score: true } },
           recommendations: {
             orderBy: { createdAt: "asc" },
             select: {
@@ -359,8 +370,14 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
   let contributingRepos = 0;
 
   for (const repo of repos) {
-    const recs = repo.scans[0]?.recommendations ?? [];
+    const scan = repo.scans[0];
+    const recs = scan?.recommendations ?? [];
     if (recs.length > 0) contributingRepos += 1;
+    // Engine-true ROI per dimension, computed once per repo (each scan has ≤ ~6 roadmap rows
+    // across ≤ 9 dims). Scans persisted before dimension rows existed project null, not 0.
+    const dims = (scan?.dimensions ?? []).map((d) => ({ id: d.dimId, score: d.score }));
+    const gainFor = (dimId: string) =>
+      dims.length > 0 && scan ? projectedGain(dims, scan.archetype, dimId) : null;
     for (const r of recs) {
       tracked += 1;
       if (r.status === "open") counts.open += 1;
@@ -374,6 +391,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
       const dueInDays = r.targetDate ? daysUntil(r.targetDate, now) : null;
       const overdue = dueInDays != null && dueInDays < 0;
       if (overdue) counts.overdue += 1;
+      const gain = gainFor(r.dimId);
       items.push({
         id: r.id,
         title: r.title,
@@ -390,6 +408,8 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
         repo: repo.fullName,
         repoName: repo.name,
         lastActivityAt: (r.events[0]?.createdAt ?? r.createdAt).toISOString(),
+        projectedPoints: gain ? gain.points : null,
+        unlocks: gain ? gain.unlocks : null,
       });
     }
   }

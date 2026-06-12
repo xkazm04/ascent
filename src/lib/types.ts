@@ -39,6 +39,12 @@ export interface PersistedRecommendation {
   assigneeLogin: string | null;
   /** Due date the gap is paced against, as an ISO date (YYYY-MM-DD), or null when open-ended. */
   targetDate: string | null;
+  /** Engine-true ROI: overall-score points gained if this dimension's gap is fully closed
+   * (projectedGain over the scan's persisted dims + archetype). Absent for pre-dimension scans.
+   * Display-only — never feeds back into scoring. */
+  projectedPoints?: number | null;
+  /** The maturity level closing this gap crosses into (e.g. "L3"), or null/absent when in band. */
+  unlocks?: string | null;
 }
 
 /** One entry in a recommendation's activity timeline — who changed what, from → to, when. */
