@@ -1,13 +1,18 @@
 // GET /api/cron/digest — weekly fleet digest. Invoked by Vercel Cron (see vercel.json). For each org
 // with watched repos, summarize the past week (rollup + top movers + the highest-leverage gap) and
-// POST a Block-Kit message to ALERT_WEBHOOK_URL. Where regression alerts fire per-repo on a slide,
-// this is the positive periodic push that keeps a leader engaged without opening the app.
+// POST a Block-Kit message to the org's own webhook (Organization.alertWebhookUrl) when set, falling
+// back to the global ALERT_WEBHOOK_URL. Where regression alerts fire per-repo on a slide, this is the
+// positive periodic push that keeps a leader engaged without opening the app — routed per tenant so
+// each customer receives its own fleet intelligence rather than everything landing in the operator's
+// channel. Orgs with no resolvable sink are skipped (counted in the response), so a deployment with
+// neither configured is a clean no-op.
 //
-// Guarded by CRON_SECRET when set. No-op without a DB or without an alert sink configured.
+// Guarded by CRON_SECRET when set. No-op without a DB.
 
 import { NextResponse } from "next/server";
 import {
   getCreditState,
+  getOrgAlertWebhook,
   getOrgBenchmark,
   getOrgMovers,
   getOrgRecommendations,
@@ -38,16 +43,24 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   if (!isDbConfigured()) return NextResponse.json({ skipped: "Database required." });
-  if (!isAlertConfigured()) return NextResponse.json({ skipped: "No ALERT_WEBHOOK_URL configured." });
 
   const base = (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
   const orgs = await listOrgsWithWatchedRepos();
   const win = { start: new Date(Date.now() - 7 * 86_400_000), end: null };
 
   let sent = 0;
+  let skippedNoSink = 0;
   const errors: string[] = [];
   for (const org of orgs) {
     try {
+      // Per-tenant routing: the org's own webhook wins; the global env is the single-tenant
+      // fallback. No sink resolvable for this org → skip before doing any rollup work (the old
+      // global-only early return would have silenced EVERY tenant when the env was unset).
+      const webhookUrl = await getOrgAlertWebhook(org).catch(() => null);
+      if (!isAlertConfigured(webhookUrl)) {
+        skippedNoSink += 1;
+        continue;
+      }
       const rollup = await getOrgRollup(org, win);
       if (!rollup || rollup.scannedCount === 0) continue; // nothing to report on yet
       const [movers, recs, benchmark, credit] = await Promise.all([
@@ -79,11 +92,11 @@ export async function GET(request: Request) {
         creditsRemaining:
           credit && !credit.unlimited && credit.balance <= creditsAlertThreshold() * 2 ? credit.balance : null,
       });
-      if (await dispatchAlert(msg)) sent += 1;
+      if (await dispatchAlert(msg, { webhookUrl })) sent += 1;
     } catch (err) {
       errors.push(`${org}: ${err instanceof Error ? err.message : "failed"}`);
     }
   }
 
-  return NextResponse.json({ orgs: orgs.length, sent, errors });
+  return NextResponse.json({ orgs: orgs.length, sent, skippedNoSink, errors });
 }

@@ -137,7 +137,7 @@ export async function GET(request: Request) {
       // Live intelligence: alert on a regression vs the prior scan (skipped on an unchanged commit).
       if (persisted && !persisted.deduped) {
         const orgId = (await getOrgId(r.orgSlug).catch(() => null)) ?? undefined;
-        await checkAndAlertRegression(prev, report, { orgId });
+        await checkAndAlertRegression(prev, report, { orgId, orgSlug: r.orgSlug });
       }
       // Schedule was already advanced to the full cadence by the claim above — nothing to do here.
       await recordScanOutcome(r.orgSlug, r.fullName, { ok: true }).catch(() => {});

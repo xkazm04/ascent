@@ -21,6 +21,7 @@ CREATE TABLE "Organization" (
     "scanCredits" INTEGER NOT NULL DEFAULT 0,
     "retentionMaxScans" INTEGER,
     "retentionAuditDays" INTEGER,
+    "alertWebhookUrl" TEXT,
     "githubInstallId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

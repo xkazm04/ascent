@@ -5,7 +5,10 @@ import {
   buildFleetDigestMessage,
   buildLowCreditsMessage,
   creditsAlertThreshold,
+  isAlertConfigured,
   isLowCreditsCrossing,
+  resolveAlertWebhook,
+  validateAlertWebhookUrl,
   DEFAULT_THRESHOLDS,
   type FleetDigestInput,
 } from "./alerts";
@@ -168,5 +171,55 @@ describe("buildFleetDigestMessage credits line", () => {
   it("omits it for unmetered / healthy orgs (null or undefined)", () => {
     expect(buildFleetDigestMessage(base).text).not.toContain("Credits remaining");
     expect(buildFleetDigestMessage({ ...base, creditsRemaining: null }).text).not.toContain("Credits remaining");
+  });
+});
+
+describe("resolveAlertWebhook / isAlertConfigured (per-org routing)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("the org's own webhook wins over the global env", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example/global");
+    expect(resolveAlertWebhook("https://hooks.example/acme")).toBe("https://hooks.example/acme");
+  });
+  it("falls back to the global env when the org has none", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example/global");
+    expect(resolveAlertWebhook(null)).toBe("https://hooks.example/global");
+    expect(resolveAlertWebhook(undefined)).toBe("https://hooks.example/global");
+    expect(resolveAlertWebhook("   ")).toBe("https://hooks.example/global");
+  });
+  it("resolves to null (clean no-op) when neither is configured", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    expect(resolveAlertWebhook(null)).toBeNull();
+    expect(isAlertConfigured()).toBe(false);
+  });
+  it("an org sink counts as configured even with no global env", () => {
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    expect(isAlertConfigured("https://hooks.example/acme")).toBe(true);
+  });
+});
+
+describe("validateAlertWebhookUrl", () => {
+  it("accepts a normal https webhook", () => {
+    const v = validateAlertWebhookUrl("https://hooks.slack.com/services/T0/B0/xyz");
+    expect(v).toEqual({ ok: true, url: "https://hooks.slack.com/services/T0/B0/xyz" });
+  });
+  it("rejects junk, http, credentials and over-long URLs", () => {
+    expect(validateAlertWebhookUrl("not a url").ok).toBe(false);
+    expect(validateAlertWebhookUrl("http://hooks.example/x").ok).toBe(false);
+    expect(validateAlertWebhookUrl("https://user:pw@hooks.example/x").ok).toBe(false);
+    expect(validateAlertWebhookUrl(`https://hooks.example/${"a".repeat(1000)}`).ok).toBe(false);
+  });
+  it("rejects localhost and private-range IP literals (the server POSTs org data there)", () => {
+    for (const u of [
+      "https://localhost/hook",
+      "https://127.0.0.1/hook",
+      "https://10.1.2.3/hook",
+      "https://192.168.1.5/hook",
+      "https://172.16.0.9/hook",
+      "https://169.254.1.1/hook",
+      "https://[::1]/hook",
+    ]) {
+      expect(validateAlertWebhookUrl(u).ok).toBe(false);
+    }
   });
 });

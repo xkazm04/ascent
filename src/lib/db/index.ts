@@ -109,6 +109,8 @@ export {
   listOrgsWithWatchedRepos,
   getOrgId,
   isRepoWatched,
+  getOrgAlertWebhook,
+  setOrgAlertWebhook,
   type DueRescan,
   type RepoRef,
   type OrgRepoRow,

@@ -35,6 +35,11 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
     expect(initSql).toMatch(/"githubLogin"/);
   });
 
+  it("mirrors the per-org alert sink column (additive, 2026-06-12)", () => {
+    expect(schema).toMatch(/alertWebhookUrl String\?/);
+    expect(initSql).toMatch(/"alertWebhookUrl" TEXT/);
+  });
+
   it("keeps the idempotent public-org seed regeneration must re-apply", () => {
     expect(initSql).toContain(`'public', 'Public Scans', 'free'`);
     expect(initSql).toContain(`ON CONFLICT ("slug") DO NOTHING`);

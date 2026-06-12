@@ -286,7 +286,7 @@ async function runPushRescan(installationId: number, owner: string, repo: string
     const persisted = await persistScanReport(report, { orgSlug });
     if (persisted && !persisted.deduped) {
       const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
-      await checkAndAlertRegression(prev, report, { orgId });
+      await checkAndAlertRegression(prev, report, { orgId, orgSlug });
     }
   } catch (err) {
     console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err);
