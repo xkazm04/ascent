@@ -2,7 +2,7 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { EmptyState } from "@/components/EmptyState";
 import { SignInNotice } from "@/components/SignInNotice";
 import { UsageTrend } from "@/components/usage/UsageTrend";
-import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
+import { getCreditState, getUsageSummary, isDbConfigured, type CreditState, type UsageSummary } from "@/lib/db";
 import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { timeAgo } from "@/lib/ui";
 
@@ -104,9 +104,19 @@ export default async function UsagePage({
   // getUsageSummary returns null when the DB isn't configured and can throw on a transient
   // blip (deploy, dropped connection, env race) between the isDbConfigured() check above and
   // the query. Either way, degrade to the notice instead of crashing this billing page.
+  // Credit state rides the same round-trip: prepaid credits are the actual billing currency
+  // (a depleted org gets a hard 402 on its next private scan), so the billing page must show
+  // the balance. Skipped for the shared public org (free, never metered — mirrors the org
+  // layout's header chip), and best-effort: a credit-read blip hides the panel, not the page.
   let usage: UsageSummary | null;
+  let credit: CreditState | null = null;
   try {
-    usage = await getUsageSummary(org, days);
+    [usage, credit] = await Promise.all([
+      getUsageSummary(org, days),
+      org.toLowerCase() === PUBLIC_ORG
+        ? Promise.resolve(null)
+        : getCreditState(org).catch(() => null),
+    ]);
   } catch {
     usage = null;
   }
@@ -137,6 +147,15 @@ export default async function UsagePage({
 
   const billable = usage.privateScans; // public scans are free; private are metered
 
+  // Prepaid-credit context: the balance gates whether private scans keep working (402 when 0),
+  // so it leads the billing row. Runway is derived from the period's observed burn and shown
+  // only when there IS a burn — a derived figure needs a real basis, not a fabricated one.
+  const creditBalance = credit && !credit.unlimited ? credit.balance : null;
+  const dailyBurn = usage.periodDays > 0 ? billable / usage.periodDays : 0;
+  const runwayDays = creditBalance != null && dailyBurn > 0 ? Math.floor(creditBalance / dailyBurn) : null;
+  // Low = the balance wouldn't cover another period at the current burn (or is already 0).
+  const lowBalance = creditBalance != null && (creditBalance === 0 || (billable > 0 && creditBalance <= billable));
+
   return (
     <Shell>
       <div className="animate-fade-up">
@@ -148,6 +167,25 @@ export default async function UsagePage({
           Each computed scan is one metered unit (cached re-scans aren&apos;t recounted). Public
           scans are free; private scans are billable under the usage-based plan.
         </p>
+
+        {/* Low-balance / depleted notice — the "am I about to be cut off?" answer, surfaced
+            BEFORE the 402 paywall does it for us. Links to the org dashboard's credits chip,
+            which is where top-ups (manual grants today, billing later) actually happen. */}
+        {lowBalance && (
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-4 py-3">
+            <p className="text-base text-warn">
+              {creditBalance === 0
+                ? "Out of private-scan credits — the next private scan will be refused (402) until you top up."
+                : `Low balance: ${creditBalance} credit${creditBalance === 1 ? "" : "s"} left vs ${billable.toLocaleString()} private scans in the last ${usage.periodDays}d.`}
+            </p>
+            <a
+              href={`/org/${encodeURIComponent(org)}`}
+              className="focus-ring shrink-0 rounded-md border border-warn/40 px-3 py-1.5 text-sm font-medium text-warn transition hover:bg-warn/10"
+            >
+              Manage credits →
+            </a>
+          </div>
+        )}
 
         {/* Trend is the lead: usage as a per-day time series (billable vs free), with export. */}
         <div className="mt-8">
@@ -162,8 +200,24 @@ export default async function UsagePage({
           <Stat label="Repos scanned" value={usage.distinctRepos} sub="distinct" />
         </div>
 
-        {/* Cost + tokens — turns metering into an actual billing view (was "per-scan rate is TBD"). */}
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Cost + tokens — turns metering into an actual billing view (was "per-scan rate is TBD").
+            The prepaid balance leads it: credits are the currency that actually gates scans. */}
+        <div className={`mt-4 grid gap-4 sm:grid-cols-2 ${credit ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+          {credit && (
+            <Stat
+              label="Credits"
+              value={credit.unlimited ? "Unlimited" : credit.balance}
+              sub={
+                credit.unlimited
+                  ? "enterprise plan — included"
+                  : runwayDays != null
+                    ? runwayDays > 365
+                      ? "over a year at current burn"
+                      : `≈ ${runwayDays}d at current burn`
+                    : "private scans remaining"
+              }
+            />
+          )}
           <Stat
             label="Est. cost"
             value={usage.estimatedCostUsd != null ? `$${usage.estimatedCostUsd.toFixed(2)}` : "—"}
