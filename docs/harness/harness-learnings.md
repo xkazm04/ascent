@@ -699,3 +699,57 @@
   tradeoff — owner's call), #3/#4 (session rotation), #6 (Low).
 - Polish tail (Low/Medium): org-dashboard #4/#5/#6, org-scanning #5/#6/#7, report-trends #6,
   scan-pipeline #6/#7 (known defense-in-depth, not exploitable).
+
+## Combined Business-Visionary + Bug-Hunter Pipeline B (2026-06-11 scan → 2026-06-12 fixes, 39/39 resolved)
+
+### Structural facts
+- **2026-06-12** — The prepaid-credit + free-quota system (landed ~06-10, after the prior audits) was the
+  dominant finding cluster: 13 of 39 items sat on its integration seams. Lesson: **scan the newest subsystem's
+  seams first** — new code that outran its consumers is where the value concentrates.
+- **2026-06-12** — Free-quota policy now mirrors paid credits: **meter on commit, not attempt** —
+  `refundPublicScanQuota` (public-scan-quota.ts, fail-open) refunds invalid/failed/aborted/degraded/cache-hit
+  scans; consume+refund are one `$transaction` (Serializable on PG, native OCC on DSQL).
+- **2026-06-12** — `publicOriginForRequest` (auth.ts) is the OAuth-redirect sibling of `secureCookieForRequest`:
+  external origin from x-forwarded-proto/host on BOTH authorize and token-exchange legs.
+- **2026-06-12** — `providerByName` contract: keyless → **null** (never a masquerading MockProvider), so
+  scan.ts failover accounting stays truthful. Bedrock availability accepts any AWS signal (BEDROCK_REGION/
+  keys/profile/role/container); an explicit `LLM_PROVIDER=bedrock` trusts the operator.
+- **2026-06-12** — `classifyRepoEvent` (liveWarRoomShared) is the pure boundary for the bulk-scan SSE
+  vocabulary (`error|notice|progress|repo×3|result`); both consumers (LiveWarRoom, OrgScanButton) route
+  through it — extend it, don't re-inline event parsing.
+- **2026-06-12** — Recommendation carry-forward identity is `matchRecommendations` (compare.ts, tiered:
+  id → normalized-title-in-dimension → tier-3), shared by scans-persist; never key on raw LLM title.
+- **2026-06-12** — `percentileOf(xs, v, min)` (org-insights) is the shared sample-floored percentile for
+  corpus (CORPUS_MIN=5) and cohort (COHORT_MIN=5) paths.
+- **2026-06-12** — `prisma/init.sql` drift is now pinned by a parity test (21 models + invariants) — schema
+  changes fail vitest until init.sql is regenerated via the file's documented offline command.
+- **2026-06-12** — Alert routing is org → `ALERT_WEBHOOK_URL` env → no-op, resolved at every sink
+  (regression, digest, low-credit). `Organization.alertWebhookUrl` is additive-nullable (deploys must
+  migrate); validator requires https + public host; admin-gated `GET/POST /api/org/alerts`.
+- **2026-06-12** — LLM pricing: built-in per-model table (llm/config.ts, geo-prefix longest-match) is the
+  default; `LLM_INPUT/OUTPUT_COST_PER_MTOK` env rates override. Usage groups by `engineModel`.
+
+### Conventions enforced
+- **2026-06-12** — Period-over-period fleet deltas must be cohort-matched (repos present in BOTH windows);
+  onboarding shows as an explicit "+N repos onboarded" growth line, never as score "movement".
+- **2026-06-12** — Spell regex character classes with escapes (`[\x00-\x1F\x7F\s]`), never raw control
+  bytes — two scanners misread the rendered bytes as a broken Annex-B range (OAUTH#1 reassessment).
+- **2026-06-12** — Webhook delivery dedupe must `forgetDelivery` on ANY handler failure (sync installation
+  handlers included), or a redelivery is deduped and the lifecycle event is permanently lost.
+
+### Anti-patterns to avoid
+- **2026-06-12** — A reserve-before-work credit debit without refund-on-dedupe/degrade overcharges exactly
+  the paths that deliver nothing (org/scan + import vs cron divergence; ledger `balanceAfter` from a
+  pre-decrement read can never reconcile under the 4-lane pool).
+- **2026-06-12** — Landing/pricing copy hardcoded apart from the gate that enforces it WILL drift into a
+  lie ("Unlimited free" vs 3/week): derive user-facing limits from the gate's own exported constants.
+
+### Open follow-ups (from biz-bug run, 2026-06-12)
+- **`x-ascent-unbilled: true`** (UMB#2) is observability, not enforcement — a deliberate soft-fail;
+  revisit if revenue leakage shows up in ledger reconciliation.
+- **Auth-off deploys keep the ambient PAT on the import funnel** (OSW#2 scoped exception, documented
+  open-by-design posture) — re-audit if auth-off ever ships beyond local/demo.
+- **Per-org webhook routing has no UI** (OSW#3 shipped API-only: `POST /api/org/alerts`) — a settings
+  surface on the org dashboard is a clean follow-up.
+- The pre-existing standing deferred backlog (persistence #4/#5, maturity #5/#6, github-app #2/#4,
+  OAuth posture set, read-path withDb migration) is UNCHANGED by this run.
