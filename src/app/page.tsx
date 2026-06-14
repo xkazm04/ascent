@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ScanForm } from "@/components/ScanForm";
+import { QuotaMeter } from "@/components/QuotaMeter";
 import { ScanGallery } from "@/components/landing/ScanGallery";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { getPublicScanGallery, isDbConfigured } from "@/lib/db";
@@ -70,6 +71,7 @@ export default async function Home() {
             <div className="mt-9 flex w-full justify-center">
               <ScanForm autoFocus examples={exampleRepos} />
             </div>
+            <QuotaMeter />
             <p className="mt-4 font-mono text-sm uppercase tracking-widest text-slate-400">
               {quota ? (
                 <>

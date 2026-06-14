@@ -204,6 +204,47 @@ export async function consumePublicScanQuota(
   }
 }
 
+export interface QuotaPeek {
+  /** False when the gate isn't active (DB unconfigured / disabled / store error). */
+  enforced: boolean;
+  /** Scans left in the current window WITHOUT consuming one. */
+  remaining: number;
+  limit: number;
+  resetAt: number | null;
+  scope: "anon" | "user";
+}
+
+/**
+ * Read-only quota check — how many free scans are left for this caller, WITHOUT consuming a slot
+ * (the read-only sibling of consumePublicScanQuota). Powers a "scans left this week" meter shown
+ * BEFORE the user commits to a scan. Fails open (returns the full limit) when persistence is
+ * unconfigured / disabled / errors, exactly like consume.
+ */
+export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<QuotaPeek> {
+  const signedIn = Boolean(identity.viewerId);
+  const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
+  const scope: "anon" | "user" = signedIn ? "user" : "anon";
+  if (!isDbConfigured() || publicScanQuotaDisabled()) {
+    return { enforced: false, remaining: limit, limit, resetAt: null, scope };
+  }
+  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
+  const now = Date.now();
+  try {
+    return await withDb(async (db) => {
+      const row = await db.publicScanQuota.findUnique({ where: { ipHash } });
+      const recent = parseHits(row?.hits)
+        .filter((t) => t > now - WEEK_MS)
+        .sort((a, b) => a - b);
+      const remaining = Math.max(0, limit - recent.length);
+      const resetAt = recent.length ? recent[0]! + WEEK_MS : null;
+      return { enforced: true, remaining, limit, resetAt, scope };
+    });
+  } catch (err) {
+    console.error("[public-scan-quota] peek failed; reporting full allowance", err);
+    return { enforced: false, remaining: limit, limit, resetAt: null, scope };
+  }
+}
+
 /**
  * Pure: drop the single NEWEST hit from a window — the one `consumePublicScanQuota` just appended.
  * Exported (and unit-tested) independently of the DB, like `decideQuota`. Removes exactly one entry
