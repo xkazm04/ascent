@@ -503,3 +503,22 @@ model PublicScanQuota {
   hits      String   @default("[]") // JSON number[] of epoch-ms timestamps in the rolling 7-day window
   updatedAt DateTime @updatedAt
 }
+
+// Best-effort reach tally for the public README badge (USE-1): one row per (repo, embedding host),
+// counted up on each ORIGIN badge GET. Powers the "Badge reach" panel on /usage. Deliberately
+// approximate — README badges are heavily proxy/CDN-cached (GitHub serves them through camo), so the
+// majority of real views never reach the origin and aren't counted; this measures lower-bound reach +
+// where embeds live. `repoFullName` is the lowercased "owner/repo"; `refererHost` the lowercased
+// embedding host (or "direct" when no/unparseable Referer). No FK — keyed by the unique pair.
+// Written fire-and-forget from src/app/api/badge/[owner]/[repo]/route.ts; read by src/lib/db/badge-analytics.ts.
+model BadgeImpression {
+  id           String   @id @default(uuid())
+  repoFullName String // lowercased "owner/repo"
+  refererHost  String // lowercased embedding host, or "direct"
+  count        Int      @default(0)
+  firstSeen    DateTime @default(now())
+  lastSeen     DateTime @default(now())
+
+  @@unique([repoFullName, refererHost])
+  @@index([repoFullName])
+}

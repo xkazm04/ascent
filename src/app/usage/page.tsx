@@ -2,7 +2,7 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { EmptyState } from "@/components/EmptyState";
 import { SignInNotice } from "@/components/SignInNotice";
 import { UsageTrend } from "@/components/usage/UsageTrend";
-import { getCreditState, getUsageSummary, isDbConfigured, type CreditState, type UsageSummary } from "@/lib/db";
+import { getBadgeReach, getCreditState, getUsageSummary, isDbConfigured, type BadgeReach, type CreditState, type UsageSummary } from "@/lib/db";
 import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { timeAgo } from "@/lib/ui";
 
@@ -110,12 +110,15 @@ export default async function UsagePage({
   // layout's header chip), and best-effort: a credit-read blip hides the panel, not the page.
   let usage: UsageSummary | null;
   let credit: CreditState | null = null;
+  // Badge reach rides the same round-trip, best-effort — a tally read blip hides the panel, not the page.
+  let badgeReach: BadgeReach | null = null;
   try {
-    [usage, credit] = await Promise.all([
+    [usage, credit, badgeReach] = await Promise.all([
       getUsageSummary(org, days),
       org.toLowerCase() === PUBLIC_ORG
         ? Promise.resolve(null)
         : getCreditState(org).catch(() => null),
+      getBadgeReach(org).catch(() => null),
     ]);
   } catch {
     usage = null;
@@ -287,6 +290,50 @@ export default async function UsagePage({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Badge reach (USE-1): where the public README badge is embedded + how often it's fetched.
+            Lower-bound — README badges are camo/CDN-cached, so most views never reach the origin. */}
+        {badgeReach && badgeReach.totalImpressions > 0 && (
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+            <h2 className="text-base font-semibold text-white">
+              Badge reach <span className="font-normal text-slate-500">· public README badge · all time</span>
+            </h2>
+            <div className="mt-3 grid gap-4 sm:grid-cols-3">
+              <Stat label="Impressions" value={badgeReach.totalImpressions} sub="origin badge fetches" />
+              <Stat label="Embedding hosts" value={badgeReach.distinctHosts} sub="distinct" />
+              <Stat label="Badged repos" value={badgeReach.distinctRepos} sub="distinct" />
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div>
+                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Top embedding hosts</div>
+                <div className="mt-2 space-y-1.5 text-base">
+                  {badgeReach.topHosts.map((h) => (
+                    <div key={h.host} className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate font-mono text-sm text-slate-300">{h.host}</span>
+                      <span className="shrink-0 font-mono tabular-nums text-slate-400">{h.impressions.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Most-fetched badges</div>
+                <div className="mt-2 space-y-1.5 text-base">
+                  {badgeReach.topRepos.map((r) => (
+                    <div key={r.fullName} className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate font-mono text-sm text-slate-300">{r.fullName}</span>
+                      <span className="shrink-0 font-mono tabular-nums text-slate-400">{r.impressions.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-slate-500">
+              A lower bound: README badges are served through GitHub&apos;s image proxy and edge caches, so
+              most views are answered from cache and never reach the origin to be counted. Click-throughs are
+              tagged <span className="font-mono">?ref=badge</span> for attribution in your analytics.
+            </p>
           </div>
         )}
 

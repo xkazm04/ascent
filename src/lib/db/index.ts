@@ -53,6 +53,7 @@ export {
   type PurgeSummary,
 } from "@/lib/db/retention";
 export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
+export { recordBadgeImpression, getBadgeReach, type BadgeReach } from "@/lib/db/badge-analytics";
 export {
   getCreditState,
   grantCredits,

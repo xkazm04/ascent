@@ -22,6 +22,7 @@ import { scanRepository, GitHubError } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { recordBadgeImpression } from "@/lib/db";
 import { LEVEL_GLYPH, LEVEL_HEX } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
@@ -231,6 +232,17 @@ function parseStyle(s: string | null): BadgeStyle {
   return s === "flat-square" || s === "for-the-badge" ? s : "flat";
 }
 
+/** The embedding page's host (lowercased) for badge-reach attribution, or "direct" when absent/unparseable. */
+function refererHost(req: Request): string {
+  const ref = req.headers.get("referer");
+  if (!ref) return "direct";
+  try {
+    return new URL(ref).host.toLowerCase() || "direct";
+  } catch {
+    return "direct";
+  }
+}
+
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ owner: string; repo: string }> },
@@ -326,6 +338,12 @@ export async function GET(
     if (report.repo.isPrivate) {
       return respond(badgeSvg({ label, value: "private", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_NEUTRAL });
     }
+
+    // USE-1: best-effort reach tally for the "Badge reach" panel on /usage. Fire-and-forget — never
+    // awaited, never throws into this hot, CDN-fronted path. Counts only ORIGIN hits for a real public
+    // badge (reached here past the validation / negative-cache / rate-limit / private gates), so it's a
+    // lower bound on true views (most are served from the camo/CDN cache and never reach the origin).
+    void recordBadgeImpression(`${ownerN}/${repoN}`, refererHost(req)).catch(() => {});
 
     // Gate badge: a green pass / red fail against the (configurable, archetype-aware) policy.
     if (gateMode) {
