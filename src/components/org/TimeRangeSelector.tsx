@@ -7,7 +7,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { RANGE_OPTIONS, type RangeKey } from "@/lib/window";
+import { PERIOD_COOKIE, RANGE_OPTIONS, serializePeriodCookie, type RangeKey } from "@/lib/window";
 
 export function TimeRangeSelector({ range, from, to }: { range: RangeKey; from?: string; to?: string }) {
   const router = useRouter();
@@ -18,6 +18,11 @@ export function TimeRangeSelector({ range, from, to }: { range: RangeKey; from?:
   const [toVal, setToVal] = useState(to ?? "");
 
   function navigate(next: { range: RangeKey; from?: string; to?: string }) {
+    // OVR-5: remember this choice for the next visit. A shared ?range= URL still wins on the server,
+    // since the page only consults the cookie when no explicit range param is present. (This is an
+    // event handler, not render — the immutability rule's render-purity concern doesn't apply.)
+    // eslint-disable-next-line react-hooks/immutability
+    document.cookie = `${PERIOD_COOKIE}=${encodeURIComponent(serializePeriodCookie(next))}; path=/; max-age=31536000; samesite=lax`;
     const params = new URLSearchParams(searchParams.toString());
     params.delete("range");
     params.delete("from");

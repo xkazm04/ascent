@@ -12,9 +12,10 @@ import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
 import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
+import { cookies } from "next/headers";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
-import { resolveWindow } from "@/lib/window";
+import { PERIOD_COOKIE, parsePeriodCookie, resolveWindow } from "@/lib/window";
 import type { RepoMove } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -84,7 +85,10 @@ export default async function OrgOverview({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const period = resolveWindow(sp);
+  // OVR-5: an explicit ?range= in the URL wins (shareable links stay authoritative); otherwise fall
+  // back to the user's remembered period cookie, then the default.
+  const remembered = sp.range ? null : parsePeriodCookie((await cookies()).get(PERIOD_COOKIE)?.value);
+  const period = resolveWindow(remembered ?? sp);
   const win = { start: period.start, end: period.end };
 
   // Optional segment scope: validate the `?segment=` id against the org's segments (a bogus id

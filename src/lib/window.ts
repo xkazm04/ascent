@@ -26,6 +26,23 @@ export const RANGE_OPTIONS: RangeOption[] = [
 // full history (no baseline, no deltas — the pre-window behavior).
 export const DEFAULT_RANGE: RangeKey = "90d";
 
+// OVR-5 — "remember my period": the selector writes the last-chosen window to this cookie and the
+// overview reads it as the fallback (below an explicit ?range=, so shared URLs stay authoritative).
+export const PERIOD_COOKIE = "ascent_period";
+
+/** Serialize a chosen window for the period cookie (`custom|from|to` for custom, else the range key). */
+export function serializePeriodCookie(sel: { range: RangeKey; from?: string; to?: string }): string {
+  return sel.range === "custom" ? `custom|${sel.from ?? ""}|${sel.to ?? ""}` : sel.range;
+}
+
+/** Parse the period cookie into resolveWindow params; null when empty or an unknown range. */
+export function parsePeriodCookie(v: string | undefined): { range?: string; from?: string; to?: string } | null {
+  if (!v) return null;
+  const [range, from, to] = v.split("|");
+  if (!range || !RANGE_OPTIONS.some((o) => o.key === range)) return null;
+  return { range, from: from || undefined, to: to || undefined };
+}
+
 export interface ResolvedWindow {
   key: RangeKey;
   /** Window start — also the baseline date for deltas. null = all-time (no baseline / no deltas). */
