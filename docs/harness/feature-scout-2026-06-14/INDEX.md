@@ -203,7 +203,7 @@ Each wave is one sessionable theme (5–7 findings) with a shared mental model s
 - **Wave 2 — Expose dormant backends / management UIs (Theme 2).** MEM-1 (+MEM-2, MEM-4), ALRT-1 (+ALRT-3), SEG-1, CONN-1. *Member management + alert config + segment-scoped scan/cadence + bulk watch — all "add the UI to a shipped backend."*
 - **Wave 3 — Notifications: email + targeted alerts (Theme 3).** ALRT-2 (email transport), GOAL-1, SEC-4, USE-3, OVR-2, ALRT-4. *Add an email channel once, then wire the high-value triggers the data already supports.*
 - **Wave 4 — Monetization funnel (Theme 4).** CRED-1 (Stripe Checkout), QUOTA-1 (upgrade CTA at the block), CRED-2 (plan tiers), CRED-3 (auto-recharge), QUOTA-3 (scans-left meter). *The revenue vertical; turns built accounting into actual income.*
-- **Wave 5 — Planning loop completeness (Themes 1+5).** BKLG-2, GOAL-2, GOAL-3, GOAL-6, SIM-2, SIM-3, SIM-4. *Make goals/initiatives/simulator one connected workflow.*
+- **Wave 5 — Planning loop completeness (Themes 1+5).** ✓ **DONE (7/7)** — BKLG-2, GOAL-2, GOAL-3, GOAL-6, SIM-2, SIM-3, SIM-4. *Made goals/initiatives/simulator one connected workflow.* See `FIXES-WAVE-5.md`.
 - **Wave 6 — Live ops: War Room + Map (Theme 6).** WAR-1, WAR-2, WAR-3, WAR-4, MAP-2, MAP-3. *Make the wall + map genuinely live, goal-aware, and interactive.*
 - **Wave 7 — Audit/compliance + CI gate (Themes 7).** SEC-3 (bug), SEC-1, SEC-2, MEM-3, GATE-1, GATE-2, GATE-3. *Enterprise-trust bundle; lead with the SEC-3 audit-filter bug.*
 - **Wave 8 — Growth/SEO + onboarding activation (Themes 8+9).** SHELL-1, SHELL-2, USE-1, USE-2, ONB-1, ONB-2, ONB-4, ONB-3. *Acquisition (OG/badge) + first-run activation.*

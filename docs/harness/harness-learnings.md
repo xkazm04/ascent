@@ -901,3 +901,36 @@ See `FIXES-WAVE-6.md`. Made the war-room + `/launch` fleet map live/goal-aware/i
 ### Open follow-ups
 - Wave 5 (planning), Wave 8 (growth/onboarding), Stripe (CRED-1/CRED-3), notifications/email (excluded),
   49 mediums / 4 lows remain — see the INDEX.
+
+## Feature Scout — Wave 5 Planning (2026-06-14, on master) — COMPLETE (7/7)
+
+See `FIXES-WAVE-5.md`. SIM-3 + BKLG-2 landed first; this sitting closed the tail (GOAL-2/6/3, SIM-2/4).
+
+### Structural facts
+- **2026-06-14** — Migration `20260614140000_add_initiative_fields`: `Initiative` gains `assigneeLogin`,
+  `targetDate` (TIMESTAMP), `goalId` — all nullable/additive (one migration for the GOAL-2 + GOAL-6
+  cluster). `goalId` is a plain column (no FK relation), mirroring the existing `practiceId` pattern;
+  `listInitiatives` resolves `goalLabel` from an in-memory goal map (a deleted goal → null = unlinked).
+- **2026-06-14** — `updateInitiativeStatus` generalized to `updateInitiative(id, patch)` (status/
+  assignee/targetDate/goalId); the `[id]` PATCH route now patches any subset. POST accepts the new fields.
+- **2026-06-14** — `InitiativesPanel` got inline owner (`onBlur` PATCH) / due-date / goal-`<select>`
+  controls + a "starter shape →" deep-link; `GoalCard` cross-renders `initiativesByGoal[g.id]`. `Card`
+  (org/ui) gained an optional `id` (scroll anchor) so `/practices#practice-<id>` lands on the card.
+- **2026-06-14** — `simulateFleet(repos, fix | fix[], scope)` — second arg widened to one or many legs,
+  normalized internally; `FleetProjection.fix` → `fixes[]`. `simulateOrgFixes` + a `fixes[]` payload on
+  `/api/org/simulate`. `goalImpactsForScenario(slug, before, after)` re-anchors active axis/overall goals
+  at the simulated value via `projectGoal` (run twice) and returns the ETA shift.
+
+### Conventions enforced
+- **2026-06-14** — Bundle findings that share a migration into ONE additive nullable-column change
+  (GOAL-2+6), not one migration per finding — same offline discipline, fewer deploys.
+- **2026-06-14** — Generalize a signature backward-compatibly (`T | T[]`, normalize inside): every prior
+  caller/test stays green while the new path opens. Confirm nothing reads a field before reshaping it
+  (`grep '\.fix'`).
+- **2026-06-14** — Derive a forecast view by re-running the pure engine with one input re-anchored
+  (`projectGoal` at the simulated `current`) rather than threading a parallel trajectory — it can't
+  disagree with the live goal pace.
+
+### Open follow-ups
+- Wave 8 tail (SHELL-1/2 OG cards, ONB-2 resumability, USE-1 full impression analytics), Stripe
+  (CRED-1/CRED-3), notifications/email (excluded), 49 mediums / 4 lows remain — see the INDEX.
