@@ -134,6 +134,44 @@ export async function setRepoSegment(
   return true;
 }
 
+/**
+ * Bulk tag (`member=true`) or untag (`member=false`) MANY repos into a segment in one round-trip —
+ * the backend for auto-segments (by language) and the leaderboard's bulk action bar. Org-scoped:
+ * the segment must belong to the org and only the org's repos are touched (unknown fullNames are
+ * ignored). Idempotent — adds use `createMany({ skipDuplicates })`, removes a bounded `deleteMany`.
+ * Returns the number of membership rows actually created/deleted, or -1 when the segment isn't the
+ * org's (or persistence is off) so the route can 404.
+ */
+export async function setRepoSegmentsBulk(
+  orgSlug: string,
+  segmentId: string,
+  fullNames: string[],
+  member: boolean,
+): Promise<number> {
+  if (!isDbConfigured()) return -1;
+  const prisma = getPrisma();
+  const orgId = await resolveOrgId(orgSlug);
+  if (!orgId) return -1;
+  const segment = await prisma.segment.findFirst({ where: { id: segmentId, orgId }, select: { id: true } });
+  if (!segment) return -1;
+  const unique = [...new Set(fullNames.filter((f) => typeof f === "string"))];
+  if (unique.length === 0) return 0;
+  const repos = await prisma.repository.findMany({
+    where: { orgId, fullName: { in: unique } },
+    select: { id: true },
+  });
+  if (repos.length === 0) return 0;
+  if (member) {
+    const res = await prisma.repoSegment.createMany({
+      data: repos.map((r) => ({ segmentId, repoId: r.id })),
+      skipDuplicates: true,
+    });
+    return res.count;
+  }
+  const res = await prisma.repoSegment.deleteMany({ where: { segmentId, repoId: { in: repos.map((r) => r.id) } } });
+  return res.count;
+}
+
 /** Per-repo segment membership: fullName → the segments it's tagged into (for the tagging UI). */
 export async function getRepoSegmentMap(
   orgSlug: string,

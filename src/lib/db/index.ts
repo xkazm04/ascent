@@ -171,6 +171,7 @@ export {
   updateSegment,
   deleteSegment,
   setRepoSegment,
+  setRepoSegmentsBulk,
   getSegmentOrgSlug,
   getRepoSegmentMap,
   compareSegments,
