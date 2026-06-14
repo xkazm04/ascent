@@ -15,6 +15,7 @@ import {
   listInitiatives,
 } from "@/lib/db";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { PRACTICES } from "@/lib/practices";
 import type { DimensionId } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -45,10 +46,13 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
 
   // Seed initiatives from the highest-leverage fleet moves; map the rec's repo *names* to
   // fullNames (initiatives track fullNames so progress can match the latest scans).
+  // The 1:1 dimension → reusable practice map, so a seeded initiative carries its starter shape (GOAL-3).
+  const practiceByDim = new Map(PRACTICES.map((p) => [p.dimId, p.id]));
   const seeds = (recs ?? []).map((r) => ({
     title: r.title,
     dimId: r.dimId,
     dimLabel: DIMENSION_BY_ID[r.dimId as DimensionId]?.name ?? r.dimId,
+    practiceId: practiceByDim.get(r.dimId as DimensionId) ?? null,
     repos: r.repos.map((n) => nameToFull.get(n)).filter((x): x is string => !!x),
     repoCount: r.repoCount,
   }));

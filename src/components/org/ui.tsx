@@ -81,8 +81,14 @@ export function Tile({
  * Card — the single source of truth for a fleet-view panel: one radius, border and
  * padding for every boxed section. Change the tokens here and every panel ripples.
  */
-export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-2xl border border-slate-800 bg-slate-900/40 p-6 ${className}`}>{children}</div>;
+export function Card({ children, className = "", id }: { children: React.ReactNode; className?: string; id?: string }) {
+  // `id` lets a card be a scroll anchor (e.g. deep-linking to a specific practice). scroll-mt keeps
+  // the target clear of the sticky header when jumped to.
+  return (
+    <div id={id} className={`rounded-2xl border border-slate-800 bg-slate-900/40 p-6 ${id ? "scroll-mt-24" : ""} ${className}`}>
+      {children}
+    </div>
+  );
 }
 
 /**

@@ -51,7 +51,7 @@ export default async function OrgPractices({ params }: { params: Promise<{ slug:
         const measured = p.total > 0;
         const adoptionPct = measured ? Math.round((p.strongCount / p.total) * 100) : 0;
         return (
-          <Card key={p.id}>
+          <Card key={p.id} id={`practice-${p.id}`}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="font-semibold text-white">{p.label}</h3>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
 
 export interface InitiativeView {
@@ -8,6 +9,7 @@ export interface InitiativeView {
   title: string;
   dimId: string;
   dimLabel: string;
+  practiceId: string | null;
   targetScore: number;
   repos: string[];
   status: string;
@@ -22,6 +24,7 @@ export interface SeedRec {
   title: string;
   dimId: string;
   dimLabel: string;
+  practiceId: string | null; // the dimension's reusable practice — for the starter shape
   repos: string[]; // fullNames in scope
   repoCount: number;
 }
@@ -63,7 +66,7 @@ export function InitiativesPanel({
       const res = await fetch("/api/org/initiatives", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, title: seed.title, dimId: seed.dimId, repos: seed.repos, targetScore: 70 }),
+        body: JSON.stringify({ org: slug, title: seed.title, dimId: seed.dimId, practiceId: seed.practiceId, repos: seed.repos, targetScore: 70 }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed.");
       await refresh();
@@ -168,6 +171,18 @@ export function InitiativesPanel({
                       ))}
                     </select>
                   </label>
+                )}
+                {/* GOAL-3: jump to the dimension's reusable practice (its leak-free starter +
+                    "generate the artifact, open a draft PR" action) — turning the tracked target
+                    into a concrete first step. */}
+                {i.practiceId && (
+                  <Link
+                    href={`/org/${slug}/practices#practice-${i.practiceId}`}
+                    className="font-mono text-sm text-accent hover:text-white"
+                    title="Open the reusable practice + starter PR for this dimension"
+                  >
+                    starter shape →
+                  </Link>
                 )}
               </div>
             </div>

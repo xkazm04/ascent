@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
 import { scoreHex } from "@/lib/ui";
+import { PRACTICES } from "@/lib/practices";
 import type { FleetProjection, InvestmentRank } from "@/lib/scoring/orgsim";
 
 interface DimOption {
@@ -92,11 +93,12 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     const initRepos = scope.size > 0 ? [...scope] : result.repos.map((r) => r.fullName);
     const dimLabel = dims.find((d) => d.id === dimId)?.label ?? dimId;
     const title = `Raise ${dimId} · ${dimLabel} to ${target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
+    const practiceId = PRACTICES.find((p) => p.dimId === dimId)?.id ?? null; // GOAL-3: carry the starter shape
     try {
       const res = await fetch("/api/org/initiatives", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, title, dimId, targetScore: target, repos: initRepos }),
+        body: JSON.stringify({ org: slug, title, dimId, practiceId, targetScore: target, repos: initRepos }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
