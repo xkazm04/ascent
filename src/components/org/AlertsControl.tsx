@@ -12,6 +12,8 @@ export function AlertsControl({ org }: { org: string }) {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [overallDrop, setOverallDrop] = useState(""); // "" = inherit the default (5)
+  const [dimensionDrop, setDimensionDrop] = useState(""); // "" = inherit the default (15)
   const [configured, setConfigured] = useState(false);
   const [denied, setDenied] = useState(false);
   const [busy, setBusy] = useState<"save" | "clear" | "test" | null>(null);
@@ -46,6 +48,8 @@ export function AlertsControl({ org }: { org: string }) {
         const url = typeof d.webhookUrl === "string" ? d.webhookUrl : "";
         setWebhookUrl(url);
         setConfigured(!!url);
+        setOverallDrop(typeof d.overallDrop === "number" ? String(d.overallDrop) : "");
+        setDimensionDrop(typeof d.dimensionDrop === "number" ? String(d.dimensionDrop) : "");
       })
       .catch(() => setError("Couldn't load alert settings."))
       .finally(() => setLoaded(true));
@@ -73,7 +77,14 @@ export function AlertsControl({ org }: { org: string }) {
   }
 
   async function save() {
-    const d = await post({ webhookUrl }, "save");
+    const d = await post(
+      {
+        webhookUrl,
+        overallDrop: overallDrop.trim() === "" ? null : Number(overallDrop),
+        dimensionDrop: dimensionDrop.trim() === "" ? null : Number(dimensionDrop),
+      },
+      "save",
+    );
     if (d) {
       setConfigured(!!d.webhookUrl);
       setNotice("Saved.");
@@ -129,7 +140,36 @@ export function AlertsControl({ org }: { org: string }) {
                 placeholder="https://hooks.slack.com/services/…"
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 outline-none focus:border-accent"
               />
-              <div className="mt-2 flex flex-wrap gap-2">
+
+              <div className="mt-3 text-sm text-slate-400">Regression sensitivity (points) — blank inherits the default.</div>
+              <div className="mt-1.5 flex flex-wrap gap-3">
+                <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+                  overall drop
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={overallDrop}
+                    onChange={(e) => setOverallDrop(e.target.value)}
+                    placeholder="5"
+                    className="w-16 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+                  dimension drop
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={dimensionDrop}
+                    onChange={(e) => setDimensionDrop(e.target.value)}
+                    placeholder="15"
+                    className="w-16 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={save}

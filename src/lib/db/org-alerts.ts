@@ -29,3 +29,35 @@ export async function setOrgAlertWebhook(orgSlug: string, url: string | null): P
   await prisma.organization.update({ where: { id: org.id }, data: { alertWebhookUrl: url } });
   return url;
 }
+
+/** Per-org regression sensitivity overrides (points); null = inherit DEFAULT_THRESHOLDS. */
+export interface OrgAlertThresholds {
+  overallDrop: number | null;
+  dimensionDrop: number | null;
+}
+
+/** The org's regression thresholds, or nulls (unset / unknown org / DB-less → inherit defaults). */
+export async function getOrgAlertThresholds(orgSlug: string): Promise<OrgAlertThresholds> {
+  if (!isDbConfigured()) return { overallDrop: null, dimensionDrop: null };
+  const org = await getPrisma().organization.findUnique({
+    where: { slug: orgSlug.toLowerCase() },
+    select: { alertOverallDrop: true, alertDimensionDrop: true },
+  });
+  return { overallDrop: org?.alertOverallDrop ?? null, dimensionDrop: org?.alertDimensionDrop ?? null };
+}
+
+/** Set/clear the org's regression thresholds (null clears a field back to the default). undefined = unknown org. */
+export async function setOrgAlertThresholds(
+  orgSlug: string,
+  t: OrgAlertThresholds,
+): Promise<OrgAlertThresholds | undefined> {
+  if (!isDbConfigured()) return undefined;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
+  if (!org) return undefined;
+  await prisma.organization.update({
+    where: { id: org.id },
+    data: { alertOverallDrop: t.overallDrop, alertDimensionDrop: t.dimensionDrop },
+  });
+  return t;
+}

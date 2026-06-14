@@ -42,6 +42,10 @@ model Organization {
   // tenant receives its own fleet intelligence instead of everything landing in the operator's channel.
   // null = inherit the global sink (or a clean no-op when that's unset too). See src/lib/db/org-alerts.ts.
   alertWebhookUrl String?
+  // Per-org regression sensitivity (points). null = inherit DEFAULT_THRESHOLDS (overall 5 / dim 15).
+  // Threaded into detectRegression by checkAndAlertRegression — see src/lib/scan-alerts.ts.
+  alertOverallDrop   Int?
+  alertDimensionDrop Int?
   githubInstallId String?
   createdAt       DateTime @default(now())
 

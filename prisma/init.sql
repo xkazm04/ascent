@@ -22,6 +22,8 @@ CREATE TABLE "Organization" (
     "retentionMaxScans" INTEGER,
     "retentionAuditDays" INTEGER,
     "alertWebhookUrl" TEXT,
+    "alertOverallDrop" INTEGER,
+    "alertDimensionDrop" INTEGER,
     "githubInstallId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
