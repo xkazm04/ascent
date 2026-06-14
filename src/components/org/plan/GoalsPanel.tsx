@@ -14,16 +14,25 @@ interface MetricOption {
  * plus a create form. Progress and pace come from the latest scans and the metric's trend.
  * `initiativesByGoal` cross-renders the tracked initiatives linked to each goal (GOAL-6).
  */
+interface GoalSuggestion {
+  label: string;
+  metric: string;
+  target: number;
+}
+
 export function GoalsPanel({
   slug,
   initial,
   metricOptions,
   initiativesByGoal = {},
+  suggestions = [],
 }: {
   slug: string;
   initial: GoalProgressView[];
   metricOptions: MetricOption[];
   initiativesByGoal?: Record<string, LinkedInitiative[]>;
+  /** One-click goal suggestions (GOAL-5) derived from the fleet's own numbers. */
+  suggestions?: GoalSuggestion[];
 }) {
   const [goals, setGoals] = useState<GoalProgressView[]>(initial);
   const [label, setLabel] = useState("");
@@ -32,6 +41,8 @@ export function GoalsPanel({
   const [targetDate, setTargetDate] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Local copy so a one-click-added suggestion disappears from the row without a server round-trip.
+  const [picks, setPicks] = useState<GoalSuggestion[]>(suggestions);
 
   async function refresh() {
     const res = await fetch(`/api/org/goals?org=${encodeURIComponent(slug)}`);
@@ -64,6 +75,26 @@ export function GoalsPanel({
     await fetch(`/api/org/goals/${id}`, { method: "DELETE" });
   }
 
+  // GOAL-5: one-click add a suggested goal, then drop it from the row.
+  async function addSuggested(s: GoalSuggestion) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/org/goals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug, label: s.label, metric: s.metric, target: s.target, targetDate: null }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Failed.");
+      setPicks((ps) => ps.filter((p) => p !== s));
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Card>
       <SectionHeader
@@ -87,6 +118,24 @@ export function GoalsPanel({
           />
         ))}
       </div>
+
+      {/* GOAL-5: one-click suggested goals so the org never starts from a blank box. */}
+      {picks.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-4">
+          <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Suggested</span>
+          {picks.map((s) => (
+            <button
+              key={s.label}
+              onClick={() => addSuggested(s)}
+              disabled={busy}
+              title="Add this goal"
+              className="rounded-full border border-slate-700 px-2.5 py-1 text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+            >
+              + {s.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-4">
         <input

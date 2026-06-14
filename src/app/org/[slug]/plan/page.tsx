@@ -14,7 +14,7 @@ import {
   listGoals,
   listInitiatives,
 } from "@/lib/db";
-import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { DIMENSIONS, DIMENSION_BY_ID, LEVELS, levelForScore } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
 import type { DimensionId } from "@/lib/types";
 
@@ -68,6 +68,25 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
     return <SectionEmpty>No scanned repositories yet — scan some of this org&apos;s repos to plan against them.</SectionEmpty>;
   }
 
+  // GOAL-5: seed 2-3 one-click goal suggestions so an org never starts from a blank box. Derived from
+  // the fleet's own numbers (weakest scanned dimension; overall to the next maturity band; an adoption
+  // floor) and de-duplicated against metrics that already have an active goal.
+  const activeMetrics = new Set((goals ?? []).filter((g) => g.status === "active").map((g) => g.metric));
+  const goalSuggestions: { label: string; metric: string; target: number }[] = [];
+  const weakest = dimOptions.filter((d) => d.avg > 0).sort((a, b) => a.avg - b.avg)[0];
+  if (weakest && !activeMetrics.has(weakest.id)) {
+    const target = Math.min(100, weakest.avg + 12);
+    goalSuggestions.push({ label: `Lift ${weakest.id} · ${weakest.label} to ${target}`, metric: weakest.id, target });
+  }
+  if (!activeMetrics.has("overall")) {
+    const idx = LEVELS.findIndex((l) => l.id === levelForScore(rollup.avgOverall).id);
+    const next = idx >= 0 && idx < LEVELS.length - 1 ? LEVELS[idx + 1] : null;
+    if (next) goalSuggestions.push({ label: `Reach ${next.id} · ${next.name} (overall ${next.band[0]})`, metric: "overall", target: next.band[0] });
+  }
+  if (goalSuggestions.length < 3 && !activeMetrics.has("adoption") && rollup.avgAdoption < 70) {
+    goalSuggestions.push({ label: "AI Adoption to 70", metric: "adoption", target: 70 });
+  }
+
   return (
     <div className="space-y-6">
       <SectionHeader
@@ -77,7 +96,7 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <GoalsPanel slug={slug} initial={goals ?? []} metricOptions={metricOptions} initiativesByGoal={initiativesByGoal} />
+        <GoalsPanel slug={slug} initial={goals ?? []} metricOptions={metricOptions} initiativesByGoal={initiativesByGoal} suggestions={goalSuggestions} />
         <Simulator slug={slug} dims={dimOptions} repos={repoOptions} />
       </div>
 
