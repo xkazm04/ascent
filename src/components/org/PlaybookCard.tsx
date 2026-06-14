@@ -107,6 +107,11 @@ export function PlaybookCard({
           <span className="ml-2 rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
             {p.dimId} · {dimLabel}
           </span>
+          {p.version > 1 && (
+            <span className="ml-2 font-mono text-sm text-slate-500" title={`Last edited ${p.updatedAt.slice(0, 10)}`}>
+              v{p.version}
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <CopyForLlm text={playbookMarkdown(p, dimLabel)} label="Copy" />

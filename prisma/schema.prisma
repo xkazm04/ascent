@@ -449,7 +449,9 @@ model Playbook {
   steps     String   @default("[]") // JSON string[] — the concrete starter steps
   createdBy String? // GitHub login of the author
   archived  Boolean  @default(false)
+  version   Int      @default(1) // bumped each time the content (title/dim/summary/steps) is edited
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt // last content edit (change history anchor)
 
   org          Organization          @relation(fields: [orgId], references: [id])
   applications PlaybookApplication[]
@@ -461,12 +463,13 @@ model Playbook {
 // signal for "this repo adopted playbook X"). Adoption analytics count distinct applied repos and
 // measure the dimension-score lift in those repos since `appliedAt`. One row per (playbook, repo).
 model PlaybookApplication {
-  id           String   @id @default(uuid())
-  playbookId   String
-  orgId        String // denormalized for org-scoped aggregation
-  repoFullName String
-  appliedBy    String? // GitHub login who marked it applied
-  appliedAt    DateTime @default(now())
+  id             String   @id @default(uuid())
+  playbookId     String
+  orgId          String // denormalized for org-scoped aggregation
+  repoFullName   String
+  appliedBy      String? // GitHub login who marked it applied
+  appliedVersion Int? // the playbook version this repo adopted (null for pre-versioning marks)
+  appliedAt      DateTime @default(now())
 
   playbook Playbook @relation(fields: [playbookId], references: [id])
 

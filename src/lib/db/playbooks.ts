@@ -14,6 +14,10 @@ export interface PlaybookRow {
   steps: string[];
   createdBy: string | null;
   createdAt: string;
+  /** Bumped each time the content is edited — the change-history anchor. */
+  version: number;
+  /** ISO of the last content edit. */
+  updatedAt: string;
 }
 
 export interface PlaybookInput {
@@ -55,6 +59,8 @@ export async function listPlaybooks(orgSlug: string): Promise<PlaybookRow[] | nu
     steps: parseSteps(p.steps),
     createdBy: p.createdBy,
     createdAt: p.createdAt.toISOString(),
+    version: p.version,
+    updatedAt: p.updatedAt.toISOString(),
   }));
 }
 
@@ -95,6 +101,9 @@ export async function updatePlaybook(
   if (patch.summary !== undefined) data.summary = patch.summary.trim().slice(0, 1000);
   if (patch.steps !== undefined) data.steps = cleanSteps(patch.steps);
   if (patch.archived !== undefined) data.archived = patch.archived;
+  // A content edit (not an archive toggle) bumps the version — the change-history signal (PLAY-6).
+  const contentEdit = ["title", "dimId", "summary", "steps"].some((k) => patch[k as keyof typeof patch] !== undefined);
+  if (contentEdit) data.version = { increment: 1 };
   await getPrisma().playbook.update({ where: { id }, data });
 }
 
@@ -116,6 +125,8 @@ export async function getPlaybook(id: string): Promise<PlaybookRow | null> {
     steps: parseSteps(p.steps),
     createdBy: p.createdBy,
     createdAt: p.createdAt.toISOString(),
+    version: p.version,
+    updatedAt: p.updatedAt.toISOString(),
   };
 }
 
@@ -138,12 +149,13 @@ export async function applyPlaybook(
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
   if (!org) return false;
-  const pb = await prisma.playbook.findFirst({ where: { id: playbookId, orgId: org.id }, select: { id: true } });
+  const pb = await prisma.playbook.findFirst({ where: { id: playbookId, orgId: org.id }, select: { id: true, version: true } });
   if (!pb) return false;
+  // Stamp the version adopted, so a repo on an older version is visible once the playbook is edited.
   await prisma.playbookApplication.upsert({
     where: { playbookId_repoFullName: { playbookId, repoFullName } },
-    update: { appliedBy: appliedBy ?? null, appliedAt: new Date() },
-    create: { playbookId, orgId: org.id, repoFullName, appliedBy: appliedBy ?? null },
+    update: { appliedBy: appliedBy ?? null, appliedVersion: pb.version, appliedAt: new Date() },
+    create: { playbookId, orgId: org.id, repoFullName, appliedBy: appliedBy ?? null, appliedVersion: pb.version },
   });
   return true;
 }

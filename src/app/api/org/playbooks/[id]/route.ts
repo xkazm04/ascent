@@ -4,8 +4,9 @@
 // DELETE is destructive, so it requires admin.
 
 import { NextResponse } from "next/server";
-import { deletePlaybook, getPlaybookOrgSlug, isDbConfigured, updatePlaybook } from "@/lib/db";
+import { deletePlaybook, getOrgId, getPlaybookOrgSlug, isDbConfigured, recordAudit, updatePlaybook } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import { getSession } from "@/lib/auth";
 import type { OrgRole } from "@/lib/db/members";
 
 export const runtime = "nodejs";
@@ -42,6 +43,12 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       steps: Array.isArray(body.steps) ? body.steps : undefined,
       archived: body.archived,
     });
+    // PLAY-6: audit the change so a playbook edit leaves a trail (the org's standards have history).
+    const org = await getPlaybookOrgSlug(id);
+    const session = await getSession();
+    const orgId = org ? (await getOrgId(org.toLowerCase()).catch(() => null)) ?? undefined : undefined;
+    const changed = Object.keys(body).filter((k) => body[k as keyof typeof body] !== undefined);
+    await recordAudit("playbook.updated", { playbookId: id, changed }, { orgId, actorId: session?.login });
     return NextResponse.json({ ok: true });
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Playbook not found." }, { status: 404 });

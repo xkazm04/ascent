@@ -295,7 +295,9 @@ CREATE TABLE "Playbook" (
     "steps" TEXT NOT NULL DEFAULT '[]',
     "createdBy" TEXT,
     "archived" BOOLEAN NOT NULL DEFAULT false,
+    "version" INTEGER NOT NULL DEFAULT 1,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Playbook_pkey" PRIMARY KEY ("id")
 );
@@ -307,6 +309,7 @@ CREATE TABLE "PlaybookApplication" (
     "orgId" TEXT NOT NULL,
     "repoFullName" TEXT NOT NULL,
     "appliedBy" TEXT,
+    "appliedVersion" INTEGER,
     "appliedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "PlaybookApplication_pkey" PRIMARY KEY ("id")
