@@ -14,6 +14,14 @@ interface Artifact {
   prTitle: string;
 }
 
+interface BatchResult {
+  repo: string;
+  ok: boolean;
+  url?: string;
+  reused?: boolean;
+  error?: string;
+}
+
 /**
  * The "systematic apply" action on a practice card: pick a gap repo, preview the leak-free
  * starter artifact Ascent would generate, then open a draft PR seeding it. Preview is read-only;
@@ -27,8 +35,45 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pr, setPr] = useState<{ url: string; reused: boolean } | null>(null);
+  // Fleet rollout: open a draft PR across many gap repos at once (default = all of them).
+  const [showBatch, setShowBatch] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(gapRepos.map((r) => r.fullName)));
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
 
   if (gapRepos.length === 0) return null;
+
+  function toggleSelected(fullName: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(fullName)) next.delete(fullName);
+      else next.add(fullName);
+      return next;
+    });
+  }
+
+  async function applyBatch() {
+    const repos = [...selected];
+    if (repos.length === 0) return;
+    setBatchBusy(true);
+    setBatchError(null);
+    setBatchResults(null);
+    try {
+      const res = await fetch("/api/practices/apply-batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repos, practiceId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to open PRs.");
+      setBatchResults(data.results as BatchResult[]);
+    } catch (e) {
+      setBatchError(e instanceof Error ? e.message : "Failed to open PRs.");
+    } finally {
+      setBatchBusy(false);
+    }
+  }
 
   async function preview() {
     setBusy("preview");
@@ -127,6 +172,73 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
             <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-800 bg-black/40 p-3 font-mono text-sm leading-relaxed text-slate-300">
               {artifact.body}
             </pre>
+          )}
+        </div>
+      )}
+
+      {gapRepos.length > 1 && (
+        <div className="mt-3 border-t border-slate-800 pt-3">
+          <button
+            onClick={() => setShowBatch((s) => !s)}
+            className="font-mono text-sm uppercase tracking-widest text-accent hover:text-white"
+          >
+            {showBatch ? "▾" : "▸"} Roll out to the fleet ({gapRepos.length} repos)
+          </button>
+          {showBatch && (
+            <div className="mt-2">
+              <div className="mb-2 flex flex-wrap items-center gap-3 font-mono text-sm text-slate-500">
+                <button onClick={() => setSelected(new Set(gapRepos.map((r) => r.fullName)))} className="hover:text-white">
+                  select all
+                </button>
+                <button onClick={() => setSelected(new Set())} className="hover:text-white">
+                  none
+                </button>
+                <span>{selected.size} selected</span>
+              </div>
+              <div className="grid max-h-44 gap-1 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40 p-3 sm:grid-cols-2">
+                {gapRepos.map((r) => (
+                  <label key={r.fullName} className="flex items-center gap-2 font-mono text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.fullName)}
+                      onChange={() => toggleSelected(r.fullName)}
+                      className="accent-accent"
+                    />
+                    {r.name}
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={applyBatch}
+                disabled={batchBusy || selected.size === 0}
+                className="mt-3 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+              >
+                {batchBusy
+                  ? `Opening ${selected.size} PRs…`
+                  : `Open draft PRs across ${selected.size} repo${selected.size === 1 ? "" : "s"} →`}
+              </button>
+              {batchError && <p className="mt-2 text-sm text-orange-300">{batchError}</p>}
+              {batchResults && (
+                <ul className="mt-2 space-y-1">
+                  {batchResults.map((res) => (
+                    <li key={res.repo} className="font-mono text-sm">
+                      {res.ok ? (
+                        <span className="text-emerald-300">
+                          ✓ {res.repo.split("/").pop()} —{" "}
+                          <a href={res.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
+                            {res.reused ? "existing PR" : "PR opened"}
+                          </a>
+                        </span>
+                      ) : (
+                        <span className="text-orange-300">
+                          ✗ {res.repo.split("/").pop()} — {res.error}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       )}
