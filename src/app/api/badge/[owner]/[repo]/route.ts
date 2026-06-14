@@ -238,6 +238,9 @@ export async function GET(
   const { owner, repo } = await ctx.params;
   const { searchParams } = new URL(req.url);
   const gateMode = searchParams.has("gate");
+  // Badge metric (USE-2): "score" renders the numeric 0..100 (with the level colour) instead of the
+  // level label. Default = level. The report already carries overallScore — it was just discarded here.
+  const scoreMode = searchParams.get("metric") === "score";
   const style = parseStyle(searchParams.get("style"));
   // Length-cap the caller-supplied label (truncate, don't reject — a slightly long label still renders).
   const customLabelRaw = searchParams.get("label");
@@ -277,9 +280,10 @@ export async function GET(
     return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_NEUTRAL });
   }
 
-  // Click-through to the live report (shareable permalink).
+  // Click-through to the live report (shareable permalink). `?ref=badge` tags the visit so a report
+  // hit from a README badge is attributable in analytics / server logs (USE-1, the acquisition loop).
   const origin = new URL(req.url).origin;
-  const href = `${origin}/report/${ownerN}/${repoN}`;
+  const href = `${origin}/report/${ownerN}/${repoN}?ref=badge`;
 
   try {
     // Resolve the current head commit so the badge reads (and writes) the SAME per-commit entry
@@ -341,6 +345,13 @@ export async function GET(
     }
 
     const color = resolveColor(customColor, LEVEL_HEX[report.level.id as LevelId] ?? neutral);
+    // Score variant (USE-2): the numeric headline (with the level glyph + colour) instead of the level name.
+    if (scoreMode) {
+      return respond(
+        badgeSvg({ label, value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.overallScore}/100`, color, style, logo, href }),
+        { cache: customized ? CACHE_CUSTOM : resolvedCache },
+      );
+    }
     return respond(
       // Prepend the level glyph (○◔◑◕●) so the red→green level isn't signalled by hue alone — the
       // same non-color redundancy lib/ui.ts mandates everywhere a level color appears in the app.

@@ -21,7 +21,7 @@ function parseRepo(input: string): { owner: string; repo: string } | null {
 }
 
 type Style = "flat" | "flat-square" | "for-the-badge";
-type Kind = "level" | "gate";
+type Kind = "level" | "score" | "gate";
 type Format = "markdown" | "html" | "asciidoc";
 
 const STYLES: Style[] = ["flat", "flat-square", "for-the-badge"];
@@ -47,12 +47,14 @@ export function BadgeGenerator() {
     const qs = new URLSearchParams();
     if (style !== "flat") qs.set("style", style);
     if (kind === "gate") qs.set("gate", "1");
+    if (kind === "score") qs.set("metric", "score");
     const q = qs.toString();
     return `${origin}/api/badge/${parsed.owner}/${parsed.repo}${q ? `?${q}` : ""}`;
   }, [parsed, style, kind, origin]);
 
-  const reportUrl = parsed ? `${origin}/report/${parsed.owner}/${parsed.repo}` : "";
-  const alt = kind === "gate" ? "Ascent maturity gate" : "Ascent maturity";
+  // ?ref=badge tags the click-through so README → report visits are attributable (USE-1).
+  const reportUrl = parsed ? `${origin}/report/${parsed.owner}/${parsed.repo}?ref=badge` : "";
+  const alt = kind === "gate" ? "Ascent maturity gate" : kind === "score" ? "Ascent maturity score" : "Ascent maturity";
 
   const snippet = useMemo(() => {
     if (!parsed || !badgeUrl) return "";
@@ -102,6 +104,9 @@ export function BadgeGenerator() {
             <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Badge</span>
             <button type="button" onClick={() => setKind("level")} className={chip(kind === "level")}>
               level
+            </button>
+            <button type="button" onClick={() => setKind("score")} className={chip(kind === "score")}>
+              score
             </button>
             <button type="button" onClick={() => setKind("gate")} className={chip(kind === "gate")}>
               gate
