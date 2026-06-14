@@ -1093,3 +1093,33 @@ See `FIXES-MEDIUMS-E-ACCESS.md`. The RBAC mediums: orphan-guard, role transparen
 
 ### Open follow-ups
 - Medium waves C, D, F, G, H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
+
+## Feature Scout — Mediums Wave C · Planning & goals depth (2026-06-15, on master) — COMPLETE (5/5)
+
+See `FIXES-MEDIUMS-C-PLANNING.md`. Wave-5 follow-on; 2 additive migrations.
+
+### Structural facts
+- **2026-06-15** — GOAL-5: plan page computes 2-3 goal suggestions (weakest dim +12, overall→next band
+  via LEVELS/levelForScore, adoption floor), passed to GoalsPanel as one-click "+Add" chips.
+- **2026-06-15** — SIM-5: Simulator holds a client-only `saved: SavedScenario[]` (snapshot of
+  before/after/promotions + a fixes label) + a 2-up compare. No backend.
+- **2026-06-15** — GOAL-4: migration `20260614160000` adds `Goal.achievedAt`. listGoals stamps
+  status:achieved+achievedAt ONCE when current>=target (idempotent), returns achievedAt; GoalProgress +
+  GoalProgressView carry it; GoalCard shows an Achieved badge; GoalsPanel groups met goals (<details>).
+- **2026-06-15** — PLAY-5: migration `20260614170000` adds `Initiative.playbookId`. createInitiative +
+  POST route accept it; listInitiatives resolves playbookLabel (playbook title map). PlaybookCard gets
+  a "Track as initiative" action (needs slug prop); InitiativesPanel shows a "from playbook" back-link.
+- **2026-06-15** — PRAC-6: buildGovernanceOverview computes `closestToGreen: GreenPathItem[]` (per
+  failing repo: numeric gap + dims-below-floor with dim→practiceId map), ranked fewest-conditions-then-
+  smallest-gap. Governance page renders a worklist with practice deep-links (#practice-<id>).
+
+### Conventions enforced
+- **2026-06-15** — Derive suggestion/worklist UIs from data already on the page (rollup/governance) — a
+  pure computation, no new query, can't drift.
+- **2026-06-15** — A read fn may record a one-way idempotent transition (listGoals → achieved) when it's
+  the only code that knows current-vs-target; persist once, skip thereafter.
+- **2026-06-15** — Bridge two models with a nullable FK column + resolve the display label at read time
+  (playbookId on Initiative + a title map), mirroring goalId/practiceId.
+
+### Open follow-ups
+- Medium waves D, F, G, H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
