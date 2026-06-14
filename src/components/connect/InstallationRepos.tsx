@@ -34,6 +34,10 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   const [watchedOnly, setWatchedOnly] = useState(false);
   const [language, setLanguage] = useState("all");
 
+  // Bulk watch / bulk schedule across the filtered set (Phase 9 — a 200-repo org shouldn't be 200 clicks).
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<{ kind: "note" | "error"; text: string } | null>(null);
+
   useEffect(() => {
     // One <InstallationRepos> renders per installation and `org` can change as the user
     // navigates; without cancellation a slower earlier response can resolve last and render
@@ -172,6 +176,73 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     });
   }, [repos, query, visibility, watchedOnly, language]);
 
+  // Watch every currently-filtered repo that isn't watched yet, in one request. Optimistic across the
+  // set; rolls failed rows back. Same no-success-theater contract as the per-row toggle.
+  async function watchAllFiltered() {
+    const targets = filtered.filter((r) => !r.state?.watched);
+    if (targets.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    setBulkMsg(null);
+    targets.forEach((r) => patch(r.fullName, { watched: true }));
+    try {
+      const res = await fetch("/api/org/watch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          org,
+          watched: true,
+          repos: targets.map((r) => ({ owner: r.owner, name: r.name, fullName: r.fullName, url: r.url, private: r.private })),
+        }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { count?: number; failed?: string[]; error?: string };
+      if (!res.ok) {
+        targets.forEach((r) => patch(r.fullName, { watched: false }));
+        setBulkMsg({ kind: "error", text: d.error ?? "Bulk watch failed — not saved." });
+        return;
+      }
+      const failed = Array.isArray(d.failed) ? d.failed : [];
+      failed.forEach((fn) => patch(fn, { watched: false }));
+      const ok = targets.length - failed.length;
+      setBulkMsg({ kind: "note", text: `Now watching ${ok} repo${ok === 1 ? "" : "s"}${failed.length ? ` · ${failed.length} failed` : ""}.` });
+    } catch {
+      targets.forEach((r) => patch(r.fullName, { watched: false }));
+      setBulkMsg({ kind: "error", text: "Network error — bulk watch not saved." });
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  // Set one autoscan cadence across the WHOLE watched set (the schedule route's no-fullName body).
+  async function scheduleWatched(schedule: string) {
+    if (!schedule || bulkBusy) return;
+    const watchedRepos = repos.filter((r) => r.state?.watched);
+    if (watchedRepos.length === 0) return;
+    setBulkBusy(true);
+    setBulkMsg(null);
+    const prev = new Map(watchedRepos.map((r) => [r.fullName, r.state?.scanSchedule ?? "off"]));
+    watchedRepos.forEach((r) => patch(r.fullName, { scanSchedule: schedule }));
+    try {
+      const res = await fetch("/api/org/schedule", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org, schedule }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { updated?: number; error?: string };
+      if (!res.ok) {
+        prev.forEach((s, fn) => patch(fn, { scanSchedule: s }));
+        setBulkMsg({ kind: "error", text: d.error ?? "Failed to set schedule." });
+        return;
+      }
+      const n = d.updated ?? watchedRepos.length;
+      setBulkMsg({ kind: "note", text: `Set ${schedule} cadence for ${n} watched repo${n === 1 ? "" : "s"}.` });
+    } catch {
+      prev.forEach((s, fn) => patch(fn, { scanSchedule: s }));
+      setBulkMsg({ kind: "error", text: "Network error — schedule not saved." });
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   if (view.status === "loading") return <RepoListSkeleton />;
   if (view.status === "error")
     return (
@@ -250,6 +321,41 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
           )}
         </p>
       )}
+
+      {/* Bulk actions across the filtered set — watch many at once, or set one cadence for the
+          whole watched set, instead of one click per repo. */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <button
+          type="button"
+          onClick={watchAllFiltered}
+          disabled={bulkBusy || filtered.every((r) => r.state?.watched)}
+          className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+        >
+          {bulkBusy ? "Working…" : `Watch all (${filtered.filter((r) => !r.state?.watched).length})`}
+        </button>
+        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+          Schedule watched
+          <select
+            value=""
+            disabled={bulkBusy || watchedCount === 0}
+            onChange={(e) => scheduleWatched(e.target.value)}
+            aria-label="Set autoscan cadence for all watched repos"
+            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-300 outline-none focus:border-accent disabled:opacity-50"
+          >
+            <option value="">cadence…</option>
+            {["off", "daily", "weekly", "monthly"].map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        {bulkMsg && (
+          <span className={`font-mono text-sm ${bulkMsg.kind === "error" ? "text-orange-300" : "text-slate-500"}`}>
+            {bulkMsg.text}
+          </span>
+        )}
+      </div>
 
       {/* Search + filters — type to find a repo instead of scrolling hundreds. */}
       <RepoFilterBar
