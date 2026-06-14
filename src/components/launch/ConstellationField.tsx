@@ -14,7 +14,18 @@ import {
   starPosition,
 } from "./fleetMapStars";
 
-export function ConstellationField({ c }: { c: Constellation }) {
+export function ConstellationField({
+  c,
+  onScan,
+  scanning = false,
+  scanDisabled = false,
+}: {
+  c: Constellation;
+  /** Scan this org's watched repos from the map (MAP-2); omitted = no scan affordance. */
+  onScan?: () => void;
+  scanning?: boolean;
+  scanDisabled?: boolean;
+}) {
   const repos = c.status === "done" ? c.repos.slice(0, MAX_STARS) : [];
   const scanned = c.status === "done" ? c.repos.filter((r) => r.overall != null).length : 0;
   const total = c.status === "done" ? c.repos.length : 0;
@@ -43,15 +54,28 @@ export function ConstellationField({ c }: { c: Constellation }) {
             {c.status === "done" && `${scanned}/${total} scanned`}
           </div>
         </div>
-        {avg != null && (
-          <span
-            className="shrink-0 rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5 font-mono text-sm font-bold tabular-nums"
-            style={{ color: scoreHex(avg) }}
-            title="Average maturity of scanned repos"
-          >
-            {avg}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {avg != null && (
+            <span
+              className="rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5 font-mono text-sm font-bold tabular-nums"
+              style={{ color: scoreHex(avg) }}
+              title="Average maturity of scanned repos"
+            >
+              {avg}
+            </span>
+          )}
+          {c.status === "done" && onScan && (
+            <button
+              type="button"
+              onClick={onScan}
+              disabled={scanning || scanDisabled}
+              title="Scan this org's watched repos and brighten the map"
+              className="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+            >
+              {scanning ? "Scanning…" : "Scan"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="relative mt-3 aspect-square">

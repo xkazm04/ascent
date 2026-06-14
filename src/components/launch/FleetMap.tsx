@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { readSSE } from "@/lib/sse";
 import { scoreHex } from "@/lib/ui";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet, Stat } from "./FleetMapChrome";
@@ -26,6 +27,48 @@ export function FleetMap({
   const [constellations, setConstellations] = useState<Constellation[]>(() =>
     installations.map((i) => ({ id: i.id, login: i.login, status: "loading" as const })),
   );
+  // Org login currently scanning from the map (MAP-2) + an abort handle for cleanup.
+  const [scanning, setScanning] = useState<string | null>(null);
+  const scanCtrl = useRef<AbortController | null>(null);
+  useEffect(() => () => scanCtrl.current?.abort(), []);
+
+  // Scan an org's watched repos straight from the map — reuses the dashboard's SSE bulk scan and
+  // brightens each star in place as results land, so a near-empty grey field can be lit up on the
+  // spot (the page the OAuth callback deliberately lands on).
+  async function scanOrg(login: string) {
+    if (scanning) return;
+    setScanning(login);
+    const ctrl = new AbortController();
+    scanCtrl.current = ctrl;
+    try {
+      const res = await fetch("/api/org/scan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: login }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok || !res.body) return;
+      await readSSE(res.body, ({ event, data }) => {
+        if (event !== "repo" || !data || data.error || data.skipped || !data.repo) return;
+        const fullName = String(data.repo);
+        const overall = Number(data.overall);
+        if (!Number.isFinite(overall)) return;
+        const level = data.level != null ? String(data.level) : null;
+        setConstellations((cur) =>
+          cur.map((c) =>
+            c.login === login && c.status === "done"
+              ? { ...c, repos: c.repos.map((r) => (r.fullName === fullName ? { ...r, overall, level } : r)) }
+              : c,
+          ),
+        );
+      });
+    } catch {
+      /* aborted or network — leave the seeded stars as-is */
+    } finally {
+      if (scanCtrl.current === ctrl) scanCtrl.current = null;
+      setScanning((s) => (s === login ? null : s));
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -129,7 +172,13 @@ export function FleetMap({
         ) : (
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {constellations.map((c) => (
-              <ConstellationField key={c.id} c={c} />
+              <ConstellationField
+                key={c.id}
+                c={c}
+                onScan={() => scanOrg(c.login)}
+                scanning={scanning === c.login}
+                scanDisabled={scanning !== null && scanning !== c.login}
+              />
             ))}
           </div>
         )}
