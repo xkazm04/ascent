@@ -184,6 +184,7 @@ export {
 } from "@/lib/db/plan";
 export {
   listPlaybooks,
+  getPlaybook,
   createPlaybook,
   updatePlaybook,
   deletePlaybook,

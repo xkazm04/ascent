@@ -103,6 +103,22 @@ export async function deletePlaybook(id: string): Promise<void> {
   await getPrisma().playbook.delete({ where: { id } });
 }
 
+/** Fetch one playbook by id (content + dimension), for the per-row apply route. Null if absent. */
+export async function getPlaybook(id: string): Promise<PlaybookRow | null> {
+  if (!isDbConfigured()) return null;
+  const p = await getPrisma().playbook.findUnique({ where: { id } });
+  if (!p) return null;
+  return {
+    id: p.id,
+    title: p.title,
+    dimId: p.dimId,
+    summary: p.summary,
+    steps: parseSteps(p.steps),
+    createdBy: p.createdBy,
+    createdAt: p.createdAt.toISOString(),
+  };
+}
+
 /** Resolve the org slug owning a playbook, so a per-row route can authorize the caller. Null if absent. */
 export async function getPlaybookOrgSlug(id: string): Promise<string | null> {
   if (!isDbConfigured()) return null;
