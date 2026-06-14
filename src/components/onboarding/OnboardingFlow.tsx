@@ -79,6 +79,8 @@ export function OnboardingFlow({
   // Whether the just-run scan was a PREVIEW (mock) — disclosed on the done state so the scores are
   // never mistaken for live numbers. Real only on the App path when the org actually has credits.
   const [previewScan, setPreviewScan] = useState(true);
+  // How many teammates were invited from the done state (App path) — marks the checklist step done.
+  const [invitedCount, setInvitedCount] = useState(0);
 
   // Abort controller for the streaming import — aborted on Cancel and on unmount.
   const abortRef = useRef<AbortController | null>(null);
@@ -300,6 +302,10 @@ export function OnboardingFlow({
       { label: "Pick repositories", done: picked, hint: "Choose what to scan" },
       { label: "Run your first scan", done: scanned, hint: "See your maturity scores" },
       { label: "Set a watch schedule", done: scanned, href: "/connect", hint: "Keep scores fresh automatically" },
+      // Invite step only on the App path, where the viewer owns a real org to grant access on.
+      ...(sourceInstallId
+        ? [{ label: "Invite your team", done: invitedCount > 0, hint: "Bring teammates into the dashboard" }]
+        : []),
       {
         label: "View cross-repo analysis",
         done: false,
@@ -361,6 +367,8 @@ export function OnboardingFlow({
         announce={announce}
         preview={previewScan}
         checklistSteps={checklistSteps()}
+        inviteOrg={sourceInstallId ? sourceLabel : null}
+        onInvited={() => setInvitedCount((c) => c + 1)}
         onCancel={cancelScan}
         onViewDashboard={() => router.push(`/org/${encodeURIComponent(sourceLabel)}`)}
         onScanAnother={() => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { OnboardingChecklist, type ChecklistStep } from "@/components/onboarding/OnboardingChecklist";
 import { ScanRowView, type ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import { LEVELS } from "@/lib/maturity/model";
@@ -28,6 +29,8 @@ export function ScanStep({
   onCancel,
   onViewDashboard,
   onScanAnother,
+  inviteOrg = null,
+  onInvited,
 }: {
   phase: "scanning" | "done";
   rows: Record<string, ScanRow>;
@@ -40,11 +43,46 @@ export function ScanStep({
   onCancel: () => void;
   onViewDashboard: () => void;
   onScanAnother: () => void;
+  /** When set (the GitHub-App path, where the viewer owns a real org), enables the invite panel
+   *  on the done state — POSTs handles to that org as `viewer`. Null on the public-handle funnel. */
+  inviteOrg?: string | null;
+  /** Called after a successful invite so the wizard can mark the "invite your team" step done. */
+  onInvited?: () => void;
 }) {
   const completed = Object.values(rows).filter((r) => r.level || r.error).length;
   const errorCount = Object.values(rows).filter((r) => r.error).length;
   const scanTotal = Object.keys(rows).length;
   const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
+
+  // Invite-teammates state (App path only). Grants viewer access to the scanned org via the existing
+  // owner-gated members endpoint — the onboarding user owns the org they installed the App on.
+  const [handle, setHandle] = useState("");
+  const [invited, setInvited] = useState<string[]>([]);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteErr, setInviteErr] = useState<string | null>(null);
+
+  async function invite() {
+    const login = handle.trim().replace(/^@/, "");
+    if (!login || !inviteOrg) return;
+    setInviteBusy(true);
+    setInviteErr(null);
+    try {
+      const res = await fetch("/api/org/members", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: inviteOrg, login, role: "viewer" }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error ?? "Couldn't add that teammate.");
+      setInvited((xs) => (xs.includes(login) ? xs : [...xs, login]));
+      setHandle("");
+      onInvited?.();
+    } catch (e) {
+      setInviteErr(e instanceof Error ? e.message : "Couldn't add that teammate.");
+    } finally {
+      setInviteBusy(false);
+    }
+  }
 
   return (
     <div key={phase} className="animate-phase-in">
@@ -146,6 +184,43 @@ export function ScanStep({
           <div className="mt-6">
             <OnboardingChecklist steps={checklistSteps} />
           </div>
+
+          {/* Invite teammates at peak motivation (App path only) — grants viewer access to the
+              scanned org via the RBAC backend. No GitHub App install needed for the invitee. */}
+          {inviteOrg && (
+            <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+              <h2 className="text-base font-semibold text-white">Invite your team</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Add teammates as viewers on <span className="font-mono text-slate-300">{inviteOrg}</span> so they can see
+                the dashboard. They&apos;ll need a GitHub login — no App install required.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="font-mono text-sm text-slate-600">@</span>
+                <input
+                  value={handle}
+                  onChange={(e) => setHandle(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && invite()}
+                  placeholder="github-handle"
+                  aria-label="Teammate's GitHub handle"
+                  className="w-48 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+                />
+                <button
+                  onClick={invite}
+                  disabled={inviteBusy || !handle.trim()}
+                  className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+                >
+                  {inviteBusy ? "Adding…" : "Invite"}
+                </button>
+              </div>
+              {invited.length > 0 && (
+                <p className="mt-2 font-mono text-sm text-emerald-300">
+                  Added as viewer: {invited.map((l) => `@${l}`).join(", ")}
+                </p>
+              )}
+              {inviteErr && <p className="mt-2 font-mono text-sm text-orange-300">{inviteErr}</p>}
+            </div>
+          )}
+
           <div className="mt-6 flex gap-3">
             <button
               onClick={onViewDashboard}
