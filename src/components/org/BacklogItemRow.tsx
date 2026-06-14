@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { REC_STATUSES, type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
+import { PRACTICES } from "@/lib/practices";
 import { EVENT_LABEL, STATUS_ACCENT, STATUS_LABEL, dueLabel, eventValue } from "@/components/org/backlogShared";
 
 export function ItemRow({
@@ -19,11 +20,40 @@ export function ItemRow({
   onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
   const [history, setHistory] = useState<RecEvent[] | "loading" | null>(null);
+  const [prBusy, setPrBusy] = useState(false);
+  const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
+  const [prError, setPrError] = useState<string | null>(null);
+
+  // This dimension's reusable practice — its leak-free starter is what the draft PR seeds.
+  const practice = PRACTICES.find((p) => p.dimId === item.dimId);
 
   // The current owner may no longer be a tracked contributor — keep them selectable.
   const options = item.assigneeLogin && !assignees.includes(item.assigneeLogin)
     ? [item.assigneeLogin, ...assignees]
     : assignees;
+
+  // Act on the item: open a draft PR seeding the dimension's practice into the repo (reuses the
+  // proven /api/practices/apply path), then flip the item to In progress so the backlog reflects it.
+  async function openDraftPr() {
+    if (!practice || prBusy) return;
+    setPrBusy(true);
+    setPrError(null);
+    try {
+      const res = await fetch("/api/practices/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: item.repo, practiceId: practice.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
+      setPrResult({ url: data.url, reused: data.reused });
+      if (item.status === "open") await onPatch(item.id, { status: "in_progress" });
+    } catch (e) {
+      setPrError(e instanceof Error ? e.message : "Failed to open PR.");
+    } finally {
+      setPrBusy(false);
+    }
+  }
 
   async function toggleHistory() {
     if (history) {
@@ -125,6 +155,17 @@ export function ItemRow({
           />
         </label>
 
+        {practice && (
+          <button
+            onClick={openDraftPr}
+            disabled={prBusy || saving}
+            title={`Open a draft PR seeding the "${practice.label}" starter into ${item.repo}`}
+            className="rounded-md border border-accent/50 bg-accent/10 px-2.5 py-1 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+          >
+            {prBusy ? "Opening PR…" : "Open draft PR →"}
+          </button>
+        )}
+
         <button
           onClick={toggleHistory}
           className="ml-auto rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-400 transition hover:text-white"
@@ -135,6 +176,15 @@ export function ItemRow({
       </div>
 
       {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+      {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
+      {prResult && (
+        <p className="mt-2 text-sm text-emerald-300">
+          {prResult.reused ? "Existing draft PR: " : "Draft PR opened: "}
+          <a href={prResult.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
+            {prResult.url}
+          </a>
+        </p>
+      )}
 
       {history && (
         <div className="mt-3 border-t border-slate-800 pt-3">
