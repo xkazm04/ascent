@@ -22,6 +22,7 @@ import { scanRepository, GitHubError } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { rateLimitRequest, BADGE_RATE_LIMIT } from "@/lib/rate-limit";
 import { recordBadgeImpression } from "@/lib/db";
 import { LEVEL_GLYPH, LEVEL_HEX } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
@@ -45,43 +46,6 @@ function validName(s: string, max: number): boolean {
 // multi-MB ?logo=data:image/... is a response-amplification lever (and renders a broken giant badge).
 const MAX_LABEL_LEN = 80; // a badge label is a few words
 const MAX_LOGO_LEN = 4096; // a small inline data:image icon (~4 KB)
-
-// ---- per-IP rate limiting (in-memory sliding window) ------------------------
-
-const RATE_LIMIT = 60; // scans per window…
-const RATE_WINDOW_MS = 60_000; // …per minute, per IP
-const hits = new Map<string, number[]>();
-
-function clientIp(req: Request): string {
-  // The LEFT-most X-Forwarded-For entry is client-supplied: keying on it lets a caller send a fresh
-  // value per request and mint a brand-new rate-limit bucket every time, so the limiter never trips.
-  // Trust the platform's real-client header first (Vercel/most proxies set x-real-ip to the true
-  // client and strip client copies); otherwise use the RIGHT-most XFF hop (appended by the trusted
-  // proxy), never the left-most. With no trustworthy source, fall back to a single shared "unknown"
-  // bucket (fail closed) — so unidentifiable callers are limited collectively, not per spoofed value.
-  const real = req.headers.get("x-real-ip")?.trim();
-  if (real) return real;
-  const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) {
-    const hops = fwd.split(",").map((s) => s.trim()).filter(Boolean);
-    if (hops.length) return hops[hops.length - 1]!; // safe: hops.length > 0 guarded above
-  }
-  return "unknown";
-}
-
-/** True when this IP is over its window budget. Also prunes the window in place. */
-function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  const cutoff = now - RATE_WINDOW_MS;
-  const recent = (hits.get(ip) ?? []).filter((t) => t > cutoff);
-  recent.push(now);
-  hits.set(ip, recent);
-  // Opportunistic cleanup so the map can't grow unbounded across many IPs.
-  if (hits.size > 5000) {
-    for (const [k, v] of hits) if (v.every((t) => t <= cutoff)) hits.delete(k);
-  }
-  return recent.length > RATE_LIMIT;
-}
 
 // ---- short negative cache for unknown repos --------------------------------
 
@@ -317,12 +281,13 @@ export async function GET(
     let report = cacheGet(llmKey) ?? cacheGet(mockKey);
 
     if (!report) {
-      // 4. Rate-limit the EXPENSIVE path (a fresh scan). Over budget → cheap static badge +
-      //    429, so we never run scanRepository for a flood of unique owner/repo combos.
-      if (rateLimited(clientIp(req))) {
+      // 4. Rate-limit the EXPENSIVE path (a fresh scan) via the SHARED limiter — over budget → cheap
+      //    static badge + 429, so we never run scanRepository for a flood of unique owner/repo combos.
+      const rl = rateLimitRequest(req, BADGE_RATE_LIMIT);
+      if (!rl.ok) {
         return respond(
           badgeSvg({ label, value: "rate limited", color: resolveColor(customColor, neutral), style, logo }),
-          { status: 429, retryAfter: 60, cache: CACHE_TRANSIENT },
+          { status: 429, retryAfter: rl.retryAfterSec, cache: CACHE_TRANSIENT },
         );
       }
       // Token-less by construction (noAmbientToken): never ingest a repo with the operator's

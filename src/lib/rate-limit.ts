@@ -106,3 +106,13 @@ export const ORG_IMPORT_RATE_LIMIT: RateLimitConfig = {
   global: envInt("RATE_LIMIT_ORG_IMPORT_GLOBAL", 15),
   windowMs: 60_000,
 };
+
+// The public README badge is hammered by crawlers/READMEs; the limit gates only the EXPENSIVE
+// cache-miss scan (a cheap static badge is still returned). Generous per-IP for a busy README, with a
+// per-instance global ceiling. Matches the badge route's previous bespoke 60/min/IP. Env-overridable.
+export const BADGE_RATE_LIMIT: RateLimitConfig = {
+  name: "badge",
+  perIp: envInt("RATE_LIMIT_BADGE_PER_IP", 60),
+  global: envInt("RATE_LIMIT_BADGE_GLOBAL", 600),
+  windowMs: 60_000,
+};
