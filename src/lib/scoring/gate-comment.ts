@@ -72,6 +72,26 @@ export function buildGateComment(
     lines.push("");
     lines.push("**Gate failures**");
     for (const f of gate.failures) lines.push(`- ${f.message}`);
+
+    // CIGATE-4: a per-failing-dimension signal table so the check carries actionable detail, not just
+    // the headline. Re-derive which dims miss their floor (the stricter of the global min + any per-dim
+    // floor) from report.dimensions, and surface each one's top gap.
+    const floorFor = (dimId: string) =>
+      Math.max(gate.policy.minDimension ?? 0, gate.policy.minDimensionFor?.[dimId as keyof typeof gate.policy.minDimensionFor] ?? 0);
+    const failingDims = report.dimensions
+      .filter((d) => d.score < floorFor(d.id))
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 5);
+    if (failingDims.length) {
+      lines.push("");
+      lines.push("**Where the score falls short**");
+      lines.push("| Dimension | Score | Top gap |");
+      lines.push("|---|---|---|");
+      for (const d of failingDims) {
+        const gap = (d.gaps[0] ?? d.summary ?? "").replace(/\|/g, "\\|").replace(/\n+/g, " ").slice(0, 120);
+        lines.push(`| ${d.id} ${d.name} | ${d.score} → ${floorFor(d.id)} | ${gap || "—"} |`);
+      }
+    }
   }
 
   // Top exploration prompts from the roadmap — inputs, never directives (keeps the companion voice).
