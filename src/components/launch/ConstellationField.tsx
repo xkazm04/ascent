@@ -120,7 +120,11 @@ export function ConstellationField({
                 ["--star-opacity" as string]: look.opacity,
                 animationDelay: `${(i % 7) * 0.28}s`,
               };
-              const detail = r.overall != null ? ` · ${r.level ?? ""} ${r.overall}` : " · not scanned";
+              // A repo that moved ≥1 point in the window (MAP-3): a thin directional ring — emerald
+              // up, orange down — and the delta appended to the hover tooltip.
+              const moved = r.dOverall != null && Math.abs(r.dOverall) >= 1 ? r.dOverall : null;
+              const moveDetail = moved != null ? ` · ${moved > 0 ? "+" : ""}${moved} 30d` : "";
+              const detail = (r.overall != null ? ` · ${r.level ?? ""} ${r.overall}` : " · not scanned") + moveDetail;
               // SVG <a>: clicking a star opens that repo's report (the map's core "a star is a repo"
               // metaphor). A transparent halo widens the hit/focus target for the tiny stars.
               return (
@@ -131,6 +135,17 @@ export function ConstellationField({
                   aria-label={`Open report for ${r.fullName}${detail}`}
                 >
                   <circle cx={cx} cy={cy} r={Math.max(look.r + 1.4, 3)} fill="transparent" />
+                  {moved != null && (
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={look.r + 1}
+                      fill="none"
+                      stroke={moved > 0 ? "#34d399" : "#f97316"}
+                      strokeWidth={0.5}
+                      opacity={0.85}
+                    />
+                  )}
                   <circle
                     className="launch-star"
                     cx={cx}

@@ -7,6 +7,8 @@ interface RepoStar {
   /** Persisted overall maturity score (0..100), or null when not yet scanned. */
   overall: number | null;
   level: string | null;
+  /** Overall-score change over the last 30 days (MAP-3 movers), or null when not measurable. */
+  dOverall: number | null;
 }
 
 export type { RepoStar };
@@ -22,6 +24,7 @@ interface ApiRepo {
   name: string;
   private: boolean;
   state: { level: string | null; overall: number | null } | null;
+  dOverall?: number | null;
 }
 
 export const MAX_STARS = 80;
@@ -64,5 +67,6 @@ export function mapRepos(raw: unknown): RepoStar[] {
     private: Boolean(r.private),
     overall: r.state?.overall ?? null,
     level: r.state?.level ?? null,
+    dOverall: typeof r.dOverall === "number" ? r.dOverall : null,
   }));
 }

@@ -105,6 +105,8 @@ export function FleetMap({
     let scanned = 0;
     let sum = 0;
     let loaded = 0;
+    let risers = 0;
+    let fallers = 0;
     for (const c of constellations) {
       if (c.status === "done") {
         loaded += 1;
@@ -114,6 +116,8 @@ export function FleetMap({
             scanned += 1;
             sum += r.overall;
           }
+          if (r.dOverall != null && r.dOverall >= 1) risers += 1;
+          else if (r.dOverall != null && r.dOverall <= -1) fallers += 1;
         }
       }
     }
@@ -123,6 +127,8 @@ export function FleetMap({
       repos,
       scanned,
       avg: scanned ? Math.round(sum / scanned) : null,
+      risers,
+      fallers,
     };
   }, [constellations]);
 
@@ -157,6 +163,9 @@ export function FleetMap({
               value={stats.avg == null ? "—" : String(stats.avg)}
               color={stats.avg == null ? undefined : scoreHex(stats.avg)}
             />
+            {(stats.risers > 0 || stats.fallers > 0) && (
+              <Stat label="movers · 30d" value={`▲${stats.risers} ▼${stats.fallers}`} color={stats.risers >= stats.fallers ? "#34d399" : "#f97316"} />
+            )}
             <span
               className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 font-mono uppercase tracking-widest text-slate-400"
               role="status"

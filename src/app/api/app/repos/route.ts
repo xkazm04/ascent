@@ -3,9 +3,11 @@
 
 import { NextResponse } from "next/server";
 import { isAppConfigured, listInstallationRepos } from "@/lib/github/app";
-import { getInstallationIdForOwner, getRepoStates, isDbConfigured } from "@/lib/db";
+import { getInstallationIdForOwner, getOrgMovers, getRepoStates, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { sessionHasInstallation } from "@/lib/authz";
+
+const MOVERS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30-day movement window for the fleet-map deltas
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,10 +45,23 @@ export async function GET(request: Request) {
   try {
     const repos = await listInstallationRepos(installationId);
     repos.sort((a, b) => Number(b.private) - Number(a.private) || a.fullName.localeCompare(b.fullName));
-    // Merge stored watch/schedule/level state (if DB + we can resolve the org login).
+    // Merge stored watch/schedule/level state + a 30-day per-repo overall delta (MAP-3, for the
+    // fleet-map movers overlay) — both only when DB + we can resolve the org login.
     const orgLogin = org ?? repos[0]?.owner;
     const states = isDbConfigured() && orgLogin ? await getRepoStates(orgLogin) : {};
-    const merged = repos.map((r) => ({ ...r, state: states[r.fullName] ?? null }));
+    const movers =
+      isDbConfigured() && orgLogin
+        ? await getOrgMovers(orgLogin, { start: new Date(Date.now() - MOVERS_WINDOW_MS) }).catch(() => null)
+        : null;
+    const dByName: Record<string, number> = {};
+    if (movers) {
+      for (const m of [...movers.gainers, ...movers.regressers, ...movers.levelChanges]) dByName[m.fullName] = m.dOverall;
+    }
+    const merged = repos.map((r) => ({
+      ...r,
+      state: states[r.fullName] ?? null,
+      dOverall: dByName[r.fullName] ?? null,
+    }));
     return NextResponse.json({ installationId, org: orgLogin, repos: merged });
   } catch (err) {
     console.error("[app/repos] failed", err);
