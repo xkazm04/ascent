@@ -8,6 +8,21 @@ import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet, Stat } from "./FleetMapChrome";
 import { type Constellation, type RepoStar, mapRepos } from "./fleetMapStars";
 
+/** Merge a fresh repo set into the prior one (MAP-6 live refresh): keep the OLD object identity for
+ *  any star whose score/level/movement is unchanged, so React doesn't re-animate it; swap only changed
+ *  stars; append newly-appeared repos. Preserves order. Pure. */
+function mergeStars(prev: RepoStar[], fresh: RepoStar[]): RepoStar[] {
+  const freshBy = new Map(fresh.map((s) => [s.fullName, s]));
+  const merged = prev.map((p) => {
+    const f = freshBy.get(p.fullName);
+    if (!f) return p;
+    freshBy.delete(p.fullName);
+    return f.overall === p.overall && f.level === p.level && f.dOverall === p.dOverall && f.watched === p.watched ? p : f;
+  });
+  for (const f of freshBy.values()) merged.push(f); // repos that appeared since the last pull
+  return merged;
+}
+
 const LEVEL_BANDS = ["L1", "L2", "L3", "L4", "L5", "unscanned"] as const;
 type SortKey = "name" | "maturity" | "repos" | "movement";
 const SORTS: { key: SortKey; label: string }[] = [
@@ -113,6 +128,39 @@ export function FleetMap({
         });
     }
     return () => controller.abort();
+  }, [installations]);
+
+  // MAP-6: keep the constellation live — re-pull each org every ~90s while the tab is VISIBLE, patching
+  // changed stars in place (unchanged stars keep their identity via mergeStars, so they don't re-animate).
+  // Skips a hidden tab and never fights an in-flight manual scan (the SSE stream owns the stars then).
+  useEffect(() => {
+    if (installations.length === 0) return;
+    let cancelled = false;
+    async function refreshAll() {
+      if (document.visibilityState !== "visible" || scanCtrl.current) return;
+      await Promise.all(
+        installations.map(async (inst) => {
+          try {
+            const qs = new URLSearchParams({ org: inst.login, installation_id: String(inst.id) });
+            const r = await fetch(`/api/app/repos?${qs.toString()}`);
+            if (!r.ok || cancelled) return;
+            const data = (await r.json().catch(() => null)) as { repos?: unknown } | null;
+            const fresh = mapRepos(data?.repos);
+            if (cancelled) return;
+            setConstellations((cur) =>
+              cur.map((c) => (c.id === inst.id && c.status === "done" ? { ...c, repos: mergeStars(c.repos, fresh) } : c)),
+            );
+          } catch {
+            /* leave the stars as-is on a transient blip */
+          }
+        }),
+      );
+    }
+    const id = setInterval(refreshAll, 90_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [installations]);
 
   // Fleet-wide tallies that visibly climb as each org's data streams in.
