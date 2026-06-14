@@ -841,3 +841,36 @@
   a deployment-wide secret — a reasonable hardening follow-up if conformance reporting sees real use.
 - Waves 3–8 of the INDEX remain (notifications/email, monetization, planning, live ops, audit/CI
   gate, growth/onboarding) + 49 mediums / 4 lows.
+
+## Feature Scout — direct-to-master round (2026-06-14): Wave 4 funnel slice + Wave 7
+
+PR #2 (Waves 1–2 + 3 schema items) was merged to master; work then continued DIRECTLY ON MASTER
+(per user) skipping notifications/email. 9 findings shipped — see `FIXES-MASTER-ROUND2.md`.
+
+### Structural facts
+- **2026-06-14** — Monetization funnel (no Stripe yet): `src/lib/plans.ts` `PLAN_FEATURES` is THE tier
+  source of truth (entitlement + /pricing read it); `isUnlimitedPlan` is data-driven from it (re-exported
+  from db/credits). `peekPublicScanQuota` + `GET /api/quota` = read-only "scans left" meter. `POST
+  /api/org/plan` (owner; paid tiers behind `ASCENT_ALLOW_PLAN_CHANGES`). Public `/pricing`. CRED-1
+  (Stripe Checkout) + CRED-3 (auto-recharge) DEFERRED.
+- **2026-06-14** — Audit viewer drives badges+filters from ONE ACTIONS list (real action keys:
+  recommendation.updated, scan.regression, org.alerts.{webhook,thresholds}, {practice,playbook}.pr_opened,
+  org.member.{role,removed,invited}, org.plan, org.gate_policy, retention.purged); `GET /api/audit?format=csv`
+  exports; viewer filters by since/until/actor.
+- **2026-06-14** — `Organization.gatePolicy` (JSON, additive) persists a `GatePolicy`; getOrgGatePolicy/
+  setOrgGatePolicy (org-gate.ts) + sanitizeGatePolicy (gate.ts). runPrGate (App check) AND
+  buildGovernanceOverview now resolve it — same bar in dashboard + merge gate. Gate Check Run has a
+  "Re-run" action; webhook handles `check_run` rerequested/requested_action; hard failure posts a
+  `neutral` check (not silent-absent). Editor on the governance tab.
+
+### Conventions enforced
+- **2026-06-14** — A "before you act" read meter is the read-only sibling of the consuming op, sharing
+  its identity/window math (peek vs consume) so the two never disagree.
+- **2026-06-14** — Paired maps (badge metadata + filter list) derive from ONE source array, or they drift
+  (the SEC-3 bug keyed on an action string that's never written).
+
+### Open follow-ups (from this round)
+- **CRED-1 (Stripe Checkout) + CRED-3 (auto-recharge)** deferred — the funnel (meter/pricing/tiers/CTA) is
+  ready to wire to checkout; build fetch-based + env-gated when wanted.
+- Waves 5 (planning), 6 (live ops), 8 (growth/onboarding) + notifications/email (excluded) + 49 mediums /
+  4 lows remain — see the INDEX.
