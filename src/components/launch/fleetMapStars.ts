@@ -9,6 +9,8 @@ interface RepoStar {
   level: string | null;
   /** Overall-score change over the last 30 days (MAP-3 movers), or null when not measurable. */
   dOverall: number | null;
+  /** Whether the repo is on the org's watchlist — drives the "watched only" map filter. */
+  watched: boolean;
 }
 
 export type { RepoStar };
@@ -23,7 +25,7 @@ interface ApiRepo {
   fullName: string;
   name: string;
   private: boolean;
-  state: { level: string | null; overall: number | null } | null;
+  state: { level: string | null; overall: number | null; watched?: boolean } | null;
   dOverall?: number | null;
 }
 
@@ -68,5 +70,6 @@ export function mapRepos(raw: unknown): RepoStar[] {
     overall: r.state?.overall ?? null,
     level: r.state?.level ?? null,
     dOverall: typeof r.dOverall === "number" ? r.dOverall : null,
+    watched: Boolean(r.state?.watched),
   }));
 }

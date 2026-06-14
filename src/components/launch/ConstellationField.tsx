@@ -9,6 +9,7 @@ import {
   type Constellation,
   FAINT,
   MAX_STARS,
+  type RepoStar,
   SKELETON_STARS,
   starLook,
   starPosition,
@@ -19,12 +20,15 @@ export function ConstellationField({
   onScan,
   scanning = false,
   scanDisabled = false,
+  matcher,
 }: {
   c: Constellation;
   /** Scan this org's watched repos from the map (MAP-2); omitted = no scan affordance. */
   onScan?: () => void;
   scanning?: boolean;
   scanDisabled?: boolean;
+  /** When set, stars that fail the predicate are dimmed (not removed) — the fleet filter (MAP-4). */
+  matcher?: (r: RepoStar) => boolean;
 }) {
   const repos = c.status === "done" ? c.repos.slice(0, MAX_STARS) : [];
   const scanned = c.status === "done" ? c.repos.filter((r) => r.overall != null).length : 0;
@@ -86,6 +90,7 @@ export function ConstellationField({
               if (r.overall == null) return null;
               const { cx, cy } = starPosition(i, repos.length, r.fullName);
               const look = starLook(r.overall);
+              const dim = matcher ? !matcher(r) : false;
               return (
                 <line
                   key={`l-${r.fullName}`}
@@ -95,7 +100,7 @@ export function ConstellationField({
                   y2={cy}
                   stroke={look.color}
                   strokeWidth={0.4}
-                  opacity={0.12 + (r.overall / 100) * 0.28}
+                  opacity={dim ? 0.03 : 0.12 + (r.overall / 100) * 0.28}
                 />
               );
             })}
@@ -116,13 +121,16 @@ export function ConstellationField({
             repos.map((r, i) => {
               const { cx, cy } = starPosition(i, repos.length, r.fullName);
               const look = starLook(r.overall);
+              // MAP-4: a star outside the active filter is dimmed (not removed) so the constellation
+              // shape is preserved and the matches "pop" against the faded field.
+              const dim = matcher ? !matcher(r) : false;
               const style: CSSProperties = {
-                ["--star-opacity" as string]: look.opacity,
+                ["--star-opacity" as string]: dim ? 0.1 : look.opacity,
                 animationDelay: `${(i % 7) * 0.28}s`,
               };
               // A repo that moved ≥1 point in the window (MAP-3): a thin directional ring — emerald
-              // up, orange down — and the delta appended to the hover tooltip.
-              const moved = r.dOverall != null && Math.abs(r.dOverall) >= 1 ? r.dOverall : null;
+              // up, orange down — and the delta appended to the hover tooltip. Suppressed when dimmed.
+              const moved = !dim && r.dOverall != null && Math.abs(r.dOverall) >= 1 ? r.dOverall : null;
               const moveDetail = moved != null ? ` · ${moved > 0 ? "+" : ""}${moved} 30d` : "";
               const detail = (r.overall != null ? ` · ${r.level ?? ""} ${r.overall}` : " · not scanned") + moveDetail;
               // SVG <a>: clicking a star opens that repo's report (the map's core "a star is a repo"

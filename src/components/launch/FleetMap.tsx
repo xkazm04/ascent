@@ -6,7 +6,16 @@ import { readSSE } from "@/lib/sse";
 import { scoreHex } from "@/lib/ui";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet, Stat } from "./FleetMapChrome";
-import { type Constellation, mapRepos } from "./fleetMapStars";
+import { type Constellation, type RepoStar, mapRepos } from "./fleetMapStars";
+
+const LEVEL_BANDS = ["L1", "L2", "L3", "L4", "L5", "unscanned"] as const;
+type SortKey = "name" | "maturity" | "repos" | "movement";
+const SORTS: { key: SortKey; label: string }[] = [
+  { key: "name", label: "name" },
+  { key: "maturity", label: "maturity" },
+  { key: "repos", label: "repos" },
+  { key: "movement", label: "movement" },
+];
 
 // Kept structurally identical to the session's UserInstallation, but declared locally so
 // this client component never imports the server-only auth module.
@@ -31,6 +40,13 @@ export function FleetMap({
   const [scanning, setScanning] = useState<string | null>(null);
   const scanCtrl = useRef<AbortController | null>(null);
   useEffect(() => () => scanCtrl.current?.abort(), []);
+
+  // Fleet triage controls (MAP-4): search, level-band filter, watched-only, and an org sort key.
+  // Filters DIM non-matching stars (preserving each constellation's shape); sort reorders the org cards.
+  const [query, setQuery] = useState("");
+  const [levels, setLevels] = useState<Set<string>>(new Set());
+  const [watchedOnly, setWatchedOnly] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("name");
 
   // Scan an org's watched repos straight from the map — reuses the dashboard's SSE bulk scan and
   // brightens each star in place as results land, so a near-empty grey field can be lit up on the
@@ -134,6 +150,48 @@ export function FleetMap({
 
   const hydrating = stats.loaded < stats.orgs;
 
+  // A star matches when it passes every active filter. When no filter is active the matcher is
+  // undefined, so ConstellationField renders at full brightness (no dimming).
+  const q = query.trim().toLowerCase();
+  const filterActive = q !== "" || levels.size > 0 || watchedOnly;
+  const matcher = useMemo(() => {
+    if (!filterActive) return undefined;
+    return (r: RepoStar) => {
+      if (q && !r.fullName.toLowerCase().includes(q)) return false;
+      if (watchedOnly && !r.watched) return false;
+      if (levels.size > 0 && !levels.has(r.level ?? "unscanned")) return false;
+      return true;
+    };
+  }, [filterActive, q, watchedOnly, levels]);
+
+  // Order the org cards by the chosen key; loaded constellations rank ahead of loading/error ones.
+  const ordered = useMemo(() => {
+    const metric = (c: Constellation): number => {
+      if (c.status !== "done") return -1;
+      const scored = c.repos.filter((r) => r.overall != null);
+      if (sortKey === "repos") return c.repos.length;
+      if (sortKey === "movement") return c.repos.reduce((s, r) => s + Math.abs(r.dOverall ?? 0), 0);
+      if (sortKey === "maturity") return scored.length ? scored.reduce((s, r) => s + (r.overall ?? 0), 0) / scored.length : 0;
+      return 0; // name handled below
+    };
+    return [...constellations].sort((a, b) => {
+      const da = a.status === "done" ? 0 : 1;
+      const db = b.status === "done" ? 0 : 1;
+      if (da !== db) return da - db; // done first
+      if (sortKey === "name") return a.login.localeCompare(b.login);
+      return metric(b) - metric(a); // maturity / repos / movement: high to low
+    });
+  }, [constellations, sortKey]);
+
+  function toggleLevel(band: string) {
+    setLevels((s) => {
+      const next = new Set(s);
+      if (next.has(band)) next.delete(band);
+      else next.add(band);
+      return next;
+    });
+  }
+
   return (
     <main className="launch-sky relative flex-1">
       {/* spotlight wash so the constellations feel lit from the center */}
@@ -176,14 +234,77 @@ export function FleetMap({
           </div>
         </header>
 
+        {/* Triage controls — usable once more than one org is charted, where the grid gets busy. */}
+        {constellations.length > 1 && (
+          <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find a repo…"
+              aria-label="Filter repositories by name"
+              className="w-40 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-sm text-slate-200 placeholder:text-slate-600"
+            />
+            <div className="flex items-center gap-1">
+              {LEVEL_BANDS.map((b) => {
+                const on = levels.has(b);
+                return (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => toggleLevel(b)}
+                    aria-pressed={on}
+                    className={`rounded-md border px-2 py-0.5 font-mono text-sm transition ${
+                      on ? "border-accent bg-accent/15 text-white" : "border-slate-700 text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    {b === "unscanned" ? "—" : b}
+                  </button>
+                );
+              })}
+            </div>
+            <label className="flex items-center gap-1.5 font-mono text-sm text-slate-400">
+              <input type="checkbox" checked={watchedOnly} onChange={(e) => setWatchedOnly(e.target.checked)} className="accent-accent" />
+              watched only
+            </label>
+            <label className="ml-auto flex items-center gap-1.5 font-mono text-sm text-slate-500">
+              sort
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
+              >
+                {SORTS.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {filterActive && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setLevels(new Set());
+                  setWatchedOnly(false);
+                }}
+                className="font-mono text-sm text-slate-500 hover:text-white"
+              >
+                clear
+              </button>
+            )}
+          </div>
+        )}
+
         {constellations.length === 0 ? (
           <EmptyFleet />
         ) : (
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {constellations.map((c) => (
+            {ordered.map((c) => (
               <ConstellationField
                 key={c.id}
                 c={c}
+                matcher={matcher}
                 onScan={() => scanOrg(c.login)}
                 scanning={scanning === c.login}
                 scanDisabled={scanning !== null && scanning !== c.login}
