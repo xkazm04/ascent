@@ -249,6 +249,10 @@ ${order ? order.split("\n").map((l) => `   ${l}`).join("\n") : "   (none — rep
    6. **Record progress as a memory:** \`node .ai/maintain.mjs note progress "<track>: what changed, what's left"\`
       appends a dated entry under \`.ai/memory/\` (the store from Step 0 — don't invent a second ledger).
       Re-running this skill resumes from the memory log.
+   7. **Capture the non-obvious as you go** — the highest-signal memories, and the ones this standard
+      exists to build. When you hit a wrong turn, log it so the next run (or a teammate) doesn't repeat
+      it: \`node .ai/maintain.mjs note failed-approach "<what you tried + why it didn't work>"\`. When you
+      make a non-obvious call, record the reasoning: \`node .ai/maintain.mjs note decision "<the choice + why>"\`.
 
 3. **Close the loop.** Summarize what changed, which checks now run pre-push vs. CI, and the level
    transition each track targets. Tell the maintainer to **re-scan in Ascent** to confirm the new
