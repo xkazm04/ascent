@@ -59,6 +59,13 @@ export function LiveWarRoom({
   const [ticker, setTicker] = useState<Mover[]>([]);
   const [celebrations, setCelebrations] = useState<Celebration[]>([]);
   const [autoLoop, setAutoLoop] = useState(false);
+  // WARROOM-5: opt-in (default-off) celebration sound. Read via a ref in pushCelebration so the
+  // (stable) callback always sees the latest value without re-creating.
+  const [sound, setSound] = useState(false);
+  const soundRef = useRef(sound);
+  useEffect(() => {
+    soundRef.current = sound;
+  }, [sound]);
 
   // Mirror of `repos` so the SSE handler can read the latest standing synchronously (it also
   // writes this ref itself for back-to-back events within a tick). Synced via effect, never
@@ -81,14 +88,47 @@ export function LiveWarRoom({
     };
   }, []);
 
-  const pushCelebration = useCallback((c: Celebration) => {
-    setCelebrations((cs) => [...cs, c].slice(-CELEBRATION_MAX));
-    const timer = setTimeout(() => {
-      setCelebrations((cs) => cs.filter((x) => x.id !== c.id));
-      timersRef.current.delete(timer);
-    }, CELEBRATION_MS);
-    timersRef.current.add(timer);
+  // A short synthesized "ta-da" (no bundled asset). Gated on the opt-in Sound toggle + reduced-motion;
+  // the Launch click satisfies the browser's autoplay gesture requirement. Best-effort — never throws.
+  const playChime = useCallback(() => {
+    if (!soundRef.current || typeof window === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const Ctx = window.AudioContext;
+    if (!Ctx) return;
+    try {
+      const ctx = new Ctx();
+      const start = ctx.currentTime;
+      for (const [freq, at] of [[880, 0], [1175, 0.12]] as const) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, start + at);
+        gain.gain.exponentialRampToValueAtTime(0.15, start + at + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.25);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(start + at);
+        osc.stop(start + at + 0.3);
+      }
+      const closer = setTimeout(() => void ctx.close().catch(() => {}), 600);
+      timersRef.current.add(closer);
+    } catch {
+      /* audio unavailable / blocked — celebrations stay visual-only */
+    }
   }, []);
+
+  const pushCelebration = useCallback(
+    (c: Celebration) => {
+      setCelebrations((cs) => [...cs, c].slice(-CELEBRATION_MAX));
+      playChime();
+      const timer = setTimeout(() => {
+        setCelebrations((cs) => cs.filter((x) => x.id !== c.id));
+        timersRef.current.delete(timer);
+      }, CELEBRATION_MS);
+      timersRef.current.add(timer);
+    },
+    [playChime],
+  );
 
   // Fold one streamed `repo` result into the live state: update the repo, push to the ticker,
   // and fire a celebration when it crosses the threshold into AI-Native. Skipped/error/malformed
@@ -240,6 +280,29 @@ export function LiveWarRoom({
     });
   }, []);
 
+  // WARROOM-5: restore + persist the Sound toggle, mirroring the auto-loop toggle.
+  useEffect(() => {
+    let persisted = false;
+    try {
+      persisted = localStorage.getItem("ascent-warroom-sound") === "1";
+    } catch {
+      /* localStorage unavailable */
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot restore of the persisted toggle
+    if (persisted) setSound(true);
+  }, []);
+  const toggleSound = useCallback(() => {
+    setSound((v) => {
+      const nv = !v;
+      try {
+        localStorage.setItem("ascent-warroom-sound", nv ? "1" : "0");
+      } catch {
+        /* localStorage unavailable */
+      }
+      return nv;
+    });
+  }, []);
+
   const stats = useMemo(() => {
     const all = Object.values(repos);
     const s = all.filter((r) => r.overall != null);
@@ -295,6 +358,8 @@ export function LiveWarRoom({
         campaignDelta={campaignDelta}
         autoLoop={autoLoop}
         onToggleLoop={toggleLoop}
+        sound={sound}
+        onToggleSound={toggleSound}
         readOnly={readOnly}
         canShare={canShare}
       />

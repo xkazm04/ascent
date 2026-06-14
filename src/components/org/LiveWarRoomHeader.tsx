@@ -46,6 +46,8 @@ export function WarRoomHeader({
   campaignDelta = null,
   autoLoop = false,
   onToggleLoop,
+  sound = false,
+  onToggleSound,
   readOnly = false,
   canShare = false,
 }: {
@@ -64,6 +66,9 @@ export function WarRoomHeader({
   campaignDelta?: number | null;
   autoLoop?: boolean;
   onToggleLoop?: () => void;
+  /** Opt-in celebration sound (default off). */
+  sound?: boolean;
+  onToggleSound?: () => void;
   /** Shared/TV view: hide the scan controls (scanning stays session-gated). */
   readOnly?: boolean;
   /** Owner on the authenticated view: can mint a read-only TV share link. */
@@ -159,6 +164,12 @@ export function WarRoomHeader({
             <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500" title="Re-run the live scan automatically for an unattended wall display">
               <input type="checkbox" checked={autoLoop} onChange={onToggleLoop} className="accent-accent" />
               Auto-relaunch every 15 min
+            </label>
+          )}
+          {onToggleSound && (
+            <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500" title="Play a short chime when a repo crosses into AI-Native">
+              <input type="checkbox" checked={sound} onChange={onToggleSound} className="accent-accent" />
+              Sound
             </label>
           )}
           {share.error && <p className="font-mono text-sm text-orange-300">{share.error}</p>}
