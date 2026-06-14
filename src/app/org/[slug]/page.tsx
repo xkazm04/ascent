@@ -10,6 +10,7 @@ import { OrgStanding } from "@/components/org/OrgStanding";
 import { OrgGapsSection } from "@/components/org/OrgGapsSection";
 import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
 import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
+import { CollapsibleSection, OVERVIEW_COLLAPSE_COOKIE } from "@/components/org/CollapsibleSection";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 import { cookies } from "next/headers";
@@ -85,11 +86,16 @@ export default async function OrgOverview({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
+  const cookieStore = await cookies();
   // OVR-5: an explicit ?range= in the URL wins (shareable links stay authoritative); otherwise fall
   // back to the user's remembered period cookie, then the default.
-  const remembered = sp.range ? null : parsePeriodCookie((await cookies()).get(PERIOD_COOKIE)?.value);
+  const remembered = sp.range ? null : parsePeriodCookie(cookieStore.get(PERIOD_COOKIE)?.value);
   const period = resolveWindow(remembered ?? sp);
   const win = { start: period.start, end: period.end };
+
+  // OVR-4: which overview sections the user has collapsed (server-read so SSR matches — no flash).
+  const collapsed = new Set((cookieStore.get(OVERVIEW_COLLAPSE_COOKIE)?.value ?? "").split(",").filter(Boolean));
+  const sectionOpen = (id: string) => !collapsed.has(id);
 
   // Optional segment scope: validate the `?segment=` id against the org's segments (a bogus id
   // falls back to the whole fleet) so every aggregate below is scoped to the same tagged repos.
@@ -210,10 +216,12 @@ export default async function OrgOverview({
       {rollup.forecast && <Trajectory forecast={rollup.forecast} />}
 
       {/* Goals & standing */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <GoalsOverview slug={slug} goals={goals ?? []} />
-        <OrgStanding benchmark={benchmark} regressionCount={regressionCount} periodStart={Boolean(period.start)} />
-      </div>
+      <CollapsibleSection id="goals" title="Goals & standing" defaultOpen={sectionOpen("goals")}>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <GoalsOverview slug={slug} goals={goals ?? []} />
+          <OrgStanding benchmark={benchmark} regressionCount={regressionCount} periodStart={Boolean(period.start)} />
+        </div>
+      </CollapsibleSection>
 
       {/* Where the gaps live — common org gaps vs repo-specific */}
       {gaps && (gaps.commonGaps.length > 0 || gaps.repoSpecific.length > 0) && (
@@ -221,7 +229,8 @@ export default async function OrgOverview({
       )}
 
       {/* Posture + dimension averages */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <CollapsibleSection id="posture" title="Posture & dimensions" defaultOpen={sectionOpen("posture")}>
+        <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionHeader size="sm" title="Posture distribution" />
           <div className="mt-3 space-y-2">
@@ -252,7 +261,8 @@ export default async function OrgOverview({
             ))}
           </div>
         </Card>
-      </div>
+        </div>
+      </CollapsibleSection>
 
       {/* Trend */}
       {trend.length >= 1 && (
@@ -266,10 +276,12 @@ export default async function OrgOverview({
 
       {/* Movers & regressions */}
       {movers && movers.comparedRepos > 0 && (movers.gainers.length > 0 || movers.regressers.length > 0) && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <MoversList title="Top gainers" tone="up" moves={movers.gainers.slice(0, 5)} emptyText={moversEmpty} />
-          <MoversList title="Regressions" tone="down" moves={movers.regressers.slice(0, 5)} emptyText={moversEmpty} />
-        </div>
+        <CollapsibleSection id="movers" title="Movers & regressions" defaultOpen={sectionOpen("movers")}>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <MoversList title="Top gainers" tone="up" moves={movers.gainers.slice(0, 5)} emptyText={moversEmpty} />
+            <MoversList title="Regressions" tone="down" moves={movers.regressers.slice(0, 5)} emptyText={moversEmpty} />
+          </div>
+        </CollapsibleSection>
       )}
 
       {/* Highest-leverage moves */}
