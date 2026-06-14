@@ -147,3 +147,43 @@ export function simulateFleet(
     promotions: repoDeltas.filter((r) => r.levelUp).length,
   };
 }
+
+/** One dimension's projected fleet payoff from raising it to `target` across `scope` (SIM-3). */
+export interface InvestmentRank {
+  dimId: DimensionId;
+  name: string;
+  target: number;
+  /** Projected lift in the fleet's average overall score. */
+  gain: number;
+  /** Repos that would cross up a maturity band. */
+  promotions: number;
+  /** Repos currently below target (the ones the move would actually touch). */
+  affected: number;
+}
+
+/**
+ * "Where should we invest?" — run simulateFleet once per dimension (raising each to `target` across
+ * `scope`) and rank the dimensions by projected lift in the fleet's average overall score. Reuses the
+ * exact pure projection the manual simulator uses, so the recommendation and a hand-run what-if agree.
+ */
+export function rankFleetInvestments(
+  repos: RepoDims[],
+  scope: Iterable<string>,
+  target = 70,
+): InvestmentRank[] {
+  const scopeArr = [...scope];
+  const t = clamp(Math.round(target));
+  const ranked = DIMENSIONS.map((d) => {
+    const proj = simulateFleet(repos, { dimId: d.id, target: t }, scopeArr);
+    return {
+      dimId: d.id,
+      name: d.name,
+      target: t,
+      gain: proj.after.avgOverall - proj.before.avgOverall,
+      promotions: proj.promotions,
+      affected: proj.affected,
+    };
+  });
+  ranked.sort((a, b) => b.gain - a.gain || b.promotions - a.promotions || a.dimId.localeCompare(b.dimId));
+  return ranked;
+}

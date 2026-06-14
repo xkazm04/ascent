@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
 import { scoreHex } from "@/lib/ui";
-import type { FleetProjection } from "@/lib/scoring/orgsim";
+import type { FleetProjection, InvestmentRank } from "@/lib/scoring/orgsim";
 
 interface DimOption {
   id: string;
@@ -31,6 +31,26 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [tracking, setTracking] = useState(false);
   const [tracked, setTracked] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
+  const [ranking, setRanking] = useState<InvestmentRank[] | null>(null);
+  const [rankBusy, setRankBusy] = useState(false);
+
+  // SIM-3: ask the engine which dimension yields the biggest fleet lift, instead of guessing.
+  async function suggestMoves() {
+    setRankBusy(true);
+    try {
+      const res = await fetch("/api/org/simulate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug, rank: true, target, repos: [...scope] }),
+      });
+      const data = await res.json();
+      if (res.ok) setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0).slice(0, 5));
+    } catch {
+      /* leave the manual simulator usable */
+    } finally {
+      setRankBusy(false);
+    }
+  }
 
   function toggle(fullName: string) {
     setScope((s) => {
@@ -98,6 +118,47 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         title="What-if simulator"
         description="Project the fleet impact of landing a fix before you commit the work."
       />
+
+      {/* SIM-3: let the engine rank where to invest, instead of guessing the dimension. */}
+      <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/30 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-mono text-sm uppercase tracking-widest text-accent">Top moves by projected gain</span>
+          <button
+            onClick={suggestMoves}
+            disabled={rankBusy}
+            className="rounded-lg border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+          >
+            {rankBusy ? "Ranking…" : ranking ? "Refresh" : `Suggest (→ ${target})`}
+          </button>
+        </div>
+        {ranking &&
+          (ranking.length === 0 ? (
+            <p className="mt-2 font-mono text-sm text-slate-500">No dimension moves the fleet average at this target/scope.</p>
+          ) : (
+            <ul className="mt-2 space-y-0.5">
+              {ranking.map((r) => (
+                <li key={r.dimId}>
+                  <button
+                    onClick={() => {
+                      setDimId(r.dimId);
+                      setTarget(r.target);
+                      setResult(null);
+                    }}
+                    title={`Load ${r.dimId} → ${r.target} into the simulator`}
+                    className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left font-mono text-sm text-slate-300 transition hover:bg-slate-900"
+                  >
+                    <span className="truncate">
+                      {r.dimId} · {r.name}
+                    </span>
+                    <span className="shrink-0 text-emerald-300">
+                      +{r.gain} avg{r.promotions ? ` · ${r.promotions}↑` : ""}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ))}
+      </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <span className="font-mono text-sm text-slate-500">Raise</span>

@@ -8,7 +8,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
-import { simulateFleet, type FleetProjection, type RepoDims } from "@/lib/scoring/orgsim";
+import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims } from "@/lib/scoring/orgsim";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 
 export type GoalMetric = "overall" | "adoption" | "rigor" | DimensionId;
@@ -430,4 +430,22 @@ export async function simulateOrgFix(
   if (snap.repos.length === 0) return null;
   const scope = repoFullNames.length ? repoFullNames : snap.repos.map((r) => r.fullName);
   return simulateFleet(snap.repos, { dimId, target }, scope);
+}
+
+/**
+ * Rank D1..D9 by the projected fleet lift from raising each to `target` across the scope (SIM-3) —
+ * the "where should we invest?" recommendation, reusing the same pure projection as the manual sim.
+ */
+export async function rankOrgInvestments(
+  orgSlug: string,
+  target: number,
+  repoFullNames: string[],
+): Promise<InvestmentRank[] | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await resolveOrgId(orgSlug);
+  if (!orgId) return null;
+  const snap = await fleetSnapshot(orgId);
+  if (snap.repos.length === 0) return null;
+  const scope = repoFullNames.length ? repoFullNames : snap.repos.map((r) => r.fullName);
+  return rankFleetInvestments(snap.repos, scope, target);
 }

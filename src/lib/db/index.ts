@@ -192,6 +192,7 @@ export {
   getGoalOrgSlug,
   getInitiativeOrgSlug,
   simulateOrgFix,
+  rankOrgInvestments,
   isGoalMetric,
   metricLabel,
   type GoalProgress,
