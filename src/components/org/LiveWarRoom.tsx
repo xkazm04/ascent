@@ -18,6 +18,7 @@ import {
 } from "@/components/org/liveWarRoomShared";
 import { AnimatedStat } from "@/components/org/LiveWarRoomStat";
 import { WarRoomHeader } from "@/components/org/LiveWarRoomHeader";
+import type { GoalProgressView } from "@/components/org/plan/goalView";
 import { Leaderboard } from "@/components/org/LiveWarRoomLeaderboard";
 import { MoversTicker, PostureMix } from "@/components/org/LiveWarRoomPanels";
 import { Celebrations } from "@/components/org/LiveWarRoomCelebrations";
@@ -28,10 +29,16 @@ export function LiveWarRoom({
   slug,
   watchedCount,
   seed,
+  goal = null,
+  campaignDelta = null,
 }: {
   slug: string;
   watchedCount: number;
   seed: LiveRepoSeed[];
+  /** The active goal the wall rallies around (target meter + pace + deadline countdown). */
+  goal?: GoalProgressView | null;
+  /** Overall-score movement since the campaign (goal) started, for the "since kickoff" line. */
+  campaignDelta?: number | null;
 }) {
   const [repos, setRepos] = useState<Record<string, LiveRepo>>(() =>
     Object.fromEntries(seed.map((r) => [r.fullName, { ...r, updatedAt: 0 }])),
@@ -45,6 +52,7 @@ export function LiveWarRoom({
   const [skipped, setSkipped] = useState(0);
   const [ticker, setTicker] = useState<Mover[]>([]);
   const [celebrations, setCelebrations] = useState<Celebration[]>([]);
+  const [autoLoop, setAutoLoop] = useState(false);
 
   // Mirror of `repos` so the SSE handler can read the latest standing synchronously (it also
   // writes this ref itself for back-to-back events within a tick). Synced via effect, never
@@ -195,6 +203,37 @@ export function LiveWarRoom({
     setProgress((p) => ({ ...p, current: "" }));
   }, []);
 
+  // WAR-3: optional auto-relaunch for an unattended wall display. Restore the persisted toggle once,
+  // then — while enabled and NOT mid-run — schedule the next launch; the effect re-arms after each
+  // run finishes (running flips false). launch() itself guards against overlapping runs.
+  const LOOP_MS = 15 * 60 * 1000;
+  useEffect(() => {
+    let persisted = false;
+    try {
+      persisted = localStorage.getItem("ascent-warroom-loop") === "1";
+    } catch {
+      /* localStorage unavailable */
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot restore of the persisted toggle
+    if (persisted) setAutoLoop(true);
+  }, []);
+  useEffect(() => {
+    if (!autoLoop || phase === "running") return;
+    const t = setTimeout(() => void launch(), LOOP_MS);
+    return () => clearTimeout(t);
+  }, [autoLoop, phase, launch, LOOP_MS]);
+  const toggleLoop = useCallback(() => {
+    setAutoLoop((v) => {
+      const nv = !v;
+      try {
+        localStorage.setItem("ascent-warroom-loop", nv ? "1" : "0");
+      } catch {
+        /* localStorage unavailable */
+      }
+      return nv;
+    });
+  }, []);
+
   const stats = useMemo(() => {
     const all = Object.values(repos);
     const s = all.filter((r) => r.overall != null);
@@ -236,6 +275,7 @@ export function LiveWarRoom({
       />
 
       <WarRoomHeader
+        slug={slug}
         running={running}
         watchedCount={watchedCount}
         progress={progress}
@@ -245,6 +285,10 @@ export function LiveWarRoom({
         launchLabel={launchLabel}
         onStop={stop}
         onLaunch={launch}
+        goal={goal}
+        campaignDelta={campaignDelta}
+        autoLoop={autoLoop}
+        onToggleLoop={toggleLoop}
       />
 
       {/* ── Four headline tiles, counting up as results land ────────────── */}
