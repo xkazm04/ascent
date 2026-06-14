@@ -122,6 +122,22 @@ export default async function OrgOverview({
   }
 
   const level = levelForScore(rollup.avgOverall);
+
+  // OVR-6: connect the org's stated goals to its most-glanced numbers. Match an active goal by metric
+  // (already fetched via listGoals) and surface its target + pace verdict on the headline tile.
+  const PACE_NOTE: Record<string, { label: string; color: string }> = {
+    reached: { label: "reached", color: "#34d399" },
+    "on-pace": { label: "on track", color: "#84cc16" },
+    behind: { label: "behind", color: "#f97316" },
+    tracking: { label: "tracking", color: "#94a3b8" },
+  };
+  const goalNote = (metric: string) => {
+    const g = (goals ?? []).find((x) => x.status === "active" && x.metric === metric);
+    if (!g) return undefined;
+    const p = PACE_NOTE[g.pace] ?? PACE_NOTE.tracking!;
+    return { target: g.target, label: p.label, color: p.color };
+  };
+
   const trend: TrendPoint[] = rollup.trend.map((t) => ({ score: t.avg, at: t.date }));
   const maxPosture = Math.max(1, ...POSTURE_ORDER.map((p) => rollup.postureCounts[p] ?? 0));
   const regressionCount = movers?.regressers.length ?? 0;
@@ -165,6 +181,7 @@ export default async function OrgOverview({
           color={scoreHex(rollup.avgOverall)}
           delta={rollup.deltas?.overall}
           deltaLabel={period.comparisonLabel}
+          goal={goalNote("overall")}
         />
         <Tile
           label="AI Adoption"
@@ -172,6 +189,7 @@ export default async function OrgOverview({
           color={scoreHex(rollup.avgAdoption)}
           delta={rollup.deltas?.adoption}
           deltaLabel={period.comparisonLabel}
+          goal={goalNote("adoption")}
         />
         <Tile
           label="Engineering Rigor"
@@ -179,6 +197,7 @@ export default async function OrgOverview({
           color={scoreHex(rollup.avgRigor)}
           delta={rollup.deltas?.rigor}
           deltaLabel={period.comparisonLabel}
+          goal={goalNote("rigor")}
         />
         <Tile label="Repos scanned" value={`${rollup.scannedCount}/${rollup.repoCount}`} />
       </div>

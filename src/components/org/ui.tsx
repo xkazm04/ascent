@@ -50,6 +50,7 @@ export function Tile({
   color,
   delta,
   deltaLabel,
+  goal,
 }: {
   label: string;
   value: string | number;
@@ -59,6 +60,9 @@ export function Tile({
   delta?: number | null;
   /** Suffix next to the delta, e.g. "vs 90d ago". */
   deltaLabel?: string;
+  /** Active goal on this metric: target + a precomputed pace verdict (label + color). Renders a small
+   *  "target N · <verdict>" line under the delta, connecting the org's objective to the glanced number. */
+  goal?: { target: number; label: string; color: string };
 }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
@@ -71,6 +75,11 @@ export function Tile({
         <div className="mt-1.5 flex items-center gap-1.5 font-mono text-sm">
           <span style={{ color: deltaHex(delta) }}>{fmtDelta(delta)}</span>
           {deltaLabel && <span className="text-slate-500">{deltaLabel}</span>}
+        </div>
+      )}
+      {goal && (
+        <div className="mt-1 font-mono text-sm" style={{ color: goal.color }} title={`Active goal target: ${goal.target}`}>
+          target {goal.target} · {goal.label}
         </div>
       )}
     </div>
