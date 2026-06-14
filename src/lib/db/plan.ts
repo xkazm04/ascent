@@ -330,6 +330,14 @@ export interface InitiativeRow {
   targetScore: number;
   repos: string[];
   status: string;
+  /** GitHub login of the owner driving the work, or null when unassigned. */
+  assigneeLogin: string | null;
+  /** Due date (YYYY-MM-DD) the initiative is steered toward, or null when open-ended. */
+  targetDate: string | null;
+  /** Id of the steering Goal this initiative serves, or null when standalone. */
+  goalId: string | null;
+  /** Label of the linked Goal (resolved at read time), or null when unlinked / goal removed. */
+  goalLabel: string | null;
   createdAt: string;
   /** Of the scoped repos, how many currently meet the target on this dimension. */
   progress: { atTarget: number; total: number };
@@ -346,7 +354,16 @@ function parseRepos(raw: string): string[] {
 
 export async function createInitiative(
   orgSlug: string,
-  input: { title: string; dimId: DimensionId; practiceId?: string | null; targetScore?: number; repos: string[] },
+  input: {
+    title: string;
+    dimId: DimensionId;
+    practiceId?: string | null;
+    targetScore?: number;
+    repos: string[];
+    assigneeLogin?: string | null;
+    targetDate?: string | null;
+    goalId?: string | null;
+  },
 ): Promise<{ id: string } | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
@@ -363,6 +380,9 @@ export async function createInitiative(
       practiceId: input.practiceId ?? null,
       targetScore: Math.max(0, Math.min(100, Math.round(input.targetScore ?? 70))),
       repos: JSON.stringify(input.repos.slice(0, 200)),
+      assigneeLogin: input.assigneeLogin?.trim().slice(0, 100) || null,
+      targetDate: parseTargetDate(input.targetDate),
+      goalId: input.goalId ?? null,
     },
     select: { id: true },
   });
@@ -374,11 +394,13 @@ export async function listInitiatives(orgSlug: string): Promise<InitiativeRow[] 
   const prisma = getPrisma();
   const orgId = await resolveOrgId(orgSlug);
   if (!orgId) return [];
-  const [rows, snap] = await Promise.all([
+  const [rows, snap, goals] = await Promise.all([
     prisma.initiative.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
     fleetSnapshot(orgId),
+    prisma.goal.findMany({ where: { orgId }, select: { id: true, label: true } }),
   ]);
   const dimByRepo = new Map(snap.repos.map((r) => [r.fullName, r.dims]));
+  const goalLabelById = new Map(goals.map((g) => [g.id, g.label]));
   return rows.map((i) => {
     const repos = parseRepos(i.repos);
     const atTarget = repos.filter((fn) => (dimByRepo.get(fn)?.[i.dimId] ?? 0) >= i.targetScore).length;
@@ -391,15 +413,32 @@ export async function listInitiatives(orgSlug: string): Promise<InitiativeRow[] 
       targetScore: i.targetScore,
       repos,
       status: i.status,
+      assigneeLogin: i.assigneeLogin,
+      targetDate: i.targetDate ? i.targetDate.toISOString().slice(0, 10) : null,
+      goalId: i.goalId,
+      // A linked goal that was since deleted resolves to null — the UI shows it as unlinked.
+      goalLabel: i.goalId ? goalLabelById.get(i.goalId) ?? null : null,
       createdAt: i.createdAt.toISOString(),
       progress: { atTarget, total: repos.length },
     };
   });
 }
 
-export async function updateInitiativeStatus(id: string, status: string): Promise<boolean> {
+/** Patch an initiative's status, owner, due date, or linked goal — only the provided fields move. */
+export async function updateInitiative(
+  id: string,
+  patch: { status?: string; assigneeLogin?: string | null; targetDate?: string | null; goalId?: string | null },
+): Promise<boolean> {
   if (!isDbConfigured()) return false;
-  await getPrisma().initiative.update({ where: { id }, data: { status } });
+  await getPrisma().initiative.update({
+    where: { id },
+    data: {
+      ...(patch.status ? { status: patch.status } : {}),
+      ...("assigneeLogin" in patch ? { assigneeLogin: patch.assigneeLogin?.trim().slice(0, 100) || null } : {}),
+      ...("targetDate" in patch ? { targetDate: parseTargetDate(patch.targetDate) } : {}),
+      ...("goalId" in patch ? { goalId: patch.goalId || null } : {}),
+    },
+  });
   return true;
 }
 

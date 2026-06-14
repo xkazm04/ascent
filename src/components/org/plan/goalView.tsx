@@ -83,21 +83,38 @@ function readout(g: GoalProgressView): string {
   return `Holding near ${g.current} on a ${rate(g.perWeek)} trend — no ETA to ${g.target} at this pace.`;
 }
 
+/** An initiative linked to a goal — the tracked work advancing it (GOAL-6 cross-render). */
+export interface LinkedInitiative {
+  id: string;
+  title: string;
+  status: string;
+}
+
+const INIT_STATUS_LABEL: Record<string, string> = {
+  open: "open",
+  in_progress: "in progress",
+  done: "done",
+  dismissed: "dismissed",
+};
+
 /**
  * A single goal: label + pace chip, a meter (current score with the target marked), the pace
  * read-out, and the repos that must move. `compact` trims the laggard list for the overview;
  * `action` is an optional control slot (e.g. a remove button) shown in the header.
+ * `initiatives` are the tracked programs of work linked to this goal — the plan advancing it.
  */
 export function GoalCard({
   goal,
   slug,
   compact = false,
   action,
+  initiatives = [],
 }: {
   goal: GoalProgressView;
   slug: string;
   compact?: boolean;
   action?: React.ReactNode;
+  initiatives?: LinkedInitiative[];
 }) {
   const pace = PACE[goal.pace];
   const shown = goal.laggards.slice(0, compact ? 3 : 8);
@@ -154,6 +171,25 @@ export function GoalCard({
             ))}
             {goal.belowCount > shown.length && (
               <li className="font-mono text-sm text-slate-600">+{goal.belowCount - shown.length} more</li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {initiatives.length > 0 && (
+        <div className="mt-3 border-t border-slate-800/70 pt-2.5">
+          <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
+            Advanced by · {initiatives.length} initiative{initiatives.length === 1 ? "" : "s"}
+          </span>
+          <ul className="mt-1.5 space-y-1">
+            {initiatives.slice(0, compact ? 2 : 6).map((it) => (
+              <li key={it.id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate text-slate-300">{it.title}</span>
+                <span className="shrink-0 font-mono text-sm text-slate-500">{INIT_STATUS_LABEL[it.status] ?? it.status}</span>
+              </li>
+            ))}
+            {initiatives.length > (compact ? 2 : 6) && (
+              <li className="font-mono text-sm text-slate-600">+{initiatives.length - (compact ? 2 : 6)} more</li>
             )}
           </ul>
         </div>

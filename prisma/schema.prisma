@@ -414,15 +414,18 @@ model Goal {
 // these N repos up to <target> on <dimension>". Bundles the highest-leverage org move into an
 // assignable, status-tracked initiative. `repos` is a JSON string[] of repo fullNames.
 model Initiative {
-  id          String   @id @default(uuid())
-  orgId       String
-  title       String
-  dimId       String // "D1".."D9"
-  practiceId  String? // optional link into the Practice Library
-  targetScore Int      @default(70)
-  repos       String   @default("[]") // JSON string[] — repo fullNames in scope
-  status      String   @default("open") // open | in_progress | done | dismissed
-  createdAt   DateTime @default(now())
+  id            String    @id @default(uuid())
+  orgId         String
+  title         String
+  dimId         String // "D1".."D9"
+  practiceId    String? // optional link into the Practice Library
+  targetScore   Int       @default(70)
+  repos         String    @default("[]") // JSON string[] — repo fullNames in scope
+  status        String    @default("open") // open | in_progress | done | dismissed
+  assigneeLogin String? // GitHub login of the owner driving the work (null = unassigned)
+  targetDate    DateTime? // optional due date the initiative is steered toward (null = open-ended)
+  goalId        String? // optional link to the steering Goal this initiative serves (null = standalone)
+  createdAt     DateTime  @default(now())
 
   org Organization @relation(fields: [orgId], references: [id])
 

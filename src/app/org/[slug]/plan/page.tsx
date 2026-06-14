@@ -53,6 +53,13 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
     repoCount: r.repoCount,
   }));
 
+  // GOAL-6: cross-render — group the initiatives linked to each goal so a goal shows its plan.
+  const initiativesByGoal: Record<string, { id: string; title: string; status: string }[]> = {};
+  for (const i of initiatives ?? []) {
+    if (!i.goalId) continue;
+    (initiativesByGoal[i.goalId] ||= []).push({ id: i.id, title: i.title, status: i.status });
+  }
+
   if (!rollup || scannedRepos.length === 0) {
     return <SectionEmpty>No scanned repositories yet — scan some of this org&apos;s repos to plan against them.</SectionEmpty>;
   }
@@ -66,11 +73,16 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <GoalsPanel slug={slug} initial={goals ?? []} metricOptions={metricOptions} />
+        <GoalsPanel slug={slug} initial={goals ?? []} metricOptions={metricOptions} initiativesByGoal={initiativesByGoal} />
         <Simulator slug={slug} dims={dimOptions} repos={repoOptions} />
       </div>
 
-      <InitiativesPanel slug={slug} initial={initiatives ?? []} seeds={seeds} />
+      <InitiativesPanel
+        slug={slug}
+        initial={initiatives ?? []}
+        seeds={seeds}
+        goals={(goals ?? []).map((g) => ({ id: g.id, label: g.label }))}
+      />
 
       {/* Calibration: the LLM-as-auditor detector backlog. */}
       <Card>

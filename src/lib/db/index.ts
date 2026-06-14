@@ -188,7 +188,7 @@ export {
   deleteGoal,
   createInitiative,
   listInitiatives,
-  updateInitiativeStatus,
+  updateInitiative,
   getGoalOrgSlug,
   getInitiativeOrgSlug,
   simulateOrgFix,

@@ -275,6 +275,9 @@ CREATE TABLE "Initiative" (
     "targetScore" INTEGER NOT NULL DEFAULT 70,
     "repos" TEXT NOT NULL DEFAULT '[]',
     "status" TEXT NOT NULL DEFAULT 'open',
+    "assigneeLogin" TEXT,
+    "targetDate" TIMESTAMP(3),
+    "goalId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Initiative_pkey" PRIMARY KEY ("id")

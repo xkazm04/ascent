@@ -11,6 +11,10 @@ export interface InitiativeView {
   targetScore: number;
   repos: string[];
   status: string;
+  assigneeLogin: string | null;
+  targetDate: string | null;
+  goalId: string | null;
+  goalLabel: string | null;
   progress: { atTarget: number; total: number };
 }
 
@@ -22,11 +26,27 @@ export interface SeedRec {
   repoCount: number;
 }
 
+export interface GoalOption {
+  id: string;
+  label: string;
+}
+
 const STATUSES = ["open", "in_progress", "done", "dismissed"];
 const STATUS_LABEL: Record<string, string> = { open: "Open", in_progress: "In progress", done: "Done", dismissed: "Dismissed" };
 
 /** Tracked, scoped programs of work — created from the fleet's highest-leverage moves. */
-export function InitiativesPanel({ slug, initial, seeds }: { slug: string; initial: InitiativeView[]; seeds: SeedRec[] }) {
+export function InitiativesPanel({
+  slug,
+  initial,
+  seeds,
+  goals = [],
+}: {
+  slug: string;
+  initial: InitiativeView[];
+  seeds: SeedRec[];
+  /** Active goals this org steers toward — an initiative can be linked to the one it advances. */
+  goals?: GoalOption[];
+}) {
   const [items, setItems] = useState<InitiativeView[]>(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,12 +74,20 @@ export function InitiativesPanel({ slug, initial, seeds }: { slug: string; initi
     }
   }
 
-  async function setStatus(id: string, status: string) {
-    setItems((xs) => xs.map((i) => (i.id === id ? { ...i, status } : i)));
+  // Optimistically patch one initiative and persist the same fields. `goalLabel` is kept in sync
+  // locally when the link changes so the chip updates without a refetch.
+  async function patch(id: string, body: Partial<Pick<InitiativeView, "status" | "assigneeLogin" | "targetDate" | "goalId">>) {
+    setItems((xs) =>
+      xs.map((i) =>
+        i.id === id
+          ? { ...i, ...body, ...("goalId" in body ? { goalLabel: goals.find((g) => g.id === body.goalId)?.label ?? null } : {}) }
+          : i,
+      ),
+    );
     await fetch(`/api/org/initiatives/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(body),
     });
   }
 
@@ -89,7 +117,7 @@ export function InitiativesPanel({ slug, initial, seeds }: { slug: string; initi
                 </div>
                 <select
                   value={i.status}
-                  onChange={(e) => setStatus(i.id, e.target.value)}
+                  onChange={(e) => patch(i.id, { status: e.target.value })}
                   className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
                 >
                   {STATUSES.map((s) => (
@@ -100,6 +128,48 @@ export function InitiativesPanel({ slug, initial, seeds }: { slug: string; initi
                 </select>
               </div>
               <Meter className="mt-2" size="sm" value={pct} color="#34d399" />
+
+              {/* Accountability row: owner · due date · the goal this advances. */}
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-800/70 pt-3">
+                <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+                  <span className="text-slate-600">@</span>
+                  <input
+                    defaultValue={i.assigneeLogin ?? ""}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== (i.assigneeLogin ?? "")) patch(i.id, { assigneeLogin: v || null });
+                    }}
+                    placeholder="assignee"
+                    className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-600"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+                  due
+                  <input
+                    type="date"
+                    value={i.targetDate ?? ""}
+                    onChange={(e) => patch(i.id, { targetDate: e.target.value || null })}
+                    className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
+                  />
+                </label>
+                {goals.length > 0 && (
+                  <label className="flex min-w-0 items-center gap-1.5 font-mono text-sm text-slate-500">
+                    goal
+                    <select
+                      value={i.goalId ?? ""}
+                      onChange={(e) => patch(i.id, { goalId: e.target.value || null })}
+                      className="max-w-[12rem] truncate rounded-md border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
+                    >
+                      <option value="">— none —</option>
+                      {goals.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
             </div>
           );
         })}

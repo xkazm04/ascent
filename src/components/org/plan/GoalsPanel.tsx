@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card, SectionHeader } from "@/components/org/ui";
-import { GoalCard, type GoalProgressView } from "@/components/org/plan/goalView";
+import { GoalCard, type GoalProgressView, type LinkedInitiative } from "@/components/org/plan/goalView";
 
 interface MetricOption {
   value: string;
@@ -12,8 +12,19 @@ interface MetricOption {
 /**
  * Maturity goals with live progress, a trend-derived ETA/pace, and the repos that must move —
  * plus a create form. Progress and pace come from the latest scans and the metric's trend.
+ * `initiativesByGoal` cross-renders the tracked initiatives linked to each goal (GOAL-6).
  */
-export function GoalsPanel({ slug, initial, metricOptions }: { slug: string; initial: GoalProgressView[]; metricOptions: MetricOption[] }) {
+export function GoalsPanel({
+  slug,
+  initial,
+  metricOptions,
+  initiativesByGoal = {},
+}: {
+  slug: string;
+  initial: GoalProgressView[];
+  metricOptions: MetricOption[];
+  initiativesByGoal?: Record<string, LinkedInitiative[]>;
+}) {
   const [goals, setGoals] = useState<GoalProgressView[]>(initial);
   const [label, setLabel] = useState("");
   const [metric, setMetric] = useState(metricOptions[0]?.value ?? "overall");
@@ -67,6 +78,7 @@ export function GoalsPanel({ slug, initial, metricOptions }: { slug: string; ini
             key={g.id}
             goal={g}
             slug={slug}
+            initiatives={initiativesByGoal[g.id]}
             action={
               <button onClick={() => remove(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
                 remove
