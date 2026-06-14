@@ -5,6 +5,14 @@
 
 import { AppApiError, githubAppFetch } from "@/lib/github/app";
 
+/** A button GitHub renders on the Check Run; clicking it delivers a `check_run.requested_action`
+ *  webhook carrying this `identifier`. label ≤20 chars, description ≤40, identifier ≤20 (GitHub limits). */
+export interface CheckRunAction {
+  label: string;
+  description: string;
+  identifier: string;
+}
+
 export interface CheckRunInput {
   token: string;
   owner: string;
@@ -16,6 +24,8 @@ export interface CheckRunInput {
   summary: string;
   /** Optional deep link surfaced on the check (e.g. the Ascent report). */
   detailsUrl?: string;
+  /** Optional action buttons (e.g. "Re-run") — GitHub posts a `requested_action` webhook on click. */
+  actions?: CheckRunAction[];
 }
 
 /** Create a completed Check Run on a commit. Returns the run's html_url. */
@@ -29,6 +39,7 @@ export async function createCheckRun(input: CheckRunInput): Promise<{ url: strin
       status: "completed",
       conclusion: input.conclusion,
       ...(input.detailsUrl ? { details_url: input.detailsUrl } : {}),
+      ...(input.actions?.length ? { actions: input.actions.slice(0, 3) } : {}),
       output: { title: input.title, summary: input.summary },
     }),
   });

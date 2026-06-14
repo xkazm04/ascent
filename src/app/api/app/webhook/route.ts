@@ -54,9 +54,15 @@ interface WebhookPayload {
   repositories_added?: { full_name?: string }[];
   repositories_removed?: { full_name?: string }[];
   repository_selection?: string;
+  // check_run event: a "Re-run" button click (requested_action) or GitHub's rerequested.
+  check_run?: { head_sha?: string; pull_requests?: { number?: number; base?: { ref?: string } }[] };
+  requested_action?: { identifier?: string };
 }
 
 const PR_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
+
+/** The "Re-run" button surfaced on the gate Check Run — clicking it re-delivers a check_run webhook. */
+const RERUN_ACTION = [{ label: "Re-run", description: "Re-evaluate this PR's maturity", identifier: "rescan" }];
 
 // Replay defense. GitHub stamps each delivery with a unique X-GitHub-Delivery id. A captured,
 // still-valid signed request can be re-sent (the HMAC still verifies) to re-trigger scans/gates;
@@ -194,9 +200,11 @@ interface PrGateRef {
  */
 async function runPrGate(ref: PrGateRef) {
   const { installationId, owner, repo, prNumber, headSha, baseRef } = ref;
+  // Hoisted so the catch can post a neutral check on the SAME token when a failure happens after mint.
+  let token: string | undefined;
   try {
     if (!(await installationMatchesOwner(installationId, owner))) return;
-    const token = await getInstallationToken(installationId);
+    token = await getInstallationToken(installationId);
     const fullName = `${owner}/${repo}`;
 
     // Score the PR head. A fork PR's head commit can be unreachable via the base repo's tree API —
@@ -232,6 +240,7 @@ async function runPrGate(ref: PrGateRef) {
       title: comment.title,
       summary: comment.summary,
       detailsUrl: detailsUrl.startsWith("http") ? detailsUrl : undefined,
+      actions: RERUN_ACTION, // GATE-2: a "Re-run" button so a verdict can be refreshed without a new push
     }).catch((err) => console.error("[webhook] check-run failed", err instanceof Error ? err.message : err));
 
     await upsertStickyComment({ token, owner, repo, prNumber, marker: GATE_COMMENT_MARKER, body: comment.commentBody }).catch(
@@ -239,6 +248,21 @@ async function runPrGate(ref: PrGateRef) {
     );
   } catch (err) {
     console.error("[webhook] PR gate failed", err instanceof Error ? err.message : err);
+    // GATE-3: a hard failure must NOT leave a *required* check silently absent (it would block merge
+    // forever with no explanation). Post a neutral "couldn't evaluate" check (with a Re-run button) so
+    // the author sees a reason and has recourse. Best-effort — only possible once a token was minted.
+    if (token) {
+      await createCheckRun({
+        token,
+        owner,
+        repo,
+        headSha,
+        conclusion: "neutral",
+        title: "Maturity gate could not run",
+        summary: "Ascent couldn't evaluate this PR's maturity (a transient error). Re-run the check, or push a new commit.",
+        actions: RERUN_ACTION,
+      }).catch((e) => console.error("[webhook] neutral check failed", e instanceof Error ? e.message : e));
+    }
     // The deferred gate failed after we already 2xx'd — release the delivery so a redelivery retries.
     if (ref.deliveryId) forgetDelivery(ref.deliveryId);
   }
@@ -381,6 +405,23 @@ export async function POST(request: Request) {
       if (installationId && owner && repo && prNumber && headSha && baseRef && PR_ACTIONS.has(payload.action ?? "")) {
         // Defer the scan to after the response so GitHub gets its fast 2xx. Pass the delivery id so a
         // transient failure in the deferred gate releases the dedup slot for a redelivery retry.
+        after(() => runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef, deliveryId: delivery ?? undefined }));
+      }
+    } else if (event === "check_run" && isAppConfigured()) {
+      // A "Re-run" button click (requested_action with our identifier) or GitHub's native
+      // rerequested — re-evaluate the gate for the PR the run is attached to, without a new push.
+      const isRerun =
+        payload.action === "rerequested" ||
+        (payload.action === "requested_action" && payload.requested_action?.identifier === "rescan");
+      const installationId = payload.installation?.id;
+      const owner = payload.repository?.owner?.login;
+      const repo = payload.repository?.name;
+      const cr = payload.check_run;
+      const pr = cr?.pull_requests?.[0];
+      const headSha = cr?.head_sha;
+      const prNumber = pr?.number;
+      const baseRef = pr?.base?.ref ?? payload.repository?.default_branch;
+      if (isRerun && installationId && owner && repo && prNumber && headSha && baseRef) {
         after(() => runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef, deliveryId: delivery ?? undefined }));
       }
     } else if (event === "push" && isAppConfigured() && isDbConfigured()) {
