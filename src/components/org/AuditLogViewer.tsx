@@ -10,19 +10,30 @@ import Link from "next/link";
 import type { AuditLogEntry, AuditLogPage } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
 
-const ACTION_META: Record<string, { label: string; cls: string }> = {
-  "scan.created": { label: "Scan", cls: "border-accent/40 bg-accent/10 text-accent" },
-  "recommendation.status_changed": {
-    label: "Rec status",
-    cls: "border-violet-500/40 bg-violet-500/10 text-violet-300",
-  },
-};
-
-const ACTION_FILTERS = [
-  { value: "", label: "All actions" },
-  { value: "scan.created", label: "Scans" },
-  { value: "recommendation.status_changed", label: "Recommendation updates" },
+// One ordered list of the audit actions the app actually records, driving BOTH the badge metadata
+// and the filter dropdown — so they can't drift apart (the prior bug keyed on
+// `recommendation.status_changed`, which is never written; the real action is `recommendation.updated`,
+// and scan.regression / org.alerts.* / *.pr_opened / member.* / plan / retention were unrecognized).
+const ACTIONS: { value: string; label: string; cls: string }[] = [
+  { value: "scan.created", label: "Scan", cls: "border-accent/40 bg-accent/10 text-accent" },
+  { value: "recommendation.updated", label: "Rec update", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  { value: "scan.regression", label: "Regression", cls: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
+  { value: "org.alerts.webhook", label: "Alert sink", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "org.alerts.thresholds", label: "Alert rules", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  { value: "practice.pr_opened", label: "Practice PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "playbook.pr_opened", label: "Playbook PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "org.member.role", label: "Member role", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  { value: "org.member.removed", label: "Member removed", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  { value: "org.member.invited", label: "Member invited", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  { value: "org.plan", label: "Plan change", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "retention.purged", label: "Retention purge", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
 ];
+
+const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
+  ACTIONS.map((a) => [a.value, { label: a.label, cls: a.cls }]),
+);
+
+const ACTION_FILTERS = [{ value: "", label: "All actions" }, ...ACTIONS.map((a) => ({ value: a.value, label: a.label }))];
 
 function ActionBadge({ action }: { action: string }) {
   const m = ACTION_META[action] ?? { label: action, cls: "border-slate-600 bg-slate-700/30 text-slate-300" };
@@ -73,15 +84,33 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
   const [entries, setEntries] = useState<AuditLogEntry[]>(initial.entries);
   const [cursor, setCursor] = useState<string | null>(initial.nextCursor);
   const [action, setAction] = useState("");
+  const [since, setSince] = useState("");
+  const [until, setUntil] = useState("");
+  const [actor, setActor] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function load(reset: boolean, nextCursor: string | null, actionFilter: string) {
+  interface Filters {
+    action: string;
+    since: string;
+    until: string;
+    actor: string;
+  }
+
+  function buildQs(f: Filters): URLSearchParams {
+    const qs = new URLSearchParams({ org });
+    if (f.action) qs.set("action", f.action);
+    if (f.since) qs.set("since", f.since);
+    if (f.until) qs.set("until", f.until);
+    if (f.actor.trim()) qs.set("actorId", f.actor.trim());
+    return qs;
+  }
+
+  async function load(reset: boolean, nextCursor: string | null, f: Filters) {
     setLoading(true);
     setError(null);
     try {
-      const qs = new URLSearchParams({ org });
-      if (actionFilter) qs.set("action", actionFilter);
+      const qs = buildQs(f);
       if (!reset && nextCursor) qs.set("cursor", nextCursor);
       const res = await fetch(`/api/audit?${qs.toString()}`);
       const data = await res.json();
@@ -95,30 +124,59 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
     }
   }
 
+  // Explicit values passed to load() so a just-changed control isn't read from stale state.
   function changeAction(value: string) {
     setAction(value);
-    void load(true, null, value);
+    void load(true, null, { action: value, since, until, actor });
   }
+  function applyFilters() {
+    void load(true, null, { action, since, until, actor });
+  }
+  /** Download href for the current filter set — a plain anchor triggers the CSV attachment. */
+  const csvHref = `/api/audit?${buildQs({ action, since, until, actor }).toString()}&format=csv`;
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <label className="flex items-center gap-2 text-base text-slate-400">
-          <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Filter</span>
-          <select
-            value={action}
-            onChange={(e) => changeAction(e.target.value)}
-            aria-label="Filter by action"
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
-          >
-            {ACTION_FILTERS.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="font-mono text-sm text-slate-500">{entries.length} shown</span>
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex items-center gap-2 text-base text-slate-400">
+            <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Action</span>
+            <select
+              value={action}
+              onChange={(e) => changeAction(e.target.value)}
+              aria-label="Filter by action"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
+            >
+              {ACTION_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+            since
+            <input type="date" value={since} onChange={(e) => setSince(e.target.value)} aria-label="From date"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent" />
+          </label>
+          <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
+            until
+            <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} aria-label="To date"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent" />
+          </label>
+          <input type="text" value={actor} onChange={(e) => setActor(e.target.value)} placeholder="actor (login)" aria-label="Filter by actor"
+            className="w-32 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent" />
+          <button onClick={applyFilters} disabled={loading}
+            className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50">
+            Apply
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          <a href={csvHref} className="font-mono text-sm text-accent transition hover:text-white" title="Download all matching entries as CSV">
+            Download CSV ↓
+          </a>
+          <span className="font-mono text-sm text-slate-500">{entries.length} shown</span>
+        </div>
       </div>
 
       {error && (
@@ -167,7 +225,7 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
       {cursor && (
         <div className="mt-4 flex justify-center">
           <button
-            onClick={() => load(false, cursor, action)}
+            onClick={() => load(false, cursor, { action, since, until, actor })}
             disabled={loading}
             className="focus-ring rounded-lg border border-slate-700 px-4 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
