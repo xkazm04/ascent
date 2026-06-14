@@ -1181,3 +1181,32 @@ See `FIXES-MEDIUMS-G-CIGATE-METERING.md`. CIGATE-5 (gate badge) was already done
 
 ### Open follow-ups
 - Medium waves F, H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
+
+## Feature Scout — Mediums Wave H · Live-ops & standard polish (2026-06-15, on master) — COMPLETE (5/5)
+
+See `FIXES-MEDIUMS-H-LIVEOPS.md`. The polish tail; 1 additive migration.
+
+### Structural facts
+- **2026-06-15** — MAP-6: FleetMap gains a visibility-gated 90s interval refetch + a `mergeStars` helper
+  (keeps old identity for unchanged stars so they don't re-animate; appends new repos); yields when a
+  manual scan SSE is streaming.
+- **2026-06-15** — WARROOM-5: LiveWarRoom `sound` toggle (localStorage `ascent-warroom-sound`, soundRef
+  read in pushCelebration) + a synthesized Web Audio "ta-da" (no asset), gated on prefers-reduced-motion;
+  LiveWarRoomHeader gains a Sound checkbox.
+- **2026-06-15** — ONB-6: OnboardingPickStep footer "See an example org report →" → `/org/<EXAMPLE_ORG>`.
+- **2026-06-15** — STD-5: skill.ts runProtocol step 7 prescribes `note failed-approach` / `note decision`.
+- **2026-06-15** — STD-6: `SkillGeneration` table (migration `20260615120000`); buildOnboardingSkill returns
+  trackIds; skill route records fire-and-forget; report permalink renders a SkillHistorySection (track set
+  + diffTrackSets vs prior). skill-history.ts (recordSkillGeneration/getSkillHistory/diffTrackSets). parity 30.
+
+### Conventions enforced
+- **2026-06-15** — On a live refresh of a visualization, diff and preserve object identity for unchanged
+  items so they don't re-animate (mergeStars).
+- **2026-06-15** — Synthesize short UI audio via Web Audio rather than bundling a binary; gate on an opt-in
+  toggle + prefers-reduced-motion; rely on an existing user gesture for autoplay.
+- **2026-06-15** — A "zero-setup" CTA points a stuck user at real already-computed data, not a blank form.
+- **2026-06-15** — Persist a one-off artifact (skill generation) as a lightweight record to make it a
+  trackable/diffable program; surface as a SIBLING of the existing view to avoid prop-threading.
+
+### Open follow-ups
+- Medium Wave F (exec deltas/sharing/exports) + 4 lows remain (see INDEX). Stripe + notifications/email excluded.

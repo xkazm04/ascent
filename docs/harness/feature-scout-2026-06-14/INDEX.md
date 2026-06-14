@@ -214,6 +214,7 @@ Each wave is one sessionable theme (5–7 findings) with a shared mental model s
 - **Mediums Wave C · Planning & goals depth.** ✓ **DONE (5/5)** — suggested goals (GOAL-5), save/compare scenarios (SIM-5), goal achieved state (GOAL-4), playbook↔initiative bridge (PLAY-5), cheapest-path worklist (PRAC-6). See `FIXES-MEDIUMS-C-PLANNING.md`.
 - **Mediums Wave D · Playbooks & practices authoring.** ✓ **DONE (3/3)** — starter templates (PLAY-4), versioning + history (PLAY-6), org-authored practice + preview (PRAC-5; the apply-PR shipped in PLAY-1). See `FIXES-MEDIUMS-D-PLAYBOOKS.md`.
 - **Mediums Wave G · CI-gate + metering hygiene.** ✓ **DONE (4/4 actionable)** — dedup badge limiter (QUOTA-5), ledger reconciliation (USE-4), per-dimension gate detail (CIGATE-4), quota observability (QUOTA-6); CIGATE-5 gate-badge already shipped in GATE-1. See `FIXES-MEDIUMS-G-CIGATE-METERING.md`.
+- **Mediums Wave H · Live-ops & standard polish.** ✓ **DONE (5/5)** — map live auto-refresh (MAP-6), celebration sound (WARROOM-5), zero-setup demo CTA (ONB-6), skill decision/failed-approach memories (STD-5), skill generation history (STD-6). See `FIXES-MEDIUMS-H-LIVEOPS.md`.
 - **Remaining / optional.** Delivery analytics depth (PPL-1, PPL-2, PPL-3, PPL-4), multi-org (OVR-1, OVR-3), exec narrative (EXEC-2, EXEC-3), governance digest/policy (PRAC-2, PRAC-3, PRAC-4), standard scaffolding (STD-2, STD-3, STD-4), playbook promotion (PLAY-2, PLAY-3), per-segment trends (SEG-2, SEG-3), abuse backstop (QUOTA-2), plus the 49 mediums + 4 lows.
 
 ---
