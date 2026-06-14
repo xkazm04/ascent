@@ -10,14 +10,22 @@ export function RepoRow({
   rowError,
   onToggleWatch,
   onChangeSchedule,
+  segments = [],
+  segmentIds = [],
+  onToggleSegment,
 }: {
   r: AppRepo;
   rowError: string | undefined;
   onToggleWatch: (r: AppRepo, watched: boolean) => void;
   onChangeSchedule: (r: AppRepo, schedule: string) => void;
+  /** The org's segments + this repo's current membership, for tag-as-you-select (watched repos only). */
+  segments?: { id: string; name: string; color: string }[];
+  segmentIds?: string[];
+  onToggleSegment?: (r: AppRepo, segId: string) => void;
 }) {
   const st = r.state;
   const lc = st?.level ? LEVEL_CLASSES[st.level as LevelId] : null;
+  const tagged = new Set(segmentIds);
   return (
     <div className="p-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -75,6 +83,28 @@ export function RepoRow({
           Scan
         </Link>
       </div>
+      {/* Segment tagging — only on watched repos (an unwatched repo has no row yet to tag). */}
+      {segments.length > 0 && onToggleSegment && st?.watched && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="font-mono text-sm uppercase tracking-widest text-slate-600">Segments</span>
+          {segments.map((s) => {
+            const on = tagged.has(s.id);
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => onToggleSegment(r, s.id)}
+                aria-pressed={on}
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-sm transition"
+                style={on ? { backgroundColor: s.color, borderColor: s.color, color: "#04070e" } : { borderColor: "#334155", color: "#94a3b8" }}
+              >
+                {!on && <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />}
+                {s.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {rowError && (
         <p role="alert" className="mt-2 text-sm text-danger">
           {rowError}

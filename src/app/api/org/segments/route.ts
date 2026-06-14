@@ -4,7 +4,7 @@
 // optional segment filter scoping it to a segment's tagged repos. See src/lib/db/segments.ts.
 
 import { NextResponse } from "next/server";
-import { createSegment, isDbConfigured, listSegments } from "@/lib/db";
+import { createSegment, getRepoSegmentMap, isDbConfigured, listSegments } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
@@ -12,12 +12,21 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Segments require a database." }, { status: 503 });
-  const org = new URL(request.url).searchParams.get("org");
+  const { searchParams } = new URL(request.url);
+  const org = searchParams.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
   const denied = await requireOrgRead(org);
   if (denied) return denied;
-  const segments = await listSegments(org);
-  return NextResponse.json({ segments: segments ?? [] });
+  const segments = (await listSegments(org)) ?? [];
+  // ?membership=1 also returns fullName → tagged segment ids, so a client (the connect screen) can
+  // render a per-repo segment picker without a second round-trip.
+  if (searchParams.get("membership") === "1") {
+    const map = await getRepoSegmentMap(org);
+    const membership: Record<string, string[]> = {};
+    for (const [fullName, segs] of Object.entries(map)) membership[fullName] = segs.map((s) => s.id);
+    return NextResponse.json({ segments, membership });
+  }
+  return NextResponse.json({ segments });
 }
 
 export async function POST(request: Request) {

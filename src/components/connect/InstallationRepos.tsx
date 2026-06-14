@@ -27,6 +27,11 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   // one credit per run, so the header shows what the current watch/schedule choices cost against
   // the balance. Best-effort — a failed read (DB-less deploy, no access) just hides the strip.
   const [credit, setCredit] = useState<CreditInfo | null>(null);
+  // Org segments + per-repo membership, so a repo can be tagged into a slice as it's selected
+  // (instead of a second pass on the Repositories tab). Tagging requires the repo to exist as a
+  // row, so the picker only shows on watched repos. Best-effort: a failed read just hides the picker.
+  const [segments, setSegments] = useState<{ id: string; name: string; color: string }[]>([]);
+  const [segMembership, setSegMembership] = useState<Record<string, string[]>>({});
 
   // Search / filter state (Phase 7 — large orgs have hundreds of repos).
   const [query, setQuery] = useState("");
@@ -86,6 +91,65 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       controller.abort();
     };
   }, [org]);
+
+  useEffect(() => {
+    // Load this org's segments + membership (best-effort, cancellable — same contract as above).
+    const controller = new AbortController();
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset so a stale org's segments never show
+    setSegments([]);
+    setSegMembership({});
+    fetch(`/api/org/segments?org=${encodeURIComponent(org)}&membership=1`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!active || !d) return;
+        setSegments(Array.isArray(d.segments) ? d.segments : []);
+        setSegMembership(d.membership ?? {});
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [org]);
+
+  // Optimistic tag/untag of a repo into a segment (only offered on watched repos — tagging needs the
+  // repo row). Rolls back + surfaces an inline error if the POST fails, like watch/schedule.
+  async function toggleSegment(r: AppRepo, segId: string) {
+    const current = segMembership[r.fullName] ?? [];
+    const member = !current.includes(segId);
+    setSegMembership((m) => {
+      const ids = new Set(m[r.fullName] ?? []);
+      if (member) ids.add(segId);
+      else ids.delete(segId);
+      return { ...m, [r.fullName]: [...ids] };
+    });
+    setRowError(r.fullName, null);
+    try {
+      const res = await fetch(`/api/org/segments/${segId}/repos`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org, fullName: r.fullName, member }),
+      });
+      if (!res.ok) {
+        setSegMembership((m) => {
+          const ids = new Set(m[r.fullName] ?? []);
+          if (member) ids.delete(segId);
+          else ids.add(segId);
+          return { ...m, [r.fullName]: [...ids] };
+        });
+        setRowError(r.fullName, "Couldn't update segment — not saved. Try again.");
+      }
+    } catch {
+      setSegMembership((m) => {
+        const ids = new Set(m[r.fullName] ?? []);
+        if (member) ids.delete(segId);
+        else ids.add(segId);
+        return { ...m, [r.fullName]: [...ids] };
+      });
+      setRowError(r.fullName, "Network error — segment not saved. Try again.");
+    }
+  }
 
   function patch(fullName: string, next: Partial<RepoState>) {
     setView((v) =>
@@ -157,7 +221,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     }
   }
 
-  const repos = view.status === "done" ? view.repos : [];
+  const repos = useMemo(() => (view.status === "done" ? view.repos : []), [view]);
 
   const languages = useMemo(
     () => [...new Set(repos.map((r) => r.language).filter((l): l is string => Boolean(l)))].sort(),
@@ -381,6 +445,9 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
               rowError={errors[r.fullName]}
               onToggleWatch={toggleWatch}
               onChangeSchedule={changeSchedule}
+              segments={segments}
+              segmentIds={segMembership[r.fullName] ?? []}
+              onToggleSegment={toggleSegment}
             />
           ))}
         </div>
