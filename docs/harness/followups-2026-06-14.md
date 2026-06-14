@@ -40,3 +40,20 @@ Anchor facts: doctor computes the score at `src/lib/standard/doctor.ts:122-132`;
 to "re-scan in Ascent to confirm the maturity delta" (`src/lib/onboarding/skill.ts`); today nothing
 ingests it. Report = `docs/harness/feature-scout-2026-06-14/ai-native-standard-onboarding-skill.md`
 finding STD-1.
+
+## MEM-2 — Member invite flow — DEFERRED (migration: new Invite model)
+
+Wave 2 shipped member management (MEM-1/3/4) but invites need a new `Invite` model
+(`id, orgId, email|githubLogin, role, token, status, expiresAt`) + migration, a `src/lib/db/invites.ts`
+(`createInvite`/`acceptInvite`/`listPendingInvites`), `/api/org/invites` (POST/GET/DELETE, owner-gated),
+and an `/invite/[token]` accept page that resolves the signed-in GitHub login. Surface pending invites
+in the Members panel. The current "add member" path (`setMembershipRole` from a bare login) silently
+creates a ghost membership on a typo — invites fix that. ~1.5–2 days. Report finding MEM-2.
+
+## ALRT-3 — Per-org regression thresholds — DEFERRED (migration: Organization columns)
+
+`detectRegression` already takes a `RegressionThresholds` arg but is always called with
+`DEFAULT_THRESHOLDS`. Add nullable `Organization.alertOverallDrop` / `alertDimensionDrop` (+ the
+`prisma/init.sql` mirror + migration), load them in `checkAndAlertRegression` (`scan-alerts.ts`), and
+add the inputs to the `AlertsControl` popover next to the webhook (shipped in ALRT-1, which needed no
+schema change). Also a per-org "minimum severity to alert" toggle. ~1 day. Report finding ALRT-3.

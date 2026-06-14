@@ -787,3 +787,32 @@
   planning completeness, live ops, audit/compliance + CI gate, growth/SEO + onboarding, 49 mediums.
 - **Route tests** for `apply-batch` + `playbooks/[id]/apply` not added (thin compositions of tested
   primitives); a reasonable follow-up.
+
+## Feature Scout Pipeline B — "Expose dormant backends" wave (2026-06-14, Wave 2)
+
+### Structural facts
+- **2026-06-14** — Several shipped-but-UI-less backends now have surfaces; don't re-flag as gaps:
+  member management (`/org/[slug]/members` page + `MembersPanel`, owner-gated), alert routing
+  (`AlertsControl` chip in the org header, admin-only), per-segment scan/cadence (`SegmentActions` on
+  each segment card), and bulk watch/schedule on Connect.
+- **2026-06-14** — New server bits (no schema change): `DELETE /api/org/members?org=&login=` +
+  `db.removeMembership()` (refuses the last owner); `POST /api/org/members` now audits
+  `org.member.role`/`.removed`; `POST /api/org/alerts {test:true}` dispatches a sample alert;
+  `/api/org/watch` accepts a `repos[]` bulk batch (sequential writes); `authz.hasOrgRole(org,min)`
+  (boolean `requireOrgRole` for server pages).
+- **2026-06-14** — `getRepoSegmentMap(org)` returns repo-fullName → segments[]; invert it for
+  segment → repos. `setWatchedSchedule(org, schedule, segmentId?)` (no-fullName `/api/org/schedule`
+  body) sets cadence across the whole watched set or a segment; `/api/org/scan {repos:[]}` scopes a
+  bulk scan to a repo set (filtered against watched).
+
+### Conventions enforced
+- **2026-06-14** — Page gate = boolean (`hasOrgRole`); route gate = Response (`requireOrgRole`). Don't
+  duplicate the resolution — derive the boolean from the Response form.
+- **2026-06-14** — Bulk endpoint = an array branch on the existing single route, gated once; write
+  sequentially when each item lazily upserts a shared parent (the Organization) so writes can't race it.
+
+### Open follow-ups (from Feature Scout Wave 2, 2026-06-14)
+- **MEM-2 (invite flow)** + **ALRT-3 (per-org thresholds)** deferred — both need a migration (new
+  `Invite` model / new `Organization` columns). Plans in `docs/harness/followups-2026-06-14.md`.
+- Waves 3–8 + tail still open (notifications/email, monetization, planning, live ops, audit/CI gate,
+  growth/onboarding) — see the INDEX.
