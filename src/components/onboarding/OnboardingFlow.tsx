@@ -20,6 +20,18 @@ interface OrgCredit {
 
 type Phase = "pick" | "select" | "scanning" | "done";
 
+// ONB-2: a refresh, an auth bounce, or accidental navigation used to drop the user back to step one.
+// We persist just the inputs needed to rebuild the wizard (not the volatile repo list / scan rows) to
+// sessionStorage, and rehydrate on mount by re-fetching the chosen source's repos and re-applying the
+// saved selection — landing the user back on the select step where they left off.
+const RESUME_KEY = "ascent:onboarding:v1";
+interface ResumeSnapshot {
+  org: string;
+  sourceLabel: string;
+  sourceInstallId: string | null;
+  selected: string[];
+}
+
 /** Rank repos for preselection: most-starred first, then most-recently-pushed. The recency
  *  tie-break is what makes the installation path (private repos, usually 0 stars) preselect the
  *  repos a user actually works in, while public listings still lead with their popular repos. */
@@ -71,6 +83,53 @@ export function OnboardingFlow({
   // Abort controller for the streaming import — aborted on Cancel and on unmount.
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // ONB-2 — rehydrate once on mount (must run BEFORE the persist effect below so the snapshot is read
+  // before that effect could overwrite it). Reads the saved source + selection and re-enters the
+  // select step. Only the inputs are restored; the repo list is re-fetched live, so a stale scanning/
+  // done phase resolves to a clean select step rather than a broken empty view.
+  const rehydrated = useRef(false);
+  useEffect(() => {
+    if (rehydrated.current || typeof window === "undefined") return;
+    rehydrated.current = true;
+    let snap: ResumeSnapshot | null = null;
+    try {
+      const raw = sessionStorage.getItem(RESUME_KEY);
+      snap = raw ? (JSON.parse(raw) as ResumeSnapshot) : null;
+    } catch {
+      snap = null;
+    }
+    if (snap?.sourceLabel) void resumeFrom(snap);
+    // Run-once on mount; resumeFrom is stable for this purpose and intentionally excluded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ONB-2 — persist the resumable inputs whenever they change. Never removes on the initial empty
+  // mount (guarded on sourceLabel), and clears once the scan is saved server-side (the done state),
+  // where the page's "welcome back" banner takes over.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (phase === "done") {
+        sessionStorage.removeItem(RESUME_KEY);
+        return;
+      }
+      if (!sourceLabel) return; // nothing meaningful to resume until a source is chosen
+      const snap: ResumeSnapshot = { org, sourceLabel, sourceInstallId, selected: [...selected] };
+      sessionStorage.setItem(RESUME_KEY, JSON.stringify(snap));
+    } catch {
+      /* sessionStorage unavailable (private mode / quota) — resumability is best-effort */
+    }
+  }, [phase, org, sourceLabel, sourceInstallId, selected]);
+
+  // Re-fetch the saved source's repos, then re-apply the saved selection (landing on the select step).
+  async function resumeFrom(snap: ResumeSnapshot) {
+    if (snap.sourceInstallId) await loadInstallationRepos(snap.org || snap.sourceLabel, snap.sourceInstallId);
+    else await loadRepos(undefined, snap.sourceLabel);
+    // Override the loaders' default top-N selection with the user's saved picks. A pick that's no
+    // longer in the freshly loaded list is harmless (startScan intersects selection with `repos`).
+    if (snap.selected.length) setSelected(new Set(snap.selected));
+  }
 
   async function loadRepos(e?: React.FormEvent, preset?: string) {
     e?.preventDefault();

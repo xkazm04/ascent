@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { getSession } from "@/lib/auth";
+import { getOrgRollup } from "@/lib/db";
 
 export const metadata: Metadata = {
   title: "Onboarding · Ascent",
@@ -24,10 +26,34 @@ export default async function OnboardingPage() {
   const suggestedOrgs = session?.suggestedOrgs ?? [];
   const seededOrg = session?.seededOrg;
 
+  // ONB-2 (server half): has this viewer already scanned repos in one of their orgs? If so, offer a
+  // "welcome back" jump to that dashboard instead of a cold start. Cheap: only the viewer's own org
+  // slugs (installations + the seeded org), capped, rollups fetched concurrently; the first with a
+  // scanned repo wins. The client wizard separately resumes an *in-progress* (unfinished) flow.
+  const candidateSlugs = Array.from(
+    new Set([...installations.map((i) => i.login.toLowerCase()), ...(seededOrg ? [seededOrg.toLowerCase()] : [])]),
+  ).slice(0, 6);
+  const rollups = await Promise.all(candidateSlugs.map((s) => getOrgRollup(s).catch(() => null)));
+  const scannedOrg = candidateSlugs.find((_, i) => (rollups[i]?.scannedCount ?? 0) > 0) ?? null;
+
   return (
     <>
       <SiteHeader />
       <main className="mx-auto w-full max-w-3xl px-5 py-10">
+        {scannedOrg && (
+          <div className="animate-fade-up mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3">
+            <div className="text-base text-slate-200">
+              <span className="font-medium text-white">Welcome back.</span> You&apos;ve already scanned repos in{" "}
+              <span className="font-mono text-accent">{scannedOrg}</span> — pick up where you left off, or scan more below.
+            </div>
+            <Link
+              href={`/org/${encodeURIComponent(scannedOrg)}`}
+              className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition hover:bg-accent-soft"
+            >
+              View dashboard →
+            </Link>
+          </div>
+        )}
         {/* animate-fade-up on the header to match connect/page's entrance (Phase 4). */}
         <div className="animate-fade-up mb-8">
           <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Get started</div>
