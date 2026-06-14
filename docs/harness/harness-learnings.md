@@ -872,5 +872,32 @@ PR #2 (Waves 1–2 + 3 schema items) was merged to master; work then continued D
 ### Open follow-ups (from this round)
 - **CRED-1 (Stripe Checkout) + CRED-3 (auto-recharge)** deferred — the funnel (meter/pricing/tiers/CTA) is
   ready to wire to checkout; build fetch-based + env-gated when wanted.
-- Waves 5 (planning), 6 (live ops), 8 (growth/onboarding) + notifications/email (excluded) + 49 mediums /
-  4 lows remain — see the INDEX.
+- Waves 5 (planning), 8 (growth/onboarding) + notifications/email (excluded) + 49 mediums / 4 lows remain.
+
+## Feature Scout — Wave 6 Live ops (2026-06-14, on master) — COMPLETE (6/6)
+
+See `FIXES-WAVE-6.md`. Made the war-room + `/launch` fleet map live/goal-aware/interactive.
+
+### Structural facts
+- **2026-06-14** — Live war-room (`live/page.tsx` + LiveWarRoom + LiveWarRoomHeader) is now goal-aware:
+  fetches `listGoals` (top un-achieved goal), windows `getOrgRollup` on the goal's createdAt for the
+  "+N since kickoff" delta, renders a goal banner (PaceChip + Meter + deadline countdown), has an opt-in
+  15-min auto-relaunch (localStorage), a "TV mode" (fullscreen + wakeLock), and a `readOnly` mode.
+- **2026-06-14** — Signed live-share: `src/lib/live-share.ts` (`signLiveShareToken`/`verifyLiveShareToken`,
+  HMAC over `{org,exp}`, secret = `LIVE_SHARE_SECRET`||`AUTH_SECRET`, inert otherwise). Owner-gated
+  `POST /api/org/live-share` mints; `/live/shared/[token]` renders the wall READ-ONLY outside the org
+  session gate (token = capability), noindex, no scan trigger.
+- **2026-06-14** — `/launch` fleet map: per-org "Scan" button (reuses `/api/org/scan` SSE, patches stars
+  in place); `/api/app/repos` now attaches a 30-day per-repo `dOverall` from `getOrgMovers`, rendered as
+  a directional ring + tooltip delta + a fleet "movers · 30d" chip. `RepoStar.dOverall` added.
+
+### Conventions enforced
+- **2026-06-14** — Make a glanced surface live by folding streamed `repo` SSE events into local state
+  (war-room + map both patch in place), and surface movement by consuming the existing
+  `getOrgMovers`/rollup-window machinery rather than re-deriving it.
+- **2026-06-14** — To expose private data on an unauthenticated screen: a signed + expiring HMAC token
+  (capability) + a strictly READ-ONLY render outside the session gate + noindex. No mutation paths.
+
+### Open follow-ups
+- Wave 5 (planning), Wave 8 (growth/onboarding), Stripe (CRED-1/CRED-3), notifications/email (excluded),
+  49 mediums / 4 lows remain — see the INDEX.
