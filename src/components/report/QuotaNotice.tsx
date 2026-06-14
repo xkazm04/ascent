@@ -44,9 +44,21 @@ export function QuotaBlocked({
   scope: QuotaScope;
   signInNext: string;
 }) {
+  // Always offer a paid upgrade path so the blocked moment converts instead of dead-ending — it's the
+  // PRIMARY action for a signed-in caller (who has no sign-in upsell), secondary behind sign-in for an
+  // anonymous one.
+  const offerSignIn = canOfferSignIn(scope);
   return (
-    <EmptyState icon="⏳" title="Weekly scan limit reached" body={message} actions={[{ label: "← Back home", href: "/" }]}>
-      {canOfferSignIn(scope) && (
+    <EmptyState
+      icon="⏳"
+      title="Weekly scan limit reached"
+      body={message}
+      actions={[
+        { label: "See plans →", href: "/pricing", primary: !offerSignIn },
+        { label: "← Back home", href: "/" },
+      ]}
+    >
+      {offerSignIn && (
         <SupabaseSignInButton variant="primary" label="Sign in for a higher limit" next={signInNext} />
       )}
     </EmptyState>
@@ -87,8 +99,12 @@ export function QuotaStaleNotice({
         Showing the last saved scan{scannedOn} — your free weekly limit is used; it resets{" "}
         {formatResetAt(resetAt)}.
       </span>
-      {canOfferSignIn(scope) && (
+      {canOfferSignIn(scope) ? (
         <SupabaseSignInButton variant="nav" label="Sign in for more" next={signInNext} />
+      ) : (
+        <a href="/pricing" className="shrink-0 font-mono text-sm text-accent hover:text-white">
+          See plans →
+        </a>
       )}
     </div>
   );
@@ -128,8 +144,14 @@ export function QuotaBanner({
           </>
         )}
       </span>
-      {canOfferSignIn(scope) && (
+      {canOfferSignIn(scope) ? (
         <SupabaseSignInButton variant="nav" label="Sign in for more" next={signInNext} />
+      ) : (
+        last && (
+          <a href="/pricing" className="shrink-0 font-mono text-sm text-accent hover:text-white">
+            See plans →
+          </a>
+        )
       )}
     </div>
   );
