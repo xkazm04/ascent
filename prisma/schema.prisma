@@ -527,3 +527,19 @@ model BadgeImpression {
   @@unique([repoFullName, refererHost])
   @@index([repoFullName])
 }
+
+// Public-funnel abuse observability (QUOTA-6): a running tally bumped fire-and-forget when the free
+// funnel pushes back — a weekly-quota denial or a rate-limit trip — so /usage can show how often the
+// guardrails fire. `kind` = "quota_deny" | "rate_limit"; `scope` = "anon"/"user" (quota) or the
+// limiter name ("badge", …). No FK; keyed by the unique pair. Written best-effort from
+// src/lib/public-scan-quota.ts + the badge route; read by src/lib/db/quota-events.ts.
+model QuotaEvent {
+  id        String   @id @default(uuid())
+  kind      String
+  scope     String
+  count     Int      @default(0)
+  firstSeen DateTime @default(now())
+  lastSeen  DateTime @default(now())
+
+  @@unique([kind, scope])
+}

@@ -54,6 +54,7 @@ export {
 } from "@/lib/db/retention";
 export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
 export { recordBadgeImpression, getBadgeReach, type BadgeReach } from "@/lib/db/badge-analytics";
+export { recordQuotaEvent, getQuotaEventTotals, type QuotaEventTotals } from "@/lib/db/quota-events";
 export {
   getCreditState,
   grantCredits,

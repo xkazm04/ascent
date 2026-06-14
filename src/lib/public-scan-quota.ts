@@ -22,6 +22,7 @@ import { Prisma } from "@prisma/client";
 import { clientIp } from "@/lib/rate-limit";
 import { isDbConfigured, withDb, withRetry } from "@/lib/db";
 import { readDsqlConfig } from "@/lib/db/client";
+import { recordQuotaEvent } from "@/lib/db/quota-events";
 
 /**
  * Isolation for the quota's read-modify-write transactions. Vanilla Postgres defaults to READ
@@ -163,7 +164,7 @@ export async function consumePublicScanQuota(
   const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
   const now = Date.now();
   try {
-    return await withDb((db) =>
+    const result = await withDb((db) =>
       withRetry(
         () =>
           db.$transaction(async (tx) => {
@@ -197,6 +198,11 @@ export async function consumePublicScanQuota(
         { label: "public-scan-quota" },
       ),
     );
+    // QUOTA-6: count an enforced denial (fire-and-forget, after the tx — never inside it).
+    if (result.enforced && !result.allowed) {
+      void recordQuotaEvent("quota_deny", signedIn ? "user" : "anon").catch(() => {});
+    }
+    return result;
   } catch (err) {
     // Soft gate: a quota-store failure must not block a scan the user is entitled to. Fail OPEN.
     console.error("[public-scan-quota] check failed; failing open", err);

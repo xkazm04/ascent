@@ -499,6 +499,21 @@ CREATE UNIQUE INDEX "BadgeImpression_repoFullName_refererHost_key" ON "BadgeImpr
 -- CreateIndex
 CREATE INDEX "BadgeImpression_repoFullName_idx" ON "BadgeImpression"("repoFullName");
 
+-- CreateTable
+CREATE TABLE "QuotaEvent" (
+    "id" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "scope" TEXT NOT NULL,
+    "count" INTEGER NOT NULL DEFAULT 0,
+    "firstSeen" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSeen" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "QuotaEvent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "QuotaEvent_kind_scope_key" ON "QuotaEvent"("kind", "scope");
+
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the

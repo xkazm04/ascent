@@ -2,7 +2,7 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { EmptyState } from "@/components/EmptyState";
 import { SignInNotice } from "@/components/SignInNotice";
 import { UsageTrend } from "@/components/usage/UsageTrend";
-import { getBadgeReach, getCreditReconciliation, getCreditState, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type UsageSummary } from "@/lib/db";
+import { getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
 import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { timeAgo } from "@/lib/ui";
 
@@ -114,14 +114,17 @@ export default async function UsagePage({
   let badgeReach: BadgeReach | null = null;
   // Credit reconciliation for the panel (USE-4) — non-public orgs only; best-effort.
   let recon: CreditReconciliation | null = null;
+  // Public-funnel abuse counters (QUOTA-6) — only meaningful on the shared public view; best-effort.
+  let quotaEvents: QuotaEventTotals | null = null;
   try {
-    [usage, credit, badgeReach, recon] = await Promise.all([
+    [usage, credit, badgeReach, recon, quotaEvents] = await Promise.all([
       getUsageSummary(org, days),
       org.toLowerCase() === PUBLIC_ORG
         ? Promise.resolve(null)
         : getCreditState(org).catch(() => null),
       getBadgeReach(org).catch(() => null),
       org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : getCreditReconciliation(org, days).catch(() => null),
+      org.toLowerCase() === PUBLIC_ORG ? getQuotaEventTotals().catch(() => null) : Promise.resolve(null),
     ]);
   } catch {
     usage = null;
@@ -362,6 +365,52 @@ export default async function UsagePage({
               A lower bound: README badges are served through GitHub&apos;s image proxy and edge caches, so
               most views are answered from cache and never reach the origin to be counted. Click-throughs are
               tagged <span className="font-mono">?ref=badge</span> for attribution in your analytics.
+            </p>
+          </div>
+        )}
+
+        {/* Abuse & limits (QUOTA-6): how often the free funnel's guardrails fired — weekly-quota
+            denials + rate-limit trips. All-time counters; public view only. */}
+        {quotaEvents && quotaEvents.total > 0 && (
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+            <h2 className="text-base font-semibold text-white">
+              Abuse &amp; limits <span className="font-normal text-slate-500">· free-funnel guardrails · all time</span>
+            </h2>
+            <div className="mt-3 grid gap-4 lg:grid-cols-2">
+              <div>
+                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Weekly-quota denials</div>
+                <div className="mt-2 space-y-1.5 text-base">
+                  {quotaEvents.quotaDenies.length === 0 ? (
+                    <p className="text-slate-500">None — no one&apos;s hit the weekly free-scan cap.</p>
+                  ) : (
+                    quotaEvents.quotaDenies.map((d) => (
+                      <div key={d.scope} className="flex items-center justify-between gap-3">
+                        <span className="font-mono text-sm text-slate-300">{d.scope === "user" ? "signed-in" : "anonymous"}</span>
+                        <span className="shrink-0 font-mono tabular-nums text-slate-400">{d.count.toLocaleString()}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Rate-limit trips</div>
+                <div className="mt-2 space-y-1.5 text-base">
+                  {quotaEvents.rateLimitTrips.length === 0 ? (
+                    <p className="text-slate-500">None recorded.</p>
+                  ) : (
+                    quotaEvents.rateLimitTrips.map((t) => (
+                      <div key={t.scope} className="flex items-center justify-between gap-3">
+                        <span className="font-mono text-sm text-slate-300">{t.scope}</span>
+                        <span className="shrink-0 font-mono tabular-nums text-slate-400">{t.count.toLocaleString()}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-slate-500">
+              The per-minute burst limiter on scan/import is an in-memory backstop and isn&apos;t counted here;
+              these are the durable signals (weekly-quota denials + the badge limiter).
             </p>
           </div>
         )}

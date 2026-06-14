@@ -23,7 +23,7 @@ import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
 import { rateLimitRequest, BADGE_RATE_LIMIT } from "@/lib/rate-limit";
-import { recordBadgeImpression } from "@/lib/db";
+import { recordBadgeImpression, recordQuotaEvent } from "@/lib/db";
 import { LEVEL_GLYPH, LEVEL_HEX } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
@@ -285,6 +285,7 @@ export async function GET(
       //    static badge + 429, so we never run scanRepository for a flood of unique owner/repo combos.
       const rl = rateLimitRequest(req, BADGE_RATE_LIMIT);
       if (!rl.ok) {
+        void recordQuotaEvent("rate_limit", "badge").catch(() => {}); // QUOTA-6: observability only
         return respond(
           badgeSvg({ label, value: "rate limited", color: resolveColor(customColor, neutral), style, logo }),
           { status: 429, retryAfter: rl.retryAfterSec, cache: CACHE_TRANSIENT },
