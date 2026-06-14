@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
 import { scoreHex } from "@/lib/ui";
 import type { FleetProjection } from "@/lib/scoring/orgsim";
@@ -19,6 +20,7 @@ const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 /** What-if: project the fleet impact of raising a dimension to a target across a repo set. */
 export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption[]; repos: RepoOption[] }) {
+  const router = useRouter();
   const [dimId, setDimId] = useState(dims[0]?.id ?? "D2");
   const [target, setTarget] = useState(70);
   const [scope, setScope] = useState<Set<string>>(new Set());
@@ -26,6 +28,9 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [result, setResult] = useState<FleetProjection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tracking, setTracking] = useState(false);
+  const [tracked, setTracked] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
 
   function toggle(fullName: string) {
     setScope((s) => {
@@ -39,6 +44,8 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   async function run() {
     setBusy(true);
     setError(null);
+    setTracked(false);
+    setTrackError(null);
     try {
       const res = await fetch("/api/org/simulate", {
         method: "POST",
@@ -52,6 +59,33 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       setError(e instanceof Error ? e.message : "Failed to simulate.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Commit the simulated scenario as a tracked Initiative — closes the "insight → plan" loop.
+  // /api/org/initiatives takes the exact { dimId, targetScore, repos } shape the sim already holds.
+  async function trackAsInitiative() {
+    if (!result) return;
+    setTracking(true);
+    setTrackError(null);
+    // Use the explicit selection, or the concrete repos the projection covered when scope = "all".
+    const initRepos = scope.size > 0 ? [...scope] : result.repos.map((r) => r.fullName);
+    const dimLabel = dims.find((d) => d.id === dimId)?.label ?? dimId;
+    const title = `Raise ${dimId} · ${dimLabel} to ${target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
+    try {
+      const res = await fetch("/api/org/initiatives", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug, title, dimId, targetScore: target, repos: initRepos }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
+      setTracked(true);
+      router.refresh(); // surface the new initiative in the Initiatives panel on this page
+    } catch (e) {
+      setTrackError(e instanceof Error ? e.message : "Failed to create initiative.");
+    } finally {
+      setTracking(false);
     }
   }
 
@@ -115,6 +149,19 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
             )}
             .
           </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={trackAsInitiative}
+              disabled={tracking || tracked}
+              className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+            >
+              {tracked ? "✓ Tracked as initiative" : tracking ? "Tracking…" : "Track as initiative"}
+            </button>
+            {tracked && <span className="font-mono text-sm text-emerald-300">Added to the Initiatives panel below.</span>}
+            {trackError && <span className="font-mono text-sm text-orange-300">{trackError}</span>}
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-3">
             {([
               ["Overall", result.before.avgOverall, result.after.avgOverall, `${result.before.level} → ${result.after.level}`],
