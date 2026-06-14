@@ -104,20 +104,50 @@ export function GoalsPanel({
       />
       <div className="mt-4 space-y-3">
         {goals.length === 0 && <p className="text-base text-slate-500">No goals yet — set one below.</p>}
-        {goals.map((g) => (
-          <GoalCard
-            key={g.id}
-            goal={g}
-            slug={slug}
-            initiatives={initiativesByGoal[g.id]}
-            action={
-              <button onClick={() => remove(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
-                remove
-              </button>
-            }
-          />
-        ))}
+        {goals
+          .filter((g) => g.status !== "achieved")
+          .map((g) => (
+            <GoalCard
+              key={g.id}
+              goal={g}
+              slug={slug}
+              initiatives={initiativesByGoal[g.id]}
+              action={
+                <button onClick={() => remove(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
+                  remove
+                </button>
+              }
+            />
+          ))}
       </div>
+
+      {/* GOAL-4: met goals collapse into their own group so the active list stays focused. */}
+      {goals.some((g) => g.status === "achieved") && (
+        <details className="group mt-3">
+          <summary className="flex cursor-pointer list-none items-center gap-2 font-mono text-sm uppercase tracking-widest text-emerald-300/80 [&::-webkit-details-marker]:hidden">
+            <span aria-hidden className="text-slate-600 transition-transform group-open:rotate-90">›</span>
+            Met · {goals.filter((g) => g.status === "achieved").length} 🎉
+          </summary>
+          <div className="mt-3 space-y-3">
+            {goals
+              .filter((g) => g.status === "achieved")
+              .map((g) => (
+                <GoalCard
+                  key={g.id}
+                  goal={g}
+                  slug={slug}
+                  compact
+                  initiatives={initiativesByGoal[g.id]}
+                  action={
+                    <button onClick={() => remove(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
+                      remove
+                    </button>
+                  }
+                />
+              ))}
+          </div>
+        </details>
+      )}
 
       {/* GOAL-5: one-click suggested goals so the org never starts from a blank box. */}
       {picks.length > 0 && (

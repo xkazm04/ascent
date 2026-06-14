@@ -260,6 +260,7 @@ CREATE TABLE "Goal" (
     "target" INTEGER NOT NULL DEFAULT 50,
     "targetDate" TIMESTAMP(3),
     "status" TEXT NOT NULL DEFAULT 'active',
+    "achievedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Goal_pkey" PRIMARY KEY ("id")

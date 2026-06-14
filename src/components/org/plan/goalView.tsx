@@ -25,6 +25,8 @@ export interface GoalProgressView {
   pct: number;
   achieved: boolean;
   status: string;
+  /** When the goal first met its target (ISO), or null — drives the "Achieved" state. */
+  achievedAt?: string | null;
   createdAt?: string;
   targetDate: string | null;
   pace: GoalPace;
@@ -124,7 +126,16 @@ export function GoalCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate text-base font-medium text-white">{goal.label}</span>
-            <PaceChip pace={goal.pace} />
+            {goal.status === "achieved" ? (
+              <span
+                className="shrink-0 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-mono text-sm uppercase tracking-widest text-emerald-300"
+                title={goal.achievedAt ? `Reached on ${goal.achievedAt.slice(0, 10)}` : "Target met"}
+              >
+                🎉 Achieved{goal.achievedAt ? ` · ${goal.achievedAt.slice(0, 10)}` : ""}
+              </span>
+            ) : (
+              <PaceChip pace={goal.pace} />
+            )}
           </div>
           <div className="mt-0.5 font-mono text-sm text-slate-500">
             {goal.metricLabel} · {goal.current}/{goal.target}

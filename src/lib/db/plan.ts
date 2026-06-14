@@ -193,6 +193,8 @@ export interface GoalProgress {
   pct: number;
   achieved: boolean;
   status: string;
+  /** When the goal first reached its target (ISO date), or null while it's still in progress. */
+  achievedAt: string | null;
   createdAt: string;
   /** Optional deadline (YYYY-MM-DD) the goal is paced against, or null when open-ended. */
   targetDate: string | null;
@@ -255,7 +257,10 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
   ]);
   const series = await metricSeries(orgId, new Set(goals.map((g) => g.metric)));
   const now = Date.now();
-  return goals.map((g) => {
+  // GOAL-4: a goal that first reaches its target is stamped achieved (status + achievedAt) exactly
+  // once — collected here, persisted after the map. Idempotent: a goal already "achieved" is skipped.
+  const justAchieved: string[] = [];
+  const out = goals.map((g) => {
     const current = currentFor(g.metric, snap);
     const targetDate = g.targetDate ? g.targetDate.toISOString().slice(0, 10) : null;
     const proj = projectGoal({ series: series[g.metric] ?? [], current, target: g.target, targetDate, nowMs: now });
@@ -264,6 +269,10 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       .filter((r) => r.value < g.target)
       .sort((a, b) => a.value - b.value || a.fullName.localeCompare(b.fullName))
       .map((r) => ({ ...r, gap: g.target - r.value }));
+    const reached = current >= g.target;
+    const newlyAchieved = reached && g.status === "active";
+    if (newlyAchieved) justAchieved.push(g.id);
+    const achievedAt = newlyAchieved ? new Date(now).toISOString() : g.achievedAt ? g.achievedAt.toISOString() : null;
     return {
       id: g.id,
       label: g.label,
@@ -272,8 +281,9 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       target: g.target,
       current,
       pct: g.target > 0 ? Math.max(0, Math.min(100, Math.round((current / g.target) * 100))) : 100,
-      achieved: current >= g.target,
-      status: g.status,
+      achieved: reached,
+      status: newlyAchieved ? "achieved" : g.status,
+      achievedAt,
       createdAt: g.createdAt.toISOString(),
       targetDate,
       pace: proj.pace,
@@ -287,6 +297,14 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       belowCount: below.length,
     };
   });
+  // Best-effort persistence of the transition — a failed write just re-marks on the next load.
+  if (justAchieved.length) {
+    const at = new Date(now);
+    await Promise.all(
+      justAchieved.map((id) => prisma.goal.update({ where: { id }, data: { status: "achieved", achievedAt: at } }).catch(() => {})),
+    );
+  }
+  return out;
 }
 
 export async function updateGoal(

@@ -403,6 +403,7 @@ model Goal {
   target     Int       @default(50)
   targetDate DateTime? // optional deadline the goal is paced against (null = open-ended)
   status     String    @default("active") // active | achieved | archived
+  achievedAt DateTime? // when the goal first reached its target (set once by listGoals); null = not met
   createdAt  DateTime  @default(now())
 
   org Organization @relation(fields: [orgId], references: [id])
