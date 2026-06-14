@@ -2,6 +2,7 @@
 // across the whole fleet: pass-rate, where repos fail, the worst offenders, and the exact CI snippet
 // that enforces the SAME policy in pipelines. Assembled from the rollup + @/lib/scoring/gate (no re-scan).
 
+import Link from "next/link";
 import { buildGovernanceOverview, governanceMarkdown, type GovernanceOverview } from "@/lib/org/governance";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
@@ -126,6 +127,60 @@ export default async function OrgGovernance({ params }: { params: Promise<{ slug
           </div>
         )}
       </Card>
+
+      {g.closestToGreen.length > 0 && (
+        <Card>
+          <SectionHeader
+            size="sm"
+            title="Cheapest path to green"
+            description="Failing repos closest to passing — fewest conditions and smallest gap first. Apply the linked practice to clear each dimension."
+          />
+          <div className="mt-3 space-y-3">
+            {g.closestToGreen.map((r) => (
+              <div key={r.fullName} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-sm text-slate-200">{r.fullName}</span>
+                  <span className="font-mono text-xs text-slate-500">
+                    {r.failCount} condition{r.failCount === 1 ? "" : "s"}
+                    {r.gap > 0 && <> · +{r.gap} pts to clear</>}
+                  </span>
+                </div>
+                {r.dims.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {r.dims.map((d) => {
+                      const label = `${d.dimId} ${d.name}: ${d.score}→${d.floor} (+${d.gap})`;
+                      return d.practiceId ? (
+                        <Link
+                          key={d.dimId}
+                          href={`/org/${slug}/practices#practice-${d.practiceId}`}
+                          className="rounded-full border border-accent/40 bg-accent/5 px-2 py-0.5 font-mono text-sm text-accent transition hover:border-accent hover:text-white"
+                          title={`Apply the ${d.name} practice`}
+                        >
+                          {label} →
+                        </Link>
+                      ) : (
+                        <span key={d.dimId} className="rounded-full border border-slate-700 px-2 py-0.5 font-mono text-sm text-slate-400">
+                          {label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {r.blockers.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {r.blockers.map((b, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-slate-500">
+                        <span aria-hidden className="select-none text-amber-400/70">!</span>
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">

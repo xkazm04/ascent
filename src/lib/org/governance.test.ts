@@ -44,6 +44,16 @@ const fixture: GovernanceOverview = {
       reasons: ["Level L2 is below the required L3.", "D9 Supply Chain & Security scored 30, below the required 40."],
     },
   ],
+  closestToGreen: [
+    {
+      name: "web",
+      fullName: "acme/web",
+      failCount: 2,
+      gap: 10,
+      dims: [{ dimId: "D9", name: "Supply Chain & Security", score: 30, floor: 40, gap: 10, practiceId: "supply-chain" }],
+      blockers: ["Level L2 is below the required L3."],
+    },
+  ],
   gateQuery: "min_level=L3&min_dimension=40&no_ungoverned=1",
   ciWith: ["min-level: L3", "min-dimension: '40'", "no-ungoverned: 'true'"],
 };
