@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
 import { scoreHex } from "@/lib/ui";
@@ -31,6 +31,16 @@ interface GoalImpact {
   daysSooner: number | null;
 }
 
+/** A saved what-if snapshot for the client-side compare scratchpad (SIM-5). */
+interface SavedScenario {
+  id: number;
+  label: string;
+  before: FleetProjection["before"];
+  after: FleetProjection["after"];
+  promotions: number;
+  affected: number;
+}
+
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 /** Coarse, friendly duration ("~3 days", "~8 weeks", "~5 months") — matches forecast.humanizeDays. */
@@ -59,6 +69,28 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [trackError, setTrackError] = useState<string | null>(null);
   const [ranking, setRanking] = useState<InvestmentRank[] | null>(null);
   const [rankBusy, setRankBusy] = useState(false);
+  // SIM-5: client-only saved scenarios + a 2-up compare. No backend — a scratchpad for "what if".
+  const [saved, setSaved] = useState<SavedScenario[]>([]);
+  const [compare, setCompare] = useState<number[]>([]);
+  const idRef = useRef(0);
+
+  function saveScenario() {
+    if (!result) return;
+    const label = result.fixes.map((f) => `${f.dimId}→${f.target}`).join(" + ");
+    const s: SavedScenario = {
+      id: ++idRef.current,
+      label,
+      before: result.before,
+      after: result.after,
+      promotions: result.promotions,
+      affected: result.affected,
+    };
+    setSaved((xs) => [s, ...xs].slice(0, 6));
+  }
+  function toggleCompare(id: number) {
+    setCompare((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id].slice(-2)));
+  }
+  const comparing = saved.filter((s) => compare.includes(s.id));
 
   // SIM-3: ask the engine which dimension yields the biggest fleet lift, instead of guessing.
   async function suggestMoves() {
@@ -314,6 +346,13 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
             >
               {tracked ? "✓ Tracked as initiative" : tracking ? "Tracking…" : "Track as initiative"}
             </button>
+            <button
+              onClick={saveScenario}
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+              title="Save this projection to compare against another (SIM-5)"
+            >
+              Save scenario
+            </button>
             {tracked && <span className="font-mono text-sm text-emerald-300">Added to the Initiatives panel below.</span>}
             {trackError && <span className="font-mono text-sm text-orange-300">{trackError}</span>}
           </div>
@@ -385,6 +424,58 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
                     </span>
                   ))}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SIM-5: saved scenarios + a 2-up compare (client-only scratchpad). */}
+      {saved.length > 0 && (
+        <div className="mt-4 border-t border-slate-800 pt-4">
+          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
+            Saved scenarios <span className="text-slate-600">· tick two to compare</span>
+          </div>
+          <div className="mt-2 space-y-1.5">
+            {saved.map((s) => (
+              <label key={s.id} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-1.5 font-mono text-sm">
+                <input type="checkbox" checked={compare.includes(s.id)} onChange={() => toggleCompare(s.id)} className="accent-accent" />
+                <span className="min-w-0 flex-1 truncate text-slate-200">{s.label}</span>
+                <span className="shrink-0 text-slate-500">
+                  overall <span style={{ color: scoreHex(s.after.avgOverall) }}>{s.after.avgOverall}</span>{" "}
+                  <span className="text-emerald-300">{signed(s.after.avgOverall - s.before.avgOverall)}</span>
+                  {s.promotions > 0 && <span className="text-accent"> · {s.promotions}↑</span>}
+                </span>
+                <button onClick={() => setSaved((xs) => xs.filter((x) => x.id !== s.id))} className="text-slate-600 hover:text-orange-300" title="Remove">
+                  ×
+                </button>
+              </label>
+            ))}
+          </div>
+
+          {comparing.length === 2 && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {comparing.map((s) => (
+                <div key={s.id} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
+                  <div className="truncate font-mono text-sm text-white">{s.label}</div>
+                  <div className="mt-1 font-mono text-sm text-slate-400">{s.affected} repo(s) moved · {s.promotions} promoted</div>
+                  <div className="mt-2 space-y-1">
+                    {([
+                      ["Overall", s.before.avgOverall, s.after.avgOverall],
+                      ["Adoption", s.before.avgAdoption, s.after.avgAdoption],
+                      ["Rigor", s.before.avgRigor, s.after.avgRigor],
+                    ] as const).map(([label, b, a]) => (
+                      <div key={label} className="flex items-baseline justify-between gap-2 font-mono text-sm">
+                        <span className="text-slate-500">{label}</span>
+                        <span>
+                          <span style={{ color: scoreHex(a) }}>{a}</span>{" "}
+                          <span className="text-slate-600">from {b}</span>{" "}
+                          <span className={a - b > 0 ? "text-emerald-300" : "text-slate-600"}>{signed(a - b)}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
