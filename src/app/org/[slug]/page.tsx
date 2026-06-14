@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { Trajectory } from "@/components/org/Trajectory";
 import { GoalsOverview } from "@/components/org/GoalsOverview";
@@ -10,12 +11,34 @@ import { OrgGapsSection } from "@/components/org/OrgGapsSection";
 import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
 import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
+import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { resolveWindow } from "@/lib/window";
 import type { RepoMove } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
+
+// SHELL-2: shareable metadata for the fleet dashboard. Real fleet numbers are surfaced ONLY when the
+// org is publicly readable (canReadOrg is true for the shared public org, and — with a session — the
+// viewer's own orgs). An unfurl is fetched without cookies, so a private org always degrades to the
+// neutral description here and the neutral card in the co-located opengraph-image — never leaking
+// private fleet aggregates to whoever holds the link. The OG image advertises summary_large_image.
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const rollup = (await canReadOrg(slug)) ? await getOrgRollup(slug).catch(() => null) : null;
+  const title = `${slug} — fleet maturity · Ascent`;
+  const description =
+    rollup && rollup.repoCount > 0
+      ? `${slug}'s fleet averages ${rollup.avgOverall}/100 (${levelForScore(rollup.avgOverall).id} · ${levelForScore(rollup.avgOverall).name}) across ${rollup.scannedCount}/${rollup.repoCount} scanned repos on Ascent.`
+      : `AI-native engineering maturity across ${slug}'s fleet on Ascent — a 5-level ladder across 9 dimensions, with evidence.`;
+  return {
+    title,
+    description,
+    openGraph: { title, description, type: "website" },
+    twitter: { card: "summary_large_image", title, description },
+  };
+}
 
 function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "up" | "down"; moves: RepoMove[]; emptyText: string }) {
   const color = tone === "up" ? "#84cc16" : "#f97316";
