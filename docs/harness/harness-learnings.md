@@ -934,3 +934,43 @@ See `FIXES-WAVE-5.md`. SIM-3 + BKLG-2 landed first; this sitting closed the tail
 ### Open follow-ups
 - Wave 8 tail (SHELL-1/2 OG cards, ONB-2 resumability, USE-1 full impression analytics), Stripe
   (CRED-1/CRED-3), notifications/email (excluded), 49 mediums / 4 lows remain — see the INDEX.
+
+## Feature Scout — Wave 8 Growth/onboarding (2026-06-14, on master) — COMPLETE (8/8)
+
+See `FIXES-WAVE-8.md`. ONB-1/4 + USE-2 + the ?ref=badge tag landed first; this sitting closed the
+SHELL/ONB/USE tail (ONB-3, SHELL-1, SHELL-2, ONB-2, USE-1 reach).
+
+### Structural facts
+- **2026-06-14** — Per-repo report OG (`report/[owner]/[repo]/opengraph-image.tsx`) is now `runtime=nodejs`
+  and renders the real score: best-effort `getScanReportByCommit` (under `readableOrgForOwner`) wrapped in
+  try/catch → static fallback card. Draws overall score + LEVEL_GLYPH/level name + adoption/rigor + a
+  9-dimension strip (colours via LEVEL_HEX/scoreHex).
+- **2026-06-14** — Org dashboard SEO: `generateMetadata` on `org/[slug]/page.tsx` + a new
+  `org/[slug]/opengraph-image.tsx`, both gated on `canReadOrg(slug)` (false for an unauthenticated
+  unfurl → neutral card; private fleet aggregates never leak). `Card` (org/ui) gained an optional `id`
+  scroll-anchor (also used by GOAL-3's practice deep-link).
+- **2026-06-14** — Onboarding resumability: `OnboardingFlow` persists `{org, sourceLabel, sourceInstallId,
+  selected[]}` to `sessionStorage` (key `ascent:onboarding:v1`) and rehydrates on a run-once mount effect
+  by re-calling the source loader + re-applying the selection (lands on `select`; transient scanning/done
+  resolve cleanly). Cleared on `done`. Server half in `onboarding/page.tsx`: a "welcome back" banner when a
+  candidate org (installations + seededOrg) has `getOrgRollup().scannedCount > 0`.
+- **2026-06-14** — `BadgeImpression` model (migration `20260614150000`, additive table; init-sql parity
+  28). `recordBadgeImpression` upserts a (repoFullName, refererHost) tally, called fire-and-forget
+  (`void …catch`) from the badge GET after the private-repo gate. `getBadgeReach(org)` aggregates DB-side
+  (aggregate + groupBy take 6 + distinct); public org = all, else owner-prefix (`<slug>/…`). "Badge reach"
+  panel on `/usage`.
+
+### Conventions enforced
+- **2026-06-14** — A DB-backed public asset (OG image) always wraps its read and ships a static fallback,
+  so an unfurl degrades, never 500s.
+- **2026-06-14** — Gate a derived public surface (OG/metadata) on the SAME authz the page uses
+  (`canReadOrg`), which is false for a cookie-less unfurl — private data degrades to neutral automatically,
+  no separate visibility flag to drift.
+- **2026-06-14** — Instrument a CDN-fronted public endpoint with a fire-and-forget, error-swallowed tally
+  (no await, no throw into the response) and LABEL the metric a lower bound — most views never reach origin.
+- **2026-06-14** — Rehydrate a wizard from its minimal INPUTS (re-fetch live), not serialized transient UI
+  state; persist before the user is interrupted, clear once the work is saved server-side.
+
+### Open follow-ups
+- Stripe (CRED-1/CRED-3), notifications/email (excluded), the SHELL mediums/low (manifest/PWA, JSON-LD,
+  sitemap badge route), 49 mediums / 4 lows remain — see the INDEX. Waves 1/2/5/6/7/8 + migrations done.
