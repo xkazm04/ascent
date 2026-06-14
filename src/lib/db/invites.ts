@@ -98,7 +98,7 @@ export async function acceptInvite(token: string, login: string): Promise<Accept
 
   const role: OrgRole = isOrgRole(invite.role) ? invite.role : "member";
   const granted = await setMembershipRole(invite.org.slug, gh, role);
-  if (!granted) return { ok: false, reason: "db" };
+  if (granted !== "ok") return { ok: false, reason: "db" };
   // Mark accepted only after the grant lands, so a failed grant leaves the invite re-usable.
   await prisma.invite.update({ where: { id: invite.id }, data: { status: "accepted" } });
   return { ok: true, org: invite.org.slug, role };

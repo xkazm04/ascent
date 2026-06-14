@@ -40,8 +40,11 @@ export async function POST(request: Request) {
   const login = body.login.trim();
   // Capture the prior role for the audit trail before the upsert overwrites it.
   const prevRole = await getMembershipRole(body.org, login).catch(() => null);
-  const ok = await setMembershipRole(body.org, login, body.role);
-  if (!ok) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  const outcome = await setMembershipRole(body.org, login, body.role);
+  if (outcome === "error") return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  if (outcome === "last_owner") {
+    return NextResponse.json({ error: "Can't demote the last owner — assign another owner first." }, { status: 409 });
+  }
   const session = await getSession();
   const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
   await recordAudit(

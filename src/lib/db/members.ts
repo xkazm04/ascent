@@ -87,26 +87,42 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
   });
 }
 
-/** Set (or change) a member's role — the owner-gated member admin path. Creates the user/membership if absent. */
-export async function setMembershipRole(orgSlug: string, login: string, role: OrgRole): Promise<boolean> {
-  if (!isDbConfigured()) return false;
+/**
+ * Set (or change) a member's role — the owner-gated member admin path. Creates the user/membership if
+ * absent. Returns a typed outcome (mirrors removeMembership): `last_owner` when the change would demote
+ * the org's only owner (which would orphan its admin surface — refused), `error` on a bad input / unknown
+ * org / DB-off, else `ok`.
+ */
+export async function setMembershipRole(orgSlug: string, login: string, role: OrgRole): Promise<"ok" | "last_owner" | "error"> {
+  if (!isDbConfigured()) return "error";
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
-  if (!gh) return false;
+  if (!gh) return "error";
+  const orgId = await orgIdForSlug(orgSlug);
+  if (!orgId) return "error";
   const user = await prisma.user.upsert({
     where: { githubLogin: gh },
     update: {},
     create: { githubLogin: gh, email: `${gh}@users.noreply.github.com` },
     select: { id: true },
   });
-  const orgId = await orgIdForSlug(orgSlug);
-  if (!orgId) return false;
+  // Last-owner guard: demoting the sole owner would leave the org with no one able to manage it.
+  if (role !== "owner") {
+    const existing = await prisma.membership.findUnique({
+      where: { orgId_userId: { orgId, userId: user.id } },
+      select: { role: true },
+    });
+    if (existing?.role === "owner") {
+      const owners = await prisma.membership.count({ where: { orgId, role: "owner" } });
+      if (owners <= 1) return "last_owner";
+    }
+  }
   await prisma.membership.upsert({
     where: { orgId_userId: { orgId, userId: user.id } },
     update: { role },
     create: { orgId, userId: user.id, role },
   });
-  return true;
+  return "ok";
 }
 
 /**
