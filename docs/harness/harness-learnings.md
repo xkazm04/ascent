@@ -1066,3 +1066,30 @@ See `FIXES-MEDIUMS-B-OVERVIEW.md`. Personalize the dashboard home; no migration.
 
 ### Open follow-ups
 - Medium waves C–H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
+
+## Feature Scout — Mediums Wave E · Access control & safety (2026-06-14, on master) — COMPLETE (3/3)
+
+See `FIXES-MEDIUMS-E-ACCESS.md`. The RBAC mediums: orphan-guard, role transparency, onboarding invite.
+
+### Structural facts
+- **2026-06-14** — `setMembershipRole` return type changed `boolean` → `"ok" | "last_owner" | "error"`
+  with a last-owner demotion guard (mirrors removeMembership's removal guard). Callers updated: members
+  route POST (maps last_owner→409), invites.ts acceptInvite (`granted !== "ok"`). MembersPanel already
+  rolled back + surfaced the error, so no UI change.
+- **2026-06-14** — org `layout.tsx` fetches `getMembershipRole(slug, session.login)` in the existing
+  rollup/credit Promise.all and renders a role badge in the header (MEM-6). Null for public org / non-members.
+- **2026-06-14** — Onboarding done state: `OnboardingScanStep` gained an invite panel + `inviteOrg`/
+  `onInvited` props; `OnboardingFlow` passes `inviteOrg={sourceInstallId ? sourceLabel : null}`, tracks
+  `invitedCount`, and adds an "Invite your team" checklist step (App path only). Invites POST
+  /api/org/members role viewer; `requireOrgRole` auto-seeds the installation-owner so the grant passes.
+
+### Conventions enforced
+- **2026-06-14** — Put a safety invariant (last-owner) in the data-layer fn returning a typed outcome,
+  not in one route — every caller (route + invite-accept) is then protected.
+- **2026-06-14** — Surface a one-value fact (the viewer's role) by reusing the page's existing
+  round-trip, not a new endpoint.
+- **2026-06-14** — Onboarding can grant org access without a separate ownership step: requireOrgRole
+  seeds the installation-owner as owner on first owner-gated call.
+
+### Open follow-ups
+- Medium waves C, D, F, G, H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
