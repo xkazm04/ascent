@@ -13,6 +13,55 @@ import { LEVEL_CLASSES } from "@/lib/ui";
 // session cookie, so this route is dynamic regardless).
 export const dynamic = "force-dynamic";
 
+// SHELL-4: FAQ structured data for rich search results. Built from the same rubric the page renders
+// (LEVELS/DIMENSIONS) + the on-page method/pricing copy, so the answers can't drift from what's shown.
+const FAQ_LD = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: [
+    {
+      "@type": "Question",
+      name: "What is the AI-native maturity index?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: `Ascent reads a GitHub repository and rates how AI-native the engineering is on a ${LEVELS.length}-level ladder across ${DIMENSIONS.length} dimensions, with the evidence behind every score and a prioritized route to the next level.`,
+      },
+    },
+    {
+      "@type": "Question",
+      name: "How does Ascent score a repository?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "It reads structure, configs, CI, tests, docs, and recent commits via the GitHub API (no clone, nothing stored). Deterministic detectors extract evidence and an LLM adds nuance — guardbanded to that evidence so scores stay honest — producing a level, a radar across the dimensions, and prioritized next steps.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "What are the five maturity levels?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: LEVELS.map((l) => `${l.id} ${l.name} (${l.band[0]}–${l.band[1]}): ${l.tagline}`).join(" "),
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Does Ascent store or clone my code?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "No. Ascent reads the repository through the GitHub API at scan time — it never clones the repo and doesn't store its source.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Is Ascent free?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "Public repositories are free to scan on the web. Private repositories draw on prepaid scan credits — one credit per private scan, no subscription. Enterprise is implemented to requirements.",
+      },
+    },
+  ],
+};
+
 function Kicker({ children }: { children: React.ReactNode }) {
   return (
     <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">{children}</div>
@@ -43,6 +92,8 @@ export default async function Home() {
 
   return (
     <>
+      {/* SHELL-4: FAQ rich-result data. Static rubric/copy-derived strings — safe to inline. */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_LD) }} />
       <SiteHeader />
       <main id="main" className="w-full">
         {/* Hero */}
