@@ -51,6 +51,8 @@ export interface OrgRepoRow {
   name: string;
   isPrivate: boolean;
   watched: boolean;
+  /** GitHub's detected primary language, or null — drives auto-segments by language. */
+  primaryLanguage: string | null;
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -175,6 +177,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       name: r.name,
       isPrivate: r.isPrivate,
       watched: r.watched,
+      primaryLanguage: r.primaryLanguage ?? null,
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,

@@ -18,6 +18,8 @@ export interface SegmentItem {
 export interface RepoItem {
   fullName: string;
   name: string;
+  /** GitHub's detected primary language (null when unknown) — feeds auto-add-by-language. */
+  language?: string | null;
 }
 
 const PALETTE = ["#3b9eff", "#84cc16", "#f97316", "#a855f7", "#ec4899", "#14b8a6", "#eab308", "#64748b"];
@@ -40,8 +42,23 @@ export function RepoSegmentsPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  // Inline chip editor (rename + recolor) — one segment at a time.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState("");
+  // Auto-add-by-language control.
+  const [autoLang, setAutoLang] = useState("");
+  const [autoSeg, setAutoSeg] = useState("");
+  const [autoBusy, setAutoBusy] = useState(false);
 
   const segById = useMemo(() => new Map(segments.map((s) => [s.id, s])), [segments]);
+
+  // Distinct primary languages present in the fleet, with repo counts — the auto-add picker options.
+  const languages = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of repos) if (r.language) counts.set(r.language, (counts.get(r.language) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [repos]);
   const visibleRepos = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return q ? repos.filter((r) => r.fullName.toLowerCase().includes(q)) : repos;
@@ -97,6 +114,59 @@ export function RepoSegmentsPanel({
     }).catch(() => {});
   }
 
+  function startEdit(s: SegmentItem) {
+    setEditingId(s.id);
+    setEditName(s.name);
+    setEditColor(s.color);
+    setError(null);
+  }
+
+  // Commit a rename + recolor in one PATCH. A blank name keeps the old one (recolor-only edits).
+  async function saveEdit(id: string) {
+    const next = editName.trim();
+    setSegments((s) => s.map((x) => (x.id === id ? { ...x, name: next || x.name, color: editColor } : x)));
+    setEditingId(null);
+    const res = await fetch(`/api/org/segments/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...(next ? { name: next } : {}), color: editColor }),
+    }).catch(() => null);
+    if (!res || !res.ok) setError((await res?.json().catch(() => ({})))?.error ?? "Failed to update segment.");
+  }
+
+  // Auto-add every repo of the chosen language to the chosen segment, in one bulk call.
+  async function autoAdd() {
+    if (!autoLang || !autoSeg) return;
+    const matched = repos.filter((r) => r.language === autoLang).map((r) => r.fullName);
+    if (matched.length === 0) return;
+    setAutoBusy(true);
+    setError(null);
+    // Optimistic: tag every matched repo + bump the segment count by the ones not already members.
+    const added = matched.filter((fn) => !(membership[fn] ?? []).includes(autoSeg)).length;
+    setMembership((m) => {
+      const next = { ...m };
+      for (const fn of matched) {
+        const ids = new Set(next[fn] ?? []);
+        ids.add(autoSeg);
+        next[fn] = [...ids];
+      }
+      return next;
+    });
+    setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: x.repoCount + added } : x)));
+    try {
+      const res = await fetch(`/api/org/segments/${autoSeg}/repos/bulk`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug, fullNames: matched, member: true }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? "Bulk add failed.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bulk add failed.");
+    } finally {
+      setAutoBusy(false);
+    }
+  }
+
   return (
     <Card>
       <SectionHeader
@@ -110,13 +180,24 @@ export function RepoSegmentsPanel({
         {segments.map((s) => (
           <span key={s.id} className="group inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/60 py-1 pl-2.5 pr-1.5 text-sm">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
-            <span className="text-slate-200">{s.name}</span>
+            {/* Double-click the name to rename (also reachable via the ✎ editor below). */}
+            <span className="text-slate-200" onDoubleClick={() => startEdit(s)} title="Double-click to rename">
+              {s.name}
+            </span>
             <span className="font-mono text-sm text-slate-500">{s.repoCount}</span>
+            <button
+              type="button"
+              onClick={() => startEdit(s)}
+              aria-label={`Edit ${s.name} segment`}
+              className="ml-0.5 rounded-full px-1 text-slate-600 transition hover:bg-slate-800 hover:text-accent"
+            >
+              ✎
+            </button>
             <button
               type="button"
               onClick={() => removeSegment(s.id)}
               aria-label={`Delete ${s.name} segment`}
-              className="ml-0.5 rounded-full px-1 text-slate-600 transition hover:bg-slate-800 hover:text-orange-300"
+              className="rounded-full px-1 text-slate-600 transition hover:bg-slate-800 hover:text-orange-300"
             >
               ×
             </button>
@@ -124,6 +205,80 @@ export function RepoSegmentsPanel({
         ))}
         {segments.length === 0 && <span className="text-sm text-slate-500">No segments yet — create one to start tagging.</span>}
       </div>
+
+      {/* Inline editor — rename + recolor the selected segment (PATCH /api/org/segments/:id). */}
+      {editingId && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-slate-950/40 p-3">
+          <input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveEdit(editingId);
+              if (e.key === "Escape") setEditingId(null);
+            }}
+            autoFocus
+            aria-label="Segment name"
+            className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200"
+          />
+          <div className="flex items-center gap-1">
+            {PALETTE.map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-label={`Recolor ${c}`}
+                onClick={() => setEditColor(c)}
+                className={`h-5 w-5 rounded-full border transition ${editColor === c ? "border-white" : "border-transparent"}`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+          </div>
+          <button onClick={() => saveEdit(editingId)} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20">
+            Save
+          </button>
+          <button onClick={() => setEditingId(null)} className="rounded-lg px-2 py-1.5 text-sm text-slate-400 hover:text-white">
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Auto-add by language — bulk-tag every repo of a language into a segment in one call. */}
+      {segments.length > 0 && languages.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/30 p-3">
+          <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Auto-add</span>
+          <select
+            value={autoLang}
+            onChange={(e) => setAutoLang(e.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          >
+            <option value="">language…</option>
+            {languages.map(([lang, n]) => (
+              <option key={lang} value={lang}>
+                {lang} ({n})
+              </option>
+            ))}
+          </select>
+          <span className="font-mono text-sm text-slate-500">→</span>
+          <select
+            value={autoSeg}
+            onChange={(e) => setAutoSeg(e.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          >
+            <option value="">segment…</option>
+            {segments.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={autoAdd}
+            disabled={autoBusy || !autoLang || !autoSeg}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-200 hover:border-accent hover:text-white disabled:opacity-50"
+          >
+            {autoBusy ? "Adding…" : "Add all"}
+          </button>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-4">
         <div className="flex items-center gap-1">

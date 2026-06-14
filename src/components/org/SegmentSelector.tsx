@@ -5,6 +5,7 @@
 // that segment's tagged repos. "All repos" clears the filter. URL-as-state keeps the scoped view
 // shareable and survives a refresh, exactly like the period control next to it.
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 export interface SegmentOption {
@@ -27,7 +28,21 @@ export function SegmentSelector({ segments, active }: { segments: SegmentOption[
     router.push(qs ? `${pathname}?${qs}` : pathname);
   }
 
-  if (segments.length === 0) return null;
+  // No segments yet: instead of vanishing (which hid the whole feature from the tabs users live on),
+  // surface a subtle pointer to where segments are created. Slug is the 2nd path segment of /org/<slug>.
+  if (segments.length === 0) {
+    const slug = pathname.split("/")[2];
+    if (!slug) return null;
+    return (
+      <Link
+        href={`/org/${slug}/repositories`}
+        className="font-mono text-sm text-slate-500 transition hover:text-accent"
+        title="Group repos into named slices on the Repositories tab"
+      >
+        + Create a segment →
+      </Link>
+    );
+  }
 
   return (
     <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/40 p-0.5">

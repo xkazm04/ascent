@@ -43,7 +43,7 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
     <div className="space-y-6">
       <RepoSegmentsPanel
         slug={slug}
-        repos={rollup.repos.map((r) => ({ fullName: r.fullName, name: r.name }))}
+        repos={rollup.repos.map((r) => ({ fullName: r.fullName, name: r.name, language: r.primaryLanguage }))}
         segments={segments}
         membership={membership}
       />
