@@ -192,6 +192,7 @@ export {
   getGoalOrgSlug,
   getInitiativeOrgSlug,
   simulateOrgFix,
+  simulateOrgFixes,
   rankOrgInvestments,
   isGoalMetric,
   metricLabel,

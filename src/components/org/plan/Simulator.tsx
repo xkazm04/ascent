@@ -24,6 +24,8 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const router = useRouter();
   const [dimId, setDimId] = useState(dims[0]?.id ?? "D2");
   const [target, setTarget] = useState(70);
+  // SIM-2: additional dimensions to raise in the same scenario (the primary dimId/target is leg 1).
+  const [extras, setExtras] = useState<{ dimId: string; target: number }[]>([]);
   const [scope, setScope] = useState<Set<string>>(new Set());
   const [showRepos, setShowRepos] = useState(false);
   const [result, setResult] = useState<FleetProjection | null>(null);
@@ -62,16 +64,31 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     });
   }
 
+  // Dimensions not already in the scenario (primary + extras) — the choices for "+ add dimension".
+  const used = new Set([dimId, ...extras.map((e) => e.dimId)]);
+  function addDimension() {
+    const next = dims.find((d) => !used.has(d.id));
+    if (next) setExtras((xs) => [...xs, { dimId: next.id, target: 70 }]);
+  }
+  function updateExtra(idx: number, patch: Partial<{ dimId: string; target: number }>) {
+    setExtras((xs) => xs.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
+  }
+  function removeExtra(idx: number) {
+    setExtras((xs) => xs.filter((_, i) => i !== idx));
+  }
+
   async function run() {
     setBusy(true);
     setError(null);
     setTracked(false);
     setTrackError(null);
+    // One leg per dimension; a single leg uses the original {dimId,target} shape for clarity.
+    const fixes = [{ dimId, target }, ...extras];
     try {
       const res = await fetch("/api/org/simulate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, dimId, target, repos: [...scope] }),
+        body: JSON.stringify(fixes.length > 1 ? { org: slug, fixes, repos: [...scope] } : { org: slug, dimId, target, repos: [...scope] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to simulate.");
@@ -144,6 +161,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
                     onClick={() => {
                       setDimId(r.dimId);
                       setTarget(r.target);
+                      setExtras([]);
                       setResult(null);
                     }}
                     title={`Load ${r.dimId} → ${r.target} into the simulator`}
@@ -182,6 +200,43 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         </button>
       </div>
 
+      {/* SIM-2: additional dimensions raised in the same scenario — model a combined push. */}
+      {extras.map((e, idx) => (
+        <div key={idx} className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="font-mono text-sm text-slate-500">and</span>
+          <select
+            value={e.dimId}
+            onChange={(ev) => updateExtra(idx, { dimId: ev.target.value })}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          >
+            {dims
+              .filter((d) => d.id === e.dimId || !used.has(d.id))
+              .map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.id} · {d.label} (avg {d.avg})
+                </option>
+              ))}
+          </select>
+          <span className="font-mono text-sm text-slate-500">to</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={e.target}
+            onChange={(ev) => updateExtra(idx, { target: Number(ev.target.value) })}
+            className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200"
+          />
+          <button onClick={() => removeExtra(idx)} className="font-mono text-sm text-slate-600 hover:text-orange-300" title="Remove this dimension">
+            remove
+          </button>
+        </div>
+      ))}
+      {dims.length > used.size && (
+        <button onClick={addDimension} className="mt-2 font-mono text-sm text-accent hover:text-white">
+          + add a dimension
+        </button>
+      )}
+
       {showRepos && (
         <div className="mt-3 max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40 p-3">
           <div className="mb-2 flex gap-3 font-mono text-sm text-slate-500">
@@ -203,6 +258,19 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
 
       {result && (
         <div className="mt-4 space-y-3 border-t border-slate-800 pt-4">
+          {result.fixes.length > 1 && (
+            <div className="font-mono text-sm text-slate-500">
+              Scenario:{" "}
+              {result.fixes.map((f, i) => (
+                <span key={f.dimId}>
+                  {i > 0 && " + "}
+                  <span className="text-slate-300">
+                    {f.dimId}→{f.target}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
           <div className="text-base text-slate-300">
             Applies to <span className="font-mono text-white">{result.affected}</span> repo(s) currently below target
             {result.promotions > 0 && (

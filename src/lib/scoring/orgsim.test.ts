@@ -57,4 +57,33 @@ describe("simulateFleet", () => {
     expect(proj.affected).toBe(0);
     expect(proj.after.avgOverall).toBe(proj.before.avgOverall);
   });
+
+  it("normalizes a single fix into a one-element fixes list", () => {
+    const proj = simulateFleet(repos, { dimId: "D2", target: 70 }, ["o/a"]);
+    expect(proj.fixes).toEqual([{ dimId: "D2", target: 70 }]);
+  });
+
+  describe("multi-dimension scenario (SIM-2)", () => {
+    it("applies every leg and lifts more than a single leg alone", () => {
+      const scope = ["o/a", "o/b", "o/c"];
+      const one = simulateFleet(repos, { dimId: "D2", target: 70 }, scope);
+      const two = simulateFleet(repos, [{ dimId: "D2", target: 70 }, { dimId: "D3", target: 70 }], scope);
+      // Raising two dimensions can only help the fleet average at least as much as one.
+      expect(two.after.avgOverall).toBeGreaterThanOrEqual(one.after.avgOverall);
+      expect(two.fixes).toHaveLength(2);
+    });
+
+    it("counts a repo as affected when any leg moves it", () => {
+      // o/c is at 80: a 70-target leg leaves it alone, but a 90-target leg moves it.
+      const proj = simulateFleet(repos, [{ dimId: "D2", target: 70 }, { dimId: "D3", target: 90 }], ["o/c"]);
+      expect(proj.affected).toBe(1);
+      expect(proj.repos.find((r) => r.fullName === "o/c")!.delta).toBeGreaterThan(0);
+    });
+
+    it("never lowers a dimension already above a leg's target", () => {
+      // Every dim on o/c is 80; a 70 target must not pull it down.
+      const proj = simulateFleet(repos, [{ dimId: "D2", target: 70 }], ["o/c"]);
+      expect(proj.repos.find((r) => r.fullName === "o/c")!.delta).toBe(0);
+    });
+  });
 });

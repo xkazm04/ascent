@@ -8,7 +8,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
-import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims } from "@/lib/scoring/orgsim";
+import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims, type SimFix } from "@/lib/scoring/orgsim";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 
 export type GoalMetric = "overall" | "adoption" | "rigor" | DimensionId;
@@ -462,13 +462,27 @@ export async function simulateOrgFix(
   target: number,
   repoFullNames: string[],
 ): Promise<FleetProjection | null> {
+  return simulateOrgFixes(orgSlug, [{ dimId, target }], repoFullNames);
+}
+
+/**
+ * Multi-dimension variant (SIM-2): project several `{dimId, target}` legs landing together across
+ * the scope, so a leader can model a combined push ("raise Tests to 70 AND CI to 60 on these repos")
+ * rather than one dimension at a time. Reuses the same pure simulateFleet projection.
+ */
+export async function simulateOrgFixes(
+  orgSlug: string,
+  fixes: SimFix[],
+  repoFullNames: string[],
+): Promise<FleetProjection | null> {
   if (!isDbConfigured()) return null;
+  if (fixes.length === 0) return null;
   const orgId = await resolveOrgId(orgSlug);
   if (!orgId) return null;
   const snap = await fleetSnapshot(orgId);
   if (snap.repos.length === 0) return null;
   const scope = repoFullNames.length ? repoFullNames : snap.repos.map((r) => r.fullName);
-  return simulateFleet(snap.repos, { dimId, target }, scope);
+  return simulateFleet(snap.repos, fixes, scope);
 }
 
 /**

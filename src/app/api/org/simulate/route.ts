@@ -1,13 +1,15 @@
-// POST /api/org/simulate { org, dimId, target, repos? }       ->  { projection }   one what-if
-// POST /api/org/simulate { org, rank: true, target?, repos? }  ->  { ranking }      ROI ranking (SIM-3)
-// What-if: project the fleet impact of raising `dimId` to `target` across `repos` (or all scanned
-// repos when omitted). The rank mode ranks every dimension by projected gain. Read-only — derived
-// from the latest scans, persists nothing.
+// POST /api/org/simulate { org, dimId, target, repos? }          ->  { projection }   one what-if
+// POST /api/org/simulate { org, fixes: [{dimId,target}], repos? } ->  { projection }   multi-dim (SIM-2)
+// POST /api/org/simulate { org, rank: true, target?, repos? }     ->  { ranking }      ROI ranking (SIM-3)
+// What-if: project the fleet impact of raising one or more dimensions to a target across `repos` (or
+// all scanned repos when omitted). The rank mode ranks every dimension by projected gain. Read-only —
+// derived from the latest scans, persists nothing.
 
 import { NextResponse } from "next/server";
-import { isDbConfigured, rankOrgInvestments, simulateOrgFix } from "@/lib/db";
+import { isDbConfigured, rankOrgInvestments, simulateOrgFixes } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import type { DimensionId } from "@/lib/types";
+import type { SimFix } from "@/lib/scoring/orgsim";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,7 @@ export async function POST(request: Request) {
     org?: string;
     dimId?: string;
     target?: number;
+    fixes?: { dimId?: string; target?: number }[];
     repos?: string[];
     rank?: boolean;
   };
@@ -36,11 +39,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ ranking });
   }
 
-  if (!body.dimId || typeof body.target !== "number") {
-    return NextResponse.json({ error: "Provide { org, dimId, target }." }, { status: 400 });
+  // Normalize to a list of legs: an explicit `fixes[]` (SIM-2), else the single `{dimId, target}`.
+  const rawFixes = Array.isArray(body.fixes) && body.fixes.length > 0 ? body.fixes : [{ dimId: body.dimId, target: body.target }];
+  const fixes: SimFix[] = [];
+  for (const f of rawFixes) {
+    if (typeof f.dimId !== "string" || !isDimId(f.dimId) || typeof f.target !== "number") {
+      return NextResponse.json({ error: "Each fix needs { dimId: D1..D9, target: number }." }, { status: 400 });
+    }
+    fixes.push({ dimId: f.dimId, target: f.target });
   }
-  if (!isDimId(body.dimId)) return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
-  const projection = await simulateOrgFix(body.org, body.dimId, body.target, repos);
+  const projection = await simulateOrgFixes(body.org, fixes, repos);
   if (!projection) return NextResponse.json({ error: "No scanned repos to simulate." }, { status: 404 });
   return NextResponse.json({ projection });
 }

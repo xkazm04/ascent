@@ -21,6 +21,12 @@ export interface RepoDims {
 /** The metric a scenario targets: a single dimension, or one of the two axes / the overall. */
 export type SimMetric = DimensionId | "overall" | "adoption" | "rigor";
 
+/** One leg of a scenario: raise `dimId` to `target` across the scope. */
+export interface SimFix {
+  dimId: DimensionId;
+  target: number;
+}
+
 export interface FleetSnapshot {
   repos: number; // repos with a latest scan
   avgOverall: number;
@@ -43,9 +49,10 @@ export interface RepoSimDelta {
 }
 
 export interface FleetProjection {
-  fix: { dimId: DimensionId; target: number };
-  scopeCount: number; // repos the fix was applied to
-  affected: number; // repos whose dimension was actually below target (so it moved)
+  /** The scenario applied — one leg per dimension raised (a single-dim fix is a one-element list). */
+  fixes: SimFix[];
+  scopeCount: number; // repos the scenario was applied to
+  affected: number; // repos where at least one dimension was below target (so it moved)
   before: FleetSnapshot;
   after: FleetSnapshot;
   /** Per-repo movement, affected repos first (largest gain first). */
@@ -90,18 +97,20 @@ function snapshot(rows: { overall: number; adoption: number; rigor: number; post
 }
 
 /**
- * Project the fleet impact of raising `fix.dimId` to `fix.target` on every repo in `scope`
- * (a set of fullNames). Repos already at/above the target — or outside the scope — are left
- * untouched, so `affected` reflects what genuinely moved. Returns before/after fleet snapshots
- * plus per-repo deltas (affected first), and how many repos crossed up a maturity band.
+ * Project the fleet impact of a scenario — one or more `{dimId, target}` legs — applied to every
+ * repo in `scope` (a set of fullNames). For each leg, a repo already at/above that target on that
+ * dimension (or outside the scope) is left untouched; `affected` counts repos where at least one
+ * leg moved. Returns before/after fleet snapshots plus per-repo deltas (affected first), and how
+ * many repos crossed up a maturity band. A single-dimension what-if passes one `{dimId, target}`.
  */
 export function simulateFleet(
   repos: RepoDims[],
-  fix: { dimId: DimensionId; target: number },
+  fix: SimFix | SimFix[],
   scope: Iterable<string>,
 ): FleetProjection {
   const inScope = new Set(scope);
-  const target = clamp(Math.round(fix.target));
+  // Normalize to a list of legs with clamped integer targets.
+  const fixes: SimFix[] = (Array.isArray(fix) ? fix : [fix]).map((f) => ({ dimId: f.dimId, target: clamp(Math.round(f.target)) }));
 
   const before = repos.map((r) => {
     const s = recomputeRepo(r.dims, r.archetype);
@@ -109,10 +118,18 @@ export function simulateFleet(
   });
 
   const after = repos.map((r) => {
-    const cur = r.dims[fix.dimId];
-    // Apply the fix only when the repo is in scope AND currently below target.
-    const moved = inScope.has(r.fullName) && (cur == null || cur < target);
-    const dims = moved ? { ...r.dims, [fix.dimId]: target } : r.dims;
+    let dims = r.dims;
+    let moved = false;
+    // Apply each leg only when the repo is in scope AND currently below that leg's target.
+    if (inScope.has(r.fullName)) {
+      for (const f of fixes) {
+        const cur = dims[f.dimId];
+        if (cur == null || cur < f.target) {
+          dims = { ...dims, [f.dimId]: f.target };
+          moved = true;
+        }
+      }
+    }
     const s = recomputeRepo(dims, r.archetype);
     return { repo: r, moved, ...s, posture: postureFor(s.adoption, s.rigor) };
   });
@@ -138,7 +155,7 @@ export function simulateFleet(
   const affected = after.filter((a) => a.moved).length;
 
   return {
-    fix: { dimId: fix.dimId, target },
+    fixes,
     scopeCount: inScope.size,
     affected,
     before: snapshot(before),
