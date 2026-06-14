@@ -1,8 +1,25 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { shortName } from "@/components/org/liveWarRoomShared";
 import { Meter } from "@/components/org/ui";
 import { PaceChip, type GoalProgressView } from "@/components/org/plan/goalView";
 import { scoreHex } from "@/lib/ui";
+
+/** Fullscreen the wall + keep the screen awake (best-effort; both fail silently if unsupported). */
+async function enterTvMode() {
+  try {
+    await document.documentElement.requestFullscreen?.();
+  } catch {
+    /* fullscreen denied */
+  }
+  try {
+    await (navigator as Navigator & { wakeLock?: { request: (t: string) => Promise<unknown> } }).wakeLock?.request("screen");
+  } catch {
+    /* wake-lock unsupported / denied */
+  }
+}
 
 /** Days until a YYYY-MM-DD deadline (negative = past). null when no date. */
 function daysUntil(date: string | null): number | null {
@@ -29,6 +46,8 @@ export function WarRoomHeader({
   campaignDelta = null,
   autoLoop = false,
   onToggleLoop,
+  readOnly = false,
+  canShare = false,
 }: {
   slug: string;
   running: boolean;
@@ -45,9 +64,33 @@ export function WarRoomHeader({
   campaignDelta?: number | null;
   autoLoop?: boolean;
   onToggleLoop?: () => void;
+  /** Shared/TV view: hide the scan controls (scanning stays session-gated). */
+  readOnly?: boolean;
+  /** Owner on the authenticated view: can mint a read-only TV share link. */
+  canShare?: boolean;
 }) {
   const countdown = goal ? daysUntil(goal.targetDate) : null;
   const toGoal = goal ? Math.max(0, goal.target - goal.current) : 0;
+  const [share, setShare] = useState<{ busy: boolean; copied: boolean; error: string | null }>({ busy: false, copied: false, error: null });
+
+  async function shareTvLink() {
+    setShare({ busy: true, copied: false, error: null });
+    try {
+      const res = await fetch("/api/org/live-share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.path) throw new Error(d.error ?? "Couldn't create a share link.");
+      await navigator.clipboard.writeText(`${window.location.origin}${d.path}`);
+      setShare({ busy: false, copied: true, error: null });
+      setTimeout(() => setShare((s) => ({ ...s, copied: false })), 2500);
+    } catch (e) {
+      setShare({ busy: false, copied: false, error: e instanceof Error ? e.message : "Share failed." });
+    }
+  }
+
   return (
     <>
       {/* ── Header: LIVE state + launch control + run progress ──────────── */}
@@ -65,7 +108,7 @@ export function WarRoomHeader({
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
-            {running && (
+            {!readOnly && running && (
               <button
                 type="button"
                 onClick={onStop}
@@ -74,28 +117,51 @@ export function WarRoomHeader({
                 Stop
               </button>
             )}
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={onLaunch}
+                disabled={running || watchedCount === 0}
+                className="focus-ring rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {launchLabel}
+              </button>
+            )}
             <button
               type="button"
-              onClick={onLaunch}
-              disabled={running || watchedCount === 0}
-              className="focus-ring rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={enterTvMode}
+              title="Fullscreen + keep the screen awake for a wall display"
+              className="focus-ring rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white"
             >
-              {launchLabel}
+              ⛶ TV mode
             </button>
+            {canShare && !readOnly && (
+              <button
+                type="button"
+                onClick={shareTvLink}
+                disabled={share.busy}
+                title="Copy a signed, expiring read-only link to show this wall on an unauthenticated screen"
+                className="focus-ring rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+              >
+                {share.busy ? "Creating…" : share.copied ? "Link copied ✓" : "Share TV link"}
+              </button>
+            )}
           </div>
-          {watchedCount === 0 ? (
-            <p className="font-mono text-sm text-slate-500">Watch some repos on /connect to scan.</p>
-          ) : (
-            <p className="font-mono text-sm text-slate-500" aria-live="polite">
-              {running ? `${progress.done}/${progress.total} repos` : `${watchedCount} watched`}
-            </p>
-          )}
-          {onToggleLoop && watchedCount > 0 && (
+          {!readOnly &&
+            (watchedCount === 0 ? (
+              <p className="font-mono text-sm text-slate-500">Watch some repos on /connect to scan.</p>
+            ) : (
+              <p className="font-mono text-sm text-slate-500" aria-live="polite">
+                {running ? `${progress.done}/${progress.total} repos` : `${watchedCount} watched`}
+              </p>
+            ))}
+          {!readOnly && onToggleLoop && watchedCount > 0 && (
             <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500" title="Re-run the live scan automatically for an unattended wall display">
               <input type="checkbox" checked={autoLoop} onChange={onToggleLoop} className="accent-accent" />
               Auto-relaunch every 15 min
             </label>
           )}
+          {share.error && <p className="font-mono text-sm text-orange-300">{share.error}</p>}
         </div>
       </header>
 

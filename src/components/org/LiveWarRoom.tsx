@@ -31,6 +31,8 @@ export function LiveWarRoom({
   seed,
   goal = null,
   campaignDelta = null,
+  readOnly = false,
+  canShare = false,
 }: {
   slug: string;
   watchedCount: number;
@@ -39,6 +41,10 @@ export function LiveWarRoom({
   goal?: GoalProgressView | null;
   /** Overall-score movement since the campaign (goal) started, for the "since kickoff" line. */
   campaignDelta?: number | null;
+  /** Shared-link / TV view: no scan trigger (scanning stays session-gated), just the current wall. */
+  readOnly?: boolean;
+  /** The viewer may mint a read-only TV share link (owner on the authenticated view). */
+  canShare?: boolean;
 }) {
   const [repos, setRepos] = useState<Record<string, LiveRepo>>(() =>
     Object.fromEntries(seed.map((r) => [r.fullName, { ...r, updatedAt: 0 }])),
@@ -218,10 +224,10 @@ export function LiveWarRoom({
     if (persisted) setAutoLoop(true);
   }, []);
   useEffect(() => {
-    if (!autoLoop || phase === "running") return;
+    if (!autoLoop || phase === "running" || readOnly) return; // readOnly can't scan, so never loop
     const t = setTimeout(() => void launch(), LOOP_MS);
     return () => clearTimeout(t);
-  }, [autoLoop, phase, launch, LOOP_MS]);
+  }, [autoLoop, phase, launch, LOOP_MS, readOnly]);
   const toggleLoop = useCallback(() => {
     setAutoLoop((v) => {
       const nv = !v;
@@ -289,6 +295,8 @@ export function LiveWarRoom({
         campaignDelta={campaignDelta}
         autoLoop={autoLoop}
         onToggleLoop={toggleLoop}
+        readOnly={readOnly}
+        canShare={canShare}
       />
 
       {/* ── Four headline tiles, counting up as results land ────────────── */}

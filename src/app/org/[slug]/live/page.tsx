@@ -5,6 +5,8 @@
 
 import { LiveWarRoom, type LiveRepoSeed } from "@/components/org/LiveWarRoom";
 import { getOrgRollup, listGoals } from "@/lib/db";
+import { hasOrgRole } from "@/lib/authz";
+import { liveShareEnabled } from "@/lib/live-share";
 import type { GoalProgressView } from "@/components/org/plan/goalView";
 
 export const dynamic = "force-dynamic";
@@ -15,8 +17,12 @@ export default async function OrgLivePage({ params }: { params: Promise<{ slug: 
   // createdAt doubles as the campaign-start baseline for the "since kickoff" delta (WAR-2).
   const goals = await listGoals(slug).catch(() => null);
   const goal = goals?.find((g) => !g.achieved) ?? goals?.[0] ?? null;
-  const rollup = await getOrgRollup(slug, goal ? { start: new Date(goal.createdAt) } : undefined);
+  const [rollup, isOwner] = await Promise.all([
+    getOrgRollup(slug, goal ? { start: new Date(goal.createdAt) } : undefined),
+    hasOrgRole(slug, "owner"),
+  ]);
   if (!rollup) return null;
+  const canShare = isOwner && liveShareEnabled();
 
   const watched = rollup.repos.filter((r) => r.watched).length;
   const seed: LiveRepoSeed[] = rollup.repos.map((r) => ({
@@ -36,6 +42,7 @@ export default async function OrgLivePage({ params }: { params: Promise<{ slug: 
       seed={seed}
       goal={(goal as GoalProgressView | null) ?? null}
       campaignDelta={goal ? rollup.deltas?.overall ?? null : null}
+      canShare={canShare}
     />
   );
 }
