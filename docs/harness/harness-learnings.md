@@ -1001,3 +1001,40 @@ See `FIXES-SHELL-SEO.md`. Closes the App Shell/SEO context (5/5 with SHELL-1/2 f
 ### Open follow-ups
 - The API/email copies of the base-URL expression (webhook/digest/scan-alerts) could later adopt
   `publicBaseUrl()` too. Stripe (CRED-1/CRED-3), notifications/email (excluded), 49 mediums / 4 lows remain.
+
+## Feature Scout — Mediums Wave A · Segments & fleet slicing (2026-06-14, on master) — COMPLETE (6/6)
+
+See `FIXES-MEDIUMS-A-SEGMENTS.md`. First medium wave: make segments usable at fleet scale + slice
+every analytics surface. All reuse the shipped segmentId infra.
+
+### Structural facts
+- **2026-06-14** — `setRepoSegmentsBulk(orgSlug, segmentId, fullNames[], member)` (segments.ts):
+  org-scoped bulk tag (createMany skipDuplicates) / untag (deleteMany), returns rows changed or -1.
+  `POST /api/org/segments/:id/repos/bulk { org, fullNames[], member? }` (batch cap 1000).
+- **2026-06-14** — `OrgRepoRow.primaryLanguage` surfaced (org-rollup.ts — the `include` already fetched
+  the column; no migration). Powers auto-add-by-language in RepoSegmentsPanel.
+- **2026-06-14** — `GET /api/org/segments?org=&membership=1` returns `{ segments, membership }`
+  (fullName→segmentIds) for client pickers (the connect screen). `GET /api/org/repositories?org=&format=csv`
+  exports the leaderboard (RFC-4180 csvField + safeFilenameSlug pattern).
+- **2026-06-14** — `getOrgPrSignals`/`getOrgGovernance`/`getOrgActivity`/`getOrgTeamRollup` all gained
+  `segmentId?` + `...segmentScope(segmentId)`; Delivery & Teams pages read `?segment=` + render
+  `SegmentSelector` (parity with Contributors). `SegmentSelector` shows a "+ Create a segment →" link
+  (to /org/<slug>/repositories) when empty instead of returning null.
+- **2026-06-14** — Connect: `RepoRow` gets a segment chip-picker (watched repos only — tagging needs the
+  repo row); `InstallationRepos` loads segments+membership and toggles optimistically with rollback.
+- **2026-06-14** — Fleet map (`FleetMap`/`ConstellationField`/`fleetMapStars`): a controls bar (search,
+  level-band multiselect incl. "unscanned", watched-only, org sort key); filters DIM non-matching stars
+  (opacity, preserve shape) via a `matcher` prop; sort reorders org cards. `RepoStar.watched` added.
+
+### Conventions enforced
+- **2026-06-14** — One org-scoped bulk primitive serves every "act on many repos" caller; don't add a
+  per-feature endpoint.
+- **2026-06-14** — To scope an aggregate to a segment, thread the existing `segmentScope(id)` into each
+  repo query — never re-aggregate.
+- **2026-06-14** — Filter a spatial visualization by dimming non-matches, not removing them, so the
+  layout/shape is preserved and matches pop.
+- **2026-06-14** — Prefer surfacing an already-fetched stored column (primaryLanguage via the existing
+  `include`) over a migration when the data is already in hand.
+
+### Open follow-ups
+- Medium waves B–H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
