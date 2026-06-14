@@ -1038,3 +1038,31 @@ every analytics surface. All reuse the shipped segmentId infra.
 
 ### Open follow-ups
 - Medium waves B–H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
+
+## Feature Scout — Mediums Wave B · Adaptive org overview (2026-06-14, on master) — COMPLETE (3/3)
+
+See `FIXES-MEDIUMS-B-OVERVIEW.md`. Personalize the dashboard home; no migration.
+
+### Structural facts
+- **2026-06-14** — `Tile` (org/ui) gained an optional `goal={ target, label, color }`; the overview
+  matches an active goal by metric from the already-fetched `listGoals` (PACE_NOTE maps pace→label/color)
+  and passes it to the Overall/Adoption/Rigor tiles (OVR-6).
+- **2026-06-14** — OVR-5 "remember my period": `lib/window.ts` gained `PERIOD_COOKIE` +
+  `serializePeriodCookie`/`parsePeriodCookie` (isomorphic). `TimeRangeSelector.navigate` writes the
+  `ascent_period` cookie; the overview reads it server-side (`cookies()`) as the fallback below an
+  explicit `?range=`.
+- **2026-06-14** — OVR-4: `CollapsibleSection` (client, native `<details>`, cookie
+  `ascent_overview_collapsed`); the overview server-reads the cookie → `defaultOpen` per section (no
+  flash). Wrapped the Goals & standing / Posture & dimensions / Movers grids.
+
+### Conventions enforced
+- **2026-06-14** — A goal-vs-actual read is a presentational join against data already fetched on the
+  page (listGoals), not a new query.
+- **2026-06-14** — Persist a UI preference in a cookie read server-side (SSR-consistent, shareable) but
+  let an explicit query param always override, so shared URLs stay authoritative.
+- **2026-06-14** — Prefer native `<details>` for collapse: works without JS, no hydration flash when the
+  server sets `open` from a cookie. NOTE: `react-hooks/immutability` flags `document.cookie =` inside a
+  component-scoped handler but NOT a module-scoped helper — keep cookie writers at module scope.
+
+### Open follow-ups
+- Medium waves C–H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
