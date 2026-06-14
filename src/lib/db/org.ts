@@ -14,6 +14,7 @@ export {
   advanceScheduleAfterFailure,
   claimRescan,
   recordScanOutcome,
+  recordConformance,
   listWatchedRepos,
   listOrgsWithWatchedRepos,
   type RepoRef,

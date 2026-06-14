@@ -107,6 +107,7 @@ export {
   advanceScheduleAfterFailure,
   claimRescan,
   recordScanOutcome,
+  recordConformance,
   listOrgsWithWatchedRepos,
   getOrgId,
   isRepoWatched,

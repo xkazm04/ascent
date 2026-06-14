@@ -10,8 +10,10 @@ import type { GeneratedFile } from "./types";
 
 const DOCTOR = `#!/usr/bin/env node
 // .ai/doctor.mjs - executable conformance for the .ai/ standard (reference impl, zero-dependency).
-// Usage: node .ai/doctor.mjs [--run]
-//   --run  also executes capability commands to verify they actually pass (flips "verified").
+// Usage: node .ai/doctor.mjs [--run] [--json]
+//   --run   also executes capability commands to verify they actually pass (flips "verified").
+//   --json  prints a JSON summary and (when ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN are
+//           set, e.g. in CI) POSTs it to Ascent — closing the adopt->verify->re-score loop.
 // Contract: docs/AI_MANIFEST_SPEC.md. Reimplement freely; the checks are what matter, not this runner.
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -129,6 +131,28 @@ const warns = findings.filter(f => f.level === 'warn').length;
 console.log('\\nConformance: ' + score + '%  (' + fails + ' fail, ' + warns + ' warn)');
 if (!RUN) console.log('Tip: re-run with --run to execute and verify capability commands.');
 console.log('Then re-scan in Ascent to confirm the maturity delta.');
+
+// --json: machine-readable summary + optional auto-report to Ascent (the adopt->verify->re-score loop).
+if (process.argv.includes('--json')) {
+  process.stdout.write(JSON.stringify({ score: score, fails: fails, warns: warns, findings: findings }) + '\\n');
+  const reportUrl = process.env.ASCENT_CONFORMANCE_URL;
+  const reportTok = process.env.ASCENT_CONFORMANCE_TOKEN;
+  const reportRepo = process.env.GITHUB_REPOSITORY;
+  if (reportUrl && reportTok && reportRepo && typeof fetch === 'function') {
+    try {
+      await fetch(reportUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + reportTok },
+        body: JSON.stringify({ repo: reportRepo, headSha: process.env.GITHUB_SHA || null, score: score, fails: fails, warns: warns }),
+      });
+      console.log('Reported conformance to Ascent.');
+    } catch (err) {
+      console.error('Conformance report failed:', err && err.message);
+    }
+  }
+} else {
+  console.log('Tip: --json reports this back to Ascent (set ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN in CI).');
+}
 process.exit(fails > 0 ? 1 : 0);
 `;
 

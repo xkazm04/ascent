@@ -87,6 +87,10 @@ CREATE TABLE "Repository" (
     "lastScanStatus" TEXT,
     "lastScanError" TEXT,
     "lastScanAttemptAt" TIMESTAMP(3),
+    "aiConformance" INTEGER,
+    "aiConformanceFails" INTEGER,
+    "aiConformanceWarns" INTEGER,
+    "aiConformanceAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

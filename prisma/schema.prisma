@@ -135,6 +135,13 @@ model Repository {
   lastScanStatus    String? // "ok" | "error"
   lastScanError     String?
   lastScanAttemptAt DateTime?
+  // `.ai/` standard conformance reported back by the repo's doctor (`node .ai/doctor.mjs --json`),
+  // closing the adopt→verify→re-score loop. Null until a conformance report lands. See
+  // src/app/api/report/conformance + src/lib/standard/doctor.ts.
+  aiConformance     Int? // 0..100 conformance %
+  aiConformanceFails Int?
+  aiConformanceWarns Int?
+  aiConformanceAt   DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
