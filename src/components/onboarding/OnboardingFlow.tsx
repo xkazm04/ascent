@@ -64,6 +64,9 @@ export function OnboardingFlow({
   // (the scan auto-watches repos on a weekly schedule, a recurring credit commitment). Read only
   // on the App path (the viewer owns that org); the public-handle path can't read tenant credits.
   const [credit, setCredit] = useState<OrgCredit | null>(null);
+  // Whether the just-run scan was a PREVIEW (mock) — disclosed on the done state so the scores are
+  // never mistaken for live numbers. Real only on the App path when the org actually has credits.
+  const [previewScan, setPreviewScan] = useState(true);
 
   // Abort controller for the streaming import — aborted on Cancel and on unmount.
   const abortRef = useRef<AbortController | null>(null);
@@ -185,6 +188,11 @@ export function OnboardingFlow({
     const controller = new AbortController();
     abortRef.current = controller;
     const total = picks.length;
+    // Run a REAL scan only on the App path AND when the org has credits (the import route meters +
+    // refunds on failure) — otherwise a disclosed preview, so a credit-less org never dead-ends on a
+    // 402 and scores are never silently fabricated. The public-handle funnel is always a preview.
+    const canRunReal = !!sourceInstallId && !!credit && credit.org === sourceLabel && (credit.unlimited || credit.balance > 0);
+    setPreviewScan(!canRunReal);
     try {
       const outcome = await runImportScan(
         {
@@ -193,6 +201,7 @@ export function OnboardingFlow({
           // Pass the installation id (when this source came from the GitHub App) so the server
           // mints an installation token — required to read the private repos we just listed.
           installationId: sourceInstallId ?? undefined,
+          mock: !canRunReal,
         },
         controller,
         {
@@ -291,6 +300,7 @@ export function OnboardingFlow({
         rows={rows}
         error={error}
         announce={announce}
+        preview={previewScan}
         checklistSteps={checklistSteps()}
         onCancel={cancelScan}
         onViewDashboard={() => router.push(`/org/${encodeURIComponent(sourceLabel)}`)}

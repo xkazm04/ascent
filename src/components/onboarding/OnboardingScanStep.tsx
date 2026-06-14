@@ -2,6 +2,19 @@
 
 import { OnboardingChecklist, type ChecklistStep } from "@/components/onboarding/OnboardingChecklist";
 import { ScanRowView, type ScanRow } from "@/components/onboarding/OnboardingScanRow";
+import { LEVELS } from "@/lib/maturity/model";
+import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
+import type { LevelId } from "@/lib/types";
+
+// One-line, plain-language read of each maturity level for the onboarding legend (ONB-4) — the
+// scores otherwise land with no interpretation. Keyed by level id; names come from the rubric.
+const LEVEL_BLURB: Record<LevelId, string> = {
+  L1: "Manual — AI used ad hoc, little shared tooling or guardrails.",
+  L2: "Assisted — AI tooling adopted, basic tests/CI starting to form.",
+  L3: "Augmented — shared AI guidance, CI gates, and tests are the norm.",
+  L4: "Integrated — AI is in the loop with strong process + quality enforcement.",
+  L5: "Autonomous — repeatable AI harness, evals, and trustworthy automation.",
+};
 
 /** The scanning + done phases: live region, progress bar, streamed rows, and (on done) the
  *  activation checklist + dashboard CTAs. */
@@ -10,6 +23,7 @@ export function ScanStep({
   rows,
   error,
   announce,
+  preview = false,
   checklistSteps,
   onCancel,
   onViewDashboard,
@@ -19,6 +33,9 @@ export function ScanStep({
   rows: Record<string, ScanRow>;
   error: string | null;
   announce: string;
+  /** The scan was a deterministic PREVIEW (mock), not a real LLM scan — disclosed so the numbers
+   *  aren't mistaken for live scores. */
+  preview?: boolean;
   checklistSteps: ChecklistStep[];
   onCancel: () => void;
   onViewDashboard: () => void;
@@ -100,8 +117,32 @@ export function ScanStep({
         ))}
       </div>
 
+      {phase === "done" && preview && (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
+          These are <strong>preview</strong> scores — a fast, illustrative estimate. For live numbers,
+          install the GitHub App and run a real scan (it draws prepaid credits) from the dashboard.
+        </p>
+      )}
+
       {phase === "done" && (
         <>
+          {/* ONB-4: a compact "what your score means" legend, so the scores land with meaning. */}
+          <details className="mt-5 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+            <summary className="cursor-pointer font-mono text-sm uppercase tracking-widest text-slate-400 hover:text-white">
+              How maturity levels work
+            </summary>
+            <ul className="mt-2 space-y-1.5">
+              {LEVELS.map((l) => (
+                <li key={l.id} className="flex items-start gap-2 text-sm text-slate-300">
+                  <span aria-hidden className={`mt-0.5 ${LEVEL_CLASSES[l.id as LevelId]?.text ?? "text-slate-400"}`}>
+                    {LEVEL_GLYPH[l.id as LevelId]} {l.id}
+                  </span>
+                  <span>{LEVEL_BLURB[l.id as LevelId] ?? l.name}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+
           <div className="mt-6">
             <OnboardingChecklist steps={checklistSteps} />
           </div>

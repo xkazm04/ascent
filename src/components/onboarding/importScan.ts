@@ -14,6 +14,9 @@ export interface ImportScanRequest {
   repos: string[];
   /** Installation id (when the source came from the GitHub App) so the server mints a token. */
   installationId?: string;
+  /** Run a deterministic PREVIEW (mock) scan vs. a real LLM scan. Onboarding runs a real scan on the
+   *  App path when the org has credits (the route meters + refunds); otherwise a disclosed preview. */
+  mock?: boolean;
 }
 
 export interface ImportScanCallbacks {
@@ -60,7 +63,9 @@ export async function runImportScan(
         org: request.org,
         repos: request.repos,
         installationId: request.installationId ?? undefined,
-        mock: true,
+        // Default to preview (mock) when the caller doesn't specify — the public-handle funnel can't
+        // meter credits. The App path passes mock:false explicitly when the org has credits.
+        mock: request.mock ?? true,
         watch: true,
         schedule: IMPORT_WATCH_SCHEDULE,
       }),
