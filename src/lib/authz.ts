@@ -108,6 +108,15 @@ export function openOrgDashboardsEnabled(): boolean {
 }
 
 /**
+ * Boolean form of {@link requireOrgRole} for server COMPONENTS (pages), which need a yes/no rather
+ * than a Response to return. Same resolution + owner-seed side effect; true when the caller's role
+ * in `org` meets `min`. Use to gate an owner-only page (e.g. Members) before reading its data.
+ */
+export async function hasOrgRole(org: string, min: OrgRole): Promise<boolean> {
+  return (await requireOrgRole(org, min)) === null;
+}
+
+/**
  * Role-gated authorization — the RBAC layer over {@link requireOrgAccess}. Returns a NextResponse
  * (401/403) when the caller's role in `org` is below `min`, or null when allowed. Role resolution: an
  * explicit Membership row wins; otherwise an installation-owner (sessionOwnsOrg) is treated as `owner`

@@ -66,6 +66,7 @@ export {
   ensureOwnerMembership,
   getMembershipRole,
   setMembershipRole,
+  removeMembership,
   listOrgMembers,
   type OrgRole,
   type OrgMember,

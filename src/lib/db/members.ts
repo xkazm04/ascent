@@ -109,6 +109,31 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
   return true;
 }
 
+/**
+ * Remove a member entirely (owner-gated). Refuses to remove the LAST owner so an org can't be
+ * orphaned with no one able to manage it. Returns a typed outcome the route maps to a status.
+ */
+export async function removeMembership(orgSlug: string, login: string): Promise<"ok" | "not_found" | "last_owner"> {
+  if (!isDbConfigured()) return "not_found";
+  const prisma = getPrisma();
+  const gh = normalizeLogin(login);
+  const orgId = await orgIdForSlug(orgSlug);
+  if (!gh || !orgId) return "not_found";
+  const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
+  if (!user) return "not_found";
+  const m = await prisma.membership.findUnique({
+    where: { orgId_userId: { orgId, userId: user.id } },
+    select: { role: true },
+  });
+  if (!m) return "not_found";
+  if (m.role === "owner") {
+    const owners = await prisma.membership.count({ where: { orgId, role: "owner" } });
+    if (owners <= 1) return "last_owner";
+  }
+  await prisma.membership.delete({ where: { orgId_userId: { orgId, userId: user.id } } });
+  return "ok";
+}
+
 /** All members of an org (owner-gated view). */
 export async function listOrgMembers(orgSlug: string): Promise<OrgMember[]> {
   if (!isDbConfigured()) return [];
