@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import { scoreHex } from "@/lib/ui";
+import { reportPermalink, scoreHex } from "@/lib/ui";
 import {
   ACCENT,
   CENTER,
@@ -87,7 +87,7 @@ export function ConstellationField({ c }: { c: Constellation }) {
               return <circle key={`s-${i}`} className="launch-star" cx={cx} cy={cy} r={1.2} fill={FAINT} style={style} />;
             })}
 
-          {/* hydrated repo stars — brightness scales with maturity */}
+          {/* hydrated repo stars — brightness scales with maturity; each links to its report */}
           {c.status === "done" &&
             repos.map((r, i) => {
               const { cx, cy } = starPosition(i, repos.length, r.fullName);
@@ -96,13 +96,31 @@ export function ConstellationField({ c }: { c: Constellation }) {
                 ["--star-opacity" as string]: look.opacity,
                 animationDelay: `${(i % 7) * 0.28}s`,
               };
+              const detail = r.overall != null ? ` · ${r.level ?? ""} ${r.overall}` : " · not scanned";
+              // SVG <a>: clicking a star opens that repo's report (the map's core "a star is a repo"
+              // metaphor). A transparent halo widens the hit/focus target for the tiny stars.
               return (
-                <circle key={`d-${r.fullName}`} className="launch-star" cx={cx} cy={cy} r={look.r} fill={look.color} style={style}>
-                  <title>
-                    {r.fullName}
-                    {r.overall != null ? ` · ${r.level ?? ""} ${r.overall}` : " · not scanned"}
-                  </title>
-                </circle>
+                <a
+                  key={`d-${r.fullName}`}
+                  href={reportPermalink(r.fullName)}
+                  className="launch-star-link"
+                  aria-label={`Open report for ${r.fullName}${detail}`}
+                >
+                  <circle cx={cx} cy={cy} r={Math.max(look.r + 1.4, 3)} fill="transparent" />
+                  <circle
+                    className="launch-star"
+                    cx={cx}
+                    cy={cy}
+                    r={look.r}
+                    fill={look.color}
+                    style={style}
+                  >
+                    <title>
+                      {r.fullName}
+                      {detail}
+                    </title>
+                  </circle>
+                </a>
               );
             })}
 

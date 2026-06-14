@@ -25,6 +25,9 @@ export function PlaybookCard({
 }) {
   const [applied, setApplied] = useState<string[]>(adoption?.appliedRepos ?? []);
   const [pick, setPick] = useState("");
+  const [prBusy, setPrBusy] = useState(false);
+  const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
+  const [prError, setPrError] = useState<string | null>(null);
   const lift = adoption?.lift ?? null;
   const available = repoOptions.filter((r) => !applied.includes(r));
 
@@ -38,6 +41,31 @@ export function PlaybookCard({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ repo }),
     });
+  }
+
+  // Open a draft PR seeding the playbook into the picked repo (the route records adoption too).
+  async function openPr() {
+    const repo = pick;
+    if (!repo || prBusy) return;
+    setPrBusy(true);
+    setPrError(null);
+    setPrResult(null);
+    try {
+      const res = await fetch(`/api/org/playbooks/${p.id}/apply`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
+      setPrResult({ url: data.url, reused: data.reused });
+      setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+      setPick("");
+    } catch (e) {
+      setPrError(e instanceof Error ? e.message : "Failed to open PR.");
+    } finally {
+      setPrBusy(false);
+    }
   }
 
   async function unapply(repo: string) {
@@ -99,17 +127,29 @@ export function PlaybookCard({
       )}
 
       {available.length > 0 && (
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <select value={pick} onChange={(e) => setPick(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
-            <option value="">Mark a repo as applied…</option>
+            <option value="">Pick a repo…</option>
             {available.map((r) => (
               <option key={r} value={r}>{r}</option>
             ))}
           </select>
-          <button onClick={apply} disabled={!pick} className="shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
-            Apply
+          <button onClick={apply} disabled={!pick} className="shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Just record that this repo adopted the playbook">
+            Mark applied
+          </button>
+          <button onClick={openPr} disabled={!pick || prBusy} className="shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50" title="Open a draft PR seeding this playbook into the repo">
+            {prBusy ? "Opening PR…" : "Open draft PR →"}
           </button>
         </div>
+      )}
+      {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
+      {prResult && (
+        <p className="mt-2 text-sm text-emerald-300">
+          {prResult.reused ? "Existing draft PR: " : "Draft PR opened: "}
+          <a href={prResult.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
+            {prResult.url}
+          </a>
+        </p>
       )}
     </div>
   );

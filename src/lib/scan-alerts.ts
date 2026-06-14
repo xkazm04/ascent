@@ -12,13 +12,14 @@ import {
   buildLowCreditsMessage,
   buildRegressionMessage,
   creditsAlertThreshold,
+  DEFAULT_THRESHOLDS,
   detectRegression,
   dispatchAlert,
   isAlertConfigured,
   isLowCreditsCrossing,
   type RegressionVerdict,
 } from "@/lib/alerts";
-import { getOrgAlertWebhook, recordAudit, reportPermalink } from "@/lib/db";
+import { getOrgAlertThresholds, getOrgAlertWebhook, recordAudit, reportPermalink } from "@/lib/db";
 
 export interface RegressionOutcome {
   regressed: boolean;
@@ -57,7 +58,13 @@ export async function checkAndAlertRegression(
   if (!prev) return { regressed: false, verdict: null, dispatched: false };
   try {
     const diff = diffReports(prev, fresh);
-    const verdict = detectRegression(diff);
+    // Per-org sensitivity, falling back to DEFAULT_THRESHOLDS per field when unset (best-effort —
+    // a failed lookup just uses the defaults; alerting must never throw into the scan path).
+    const orgT = opts.orgSlug ? await getOrgAlertThresholds(opts.orgSlug).catch(() => null) : null;
+    const verdict = detectRegression(diff, {
+      overallDrop: orgT?.overallDrop ?? DEFAULT_THRESHOLDS.overallDrop,
+      dimensionDrop: orgT?.dimensionDrop ?? DEFAULT_THRESHOLDS.dimensionDrop,
+    });
     if (!verdict.regressed) return { regressed: false, verdict, dispatched: false };
 
     const fullName = `${fresh.repo.owner}/${fresh.repo.name}`;

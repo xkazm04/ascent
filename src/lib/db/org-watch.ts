@@ -242,6 +242,33 @@ export async function recordScanOutcome(
   });
 }
 
+/**
+ * Record a `.ai/` standard conformance report (from the repo's doctor) onto the Repository row, so
+ * the adopt→verify→re-score loop closes in-app. No-op without a DB or when the repo isn't tracked
+ * under this org (updateMany matches 0). Returns whether a row was updated. Mirrors recordScanOutcome.
+ */
+export async function recordConformance(
+  orgSlug: string,
+  fullName: string,
+  c: { score: number; fails: number; warns: number },
+): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
+  if (!org) return false;
+  const clamp = (n: number) => Math.max(0, Math.trunc(Number.isFinite(n) ? n : 0));
+  const res = await prisma.repository.updateMany({
+    where: { orgId: org.id, fullName },
+    data: {
+      aiConformance: Math.min(100, clamp(c.score)),
+      aiConformanceFails: clamp(c.fails),
+      aiConformanceWarns: clamp(c.warns),
+      aiConformanceAt: new Date(),
+    },
+  });
+  return res.count > 0;
+}
+
 /** Watched repos for an org (for bulk scan / cron). */
 export async function listWatchedRepos(orgSlug: string): Promise<RepoRef[]> {
   if (!isDbConfigured()) return [];

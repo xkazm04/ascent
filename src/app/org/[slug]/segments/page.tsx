@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { SegmentComparePicker } from "@/components/org/SegmentComparePicker";
+import { SegmentActions } from "@/components/org/SegmentActions";
 import { Card, Meter, SectionEmpty, SectionHeader, Tile, POSTURE_LABEL, deltaHex, fmtDelta } from "@/components/org/ui";
-import { compareSegments, listSegmentSummaries } from "@/lib/db";
+import { compareSegments, getRepoSegmentMap, listSegmentSummaries } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import type { SegmentSummary } from "@/lib/db";
@@ -10,8 +11,9 @@ export const dynamic = "force-dynamic";
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-/** One segment's headline standing — the per-segment rollup card in the overview strip. */
-function SegmentCard({ s }: { s: SegmentSummary }) {
+/** One segment's headline standing — the per-segment rollup card in the overview strip. Real
+ *  segments (with an id) also get scan + cadence controls scoped to their tagged repos. */
+function SegmentCard({ s, org, repos }: { s: SegmentSummary; org: string; repos: string[] }) {
   const level = levelForScore(s.avgOverall);
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
@@ -30,6 +32,7 @@ function SegmentCard({ s }: { s: SegmentSummary }) {
         <span>rigor {s.avgRigor}</span>
       </div>
       <div className="mt-1 font-mono text-sm text-slate-600">{s.scannedCount}/{s.repoCount} scanned</div>
+      {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} />}
     </div>
   );
 }
@@ -58,7 +61,16 @@ export default async function OrgSegments({
   const { slug } = await params;
   const sp = await searchParams;
 
-  const summaries = (await listSegmentSummaries(slug)) ?? [];
+  const [summaries, segMap] = await Promise.all([
+    listSegmentSummaries(slug).then((s) => s ?? []),
+    getRepoSegmentMap(slug),
+  ]);
+  // Invert the repo→segments map into segment id → tagged repo fullNames, so each card can scan or
+  // schedule exactly its slice.
+  const reposBySegment: Record<string, string[]> = {};
+  for (const [fullName, segs] of Object.entries(segMap)) {
+    for (const seg of segs) (reposBySegment[seg.id] ??= []).push(fullName);
+  }
   if (summaries.length === 0) {
     return (
       <SectionEmpty>
@@ -93,7 +105,7 @@ export default async function OrgSegments({
         />
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {summaries.map((s) => (
-            <SegmentCard key={s.id ?? "fleet"} s={s} />
+            <SegmentCard key={s.id ?? "fleet"} s={s} org={slug} repos={s.id ? reposBySegment[s.id] ?? [] : []} />
           ))}
         </div>
       </div>

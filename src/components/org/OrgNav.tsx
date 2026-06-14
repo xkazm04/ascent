@@ -7,8 +7,8 @@ type Tab = { href: string; label: string };
 type Group = { label: string; tabs: Tab[] };
 
 /**
- * Persistent tab bar across the org sub-pages. The 14 views are grouped into labeled
- * sections (Overview · Fleet · Intelligence · Plan · Audit) so the bar stays scannable —
+ * Persistent tab bar across the org sub-pages. The views are grouped into labeled
+ * sections (Overview · Fleet · Intelligence · Plan · Govern) so the bar stays scannable —
  * every tab is still one click; the small muted labels just organize them.
  */
 export function OrgNav({ slug }: { slug: string }) {
@@ -51,6 +51,7 @@ export function OrgNav({ slug }: { slug: string }) {
     {
       label: "Govern",
       tabs: [
+        { href: `${base}/members`, label: "Members" },
         { href: `${base}/governance`, label: "Governance" },
         { href: `${base}/audit`, label: "Audit" },
       ],

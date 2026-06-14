@@ -57,6 +57,8 @@ export interface OrgRepoRow {
   lastScanStatus: string | null;
   /** Failure reason when lastScanStatus is "error", for a "needs attention" affordance. */
   lastScanError: string | null;
+  /** `.ai/` standard conformance % reported by the repo's doctor, or null if never reported. */
+  aiConformance: number | null;
   latest: {
     level: string;
     overall: number;
@@ -177,6 +179,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,
       lastScanError: r.lastScanError,
+      aiConformance: r.aiConformance ?? null,
       latest: s
         ? {
             level: s.level,

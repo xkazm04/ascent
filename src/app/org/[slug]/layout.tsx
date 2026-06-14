@@ -3,6 +3,7 @@ import { SignInNotice } from "@/components/SignInNotice";
 import { OrgNav } from "@/components/org/OrgNav";
 import { OrgScanButton } from "@/components/org/OrgScanButton";
 import { CreditsControl } from "@/components/org/CreditsControl";
+import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
 import { getCreditState, getOrgRollup, isDbConfigured } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
@@ -121,6 +122,7 @@ export default async function OrgLayout({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {slug !== "public" && <AlertsControl org={slug} />}
           {credit && (
             <CreditsControl
               org={slug}

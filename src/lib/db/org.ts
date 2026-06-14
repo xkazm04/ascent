@@ -14,6 +14,7 @@ export {
   advanceScheduleAfterFailure,
   claimRescan,
   recordScanOutcome,
+  recordConformance,
   listWatchedRepos,
   listOrgsWithWatchedRepos,
   type RepoRef,
@@ -30,7 +31,13 @@ export {
   type OrgRollup,
 } from "@/lib/db/org-rollup";
 
-export { getOrgAlertWebhook, setOrgAlertWebhook } from "@/lib/db/org-alerts";
+export {
+  getOrgAlertWebhook,
+  setOrgAlertWebhook,
+  getOrgAlertThresholds,
+  setOrgAlertThresholds,
+  type OrgAlertThresholds,
+} from "@/lib/db/org-alerts";
 
 export {
   getOrgContributors,

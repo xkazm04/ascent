@@ -66,10 +66,19 @@ export {
   ensureOwnerMembership,
   getMembershipRole,
   setMembershipRole,
+  removeMembership,
   listOrgMembers,
   type OrgRole,
   type OrgMember,
 } from "@/lib/db/members";
+export {
+  createInvite,
+  listPendingInvites,
+  revokeInvite,
+  acceptInvite,
+  type PendingInvite,
+  type AcceptResult,
+} from "@/lib/db/invites";
 export {
   upsertInstallation,
   removeInstallation,
@@ -106,11 +115,15 @@ export {
   advanceScheduleAfterFailure,
   claimRescan,
   recordScanOutcome,
+  recordConformance,
   listOrgsWithWatchedRepos,
   getOrgId,
   isRepoWatched,
   getOrgAlertWebhook,
   setOrgAlertWebhook,
+  getOrgAlertThresholds,
+  setOrgAlertThresholds,
+  type OrgAlertThresholds,
   type DueRescan,
   type RepoRef,
   type OrgRepoRow,
@@ -184,6 +197,7 @@ export {
 } from "@/lib/db/plan";
 export {
   listPlaybooks,
+  getPlaybook,
   createPlaybook,
   updatePlaybook,
   deletePlaybook,

@@ -88,6 +88,15 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
                           ⚠ scan failed
                         </span>
                       )}
+                      {r.aiConformance != null && (
+                        <span
+                          title="`.ai/` standard conformance reported by this repo's doctor (node .ai/doctor.mjs --json)"
+                          className="ml-2 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-sm"
+                          style={{ color: scoreHex(r.aiConformance) }}
+                        >
+                          .ai {r.aiConformance}%
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       {l && rlc ? <span className={`font-mono text-sm ${rlc.text}`}>{l.level}</span> : <span className="text-slate-600">—</span>}

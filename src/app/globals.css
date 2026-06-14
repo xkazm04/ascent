@@ -169,6 +169,18 @@ body {
 .launch-star {
   animation: ascent-twinkle 3.6s ease-in-out infinite;
 }
+/* A star is a link to its repo report — cursor, hover brighten, and a keyboard focus ring. */
+.launch-star-link {
+  cursor: pointer;
+}
+.launch-star-link:hover .launch-star {
+  filter: brightness(1.4);
+}
+.launch-star-link:focus-visible {
+  outline: 2px solid var(--color-accent, #3b9eff);
+  outline-offset: 1px;
+  border-radius: 9999px;
+}
 .launch-glow {
   transform-box: fill-box;
   transform-origin: center;
