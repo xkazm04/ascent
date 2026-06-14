@@ -1,0 +1,1307 @@
+{
+  "$schema": "https://vibeman.dev/schemas/context-map.json",
+  "projectId": "847cd027-0e92-434d-914d-d94463e00895",
+  "projectName": "ascent",
+  "projectPath": "C:\\Users\\kazda\\kiro\\ascent",
+  "version": "2.0.0",
+  "groups": [
+    {
+      "name": "Repository Scanning & Scoring",
+      "domain": null,
+      "type": null,
+      "color": "#6366f1",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "LLM Provider Abstraction",
+          "description": "## Purpose\nA pluggable LLMProvider interface so scoring can swap models by config: Gemini (local/dev default), AWS Bedrock (enterprise privacy), a Claude CLI provider, and a keyless deterministic Mock provider that makes the whole app demoable with zero secrets. Provider selection is driven by the LLM_PROVIDER env flag.\n\n## Key Flows\n- llm/index.ts selects a provider (auto/gemini/bedrock/mock) and exposes hasLlmKey().\n- provider.ts defines the LLMProvider interface; each implementation returns structured JSON scores.\n- json.ts hardens JSON parsing of model output; mock.ts synthesizes a realistic report from signals alone.\n\n## Entry Points\n- src/lib/llm/index.ts (provider selection)\n- src/lib/llm/provider.ts (interface)",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/lib/llm/index.ts",
+            "src/lib/llm/provider.ts",
+            "src/lib/llm/gemini.ts",
+            "src/lib/llm/bedrock.ts",
+            "src/lib/llm/claude-cli.ts",
+            "src/lib/llm/mock.ts",
+            "src/lib/llm/json.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Maturity Model & Scoring Engine",
+          "description": "## Purpose\nThe rubric and the math behind every score. Defines the 8 dimensions, levels (L1-L5), weights and posture/archetype bands; runs deterministic signal extraction over the repo; builds the LLM prompt; then blends signal scores with LLM judgment, guardbands, rolls up to an overall level, and derives a prioritized recommendation roadmap.\n\n## Key Flows\n- analyze/index.ts + analyze/pulls.ts turn a RepoSnapshot into per-dimension signals (AI trailers, conventional commits, PR/governance signals).\n- maturity/model.ts is the canonical rubric; practices.ts maps signals to named practices.\n- scoring/engine.ts blends signals + LLM output; scoring/prompt.ts assembles the prompt; scoring/recommendations.ts builds the roadmap.\n- /api/recommendations GET lists, [id] PATCH updates recommendation status.\n\n## Entry Points\n- src/lib/scoring/engine.ts\n- src/lib/maturity/model.ts\n- src/lib/analyze/index.ts",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/lib/maturity/model.ts",
+            "src/lib/analyze/index.ts",
+            "src/lib/analyze/pulls.ts",
+            "src/lib/practices.ts",
+            "src/lib/scoring/engine.ts",
+            "src/lib/scoring/prompt.ts",
+            "src/lib/scoring/recommendations.ts",
+            "src/lib/types.ts",
+            "src/app/api/recommendations/route.ts",
+            "src/app/api/recommendations/[id]/route.ts",
+            "docs/MATURITY_MODEL.md",
+            "docs/CALIBRATION.md"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Scan Pipeline & Ingestion",
+          "description": "## Purpose\nDrives a single-repo scan end-to-end: parse a GitHub URL, ingest repo metadata/tree/commits/governance over the REST API (no git clone), run deterministic signal extraction, call the LLM, and stream progress back to the browser. This is the app shell + landing entry too.\n\n## Key Flows\n- POST /api/scan and GET /api/scan return a ScanReport; /api/scan/stream emits SSE progress.\n- lib/scan.ts orchestrates ingest -> signals -> LLM -> report, with a MockProvider fallback so a scan always returns something.\n- GitHubPublicSource (github/source.ts) budgets file-content fetches; governance.ts adds branch-protection + commit-activity.\n- In-memory cache keyed by owner/repo@headSha makes re-scans instant.\n\n## Entry Points\n- src/app/page.tsx (landing + ScanForm)\n- src/app/api/scan/route.ts, src/app/api/scan/stream/route.ts",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/app/page.tsx",
+            "src/app/layout.tsx",
+            "src/app/globals.css",
+            "src/components/ScanForm.tsx",
+            "src/components/Brand.tsx",
+            "src/app/api/scan/route.ts",
+            "src/app/api/scan/stream/route.ts",
+            "src/lib/scan.ts",
+            "src/lib/github/source.ts",
+            "src/lib/github/governance.ts",
+            "src/lib/cache.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        }
+      ]
+    },
+    {
+      "name": "Identity & GitHub Connectivity",
+      "domain": null,
+      "type": null,
+      "color": "#0ea5e9",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "GitHub App, Connect & Onboarding",
+          "description": "## Purpose\nInstalling and wiring the GitHub App so Ascent can read private and org repositories, plus the onboarding/connect UI that walks a new workspace through it. Handles the App setup callback, installation webhooks, listing installation repos, and minting installation tokens; persists installations for later org scans.\n\n## Key Flows\n- GET /api/app/setup -> store installation after the user installs the App.\n- POST /api/app/webhook -> handle installation/repo events (upsert/remove installations).\n- GET /api/app/repos -> list repos visible to an installation.\n- github/app.ts mints installation tokens; github/list.ts + github/graphql.ts enumerate repos; connect + onboarding pages drive the UI.\n\n## Entry Points\n- src/lib/github/app.ts\n- src/app/connect/page.tsx\n- src/app/api/app/setup/route.ts",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/app/api/app/setup/route.ts",
+            "src/app/api/app/repos/route.ts",
+            "src/app/api/app/webhook/route.ts",
+            "src/lib/github/app.ts",
+            "src/lib/db/installations.ts",
+            "src/lib/github/list.ts",
+            "src/lib/github/graphql.ts",
+            "src/app/connect/page.tsx",
+            "src/components/connect/InstallationRepos.tsx",
+            "src/app/onboarding/page.tsx",
+            "src/components/onboarding/OnboardingFlow.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "GitHub OAuth & Session",
+          "description": "## Purpose\nUser sign-in via GitHub OAuth and the session it establishes. Login redirects to GitHub, the callback exchanges the code and sets the session, logout clears it; lib/auth.ts holds the session helpers used across server routes, and SignInNotice prompts unauthenticated users.\n\n## Key Flows\n- GET /api/auth/login -> redirect to GitHub OAuth.\n- GET /api/auth/callback -> exchange code, persist session cookie.\n- POST /api/auth/logout -> clear session.\n- lib/auth.ts: read/verify the current session for protected routes.\n\n## Entry Points\n- src/lib/auth.ts\n- src/app/api/auth/callback/route.ts",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/app/api/auth/login/route.ts",
+            "src/app/api/auth/callback/route.ts",
+            "src/app/api/auth/logout/route.ts",
+            "src/lib/auth.ts",
+            "src/components/SignInNotice.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
+        }
+      ]
+    },
+    {
+      "name": "Organization Intelligence",
+      "domain": null,
+      "type": null,
+      "color": "#f59e0b",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "Organization Scanning, Watchlist & Rollups",
+          "description": "## Purpose\nThe org-side data engine: import an org, choose a watchlist, bulk-scan every watched repo through its installation token (SSE progress), schedule periodic rescans, and run the aggregate queries (rollup, movers, benchmark, gap analysis, contributor/PR signals, org recommendations) that power the dashboard. A Vercel cron drives due rescans.\n\n## Key Flows\n- POST /api/org/import, /api/org/repos, /api/org/watch manage the watched set.\n- POST /api/org/scan streams a bulk scan over watched repos; /api/org/schedule sets cadence.\n- GET /api/cron/rescan runs due scheduled scans.\n- lib/db/org.ts holds getOrgRollup/getOrgMovers/getOrgBenchmark/getOrgGapAnalysis/getOrgRecommendations/getOrgContributors.\n\n## Entry Points\n- src/lib/db/org.ts\n- src/app/api/org/scan/route.ts",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/app/api/org/import/route.ts",
+            "src/app/api/org/repos/route.ts",
+            "src/app/api/org/scan/route.ts",
+            "src/app/api/org/watch/route.ts",
+            "src/app/api/org/schedule/route.ts",
+            "src/app/api/cron/rescan/route.ts",
+            "src/lib/db/org.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Org Dashboard & Views",
+          "description": "## Purpose\nThe fleet-level UI under /org/[slug]: an overview with movers/benchmark/gap analysis plus drill-down tabs for contributors, delivery, practices, and repositories. Server components read aggregated org data and render tiles, nav, and the org-wide scan button.\n\n## Key Flows\n- /org/[slug] overview: rollup + movers + benchmark + gap + org recommendations.\n- /contributors, /delivery, /practices, /repositories: per-facet fleet views.\n- OrgNav for tab navigation; OrgScanButton triggers a bulk org scan; org/ui.tsx shared tiles/labels.\n\n## Entry Points\n- src/app/org/[slug]/page.tsx\n- src/app/org/[slug]/layout.tsx",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/app/org/[slug]/layout.tsx",
+            "src/app/org/[slug]/page.tsx",
+            "src/app/org/[slug]/contributors/page.tsx",
+            "src/app/org/[slug]/delivery/page.tsx",
+            "src/app/org/[slug]/practices/page.tsx",
+            "src/app/org/[slug]/repositories/page.tsx",
+            "src/components/org/OrgNav.tsx",
+            "src/components/org/OrgScanButton.tsx",
+            "src/components/org/ui.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
+        }
+      ]
+    },
+    {
+      "name": "Reporting, Persistence & Metering",
+      "domain": null,
+      "type": null,
+      "color": "#10b981",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "Usage Metering & Public Badge",
+          "description": "## Purpose\nTwo outward-facing surfaces built on stored scans. Usage metering summarizes scan volume and provider usage per org (billing/ROI view at /usage, backed by /api/usage and db/usage.ts and the Subscription model). The public badge serves an embeddable SVG maturity badge for a repo's README.\n\n## Key Flows\n- GET /api/usage -> getUsageSummary (scan counts, provider mix, period).\n- /usage page renders the metering summary.\n- GET /api/badge/[owner]/[repo] -> SVG badge of the latest maturity level.\n\n## Entry Points\n- src/app/api/usage/route.ts\n- src/app/api/badge/[owner]/[repo]/route.ts",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/app/usage/page.tsx",
+            "src/app/api/usage/route.ts",
+            "src/lib/db/usage.ts",
+            "src/app/api/badge/[owner]/[repo]/route.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Persistence Layer (Prisma / Aurora DSQL)",
+          "description": "## Purpose\nThe optional database layer. Persistence is opt-in: the MVP runs with no DB, and every db helper is a safe no-op when DATABASE_URL is unset. Defines the relational schema (orgs, users, repos, scans, dimensions, recommendations, audit, subscriptions), a lazy Prisma singleton, and persist/history/audit helpers. Targets Postgres locally and Aurora DSQL (IAM token auth) in production.\n\n## Key Flows\n- db/client.ts: lazy PrismaClient, isDbConfigured().\n- db/index.ts: re-exports the db API surface.\n- db/scans.ts: persistScanReport, getRepositoryHistory, getLatestRecommendations, updateRecommendationStatus, recordAudit.\n- prisma/schema.prisma + init.sql define the data model.\n\n## Entry Points\n- prisma/schema.prisma\n- src/lib/db/client.ts\n- src/lib/db/scans.ts",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/lib/db/client.ts",
+            "src/lib/db/index.ts",
+            "src/lib/db/scans.ts",
+            "prisma/schema.prisma",
+            "prisma/init.sql",
+            "docs/ARCHITECTURE.md"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Report & Trends Visualization",
+          "description": "## Purpose\nRenders a ScanReport for humans: the report page (overall level, per-dimension breakdown, axes, recommendations) and the trends page (history over time). Client components draw the charts; /api/history serves the per-repo scan history; lib/ui.ts holds shared score colors, dimension labels, and impact classes used here and by the org views.\n\n## Key Flows\n- /report renders a report from JSON via ReportClient/ReportView + Charts.\n- /trends + DimensionTrends/TrendChart show score movement over scans.\n- GET /api/history returns a repo's scan history points.\n\n## Entry Points\n- src/app/report/page.tsx\n- src/components/report/ReportView.tsx",
+          "businessFeature": null,
+          "category": null,
+          "filePaths": [
+            "src/app/report/page.tsx",
+            "src/app/trends/page.tsx",
+            "src/components/report/ReportClient.tsx",
+            "src/components/report/ReportView.tsx",
+            "src/components/report/Charts.tsx",
+            "src/components/report/TrendChart.tsx",
+            "src/components/report/DimensionTrends.tsx",
+            "src/app/api/history/route.ts",
+            "src/lib/ui.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        }
+      ]
+    },
+    {
+      "name": "Repository Scanning & Scoring",
+      "domain": "feature",
+      "type": null,
+      "color": "#3B82F6",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "CI Gate & Status Checks",
+          "description": "## Purpose\nTurns a maturity score into a CI pass/fail and a GitHub status check + PR comment, so teams can block merges below a threshold. Powers the `action.yml` GitHub Action and the gate endpoint.\n\n## Key Flows\n- scoring/gate computes the gate verdict against a threshold; gate-comment renders the PR comment.\n- /api/gate/[owner]/[repo] serves the verdict; github/checks writes the check-run, github/write posts the comment.\n\n## Entry Points\n- src/app/api/gate/[owner]/[repo]/route.ts\n- src/lib/scoring/gate.ts",
+          "businessFeature": "CI Maturity Gate",
+          "category": "api",
+          "filePaths": [
+            "src/lib/scoring/gate.ts",
+            "src/lib/scoring/gate.test.ts",
+            "src/lib/scoring/gate-comment.ts",
+            "src/lib/scoring/gate-comment.test.ts",
+            "src/app/api/gate/[owner]/[repo]/route.ts",
+            "src/lib/github/checks.ts",
+            "src/lib/github/write.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/gate/[owner]/[repo]"
+          ]
+        },
+        {
+          "name": "LLM Provider Abstraction",
+          "description": "## Purpose\nA pluggable LLMProvider interface so scoring can swap models by config: Gemini (dev default), AWS Bedrock (enterprise privacy), OpenAI, a Claude CLI provider, and a keyless deterministic Mock provider that makes the whole app demoable with zero secrets. Selection is driven by the LLM_PROVIDER env flag.\n\n## Key Flows\n- llm/index selects a provider and exposes hasLlmKey(); provider.ts defines the interface; config.ts/schema.ts validate config and structured output.\n- json.ts hardens JSON parsing of model output; mock.ts synthesizes a realistic report from signals alone.\n\n## Entry Points\n- src/lib/llm/index.ts\n- src/lib/llm/provider.ts",
+          "businessFeature": "LLM Providers",
+          "category": "lib",
+          "filePaths": [
+            "src/lib/llm/index.ts",
+            "src/lib/llm/index.test.ts",
+            "src/lib/llm/provider.ts",
+            "src/lib/llm/provider.test.ts",
+            "src/lib/llm/gemini.ts",
+            "src/lib/llm/bedrock.ts",
+            "src/lib/llm/bedrock.test.ts",
+            "src/lib/llm/claude-cli.ts",
+            "src/lib/llm/openai.ts",
+            "src/lib/llm/mock.ts",
+            "src/lib/llm/json.ts",
+            "src/lib/llm/json.test.ts",
+            "src/lib/llm/config.ts",
+            "src/lib/llm/config.test.ts",
+            "src/lib/llm/schema.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Maturity Model & Scoring Engine",
+          "description": "## Purpose\nThe rubric and the math behind every score: 8 dimensions, levels L1-L5, weights and posture/archetype bands. Runs deterministic signal extraction over the repo, builds the LLM prompt, blends signals with LLM judgment, rolls up an overall level, and derives a prioritized recommendation roadmap.\n\n## Key Flows\n- analyze/index + analyze/pulls turn a RepoSnapshot into per-dimension signals.\n- maturity/model.ts is the canonical rubric; practices.ts maps signals to named practices.\n- scoring/engine blends signals + LLM; scoring/prompt assembles the prompt; scoring/recommendations builds the roadmap.\n\n## Entry Points\n- src/lib/scoring/engine.ts\n- src/lib/maturity/model.ts",
+          "businessFeature": "Maturity Scoring",
+          "category": "lib",
+          "filePaths": [
+            "src/lib/maturity/model.ts",
+            "src/lib/analyze/index.ts",
+            "src/lib/analyze/pulls.ts",
+            "src/lib/analyze/pulls.test.ts",
+            "src/lib/analyze/signals.test.ts",
+            "src/lib/analyze/calibration.test.ts",
+            "src/lib/practices.ts",
+            "src/lib/scoring/engine.ts",
+            "src/lib/scoring/engine.test.ts",
+            "src/lib/scoring/prompt.ts",
+            "src/lib/scoring/prompt.test.ts",
+            "src/lib/scoring/recommendations.ts",
+            "src/lib/types.ts",
+            "docs/MATURITY_MODEL.md",
+            "docs/CALIBRATION.md"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Scan Pipeline & Ingestion",
+          "description": "## Purpose\nThe front door to a single-repo maturity scan: paste a GitHub repo, watch it stream live, and land on a report. Orchestrates fetch -> analyze -> score with caching and Server-Sent-Events progress.\n\n## Key Flows\n- ScanForm posts to /api/scan (sync) or subscribes to /api/scan/stream (SSE) for live status.\n- lib/scan.ts is the pipeline orchestrator; scan-cache memoizes recent scans; scan-alerts fans changes out; sse.ts + cache.ts are the streaming/caching primitives.\n\n## Entry Points\n- src/app/page.tsx (home/scan entry)\n- src/app/api/scan/stream/route.ts (SSE)\n- src/lib/scan.ts (orchestrator)",
+          "businessFeature": "Repository Scan",
+          "category": "api",
+          "filePaths": [
+            "src/app/page.tsx",
+            "src/components/ScanForm.tsx",
+            "src/components/landing/ScanGallery.tsx",
+            "src/app/api/scan/route.ts",
+            "src/app/api/scan/route.test.ts",
+            "src/app/api/scan/stream/route.ts",
+            "src/app/api/scan/stream/route.test.ts",
+            "src/lib/scan.ts",
+            "src/lib/scan.test.ts",
+            "src/lib/scan-cache.ts",
+            "src/lib/scan-cache.test.ts",
+            "src/lib/scan-alerts.ts",
+            "src/lib/sse.ts",
+            "src/lib/cache.ts",
+            "src/lib/cache.test.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/scan",
+            "/api/scan/stream"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Identity & GitHub Connectivity",
+      "domain": "integration",
+      "type": null,
+      "color": "#0EA5E9",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "GitHub Repo Data Access",
+          "description": "## Purpose\nThe typed GitHub I/O layer every scan and fleet path consults: fetch a repo snapshot, list org repos, read governance/CODEOWNERS, and discover scannable repositories. Wraps REST + GraphQL with consistent auth and error handling.\n\n## Key Flows\n- github/source builds the RepoSnapshot fed to the analyzer; governance/codeowners read policy files; list + discover enumerate repos; graphql batches expensive reads.\n\n## Entry Points\n- src/lib/github/source.ts\n- src/lib/github/discover.ts",
+          "businessFeature": "GitHub Data Layer",
+          "category": "lib",
+          "filePaths": [
+            "src/lib/github/source.ts",
+            "src/lib/github/governance.ts",
+            "src/lib/github/list.ts",
+            "src/lib/github/graphql.ts",
+            "src/lib/github/discover.ts",
+            "src/lib/github/discover.test.ts",
+            "src/lib/github/codeowners.ts",
+            "src/lib/github/codeowners.test.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "GitHub App Installation & Webhooks",
+          "description": "## Purpose\nInstall the Ascent GitHub App on an org/account, list the repos it can see, and react to GitHub webhooks (installs, pushes) in real time. Installation tokens are what let private-repo scans authenticate.\n\n## Key Flows\n- /api/app/setup completes the install handshake; /api/app/repos lists installation repos; /api/app/webhook ingests events.\n- github/app mints installation tokens; db/installations persists installation records.\n\n## Entry Points\n- src/app/api/app/webhook/route.ts\n- src/lib/github/app.ts",
+          "businessFeature": "GitHub App",
+          "category": "api",
+          "filePaths": [
+            "src/app/api/app/setup/route.ts",
+            "src/app/api/app/repos/route.ts",
+            "src/app/api/app/webhook/route.ts",
+            "src/app/api/app/webhook/route.test.ts",
+            "src/lib/github/app.ts",
+            "src/lib/github/app.test.ts",
+            "src/lib/db/installations.ts",
+            "src/lib/db/installations.test.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/app/setup",
+            "/api/app/repos",
+            "/api/app/webhook"
+          ]
+        },
+        {
+          "name": "GitHub OAuth & Session",
+          "description": "## Purpose\nSigns users in and keeps them signed in. Supabase GitHub OAuth is the active login wall layered on top of a dormant custom GitHub OAuth; a dev bypass keeps local/demo flows open. The proxy refreshes Supabase cookies on every request.\n\n## Key Flows\n- /api/auth/login|callback|logout|session|revoke-sessions manage the session lifecycle; access.ts is the single 'is there a viewer?' gate.\n- supabase/client + supabase/server build the SSR clients; db/sessions persists sessions; proxy.ts re-mints expiring tokens.\n\n## Entry Points\n- src/lib/access.ts\n- src/proxy.ts\n- src/app/api/auth/callback/route.ts",
+          "businessFeature": "Sign In",
+          "category": "api",
+          "filePaths": [
+            "src/app/api/auth/login/route.ts",
+            "src/app/api/auth/callback/route.ts",
+            "src/app/api/auth/logout/route.ts",
+            "src/app/api/auth/session/route.ts",
+            "src/app/api/auth/revoke-sessions/route.ts",
+            "src/app/auth/callback/route.ts",
+            "src/lib/auth.ts",
+            "src/lib/auth.test.ts",
+            "src/lib/access.ts",
+            "src/lib/db/sessions.ts",
+            "src/lib/supabase/client.ts",
+            "src/lib/supabase/server.ts",
+            "src/proxy.ts",
+            "src/components/SignInNotice.tsx",
+            "src/components/GitHubSignInButton.tsx",
+            "src/components/SupabaseAuthButtons.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/auth/login",
+            "/api/auth/callback",
+            "/api/auth/logout",
+            "/api/auth/session",
+            "/api/auth/revoke-sessions"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Onboarding, Shell & AI Standard",
+      "domain": "feature",
+      "type": null,
+      "color": "#EC4899",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "App Shell, SEO & Error Pages",
+          "description": "## Purpose\nThe global wrapper every page inherits: root layout and theme, brand chrome, shared empty/error states, the not-found and global-error boundaries, SEO (robots, sitemap, OpenGraph image) and the liveness health endpoint.\n\n## Key Flows\n- layout.tsx + globals.css wrap all routes; error/global-error/not-found are the App Router boundaries; robots/sitemap/opengraph-image drive SEO; /api/health reports service status.\n\n## Entry Points\n- src/app/layout.tsx\n- src/app/api/health/route.ts",
+          "businessFeature": "App Shell",
+          "category": "ui",
+          "filePaths": [
+            "src/app/layout.tsx",
+            "src/app/globals.css",
+            "src/app/error.tsx",
+            "src/app/global-error.tsx",
+            "src/app/not-found.tsx",
+            "src/app/robots.ts",
+            "src/app/sitemap.ts",
+            "src/app/opengraph-image.tsx",
+            "src/components/Brand.tsx",
+            "src/components/EmptyState.tsx",
+            "src/app/api/health/route.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/health"
+          ]
+        },
+        {
+          "name": "AI-Native Standard & Onboarding Skill",
+          "description": "## Purpose\nGenerates the `.ai/` foundation Ascent installs into a scanned repo (manifest spine, executable doctor conformance check, structured memory, CONTEXT graph) and renders the personalized 'ultimate onboarding skill' SKILL.md the repo runs with its own Claude Code CLI.\n\n## Key Flows\n- standard/* emit the vendor-neutral `.ai/` files (manifest, doctor, wiring, maintain, memory, context).\n- onboarding/skill renders a ScanReport into a self-contained SKILL.md; /api/report/skill serves it for a persisted report.\n\n## Entry Points\n- src/lib/standard/index.ts\n- src/lib/onboarding/skill.ts\n- src/app/api/report/skill/route.ts",
+          "businessFeature": "AI Standard Generator",
+          "category": "lib",
+          "filePaths": [
+            "src/lib/standard/index.ts",
+            "src/lib/standard/manifest.ts",
+            "src/lib/standard/doctor.ts",
+            "src/lib/standard/wiring.ts",
+            "src/lib/standard/maintain.ts",
+            "src/lib/standard/memory.ts",
+            "src/lib/standard/context.ts",
+            "src/lib/standard/types.ts",
+            "src/lib/standard/standard.test.ts",
+            "src/lib/onboarding/index.ts",
+            "src/lib/onboarding/skill.ts",
+            "src/lib/onboarding/skill.test.ts",
+            "src/lib/onboarding/tracks.ts",
+            "src/app/api/report/skill/route.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/report/skill"
+          ]
+        },
+        {
+          "name": "Launch Fleet Map",
+          "description": "## Purpose\nThe cinematic launch/landing experience: an animated constellation 'fleet map' that visualizes scanned repositories as a star field, setting the product's tone before sign-in.\n\n## Key Flows\n- FleetMap renders the interactive map with FleetMapChrome controls; ConstellationField + fleetMapStars generate the animated star layout.\n\n## Entry Points\n- src/app/launch/page.tsx\n- src/components/launch/FleetMap.tsx",
+          "businessFeature": "Launch Experience",
+          "category": "ui",
+          "filePaths": [
+            "src/app/launch/page.tsx",
+            "src/components/launch/ConstellationField.tsx",
+            "src/components/launch/FleetMap.tsx",
+            "src/components/launch/FleetMapChrome.tsx",
+            "src/components/launch/fleetMapStars.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Connect & Repo Selection",
+          "description": "## Purpose\nThe Connect page where users manage which repos the installation watches: filter, browse, and toggle repositories, deep-linked from the install's Configure page.\n\n## Key Flows\n- InstallationRepos lists repos with a filter bar and per-row toggles; RepoRow/RepoFilterBar/RepoListSkeleton compose the list UI.\n\n## Entry Points\n- src/app/connect/page.tsx\n- src/components/connect/InstallationRepos.tsx",
+          "businessFeature": "Connect Repos",
+          "category": "ui",
+          "filePaths": [
+            "src/app/connect/page.tsx",
+            "src/components/connect/InstallationRepos.tsx",
+            "src/components/connect/RepoFilterBar.tsx",
+            "src/components/connect/RepoListSkeleton.tsx",
+            "src/components/connect/RepoRow.tsx",
+            "src/components/connect/installationRepoTypes.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "First-Run Onboarding Wizard",
+          "description": "## Purpose\nThe guided first run: pick an account, select repos, kick off the first scans, and track checklist progress so a new user reaches a useful report fast.\n\n## Key Flows\n- OnboardingFlow drives the step machine (pick -> select -> scan); OnboardingChecklist tracks completion; importScan triggers scans for chosen repos.\n\n## Entry Points\n- src/app/onboarding/page.tsx\n- src/components/onboarding/OnboardingFlow.tsx",
+          "businessFeature": "Onboarding",
+          "category": "ui",
+          "filePaths": [
+            "src/app/onboarding/page.tsx",
+            "src/components/onboarding/OnboardingFlow.tsx",
+            "src/components/onboarding/OnboardingChecklist.tsx",
+            "src/components/onboarding/OnboardingPickStep.tsx",
+            "src/components/onboarding/OnboardingScanRow.tsx",
+            "src/components/onboarding/OnboardingScanStep.tsx",
+            "src/components/onboarding/OnboardingSelectStep.tsx",
+            "src/components/onboarding/importScan.ts",
+            "src/components/onboarding/types.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        }
+      ]
+    },
+    {
+      "name": "Org Scanning & Fleet Rollups",
+      "domain": "data",
+      "type": null,
+      "color": "#F59E0B",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "Fleet Alerts & Digests",
+          "description": "## Purpose\nDetects meaningful changes across the fleet (regressions, milestones) and notifies: surfaces in-app alerts and emits a scheduled digest of what moved.\n\n## Key Flows\n- alerts.ts computes alert conditions; db/org-alerts persists them; /api/org/alerts serves them; /api/cron/digest assembles and dispatches the periodic digest.\n\n## Entry Points\n- src/lib/alerts.ts\n- src/app/api/cron/digest/route.ts",
+          "businessFeature": "Alerts & Digests",
+          "category": "lib",
+          "filePaths": [
+            "src/lib/alerts.ts",
+            "src/lib/alerts.test.ts",
+            "src/lib/db/org-alerts.ts",
+            "src/app/api/org/alerts/route.ts",
+            "src/app/api/cron/digest/route.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/alerts",
+            "/api/cron/digest"
+          ]
+        },
+        {
+          "name": "Members & Access Control",
+          "description": "## Purpose\nWho belongs to an org and what they may see. Stores membership, enforces per-org read/write authorization, and powers the org switcher in the header.\n\n## Key Flows\n- db/members persists membership; authz.ts enforces requireOrgRead/Write across API routes; /api/org/members lists members; OrgSwitcher lets a viewer change active org.\n\n## Entry Points\n- src/lib/authz.ts\n- src/lib/db/members.ts",
+          "businessFeature": "Org Membership",
+          "category": "data",
+          "filePaths": [
+            "src/lib/db/members.ts",
+            "src/lib/db/members.test.ts",
+            "src/app/api/org/members/route.ts",
+            "src/lib/authz.ts",
+            "src/lib/authz.test.ts",
+            "src/components/OrgSwitcher.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/members"
+          ]
+        },
+        {
+          "name": "Fleet Rollups & Insights",
+          "description": "## Purpose\nThe aggregation layer that turns many per-repo scans into fleet-level numbers: org rollups, per-dimension signals, contributor and team rollups, and the period-over-period windows the dashboard reads.\n\n## Key Flows\n- org-rollup aggregates scores; org-insights/org-signals derive movers and gaps; org-contributors/org-teams roll up people; window.ts fixes baseline dates for deltas.\n\n## Entry Points\n- src/lib/db/org-rollup.ts\n- src/lib/db/org-insights.ts",
+          "businessFeature": "Fleet Aggregation",
+          "category": "data",
+          "filePaths": [
+            "src/lib/db/org-rollup.ts",
+            "src/lib/db/org-insights.ts",
+            "src/lib/db/org-insights.test.ts",
+            "src/lib/db/org-signals.ts",
+            "src/lib/db/org-contributors.ts",
+            "src/lib/db/org-shared.ts",
+            "src/lib/db/org-teams.ts",
+            "src/lib/db/teamRollup.test.ts",
+            "src/lib/window.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Org Import, Scan & Watchlist",
+          "description": "## Purpose\nFleet-scale scanning: import an org, choose which repos to watch, scan them in bounded-concurrency batches (manual or on a schedule), and re-scan on a cron. This is the single-repo engine multiplied across a portfolio.\n\n## Key Flows\n- /api/org/import + /api/org/repos enumerate and persist the org's repos; /api/org/scan runs the fleet via mapPool; /api/org/watch + /api/org/schedule manage the watchlist and cadence; /api/cron/rescan refreshes stale repos.\n\n## Entry Points\n- src/app/api/org/scan/route.ts\n- src/lib/db/org.ts\n- src/lib/pool.ts",
+          "businessFeature": "Fleet Scanning",
+          "category": "api",
+          "filePaths": [
+            "src/app/api/org/import/route.ts",
+            "src/app/api/org/import/route.test.ts",
+            "src/app/api/org/repos/route.ts",
+            "src/app/api/org/scan/route.ts",
+            "src/app/api/org/scan/route.test.ts",
+            "src/app/api/org/watch/route.ts",
+            "src/app/api/org/schedule/route.ts",
+            "src/app/api/org/active/route.ts",
+            "src/app/api/cron/rescan/route.ts",
+            "src/lib/db/org.ts",
+            "src/lib/db/org.test.ts",
+            "src/lib/db/org-watch.ts",
+            "src/lib/pool.ts",
+            "src/components/org/OrgScanButton.tsx",
+            "src/components/org/RepoRescanButton.tsx",
+            "src/components/org/ScheduleSelect.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/import",
+            "/api/org/repos",
+            "/api/org/scan",
+            "/api/org/watch",
+            "/api/org/schedule",
+            "/api/org/active",
+            "/api/cron/rescan"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Org Dashboard & Analytics",
+      "domain": "feature",
+      "type": null,
+      "color": "#F97316",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "Security Posture & Audit Log",
+          "description": "## Purpose\nThe org's security view: supply-chain and security posture across the fleet, plus an immutable audit log of who did what (scans, grants, config changes).\n\n## Key Flows\n- security page renders lib/org/security + security/supply-chain analysis; audit page + /api/audit + db/scans-audit + AuditLogViewer surface the event trail.\n\n## Entry Points\n- src/app/org/[slug]/security/page.tsx\n- src/app/org/[slug]/audit/page.tsx",
+          "businessFeature": "Security & Audit",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/security/page.tsx",
+            "src/app/org/[slug]/audit/page.tsx",
+            "src/lib/org/security.ts",
+            "src/lib/org/security.test.ts",
+            "src/lib/security/supply-chain.ts",
+            "src/lib/security/supply-chain.test.ts",
+            "src/app/api/audit/route.ts",
+            "src/lib/db/scans-audit.ts",
+            "src/components/org/AuditLogViewer.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/audit"
+          ]
+        },
+        {
+          "name": "Repositories & Segments",
+          "description": "## Purpose\nThe repository inventory and the ability to slice the fleet into named segments (e.g. by team or product) for filtered analytics and comparison.\n\n## Key Flows\n- repositories page lists every scanned repo; segments page + db/segments + /api/org/segments CRUD define and compare segments; SegmentSelector/SegmentComparePicker drive filtering.\n\n## Entry Points\n- src/app/org/[slug]/repositories/page.tsx\n- src/app/org/[slug]/segments/page.tsx",
+          "businessFeature": "Repositories & Segments",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/repositories/page.tsx",
+            "src/app/org/[slug]/segments/page.tsx",
+            "src/lib/db/segments.ts",
+            "src/lib/db/segments.test.ts",
+            "src/app/api/org/segments/route.ts",
+            "src/app/api/org/segments/[id]/route.ts",
+            "src/app/api/org/segments/[id]/repos/route.ts",
+            "src/components/org/RepoSegmentsPanel.tsx",
+            "src/components/org/SegmentSelector.tsx",
+            "src/components/org/SegmentComparePicker.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/segments",
+            "/api/org/segments/[id]",
+            "/api/org/segments/[id]/repos"
+          ]
+        },
+        {
+          "name": "Practices, Governance & Adoption",
+          "description": "## Purpose\nWhere the org sees which engineering practices are adopted, governance posture, and AI adoption across repos - and can generate/apply practice artifacts (ready-made PRs) to close gaps.\n\n## Key Flows\n- practices/governance/adoption pages render the analytics (lib/org/adoption, lib/org/governance); PracticeApply + /api/practices/generate|apply build and open practice-artifact PRs.\n\n## Entry Points\n- src/app/org/[slug]/practices/page.tsx\n- src/lib/practice-artifact.ts",
+          "businessFeature": "Practices & Governance",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/practices/page.tsx",
+            "src/app/org/[slug]/governance/page.tsx",
+            "src/app/org/[slug]/adoption/page.tsx",
+            "src/lib/org/adoption.ts",
+            "src/lib/org/adoption.test.ts",
+            "src/lib/org/governance.ts",
+            "src/lib/org/governance.test.ts",
+            "src/components/org/PracticeApply.tsx",
+            "src/app/api/practices/apply/route.ts",
+            "src/app/api/practices/generate/route.ts",
+            "src/lib/practice-artifact.ts",
+            "src/lib/practice-artifact.test.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/practices/apply",
+            "/api/practices/generate"
+          ]
+        },
+        {
+          "name": "People & Delivery Analytics",
+          "description": "## Purpose\nThe people and flow views of the fleet: contributor activity, team breakdowns, and delivery throughput/cycle metrics across the org's repositories.\n\n## Key Flows\n- contributors and teams pages render the people rollups; delivery page renders throughput and flow metrics (sourced from the fleet rollup layer).\n\n## Entry Points\n- src/app/org/[slug]/contributors/page.tsx\n- src/app/org/[slug]/delivery/page.tsx",
+          "businessFeature": "Contributors & Delivery",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/contributors/page.tsx",
+            "src/app/org/[slug]/teams/page.tsx",
+            "src/app/org/[slug]/delivery/page.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Org Overview & Standing",
+          "description": "## Purpose\nThe org dashboard landing: where a fleet stands overall, its trajectory, top gaps and highest-leverage moves, scoped by a selectable time range. The shared shell (nav, layout, UI primitives) for every org sub-view.\n\n## Key Flows\n- org/[slug] layout + page render standing and trajectory; OrgStanding/OrgGapsSection/OrgLeverageMoves surface the headline numbers; TimeRangeSelector + PeriodSummary scope the window.\n\n## Entry Points\n- src/app/org/[slug]/page.tsx\n- src/app/org/[slug]/layout.tsx",
+          "businessFeature": "Org Dashboard Home",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/page.tsx",
+            "src/app/org/[slug]/page.tsx",
+            "src/app/org/[slug]/layout.tsx",
+            "src/app/org/[slug]/error.tsx",
+            "src/components/org/OrgNav.tsx",
+            "src/components/org/OrgStanding.tsx",
+            "src/components/org/OrgGapsSection.tsx",
+            "src/components/org/OrgLeverageMoves.tsx",
+            "src/components/org/Trajectory.tsx",
+            "src/components/org/ui.tsx",
+            "src/components/org/TimeRangeSelector.tsx",
+            "src/components/org/PeriodSummary.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
+        }
+      ]
+    },
+    {
+      "name": "Org Planning & Execution",
+      "domain": "feature",
+      "type": null,
+      "color": "#8B5CF6",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "Executive Briefing",
+          "description": "## Purpose\nThe executive view and its exportable PDF briefing: a period summary of fleet maturity, movement and priorities aimed at leadership.\n\n## Key Flows\n- executive page renders lib/org/briefing; /api/org/briefing/pdf streams a @react-pdf document built by pdf/briefing-document.\n\n## Entry Points\n- src/app/org/[slug]/executive/page.tsx\n- src/app/api/org/briefing/pdf/route.ts",
+          "businessFeature": "Executive Briefing",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/executive/page.tsx",
+            "src/lib/org/briefing.ts",
+            "src/lib/org/briefing.test.ts",
+            "src/app/api/org/briefing/pdf/route.ts",
+            "src/lib/pdf/briefing-document.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/briefing/pdf"
+          ]
+        },
+        {
+          "name": "Live War Room",
+          "description": "## Purpose\nA live, presentation-mode 'war room' for the fleet: real-time leaderboard, celebrations on milestones, and headline stats meant to be projected during a review.\n\n## Key Flows\n- live page mounts LiveWarRoom which composes Header/Leaderboard/Panels/Stat/Celebrations; liveWarRoomShared holds the shared derivations.\n\n## Entry Points\n- src/app/org/[slug]/live/page.tsx\n- src/components/org/LiveWarRoom.tsx",
+          "businessFeature": "Live War Room",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/live/page.tsx",
+            "src/components/org/LiveWarRoom.tsx",
+            "src/components/org/LiveWarRoomCelebrations.tsx",
+            "src/components/org/LiveWarRoomHeader.tsx",
+            "src/components/org/LiveWarRoomLeaderboard.tsx",
+            "src/components/org/LiveWarRoomPanels.tsx",
+            "src/components/org/LiveWarRoomStat.tsx",
+            "src/components/org/liveWarRoomShared.ts",
+            "src/components/org/liveWarRoomShared.test.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Investment Simulator & Forecast",
+          "description": "## Purpose\nA what-if simulator: model where investment in specific dimensions would move the fleet's maturity, and forecast the trajectory forward from current trends.\n\n## Key Flows\n- /api/org/simulate runs scoring/orgsim against hypothetical inputs; maturity/forecast projects trend lines; the Simulator panel drives the interaction.\n\n## Entry Points\n- src/app/api/org/simulate/route.ts\n- src/lib/scoring/orgsim.ts",
+          "businessFeature": "What-If Simulator",
+          "category": "lib",
+          "filePaths": [
+            "src/app/api/org/simulate/route.ts",
+            "src/lib/scoring/orgsim.ts",
+            "src/lib/scoring/orgsim.test.ts",
+            "src/lib/maturity/forecast.ts",
+            "src/lib/maturity/forecast.test.ts",
+            "src/components/org/plan/Simulator.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/simulate"
+          ]
+        },
+        {
+          "name": "Playbooks",
+          "description": "## Purpose\nReusable improvement playbooks an org can apply across a set of repos, with an auto-generated brief explaining the why and the steps.\n\n## Key Flows\n- /api/org/playbooks CRUD + db/playbooks persist playbooks and their repo assignments; lib/org/playbook-brief renders the brief; PlaybookCard/PlaybooksPanel render the UI.\n\n## Entry Points\n- src/app/api/org/playbooks/route.ts\n- src/components/org/PlaybooksPanel.tsx",
+          "businessFeature": "Playbooks",
+          "category": "ui",
+          "filePaths": [
+            "src/app/api/org/playbooks/route.ts",
+            "src/app/api/org/playbooks/[id]/route.ts",
+            "src/app/api/org/playbooks/[id]/repos/route.ts",
+            "src/lib/db/playbooks.ts",
+            "src/lib/org/playbook-brief.ts",
+            "src/lib/org/playbook-brief.test.ts",
+            "src/components/org/PlaybookCard.tsx",
+            "src/components/org/PlaybooksPanel.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/playbooks",
+            "/api/org/playbooks/[id]",
+            "/api/org/playbooks/[id]/repos"
+          ]
+        },
+        {
+          "name": "Backlog Management",
+          "description": "## Purpose\nA prioritized backlog of improvement items derived from gaps and recommendations, so teams can triage and work the maturity roadmap like a board.\n\n## Key Flows\n- backlog page + /api/org/backlog persist and serve items; BacklogPanel/BacklogItemRow/BacklogSummary render the board; backlogShared holds shared shaping logic.\n\n## Entry Points\n- src/app/org/[slug]/backlog/page.tsx\n- src/app/api/org/backlog/route.ts",
+          "businessFeature": "Improvement Backlog",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/backlog/page.tsx",
+            "src/app/api/org/backlog/route.ts",
+            "src/components/org/BacklogItemRow.tsx",
+            "src/components/org/BacklogPanel.tsx",
+            "src/components/org/BacklogSummary.tsx",
+            "src/components/org/backlogShared.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/backlog"
+          ]
+        },
+        {
+          "name": "Goals & Initiatives",
+          "description": "## Purpose\nThe planning surface where leaders set maturity goals and the initiatives meant to reach them, then track progress against the fleet's actual movement.\n\n## Key Flows\n- plan page renders GoalsPanel/InitiativesPanel/GoalsOverview; /api/org/goals + /api/org/initiatives CRUD persist via db/plan; goalView formats progress.\n\n## Entry Points\n- src/app/org/[slug]/plan/page.tsx\n- src/lib/db/plan.ts",
+          "businessFeature": "Goals & Initiatives",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/plan/page.tsx",
+            "src/app/api/org/goals/route.ts",
+            "src/app/api/org/goals/[id]/route.ts",
+            "src/app/api/org/initiatives/route.ts",
+            "src/app/api/org/initiatives/[id]/route.ts",
+            "src/lib/db/plan.ts",
+            "src/components/org/plan/GoalsPanel.tsx",
+            "src/components/org/plan/InitiativesPanel.tsx",
+            "src/components/org/plan/goalView.tsx",
+            "src/components/org/GoalsOverview.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/goals",
+            "/api/org/goals/[id]",
+            "/api/org/initiatives",
+            "/api/org/initiatives/[id]"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reporting & Visualization",
+      "domain": "feature",
+      "type": null,
+      "color": "#10B981",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "PDF & LLM Export",
+          "description": "## Purpose\nTake a report out of the app: a print-ready PDF and a copy-for-LLM block that lets users paste the full scan context into their own AI tools.\n\n## Key Flows\n- /api/report/pdf streams a @react-pdf document from pdf/report-document; CopyForLlm renders the LLM-ready text block in the report UI.\n\n## Entry Points\n- src/app/api/report/pdf/route.ts\n- src/lib/pdf/report-document.tsx",
+          "businessFeature": "Report Export",
+          "category": "api",
+          "filePaths": [
+            "src/app/api/report/pdf/route.ts",
+            "src/lib/pdf/report-document.tsx",
+            "src/components/CopyForLlm.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/report/pdf"
+          ]
+        },
+        {
+          "name": "Roadmap & Recommendation Tracking",
+          "description": "## Purpose\nThe actionable side of a report: the prioritized recommendation roadmap, a sandbox to model reordering, and tracked status as teams accept/complete items.\n\n## Key Flows\n- /api/recommendations lists; [id] PATCH updates status; [id]/events records the trail; RecommendationTracker + RoadmapPanel/RoadmapSandbox render and edit; db/scans-recommendations persists.\n\n## Entry Points\n- src/app/api/recommendations/route.ts\n- src/components/report/RecommendationTracker.tsx",
+          "businessFeature": "Recommendation Tracking",
+          "category": "api",
+          "filePaths": [
+            "src/app/api/recommendations/route.ts",
+            "src/app/api/recommendations/[id]/route.ts",
+            "src/app/api/recommendations/[id]/events/route.ts",
+            "src/components/report/RecommendationTracker.tsx",
+            "src/components/report/RoadmapPanel.tsx",
+            "src/components/report/RoadmapSandbox.tsx",
+            "src/components/report/RoadmapSandboxParts.tsx",
+            "src/lib/db/scans-recommendations.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/recommendations",
+            "/api/recommendations/[id]",
+            "/api/recommendations/[id]/events"
+          ]
+        },
+        {
+          "name": "Trends & Comparison",
+          "description": "## Purpose\nHow a repo's maturity changes over time and against another scan: trend lines per dimension, what-changed deltas, and side-by-side scan comparison.\n\n## Key Flows\n- trends page + DimensionTrends/TrendChart render history from /api/history; report/compare + lib/report/compare diff two scans; WhatChanged/deltas surface the movement; report/validate guards inputs.\n\n## Entry Points\n- src/app/trends/page.tsx\n- src/app/report/compare/page.tsx",
+          "businessFeature": "Trends & Compare",
+          "category": "ui",
+          "filePaths": [
+            "src/app/trends/page.tsx",
+            "src/app/trends/loading.tsx",
+            "src/app/report/compare/page.tsx",
+            "src/lib/report/compare.ts",
+            "src/lib/report/compare.test.ts",
+            "src/lib/report/validate.ts",
+            "src/components/report/DimensionTrends.tsx",
+            "src/components/report/DimensionTrendsRange.tsx",
+            "src/components/report/TrendChart.tsx",
+            "src/components/report/ScanComparePicker.tsx",
+            "src/components/report/WhatChanged.tsx",
+            "src/components/report/WhatChangedParts.tsx",
+            "src/components/report/deltas.tsx",
+            "src/app/api/history/route.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/history"
+          ]
+        },
+        {
+          "name": "Score Charts & Visuals",
+          "description": "## Purpose\nThe visual vocabulary of a report: radar of the 8 dimensions, score ring, waterfall, posture quadrant, PR signal panels and per-dimension cards, with the shared chart motion/scale/hover helpers.\n\n## Key Flows\n- Charts composes RadarChart/ScoreRing/ScoreWaterfall/PostureQuadrant; chartScale/chartMotion/chartHover are shared primitives; ui.ts + LevelBadge supply color/level styling.\n\n## Entry Points\n- src/components/report/Charts.tsx\n- src/components/report/RadarChart.tsx",
+          "businessFeature": "Score Visualization",
+          "category": "ui",
+          "filePaths": [
+            "src/components/report/Charts.tsx",
+            "src/components/report/RadarChart.tsx",
+            "src/components/report/ScoreRing.tsx",
+            "src/components/report/ScoreWaterfall.tsx",
+            "src/components/report/PostureQuadrant.tsx",
+            "src/components/report/PosturePanel.tsx",
+            "src/components/report/DimLine.tsx",
+            "src/components/report/DimensionCard.tsx",
+            "src/components/report/PrSignalsPanel.tsx",
+            "src/components/report/chartHover.tsx",
+            "src/components/report/chartMotion.ts",
+            "src/components/report/chartScale.ts",
+            "src/lib/ui.ts",
+            "src/components/LevelBadge.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Repo Report Shell & Tabs",
+          "description": "## Purpose\nThe single-repo maturity report: the shell, header, tab bar and card layout that present a scan's result, plus loading/error/freshness states and the scoring tab.\n\n## Key Flows\n- report/[owner]/[repo] page hydrates ReportClient -> ReportShell -> ReportView/ReportCards; ReportTabBar switches tabs; FreshnessControl shows scan age; ReportErrorBoundary/Skeleton handle states.\n\n## Entry Points\n- src/app/report/[owner]/[repo]/page.tsx\n- src/components/report/ReportClient.tsx",
+          "businessFeature": "Maturity Report",
+          "category": "ui",
+          "filePaths": [
+            "src/app/report/page.tsx",
+            "src/app/report/[owner]/[repo]/page.tsx",
+            "src/app/report/[owner]/[repo]/error.tsx",
+            "src/app/report/[owner]/[repo]/opengraph-image.tsx",
+            "src/components/report/ReportClient.tsx",
+            "src/components/report/ReportClientStatus.tsx",
+            "src/components/report/ReportShell.tsx",
+            "src/components/report/ReportHeader.tsx",
+            "src/components/report/ReportTabBar.tsx",
+            "src/components/report/ReportView.tsx",
+            "src/components/report/ReportCards.tsx",
+            "src/components/report/ReportErrorBoundary.tsx",
+            "src/components/report/ReportSkeleton.tsx",
+            "src/components/report/ScoringTab.tsx",
+            "src/components/report/FreshnessControl.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
+        }
+      ]
+    },
+    {
+      "name": "Billing, Credits & Metering",
+      "domain": "feature",
+      "type": null,
+      "color": "#06B6D4",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "Quotas & Rate Limiting",
+          "description": "## Purpose\nGuards the free/public surface: per-window public scan quota and request rate limiting, with the in-report notice that tells a user when they have hit a limit.\n\n## Key Flows\n- public-scan-quota enforces the anonymous scan budget; rate-limit throttles requests; QuotaNotice renders the limit message in the report.\n\n## Entry Points\n- src/lib/public-scan-quota.ts\n- src/lib/rate-limit.ts",
+          "businessFeature": "Quotas & Limits",
+          "category": "lib",
+          "filePaths": [
+            "src/lib/public-scan-quota.ts",
+            "src/lib/public-scan-quota.test.ts",
+            "src/lib/rate-limit.ts",
+            "src/components/report/QuotaNotice.tsx"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Credits & Entitlements",
+          "description": "## Purpose\nThe credit economy: estimate a scan's cost, check an org's plan entitlements, grant/spend credits, and surface the balance control in the dashboard.\n\n## Key Flows\n- credit-estimate prices a scan; entitlement resolves plan limits; db/credits persists balances; /api/org/credits + /api/org/credits/grant read and grant; CreditsControl renders balance/actions.\n\n## Entry Points\n- src/lib/entitlement.ts\n- src/lib/db/credits.ts",
+          "businessFeature": "Credits & Plans",
+          "category": "lib",
+          "filePaths": [
+            "src/app/api/org/credits/route.ts",
+            "src/app/api/org/credits/grant/route.ts",
+            "src/lib/db/credits.ts",
+            "src/lib/db/credits.test.ts",
+            "src/lib/entitlement.ts",
+            "src/lib/entitlement.test.ts",
+            "src/lib/credit-estimate.ts",
+            "src/lib/credit-estimate.test.ts",
+            "src/components/org/CreditsControl.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/org/credits",
+            "/api/org/credits/grant"
+          ]
+        },
+        {
+          "name": "Usage Metering & Public Badge",
+          "description": "## Purpose\nTracks scan usage over time and exposes the public maturity badge (the shields-style SVG a repo embeds in its README), plus the badge generator UI.\n\n## Key Flows\n- /api/usage + db/usage record and serve usage; usage page + UsageTrend visualize it; /api/badge/[owner]/[repo] renders the SVG badge; BadgeGenerator builds the embed snippet.\n\n## Entry Points\n- src/app/usage/page.tsx\n- src/app/api/badge/[owner]/[repo]/route.ts",
+          "businessFeature": "Usage & Badge",
+          "category": "api",
+          "filePaths": [
+            "src/app/usage/page.tsx",
+            "src/app/api/usage/route.ts",
+            "src/lib/db/usage.ts",
+            "src/lib/db/usage.test.ts",
+            "src/components/usage/UsageTrend.tsx",
+            "src/app/api/badge/[owner]/[repo]/route.ts",
+            "src/app/badge/page.tsx",
+            "src/components/badge/BadgeGenerator.tsx"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/usage",
+            "/api/badge/[owner]/[repo]"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Data & Persistence",
+      "domain": "data",
+      "type": null,
+      "color": "#6366F1",
+      "icon": null,
+      "contexts": [
+        {
+          "name": "Data Retention & Purge",
+          "description": "## Purpose\nKeeps the datastore bounded and compliant: retention policy plus a scheduled purge that deletes data past its window.\n\n## Key Flows\n- db/retention computes what is expired; /api/cron/purge runs on a schedule to delete it.\n\n## Entry Points\n- src/lib/db/retention.ts\n- src/app/api/cron/purge/route.ts",
+          "businessFeature": "Retention & Purge",
+          "category": "data",
+          "filePaths": [
+            "src/lib/db/retention.ts",
+            "src/lib/db/retention.test.ts",
+            "src/app/api/cron/purge/route.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/cron/purge"
+          ]
+        },
+        {
+          "name": "Scan Persistence & History",
+          "description": "## Purpose\nReads and writes the core scan/report records: persist a completed scan, read the latest or a specific commit's report, and serve the history that trends/comparison consume.\n\n## Key Flows\n- scans-persist writes reports; scans-read fetches latest/by-commit; scans.ts is the public barrel; scans-shared holds the row<->report mapping.\n\n## Entry Points\n- src/lib/db/scans.ts\n- src/lib/db/scans-persist.ts",
+          "businessFeature": "Scan Storage",
+          "category": "data",
+          "filePaths": [
+            "src/lib/db/scans.ts",
+            "src/lib/db/scans.test.ts",
+            "src/lib/db/scans-persist.ts",
+            "src/lib/db/scans-read.ts",
+            "src/lib/db/scans-shared.ts"
+          ],
+          "target": null,
+          "apiRoutes": []
+        },
+        {
+          "name": "Database Client & Schema",
+          "description": "## Purpose\nThe persistence foundation: the Prisma client wiring (targeting Aurora DSQL), the schema and init SQL, the db barrel every feature imports, and shared row helpers.\n\n## Key Flows\n- db/client constructs the pooled Prisma client; db/index re-exports the data API; prisma/schema + init.sql define the tables; scans-shared holds shared mappers.\n\n## Entry Points\n- src/lib/db/client.ts\n- src/lib/db/index.ts\n- prisma/schema.prisma",
+          "businessFeature": "Database Core",
+          "category": "data",
+          "filePaths": [
+            "src/lib/db/client.ts",
+            "src/lib/db/client.test.ts",
+            "src/lib/db/index.ts",
+            "src/lib/db/init-sql.test.ts",
+            "prisma/schema.prisma",
+            "prisma/init.sql",
+            "docs/ARCHITECTURE.md"
+          ],
+          "target": null,
+          "apiRoutes": []
+        }
+      ]
+    }
+  ],
+  "ungrouped": [],
+  "relationships": [
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Identity & GitHub Connectivity",
+      "type": "uses"
+    },
+    {
+      "source": "Identity & GitHub Connectivity",
+      "target": "Organization Intelligence",
+      "type": "uses"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Organization Intelligence",
+      "type": "uses"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Reporting, Persistence & Metering",
+      "type": "uses"
+    },
+    {
+      "source": "Organization Intelligence",
+      "target": "Reporting, Persistence & Metering",
+      "type": "uses"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Org Scanning & Fleet Rollups",
+      "type": "depends_on"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Identity & GitHub Connectivity",
+      "type": "uses"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Data & Persistence",
+      "type": "depends_on"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Billing, Credits & Metering",
+      "type": "triggers"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Reporting & Visualization",
+      "type": "uses"
+    },
+    {
+      "source": "Reporting & Visualization",
+      "target": "Data & Persistence",
+      "type": "depends_on"
+    },
+    {
+      "source": "Org Scanning & Fleet Rollups",
+      "target": "Org Dashboard & Analytics",
+      "type": "uses"
+    },
+    {
+      "source": "Org Dashboard & Analytics",
+      "target": "Data & Persistence",
+      "type": "depends_on"
+    },
+    {
+      "source": "Org Scanning & Fleet Rollups",
+      "target": "Org Planning & Execution",
+      "type": "uses"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Org Planning & Execution",
+      "type": "calls"
+    },
+    {
+      "source": "Identity & GitHub Connectivity",
+      "target": "Onboarding, Shell & AI Standard",
+      "type": "depends_on"
+    },
+    {
+      "source": "Repository Scanning & Scoring",
+      "target": "Onboarding, Shell & AI Standard",
+      "type": "triggers"
+    },
+    {
+      "source": "Identity & GitHub Connectivity",
+      "target": "Data & Persistence",
+      "type": "uses"
+    },
+    {
+      "source": "Billing, Credits & Metering",
+      "target": "Data & Persistence",
+      "type": "depends_on"
+    },
+    {
+      "source": "Org Planning & Execution",
+      "target": "Data & Persistence",
+      "type": "depends_on"
+    },
+    {
+      "source": "Org Dashboard & Analytics",
+      "target": "Billing, Credits & Metering",
+      "type": "uses"
+    },
+    {
+      "source": "Org Scanning & Fleet Rollups",
+      "target": "Billing, Credits & Metering",
+      "type": "triggers"
+    },
+    {
+      "source": "Onboarding, Shell & AI Standard",
+      "target": "Reporting & Visualization",
+      "type": "triggers"
+    },
+    {
+      "source": "Onboarding, Shell & AI Standard",
+      "target": "Data & Persistence",
+      "type": "uses"
+    },
+    {
+      "source": "Org Planning & Execution",
+      "target": "Reporting & Visualization",
+      "type": "uses"
+    }
+  ],
+  "index": [
+    "Repository Scanning & Scoring › LLM Provider Abstraction [?] — 7 files",
+    "Repository Scanning & Scoring › Maturity Model & Scoring Engine [?] — 12 files",
+    "Repository Scanning & Scoring › Scan Pipeline & Ingestion [?] — 11 files",
+    "Identity & GitHub Connectivity › GitHub App, Connect & Onboarding [?] — 11 files",
+    "Identity & GitHub Connectivity › GitHub OAuth & Session [?] — 5 files",
+    "Organization Intelligence › Organization Scanning, Watchlist & Rollups [?] — 7 files",
+    "Organization Intelligence › Org Dashboard & Views [?] — 9 files",
+    "Reporting, Persistence & Metering › Usage Metering & Public Badge [?] — 4 files",
+    "Reporting, Persistence & Metering › Persistence Layer (Prisma / Aurora DSQL) [?] — 6 files",
+    "Reporting, Persistence & Metering › Report & Trends Visualization [?] — 9 files",
+    "Repository Scanning & Scoring › CI Gate & Status Checks [api] — 7 files",
+    "Repository Scanning & Scoring › LLM Provider Abstraction [lib] — 15 files",
+    "Repository Scanning & Scoring › Maturity Model & Scoring Engine [lib] — 15 files",
+    "Repository Scanning & Scoring › Scan Pipeline & Ingestion [api] — 15 files",
+    "Identity & GitHub Connectivity › GitHub Repo Data Access [lib] — 8 files",
+    "Identity & GitHub Connectivity › GitHub App Installation & Webhooks [api] — 8 files",
+    "Identity & GitHub Connectivity › GitHub OAuth & Session [api] — 16 files",
+    "Onboarding, Shell & AI Standard › App Shell, SEO & Error Pages [ui] — 11 files",
+    "Onboarding, Shell & AI Standard › AI-Native Standard & Onboarding Skill [lib] — 14 files",
+    "Onboarding, Shell & AI Standard › Launch Fleet Map [ui] — 5 files",
+    "Onboarding, Shell & AI Standard › Connect & Repo Selection [ui] — 6 files",
+    "Onboarding, Shell & AI Standard › First-Run Onboarding Wizard [ui] — 9 files",
+    "Org Scanning & Fleet Rollups › Fleet Alerts & Digests [lib] — 5 files",
+    "Org Scanning & Fleet Rollups › Members & Access Control [data] — 6 files",
+    "Org Scanning & Fleet Rollups › Fleet Rollups & Insights [data] — 9 files",
+    "Org Scanning & Fleet Rollups › Org Import, Scan & Watchlist [api] — 16 files",
+    "Org Dashboard & Analytics › Security Posture & Audit Log [ui] — 9 files",
+    "Org Dashboard & Analytics › Repositories & Segments [ui] — 10 files",
+    "Org Dashboard & Analytics › Practices, Governance & Adoption [ui] — 12 files",
+    "Org Dashboard & Analytics › People & Delivery Analytics [ui] — 3 files",
+    "Org Dashboard & Analytics › Org Overview & Standing [ui] — 12 files",
+    "Org Planning & Execution › Executive Briefing [ui] — 5 files",
+    "Org Planning & Execution › Live War Room [ui] — 9 files",
+    "Org Planning & Execution › Investment Simulator & Forecast [lib] — 6 files",
+    "Org Planning & Execution › Playbooks [ui] — 8 files",
+    "Org Planning & Execution › Backlog Management [ui] — 6 files",
+    "Org Planning & Execution › Goals & Initiatives [ui] — 10 files",
+    "Reporting & Visualization › PDF & LLM Export [api] — 3 files",
+    "Reporting & Visualization › Roadmap & Recommendation Tracking [api] — 8 files",
+    "Reporting & Visualization › Trends & Comparison [ui] — 14 files",
+    "Reporting & Visualization › Score Charts & Visuals [ui] — 14 files",
+    "Reporting & Visualization › Repo Report Shell & Tabs [ui] — 15 files",
+    "Billing, Credits & Metering › Quotas & Rate Limiting [lib] — 4 files",
+    "Billing, Credits & Metering › Credits & Entitlements [lib] — 9 files",
+    "Billing, Credits & Metering › Usage Metering & Public Badge [api] — 8 files",
+    "Data & Persistence › Data Retention & Purge [data] — 3 files",
+    "Data & Persistence › Scan Persistence & History [data] — 5 files",
+    "Data & Persistence › Database Client & Schema [data] — 7 files"
+  ],
+  "summary": {
+    "totalGroups": 13,
+    "totalContexts": 48,
+    "totalFiles": 426,
+    "categories": {
+      "uncategorized": 10,
+      "api": 8,
+      "lib": 8,
+      "ui": 17,
+      "data": 5
+    },
+    "domains": {
+      "feature": 6,
+      "integration": 1,
+      "data": 2
+    }
+  },
+  "audit": {
+    "ok": false,
+    "tier": "large",
+    "warnings": 35
+  },
+  "instructions": "Context map for ascent. Each group is a business domain (domain field); each context is a feature with its files (filePaths) + a technical category. Read this to learn which files belong to which feature BEFORE editing. When you change a context's files, update them here (or run Vibeman's refresh) to keep this fresh.",
+  "generatedAt": "2026-06-13T23:59:00.087Z",
+  "revision": "046b492f2233"
+}
