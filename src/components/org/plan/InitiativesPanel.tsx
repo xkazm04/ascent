@@ -17,6 +17,8 @@ export interface InitiativeView {
   targetDate: string | null;
   goalId: string | null;
   goalLabel: string | null;
+  playbookId: string | null;
+  playbookLabel: string | null;
   progress: { atTarget: number; total: number };
 }
 
@@ -116,6 +118,7 @@ export function InitiativesPanel({
                   <div className="text-base font-medium text-white">{i.title}</div>
                   <div className="font-mono text-sm text-slate-500">
                     {i.dimId} {i.dimLabel} · target {i.targetScore} · {i.progress.atTarget}/{i.progress.total} repos there
+                    {i.playbookLabel && <span className="text-slate-600"> · from playbook “{i.playbookLabel}”</span>}
                   </div>
                 </div>
                 <select

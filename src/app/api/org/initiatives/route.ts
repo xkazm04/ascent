@@ -34,6 +34,7 @@ export async function POST(request: Request) {
     assigneeLogin?: string;
     targetDate?: string | null;
     goalId?: string | null;
+    playbookId?: string | null;
   };
   if (!body.org || !body.title || !body.dimId || !Array.isArray(body.repos)) {
     return NextResponse.json({ error: "Provide { org, title, dimId, repos[] }." }, { status: 400 });
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
     assigneeLogin: typeof body.assigneeLogin === "string" ? body.assigneeLogin : null,
     targetDate: typeof body.targetDate === "string" ? body.targetDate : null,
     goalId: typeof body.goalId === "string" ? body.goalId : null,
+    playbookId: typeof body.playbookId === "string" ? body.playbookId : null,
   });
   return NextResponse.json(created ?? { error: "Failed to create initiative." }, { status: created ? 200 : 500 });
 }

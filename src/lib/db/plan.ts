@@ -356,6 +356,10 @@ export interface InitiativeRow {
   goalId: string | null;
   /** Label of the linked Goal (resolved at read time), or null when unlinked / goal removed. */
   goalLabel: string | null;
+  /** Id of the Playbook whose rollout this initiative tracks, or null. */
+  playbookId: string | null;
+  /** Title of the linked Playbook (resolved at read time), or null when unlinked / playbook removed. */
+  playbookLabel: string | null;
   createdAt: string;
   /** Of the scoped repos, how many currently meet the target on this dimension. */
   progress: { atTarget: number; total: number };
@@ -381,6 +385,7 @@ export async function createInitiative(
     assigneeLogin?: string | null;
     targetDate?: string | null;
     goalId?: string | null;
+    playbookId?: string | null;
   },
 ): Promise<{ id: string } | null> {
   if (!isDbConfigured()) return null;
@@ -401,6 +406,7 @@ export async function createInitiative(
       assigneeLogin: input.assigneeLogin?.trim().slice(0, 100) || null,
       targetDate: parseTargetDate(input.targetDate),
       goalId: input.goalId ?? null,
+      playbookId: input.playbookId ?? null,
     },
     select: { id: true },
   });
@@ -412,13 +418,15 @@ export async function listInitiatives(orgSlug: string): Promise<InitiativeRow[] 
   const prisma = getPrisma();
   const orgId = await resolveOrgId(orgSlug);
   if (!orgId) return [];
-  const [rows, snap, goals] = await Promise.all([
+  const [rows, snap, goals, playbooks] = await Promise.all([
     prisma.initiative.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
     fleetSnapshot(orgId),
     prisma.goal.findMany({ where: { orgId }, select: { id: true, label: true } }),
+    prisma.playbook.findMany({ where: { orgId }, select: { id: true, title: true } }),
   ]);
   const dimByRepo = new Map(snap.repos.map((r) => [r.fullName, r.dims]));
   const goalLabelById = new Map(goals.map((g) => [g.id, g.label]));
+  const playbookLabelById = new Map(playbooks.map((p) => [p.id, p.title]));
   return rows.map((i) => {
     const repos = parseRepos(i.repos);
     const atTarget = repos.filter((fn) => (dimByRepo.get(fn)?.[i.dimId] ?? 0) >= i.targetScore).length;
@@ -434,8 +442,10 @@ export async function listInitiatives(orgSlug: string): Promise<InitiativeRow[] 
       assigneeLogin: i.assigneeLogin,
       targetDate: i.targetDate ? i.targetDate.toISOString().slice(0, 10) : null,
       goalId: i.goalId,
-      // A linked goal that was since deleted resolves to null — the UI shows it as unlinked.
+      // A linked goal/playbook that was since deleted resolves to null — the UI shows it unlinked.
       goalLabel: i.goalId ? goalLabelById.get(i.goalId) ?? null : null,
+      playbookId: i.playbookId,
+      playbookLabel: i.playbookId ? playbookLabelById.get(i.playbookId) ?? null : null,
       createdAt: i.createdAt.toISOString(),
       progress: { atTarget, total: repos.length },
     };

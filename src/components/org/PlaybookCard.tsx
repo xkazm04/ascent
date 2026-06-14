@@ -12,12 +12,14 @@ import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
 export function PlaybookCard({
   playbook: p,
+  slug,
   dimLabel,
   adoption,
   repoOptions,
   onRemove,
 }: {
   playbook: PlaybookRow;
+  slug: string;
   dimLabel: string;
   adoption: PlaybookAdoption | undefined;
   repoOptions: string[];
@@ -28,6 +30,26 @@ export function PlaybookCard({
   const [prBusy, setPrBusy] = useState(false);
   const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
   const [prError, setPrError] = useState<string | null>(null);
+  const [tracking, setTracking] = useState(false);
+  const [tracked, setTracked] = useState(false);
+
+  // PLAY-5: turn a playbook's rollout into a tracked Initiative scoped to the repos that adopted it.
+  async function trackAsInitiative() {
+    if (tracking || tracked || applied.length === 0) return;
+    setTracking(true);
+    try {
+      const res = await fetch("/api/org/initiatives", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug, title: `Roll out: ${p.title}`, dimId: p.dimId, repos: applied, playbookId: p.id }),
+      });
+      if (res.ok) setTracked(true);
+    } catch {
+      /* leave the button enabled to retry */
+    } finally {
+      setTracking(false);
+    }
+  }
   const lift = adoption?.lift ?? null;
   const available = repoOptions.filter((r) => !applied.includes(r));
 
@@ -113,6 +135,19 @@ export function PlaybookCard({
             {lift} avg {p.dimId} since
           </span>
         )}
+        {applied.length > 0 &&
+          (tracked ? (
+            <span className="font-mono text-sm text-emerald-300" title="Track this rollout on the Plan tab">✓ Tracked as initiative</span>
+          ) : (
+            <button
+              onClick={trackAsInitiative}
+              disabled={tracking}
+              className="font-mono text-sm text-accent hover:text-white disabled:opacity-50"
+              title="Track this playbook's rollout as an initiative on the Plan tab"
+            >
+              {tracking ? "Tracking…" : "Track as initiative →"}
+            </button>
+          ))}
       </div>
 
       {applied.length > 0 && (

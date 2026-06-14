@@ -426,6 +426,7 @@ model Initiative {
   assigneeLogin String? // GitHub login of the owner driving the work (null = unassigned)
   targetDate    DateTime? // optional due date the initiative is steered toward (null = open-ended)
   goalId        String? // optional link to the steering Goal this initiative serves (null = standalone)
+  playbookId    String? // optional link to the Playbook whose rollout this initiative tracks (null = none)
   createdAt     DateTime  @default(now())
 
   org Organization @relation(fields: [orgId], references: [id])

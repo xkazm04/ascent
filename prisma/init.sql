@@ -279,6 +279,7 @@ CREATE TABLE "Initiative" (
     "assigneeLogin" TEXT,
     "targetDate" TIMESTAMP(3),
     "goalId" TEXT,
+    "playbookId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Initiative_pkey" PRIMARY KEY ("id")

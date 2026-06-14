@@ -82,6 +82,7 @@ export function PlaybooksPanel({
           <PlaybookCard
             key={p.id}
             playbook={p}
+            slug={slug}
             dimLabel={dimLabel.get(p.dimId) ?? p.dimId}
             adoption={adoption[p.id]}
             repoOptions={repoOptions}
