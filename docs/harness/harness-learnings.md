@@ -753,3 +753,37 @@
   surface on the org dashboard is a clean follow-up.
 - The pre-existing standing deferred backlog (persistence #4/#5, maturity #5/#6, github-app #2/#4,
   OAuth posture set, read-path withDb migration) is UNCHANGED by this run.
+
+## Context map + Feature Scout Pipeline B — "Close the action loop" wave (2026-06-14)
+
+### Structural facts
+- **2026-06-14** — The Vibeman context map was fully regenerated (10→38 contexts, 4→9 groups, 100%
+  source coverage; committed `context-map.json` + `.claude/CLAUDE.md` pointer). The prior 10-context
+  map was ~317 commits stale. Feature/audit scans should scope off the new map.
+- **2026-06-14** — `openDraftPr` (github/write.ts) + `buildArtifact` (practice-artifact.ts, keyed on
+  the 1:1 `PRACTICES` dimId→practice map) are THE change-delivery primitives; `createInitiative`
+  (db/plan.ts) takes `{dimId,targetScore,repos}`. Several surfaces now wire to them — don't re-flag
+  these as "dead-end" gaps: backlog rows open PRs (reuse `/api/practices/apply`), the what-if
+  Simulator commits a scenario to an Initiative, PlaybookCard opens a PR, PracticeApply has fleet
+  rollout, fleet-map stars link to `reportPermalink`.
+- **2026-06-14** — New routes: `POST /api/practices/apply-batch {repos[],practiceId}` (fleet rollout
+  via `mapPool`/`SCAN_CONCURRENCY`, one shared org gate, ≤25/click) and
+  `POST /api/org/playbooks/[id]/apply {repo}` (seeds the playbook as `docs/playbooks/<slug>.md`,
+  records the adoption mark + audits `playbook.pr_opened`). Added `getPlaybook(id)` to db/playbooks.
+
+### Conventions enforced
+- **2026-06-14** — To batch a single-item write: require all items share ONE org, gate once, mint the
+  installation token once, then `mapPool(items, SCAN_CONCURRENCY, worker)` with a never-throwing
+  worker that returns a per-item result row. Cap the batch; one failure must not abort the pool.
+- **2026-06-14** — Prefer reusing the existing ROUTE (not just the function) from a new surface so the
+  App-installed + signed-in + `requireOrgAccess` + audit guarantees come for free (BKLG-1 → practices/apply).
+
+### Open follow-ups (from Feature Scout Wave 1, 2026-06-14)
+- **STD-1 (Critical) deferred** — doctor conformance → Ascent adopt/verify/re-score loop. Needs a
+  persistence migration (risky blind in this DB-less repo) + report/rollup surfacing. Full low-risk
+  plan in `docs/harness/followups-2026-06-14.md`.
+- **Waves 2–8 + tail unstarted** — see `docs/harness/feature-scout-2026-06-14/INDEX.md`: expose
+  dormant backends (MEM-1/ALRT-1/SEG-1/CONN-1), notifications/email, monetization (CRED-1/QUOTA-1),
+  planning completeness, live ops, audit/compliance + CI gate, growth/SEO + onboarding, 49 mediums.
+- **Route tests** for `apply-batch` + `playbooks/[id]/apply` not added (thin compositions of tested
+  primitives); a reasonable follow-up.
