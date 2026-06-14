@@ -5,7 +5,7 @@ import { OrgScanButton } from "@/components/org/OrgScanButton";
 import { CreditsControl } from "@/components/org/CreditsControl";
 import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
-import { getCreditState, getOrgRollup, isDbConfigured } from "@/lib/db";
+import { getCreditState, getMembershipRole, getOrgRollup, isDbConfigured } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
@@ -88,9 +88,12 @@ export default async function OrgLayout({
   // Rollup + credit state are independent (both keyed on the slug alone), so fetch them together —
   // this shell wraps EVERY org tab, so its waterfall taxes every dashboard view. Prepaid scan-credit
   // state feeds the header chip (null for the shared public org, which is free).
-  const [rollup, credit] = await Promise.all([
+  const [rollup, credit, myRole] = await Promise.all([
     getOrgRollup(slug),
     slug === "public" ? Promise.resolve(null) : getCreditState(slug),
+    // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
+    // can open the Members tab). Null for the public org / non-members.
+    session?.login ? getMembershipRole(slug, session.login).catch(() => null) : Promise.resolve(null),
   ]);
   if (!rollup || rollup.repoCount === 0) {
     return (
@@ -117,6 +120,14 @@ export default async function OrgLayout({
           <span className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm" style={{ color: scoreHex(rollup.avgOverall) }}>
             {level.id} · {rollup.avgOverall}
           </span>
+          {myRole && (
+            <span
+              className="rounded-md border border-accent/40 bg-accent/5 px-2.5 py-1 font-mono text-sm uppercase tracking-widest text-accent"
+              title="Your role in this organization"
+            >
+              {myRole}
+            </span>
+          )}
           <span className="font-mono text-sm text-slate-500">
             {rollup.scannedCount}/{rollup.repoCount} scanned · {watched} watched
           </span>
