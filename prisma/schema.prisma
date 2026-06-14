@@ -46,6 +46,9 @@ model Organization {
   // Threaded into detectRegression by checkAndAlertRegression — see src/lib/scan-alerts.ts.
   alertOverallDrop   Int?
   alertDimensionDrop Int?
+  // Per-org CI maturity-gate policy (GatePolicy JSON). null = archetype default. Honored by the
+  // App-mode PR Check Run + the governance fleet view — see src/lib/db/org-gate.ts.
+  gatePolicy      Json?
   githubInstallId String?
   createdAt       DateTime @default(now())
 

@@ -24,6 +24,7 @@ CREATE TABLE "Organization" (
     "alertWebhookUrl" TEXT,
     "alertOverallDrop" INTEGER,
     "alertDimensionDrop" INTEGER,
+    "gatePolicy" JSONB,
     "githubInstallId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

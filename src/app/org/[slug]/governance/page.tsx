@@ -5,6 +5,9 @@
 import { buildGovernanceOverview, governanceMarkdown, type GovernanceOverview } from "@/lib/org/governance";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { GatePolicyEditor } from "@/components/org/GatePolicyEditor";
+import { getOrgGatePolicy, isDbConfigured } from "@/lib/db";
+import { hasOrgRole } from "@/lib/authz";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +39,12 @@ export default async function OrgGovernance({ params }: { params: Promise<{ slug
   const snippet = ciSnippet(g);
   const passColor = scoreHex(g.passRate);
 
+  // Owners can edit the persisted gate policy (GATE-1); everyone sees the active policy read-only.
+  const [canEdit, gatePolicy] = await Promise.all([
+    hasOrgRole(slug, "owner"),
+    isDbConfigured() ? getOrgGatePolicy(slug) : Promise.resolve(null),
+  ]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -65,6 +74,7 @@ export default async function OrgGovernance({ params }: { params: Promise<{ slug
               </li>
             ))}
           </ul>
+          {canEdit && <GatePolicyEditor org={slug} initial={gatePolicy} />}
         </Card>
 
         <Card>

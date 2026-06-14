@@ -20,6 +20,7 @@ import {
 } from "@/lib/github/app";
 import {
   getInstallationIdForOwner,
+  getOrgGatePolicy,
   getOrgId,
   getScanReportByCommit,
   isDbConfigured,
@@ -218,7 +219,10 @@ async function runPrGate(ref: PrGateRef) {
       headReport = await scanRepository(fullName, { mock: true, token });
       scoredHead = false;
     }
-    const gate = evaluateGate(headReport);
+    // Honor the org's persisted gate policy (GATE-1) — the App check previously ignored any configured
+    // bar and always used archetype defaults. Falls back to the default when unset/DB-less.
+    const policy = (await getOrgGatePolicy(owner).catch(() => null)) ?? undefined;
+    const gate = evaluateGate(headReport, policy);
 
     // Diff base → head to show the PR's impact. Only meaningful when we actually scored the head
     // ref; both scans are mock at two refs, so the delta reflects the PR's tree changes alone.

@@ -57,6 +57,41 @@ export function defaultGatePolicy(archetype: RepoArchetype): GatePolicy {
   }
 }
 
+/**
+ * Validate an untrusted policy object (from the settings form / DB) into a clean GatePolicy, or null
+ * when nothing usable is present. Scores are clamped to 0..100 ints; minLevel must be a real level id;
+ * per-dimension floors keep only D1..D9 keys; forbidPostures keeps only the gate-relevant "ungoverned".
+ */
+export function sanitizeGatePolicy(raw: unknown): GatePolicy | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const clampScore = (v: unknown): number | undefined => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.trunc(n) : undefined;
+  };
+  const pol: GatePolicy = {};
+  if (typeof r.minLevel === "string" && isLevelId(r.minLevel)) pol.minLevel = r.minLevel;
+  const mo = clampScore(r.minOverall);
+  if (mo !== undefined) pol.minOverall = mo;
+  const md = clampScore(r.minDimension);
+  if (md !== undefined) pol.minDimension = md;
+  if (r.minDimensionFor && typeof r.minDimensionFor === "object") {
+    const floors: Partial<Record<DimensionId, number>> = {};
+    for (const [k, v] of Object.entries(r.minDimensionFor as Record<string, unknown>)) {
+      if (/^D[1-9]$/.test(k)) {
+        const n = clampScore(v);
+        if (n !== undefined) floors[k as DimensionId] = n;
+      }
+    }
+    if (Object.keys(floors).length) pol.minDimensionFor = floors;
+  }
+  if (Array.isArray(r.forbidPostures)) {
+    const allowed = r.forbidPostures.filter((p): p is "ungoverned" => p === "ungoverned");
+    if (allowed.length) pol.forbidPostures = allowed;
+  }
+  return Object.keys(pol).length ? pol : null;
+}
+
 /** Evaluate a report against a policy (defaults to the archetype policy), listing every failure. */
 export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResult {
   const pol = policy ?? defaultGatePolicy(report.archetype);

@@ -39,6 +39,8 @@ export {
   type OrgAlertThresholds,
 } from "@/lib/db/org-alerts";
 
+export { getOrgGatePolicy, setOrgGatePolicy } from "@/lib/db/org-gate";
+
 export {
   getOrgContributors,
   getContributorInsights,

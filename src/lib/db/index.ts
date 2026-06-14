@@ -125,6 +125,8 @@ export {
   getOrgAlertThresholds,
   setOrgAlertThresholds,
   type OrgAlertThresholds,
+  getOrgGatePolicy,
+  setOrgGatePolicy,
   type DueRescan,
   type RepoRef,
   type OrgRepoRow,

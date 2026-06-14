@@ -4,7 +4,7 @@
 // snippet + gate URL that enforce the SAME policy in pipelines. Pure assembly over the rollup +
 // @/lib/scoring/gate (no re-scan). Powers /org/[slug]/governance + its Copy-for-LLM brief.
 
-import { getOrgRollup } from "@/lib/db";
+import { getOrgGatePolicy, getOrgRollup } from "@/lib/db";
 import { defaultGatePolicy, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
@@ -71,7 +71,8 @@ export async function buildGovernanceOverview(orgSlug: string): Promise<Governan
   const rollup = await getOrgRollup(orgSlug);
   if (!rollup || rollup.scannedCount === 0) return null;
 
-  const policy = defaultGatePolicy(ORG_POLICY_ARCHETYPE); // the org bar, applied uniformly to the fleet
+  // The org's configured gate bar (GATE-1), applied uniformly to the fleet; archetype default when unset.
+  const policy = (await getOrgGatePolicy(orgSlug)) ?? defaultGatePolicy(ORG_POLICY_ARCHETYPE);
   const scannedRepos = rollup.repos.filter((r) => r.latest);
 
   const byReason = { level: 0, overall: 0, dimension: 0, posture: 0 };
