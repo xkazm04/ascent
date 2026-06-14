@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Card, SectionHeader } from "@/components/org/ui";
 import { PlaybookCard } from "@/components/org/PlaybookCard";
+import { PLAYBOOK_TEMPLATES } from "@/lib/org/playbook-templates";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
 interface DimOption {
@@ -69,6 +70,16 @@ export function PlaybooksPanel({
     await fetch(`/api/org/playbooks/${id}`, { method: "DELETE" });
   }
 
+  // PLAY-4: prefill the author form from a starter template (the org edits before saving).
+  function applyTemplate(idx: number) {
+    const t = PLAYBOOK_TEMPLATES[idx];
+    if (!t) return;
+    setTitle(t.title);
+    setDimId(t.dimId);
+    setSummary(t.summary);
+    setStepsText(t.steps.join("\n"));
+  }
+
   return (
     <Card>
       <SectionHeader
@@ -92,6 +103,22 @@ export function PlaybooksPanel({
       </div>
 
       <div className="mt-4 space-y-2 border-t border-slate-800 pt-4">
+        {/* PLAY-4: start from a leak-free template instead of a blank form. */}
+        <label className="flex flex-wrap items-center gap-2 font-mono text-sm text-slate-500">
+          Start from a template
+          <select
+            value=""
+            onChange={(e) => e.target.value !== "" && applyTemplate(Number(e.target.value))}
+            className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          >
+            <option value="">choose a template…</option>
+            {PLAYBOOK_TEMPLATES.map((t, i) => (
+              <option key={t.title} value={i}>
+                {t.dimId} · {t.title}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={title}
