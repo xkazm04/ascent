@@ -7,12 +7,14 @@ import { PRACTICES } from "@/lib/practices";
 import { EVENT_LABEL, STATUS_ACCENT, STATUS_LABEL, dueLabel, eventValue } from "@/components/org/backlogShared";
 
 export function ItemRow({
+  org,
   item,
   assignees,
   saving,
   error,
   onPatch,
 }: {
+  org: string;
   item: BacklogItem;
   assignees: string[];
   saving: boolean;
@@ -23,6 +25,30 @@ export function ItemRow({
   const [prBusy, setPrBusy] = useState(false);
   const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
   const [prError, setPrError] = useState<string | null>(null);
+  const [promoteBusy, setPromoteBusy] = useState(false);
+  const [promoted, setPromoted] = useState(false);
+
+  // Promote this gap into a tracked org Initiative (BKLG-2) — reuses /api/org/initiatives with the
+  // rec's dimension + repo, so a per-repo backlog row rolls up into the org-level unit of work.
+  async function promoteToInitiative() {
+    if (promoteBusy || promoted) return;
+    setPromoteBusy(true);
+    setPrError(null);
+    try {
+      const res = await fetch("/api/org/initiatives", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org, title: item.title, dimId: item.dimId, repos: [item.repo] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
+      setPromoted(true);
+    } catch (e) {
+      setPrError(e instanceof Error ? e.message : "Failed to create initiative.");
+    } finally {
+      setPromoteBusy(false);
+    }
+  }
 
   // This dimension's reusable practice — its leak-free starter is what the draft PR seeds.
   const practice = PRACTICES.find((p) => p.dimId === item.dimId);
@@ -165,6 +191,15 @@ export function ItemRow({
             {prBusy ? "Opening PR…" : "Open draft PR →"}
           </button>
         )}
+
+        <button
+          onClick={promoteToInitiative}
+          disabled={promoteBusy || promoted || saving}
+          title="Roll this gap up into a tracked org initiative"
+          className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+        >
+          {promoted ? "✓ Initiative" : promoteBusy ? "Promoting…" : "Promote to initiative"}
+        </button>
 
         <button
           onClick={toggleHistory}

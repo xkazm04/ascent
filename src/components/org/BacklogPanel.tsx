@@ -140,6 +140,7 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
                 {g.items.map((item) => (
                   <ItemRow
                     key={item.id}
+                    org={slug}
                     item={item}
                     assignees={backlog.assignees}
                     saving={savingIds.has(item.id)}
