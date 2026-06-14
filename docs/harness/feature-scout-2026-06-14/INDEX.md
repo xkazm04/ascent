@@ -207,6 +207,7 @@ Each wave is one sessionable theme (5–7 findings) with a shared mental model s
 - **Wave 6 — Live ops: War Room + Map (Theme 6).** WAR-1, WAR-2, WAR-3, WAR-4, MAP-2, MAP-3. *Make the wall + map genuinely live, goal-aware, and interactive.*
 - **Wave 7 — Audit/compliance + CI gate (Themes 7).** SEC-3 (bug), SEC-1, SEC-2, MEM-3, GATE-1, GATE-2, GATE-3. *Enterprise-trust bundle; lead with the SEC-3 audit-filter bug.*
 - **Wave 8 — Growth/SEO + onboarding activation (Themes 8+9).** ✓ **DONE (8/8)** — SHELL-1, SHELL-2, USE-1, USE-2, ONB-1, ONB-2, ONB-4, ONB-3. *Acquisition (OG/badge) + first-run activation.* See `FIXES-WAVE-8.md`.
+- **App Shell / SEO.** ✓ **DONE (5/5)** — SHELL-1/2 (Wave 8) + SHELL-3 (PWA manifest), SHELL-4 (JSON-LD + metadataBase), SHELL-5 (sitemap routes). See `FIXES-SHELL-SEO.md`.
 - **Remaining / optional.** Delivery analytics depth (PPL-1, PPL-2, PPL-3, PPL-4), multi-org (OVR-1, OVR-3), exec narrative (EXEC-2, EXEC-3), governance digest/policy (PRAC-2, PRAC-3, PRAC-4), standard scaffolding (STD-2, STD-3, STD-4), playbook promotion (PLAY-2, PLAY-3), per-segment trends (SEG-2, SEG-3), abuse backstop (QUOTA-2), plus the 49 mediums + 4 lows.
 
 ---

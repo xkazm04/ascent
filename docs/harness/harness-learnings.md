@@ -974,3 +974,30 @@ SHELL/ONB/USE tail (ONB-3, SHELL-1, SHELL-2, ONB-2, USE-1 reach).
 ### Open follow-ups
 - Stripe (CRED-1/CRED-3), notifications/email (excluded), the SHELL mediums/low (manifest/PWA, JSON-LD,
   sitemap badge route), 49 mediums / 4 lows remain — see the INDEX. Waves 1/2/5/6/7/8 + migrations done.
+
+## Feature Scout — App Shell SEO mediums/low (2026-06-14, on master) — COMPLETE (3/3)
+
+See `FIXES-SHELL-SEO.md`. Closes the App Shell/SEO context (5/5 with SHELL-1/2 from Wave 8).
+
+### Structural facts
+- **2026-06-14** — `src/lib/site.ts` `publicBaseUrl()` centralizes the `ASCENT_PUBLIC_URL ||
+  NEXT_PUBLIC_APP_URL` origin (was copy-pasted in sitemap/robots/webhook/digest/scan-alerts); now used
+  by layout `metadataBase`, the layout/homepage JSON-LD, and the sitemap.
+- **2026-06-14** — `src/app/manifest.ts` (MetadataRoute.Manifest) — installable PWA, no SW. Icons reuse
+  `/brand/logo-mark-nobg.png` (any) + `/brand/logo-mark.png` (maskable), `sizes:"any"`. `appleWebApp`
+  added to layout metadata.
+- **2026-06-14** — JSON-LD: Organization + SoftwareApplication in `layout.tsx`, FAQPage in `page.tsx`,
+  rendered via `<script type="application/ld+json" dangerouslySetInnerHTML>`; payloads built from
+  LEVELS/DIMENSIONS + on-page copy. Sitemap gains `/badge`, `/pricing`, `/connect`, `/onboarding`.
+
+### Conventions enforced
+- **2026-06-14** — Resolve the public origin from ONE helper so sitemap / metadataBase / JSON-LD absolute
+  URLs can't drift.
+- **2026-06-14** — Generate structured data from the canonical rubric + the visible copy, never a parallel
+  hand-maintained string, so the search snippet can't disagree with the page.
+- **2026-06-14** — Declare manifest icon `sizes` honestly (`"any"` for single source PNGs) rather than
+  claiming a 192/512 set that isn't pre-rendered.
+
+### Open follow-ups
+- The API/email copies of the base-URL expression (webhook/digest/scan-alerts) could later adopt
+  `publicBaseUrl()` too. Stripe (CRED-1/CRED-3), notifications/email (excluded), 49 mediums / 4 lows remain.
