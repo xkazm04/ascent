@@ -812,7 +812,32 @@
   sequentially when each item lazily upserts a shared parent (the Organization) so writes can't race it.
 
 ### Open follow-ups (from Feature Scout Wave 2, 2026-06-14)
-- **MEM-2 (invite flow)** + **ALRT-3 (per-org thresholds)** deferred — both need a migration (new
-  `Invite` model / new `Organization` columns). Plans in `docs/harness/followups-2026-06-14.md`.
+- ~~MEM-2 / ALRT-3 deferred~~ **RESOLVED** in the migrations session (below).
 - Waves 3–8 + tail still open (notifications/email, monetization, planning, live ops, audit/CI gate,
   growth/onboarding) — see the INDEX.
+
+## Feature Scout — Migrations session (2026-06-14, the 3 deferred schema-change items)
+
+### Structural facts
+- **2026-06-14** — Schema grew by additive-nullable columns + one table (all DB-less-safe): on
+  `Organization` `alertOverallDrop`/`alertDimensionDrop` (ALRT-3); on `Repository`
+  `aiConformance`/`Fails`/`Warns`/`At` (STD-1); new `Invite` model (MEM-2). New routes:
+  `POST /api/report/conformance` (CI-token or owner gated), `/api/org/invites` (POST/GET/DELETE),
+  `/invite/[token]` accept page. `node .ai/doctor.mjs --json` now prints + auto-POSTs conformance.
+- **2026-06-14** — `recordConformance` (org-watch.ts) + `getOrgAlertThresholds`/`setOrgAlertThresholds`
+  (org-alerts.ts) + the whole `invites.ts` are no-op-safe without a DB (mirror `recordScanOutcome`).
+  Don't re-flag these as gaps.
+
+### Conventions enforced (migration discipline — DB-less repo)
+- **2026-06-14** — To change the schema here: edit `schema.prisma` → `npx prisma generate` (offline,
+  so tsc sees new fields) → hand-write `prisma/migrations/<ts>_<name>/migration.sql` → mirror
+  `prisma/init.sql` (the `init-sql.test.ts` parity test requires a `CREATE TABLE` per model AND
+  table-set == model-set) → verify via prisma generate + tsc + the parity test + `next build`. Note
+  in the commit that NO live DB migration ran; deploy applies it via `prisma migrate deploy`.
+
+### Open follow-ups (from the migrations session)
+- **STD-1 / MEM-2 / ALRT-3 are CLOSED.** No NEW schema deferrals.
+- A per-ORG conformance ingest token (vs the single `CONFORMANCE_INGEST_TOKEN`) would be tighter than
+  a deployment-wide secret — a reasonable hardening follow-up if conformance reporting sees real use.
+- Waves 3–8 of the INDEX remain (notifications/email, monetization, planning, live ops, audit/CI
+  gate, growth/onboarding) + 49 mediums / 4 lows.

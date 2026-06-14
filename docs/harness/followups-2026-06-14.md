@@ -1,4 +1,11 @@
-# Follow-ups — 2026-06-14 (Feature Scout Wave 1)
+# Follow-ups — 2026-06-14 (Feature Scout)
+
+> **UPDATE (migrations session, branch `vibeman/feature-scout-migrations`):** all three deferred
+> schema-change items below — **STD-1** (`788a527`), **MEM-2** (`7e423b6`), **ALRT-3** (`fafdd9f`) —
+> are now **RESOLVED**. See `FIXES-MIGRATIONS.md`. The plans below are kept for the record.
+
+---
+
 
 ## STD-1 — Doctor conformance → Ascent (adopt→verify→re-score loop) — DEFERRED to a focused session
 
