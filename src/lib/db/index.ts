@@ -193,11 +193,13 @@ export {
   getInitiativeOrgSlug,
   simulateOrgFix,
   simulateOrgFixes,
+  goalImpactsForScenario,
   rankOrgInvestments,
   isGoalMetric,
   metricLabel,
   type GoalProgress,
   type GoalMetric,
+  type GoalImpact,
   type InitiativeRow,
 } from "@/lib/db/plan";
 export {

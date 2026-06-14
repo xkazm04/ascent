@@ -17,7 +17,29 @@ interface RepoOption {
   name: string;
 }
 
+/** How the scenario pulls forward one active goal (mirrors GoalImpact in src/lib/db/plan.ts). */
+interface GoalImpact {
+  id: string;
+  label: string;
+  metricLabel: string;
+  target: number;
+  currentValue: number;
+  simulatedValue: number;
+  currentEtaDate: string | null;
+  simulatedEtaDate: string | null;
+  reachedNow: boolean;
+  daysSooner: number | null;
+}
+
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+
+/** Coarse, friendly duration ("~3 days", "~8 weeks", "~5 months") — matches forecast.humanizeDays. */
+function humanizeDays(days: number): string {
+  if (days <= 1) return "~1 day";
+  if (days < 14) return `~${days} days`;
+  if (days < 60) return `~${Math.round(days / 7)} weeks`;
+  return `~${Math.round(days / 30)} months`;
+}
 
 /** What-if: project the fleet impact of raising a dimension to a target across a repo set. */
 export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption[]; repos: RepoOption[] }) {
@@ -29,6 +51,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [scope, setScope] = useState<Set<string>>(new Set());
   const [showRepos, setShowRepos] = useState(false);
   const [result, setResult] = useState<FleetProjection | null>(null);
+  const [goalImpacts, setGoalImpacts] = useState<GoalImpact[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
@@ -93,6 +116,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to simulate.");
       setResult(data.projection);
+      setGoalImpacts(data.goalImpacts ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to simulate.");
     } finally {
@@ -163,6 +187,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
                       setTarget(r.target);
                       setExtras([]);
                       setResult(null);
+                      setGoalImpacts([]);
                     }}
                     title={`Load ${r.dimId} → ${r.target} into the simulator`}
                     className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left font-mono text-sm text-slate-300 transition hover:bg-slate-900"
@@ -313,6 +338,38 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
               </div>
             ))}
           </div>
+
+          {/* SIM-4: how landing this scenario pulls forward the org's active goals. */}
+          {goalImpacts.length > 0 && (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <div className="font-mono text-sm uppercase tracking-widest text-emerald-300">Goal impact</div>
+              <ul className="mt-2 space-y-1.5">
+                {goalImpacts.map((g) => (
+                  <li key={g.id} className="text-sm text-slate-300">
+                    <span className="font-medium text-white">{g.label}</span>{" "}
+                    <span className="font-mono text-slate-500">
+                      ({g.metricLabel} {g.currentValue}→{g.simulatedValue})
+                    </span>{" "}
+                    {g.reachedNow ? (
+                      <span className="font-mono text-emerald-300">reaches its target of {g.target}.</span>
+                    ) : g.currentEtaDate && g.simulatedEtaDate ? (
+                      <span className="font-mono">
+                        ETA <span className="text-slate-400">{g.currentEtaDate}</span> →{" "}
+                        <span className="text-emerald-300">{g.simulatedEtaDate}</span>
+                        {g.daysSooner != null && g.daysSooner > 0 && (
+                          <span className="text-emerald-300"> ({humanizeDays(g.daysSooner)} sooner)</span>
+                        )}
+                      </span>
+                    ) : g.simulatedEtaDate ? (
+                      <span className="font-mono text-emerald-300">projects a target ETA of {g.simulatedEtaDate}.</span>
+                    ) : (
+                      <span className="font-mono text-slate-400">moves the metric toward its target.</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {result.repos.filter((r) => r.delta > 0).length > 0 && (
             <div>

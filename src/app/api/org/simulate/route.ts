@@ -6,7 +6,7 @@
 // derived from the latest scans, persists nothing.
 
 import { NextResponse } from "next/server";
-import { isDbConfigured, rankOrgInvestments, simulateOrgFixes } from "@/lib/db";
+import { goalImpactsForScenario, isDbConfigured, rankOrgInvestments, simulateOrgFixes } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import type { DimensionId } from "@/lib/types";
 import type { SimFix } from "@/lib/scoring/orgsim";
@@ -50,5 +50,7 @@ export async function POST(request: Request) {
   }
   const projection = await simulateOrgFixes(body.org, fixes, repos);
   if (!projection) return NextResponse.json({ error: "No scanned repos to simulate." }, { status: 404 });
-  return NextResponse.json({ projection });
+  // SIM-4: how the scenario pulls forward the org's active axis/overall goals (empty when none apply).
+  const goalImpacts = (await goalImpactsForScenario(body.org, projection.before, projection.after)) ?? [];
+  return NextResponse.json({ projection, goalImpacts });
 }

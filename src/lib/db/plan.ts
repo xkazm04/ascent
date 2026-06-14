@@ -485,6 +485,74 @@ export async function simulateOrgFixes(
   return simulateFleet(snap.repos, fixes, scope);
 }
 
+/** How a simulated scenario would move one active goal's ETA — the forecast coupled to the sim (SIM-4). */
+export interface GoalImpact {
+  id: string;
+  label: string;
+  metric: string;
+  metricLabel: string;
+  target: number;
+  /** Today's fleet value on the metric, and the value after the simulated fix lands. */
+  currentValue: number;
+  simulatedValue: number;
+  /** Projected target-crossing date at today's value vs. re-anchored at the simulated value. */
+  currentEtaDate: string | null;
+  simulatedEtaDate: string | null;
+  /** The simulated value already meets the target (the goal is reached on landing). */
+  reachedNow: boolean;
+  /** Days the target is pulled forward by landing the fix (currentEta − simulatedEta), or null. */
+  daysSooner: number | null;
+}
+
+/**
+ * SIM-4 — couple the simulator to the goal forecast. For each active goal on an axis/overall metric,
+ * re-anchor its trend at the *simulated* fleet value (keeping the fitted slope) and compare the ETA
+ * to the one at today's value: "landing this fix reaches 'Reach L4' ~3 months sooner". Dimension-metric
+ * goals are skipped (the projection's after-snapshot only carries the axis/overall averages). `before`
+ * and `after` come straight from the FleetProjection, so no extra fleet query is needed.
+ */
+export async function goalImpactsForScenario(
+  orgSlug: string,
+  before: { avgOverall: number; avgAdoption: number; avgRigor: number },
+  after: { avgOverall: number; avgAdoption: number; avgRigor: number },
+): Promise<GoalImpact[] | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await resolveOrgId(orgSlug);
+  if (!orgId) return null;
+  const AXIS = new Set(["overall", "adoption", "rigor"]);
+  const goals = (await getPrisma().goal.findMany({ where: { orgId, status: "active" } })).filter((g) => AXIS.has(g.metric));
+  if (goals.length === 0) return [];
+  const series = await metricSeries(orgId, new Set(goals.map((g) => g.metric)));
+  const now = Date.now();
+  const valueOf = (snap: { avgOverall: number; avgAdoption: number; avgRigor: number }, metric: string) =>
+    metric === "adoption" ? snap.avgAdoption : metric === "rigor" ? snap.avgRigor : snap.avgOverall;
+
+  const impacts: GoalImpact[] = [];
+  for (const g of goals) {
+    const cur = valueOf(before, g.metric);
+    const sim = valueOf(after, g.metric);
+    if (sim <= cur) continue; // the scenario doesn't move this metric — nothing to show
+    const targetDate = g.targetDate ? g.targetDate.toISOString().slice(0, 10) : null;
+    const s = series[g.metric] ?? [];
+    const curProj = projectGoal({ series: s, current: cur, target: g.target, targetDate, nowMs: now });
+    const simProj = projectGoal({ series: s, current: sim, target: g.target, targetDate, nowMs: now });
+    impacts.push({
+      id: g.id,
+      label: g.label,
+      metric: g.metric,
+      metricLabel: metricLabel(g.metric),
+      target: g.target,
+      currentValue: cur,
+      simulatedValue: sim,
+      currentEtaDate: curProj.etaDate,
+      simulatedEtaDate: simProj.etaDate,
+      reachedNow: sim >= g.target,
+      daysSooner: curProj.etaDays != null && simProj.etaDays != null ? curProj.etaDays - simProj.etaDays : null,
+    });
+  }
+  return impacts;
+}
+
 /**
  * Rank D1..D9 by the projected fleet lift from raising each to `target` across the scope (SIM-3) —
  * the "where should we invest?" recommendation, reusing the same pure projection as the manual sim.
