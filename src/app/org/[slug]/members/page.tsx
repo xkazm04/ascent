@@ -4,7 +4,7 @@
 
 import { SectionEmpty } from "@/components/org/ui";
 import { MembersPanel } from "@/components/org/MembersPanel";
-import { isDbConfigured, listOrgMembers } from "@/lib/db";
+import { isDbConfigured, listOrgMembers, listPendingInvites } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { getSession } from "@/lib/auth";
 
@@ -22,12 +22,24 @@ export default async function OrgMembers({ params }: { params: Promise<{ slug: s
       </SectionEmpty>
     );
   }
-  const [members, session] = await Promise.all([listOrgMembers(slug), getSession()]);
+  const [members, invites, session] = await Promise.all([
+    listOrgMembers(slug),
+    listPendingInvites(slug),
+    getSession(),
+  ]);
   const initial = members.map((m) => ({
     login: m.login,
     name: m.name,
     role: m.role,
     createdAt: m.createdAt.toISOString(),
   }));
-  return <MembersPanel slug={slug} initial={initial} selfLogin={session?.login ?? null} />;
+  const initialInvites = invites.map((i) => ({
+    id: i.id,
+    email: i.email,
+    githubLogin: i.githubLogin,
+    role: i.role,
+    token: i.token,
+    expiresAt: i.expiresAt,
+  }));
+  return <MembersPanel slug={slug} initial={initial} initialInvites={initialInvites} selfLogin={session?.login ?? null} />;
 }

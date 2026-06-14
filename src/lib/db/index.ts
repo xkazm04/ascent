@@ -72,6 +72,14 @@ export {
   type OrgMember,
 } from "@/lib/db/members";
 export {
+  createInvite,
+  listPendingInvites,
+  revokeInvite,
+  acceptInvite,
+  type PendingInvite,
+  type AcceptResult,
+} from "@/lib/db/invites";
+export {
   upsertInstallation,
   removeInstallation,
   unwatchReposForInstallation,

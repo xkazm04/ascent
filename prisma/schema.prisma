@@ -58,6 +58,7 @@ model Organization {
   initiatives   Initiative[]
   segments      Segment[]
   playbooks     Playbook[]
+  invites       Invite[]
 }
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
@@ -108,6 +109,29 @@ model Membership {
   @@unique([orgId, userId])
   @@index([orgId])
   @@index([userId])
+}
+
+// A pending invitation to join an org at a given role. Bridges the gap before MEM-2: the only
+// "add member" path was an owner typing an exact GitHub login into setMembershipRole (a typo
+// silently created a ghost membership). An invite carries a single-use `token` (the capability in
+// the /invite/[token] link), optionally pins a githubLogin/email, expires, and is consumed by
+// acceptInvite → setMembershipRole. See src/lib/db/invites.ts.
+model Invite {
+  id          String   @id @default(uuid())
+  orgId       String
+  email       String?
+  githubLogin String? // when set, only this login may accept (case-insensitive)
+  role        String   @default("member") // owner | admin | member | viewer
+  token       String   @unique
+  status      String   @default("pending") // pending | accepted | revoked
+  invitedBy   String? // GitHub login of the owner who created it
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@index([status])
 }
 
 model Repository {
