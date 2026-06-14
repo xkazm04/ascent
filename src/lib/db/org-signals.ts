@@ -2,6 +2,7 @@
 // governance, and commit-activity trend (Deepen-F3). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { segmentScope } from "@/lib/db/org-shared";
 import type { PrStats } from "@/lib/types";
 
 export interface OrgPrSignals {
@@ -17,14 +18,14 @@ export interface OrgPrSignals {
 }
 
 /** Fleet-level pull-request signals — aggregated from each repo's latest scan's prStats. */
-export async function getOrgPrSignals(orgSlug: string): Promise<OrgPrSignals | null> {
+export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null): Promise<OrgPrSignals | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id },
+    where: { orgId: org.id, ...segmentScope(segmentId) },
     select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { prStats: true } } },
   });
 
@@ -84,14 +85,14 @@ export interface OrgGovernance {
 }
 
 /** Fleet default-branch governance — from each repo's latest scan's `governance` JSON. */
-export async function getOrgGovernance(orgSlug: string): Promise<OrgGovernance | null> {
+export async function getOrgGovernance(orgSlug: string, segmentId?: string | null): Promise<OrgGovernance | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id },
+    where: { orgId: org.id, ...segmentScope(segmentId) },
     select: { fullName: true, name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { governance: true } } },
   });
 
@@ -147,14 +148,14 @@ export interface OrgActivity {
 }
 
 /** Fleet commit-activity trend — element-wise sum of each repo's latest weekly series. */
-export async function getOrgActivity(orgSlug: string): Promise<OrgActivity | null> {
+export async function getOrgActivity(orgSlug: string, segmentId?: string | null): Promise<OrgActivity | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id },
+    where: { orgId: org.id, ...segmentScope(segmentId) },
     select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { commitActivity: true } } },
   });
 

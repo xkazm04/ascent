@@ -7,6 +7,7 @@
 // concrete pairing to spread it, never a leaderboard. All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { segmentScope } from "@/lib/db/org-shared";
 import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
@@ -319,14 +320,14 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
  * query, then aggregates per team via rollupTeams. Null when persistence is off or the org is
  * unknown; an org with no CODEOWNERS teams returns a populated shape with `teams: []`.
  */
-export async function getOrgTeamRollup(orgSlug: string): Promise<OrgTeamRollup | null> {
+export async function getOrgTeamRollup(orgSlug: string, segmentId?: string | null): Promise<OrgTeamRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id },
+    where: { orgId: org.id, ...segmentScope(segmentId) },
     select: {
       fullName: true,
       name: true,

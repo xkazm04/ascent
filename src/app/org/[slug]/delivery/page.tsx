@@ -1,5 +1,6 @@
 import { Card, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
-import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
+import { SegmentSelector } from "@/components/org/SegmentSelector";
+import { getOrgActivity, getOrgGovernance, getOrgPrSignals, listSegments } from "@/lib/db";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -26,20 +27,50 @@ function ActivityChart({ series }: { series: number[] }) {
   );
 }
 
-export default async function OrgDelivery({ params }: { params: Promise<{ slug: string }> }) {
+export default async function OrgDelivery({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { slug } = await params;
-  const [pr, gov, activity] = await Promise.all([getOrgPrSignals(slug), getOrgGovernance(slug), getOrgActivity(slug)]);
+  const sp = await searchParams;
+
+  // Optional segment scope, validated against the org's segments (bogus id → whole fleet) — parity
+  // with the Contributors tab so a leader can read delivery/governance for one business unit.
+  const segments = (await listSegments(slug)) ?? [];
+  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
+  const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
+
+  const [pr, gov, activity] = await Promise.all([
+    getOrgPrSignals(slug, segmentId),
+    getOrgGovernance(slug, segmentId),
+    getOrgActivity(slug, segmentId),
+  ]);
+
+  const segmentBar = segments.length > 0 && (
+    <div className="flex justify-end">
+      <SegmentSelector segments={segments} active={segmentId} />
+    </div>
+  );
 
   if (!pr && !gov && !activity) {
     return (
-      <SectionEmpty>
-        Delivery signals (pull requests, branch governance, commit activity) need a GitHub token. Re-scan with a token configured to populate this tab.
-      </SectionEmpty>
+      <div className="space-y-4">
+        {segmentBar}
+        <SectionEmpty>
+          {segmentId
+            ? "No delivery signals for this segment — pick another segment or scan more of its repos (signals need a GitHub token)."
+            : "Delivery signals (pull requests, branch governance, commit activity) need a GitHub token. Re-scan with a token configured to populate this tab."}
+        </SectionEmpty>
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      {segmentBar}
       {/* Pull request signals */}
       {pr && (
         <div>

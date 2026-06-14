@@ -1,5 +1,6 @@
 import { Card, Meter, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex, fmtDelta } from "@/components/org/ui";
-import { getOrgTeamRollup, type TeamRollup } from "@/lib/db";
+import { SegmentSelector } from "@/components/org/SegmentSelector";
+import { getOrgTeamRollup, listSegments, type TeamRollup } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -112,22 +113,45 @@ function TeamCard({ team }: { team: TeamRollup }) {
   );
 }
 
-export default async function TeamsPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function TeamsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { slug } = await params;
-  const rollup = await getOrgTeamRollup(slug);
+  const sp = await searchParams;
+
+  // Optional segment scope (parity with Contributors/Delivery): a bogus id falls back to the fleet.
+  const segments = (await listSegments(slug)) ?? [];
+  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
+  const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
+
+  const rollup = await getOrgTeamRollup(slug, segmentId);
+
+  const segmentBar = segments.length > 0 && (
+    <div className="mb-4 flex justify-end">
+      <SegmentSelector segments={segments} active={segmentId} />
+    </div>
+  );
 
   if (!rollup || rollup.teams.length === 0) {
     return (
-      <SectionEmpty>
-        No team attribution yet. Teams are parsed from each repo&apos;s <span className="font-mono text-slate-400">CODEOWNERS</span> file
-        at scan time — add a <span className="font-mono text-slate-400">CODEOWNERS</span> that assigns paths to{" "}
-        <span className="font-mono text-slate-400">@org/team</span> owners, then re-scan and this view fills in.
-      </SectionEmpty>
+      <div>
+        {segmentBar}
+        <SectionEmpty>
+          {segmentId
+            ? "No team attribution for this segment — pick another segment, or add CODEOWNERS team owners to its repos and re-scan."
+            : "No team attribution yet. Teams are parsed from each repo's CODEOWNERS file at scan time — add a CODEOWNERS that assigns paths to @org/team owners, then re-scan and this view fills in."}
+        </SectionEmpty>
+      </div>
     );
   }
 
   return (
     <div>
+      {segmentBar}
       <p className="max-w-3xl text-base text-slate-400">
         Your fleet, rolled up by the teams that own it (from each repo&apos;s <span className="font-mono text-slate-300">CODEOWNERS</span>).
         Inputs to explore how AI capability is distributed across the org — which team carries the most institutional AI
