@@ -1123,3 +1123,32 @@ See `FIXES-MEDIUMS-C-PLANNING.md`. Wave-5 follow-on; 2 additive migrations.
 
 ### Open follow-ups
 - Medium waves D, F, G, H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
+
+## Feature Scout — Mediums Wave D · Playbooks & practices authoring (2026-06-15, on master) — COMPLETE (3/3)
+
+See `FIXES-MEDIUMS-D-PLAYBOOKS.md`. PRAC-5 was already largely shipped by PLAY-1 (apply→draft-PR).
+
+### Structural facts
+- **2026-06-15** — PLAY-4: `src/lib/org/playbook-templates.ts` `PLAYBOOK_TEMPLATES` = PRACTICES.map(...)
+  (one per dimension); PlaybooksPanel "Start from a template" select prefills the author form.
+- **2026-06-15** — PLAY-6: migration `20260615100000` adds `Playbook.version` (Int default 1) +
+  `updatedAt` (@updatedAt) + `PlaybookApplication.appliedVersion` (Int?). `updatePlaybook` bumps version
+  on a content edit (title/dim/summary/steps); `applyPlaybook` stamps the current version; the [id]
+  PATCH route records a `playbook.updated` audit entry; PlaybookRow carries version/updatedAt; card shows v{N}.
+- **2026-06-15** — PRAC-5: `playbookStarterFile()` extracted into playbook-brief.ts (single source for the
+  docs/playbooks/<slug>.md artifact); apply route uses it; PlaybookCard gets a "Preview starter file" <details>.
+
+### Conventions enforced
+- **2026-06-15** — Derive author templates from the canonical rubric (PRACTICES), not a parallel list.
+- **2026-06-15** — Decide "what counts as a content edit" (version bump) in the data fn, so every caller
+  versions consistently; the route just audits.
+- **2026-06-15** — Single-source a rendered artifact (playbookStarterFile) so preview == what's committed.
+- **2026-06-15** — Check whether a flagged finding was already closed by an earlier wave (PRAC-5 by PLAY-1)
+  before rebuilding; deliver only the genuine remaining gap (preview parity).
+
+### updatedAt migration note
+- **2026-06-15** — Adding `@updatedAt` to an existing table: ALTER with `NOT NULL DEFAULT CURRENT_TIMESTAMP`
+  to backfill existing rows; init.sql mirror uses the same default (Prisma still overwrites on every write).
+
+### Open follow-ups
+- Medium waves F, G, H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
