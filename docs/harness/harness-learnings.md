@@ -1152,3 +1152,32 @@ See `FIXES-MEDIUMS-D-PLAYBOOKS.md`. PRAC-5 was already largely shipped by PLAY-1
 
 ### Open follow-ups
 - Medium waves F, G, H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
+
+## Feature Scout — Mediums Wave G · CI-gate + metering hygiene (2026-06-15, on master) — COMPLETE (4/4 actionable)
+
+See `FIXES-MEDIUMS-G-CIGATE-METERING.md`. CIGATE-5 (gate badge) was already done by GATE-1's ?gate=1 mode.
+
+### Structural facts
+- **2026-06-15** — QUOTA-5: badge route drops its bespoke hits/rateLimited/clientIp for the shared
+  `rateLimitRequest` + a new `BADGE_RATE_LIMIT` config in rate-limit.ts (perIp 60 / global 600, env-overridable).
+- **2026-06-15** — USE-4: `getCreditReconciliation(org, days)` in credits.ts (windows getCreditLedger
+  server-side → debited/refunded/granted/net; refund = positive delta with /refund/i reason); /usage
+  "Reconciliation" panel for non-public orgs.
+- **2026-06-15** — CIGATE-4: buildGateComment appends a "Where the score falls short" table on failure —
+  failing dims re-derived from report.dimensions vs the policy floor (max of minDimension + minDimensionFor),
+  each with score→floor + top gap.
+- **2026-06-15** — QUOTA-6: `QuotaEvent` counter table (migration `20260615110000`) + recordQuotaEvent /
+  getQuotaEventTotals (quota-events.ts). Bumped fire-and-forget at the weekly-quota deny (public-scan-quota.ts,
+  AFTER the tx) + the badge rate-limit trip. "Abuse & limits" panel on the public /usage view. init-sql parity 29.
+
+### Conventions enforced
+- **2026-06-15** — Route a second hand-rolled copy of a primitive (the badge limiter) through the shared one.
+- **2026-06-15** — Do date-windowing in the db layer so a server-component page stays pure (react-hooks/purity
+  flags Date.now() in render). Mirror of the lib/window pattern.
+- **2026-06-15** — Re-derive structured detail (failing dims) from the model + policy, never by parsing
+  human-readable failure messages.
+- **2026-06-15** — Observability writes go at deny sites (rare, DB-aware), fire-and-forget; the pure
+  in-memory burst limiter stays DB-free by design — note the boundary in the UI, don't pretend full coverage.
+
+### Open follow-ups
+- Medium waves F, H + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
