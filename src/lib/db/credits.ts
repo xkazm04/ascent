@@ -31,6 +31,20 @@ export interface CreditLedgerEntry {
   createdAt: Date;
 }
 
+/** Period reconciliation of metered scans against the credit ledger (USE-4). */
+export interface CreditReconciliation {
+  /** Credits spent (sum of negative deltas, as a positive number) in the window. */
+  debited: number;
+  /** Credits returned by failed/deduped scans (positive deltas whose reason says "refund"). */
+  refunded: number;
+  /** Other positive deltas in the window (grants / top-ups). */
+  granted: number;
+  /** Net credit change in the window (all deltas summed). */
+  net: number;
+  /** Ledger rows that fell inside the window. */
+  entries: number;
+}
+
 /** Current balance + plan for an org. Missing org / no DB => zero balance on the free plan. */
 export async function getCreditState(orgSlug: string): Promise<CreditState> {
   if (!isDbConfigured()) return { balance: 0, plan: "free", unlimited: false };
@@ -162,4 +176,26 @@ export async function getCreditLedger(orgSlug: string, limit = 50): Promise<Cred
       createdAt: true,
     },
   });
+}
+
+/**
+ * Reconcile the credit ledger over the last `days` (USE-4): credits debited (scan spends), refunded
+ * (failed/deduped scans return their credit — a positive delta whose reason says so), granted (other
+ * positives), and the net. Windows the recent ledger rows by date here (server-side) so the /usage
+ * page stays a pure render. Null when persistence is off.
+ */
+export async function getCreditReconciliation(orgSlug: string, days: number): Promise<CreditReconciliation | null> {
+  if (!isDbConfigured()) return null;
+  const entries = await getCreditLedger(orgSlug, 200);
+  const cutoff = Date.now() - Math.max(1, days) * 86_400_000;
+  const win = entries.filter((e) => e.createdAt.getTime() >= cutoff);
+  const sum = (pred: (e: CreditLedgerEntry) => boolean, abs = false) =>
+    win.filter(pred).reduce((a, e) => a + (abs ? Math.abs(e.delta) : e.delta), 0);
+  return {
+    debited: sum((e) => e.delta < 0, true),
+    refunded: sum((e) => e.delta > 0 && /refund/i.test(e.reason)),
+    granted: sum((e) => e.delta > 0 && !/refund/i.test(e.reason)),
+    net: win.reduce((a, e) => a + e.delta, 0),
+    entries: win.length,
+  };
 }

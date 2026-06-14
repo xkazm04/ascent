@@ -2,7 +2,7 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { EmptyState } from "@/components/EmptyState";
 import { SignInNotice } from "@/components/SignInNotice";
 import { UsageTrend } from "@/components/usage/UsageTrend";
-import { getBadgeReach, getCreditState, getUsageSummary, isDbConfigured, type BadgeReach, type CreditState, type UsageSummary } from "@/lib/db";
+import { getBadgeReach, getCreditReconciliation, getCreditState, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type UsageSummary } from "@/lib/db";
 import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { timeAgo } from "@/lib/ui";
 
@@ -112,13 +112,16 @@ export default async function UsagePage({
   let credit: CreditState | null = null;
   // Badge reach rides the same round-trip, best-effort — a tally read blip hides the panel, not the page.
   let badgeReach: BadgeReach | null = null;
+  // Credit reconciliation for the panel (USE-4) — non-public orgs only; best-effort.
+  let recon: CreditReconciliation | null = null;
   try {
-    [usage, credit, badgeReach] = await Promise.all([
+    [usage, credit, badgeReach, recon] = await Promise.all([
       getUsageSummary(org, days),
       org.toLowerCase() === PUBLIC_ORG
         ? Promise.resolve(null)
         : getCreditState(org).catch(() => null),
       getBadgeReach(org).catch(() => null),
+      org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : getCreditReconciliation(org, days).catch(() => null),
     ]);
   } catch {
     usage = null;
@@ -235,6 +238,32 @@ export default async function UsagePage({
           <Stat label="Input tokens" value={usage.inputTokens} sub={`last ${usage.periodDays}d`} />
           <Stat label="Output tokens" value={usage.outputTokens} sub={`last ${usage.periodDays}d`} />
         </div>
+
+        {/* Reconciliation (USE-4): metered private scans vs the credit ledger for the same period —
+            does what was billed line up with what was debited? Refunds (failed/deduped scans) net it back. */}
+        {recon && recon.entries > 0 && (
+          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+            <h2 className="text-base font-semibold text-white">
+              Reconciliation <span className="font-normal text-slate-500">· scans vs credit ledger · last {usage.periodDays}d</span>
+            </h2>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Stat label="Billable scans" value={billable} sub="private · metered" />
+              <Stat label="Credits debited" value={recon.debited} sub="from the ledger" />
+              <Stat label="Refunds" value={recon.refunded} sub="failed / deduped scans" />
+              <Stat
+                label="Net credits"
+                value={`${recon.net >= 0 ? "+" : ""}${recon.net.toLocaleString()}`}
+                sub={recon.granted > 0 ? `incl. ${recon.granted.toLocaleString()} granted` : "debits − refunds/grants"}
+              />
+            </div>
+            {billable !== recon.debited - recon.refunded && (
+              <p className="mt-3 text-sm text-slate-500">
+                {billable} billable scans vs {Math.max(0, recon.debited - recon.refunded)} net credits debited — differences
+                come from unlimited-plan scans (not debited), grants, or scans/ledger rows straddling the window edge.
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">

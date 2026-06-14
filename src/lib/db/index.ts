@@ -59,10 +59,12 @@ export {
   grantCredits,
   consumeScanCredit,
   getCreditLedger,
+  getCreditReconciliation,
   setOrgPlan,
   isUnlimitedPlan,
   type CreditState,
   type CreditLedgerEntry,
+  type CreditReconciliation,
 } from "@/lib/db/credits";
 export {
   ensureOwnerMembership,
