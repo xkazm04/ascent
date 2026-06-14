@@ -7,11 +7,12 @@
 // (design-stage) purchase flow is docs/BILLING.md.
 
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
+import { isUnlimitedPlan } from "@/lib/plans";
 
-/** Plans whose private scans are included (never consume credits). */
-export function isUnlimitedPlan(plan: string | null | undefined): boolean {
-  return plan === "enterprise";
-}
+// Re-export so existing importers (entitlement, scan paths) keep their `@/lib/db/credits` import.
+// The definition now lives in @/lib/plans (data-driven from PLAN_FEATURES) so `pro`/`team`/`enterprise`
+// are no longer hardcoded here — see CRED-2.
+export { isUnlimitedPlan };
 
 export interface CreditState {
   balance: number;
@@ -131,6 +132,13 @@ export async function consumeScanCredit(
       return { ok: true, balance: balanceAfter, unlimited: false };
     }),
   );
+}
+
+/** Set an org's plan tier (owner-gated at the route). Returns false for an unknown org / no DB. */
+export async function setOrgPlan(orgSlug: string, plan: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const res = await getPrisma().organization.updateMany({ where: { slug: orgSlug.toLowerCase() }, data: { plan } });
+  return res.count > 0;
 }
 
 /** Recent ledger rows for an org (newest first). */

@@ -58,6 +58,7 @@ export {
   grantCredits,
   consumeScanCredit,
   getCreditLedger,
+  setOrgPlan,
   isUnlimitedPlan,
   type CreditState,
   type CreditLedgerEntry,
