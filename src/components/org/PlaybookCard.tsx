@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { playbookMarkdown } from "@/lib/org/playbook-brief";
+import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
 export function PlaybookCard({
@@ -129,6 +129,17 @@ export function PlaybookCard({
           ))}
         </ul>
       )}
+
+      {/* PRAC-5: preview the exact docs/playbooks/<slug>.md the "Open draft PR" action commits. */}
+      <details className="group mt-2">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 font-mono text-sm text-slate-500 transition hover:text-slate-300 [&::-webkit-details-marker]:hidden">
+          <span aria-hidden className="text-slate-600 transition-transform group-open:rotate-90">›</span>
+          Preview starter file
+        </summary>
+        <pre className="mt-2 max-h-60 overflow-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 font-mono text-xs whitespace-pre-wrap text-slate-300">
+          {playbookStarterFile(p, dimLabel)}
+        </pre>
+      </details>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 text-sm">
         <span className="font-mono text-slate-400">
