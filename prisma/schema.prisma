@@ -543,3 +543,17 @@ model QuotaEvent {
 
   @@unique([kind, scope])
 }
+
+// A record of each onboarding-skill generation (STD-6) — turns the one-off SKILL.md download into a
+// tracked program: which tracks a repo's skill targeted, at which commit, when. `trackIds` is a JSON
+// string[] of practice ids. Keyed by repoFullName; written best-effort from the skill route, read by
+// src/lib/db/skill-history.ts to show a "skill history" + track-set diff on the report.
+model SkillGeneration {
+  id           String   @id @default(uuid())
+  repoFullName String
+  headSha      String?
+  trackIds     String   @default("[]")
+  generatedAt  DateTime @default(now())
+
+  @@index([repoFullName])
+}

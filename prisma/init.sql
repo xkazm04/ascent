@@ -514,6 +514,20 @@ CREATE TABLE "QuotaEvent" (
 -- CreateIndex
 CREATE UNIQUE INDEX "QuotaEvent_kind_scope_key" ON "QuotaEvent"("kind", "scope");
 
+-- CreateTable
+CREATE TABLE "SkillGeneration" (
+    "id" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "headSha" TEXT,
+    "trackIds" TEXT NOT NULL DEFAULT '[]',
+    "generatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SkillGeneration_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "SkillGeneration_repoFullName_idx" ON "SkillGeneration"("repoFullName");
+
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the

@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { buildOnboardingSkill } from "@/lib/onboarding";
-import { getScanReportByCommit, isDbConfigured } from "@/lib/db";
+import { getScanReportByCommit, isDbConfigured, recordSkillGeneration } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
 
@@ -48,6 +48,9 @@ export async function GET(request: Request) {
   }
 
   const skill = buildOnboardingSkill(report);
+  // STD-6: record the generation (repo, commit, tracks) so the report can show a history + track diff.
+  // Fire-and-forget — the download never waits on it, and a failed write is swallowed.
+  void recordSkillGeneration(`${parsed.owner}/${parsed.name}`, parsed.sha ?? null, skill.trackIds).catch(() => {});
   const filename = `ascent-onboard-${parsed.owner}-${parsed.name}${
     parsed.sha ? "-" + parsed.sha.slice(0, 7) : ""
   }.SKILL.md`;

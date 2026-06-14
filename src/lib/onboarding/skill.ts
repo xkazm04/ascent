@@ -21,6 +21,8 @@ export interface GeneratedSkill {
   path: string;
   /** Full SKILL.md body to write. */
   body: string;
+  /** The practice/track ids this skill selected — persisted for the generation history (STD-6). */
+  trackIds: string[];
 }
 
 const SKILL_NAME = "ascent-onboard";
@@ -40,7 +42,7 @@ export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts): Gen
     guardrails(),
     footer(report),
   ].join("\n\n"); // blank line between every section so headings/`---` aren't glued to prose
-  return { name: SKILL_NAME, fileName: "SKILL.md", path: `.claude/skills/${SKILL_NAME}/SKILL.md`, body };
+  return { name: SKILL_NAME, fileName: "SKILL.md", path: `.claude/skills/${SKILL_NAME}/SKILL.md`, body, trackIds: tracks.map((t) => t.id) };
 }
 
 // ---- sections -----------------------------------------------------------------
