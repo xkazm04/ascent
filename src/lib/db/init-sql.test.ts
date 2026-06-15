@@ -40,6 +40,12 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
     expect(initSql).toMatch(/"alertWebhookUrl" TEXT/);
   });
 
+  it("mirrors the CreditLedger idempotency key column + unique index (Polar billing, additive)", () => {
+    expect(schema).toMatch(/externalId\s+String\?\s+@unique/);
+    expect(initSql).toMatch(/"externalId" TEXT/);
+    expect(initSql).toMatch(/CREATE UNIQUE INDEX "CreditLedger_externalId_key" ON "CreditLedger"\("externalId"\)/);
+  });
+
   it("keeps the idempotent public-org seed regeneration must re-apply", () => {
     expect(initSql).toContain(`'public', 'Public Scans', 'free'`);
     expect(initSql).toContain(`ON CONFLICT ("slug") DO NOTHING`);

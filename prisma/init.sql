@@ -44,6 +44,7 @@ CREATE TABLE "CreditLedger" (
     "repoFullName" TEXT,
     "scanId" TEXT,
     "actor" TEXT,
+    "externalId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CreditLedger_pkey" PRIMARY KEY ("id")
@@ -344,6 +345,9 @@ CREATE INDEX "CreditLedger_orgId_idx" ON "CreditLedger"("orgId");
 
 -- CreateIndex
 CREATE INDEX "CreditLedger_orgId_createdAt_idx" ON "CreditLedger"("orgId", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "CreditLedger_externalId_key" ON "CreditLedger"("externalId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");

@@ -29,8 +29,8 @@ model Organization {
   plan            String   @default("free") // free | pro | team | enterprise
   // Prepaid private-scan credit balance. Public scans are free + unmetered; each private (installation)
   // scan that runs real LLM inference debits one credit (see src/lib/db/credits.ts + src/lib/entitlement.ts).
-  // `enterprise` plan is treated as unlimited (no debit). Credits are granted out-of-band (a future
-  // Stripe top-up, or an owner/admin grant) — see docs/BILLING.md. The CreditLedger is the audit trail.
+  // `enterprise` plan is treated as unlimited (no debit). Credits are granted out-of-band (a Polar
+  // top-up, or an owner/admin grant) — see docs/BILLING.md. The CreditLedger is the audit trail.
   scanCredits     Int      @default(0)
   // Per-org data-retention overrides (enterprise). null = inherit the global env default
   // (RETENTION_MAX_SCANS_PER_REPO / RETENTION_AUDIT_DAYS); 0 = keep everything (unlimited).
@@ -71,17 +71,22 @@ model Organization {
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
 // One row per grant (+) or per-scan debit (-), each stamping the resulting balance so the running total
-// can be audited and reconciled against Stripe top-ups. Standalone under relationMode="prisma" (no DB
-// FKs); always queried by orgId. See src/lib/db/credits.ts.
+// can be audited and reconciled against billing top-ups (Polar). Standalone under relationMode="prisma"
+// (no DB FKs); always queried by orgId. See src/lib/db/credits.ts.
 model CreditLedger {
   id           String   @id @default(uuid())
   orgId        String
   delta        Int // +N granted, -N debited
   balanceAfter Int // org.scanCredits immediately after applying this row (within the same txn)
-  reason       String   @default("scan") // scan | grant | stripe | adjustment | refund
+  reason       String   @default("scan") // scan | grant | polar | adjustment | refund
   repoFullName String? // the repo a scan debit paid for (null for grants/adjustments)
   scanId       String? // the Scan row a debit paid for, when known
-  actor        String? // GitHub login (grant/adjustment) or "stripe"/"system"
+  actor        String? // GitHub login (grant/adjustment) or the billing provider ("polar"/"system")
+  // Idempotency key for externally-fulfilled grants — the Polar order id, prefixed "polar:". UNIQUE so a
+  // webhook redelivery can't double-grant: grantCredits short-circuits when a row with this id exists,
+  // and a racing duplicate insert hits this constraint and rolls back. Null for scans/manual grants.
+  // See src/app/api/billing/webhook/route.ts.
+  externalId   String?  @unique
   createdAt    DateTime @default(now())
 
   org Organization @relation(fields: [orgId], references: [id])

@@ -3,8 +3,8 @@
 // Public scans are free and unmetered; each PRIVATE (installation-token) scan that runs real LLM
 // inference debits one credit. The `enterprise` plan is unlimited (never debited). Every movement is
 // recorded in CreditLedger (append-only) with the resulting balance, so the running total is auditable
-// and reconcilable against future Stripe top-ups. The route-level gate is src/lib/entitlement.ts; the
-// (design-stage) purchase flow is docs/BILLING.md.
+// and reconcilable against Polar top-ups. The route-level gate is src/lib/entitlement.ts; the purchase
+// flow (Polar checkout + webhook) is src/app/api/billing/* and docs/BILLING.md.
 
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { isUnlimitedPlan } from "@/lib/plans";
@@ -56,47 +56,76 @@ export async function getCreditState(orgSlug: string): Promise<CreditState> {
   return { balance: org?.scanCredits ?? 0, plan, unlimited: isUnlimitedPlan(plan) };
 }
 
+/** Prisma "unique constraint failed" (P2002) — here, a duplicate externalId from a webhook redelivery. */
+function isDuplicateExternalId(err: unknown): boolean {
+  return (
+    typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "P2002"
+  );
+}
+
 /**
  * Atomically add credits (or remove, with a negative amount) and append a ledger row stamping the
  * resulting balance. Returns the new balance, or null when the org doesn't exist / no DB. Used by the
- * owner-gated grant endpoint today and the Stripe top-up webhook later. The stored balance is clamped
- * at zero so an over-large negative adjustment can't drive it negative.
+ * owner-gated grant endpoint and the Polar top-up webhook (src/app/api/billing/webhook). The stored
+ * balance is clamped at zero so an over-large negative adjustment can't drive it negative.
+ *
+ * `opts.externalId` makes the grant IDEMPOTENT: pass a stable id (a Polar order id) and a redelivery
+ * is a no-op — a ledger row already carrying it short-circuits, and a concurrent duplicate that slips
+ * past that check is caught by the unique constraint (the whole grant rolls back) and reported as the
+ * current balance. So a webhook can safely retry without ever double-granting.
  */
 export async function grantCredits(
   orgSlug: string,
   amount: number,
-  opts: { reason?: string; actor?: string } = {},
+  opts: { reason?: string; actor?: string; externalId?: string } = {},
 ): Promise<number | null> {
   if (!isDbConfigured()) return null;
   const delta = Math.trunc(amount);
   if (!delta) return (await getCreditState(orgSlug)).balance;
   const prisma = getPrisma();
-  return withRetry(() =>
-    prisma.$transaction(async (tx) => {
-      const org = await tx.organization
-        .update({
-          where: { slug: orgSlug },
-          data: { scanCredits: { increment: delta } },
-          select: { id: true, scanCredits: true },
-        })
-        .catch(() => null);
-      if (!org) return null;
-      const balanceAfter = Math.max(0, org.scanCredits);
-      if (org.scanCredits < 0) {
-        await tx.organization.update({ where: { id: org.id }, data: { scanCredits: 0 } });
-      }
-      await tx.creditLedger.create({
-        data: {
-          orgId: org.id,
-          delta,
-          balanceAfter,
-          reason: opts.reason ?? (delta > 0 ? "grant" : "adjustment"),
-          actor: opts.actor ?? null,
-        },
-      });
-      return balanceAfter;
-    }),
-  );
+  // Fast path for the common redelivery: this exact grant already landed, so don't even try again.
+  if (opts.externalId) {
+    const existing = await prisma.creditLedger
+      .findUnique({ where: { externalId: opts.externalId }, select: { id: true } })
+      .catch(() => null);
+    if (existing) return (await getCreditState(orgSlug)).balance;
+  }
+  try {
+    return await withRetry(() =>
+      prisma.$transaction(async (tx) => {
+        const org = await tx.organization
+          .update({
+            where: { slug: orgSlug },
+            data: { scanCredits: { increment: delta } },
+            select: { id: true, scanCredits: true },
+          })
+          .catch(() => null);
+        if (!org) return null;
+        const balanceAfter = Math.max(0, org.scanCredits);
+        if (org.scanCredits < 0) {
+          await tx.organization.update({ where: { id: org.id }, data: { scanCredits: 0 } });
+        }
+        await tx.creditLedger.create({
+          data: {
+            orgId: org.id,
+            delta,
+            balanceAfter,
+            reason: opts.reason ?? (delta > 0 ? "grant" : "adjustment"),
+            actor: opts.actor ?? null,
+            externalId: opts.externalId ?? null,
+          },
+        });
+        return balanceAfter;
+      }),
+    );
+  } catch (err) {
+    // A concurrent duplicate delivery lost the race to the unique externalId; its insert rolled the
+    // whole grant back (the increment too). Treat it as already-applied rather than surfacing an error.
+    if (opts.externalId && isDuplicateExternalId(err)) {
+      return (await getCreditState(orgSlug)).balance;
+    }
+    throw err;
+  }
 }
 
 /**
