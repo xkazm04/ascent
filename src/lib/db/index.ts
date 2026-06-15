@@ -56,6 +56,7 @@ export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay }
 export { recordBadgeImpression, getBadgeReach, type BadgeReach } from "@/lib/db/badge-analytics";
 export { recordQuotaEvent, getQuotaEventTotals, type QuotaEventTotals } from "@/lib/db/quota-events";
 export { recordSkillGeneration, getSkillHistory, diffTrackSets, type SkillGenerationRow } from "@/lib/db/skill-history";
+export { getOrgBranding, setOrgBranding, type OrgBranding } from "@/lib/db/branding";
 export {
   getCreditState,
   grantCredits,

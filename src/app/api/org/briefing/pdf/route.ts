@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { BriefingDocument } from "@/lib/pdf/briefing-document";
 import { buildExecBriefing } from "@/lib/org/briefing";
-import { isDbConfigured } from "@/lib/db";
+import { getOrgBranding, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveWindow } from "@/lib/window";
 
@@ -36,8 +36,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "No scanned repositories yet for this organization." }, { status: 404 });
   }
 
-  const element = createElement(BriefingDocument, { briefing }) as unknown as ReactElement<DocumentProps>;
-  const buffer = await renderToBuffer(element);
+  // EXEC-5: white-label branding for the PDF. A bad/unreachable logo could fail rendering, so fall
+  // back to an unbranded render rather than 500 the download.
+  const branding = (await getOrgBranding(org).catch(() => null)) ?? undefined;
+  const render = (b: typeof branding) =>
+    renderToBuffer(createElement(BriefingDocument, { briefing, branding: b }) as unknown as ReactElement<DocumentProps>);
+  const buffer = await render(branding).catch(() => (branding ? render(undefined) : Promise.reject(new Error("render failed"))));
   const filename = `ascent-briefing-${org}-${briefing.generatedOn}.pdf`;
   return new NextResponse(new Uint8Array(buffer), {
     headers: {

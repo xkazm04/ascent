@@ -6,7 +6,9 @@ import { buildExecBriefing, briefingMarkdown } from "@/lib/org/briefing";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { BriefingShareButton } from "@/components/org/BriefingShareButton";
+import { BrandingSettings } from "@/components/org/BrandingSettings";
 import { briefingShareEnabled } from "@/lib/briefing-share";
+import { getCreditState, getOrgBranding } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveWindow } from "@/lib/window";
 import { scoreHex } from "@/lib/ui";
@@ -35,8 +37,13 @@ export default async function OrgExecutive({
 
   const md = briefingMarkdown(briefing);
   const { maturity, benchmark } = briefing;
-  // EXEC-6: owners can mint a read-only share link (only when a signing secret is configured).
-  const canShare = briefingShareEnabled() && (await hasOrgRole(slug, "owner"));
+  // EXEC-6/EXEC-5: owner-gated sharing + (enterprise) white-label. One ownership check feeds both.
+  const isOwner = await hasOrgRole(slug, "owner");
+  const canShare = briefingShareEnabled() && isOwner;
+  const [branding, credit] = isOwner
+    ? await Promise.all([getOrgBranding(slug).catch(() => null), getCreditState(slug).catch(() => null)])
+    : [null, null];
+  const canBrand = isOwner && !!credit?.unlimited;
 
   return (
     <div className="space-y-6">
@@ -199,6 +206,8 @@ export default async function OrgExecutive({
           </div>
         )}
       </Card>
+
+      {canBrand && <BrandingSettings slug={slug} initial={branding ?? { brandName: null, brandColor: null, logoUrl: null }} />}
     </div>
   );
 }

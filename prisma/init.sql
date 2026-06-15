@@ -25,6 +25,9 @@ CREATE TABLE "Organization" (
     "alertOverallDrop" INTEGER,
     "alertDimensionDrop" INTEGER,
     "gatePolicy" JSONB,
+    "brandName" TEXT,
+    "brandColor" TEXT,
+    "logoUrl" TEXT,
     "githubInstallId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

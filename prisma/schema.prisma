@@ -49,6 +49,11 @@ model Organization {
   // Per-org CI maturity-gate policy (GatePolicy JSON). null = archetype default. Honored by the
   // App-mode PR Check Run + the governance fleet view — see src/lib/db/org-gate.ts.
   gatePolicy      Json?
+  // White-label branding for the executive briefing (EXEC-5, enterprise) — null = the Ascent default.
+  // brandColor is a #rrggbb accent; logoUrl an https image rendered in the PDF header. See briefing.
+  brandName       String?
+  brandColor      String?
+  logoUrl         String?
   githubInstallId String?
   createdAt       DateTime @default(now())
 

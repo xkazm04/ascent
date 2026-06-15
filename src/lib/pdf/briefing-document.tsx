@@ -3,8 +3,15 @@
 // theme) from the same ExecBriefing the /org/[slug]/executive page and the "Copy for LLM" brief use,
 // so the page, the clipboard brief, and the PDF can never disagree. Driven by /api/org/briefing/pdf.
 
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
+
+/** EXEC-5 white-label: an org's brand overrides the Ascent defaults in the PDF. All optional. */
+export interface BriefingBranding {
+  brandName: string | null;
+  brandColor: string | null;
+  logoUrl: string | null;
+}
 
 const ACCENT = "#2563eb";
 const INK = "#0f172a";
@@ -74,12 +81,16 @@ function MoveLine({ tone, m }: { tone: "up" | "down"; m: BriefingMove }) {
   );
 }
 
-export function BriefingDocument({ briefing }: { briefing: ExecBriefing }) {
+export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefing; branding?: BriefingBranding }) {
   const b = briefing;
+  const accent = branding?.brandColor || ACCENT;
+  const brandLabel = branding?.brandName || "Ascent";
   return (
-    <Document title={`Ascent executive briefing — ${b.org}`} author="Ascent" subject="AI-native engineering maturity">
+    <Document title={`${brandLabel} executive briefing — ${b.org}`} author={brandLabel} subject="AI-native engineering maturity">
       <Page size="A4" style={styles.page}>
-        <Text style={styles.kicker}>Ascent · Executive briefing</Text>
+        {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, not an HTML img (no alt) */}
+        {branding?.logoUrl ? <Image src={branding.logoUrl} style={{ height: 28, marginBottom: 8 }} /> : null}
+        <Text style={{ ...styles.kicker, color: accent }}>{brandLabel} · Executive briefing</Text>
         <Text style={styles.h1}>{b.org}</Text>
         <Text style={styles.meta}>{b.periodTitle} · generated {b.generatedOn}</Text>
 
