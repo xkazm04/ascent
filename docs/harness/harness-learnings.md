@@ -1210,3 +1210,36 @@ See `FIXES-MEDIUMS-H-LIVEOPS.md`. The polish tail; 1 additive migration.
 
 ### Open follow-ups
 - Medium Wave F (exec deltas/sharing/exports) + 4 lows remain (see INDEX). Stripe + notifications/email excluded.
+
+## Feature Scout — Mediums Wave F · Exec briefing, sharing & exports (2026-06-15, on master) — COMPLETE (6/6)
+
+See `FIXES-MEDIUMS-F-EXEC-SHARING.md`. The reporting/sharing wave; 1 additive migration (branding).
+This completes ALL eight medium waves (A–H).
+
+### Structural facts
+- **2026-06-15** — PPL-6: `GET /api/org/export?org=&kind=contributors|delivery[&segment=][&format=csv]`
+  (csvField/safeFilenameSlug); Export CSV links on contributors + delivery pages.
+- **2026-06-15** — MAP-5: `launch/opengraph-image.tsx` (decorative constellation via starPosition) +
+  generateMetadata. Brand-level (unfurl has no session).
+- **2026-06-15** — EXEC-4: buildExecBriefing fetches the prior equal-length window → `priorPeriod`
+  (headline + per-dim deltas); rendered on page, BriefingDocument PDF, and briefingMarkdown. test fixture updated.
+- **2026-06-15** — SEC-6: `SecurityDocument` PDF + `GET /api/org/security/pdf` (mirrors briefing PDF) +
+  Download PDF on the Security tab.
+- **2026-06-15** — EXEC-6: `briefing-share.ts` (HMAC `{org,range,from,to,exp}`, secret
+  BRIEFING_SHARE_SECRET||AUTH_SECRET, mirrors live-share); owner POST /api/org/briefing/share;
+  `/share/briefing/[token]` read-only render (noindex); BriefingShareButton.
+- **2026-06-15** — EXEC-5: Organization.brandName/brandColor/logoUrl (migration `20260615130000`);
+  getOrgBranding/setOrgBranding (hex+https validated on write); BriefingDocument brands accent/kicker/
+  logo with an unbranded-render fallback; owner+enterprise BrandingSettings form. init-sql parity 30 (columns, no new table).
+
+### Conventions enforced
+- **2026-06-15** — The WAR-4 signed-capability token generalizes to any read-only/no-account/expiring
+  share (token carries {scope,window,exp}, verified at a public noindex route, no table).
+- **2026-06-15** — A new CSV/PDF export is the established csvField/safeFilenameSlug or
+  renderToBuffer(Document) scaffold pointed at a different build* source.
+- **2026-06-15** — "vs previous period" = one extra windowed rollup (prior end = current start); no schema change.
+- **2026-06-15** — Validate branding on write (hex/https) + render-with-fallback so a user-supplied value
+  can never break the generated artifact.
+
+### Open follow-ups
+- All medium waves A–H done. The 4 lows + the Stripe/email-dependent mediums remain (excluded). See INDEX.

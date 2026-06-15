@@ -215,6 +215,8 @@ Each wave is one sessionable theme (5–7 findings) with a shared mental model s
 - **Mediums Wave D · Playbooks & practices authoring.** ✓ **DONE (3/3)** — starter templates (PLAY-4), versioning + history (PLAY-6), org-authored practice + preview (PRAC-5; the apply-PR shipped in PLAY-1). See `FIXES-MEDIUMS-D-PLAYBOOKS.md`.
 - **Mediums Wave G · CI-gate + metering hygiene.** ✓ **DONE (4/4 actionable)** — dedup badge limiter (QUOTA-5), ledger reconciliation (USE-4), per-dimension gate detail (CIGATE-4), quota observability (QUOTA-6); CIGATE-5 gate-badge already shipped in GATE-1. See `FIXES-MEDIUMS-G-CIGATE-METERING.md`.
 - **Mediums Wave H · Live-ops & standard polish.** ✓ **DONE (5/5)** — map live auto-refresh (MAP-6), celebration sound (WARROOM-5), zero-setup demo CTA (ONB-6), skill decision/failed-approach memories (STD-5), skill generation history (STD-6). See `FIXES-MEDIUMS-H-LIVEOPS.md`.
+- **Mediums Wave F · Exec briefing, sharing & exports.** ✓ **DONE (6/6)** — delivery/contributor CSV (PPL-6), fleet OG snapshot (MAP-5), period comparison (EXEC-4), security PDF (SEC-6), shareable briefing link (EXEC-6), white-label briefing (EXEC-5). See `FIXES-MEDIUMS-F-EXEC-SHARING.md`.
+- **All eight medium waves (A–H) complete.** Remaining: the 4 lows + the deferred Stripe-/email-dependent mediums (excluded).
 - **Remaining / optional.** Delivery analytics depth (PPL-1, PPL-2, PPL-3, PPL-4), multi-org (OVR-1, OVR-3), exec narrative (EXEC-2, EXEC-3), governance digest/policy (PRAC-2, PRAC-3, PRAC-4), standard scaffolding (STD-2, STD-3, STD-4), playbook promotion (PLAY-2, PLAY-3), per-segment trends (SEG-2, SEG-3), abuse backstop (QUOTA-2), plus the 49 mediums + 4 lows.
 
 ---
