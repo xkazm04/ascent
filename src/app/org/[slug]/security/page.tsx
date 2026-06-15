@@ -44,7 +44,16 @@ export default async function OrgSecurity({
           title="Security"
           description={`Where the fleet stands on Security (${sec.dimLabel}, D9) and default-branch governance — the weakest repos and the protection gaps. Copy the remediation brief into Claude Code to act on it.`}
         />
-        <CopyForLlm text={md} label="Copy security brief for LLM" />
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={`/api/org/security/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}`}
+            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+            title="Download the security posture as a PDF"
+          >
+            <span aria-hidden>↓</span> Download PDF
+          </a>
+          <CopyForLlm text={md} label="Copy security brief for LLM" />
+        </div>
       </div>
 
       <div className={TILE_GRID}>
