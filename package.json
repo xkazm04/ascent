@@ -27,6 +27,8 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1056.0",
     "@google/genai": "^2.7.0",
+    "@polar-sh/nextjs": "^0.9.6",
+    "@polar-sh/sdk": "^0.48.1",
     "@prisma/client": "^6.19.3",
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/ssr": "^0.12.0",
