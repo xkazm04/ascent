@@ -17,16 +17,28 @@ interface LedgerEntry {
   createdAt: string;
 }
 
+/** A purchasable credit pack passed from the server (mirrors lib/polar CreditPack; declared locally so
+ *  this client component never bundles the Polar SDK that lib/polar imports). */
+interface Pack {
+  productId: string;
+  credits: number;
+  label: string;
+}
+
 export function CreditsControl({
   org,
   initialBalance,
   unlimited,
   grantsEnabled,
+  buyEnabled = false,
+  packs = [],
 }: {
   org: string;
   initialBalance: number;
   unlimited: boolean;
   grantsEnabled: boolean;
+  buyEnabled?: boolean;
+  packs?: Pack[];
 }) {
   const [balance, setBalance] = useState(initialBalance);
   const [open, setOpen] = useState(false);
@@ -129,9 +141,29 @@ export function CreditsControl({
             </p>
           )}
 
-          {grantsEnabled ? (
+          {buyEnabled && packs.length > 0 && (
             <div className="mt-3">
-              <div className="text-sm text-slate-400">Add credits</div>
+              <div className="text-sm text-slate-400">Buy credits</div>
+              <div className="mt-1.5 flex flex-col gap-1.5">
+                {packs.map((p) => (
+                  <a
+                    key={p.productId}
+                    href={`/api/billing/checkout?org=${encodeURIComponent(org)}&pack=${encodeURIComponent(p.productId)}`}
+                    className="focus-ring flex items-center justify-between rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-soft"
+                  >
+                    <span>{p.label}</span>
+                    <span aria-hidden>→</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {grantsEnabled && (
+            <div className="mt-3">
+              <div className="text-sm text-slate-400">
+                Add credits{buyEnabled ? <span className="ml-1 text-slate-600">(dev)</span> : null}
+              </div>
               <div className="mt-1.5 flex gap-2">
                 {[50, 200, 1000].map((a) => (
                   <button
@@ -146,9 +178,14 @@ export function CreditsControl({
                 ))}
               </div>
             </div>
-          ) : (
+          )}
+
+          {!buyEnabled && !grantsEnabled && (
             <p className="mt-3 text-sm text-slate-400">
-              Top-ups are handled by billing (coming soon). See <span className="font-mono">docs/BILLING.md</span>.
+              Top-ups are handled by billing.{" "}
+              <a href="/pricing" className="text-accent hover:text-white">
+                See plans →
+              </a>
             </p>
           )}
           {error && <p className="mt-2 text-sm text-danger">{error}</p>}

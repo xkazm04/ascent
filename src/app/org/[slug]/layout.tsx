@@ -9,6 +9,7 @@ import { getCreditState, getMembershipRole, getOrgRollup, isDbConfigured } from 
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
+import { creditPacks, polarEnabled } from "@/lib/polar";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -108,6 +109,10 @@ export default async function OrgLayout({
 
   const grantsEnabled =
     process.env.ASCENT_ALLOW_CREDIT_GRANTS === "1" || process.env.ASCENT_ALLOW_CREDIT_GRANTS === "true";
+  // Polar credit purchase (CRED-1): show the "Buy credits" packs when billing is configured. The packs
+  // are plain serializable data; the SDK stays server-side (CreditsControl declares its own Pack type).
+  const buyEnabled = polarEnabled();
+  const packs = buyEnabled ? creditPacks() : [];
 
   return (
     <Frame>
@@ -140,6 +145,8 @@ export default async function OrgLayout({
               initialBalance={credit.balance}
               unlimited={credit.unlimited}
               grantsEnabled={grantsEnabled}
+              buyEnabled={buyEnabled}
+              packs={packs}
             />
           )}
           <OrgScanButton org={slug} watchedCount={watched} />
