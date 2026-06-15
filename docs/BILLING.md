@@ -1,6 +1,6 @@
 # Billing — prepaid scan credits
 
-_Status: the **credit system is implemented**; the **Stripe purchase flow is design-stage** (not wired). This doc is the contract between the two so the gate stays provider-agnostic and Stripe can be added without touching scan code._
+_Status: **implemented end-to-end** — the credit system and the **Polar purchase flow** (sandbox by default: a checkout route + a signature-verified, idempotent fulfilment webhook). The accounting layer stays provider-agnostic: anything that calls `grantCredits` tops up the balance, and the scan code never imports the billing SDK._
 
 ## Model
 
@@ -23,10 +23,15 @@ Ascent monetizes **private** repository scans with **prepaid credits**. There is
 | Gate on bulk + cron | `src/app/api/org/scan/route.ts` (scans up to balance, reports the rest as skipped) |
 | Read balance/ledger | `GET /api/org/credits?org=` |
 | Manual/dev grant | `POST /api/org/credits/grant` — owner-only, gated behind `ASCENT_ALLOW_CREDIT_GRANTS` |
+| Polar config + pack catalog | `src/lib/polar.ts` (`POLAR_CREDIT_PACKS`) |
+| Checkout (buy a pack) | `GET /api/billing/checkout?org=&pack=` |
+| Fulfilment webhook | `POST /api/billing/webhook` — signature-verified, idempotent → `grantCredits(…, { reason: "polar", externalId })` |
+| "Buy credits" UI | the org-dashboard credits popover (`CreditsControl`) |
 
-Credits are granted by calling `grantCredits(orgSlug, amount, { reason, actor })`. Today the only
-callers are the owner-gated dev endpoint and seeds. **Stripe will call the same function** — the
-accounting layer doesn't care who tops up the balance.
+Credits are granted by calling `grantCredits(orgSlug, amount, { reason, actor, externalId })`. The
+callers are the owner-gated dev endpoint, seeds, and the **Polar fulfilment webhook** — the accounting
+layer doesn't care who tops up the balance. Pass `externalId` (the Polar order id) to make a grant
+idempotent, so an at-least-once webhook can retry without ever double-crediting.
 
 ### Consumption safety
 
@@ -35,48 +40,60 @@ scans can never drive the balance negative; under Aurora DSQL serialization the 
 (`withRetry`). The gate checks entitlement **before** running paid inference and debits **after**, so a
 failed/aborted scan isn't charged.
 
-## Stripe top-up flow (design — not implemented)
+## Polar top-up flow (implemented)
 
-A `BillingProvider` abstraction mirrors the LLM-provider pattern (a real adapter + a deterministic
-mock), so the routes never import the Stripe SDK directly.
+Purchases run through [Polar](https://polar.sh) — **sandbox by default** (`POLAR_SERVER`). The scan code
+never imports the billing SDK; it only ever sees `grantCredits`.
 
-```
-interface BillingProvider {
-  createTopUpCheckout(org, pack): Promise<{ url }>   // hosted Stripe Checkout (one-time payment)
-  handleWebhook(rawBody, signature): Promise<{ org, creditsGranted } | null>
-}
-```
+**Credit packs** are the product→credits map in `POLAR_CREDIT_PACKS` (comma-separated `<productId>=<credits>`
+pairs, e.g. `prod_abc=100,prod_def=500,prod_ghi=2000`). This one list — read by `src/lib/polar.ts` — is the
+source of truth for both what the "Buy credits" UI offers and how many credits a paid order grants, so the
+amount is decided by the **product purchased**, never by anything the client sends.
 
 Flow:
 
-1. **Customer mapping.** First purchase creates a Stripe Customer; store its id on the org (a new
-   `Organization.stripeCustomerId` column — additive migration, not yet added).
-2. **Checkout.** `POST /api/billing/checkout { org, pack }` → owner-gated → creates a one-time
-   Checkout Session for a credit pack (e.g. 100 / 500 / 2000 credits) and returns the redirect URL.
-3. **Fulfilment via webhook.** `POST /api/billing/webhook` verifies the Stripe signature and, on
-   `checkout.session.completed`, calls `grantCredits(org, packCredits, { reason: "stripe", actor: "stripe" })`.
-   Idempotency: key on the Stripe event id (skip if already processed) so retries don't double-grant.
-4. **Reconciliation.** The `CreditLedger` (reason `stripe`, actor `stripe`) reconciles against Stripe
-   payments.
+1. **Checkout.** `GET /api/billing/checkout?org=<slug>&pack=<productId>` validates the pack against the
+   catalog (an unknown product id is rejected), creates a hosted Polar checkout with the org carried in
+   `externalCustomerId` + `metadata`, and 303-redirects the browser to it. No credits move here, so the
+   GET needs no CSRF/owner gate — the trust boundary is the webhook signature.
+2. **Fulfilment via webhook.** `POST /api/billing/webhook` (the `@polar-sh/nextjs` `Webhooks()` adapter)
+   verifies the signature against `POLAR_WEBHOOK_SECRET`, then on `order.paid` resolves the org (from
+   `customer.externalId`, falling back to `metadata.org`) and the credits (from the product) and calls
+   `grantCredits(org, credits, { reason: "polar", actor: "polar", externalId: "polar:<orderId>" })`.
+3. **Idempotency.** The grant keys on the Polar order id (`CreditLedger.externalId`, UNIQUE), so a
+   webhook redelivery is a no-op. The webhook fails **closed** when `POLAR_WEBHOOK_SECRET` is unset.
+4. **Auto-recharge.** A Polar **subscription** product also emits `order.paid` on each billing cycle, so
+   listing a recurring product in `POLAR_CREDIT_PACKS` tops the org up automatically every cycle — no
+   extra code.
+5. **Reconciliation.** `CreditLedger` rows with reason `polar` (and `externalId` = the order id)
+   reconcile against Polar orders.
 
-### Env (design)
+### Setup (sandbox)
+
+1. Create a Polar account + Organization and switch it to the **sandbox** environment.
+2. Create an **Organization Access Token** (sandbox) → `POLAR_ACCESS_TOKEN`.
+3. Create **one product per credit pack** (e.g. 100 / 500 / 2000 credits), via the Polar dashboard or
+   the [`@polar-sh/cli`](https://github.com/polarsource/polar). Map each returned product id to the
+   credits it grants in `POLAR_CREDIT_PACKS`.
+4. Add a **webhook** (sandbox) targeting `{host}/api/billing/webhook`, subscribe to **`order.paid`**, and
+   copy its signing secret → `POLAR_WEBHOOK_SECRET`.
 
 ```
-STRIPE_SECRET_KEY=            # server-side Stripe API key
-STRIPE_WEBHOOK_SECRET=        # verifies POST /api/billing/webhook signatures
-STRIPE_PRICE_PACK_SMALL=      # price id per credit pack
-STRIPE_PRICE_PACK_MEDIUM=
-STRIPE_PRICE_PACK_LARGE=
+POLAR_ACCESS_TOKEN=          # server-side Polar Organization Access Token (sandbox)
+POLAR_WEBHOOK_SECRET=        # verifies POST /api/billing/webhook signatures
+POLAR_SERVER=sandbox         # sandbox (default) | production
+POLAR_CREDIT_PACKS=prod_abc=100,prod_def=500,prod_ghi=2000
 ```
 
 ### Pricing knobs that already exist
 
 `LLM_INPUT_COST_PER_MTOK` / `LLM_OUTPUT_COST_PER_MTOK` (see `src/lib/db/usage.ts`) turn recorded token
-usage into a $ estimate on `/usage`. Set a credit price so one credit comfortably covers the average
-private scan's inference + service cost; the `/usage` data is the basis for calibrating it.
+usage into a $ estimate on `/usage`. Set each pack's Polar price so one credit comfortably covers the
+average private scan's inference + service cost; the `/usage` data is the basis for calibrating it.
 
 ## Not in scope (future)
 
-- Subscription tiers and metered/usage billing (the model could be added alongside credits later).
+- Subscription **tiers** as first-class plans (recurring credit packs already work via `order.paid`; a
+  richer plan↔seat model could layer on later).
 - Seat-based pricing / SSO — Enterprise-custom today (see RBAC in `src/lib/db/members.ts`).
-- Automatic low-balance top-up and email receipts.
+- Email receipts (Polar sends its own; Ascent doesn't yet).

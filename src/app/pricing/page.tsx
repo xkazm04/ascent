@@ -1,7 +1,7 @@
 // /pricing — public plan comparison, rendered from PLAN_FEATURES (the single source of truth the
 // credit/entitlement layer also reads). The destination for the quota/credit "upgrade" CTAs (QUOTA-1).
-// Pricing amounts live in the billing provider (Stripe, CRED-1); this surface shows what each tier
-// includes, not dollar figures.
+// Pricing amounts live in the billing provider (Polar, CRED-1); this surface shows what each tier
+// includes, not dollar figures. Credits are bought from the org dashboard (CreditsControl → Polar).
 
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";

@@ -1,9 +1,9 @@
 // POST /api/org/credits/grant { org, amount } -> { ok, balance }
 //
 // Owner-only manual credit grant/adjustment. Disabled unless ASCENT_ALLOW_CREDIT_GRANTS is set: in
-// production, credits are added by the (design-stage) Stripe top-up webhook calling grantCredits()
-// server-side, NOT by a self-serve endpoint (that would let an owner mint free scans). This is the
-// dev / demo / manual-reconciliation path. See docs/BILLING.md.
+// production, credits are added by the Polar top-up webhook (src/app/api/billing/webhook) calling
+// grantCredits() server-side, NOT by a self-serve endpoint (that would let an owner mint free scans).
+// This is the dev / demo / manual-reconciliation path. See docs/BILLING.md.
 
 import { NextResponse } from "next/server";
 import { grantCredits, isDbConfigured } from "@/lib/db";

@@ -1,7 +1,7 @@
 // Plan tiers — the single source of truth for what each plan includes, read by the credit/entitlement
 // layer (gating) and the /pricing page (display). Before this, `plan` carried four values but only
 // `enterprise` was ever special-cased (unlimited); `pro`/`team` were inert marketing. Pricing itself
-// lives in the billing provider (Stripe, see CRED-1) — this map is feature/allotment metadata, not the
+// lives in the billing provider (Polar, see CRED-1) — this map is feature/allotment metadata, not the
 // price book, so no dollar amounts are invented here.
 
 export type PlanId = "free" | "pro" | "team" | "enterprise";
