@@ -50,7 +50,15 @@ export default async function ContributorInsightsPage({
           Inputs to explore where trust in AI could grow across the team — who&apos;s leaning in, whose approach others could
           learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
         </p>
-        {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+        <div className="flex shrink-0 items-center gap-2">
+          {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+          <a
+            href={`/api/org/export?org=${encodeURIComponent(slug)}&kind=contributors&format=csv${segmentId ? `&segment=${segmentId}` : ""}`}
+            className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+          >
+            Export CSV
+          </a>
+        </div>
       </div>
 
         {/* Summary tiles */}
