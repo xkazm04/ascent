@@ -19,6 +19,8 @@ function scoreColor(s: number): string {
   return "#dc2626";
 }
 
+const sgn = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
+
 const styles = StyleSheet.create({
   page: { paddingVertical: 44, paddingHorizontal: 48, fontSize: 10, color: INK, fontFamily: "Helvetica", lineHeight: 1.45 },
   kicker: { fontSize: 9, letterSpacing: 3, color: ACCENT, fontFamily: "Helvetica-Bold", textTransform: "uppercase" },
@@ -117,6 +119,27 @@ export function BriefingDocument({ briefing }: { briefing: ExecBriefing }) {
             {b.risks.map((d) => <DimLine key={d.dimId} d={d} />)}
           </View>
         </View>
+
+        {b.priorPeriod && (
+          <View>
+            <View style={styles.rule} />
+            <Text style={styles.sectionH}>vs previous period</Text>
+            <View style={styles.moveRow}>
+              <Text>Overall {b.priorPeriod.overall} {"->"} {b.maturity.overall}</Text>
+              <Text style={styles.muted}>
+                {sgn(b.priorPeriod.dOverall)} · Adoption {sgn(b.priorPeriod.dAdoption)} · Rigor {sgn(b.priorPeriod.dRigor)}
+              </Text>
+            </View>
+            {b.priorPeriod.dims.filter((d) => d.delta !== 0).map((d) => (
+              <View key={d.dimId} style={styles.dimRow}>
+                <Text>{d.dimId} · {d.label}</Text>
+                <Text style={{ fontFamily: "Helvetica-Bold", color: d.delta > 0 ? "#16a34a" : "#d97706" }}>
+                  {d.prior} {"->"} {d.now} ({sgn(d.delta)})
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {(b.topGainers.length > 0 || b.topRegressions.length > 0) && (
           <View>

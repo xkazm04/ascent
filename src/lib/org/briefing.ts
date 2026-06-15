@@ -43,6 +43,19 @@ export interface ExecBriefing {
   coverage: { scanned: number; total: number };
   /** Overall-score delta vs the window's start, or null for all-time / no baseline. */
   periodDelta: number | null;
+  /** End-state comparison against the immediately-preceding equal-length window (EXEC-4); null for
+   *  all-time or when the prior window has no scans. Whole-fleet (not cohort-matched) — a "vs previous
+   *  period" read across headline + dimensions. */
+  priorPeriod: {
+    overall: number;
+    adoption: number;
+    rigor: number;
+    dOverall: number;
+    dAdoption: number;
+    dRigor: number;
+    /** Per-dimension now/prior/delta, biggest movers first (capped). */
+    dims: { dimId: string; label: string; now: number; prior: number; delta: number }[];
+  } | null;
   forecastHeadline: string | null;
   benchmark: {
     percentile: number | null;
@@ -78,17 +91,53 @@ export async function buildExecBriefing(
   window?: OrgWindow,
   periodTitle = "all time",
 ): Promise<ExecBriefing | null> {
-  const [rollup, benchmark, movers, goals] = await Promise.all([
+  // EXEC-4: the immediately-preceding equal-length window — its END state is the start of this one,
+  // so current-minus-prior reads as movement across the period (per dimension + headline). Only when
+  // the window has a start (all-time has no "previous period").
+  const priorWindow: OrgWindow | undefined = window?.start
+    ? {
+        start: new Date(window.start.getTime() - ((window.end ?? new Date()).getTime() - window.start.getTime())),
+        end: window.start,
+      }
+    : undefined;
+
+  const [rollup, benchmark, movers, goals, priorRollup] = await Promise.all([
     getOrgRollup(orgSlug, window),
     getOrgBenchmark(orgSlug),
     getOrgMovers(orgSlug, window),
     listGoals(orgSlug),
+    priorWindow ? getOrgRollup(orgSlug, priorWindow) : Promise.resolve(null),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 
   const level = levelForScore(rollup.avgOverall);
   const dimSorted = [...rollup.dimAverages].sort((a, b) => b.avg - a.avg);
   const security = rollup.dimAverages.find((d) => d.dimId === "D9");
+
+  const priorPeriod =
+    priorRollup && priorRollup.scannedCount > 0
+      ? (() => {
+          const priorBy = new Map(priorRollup.dimAverages.map((d) => [d.dimId, d.avg]));
+          return {
+            overall: priorRollup.avgOverall,
+            adoption: priorRollup.avgAdoption,
+            rigor: priorRollup.avgRigor,
+            dOverall: rollup.avgOverall - priorRollup.avgOverall,
+            dAdoption: rollup.avgAdoption - priorRollup.avgAdoption,
+            dRigor: rollup.avgRigor - priorRollup.avgRigor,
+            dims: rollup.dimAverages
+              .map((d) => ({
+                dimId: d.dimId,
+                label: DIMENSION_BY_ID[d.dimId as DimensionId]?.name ?? d.dimId,
+                now: d.avg,
+                prior: priorBy.get(d.dimId) ?? 0,
+                delta: d.avg - (priorBy.get(d.dimId) ?? 0),
+              }))
+              .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+              .slice(0, 6),
+          };
+        })()
+      : null;
 
   return {
     org: orgSlug,
@@ -103,6 +152,7 @@ export async function buildExecBriefing(
     },
     coverage: { scanned: rollup.scannedCount, total: rollup.repoCount },
     periodDelta: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
+    priorPeriod,
     forecastHeadline: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
     benchmark: benchmark
       ? {
@@ -164,6 +214,16 @@ export function briefingMarkdown(b: ExecBriefing): string {
     );
   }
   if (b.forecastHeadline) out.push(`- Trajectory: ${b.forecastHeadline}`);
+  if (b.priorPeriod) {
+    const p = b.priorPeriod;
+    const d = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
+    out.push("");
+    out.push("## vs previous period");
+    out.push(`- Overall ${p.overall} → ${b.maturity.overall} (${d(p.dOverall)}) · Adoption ${d(p.dAdoption)} · Rigor ${d(p.dRigor)}`);
+    for (const dim of p.dims.filter((x) => x.delta !== 0)) {
+      out.push(`- ${dim.dimId} ${dim.label}: ${dim.prior} → ${dim.now} (${d(dim.delta)})`);
+    }
+  }
   out.push("");
   out.push("## Strengths (top dimensions)");
   for (const d of b.strengths) out.push(`- ${d.dimId} ${d.label}: ${d.avg}/100`);

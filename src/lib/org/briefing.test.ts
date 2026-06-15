@@ -11,6 +11,15 @@ const fixture: ExecBriefing = {
   maturity: { overall: 62, levelId: "L3", levelName: "Managed", adoption: 58, rigor: 66 },
   coverage: { scanned: 8, total: 12 },
   periodDelta: 4,
+  priorPeriod: {
+    overall: 58,
+    adoption: 54,
+    rigor: 62,
+    dOverall: 4,
+    dAdoption: 4,
+    dRigor: 4,
+    dims: [{ dimId: "D2", label: "Test Discipline", now: 60, prior: 52, delta: 8 }],
+  },
   forecastHeadline: "On track to reach L4 in 6 weeks.",
   benchmark: {
     percentile: 71,

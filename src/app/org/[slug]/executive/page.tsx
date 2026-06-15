@@ -96,6 +96,48 @@ export default async function OrgExecutive({
         </Card>
       )}
 
+      {briefing.priorPeriod && (
+        <Card>
+          <SectionHeader size="sm" title="vs previous period" description="This period's end state against the equal-length window before it." />
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            {([
+              ["Overall", briefing.priorPeriod.overall, maturity.overall, briefing.priorPeriod.dOverall],
+              ["Adoption", briefing.priorPeriod.adoption, maturity.adoption, briefing.priorPeriod.dAdoption],
+              ["Rigor", briefing.priorPeriod.rigor, maturity.rigor, briefing.priorPeriod.dRigor],
+            ] as const).map(([label, prior, now, delta]) => (
+              <div key={label} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
+                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(now) }}>{now}</span>
+                  <span className="font-mono text-sm text-slate-500">from {prior}</span>
+                  <span className={`font-mono text-sm ${delta > 0 ? "text-emerald-300" : delta < 0 ? "text-orange-300" : "text-slate-600"}`}>
+                    {delta > 0 ? "+" : ""}{delta}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {briefing.priorPeriod.dims.some((d) => d.delta !== 0) && (
+            <div className="mt-3 space-y-1.5 border-t border-slate-800/70 pt-3">
+              {briefing.priorPeriod.dims
+                .filter((d) => d.delta !== 0)
+                .map((d) => (
+                  <div key={d.dimId} className="flex items-center justify-between gap-3 font-mono text-sm">
+                    <span className="text-slate-400">{d.dimId} · {d.label}</span>
+                    <span>
+                      <span className="text-slate-500">{d.prior} → </span>
+                      <span style={{ color: scoreHex(d.now) }}>{d.now}</span>{" "}
+                      <span className={d.delta > 0 ? "text-emerald-300" : "text-orange-300"}>
+                        {d.delta > 0 ? "+" : ""}{d.delta}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </Card>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionHeader size="sm" title="Strengths" />
