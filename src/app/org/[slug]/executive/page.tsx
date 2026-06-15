@@ -5,6 +5,9 @@
 import { buildExecBriefing, briefingMarkdown } from "@/lib/org/briefing";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { BriefingShareButton } from "@/components/org/BriefingShareButton";
+import { briefingShareEnabled } from "@/lib/briefing-share";
+import { hasOrgRole } from "@/lib/authz";
 import { resolveWindow } from "@/lib/window";
 import { scoreHex } from "@/lib/ui";
 
@@ -32,6 +35,8 @@ export default async function OrgExecutive({
 
   const md = briefingMarkdown(briefing);
   const { maturity, benchmark } = briefing;
+  // EXEC-6: owners can mint a read-only share link (only when a signing secret is configured).
+  const canShare = briefingShareEnabled() && (await hasOrgRole(slug, "owner"));
 
   return (
     <div className="space-y-6">
@@ -49,6 +54,7 @@ export default async function OrgExecutive({
           >
             <span aria-hidden>↓</span> Download PDF
           </a>
+          {canShare && <BriefingShareButton org={slug} range={period.key} from={period.from} to={period.to} />}
           <CopyForLlm text={md} label="Copy briefing for LLM" />
         </div>
       </div>
