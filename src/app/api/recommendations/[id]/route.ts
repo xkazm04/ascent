@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { REC_STATUSES, type RecStatus } from "@/lib/types";
 import { getRecommendationOrgSlug, isDbConfigured, updateRecommendation, type RecommendationPatch } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { getSession, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
@@ -37,6 +37,16 @@ export async function PATCH(
   // backlog (status/assignee/due-date) and write to its audit log by guessing/lifting a rec id.
   const org = await getRecommendationOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Recommendation not found." }, { status: 404 });
+  // The shared "public" org is the anonymous free-scan funnel: requireOrgAccess is open for it (anyone
+  // may scan a public repo). But that also meant ANY caller could mutate every public scan's
+  // recommendation status/assignee/due-date and poison its shared event + audit trail. Public-funnel
+  // recommendations are a read-only demo surface — tracking is for your own org's scans.
+  if (org.trim().toLowerCase() === PUBLIC_ORG) {
+    return NextResponse.json(
+      { error: "Recommendation tracking is available for your own organization's scans." },
+      { status: 403 },
+    );
+  }
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
   // Attribute the change to the signed-in user (recorded as the timeline actor).
