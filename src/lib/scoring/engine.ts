@@ -145,6 +145,16 @@ export function assembleReport(
     );
   }
 
+  // Total detector failure: when EVERY dimension was dropped (all detectors failed / returned no data),
+  // `dimensions` is empty, overallScoreFor() returns 0, and the repo levels at L1 — indistinguishable
+  // from a genuinely manual repo. Surface it loudly so the headline can't read as a real L1 result.
+  if (dimensions.length === 0) {
+    warnings.push(
+      "No dimensions could be scored — every signal detector failed or returned no data. This is an " +
+        "INCOMPLETE scan, not a genuine L1 (Manual) result; re-scan or check repository access.",
+    );
+  }
+
   const scoreById = new Map(dimensions.map((d) => [d.id, d.score]));
   // Renormalized, archetype-weighted mean (a weighted *mean*, not a raw weighted sum): if any
   // dimension is dropped (detector recovery, partial/persisted signals) or the lens weights don't
