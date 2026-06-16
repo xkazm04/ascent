@@ -24,6 +24,15 @@ export interface GateComment {
 
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
+// Escape text that reaches a rendered GitHub markdown surface. LLM-derived dimension names, gap text,
+// failure messages, and the provider label are NOT trusted plain text: a `|` breaks the table, a
+// newline splits a row/cell, and a literal `<!--` could forge the sticky-comment marker
+// (GATE_COMMENT_MARKER) and confuse the comment-upsert matcher. mdCell is for table cells (also escapes
+// pipes); mdInline is for list items / the footer (no pipe concern).
+const defuseComment = (s: string) => s.replace(/<!--/g, "&lt;!--");
+const mdInline = (s: string) => defuseComment(s.replace(/\n+/g, " "));
+const mdCell = (s: string) => defuseComment(s.replace(/\|/g, "\\|").replace(/\n+/g, " "));
+
 function deltaPhrase(diff?: ScanDiff | null): string | null {
   if (!diff || diff.unchanged) return null;
   const parts: string[] = [];
@@ -71,7 +80,7 @@ export function buildGateComment(
   if (!pass && gate.failures.length) {
     lines.push("");
     lines.push("**Gate failures**");
-    for (const f of gate.failures) lines.push(`- ${f.message}`);
+    for (const f of gate.failures) lines.push(`- ${mdInline(f.message)}`);
 
     // CIGATE-4: a per-failing-dimension signal table so the check carries actionable detail, not just
     // the headline. Re-derive which dims miss their floor (the stricter of the global min + any per-dim
@@ -79,8 +88,10 @@ export function buildGateComment(
     const floorFor = (dimId: string) =>
       Math.max(gate.policy.minDimension ?? 0, gate.policy.minDimensionFor?.[dimId as keyof typeof gate.policy.minDimensionFor] ?? 0);
     const failingDims = report.dimensions
-      .filter((d) => d.score < floorFor(d.id))
-      .sort((a, b) => a.score - b.score)
+      // Include an UNSCORED (non-finite) dimension: it fails the gate closed (see gate.ts), so the
+      // table must show it too rather than silently sorting it as a 0 or dropping it.
+      .filter((d) => !Number.isFinite(d.score) || d.score < floorFor(d.id))
+      .sort((a, b) => (Number.isFinite(a.score) ? a.score : -1) - (Number.isFinite(b.score) ? b.score : -1))
       .slice(0, 5);
     if (failingDims.length) {
       lines.push("");
@@ -88,8 +99,12 @@ export function buildGateComment(
       lines.push("| Dimension | Score | Top gap |");
       lines.push("|---|---|---|");
       for (const d of failingDims) {
-        const gap = (d.gaps[0] ?? d.summary ?? "").replace(/\|/g, "\\|").replace(/\n+/g, " ").slice(0, 120);
-        lines.push(`| ${d.id} ${d.name} | ${d.score} → ${floorFor(d.id)} | ${gap || "—"} |`);
+        // Optional-chain the array access: an LLM/mock/legacy report can omit `gaps` entirely, and the
+        // old `d.gaps[0]` threw on a FAILING gate — killing the whole check-run + sticky-comment write
+        // exactly when it matters most. Escape the cell so a gap with a `|` can't break the table.
+        const gap = mdCell(d.gaps?.[0] ?? d.summary ?? "").slice(0, 120);
+        const score = Number.isFinite(d.score) ? d.score : "n/a";
+        lines.push(`| ${mdCell(`${d.id} ${d.name}`)} | ${score} → ${floorFor(d.id)} | ${gap || "—"} |`);
       }
     }
   }
@@ -116,7 +131,7 @@ export function buildGateComment(
     GATE_COMMENT_MARKER,
     summary,
     "",
-    `<sub>Policy: ${policyBits.join(" · ") || "archetype default"} · scored by Ascent (${report.engine.provider})</sub>`,
+    `<sub>Policy: ${policyBits.join(" · ") || "archetype default"} · scored by Ascent (${mdInline(report.engine.provider)})</sub>`,
   ].join("\n");
 
   return { conclusion, title, summary, commentBody };

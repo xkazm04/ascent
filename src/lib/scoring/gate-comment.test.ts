@@ -99,4 +99,37 @@ describe("buildGateComment", () => {
     expect(c.summary).toContain("overall +8 in this PR");
     expect(c.summary).not.toContain("vs last scan");
   });
+
+  it("does not crash when a failing dimension has no `gaps` array (legacy/mock report)", () => {
+    // NO `gaps` key — an LLM/mock/older persisted report can omit it; `d.gaps[0]` used to THROW here,
+    // killing the entire check-run + sticky-comment write on a failing gate (when it matters most).
+    const dims = [
+      { id: "D9", name: "Supply Chain & Security", score: 20, weight: 1, signalScore: 20, llmScore: null, summary: "Thin on security checks", evidence: [], strengths: [] },
+    ] as unknown as ScanReport["dimensions"];
+    const fail: GateResult = {
+      pass: false,
+      policy: { minDimension: 40 },
+      failures: [{ code: "dimension", message: "D9 Supply Chain & Security scored 20, below the required 40." }],
+    };
+    const c = buildGateComment(report({ overallScore: 30, dimensions: dims }), fail); // must not throw
+    expect(c.conclusion).toBe("failure");
+    expect(c.summary).toContain("Where the score falls short");
+    expect(c.summary).toContain("Thin on security checks"); // d.summary used as the gap fallback
+  });
+
+  it("escapes a pipe + the comment marker in a dimension name (no broken table, no forged marker)", () => {
+    const dims = [
+      { id: "D9", name: "Sec | urity <!-- ascent-maturity-gate -->", score: 10, weight: 1, signalScore: 10, llmScore: null, summary: "x", evidence: [], strengths: [], gaps: ["a | b"] },
+    ] as unknown as ScanReport["dimensions"];
+    const fail: GateResult = {
+      pass: false,
+      policy: { minDimension: 40 },
+      failures: [{ code: "dimension", message: "D9 scored 10, below the required 40." }],
+    };
+    const c = buildGateComment(report({ overallScore: 20, dimensions: dims }), fail);
+    // The real marker appears exactly once (forged copy in the name is defused to &lt;!--).
+    expect(c.commentBody.split(GATE_COMMENT_MARKER).length - 1).toBe(1);
+    // The pipe in the name is escaped so the table row keeps its columns.
+    expect(c.summary).toContain("Sec \\| urity");
+  });
 });
