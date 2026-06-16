@@ -75,6 +75,20 @@ describe("getProvider with LLM_PROVIDER=bedrock — trust the explicit selection
   });
 });
 
+describe("getProvider with LLM_PROVIDER=openai/claude-cli — trust the explicit selection (no silent mock)", () => {
+  it("returns the real OpenAiProvider even with OPENAI_API_KEY unset (fails honestly at assess())", () => {
+    vi.stubEnv("LLM_PROVIDER", "openai");
+    // Was pre-degraded to mock here, suppressing the llmFailed warning (success theater). Must fail
+    // VISIBLY at assess() and degrade through the accounted retry → failover → mock chain instead.
+    expect(getProvider().name).toBe("openai");
+  });
+
+  it("returns the real ClaudeCliProvider even off a local box (e.g. Vercel) rather than silent mock", () => {
+    vi.stubEnv("LLM_PROVIDER", "claude-cli");
+    expect(getProvider().name).toBe("claude-cli");
+  });
+});
+
 describe("providerByName('bedrock') — failover skip stays env-gated (#1)", () => {
   it("returns null with no AWS signal (skip the doomed failover attempt)", () => {
     expect(providerByName("bedrock")).toBeNull();

@@ -85,29 +85,22 @@ export function providerAvailable(name: ProviderName): boolean {
 export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
   if (opts.forceMock) return new MockProvider();
   const choice = resolveProviderChoice();
-  // A selected-but-unavailable real provider pre-degrades to mock (logged so the misconfig is visible),
-  // rather than the orchestrator discovering it the slow way across the whole retry/failover plan.
-  const orMockIf = (available: boolean, make: () => LLMProvider, why: string): LLMProvider => {
-    if (available) return make();
-    console.warn(`[llm] LLM_PROVIDER=${choice} but ${why} — using mock`);
-    return new MockProvider();
-  };
   switch (choice) {
     case "mock":
       return new MockProvider();
     case "bedrock":
-      // Trust the operator's EXPLICIT LLM_PROVIDER=bedrock (same stance as claude-cli): region
-      // always resolves inside BedrockProvider, and credentials may be ambient (EC2/ECS role) —
-      // invisible to any cheap env sniff. Pre-degrading here set intendedProvider="mock", which
-      // suppressed the llmFailed warning entirely, so a falsely-gated healthy deploy served mock
-      // scores with no caveat. A genuinely broken config still fails fast at assess() and the
-      // retry → failover → mock chain degrades WITH the honest accounting. providerAvailable
-      // still gates the implicit failover path in providerByName below.
-      return new BedrockProvider();
     case "openai":
-      return orMockIf(providerAvailable("openai"), () => new OpenAiProvider(), "OPENAI_API_KEY is unset");
     case "claude-cli":
-      return orMockIf(providerAvailable("claude-cli"), () => new ClaudeCliProvider(), "the claude CLI isn't available here");
+      // Trust the operator's EXPLICIT LLM_PROVIDER selection. Pre-degrading a selected-but-unavailable
+      // real provider to mock HERE set intendedProvider="mock" downstream, which suppressed the
+      // llmFailed warning + the fallback SSE event entirely — so a misconfigured (or merely
+      // env-sniff-false-negative) deploy served mock scores with NO caveat (success theater). A
+      // genuinely broken config instead fails fast at assess(), and the retry → failover → mock chain
+      // degrades WITH honest accounting. (providerAvailable still gates the implicit failover path in
+      // providerByName below, so the failover never wastes a round trip on a doomed provider.)
+      if (choice === "bedrock") return new BedrockProvider();
+      if (choice === "openai") return new OpenAiProvider();
+      return new ClaudeCliProvider();
     case "gemini":
       return geminiOrMock();
     case "auto":
