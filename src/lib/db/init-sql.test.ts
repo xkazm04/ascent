@@ -50,4 +50,36 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
     expect(initSql).toContain(`'public', 'Public Scans', 'free'`);
     expect(initSql).toContain(`ON CONFLICT ("slug") DO NOTHING`);
   });
+
+  // relationMode="prisma" emits NO foreign keys, so indexes are the only thing making relation lookups
+  // fast — a missing CREATE INDEX in the psql bootstrap degrades silently to a full-table scan with no
+  // error. The table/column parity above never checked indexes; this closes that gap (finding #2).
+  it("mirrors every @@index/@@unique into a matching CREATE INDEX in init.sql", () => {
+    const modelBlocks = [...schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)];
+    const missing: string[] = [];
+    for (const [, model, body] of modelBlocks) {
+      const decls = [
+        ...[...body!.matchAll(/@@index\(\[([^\]]+)\](?:,\s*(?:name|map):\s*"([^"]+)")?\)/g)].map(
+          (m) => ({ cols: m[1]!, name: m[2], kind: "idx" as const }),
+        ),
+        ...[...body!.matchAll(/@@unique\(\[([^\]]+)\](?:,\s*(?:name|map):\s*"([^"]+)")?\)/g)].map(
+          (m) => ({ cols: m[1]!, name: m[2], kind: "key" as const }),
+        ),
+      ];
+      for (const d of decls) {
+        const cols = d.cols.split(",").map((c) => c.trim());
+        // Prisma's deterministic index-name convention: Table_col1_col2_idx / _key (unless overridden).
+        const idxName = d.name ?? `${model}_${cols.join("_")}_${d.kind}`;
+        if (!initSql.includes(`"${idxName}"`)) {
+          missing.push(`${model}.@@${d.kind === "key" ? "unique" : "index"}([${cols.join(", ")}]) -> "${idxName}"`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("makes the Scan dedup constraint a UNIQUE index (cross-instance same-commit backstop)", () => {
+    expect(schema).toMatch(/@@unique\(\[repoId, headSha\]\)/);
+    expect(initSql).toMatch(/CREATE UNIQUE INDEX "Scan_repoId_headSha_key" ON "Scan"\("repoId", "headSha"\)/);
+  });
 });
