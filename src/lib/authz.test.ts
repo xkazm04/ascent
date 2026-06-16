@@ -6,15 +6,27 @@
 // DB. PUBLIC_ORG keeps its real value ("public"). The dashboard opt-in flag is driven via stubEnv.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { NextResponse } from "next/server";
 
-const { mockGetSession, mockIsAuthConfigured, mockGetMembershipRole, mockEnsureOwnerMembership } = vi.hoisted(
-  () => ({
-    mockGetSession: vi.fn(),
-    mockIsAuthConfigured: vi.fn(),
-    mockGetMembershipRole: vi.fn(),
-    mockEnsureOwnerMembership: vi.fn(),
-  }),
-);
+const {
+  mockGetSession,
+  mockIsAuthConfigured,
+  mockGetMembershipRole,
+  mockEnsureOwnerMembership,
+  mockOrgHasOwner,
+  mockAuthGateEnabled,
+  mockGetViewer,
+  mockRequireViewer,
+} = vi.hoisted(() => ({
+  mockGetSession: vi.fn(),
+  mockIsAuthConfigured: vi.fn(),
+  mockGetMembershipRole: vi.fn(),
+  mockEnsureOwnerMembership: vi.fn(),
+  mockOrgHasOwner: vi.fn(),
+  mockAuthGateEnabled: vi.fn(),
+  mockGetViewer: vi.fn(),
+  mockRequireViewer: vi.fn(),
+}));
 
 vi.mock("@/lib/auth", () => ({
   PUBLIC_ORG: "public",
@@ -22,10 +34,20 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: mockIsAuthConfigured,
 }));
 
+// Mock the Supabase login-wall access layer so we can drive (authGateEnabled, getViewer, requireViewer)
+// directly. Defaults (set in beforeEach) keep the wall OFF, so the custom-OAuth tests below behave
+// exactly as they did against the real module (no Supabase env ⇒ gate disabled).
+vi.mock("@/lib/access", () => ({
+  authGateEnabled: mockAuthGateEnabled,
+  getViewer: mockGetViewer,
+  requireViewer: mockRequireViewer,
+}));
+
 // Mock the membership data layer; keep a real roleAtLeast so the gate's hierarchy logic is exercised.
 vi.mock("@/lib/db/members", () => ({
   getMembershipRole: mockGetMembershipRole,
   ensureOwnerMembership: mockEnsureOwnerMembership,
+  orgHasOwner: mockOrgHasOwner,
   roleAtLeast: (role: string | null | undefined, min: string) => {
     const rank: Record<string, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
     if (!role) return false;
@@ -53,9 +75,19 @@ beforeEach(() => {
   mockIsAuthConfigured.mockReset();
   mockGetMembershipRole.mockReset();
   mockEnsureOwnerMembership.mockReset();
+  mockOrgHasOwner.mockReset();
+  mockAuthGateEnabled.mockReset();
+  mockGetViewer.mockReset();
+  mockRequireViewer.mockReset();
   mockGetSession.mockResolvedValue(null);
   mockGetMembershipRole.mockResolvedValue(null);
   mockEnsureOwnerMembership.mockResolvedValue(undefined);
+  mockOrgHasOwner.mockResolvedValue(false);
+  // Default: Supabase login wall OFF (mirrors a no-Supabase-env deployment) so the custom-OAuth tests
+  // exercise the dormant-wall path. requireViewer is a no-op (null) when the gate is off.
+  mockAuthGateEnabled.mockReturnValue(false);
+  mockGetViewer.mockResolvedValue(null);
+  mockRequireViewer.mockResolvedValue(null);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -182,5 +214,46 @@ describe("requireOrgRole (RBAC gate)", () => {
     mockGetSession.mockResolvedValue(sessionWith(["other"]));
     mockGetMembershipRole.mockResolvedValue(null);
     expect((await requireOrgRole("acme", "member"))?.status).toBe(403);
+  });
+});
+
+describe("requireOrgRole under the Supabase login wall (cross-tenant takeover fix)", () => {
+  beforeEach(() => {
+    // Wall enforced: a signed-in Supabase viewer (alice) with NO custom-OAuth session. Custom OAuth is
+    // dormant, so this branch must resolve a real role rather than blanket-allow (the critical bug).
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockRequireViewer.mockResolvedValue(null);
+    mockGetViewer.mockResolvedValue({ id: "v", login: "alice" });
+    mockIsAuthConfigured.mockReturnValue(false); // custom OAuth off — the documented prod config
+  });
+
+  it("a viewer with no role is DENIED on an org that already has an owner", async () => {
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockOrgHasOwner.mockResolvedValue(true);
+    expect((await requireOrgRole("victim", "owner"))?.status).toBe(403);
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+  });
+
+  it("trust-on-first-use: the first viewer to manage an unowned org is seeded as owner", async () => {
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockOrgHasOwner.mockResolvedValue(false);
+    expect(await requireOrgRole("fresh", "owner")).toBeNull();
+    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("fresh", "alice", undefined);
+  });
+
+  it("enforces an explicit membership role against the minimum", async () => {
+    mockOrgHasOwner.mockResolvedValue(true);
+    mockGetMembershipRole.mockResolvedValue("admin");
+    expect(await requireOrgRole("acme", "admin")).toBeNull(); // admin >= admin
+    expect((await requireOrgRole("acme", "owner"))?.status).toBe(403); // admin < owner
+  });
+
+  it("a signed-out viewer is refused by the wall (401)", async () => {
+    mockRequireViewer.mockResolvedValue(NextResponse.json({ error: "Sign in." }, { status: 401 }));
+    expect((await requireOrgRole("acme", "owner"))?.status).toBe(401);
+  });
+
+  it("PUBLIC_ORG stays open under the wall", async () => {
+    expect(await requireOrgRole("public", "owner")).toBeNull();
   });
 });

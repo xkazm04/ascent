@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { getSession, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { authGateEnabled, getViewer, requireViewer } from "@/lib/access";
-import { ensureOwnerMembership, getMembershipRole, roleAtLeast, type OrgRole } from "@/lib/db/members";
+import { ensureOwnerMembership, getMembershipRole, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
 
 /** True when the current session's installations include `org` (case-insensitive). */
 export async function sessionOwnsOrg(org: string): Promise<boolean> {
@@ -125,13 +125,38 @@ export async function hasOrgRole(org: string, min: OrgRole): Promise<boolean> {
  * deletes. For "any member may act" use requireOrgAccess; for reads use requireOrgRead.
  */
 export async function requireOrgRole(org: string, min: OrgRole): Promise<NextResponse | null> {
-  // Supabase login wall first (see requireOrgAccess). When custom OAuth is off, role checks below
-  // are open, so a signed-in Supabase viewer passes — matching the agreed simple-wall semantics.
   const gate = await requireViewer();
   if (gate) return gate;
-  if (!isAuthConfigured()) return null;
   const slug = org.trim().toLowerCase();
   if (slug === PUBLIC_ORG) return null;
+
+  // Supabase login wall: resolve a REAL membership role for the signed-in viewer rather than
+  // blanket-allowing every viewer. The old `if (!isAuthConfigured()) return null` short-circuit
+  // treated "custom OAuth dormant" as "auth off ⇒ open", but under the Supabase wall auth is very
+  // much ON — so any free Supabase account could own every org (cross-tenant member-admin/credit-grant
+  // takeover). Trust-on-first-use: the first viewer to manage an as-yet-unowned org is seeded as its
+  // owner; after that, only members with a sufficient role pass. NOTE: any-member cross-tenant *writes*
+  // via requireOrgAccess (non-owner actions) still follow simple-wall semantics — closing those needs a
+  // real membership/invite model and is tracked as a follow-up.
+  if (authGateEnabled()) {
+    const viewer = await getViewer();
+    if (!viewer) {
+      return NextResponse.json({ error: "Sign in to manage this organization." }, { status: 401 });
+    }
+    let role = await getMembershipRole(slug, viewer.login);
+    if (!role && !(await orgHasOwner(slug))) {
+      await ensureOwnerMembership(slug, viewer.login, viewer.name).catch(() => {});
+      role = "owner";
+    }
+    if (roleAtLeast(role, min)) return null;
+    return NextResponse.json(
+      { error: `This action requires the ${min} role in this organization.` },
+      { status: 403 },
+    );
+  }
+
+  // Custom GitHub OAuth path (dormant under the Supabase wall) and fully auth-off (local/demo).
+  if (!isAuthConfigured()) return null;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Sign in to manage this organization." }, { status: 401 });

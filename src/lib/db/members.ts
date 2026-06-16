@@ -39,6 +39,19 @@ async function orgIdForSlug(slug: string): Promise<string | null> {
   return org?.id ?? null;
 }
 
+/**
+ * Does `orgSlug` already have at least one owner? Used by the Supabase-login-wall role gate to decide
+ * trust-on-first-use: an org with no owner yet may be claimed by the first viewer who manages it, but
+ * once it has an owner, only members with a sufficient role may act (closing cross-tenant takeover).
+ */
+export async function orgHasOwner(orgSlug: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const orgId = await orgIdForSlug(normalizeLogin(orgSlug));
+  if (!orgId) return false;
+  const owners = await getPrisma().membership.count({ where: { orgId, role: "owner" } });
+  return owners > 0;
+}
+
 /** The caller's role in `orgSlug`, or null when they have no membership row. */
 export async function getMembershipRole(orgSlug: string, login: string): Promise<OrgRole | null> {
   if (!isDbConfigured()) return null;
@@ -106,23 +119,32 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
     create: { githubLogin: gh, email: `${gh}@users.noreply.github.com` },
     select: { id: true },
   });
-  // Last-owner guard: demoting the sole owner would leave the org with no one able to manage it.
-  if (role !== "owner") {
-    const existing = await prisma.membership.findUnique({
-      where: { orgId_userId: { orgId, userId: user.id } },
-      select: { role: true },
+  // Last-owner guard + the role write run in ONE transaction so two concurrent owner-gated requests
+  // can't each read "2 owners > 1", both proceed, and orphan the org with zero owners (a TOCTOU the
+  // separate read-then-write left open). On Aurora DSQL (serializable) the loser aborts; the count is
+  // re-read inside the tx so the guard sees a consistent snapshot.
+  try {
+    return await prisma.$transaction(async (tx) => {
+      if (role !== "owner") {
+        const existing = await tx.membership.findUnique({
+          where: { orgId_userId: { orgId, userId: user.id } },
+          select: { role: true },
+        });
+        if (existing?.role === "owner") {
+          const owners = await tx.membership.count({ where: { orgId, role: "owner" } });
+          if (owners <= 1) return "last_owner" as const;
+        }
+      }
+      await tx.membership.upsert({
+        where: { orgId_userId: { orgId, userId: user.id } },
+        update: { role },
+        create: { orgId, userId: user.id, role },
+      });
+      return "ok" as const;
     });
-    if (existing?.role === "owner") {
-      const owners = await prisma.membership.count({ where: { orgId, role: "owner" } });
-      if (owners <= 1) return "last_owner";
-    }
+  } catch {
+    return "error";
   }
-  await prisma.membership.upsert({
-    where: { orgId_userId: { orgId, userId: user.id } },
-    update: { role },
-    create: { orgId, userId: user.id, role },
-  });
-  return "ok";
 }
 
 /**
@@ -137,17 +159,25 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
   if (!gh || !orgId) return "not_found";
   const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
   if (!user) return "not_found";
-  const m = await prisma.membership.findUnique({
-    where: { orgId_userId: { orgId, userId: user.id } },
-    select: { role: true },
-  });
-  if (!m) return "not_found";
-  if (m.role === "owner") {
-    const owners = await prisma.membership.count({ where: { orgId, role: "owner" } });
-    if (owners <= 1) return "last_owner";
+  // Last-owner guard + delete run in ONE transaction (see setMembershipRole) so two concurrent
+  // removals can't both pass the "owners > 1" check and leave the org with no owner.
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const m = await tx.membership.findUnique({
+        where: { orgId_userId: { orgId, userId: user.id } },
+        select: { role: true },
+      });
+      if (!m) return "not_found" as const;
+      if (m.role === "owner") {
+        const owners = await tx.membership.count({ where: { orgId, role: "owner" } });
+        if (owners <= 1) return "last_owner" as const;
+      }
+      await tx.membership.delete({ where: { orgId_userId: { orgId, userId: user.id } } });
+      return "ok" as const;
+    });
+  } catch {
+    return "not_found";
   }
-  await prisma.membership.delete({ where: { orgId_userId: { orgId, userId: user.id } } });
-  return "ok";
 }
 
 /** All members of an org (owner-gated view). */
