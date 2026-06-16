@@ -49,7 +49,9 @@ export interface CreditReconciliation {
 export async function getCreditState(orgSlug: string): Promise<CreditState> {
   if (!isDbConfigured()) return { balance: 0, plan: "free", unlimited: false };
   const org = await getPrisma().organization.findUnique({
-    where: { slug: orgSlug },
+    // Org slugs are canonically lowercase (authz + setOrgPlan normalize); the credit paths didn't, so
+    // a mixed-case slug read $0/free and wrongly paywalled a paid org (or made debits silent no-ops).
+    where: { slug: orgSlug.toLowerCase() },
     select: { scanCredits: true, plan: true },
   });
   const plan = org?.plan ?? "free";
@@ -80,35 +82,43 @@ export async function grantCredits(
   opts: { reason?: string; actor?: string; externalId?: string } = {},
 ): Promise<number | null> {
   if (!isDbConfigured()) return null;
+  const slug = orgSlug.toLowerCase(); // canonical-casing contract (see getCreditState)
   const delta = Math.trunc(amount);
-  if (!delta) return (await getCreditState(orgSlug)).balance;
+  if (!delta) return (await getCreditState(slug)).balance;
   const prisma = getPrisma();
   // Fast path for the common redelivery: this exact grant already landed, so don't even try again.
   if (opts.externalId) {
     const existing = await prisma.creditLedger
       .findUnique({ where: { externalId: opts.externalId }, select: { id: true } })
       .catch(() => null);
-    if (existing) return (await getCreditState(orgSlug)).balance;
+    if (existing) return (await getCreditState(slug)).balance;
   }
   try {
     return await withRetry(() =>
       prisma.$transaction(async (tx) => {
-        const org = await tx.organization
-          .update({
-            where: { slug: orgSlug },
-            data: { scanCredits: { increment: delta } },
-            select: { id: true, scanCredits: true },
-          })
-          .catch(() => null);
+        const org = await tx.organization.findUnique({
+          where: { slug },
+          select: { id: true, scanCredits: true },
+        });
         if (!org) return null;
-        const balanceAfter = Math.max(0, org.scanCredits);
-        if (org.scanCredits < 0) {
-          await tx.organization.update({ where: { id: org.id }, data: { scanCredits: 0 } });
-        }
+        // Clamp a debit to the available balance and stamp the ledger with the delta we ACTUALLY
+        // applied. The old code did `increment: delta` and then a SECOND absolute `scanCredits: 0`
+        // write to clamp — which (a) broke the append-only invariant `prev + delta === balanceAfter`
+        // (a -100 against 30 stamped delta=-100, balanceAfter=0, so reconciliation drifts forever),
+        // and (b) could clobber a concurrent debit/grant landing between the increment and the absolute
+        // set. One relative increment by the clamped delta keeps both the balance and the ledger honest.
+        const appliedDelta = delta >= 0 ? delta : Math.max(delta, -org.scanCredits);
+        if (appliedDelta === 0) return org.scanCredits; // nothing to apply (debit against empty balance)
+        const updated = await tx.organization.update({
+          where: { id: org.id },
+          data: { scanCredits: { increment: appliedDelta } },
+          select: { scanCredits: true },
+        });
+        const balanceAfter = updated.scanCredits;
         await tx.creditLedger.create({
           data: {
             orgId: org.id,
-            delta,
+            delta: appliedDelta,
             balanceAfter,
             reason: opts.reason ?? (delta > 0 ? "grant" : "adjustment"),
             actor: opts.actor ?? null,
@@ -140,16 +150,17 @@ export async function consumeScanCredit(
 ): Promise<{ ok: boolean; balance: number; unlimited: boolean }> {
   if (!isDbConfigured()) return { ok: true, balance: 0, unlimited: false };
   const prisma = getPrisma();
+  const slug = orgSlug.toLowerCase(); // canonical-casing contract (see getCreditState)
   return withRetry(() =>
     prisma.$transaction(async (tx) => {
       const org = await tx.organization.findUnique({
-        where: { slug: orgSlug },
+        where: { slug },
         select: { id: true, scanCredits: true, plan: true },
       });
       if (!org) return { ok: false, balance: 0, unlimited: false };
       if (isUnlimitedPlan(org.plan)) return { ok: true, balance: org.scanCredits, unlimited: true };
       const dec = await tx.organization.updateMany({
-        where: { slug: orgSlug, scanCredits: { gt: 0 } },
+        where: { slug, scanCredits: { gt: 0 } },
         data: { scanCredits: { decrement: 1 } },
       });
       if (dec.count === 0) return { ok: false, balance: org.scanCredits, unlimited: false };
@@ -188,7 +199,7 @@ export async function setOrgPlan(orgSlug: string, plan: string): Promise<boolean
 export async function getCreditLedger(orgSlug: string, limit = 50): Promise<CreditLedgerEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
   if (!org) return [];
   return prisma.creditLedger.findMany({
     where: { orgId: org.id },

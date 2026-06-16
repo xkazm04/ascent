@@ -15,7 +15,7 @@ vi.mock("@/lib/db/client", () => ({
   withRetry: (fn: () => unknown) => fn(),
 }));
 
-import { consumeScanCredit } from "./credits";
+import { consumeScanCredit, grantCredits } from "./credits";
 
 /**
  * Fake prisma where the org row is shared mutable state, but findUnique always returns a STALE
@@ -90,5 +90,64 @@ describe("consumeScanCredit balanceAfter integrity", () => {
     expect(res).toEqual({ ok: true, balance: 5, unlimited: true });
     expect(ledger).toHaveLength(0);
     expect(row.scanCredits).toBe(5);
+  });
+});
+
+/** Fake prisma for grantCredits: findUnique reads the live row, update applies a relative increment. */
+function fakePrismaForGrant(initialBalance: number) {
+  const row = { id: "org_1", scanCredits: initialBalance };
+  const ledger: Array<{ delta: number; balanceAfter: number; reason: string }> = [];
+  const tx = {
+    organization: {
+      findUnique: vi.fn(async () => ({ id: row.id, scanCredits: row.scanCredits })),
+      update: vi.fn(async ({ data }: { data: { scanCredits: { increment: number } } }) => {
+        row.scanCredits += data.scanCredits.increment;
+        return { scanCredits: row.scanCredits };
+      }),
+    },
+    creditLedger: {
+      create: vi.fn(async ({ data }: { data: (typeof ledger)[number] }) => {
+        ledger.push({ delta: data.delta, balanceAfter: data.balanceAfter, reason: data.reason });
+        return data;
+      }),
+    },
+  };
+  return { prisma: { $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) }, row, ledger };
+}
+
+describe("grantCredits ledger invariant (negative-adjustment clamp)", () => {
+  it("clamps an over-large debit and stamps the APPLIED delta, keeping prev + delta === balanceAfter", async () => {
+    const { prisma, ledger, row } = fakePrismaForGrant(30);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await grantCredits("acme", -100, { reason: "adjustment" });
+
+    // Balance clamps at 0 (never negative), and the ledger records delta=-30 (what was applied),
+    // NOT the requested -30...-100 — so 30 + (-30) === 0 and the append-only trail still reconciles.
+    expect(balance).toBe(0);
+    expect(row.scanCredits).toBe(0);
+    expect(ledger).toEqual([{ delta: -30, balanceAfter: 0, reason: "adjustment" }]);
+  });
+
+  it("applies a positive grant in full", async () => {
+    const { prisma, ledger, row } = fakePrismaForGrant(10);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await grantCredits("acme", 50, { reason: "grant" });
+
+    expect(balance).toBe(60);
+    expect(row.scanCredits).toBe(60);
+    expect(ledger).toEqual([{ delta: 50, balanceAfter: 60, reason: "grant" }]);
+  });
+
+  it("a debit against a zero balance is a no-op (no negative balance, no noise ledger row)", async () => {
+    const { prisma, ledger, row } = fakePrismaForGrant(0);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await grantCredits("acme", -5, { reason: "adjustment" });
+
+    expect(balance).toBe(0);
+    expect(row.scanCredits).toBe(0);
+    expect(ledger).toHaveLength(0);
   });
 });
