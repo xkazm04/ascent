@@ -10,7 +10,7 @@ import { BrandingSettings } from "@/components/org/BrandingSettings";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
-import { resolveWindow } from "@/lib/window";
+import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export default async function OrgExecutive({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const period = resolveWindow(sp);
+  const period = await resolveOrgWindow(sp);
   const briefing = await buildExecBriefing(slug, { start: period.start, end: period.end }, period.title);
 
   if (!briefing) {

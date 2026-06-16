@@ -16,7 +16,7 @@ import { canReadOrg } from "@/lib/authz";
 import { cookies } from "next/headers";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
-import { PERIOD_COOKIE, parsePeriodCookie, resolveWindow } from "@/lib/window";
+import { resolveOrgWindow } from "@/lib/org/period";
 import type { RepoMove } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -87,10 +87,10 @@ export default async function OrgOverview({
   const { slug } = await params;
   const sp = await searchParams;
   const cookieStore = await cookies();
-  // OVR-5: an explicit ?range= in the URL wins (shareable links stay authoritative); otherwise fall
-  // back to the user's remembered period cookie, then the default.
-  const remembered = sp.range ? null : parsePeriodCookie(cookieStore.get(PERIOD_COOKIE)?.value);
-  const period = resolveWindow(remembered ?? sp);
+  // OVR-5: an explicit ?range= wins (shareable links stay authoritative); otherwise the remembered
+  // period cookie, then the default. Shared with every other org tab via resolveOrgWindow so the range
+  // carries across navigation.
+  const period = await resolveOrgWindow(sp);
   const win = { start: period.start, end: period.end };
 
   // OVR-4: which overview sections the user has collapsed (server-read so SSR matches — no flash).

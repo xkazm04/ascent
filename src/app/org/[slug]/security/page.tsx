@@ -6,7 +6,7 @@ import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { resolveWindow } from "@/lib/window";
+import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export default async function OrgSecurity({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const period = resolveWindow(sp);
+  const period = await resolveOrgWindow(sp);
   const [sec, supply] = await Promise.all([
     buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title),
     getOrgSupplyChain(slug),
