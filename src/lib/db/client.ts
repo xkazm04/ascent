@@ -414,10 +414,13 @@ export async function dbHealthCheck(): Promise<{
   try {
     await ping(getPrisma());
     return { ok: true, reconnected: false };
-  } catch (err) {
-    if (!isAuthExpiryError(err)) {
-      return { ok: false, reconnected: false, error: errorInfo(err).message };
-    }
+  } catch {
+    // Self-heal on ANY first failure, not only auth-expiry. In DSQL-only mode a cold-start client can
+    // be built before the IAM token mints, so its first query throws a Prisma INITIALIZATION error
+    // (not an auth-expiry one) — the old auth-only branch never recovered it, and the keep-warm/monitor
+    // endpoint flatlined as unhealthy until the process recycled. One reconnect (fresh token / rebuilt
+    // client) + re-ping recovers the common transient + cold-start cases; a still-failing ping is a real
+    // outage reported as ok:false.
     try {
       await ping(await reconnectDb());
       return { ok: true, reconnected: true };
