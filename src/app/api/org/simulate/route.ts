@@ -33,7 +33,11 @@ export async function POST(request: Request) {
 
   // Rank mode (SIM-3): "where should we invest?" — rank every dimension by projected fleet gain.
   if (body.rank) {
-    const target = typeof body.target === "number" ? body.target : 70;
+    // A NaN/out-of-range target must not pass — Number.isFinite(NaN) is false, so it falls back to 70.
+    const target =
+      typeof body.target === "number" && Number.isFinite(body.target) && body.target >= 0 && body.target <= 100
+        ? body.target
+        : 70;
     const ranking = await rankOrgInvestments(body.org, target, repos);
     if (!ranking) return NextResponse.json({ error: "No scanned repos to rank." }, { status: 404 });
     return NextResponse.json({ ranking });
@@ -43,10 +47,14 @@ export async function POST(request: Request) {
   const rawFixes = Array.isArray(body.fixes) && body.fixes.length > 0 ? body.fixes : [{ dimId: body.dimId, target: body.target }];
   const fixes: SimFix[] = [];
   for (const f of rawFixes) {
-    if (typeof f.dimId !== "string" || !isDimId(f.dimId) || typeof f.target !== "number") {
-      return NextResponse.json({ error: "Each fix needs { dimId: D1..D9, target: number }." }, { status: 400 });
+    const t = f.target;
+    // `typeof NaN === "number"` is true, so the old check let `target: NaN` through — then
+    // clamp(Math.round(NaN)) = NaN made `cur < NaN` false for every repo and the API returned a
+    // silent 200 with before === after (a "nothing changes" no-op). Require a finite, in-range target.
+    if (typeof f.dimId !== "string" || !isDimId(f.dimId) || typeof t !== "number" || !Number.isFinite(t) || t < 0 || t > 100) {
+      return NextResponse.json({ error: "Each fix needs { dimId: D1..D9, target: a number in 0..100 }." }, { status: 400 });
     }
-    fixes.push({ dimId: f.dimId, target: f.target });
+    fixes.push({ dimId: f.dimId, target: t });
   }
   const projection = await simulateOrgFixes(body.org, fixes, repos);
   if (!projection) return NextResponse.json({ error: "No scanned repos to simulate." }, { status: 404 });
