@@ -127,6 +127,11 @@ export interface QuotaResult {
   resetAt: number | null;
   /** True when this scan was counted against a SIGNED-IN viewer's (elevated, per-user) allowance. */
   signedIn: boolean;
+  /** The exact hit timestamp this call recorded (when allowed + enforced), else null. Pass it back to
+   *  refundPublicScanQuota so a refund removes THE slot this request charged — not merely "the newest"
+   *  in the bucket, which two concurrent refunds on a shared/coalesced scan would each peel off a
+   *  different sibling's slot (double-refund → quota under-count → free-scan bypass). */
+  chargedAt: number | null;
 }
 
 /** Who the scan is attributed to. A signed-in viewer id buckets per-user at the elevated limit; */
@@ -156,7 +161,7 @@ export async function consumePublicScanQuota(
   const signedIn = Boolean(identity.viewerId);
   const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
   if (!isDbConfigured() || publicScanQuotaDisabled()) {
-    return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn };
+    return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
 
   // Signed-in viewers bucket per-USER (their own elevated allowance, IP-independent); anonymous
@@ -178,6 +183,7 @@ export async function consumePublicScanQuota(
                 retryAfterSec: retryAfterSec(decision.resetAt, now),
                 resetAt: decision.resetAt,
                 signedIn,
+                chargedAt: null,
               };
             }
             const hits = JSON.stringify(decision.hits);
@@ -193,6 +199,7 @@ export async function consumePublicScanQuota(
               retryAfterSec: 0,
               resetAt: decision.resetAt,
               signedIn,
+              chargedAt: now,
             };
           }, quotaTxOptions()),
         { label: "public-scan-quota" },
@@ -206,7 +213,7 @@ export async function consumePublicScanQuota(
   } catch (err) {
     // Soft gate: a quota-store failure must not block a scan the user is entitled to. Fail OPEN.
     console.error("[public-scan-quota] check failed; failing open", err);
-    return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn };
+    return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
 }
 
@@ -264,6 +271,18 @@ export function removeNewestHit(hits: number[]): number[] {
 }
 
 /**
+ * Pure: drop the SINGLE hit equal to `ts` — the exact timestamp `consumePublicScanQuota` recorded for
+ * this request. Idempotent: if `ts` isn't present (already refunded, or aged out), the window is
+ * returned unchanged. This is the value-keyed refund that fixes the double-refund race — two refunds
+ * against the same bucket each remove only their OWN charge, never a sibling's still-live slot.
+ */
+export function removeHit(hits: number[], ts: number): number[] {
+  const idx = hits.indexOf(ts);
+  if (idx === -1) return hits;
+  return [...hits.slice(0, idx), ...hits.slice(idx + 1)];
+}
+
+/**
  * REFUND the slot a just-allowed `consumePublicScanQuota` recorded — the free tier meters on
  * commit, not attempt (the same policy as credit metering: a dedup or degrade-to-mock run is
  * free). Called when the scan delivered nothing chargeable: an invalid/404 repo, an upstream
@@ -272,8 +291,17 @@ export function removeNewestHit(hits: number[]): number[] {
  * Best-effort and FAIL-OPEN like the rest of this module: a refund hiccup just leaves one slot
  * consumed (soft gate); it never fails the response. Quota headers emitted at consume time may
  * overstate usage by the one refunded slot — acceptable staleness for a soft gate.
+ *
+ * Pass `chargedAt` (the `QuotaResult.chargedAt` from the matching consume) so the refund removes the
+ * EXACT slot this request charged. Without it the refund falls back to "drop the newest hit", which two
+ * concurrent refunds on a shared/coalesced scan use to each peel off a different sibling's slot —
+ * removing more slots than were consumed and bypassing the weekly budget (CRITICAL race).
  */
-export async function refundPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<void> {
+export async function refundPublicScanQuota(
+  req: Request,
+  identity: QuotaIdentity = {},
+  chargedAt?: number | null,
+): Promise<void> {
   if (!isDbConfigured() || publicScanQuotaDisabled()) return;
   const signedIn = Boolean(identity.viewerId);
   const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
@@ -287,9 +315,12 @@ export async function refundPublicScanQuota(req: Request, identity: QuotaIdentit
             const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
             const prior = parseHits(row?.hits);
             if (!row || prior.length === 0) return;
+            // Value-keyed when we know the exact charged timestamp (idempotent if already absent);
+            // legacy "drop newest" only when a caller didn't thread it through.
+            const next = typeof chargedAt === "number" ? removeHit(prior, chargedAt) : removeNewestHit(prior);
             await tx.publicScanQuota.update({
               where: { ipHash },
-              data: { hits: JSON.stringify(removeNewestHit(prior)) },
+              data: { hits: JSON.stringify(next) },
             });
           }, quotaTxOptions()),
         { label: "public-scan-quota-refund" },

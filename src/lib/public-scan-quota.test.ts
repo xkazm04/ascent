@@ -5,6 +5,7 @@ import {
   hashIp,
   hashKey,
   publicScanWeeklyLimit,
+  removeHit,
   removeNewestHit,
   signedInScanWeeklyLimit,
 } from "./public-scan-quota";
@@ -88,6 +89,42 @@ describe("removeNewestHit", () => {
     const refunded = removeNewestHit(full.hits);
     const retry = decideQuota(refunded, NOW + 1, 3);
     expect(retry.allowed).toBe(true); // the refund freed the slot the failed scan took
+  });
+});
+
+// Value-keyed refund (the CRITICAL fix): each request refunds the EXACT slot it charged, so two
+// concurrent refunds on a shared/coalesced scan can never each peel off a different sibling's slot.
+describe("removeHit (value-keyed refund)", () => {
+  it("removes exactly the charged timestamp, not the newest", () => {
+    const t1 = NOW - 2000;
+    const t2 = NOW; // newest
+    // A request that charged t1 refunds t1 — NOT the newer t2 a sibling is still relying on.
+    expect(removeHit([t1, t2], t1)).toEqual([t2]);
+  });
+
+  it("is idempotent when the slot is already gone (double refund / aged out)", () => {
+    const hits = [NOW - 1000, NOW];
+    expect(removeHit(hits, NOW - 99999)).toEqual(hits); // not present → unchanged
+  });
+
+  it("removes only ONE entry when two requests charged the same millisecond", () => {
+    // Two consumes at the same instant record [NOW, NOW]; each refunds its own → one removed per call.
+    const once = removeHit([NOW, NOW, NOW - 1000], NOW);
+    expect(once).toEqual([NOW, NOW - 1000]);
+    expect(removeHit(once, NOW)).toEqual([NOW - 1000]);
+  });
+
+  it("two sibling refunds remove two slots total — never a third (no over-refund)", () => {
+    // The double-refund bug: with removeNewestHit, refund A drops t2 and refund B drops t1 even if both
+    // belong to live requests. Value-keyed: A drops its own t_a, B drops its own t_b — and a stray
+    // third refund of an already-removed slot is a no-op rather than stealing another.
+    const tA = NOW - 1000;
+    const tB = NOW;
+    let hits = [tA, tB];
+    hits = removeHit(hits, tA); // request A refunds its charge
+    hits = removeHit(hits, tB); // request B refunds its charge
+    expect(hits).toEqual([]);
+    expect(removeHit(hits, tA)).toEqual([]); // a duplicate/stray refund can't go negative
   });
 });
 

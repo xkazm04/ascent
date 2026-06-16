@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   // Set when a weekly slot was actually consumed, so the in-stream no-delivery paths below can
   // REFUND it — the free tier meters on commit, not attempt (same policy as credit metering).
   // Carries the viewer identity the slot was charged to, so the refund hits the same bucket.
-  let quotaCharged: { viewerId: string | null } | null = null;
+  let quotaCharged: { viewerId: string | null; chargedAt: number | null } | null = null;
   if (orgSlug === "public" && !token && !mock) {
     const viewer = await getViewer();
     const quota = await consumePublicScanQuota(request, { viewerId: viewer?.id });
@@ -77,12 +77,12 @@ export async function POST(request: Request) {
       quotaRemaining = quota.remaining;
       quotaResetAt = quota.resetAt;
       quotaScope = quota.signedIn ? "user" : "anon";
-      quotaCharged = { viewerId: viewer?.id ?? null };
+      quotaCharged = { viewerId: viewer?.id ?? null, chargedAt: quota.chargedAt };
     }
   }
   const refundQuota = async () => {
     if (quotaCharged) {
-      await refundPublicScanQuota(request, { viewerId: quotaCharged.viewerId });
+      await refundPublicScanQuota(request, { viewerId: quotaCharged.viewerId }, quotaCharged.chargedAt);
       quotaCharged = null; // at most one refund per consumed slot
     }
   };
