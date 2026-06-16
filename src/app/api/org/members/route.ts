@@ -17,10 +17,17 @@ import { getSession, isSameOrigin } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// GitHub logins are 1–39 chars of alphanumerics and single hyphens. Validate the shape so a role can't
+// be granted to a garbage/squatted/typo'd string and so the gate, mutation, and audit all agree.
+const GITHUB_LOGIN = /^[A-Za-z0-9-]{1,39}$/;
+
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Members require a database." }, { status: 503 });
-  const org = new URL(request.url).searchParams.get("org");
-  if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  const raw = new URL(request.url).searchParams.get("org");
+  if (!raw) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  // Canonicalize the slug once so the gate, data read, and (in POST/DELETE) the mutation + audit can
+  // never disagree on which org the request refers to (case-divergence was a real IDOR/audit risk).
+  const org = raw.trim().toLowerCase();
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
   const members = await listOrgMembers(org);
@@ -35,21 +42,25 @@ export async function POST(request: Request) {
   if (!body.org || !body.login || !body.role || !isOrgRole(body.role)) {
     return NextResponse.json({ error: "Provide { org, login, role: owner|admin|member|viewer }." }, { status: 400 });
   }
-  const denied = await requireOrgRole(body.org, "owner");
-  if (denied) return denied;
+  const org = body.org.trim().toLowerCase();
   const login = body.login.trim();
+  if (!GITHUB_LOGIN.test(login)) {
+    return NextResponse.json({ error: "login must be a valid GitHub login." }, { status: 400 });
+  }
+  const denied = await requireOrgRole(org, "owner");
+  if (denied) return denied;
   // Capture the prior role for the audit trail before the upsert overwrites it.
-  const prevRole = await getMembershipRole(body.org, login).catch(() => null);
-  const outcome = await setMembershipRole(body.org, login, body.role);
+  const prevRole = await getMembershipRole(org, login).catch(() => null);
+  const outcome = await setMembershipRole(org, login, body.role);
   if (outcome === "error") return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   if (outcome === "last_owner") {
     return NextResponse.json({ error: "Can't demote the last owner — assign another owner first." }, { status: 409 });
   }
   const session = await getSession();
-  const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
+  const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
   await recordAudit(
     "org.member.role",
-    { org: body.org, login: login.toLowerCase(), newRole: body.role, prevRole: prevRole ?? null },
+    { org, login: login.toLowerCase(), newRole: body.role, prevRole: prevRole ?? null },
     { orgId, actorId: session?.login },
   );
   return NextResponse.json({ ok: true, login: login.toLowerCase(), role: body.role });
@@ -59,8 +70,8 @@ export async function DELETE(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Members require a database." }, { status: 503 });
   if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
   const { searchParams } = new URL(request.url);
-  const org = searchParams.get("org");
-  const login = searchParams.get("login");
+  const org = (searchParams.get("org") ?? "").trim().toLowerCase();
+  const login = (searchParams.get("login") ?? "").trim();
   if (!org || !login) return NextResponse.json({ error: "Provide ?org=&login=." }, { status: 400 });
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
@@ -70,7 +81,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Can't remove the last owner — assign another owner first." }, { status: 409 });
   }
   const session = await getSession();
-  const orgId = (await getOrgId(org.toLowerCase()).catch(() => null)) ?? undefined;
+  const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
   await recordAudit("org.member.removed", { org, login: login.toLowerCase() }, { orgId, actorId: session?.login });
   return NextResponse.json({ ok: true });
 }
