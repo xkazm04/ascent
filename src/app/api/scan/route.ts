@@ -10,7 +10,7 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { consumeScanCredit, getScanReportByCommit, isDbConfigured, persistScanReport } from "@/lib/db";
+import { consumeScanCredit, getScanReportByCommit, grantCredits, isDbConfigured, persistScanReport } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
@@ -102,7 +102,7 @@ async function runScan(
   // Set when a weekly slot was actually consumed, so the failure paths below can REFUND it — the
   // free tier meters on commit, not attempt (same policy as credit metering). Carries the viewer
   // identity the slot was charged to, so the refund recomputes the identical bucket key.
-  let quotaCharged: { viewerId: string | null } | null = null;
+  let quotaCharged: { viewerId: string | null; chargedAt: number | null } | null = null;
   if (opts.req) {
     const rl = rateLimitRequest(opts.req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
@@ -121,26 +121,49 @@ async function runScan(
         quotaRemaining = quota.remaining;
         quotaResetAt = quota.resetAt;
         quotaScope = quota.signedIn ? "user" : "anon";
-        quotaCharged = { viewerId: viewer?.id ?? null };
+        quotaCharged = { viewerId: viewer?.id ?? null, chargedAt: quota.chargedAt };
       }
     }
   }
   const refundQuota = async () => {
     if (quotaCharged && opts.req) {
-      await refundPublicScanQuota(opts.req, { viewerId: quotaCharged.viewerId });
+      await refundPublicScanQuota(opts.req, { viewerId: quotaCharged.viewerId }, quotaCharged.chargedAt);
       quotaCharged = null; // at most one refund per consumed slot
     }
   };
 
-  // Entitlement gate: a private (installation-token) scan draws on the org's prepaid credits. Refuse
-  // up front when the org is out of credits (and not on an unlimited plan) so we never run paid
-  // inference we can't bill. Public scans and mock scans are free and skip this. The debit happens
-  // after the scan actually produces real inference (below) — a dedup or a degrade-to-mock run is free.
+  // Entitlement gate: a private (installation-token) scan draws on the org's prepaid credits. Public
+  // and mock scans are free and skip this.
   const metered = isMeteredScan(orgSlug, opts.mock);
+  let creditsRemaining: number | null = null;
+  let creditReserved = false;
   if (metered) {
     const ent = await checkScanEntitlement(orgSlug);
     if (!ent.allowed) return paymentRequired(ent.balance);
+    if (!ent.unlimited) {
+      // RESERVE one credit BEFORE running paid inference (mirrors /api/org/scan and /api/cron/rescan).
+      // checkScanEntitlement is a point-in-time read two concurrent scans both pass, so the old
+      // "scan first, debit after" ordering let the loser run real LLM inference and then fail to debit
+      // — a paid scan served free (the `unbilled` branch). consumeScanCredit's atomic conditional
+      // decrement makes the reservation the real gate; refunded below on degrade-to-mock / dedup / throw.
+      const res = await consumeScanCredit(orgSlug, {
+        repoFullName: parsed ? `${parsed.owner}/${parsed.repo}` : undefined,
+      }).catch(() => null);
+      if (!res || (!res.unlimited && !res.ok)) return paymentRequired(res?.balance ?? ent.balance);
+      creditReserved = res.ok && !res.unlimited;
+      creditsRemaining = res.balance;
+      if (creditReserved) await maybeAlertLowCredits(orgSlug, res.balance);
+    }
   }
+  // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). Updates
+  // the post-refund balance so the response header stays accurate. Idempotent via the `creditReserved` flag.
+  const refundCredit = async () => {
+    if (creditReserved) {
+      creditReserved = false;
+      const bal = await grantCredits(orgSlug, 1, { reason: "refund", actor: "system" }).catch(() => null);
+      if (typeof bal === "number") creditsRemaining = bal;
+    }
+  };
 
   // Pass the head sha resolved for the cache key so the scored commit matches the key (no SHA
   // drift if a push lands mid-scan). Null/SHA-less lookups pass undefined → default behavior.
@@ -161,9 +184,10 @@ async function runScan(
       : await runScan(opts.signal);
   } catch (err) {
     // The scan delivered nothing — invalid URL / 404 / upstream failure / rate limit / client
-    // abort. Refund the weekly slot before handleError maps the failure: a typo or a mid-scan
-    // refresh must not burn one of the anonymous tier's 3 free slots.
+    // abort. Refund both the weekly slot AND any reserved credit before handleError maps the failure:
+    // a typo or a mid-scan refresh must not burn a free slot or a prepaid credit.
     await refundQuota();
+    await refundCredit();
     throw err;
   }
   // Don't poison the shared `::llm` cache entry with a deterministic mock report produced by a
@@ -173,9 +197,12 @@ async function runScan(
   // report came from the requested engine (an intentional mock scan legitimately keys `::mock`).
   const degradedToMock = report.engine.provider === "mock" && !opts.mock;
   // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not the
-  // product the slot pays for — refund it, mirroring the credit rule ("a degrade-to-mock run is
-  // free"). The quota headers below may overstate usage by this one refunded slot (soft gate).
-  if (degradedToMock) await refundQuota();
+  // product the slot pays for — refund both the weekly slot and any reserved credit ("a degrade-to-mock
+  // run is free"). The quota headers below may overstate usage by this one refunded slot (soft gate).
+  if (degradedToMock) {
+    await refundQuota();
+    await refundCredit();
+  }
   // Don't pin a low-coverage scan under the commit key for the full TTL. Per-file fetch failures
   // (raw-host hiccup / file timeouts) degrade silently to lower coverage WITHOUT failing the LLM,
   // so a transient blip would otherwise serve a degraded snapshot to every later scanner of this
@@ -185,13 +212,11 @@ async function runScan(
 
   let deduped = false;
   let persistedOk = true;
-  let scanId: string | undefined;
   if (isDbConfigured()) {
     try {
       // Persist the conditional-request ETag alongside the scan so the next re-scan stays cheap.
       const persisted = await persistScanReport(report, { orgSlug, headEtag: lookup?.etag ?? undefined });
       deduped = persisted?.deduped ?? false;
-      scanId = persisted?.scanId;
       if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
         console.warn("[scan] persisted with partial write failures", {
           repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
@@ -211,51 +236,21 @@ async function runScan(
     }
   }
 
-  // Debit one credit for a metered private scan that actually ran real inference. A degrade-to-mock
-  // (transient LLM failure) produced no paid inference, so it isn't charged. Best-effort: a debit
-  // hiccup must not fail a scan the user already received — it's logged for reconciliation.
-  let creditsRemaining: number | null = null;
-  let unbilled = false;
-  if (metered && report.engine.provider !== "mock") {
-    const debit = await consumeScanCredit(orgSlug, {
-      repoFullName: parsed ? `${parsed.owner}/${parsed.repo}` : undefined,
-      scanId,
-    }).catch((err) => {
-      console.error("[scan] credit debit failed", err);
-      return null;
-    });
-    // ok:false means the atomic conditional decrement found the balance already at zero — a
-    // concurrent scan won the race after our optimistic entitlement check. The inference already
-    // ran and the user gets the report, but nothing was billed: surface it for reconciliation
-    // rather than silently serving paid inference for free.
-    if (debit && !debit.ok && !debit.unlimited) {
-      unbilled = true;
-      console.warn("[scan] metered scan ran but debit failed — unbilled", {
-        org: orgSlug,
-        repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
-        scanId,
-      });
-    }
-    if (debit) creditsRemaining = debit.balance;
-    // Proactive lifecycle push: a debit landing the balance on the low-water mark (or zero)
-    // fires a low-credits alert — never throws, no-op without a configured sink. Deliberately
-    // not tied to the client's abort signal: the debit is a server-side fact either way.
-    if (debit?.ok && !debit.unlimited) await maybeAlertLowCredits(orgSlug, debit.balance);
-  }
+  // The credit was RESERVED before inference (above). Refund it when this commit was already scored
+  // (`deduped` — no new scored row), mirroring /api/org/scan and cron rescan ("a dedup run is free").
+  // degrade-to-mock and throw already refunded above. A real, newly-scored metered scan keeps its charge.
+  if (deduped) await refundCredit();
 
-  // x-ascent-dedup: "hit" means this commit was already scored, so no new row was written and no
-  // extra usage was billed (the report reflects the existing snapshot).
+  // x-ascent-dedup: "hit" means this commit was already scored, so no new row was written and the
+  // reserved credit was refunded (the report reflects the existing snapshot).
   // x-ascent-persisted: "false" means the scan was computed and returned but NOT saved (rolled back).
-  // x-ascent-credits-remaining: the org's prepaid balance after this metered scan's debit.
+  // x-ascent-credits-remaining: the org's prepaid balance after this metered scan's reservation/refund.
   const headers: Record<string, string> = {
     "x-ascent-cache": "miss",
     "x-ascent-dedup": deduped ? "hit" : "miss",
   };
   if (!persistedOk) headers["x-ascent-persisted"] = "false";
   if (creditsRemaining !== null) headers["x-ascent-credits-remaining"] = String(creditsRemaining);
-  // x-ascent-unbilled: the metered scan ran real inference but the debit found no credit to take
-  // (lost a race with a concurrent scan) — observable signal for billing reconciliation.
-  if (unbilled) headers["x-ascent-unbilled"] = "true";
   // Free public scans left in this IP's rolling weekly window (after this scan), so the UI can warn
   // before the gate trips. Only present when the weekly gate actually enforced (anonymous public).
   if (quotaRemaining !== null) headers["x-ascent-quota-remaining"] = String(quotaRemaining);
