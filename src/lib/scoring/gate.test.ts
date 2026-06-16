@@ -49,3 +49,26 @@ describe("security gate", () => {
     expect(res.failures.some((f) => f.code === "posture")).toBe(true);
   });
 });
+
+describe("empty/zero security floor + fail-closed dimensions (CIGATE #2, #3)", () => {
+  it("?min_security= (empty) does NOT request a security floor — no always-pass gate", () => {
+    const pol = policyFromParams(new URLSearchParams("min_security="), "org");
+    expect(pol.minDimensionFor?.D9).toBeUndefined();
+  });
+
+  it("?min_security=0 does NOT request a security floor", () => {
+    const pol = policyFromParams(new URLSearchParams("min_security=0"), "org");
+    expect(pol.minDimensionFor?.D9).toBeUndefined();
+  });
+
+  it("?min_security=70 still sets a real floor (a positive value IS a request)", () => {
+    expect(policyFromParams(new URLSearchParams("min_security=70"), "org").minDimensionFor?.D9).toBe(70);
+  });
+
+  it("an unscored (NaN) dimension FAILS the gate fail-closed, not silently passes", () => {
+    const pol = policyFromParams(new URLSearchParams("min_dimension=40"), "org");
+    const res = evaluateGate(report({ d9: NaN }), pol);
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "dimension" && f.message.includes("D9") && /unscored/i.test(f.message))).toBe(true);
+  });
+});

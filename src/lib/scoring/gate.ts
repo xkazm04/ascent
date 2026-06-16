@@ -36,6 +36,16 @@ export interface GateResult {
 
 const levelNum = (id: LevelId) => Number(id.slice(1));
 
+/**
+ * Fail-closed dimension floor check: a non-finite (missing / NaN) score is treated as BELOW any floor.
+ * A plain `score < min` quietly evaluates `undefined < 40` / `NaN < 40` to `false`, so an UNSCORED
+ * dimension (partial LLM output, a new dimension the model skipped) would slip the gate as if passing —
+ * letting the exact Security/Testing dimension a gate exists to enforce be bypassed by absence of data.
+ */
+function belowFloor(score: number, min: number): boolean {
+  return !Number.isFinite(score) || score < min;
+}
+
 function isLevelId(v: string | null | undefined): v is LevelId {
   return v != null && LEVELS.some((l) => l.id === v);
 }
@@ -111,10 +121,12 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
   }
   if (typeof pol.minDimension === "number") {
     const min = pol.minDimension;
-    for (const d of report.dimensions.filter((x) => x.score < min)) {
+    for (const d of report.dimensions.filter((x) => belowFloor(x.score, min))) {
       failures.push({
         code: "dimension",
-        message: `${d.id} ${d.name} scored ${d.score}, below the required ${min}.`,
+        message: Number.isFinite(d.score)
+          ? `${d.id} ${d.name} scored ${d.score}, below the required ${min}.`
+          : `${d.id} ${d.name} is unscored — failing the ${min} floor (fail-closed).`,
       });
     }
   }
@@ -122,12 +134,15 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
     const floors = pol.minDimensionFor;
     for (const d of report.dimensions) {
       const floor = floors[d.id];
+      if (typeof floor !== "number") continue;
       // Skip dims already failed by the global minDimension to avoid a duplicate failure for the same dim.
-      const alreadyFailed = typeof pol.minDimension === "number" && d.score < pol.minDimension;
-      if (typeof floor === "number" && d.score < floor && !alreadyFailed) {
+      const alreadyFailed = typeof pol.minDimension === "number" && belowFloor(d.score, pol.minDimension);
+      if (belowFloor(d.score, floor) && !alreadyFailed) {
         failures.push({
           code: "dimension",
-          message: `${d.id} ${d.name} scored ${d.score}, below the required ${floor}.`,
+          message: Number.isFinite(d.score)
+            ? `${d.id} ${d.name} scored ${d.score}, below the required ${floor}.`
+            : `${d.id} ${d.name} is unscored — failing the ${floor} floor (fail-closed).`,
         });
       }
     }
@@ -169,18 +184,29 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
   }
   if (typeof policy.minDimension === "number") {
     const min = policy.minDimension;
-    for (const d of snap.dims.filter((x) => x.score < min)) {
-      failures.push({ code: "dimension", message: `${d.dimId} ${dimName(d.dimId)} scored ${d.score}, below the required ${min}.` });
+    for (const d of snap.dims.filter((x) => belowFloor(x.score, min))) {
+      failures.push({
+        code: "dimension",
+        message: Number.isFinite(d.score)
+          ? `${d.dimId} ${dimName(d.dimId)} scored ${d.score}, below the required ${min}.`
+          : `${d.dimId} ${dimName(d.dimId)} is unscored — failing the ${min} floor (fail-closed).`,
+      });
     }
   }
   if (policy.minDimensionFor) {
     const floors = policy.minDimensionFor;
     for (const d of snap.dims) {
       const floor = floors[d.dimId as DimensionId];
+      if (typeof floor !== "number") continue;
       // Skip dims already failed by the global minDimension to avoid a duplicate failure for the same dim.
-      const alreadyFailed = typeof policy.minDimension === "number" && d.score < policy.minDimension;
-      if (typeof floor === "number" && d.score < floor && !alreadyFailed) {
-        failures.push({ code: "dimension", message: `${d.dimId} ${dimName(d.dimId)} scored ${d.score}, below the required ${floor}.` });
+      const alreadyFailed = typeof policy.minDimension === "number" && belowFloor(d.score, policy.minDimension);
+      if (belowFloor(d.score, floor) && !alreadyFailed) {
+        failures.push({
+          code: "dimension",
+          message: Number.isFinite(d.score)
+            ? `${d.dimId} ${dimName(d.dimId)} scored ${d.score}, below the required ${floor}.`
+            : `${d.dimId} ${dimName(d.dimId)} is unscored — failing the ${floor} floor (fail-closed).`,
+        });
       }
     }
   }
@@ -204,7 +230,10 @@ export function policyFromParams(params: URLSearchParams, archetype: RepoArchety
   // Security gate: `?security=1` (default D9 floor) or `?min_security=N` (explicit floor). Both pin a
   // per-dimension floor on Security (D9) AND forbid the "ungoverned" posture — the security policy.
   const minSecurity = Number(params.get("min_security"));
-  const hasMinSecurity = Number.isFinite(minSecurity) && params.get("min_security") != null;
+  // Require a POSITIVE floor: `?min_security=` (empty → Number("")=0) and `?min_security=0` both parse
+  // to a finite 0, which used to read as "security floor requested, floor=0" — an always-pass gate that
+  // still LOOKED like a security gate. Treat empty/0/absent as "not requested" (a real floor is > 0).
+  const hasMinSecurity = Number.isFinite(minSecurity) && minSecurity > 0;
   const wantSecurity = params.get("security") === "1" || params.get("security") === "true" || hasMinSecurity;
   const securityFloor = hasMinSecurity ? minSecurity : DEFAULT_SECURITY_MIN;
 
