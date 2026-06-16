@@ -14,7 +14,11 @@ function gateInactive(): boolean {
   const configured = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   );
-  const bypass = process.env.ASCENT_AUTH_BYPASS === "1" || process.env.ASCENT_AUTH_BYPASS === "true";
+  // Mirror authBypassEnabled(): the dev bypass is hard-disabled in production so a stray env var can't
+  // turn the wall off. (Here it only governs cookie refresh, but keep the two checks consistent.)
+  const bypass =
+    process.env.NODE_ENV !== "production" &&
+    (process.env.ASCENT_AUTH_BYPASS === "1" || process.env.ASCENT_AUTH_BYPASS === "true");
   return !configured || bypass;
 }
 

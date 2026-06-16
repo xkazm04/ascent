@@ -21,8 +21,11 @@ export interface Viewer {
 }
 
 /** Dev/local escape hatch: when set, every gate passes as this synthetic viewer, so a developer
- *  can exercise all functionality without signing in. Default OFF. */
+ *  can exercise all functionality without signing in. Default OFF, and HARD-DISABLED in production:
+ *  a single stray `ASCENT_AUTH_BYPASS` env var must never be able to drop the entire login wall on a
+ *  real deployment. Demo/e2e boxes that want it open run with NODE_ENV != "production". */
 export function authBypassEnabled(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
   const v = process.env.ASCENT_AUTH_BYPASS;
   return v === "1" || v === "true";
 }
