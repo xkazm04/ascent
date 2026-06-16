@@ -79,12 +79,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ ...pr, path: artifact.path });
   } catch (err) {
     if (err instanceof AppApiError) {
-      // 403 → installation lacks write scope; 404 → repo/branch gone. Surface a clear status.
-      const status = err.status === 403 || err.status === 404 ? err.status : 502;
+      // 403 → installation lacks write scope; 404 → repo/branch gone; 409 → the target file already
+      // exists on the base branch (we refuse to overwrite real content with a starter). Surface clearly.
+      const status =
+        err.status === 403 || err.status === 404 || err.status === 409 ? err.status : 502;
       const hint =
         err.status === 403
           ? "The installation lacks contents/PR write access — update the GitHub App's permissions."
-          : "GitHub rejected the write. Check the repo and base branch.";
+          : err.status === 409
+            ? "That file already exists in the repo — Ascent won't overwrite it with a starter. Edit the existing file instead."
+            : "GitHub rejected the write. Check the repo and base branch.";
       return NextResponse.json({ error: hint }, { status });
     }
     if (err instanceof GitHubError) return NextResponse.json({ error: err.message }, { status: err.status ?? 502 });

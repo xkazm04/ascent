@@ -72,6 +72,21 @@ export async function openDraftPr(input: OpenPrInput): Promise<OpenPrResult> {
   const base = await resolveBaseBranch(token, owner, repo, input.base);
   const baseSha = await refSha(token, owner, repo, base);
 
+  // SAFETY: never clobber a file that already exists on the BASE branch. This opens a PR seeding a
+  // STARTER artifact, so if the repo already has a real file at this path (SECURITY.md, ci.yml,
+  // AGENTS.md, …) the branch — cut from base — carries it, and the create-or-update PUT below would
+  // replace it with a TODO scaffold. Merging the PR then DELETES the customer's real content (and a
+  // 25-repo batch fans that out fleet-wide from one click). A file existing only on OUR generated
+  // branch from a prior run is fine (idempotent re-seed), so this checks BASE, not the branch.
+  const baseFileSha = await existingFileSha(token, owner, repo, path, base);
+  if (baseFileSha) {
+    throw new AppApiError(
+      409,
+      path,
+      `"${path}" already exists on ${base} — refusing to overwrite it with a starter artifact.`,
+    );
+  }
+
   // Create the branch off base; tolerate "already exists" so a re-run reuses it.
   try {
     await githubAppFetch(`/repos/${owner}/${repo}/git/refs`, token, {
