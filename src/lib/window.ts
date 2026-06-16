@@ -62,6 +62,11 @@ export interface ResolvedWindow {
 
 const DAY = 86_400_000;
 
+/** Local midnight of the calendar day containing `d` (zeroes h/m/s/ms). */
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 /** First day of the calendar quarter containing `now`, at local midnight. */
 function startOfQuarter(now: Date): Date {
   const q = Math.floor(now.getMonth() / 3);
@@ -89,10 +94,14 @@ export function resolveWindow(
   const key: RangeKey = (RANGE_OPTIONS.some((o) => o.key === raw) ? raw : DEFAULT_RANGE) as RangeKey;
 
   switch (key) {
+    // Snap the rolling-window start to LOCAL MIDNIGHT (like quarter/custom), not a raw N×86.4M-ms
+    // offset from "right now". A bare offset made the baseline an arbitrary wall-clock instant (14:37…)
+    // that flickered within a calendar day and drifted an hour across DST — so a boundary-day scan
+    // landed on the wrong side of `start` depending on the hour the page rendered.
     case "30d":
-      return { key, start: new Date(now.getTime() - 30 * DAY), end: null, title: "Last 30 days", comparisonLabel: "vs 30d ago", reviewTitle: "Last 30 days in review" };
+      return { key, start: startOfDay(new Date(now.getTime() - 30 * DAY)), end: null, title: "Last 30 days", comparisonLabel: "vs 30d ago", reviewTitle: "Last 30 days in review" };
     case "90d":
-      return { key, start: new Date(now.getTime() - 90 * DAY), end: null, title: "Last 90 days", comparisonLabel: "vs 90d ago", reviewTitle: "Last 90 days in review" };
+      return { key, start: startOfDay(new Date(now.getTime() - 90 * DAY)), end: null, title: "Last 90 days", comparisonLabel: "vs 90d ago", reviewTitle: "Last 90 days in review" };
     case "quarter":
       return { key, start: startOfQuarter(now), end: null, title: "This quarter", comparisonLabel: "vs quarter start", reviewTitle: "Quarter in review" };
     case "all":

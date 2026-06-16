@@ -254,7 +254,11 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   let deltas: OrgRollup["deltas"] = null;
   if (start) {
     const priorScans = await prisma.scan.findMany({
-      where: { repo: { orgId: org.id, ...seg }, scannedAt: { lte: start } },
+      // Half-open window: the baseline is scans STRICTLY before `start`, while the in-window trend uses
+      // `gte: start` (above). A scan whose timestamp is exactly `start` (e.g. seed/snapshot data at a
+      // clean local midnight) previously counted as BOTH the baseline and the first in-window point —
+      // comparing it against itself for a spurious 0-delta. `lt` makes each scan land on one side only.
+      where: { repo: { orgId: org.id, ...seg }, scannedAt: { lt: start } },
       select: { repoId: true, overallScore: true, adoptionScore: true, rigorScore: true },
       orderBy: { scannedAt: "desc" },
     });
