@@ -1,0 +1,1530 @@
+[
+ {
+  "slug": "ai-standard-skill",
+  "title": "SKILL.md code fence can be closed early by a generated file body (four-backtick fence is not collision-proof)",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "template generation / string escaping",
+  "file": "src/lib/onboarding/skill.ts:131-137"
+ },
+ {
+  "slug": "ai-standard-skill",
+  "title": "Content-Disposition filename is built from unsanitized request input (header injection / corrupt download name)",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "route input validation / header injection",
+  "file": "src/app/api/report/skill/route.ts:54-56,60"
+ },
+ {
+  "slug": "ai-standard-skill",
+  "title": "Skill frontmatter `description` is a single YAML line but only quotes are escaped \u2014 a newline in owner/name/level breaks the frontmatter",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "template generation / string escaping",
+  "file": "src/lib/onboarding/skill.ts:50-62"
+ },
+ {
+  "slug": "ai-standard-skill",
+  "title": "`ARCHETYPE_LABEL[report.archetype]` and an empty `dimensions` array render literal \"undefined\" / a header-only table",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "missing/empty report data rendering",
+  "file": "src/lib/onboarding/skill.ts:99,104-106"
+ },
+ {
+  "slug": "ai-standard-skill",
+  "title": "`recordSkillGeneration` is fire-and-forget with a doubly-swallowed error \u2014 generation history can silently never persist",
+  "sev": "Low",
+  "lens": "bug-hunter",
+  "cat": "silent failure / swallowed errors",
+  "file": "src/app/api/report/skill/route.ts:53"
+ },
+ {
+  "slug": "app-shell-seo",
+  "title": "/api/health leaks raw DB error strings to unauthenticated callers",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Information disclosure / health endpoint",
+  "file": "src/app/api/health/route.ts:35"
+ },
+ {
+  "slug": "app-shell-seo",
+  "title": "robots disallows /connect and /onboarding while sitemap advertises them",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "SEO route generation / crawl-directive conflict",
+  "file": "src/app/sitemap.ts:16,19 (vs src/app/robots.ts:17)"
+ },
+ {
+  "slug": "app-shell-seo",
+  "title": "error.tsx drops all brand chrome \u2014 visually inconsistent with not-found",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "Error-page visual quality / chrome consistency",
+  "file": "src/app/error.tsx:29-58"
+ },
+ {
+  "slug": "app-shell-seo",
+  "title": "EmptyState page variant title is an unconditional <h1> \u2014 duplicate/again-missing landmark",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "Accessibility / heading semantics",
+  "file": "src/components/EmptyState.tsx:48,58-59"
+ },
+ {
+  "slug": "app-shell-seo",
+  "title": "opengraph-image uses a literal \"5-level\"/\"9 dimensions\" string instead of the rubric \u2014 drift risk the rest of the shell avoids",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "SEO/OG content consistency",
+  "file": "src/app/opengraph-image.tsx:55-56,61"
+ },
+ {
+  "slug": "backlog-management",
+  "title": "Status \u2192 \"Done\"/\"Dismissed\" instantly removes the item from the only board surface, with no confirm and no way back",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "State-transition integrity / irreversible action",
+  "file": "src/components/org/BacklogItemRow.tsx:138-151 (status select offers all 4 statuses); src/lib/db/org-insights.ts:389 (`if (!ACTIVE.has(r.status)) continue;`)"
+ },
+ {
+  "slug": "backlog-management",
+  "title": "`refresh()` swallows a failed re-fetch \u2014 board goes stale after a successful save with zero feedback",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Silent failure",
+  "file": "src/components/org/BacklogPanel.tsx:29-35"
+ },
+ {
+  "slug": "backlog-management",
+  "title": "Overdue / due-date math is frozen at page-load and never recomputes client-side",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Date/overdue math (staleness)",
+  "file": "src/components/org/backlogShared.ts:32-38 (`dueLabel` reads server `item.dueInDays`); src/components/org/BacklogItemRow.tsx:105,129 (`item.overdue` styling); src/lib/db/org-insights.ts:391-393 (computed once with `now`)"
+ },
+ {
+  "slug": "backlog-management",
+  "title": "Group-by segmented control exposes no selected state to assistive tech",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "Accessibility (a11y)",
+  "file": "src/components/org/BacklogPanel.tsx:113-126"
+ },
+ {
+  "slug": "backlog-management",
+  "title": "Inline save / PR / promote errors are not announced (no live region)",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "Accessibility / error feedback",
+  "file": "src/components/org/BacklogItemRow.tsx:213-214 (`error` and `prError` `<p>`s); also the silent-`refresh` gap from #2 has no surface at all"
+ },
+ {
+  "slug": "ci-gate",
+  "title": "Default mock gate can return an LLM-scored verdict from cache (cross-mode read)",
+  "sev": "Critical",
+  "lens": "bug-hunter",
+  "cat": "state-corruption / cache-key-collision",
+  "file": "src/app/api/gate/[owner]/[repo]/route.ts:55"
+ },
+ {
+  "slug": "ci-gate",
+  "title": "`?min_security=` (empty/zero) silently disables the security floor it claims to set",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "validation-gap / silent-failure",
+  "file": "src/lib/scoring/gate.ts:206-209"
+ },
+ {
+  "slug": "ci-gate",
+  "title": "Dimensions with a missing/NaN score slip past every floor check",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "edge-case / success-theater",
+  "file": "src/lib/scoring/gate.ts:114 (also :172, and gate-comment.ts:82)"
+ },
+ {
+  "slug": "ci-gate",
+  "title": "Failing-dimension table crashes the comment build when a dimension has no `gaps`",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "missing-null-check / unhandled-exception",
+  "file": "src/lib/scoring/gate-comment.ts:91"
+ },
+ {
+  "slug": "ci-gate",
+  "title": "Unescaped failure/policy strings are interpolated into PR-comment markdown",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "injection / output-integrity",
+  "file": "src/lib/scoring/gate-comment.ts:74, 92, 119"
+ },
+ {
+  "slug": "connect-repo-selection",
+  "title": "Per-row toggles race the bulk-op rollback (no disabling during `bulkBusy`)",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Race condition / optimistic-update clobber",
+  "file": "src/components/connect/InstallationRepos.tsx:245-277 (and RepoRow checkbox at :441-451)"
+ },
+ {
+  "slug": "connect-repo-selection",
+  "title": "Bulk watch shows a green \"Now watching N repos\" even when every individual repo failed",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Missing error handling on partial-failure path",
+  "file": "src/components/connect/InstallationRepos.tsx:261-270"
+ },
+ {
+  "slug": "connect-repo-selection",
+  "title": "Per-row `watch` checkbox and `Scan` link are not distinguishable to assistive tech",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "Accessibility \u2014 ambiguous control labels in a repeated list",
+  "file": "src/components/connect/RepoRow.tsx:54-62, :79-84"
+ },
+ {
+  "slug": "connect-repo-selection",
+  "title": "Empty-filter state drops the filter bar, trapping the user in a zero-results view",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "Filter UX / empty-state recovery",
+  "file": "src/components/connect/InstallationRepos.tsx:437-454"
+ },
+ {
+  "slug": "connect-repo-selection",
+  "title": "Loading skeleton omits the filter/bulk bars, causing a layout shift on data arrival",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "Visual consistency / CLS on load",
+  "file": "src/components/connect/RepoListSkeleton.tsx:3-25 (rendered at InstallationRepos.tsx:310)"
+ },
+ {
+  "slug": "credits-entitlements",
+  "title": "Negative-adjustment grant corrupts the ledger and clamps non-atomically",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Money integrity / ledger invariant / race",
+  "file": "src/lib/db/credits.ts:96-118"
+ },
+ {
+  "slug": "credits-entitlements",
+  "title": "Owner-gated manual grant lets an owner mint unlimited free private scans",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Authz / monetization bypass",
+  "file": "src/app/api/org/credits/grant/route.ts:36-49"
+ },
+ {
+  "slug": "credits-entitlements",
+  "title": "/api/scan runs paid inference, then debits best-effort \u2014 concurrent scans serve paid LLM for free",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "TOCTOU double-spend / under-charge",
+  "file": "src/app/api/scan/route.ts:139-143, 219-238"
+ },
+ {
+  "slug": "credits-entitlements",
+  "title": "Slug case mismatch: authz lowercases, credit read/debit does not \u2014 silent no-op debits / 404 grants",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Data consistency / entitlement edge case",
+  "file": "src/lib/db/credits.ts:52, 98, 146, 152 (vs grant/route.ts:36,44 and credits.ts:183)"
+ },
+ {
+  "slug": "credits-entitlements",
+  "title": "CreditsControl: shared busy flag, no success feedback, no aria-live for balance/errors",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "Action feedback / a11y",
+  "file": "src/components/org/CreditsControl.tsx:74-95, 124-135, 162-191"
+ },
+ {
+  "slug": "data-retention-purge",
+  "title": "RecommendationEvent rows are never deleted \u2014 every purge leaves permanent FK orphans",
+  "sev": "Critical",
+  "lens": "bug-hunter",
+  "cat": "Partial delete / dangling FK orphans",
+  "file": "src/lib/db/retention.ts:137-142"
+ },
+ {
+  "slug": "data-retention-purge",
+  "title": "Stale per-row delete loop runs outside a transaction \u2014 a timeout mid-graph corrupts scans",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Partial delete / non-atomic destructive op",
+  "file": "src/lib/db/retention.ts:137-142"
+ },
+ {
+  "slug": "data-retention-purge",
+  "title": "Scan \"newest N\" ranking trusts report-supplied `scannedAt` \u2014 can delete live newer scans",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Over-deletion / wrong window boundary",
+  "file": "src/lib/db/retention.ts:127-132"
+ },
+ {
+  "slug": "data-retention-purge",
+  "title": "Purge's own compliance audit entries get purged by the next run's window",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Retention boundary / self-erasing audit trail",
+  "file": "src/lib/db/retention.ts:225-242, 259-264"
+ },
+ {
+  "slug": "data-retention-purge",
+  "title": "Orphan audit sweep gated on the GLOBAL default \u2014 disabled per-org policy can't bound org-less rows",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Retention gap / unbounded growth on a delete path",
+  "file": "src/lib/db/retention.ts:259-262"
+ },
+ {
+  "slug": "database-client-schema",
+  "title": "DSQL-only cold start builds a Prisma client with no datasource URL \u2014 synchronous seed client is dead until the async token refresh lands",
+  "sev": "Critical",
+  "lens": "bug-hunter",
+  "cat": "Prisma client wiring / DSQL cold start",
+  "file": "src/lib/db/client.ts:296-327 (specifically the seed at 314)"
+ },
+ {
+  "slug": "database-client-schema",
+  "title": "init.sql \u2194 schema.prisma parity test does not check indexes, so a future migration can silently ship an unindexed bootstrap",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "schema/init.sql drift / missing-index guard",
+  "file": "prisma/init.sql:340-536 vs src/lib/db/init-sql.test.ts:24-52"
+ },
+ {
+  "slug": "database-client-schema",
+  "title": "Fleet-wide org rollup filters Scan by `scannedAt` through a repo relation with no supporting index",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "missing index on hot query path",
+  "file": "src/lib/db/org-rollup.ts:220-227 and 256-260 (against schema `Scan` indexes at prisma/schema.prisma:304-306)"
+ },
+ {
+  "slug": "database-client-schema",
+  "title": "`findScanByScannedAt` dedup relies on exact-equality `scannedAt` matching with millisecond precision \u2014 silent duplicate Scan rows for sha-less reports",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "dedup correctness / nullable-column query semantics",
+  "file": "src/lib/db/scans-read.ts:51-60 (used by scans-persist.ts:137-140)"
+ },
+ {
+  "slug": "database-client-schema",
+  "title": "`dbHealthCheck` reports `ok:false` (not \"disabled\") in DSQL-only mode and its non-auth failure path never self-heals a dead connection",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "dbHealthCheck correctness",
+  "file": "src/lib/db/client.ts:407-428 (with isDbConfigured at 285-287)"
+ },
+ {
+  "slug": "executive-briefing",
+  "title": "Final PDF render failure surfaces as an unhandled 500 with a raw stack",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "error-handling / streaming-route",
+  "file": "src/app/api/org/briefing/pdf/route.ts:44"
+ },
+ {
+  "slug": "executive-briefing",
+  "title": "Strengths and \"Weakest dimensions\" overlap when the fleet has fewer than 6 scored dimensions",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "data-correctness / slicing",
+  "file": "src/lib/org/briefing.ts:172"
+ },
+ {
+  "slug": "executive-briefing",
+  "title": "Empty-data sections render a bare heading with no rows in the PDF",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "empty-state / PDF layout",
+  "file": "src/lib/pdf/briefing-document.tsx:125"
+ },
+ {
+  "slug": "executive-briefing",
+  "title": "Long briefings can break across pages mid-row; only Goals opt out of splitting",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "page-break / PDF layout",
+  "file": "src/lib/pdf/briefing-document.tsx:134"
+ },
+ {
+  "slug": "executive-briefing",
+  "title": "`min-w-0` missing on the MoveRow name container lets long repo names overflow the truncate",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "layout / truncation",
+  "file": "src/app/org/[slug]/executive/page.tsx:229"
+ },
+ {
+  "slug": "fleet-alerts-digests",
+  "title": "Digest cron has no idempotency guard \u2014 overlapping/retried runs double-send the weekly digest",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "idempotency / duplicate dispatch",
+  "file": "src/app/api/cron/digest/route.ts:54-95"
+ },
+ {
+  "slug": "fleet-alerts-digests",
+  "title": "Digest window baseline is unreachable for sub-weekly cadences \u2192 \"this week\" delta silently vanishes",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "date/window logic",
+  "file": "src/app/api/cron/digest/route.ts:49,83 (+ src/lib/db/org-rollup.ts:255-289)"
+ },
+ {
+  "slug": "fleet-alerts-digests",
+  "title": "Digest headline delta can contradict its own gainers/regressers lists",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "aggregate consistency",
+  "file": "src/app/api/cron/digest/route.ts:83-85 (delta vs movers)"
+ },
+ {
+  "slug": "fleet-alerts-digests",
+  "title": "`rollup.scannedCount === 0` skip is invisible in the response \u2014 empty fleets look identical to nothing-to-do",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "silent failure / observability",
+  "file": "src/app/api/cron/digest/route.ts:65,95-101"
+ },
+ {
+  "slug": "fleet-alerts-digests",
+  "title": "Org regression thresholds accept 1..100 but the digest never applies them, and credit-line threshold double-reads can disagree",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "config plumbing / edge case",
+  "file": "src/app/api/org/alerts/route.ts:30-35,117-124; src/app/api/cron/digest/route.ts:92-93"
+ },
+ {
+  "slug": "fleet-rollups-insights",
+  "title": "Rolling 30d/90d windows mix UTC-offset math with local-midnight, so deltas read against the wrong baseline near midnight / across DST",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "period-over-period window date math (timezone)",
+  "file": "src/lib/window.ts:93 (also :95)"
+ },
+ {
+  "slug": "fleet-rollups-insights",
+  "title": "Baseline boundary uses `<=`/`>=` on the same instant, double-counting a scan exactly at `start`",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "baseline date off-by-one / boundary overlap",
+  "file": "src/lib/db/org-rollup.ts:257 (baseline `lte: start`) vs :223 (trend `gte: start`)"
+ },
+ {
+  "slug": "fleet-rollups-insights",
+  "title": "`getOrgMovers` windowed baseline silently degrades to \"since first in-window scan\" with no flag, conflating period delta with first-ever delta",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "silent fallback / mover delta semantics",
+  "file": "src/lib/db/org-insights.ts:109"
+ },
+ {
+  "slug": "fleet-rollups-insights",
+  "title": "`forecastTrajectory` is fed the windowed `trend`, so short windows fit a slope over 1 day and project off near-noise",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "aggregation over single-scan / single-day windows",
+  "file": "src/lib/db/org-rollup.ts:243 (uses `trend` built from `allScans` filtered to the window, :220-240)"
+ },
+ {
+  "slug": "fleet-rollups-insights",
+  "title": "`dueBucketFor`/`daysUntil` bucket on UTC calendar days while the fleet's window math is local \u2014 overdue/this-week flips for non-UTC viewers",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "timezone boundary in date bucketing",
+  "file": "src/lib/db/org-insights.ts:223 (`daysUntil` \u2192 `Date.UTC(...)`), consumed at :234 / :391 / :465"
+ },
+ {
+  "slug": "github-app-webhooks",
+  "title": "Replay dedup + signature have no time bound and the seen-set is process-local \u2014 a captured valid delivery replays forever against any other/cold instance",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Webhook security / replay",
+  "file": "src/app/api/app/webhook/route.ts:74 (and :329, :337)"
+ },
+ {
+  "slug": "github-app-webhooks",
+  "title": "Token-cache repopulation race: a concurrent mint can re-cache a token for an installation that was just removed/suspended",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Concurrent-event race / token lifecycle",
+  "file": "src/lib/github/app.ts:171 (vs installations.ts:45 / app.ts:143)"
+ },
+ {
+  "slug": "github-app-webhooks",
+  "title": "Webhook reads and HMACs the entire raw body before any size guard \u2014 unauthenticated CPU/memory amplification",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Validation gap at the trust boundary / DoS",
+  "file": "src/app/api/app/webhook/route.ts:327"
+ },
+ {
+  "slug": "github-app-webhooks",
+  "title": "PR/push gate has a TOCTOU between `installationMatchesOwner` and the token mint, and re-confirms ownership via an unbounded GitHub call per delivery",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Concurrent-event race / unbounded external call",
+  "file": "src/app/api/app/webhook/route.ts:207 (and :309)"
+ },
+ {
+  "slug": "github-app-webhooks",
+  "title": "`check_run` re-run path acts on a fully attacker-supplied `head_sha` with no ownership re-confirmation beyond the shared check inside the gate",
+  "sev": "Low",
+  "lens": "bug-hunter",
+  "cat": "Validation gap / input trust",
+  "file": "src/app/api/app/webhook/route.ts:423"
+ },
+ {
+  "slug": "github-oauth-session",
+  "title": "Dev auth-bypass has no production guard \u2014 a single stray env var disables the entire login wall",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "auth / dev-bypass leaking into prod (privileged surface)",
+  "file": "src/lib/access.ts:25 (also src/proxy.ts:17)"
+ },
+ {
+  "slug": "github-oauth-session",
+  "title": "Supabase OAuth callback redirects against the internal `url.origin`, not the public origin",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "OAuth callback / proxy-aware origin handling",
+  "file": "src/app/auth/callback/route.ts:24 (and :30)"
+ },
+ {
+  "slug": "github-oauth-session",
+  "title": "`requireViewer` returns 401 JSON for unauthenticated browser navigations, never a sign-in redirect",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "silent auth failure / session-expiry UX on protected routes",
+  "file": "src/lib/access.ts:85"
+ },
+ {
+  "slug": "github-oauth-session",
+  "title": "Logout/revoke same-origin guard falls fully open when both Origin and Sec-Fetch-Site are absent",
+  "sev": "Low",
+  "lens": "bug-hunter",
+  "cat": "CSRF guard robustness",
+  "file": "src/lib/auth.ts:381 (`isSameOrigin`), used by logout/route.ts:23 and revoke-sessions/route.ts:19"
+ },
+ {
+  "slug": "github-oauth-session",
+  "title": "Supabase sign-in failure is swallowed to the console \u2014 the user clicks and nothing visibly happens",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "error messaging / loading-state on sign-in CTA",
+  "file": "src/components/SupabaseAuthButtons.tsx:72-77 (`SupabaseSignInButton.signIn`)"
+ },
+ {
+  "slug": "github-repo-data",
+  "title": "Org listing silently under-returns when forks/archived dominate, and never paginates",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "pagination cutoff / partial data",
+  "file": "src/lib/github/list.ts:45-66"
+ },
+ {
+  "slug": "github-repo-data",
+  "title": "Non-404 errors on the org path abort the user fallback and mask rate limits as \"not found\"",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "error handling / rate-limit misclassification",
+  "file": "src/lib/github/list.ts:48-67"
+ },
+ {
+  "slug": "github-repo-data",
+  "title": "Governance and commit-activity vanish silently on 403/429 rate limits",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "silent failure / swallowed error",
+  "file": "src/lib/github/governance.ts:53-88, 99-137"
+ },
+ {
+  "slug": "github-repo-data",
+  "title": "PR pagination can short-circuit on a partial GraphQL page, dropping requested PRs",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "pagination / partial-data interaction",
+  "file": "src/lib/github/graphql.ts:62-75, 124-138"
+ },
+ {
+  "slug": "github-repo-data",
+  "title": "Untrusted `repos[]` owner/name reach raw GitHub URLs unvalidated in org import",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "validation gap at trust boundary",
+  "file": "src/app/api/org/import/route.ts:141-150 (consumes src/lib/github/source.ts ingestion)"
+ },
+ {
+  "slug": "goals-initiatives",
+  "title": "Goal PATCH accepts any `status` string \u2014 no enum validation, corrupts the achieved/active state machine",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "input validation / db integrity",
+  "file": "src/app/api/org/goals/[id]/route.ts:25-35"
+ },
+ {
+  "slug": "goals-initiatives",
+  "title": "Goal progress meter shows \"movement\" but computes absolute position \u2014 a goal at its starting line reads 80\u201398% done",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "progress calculation / misleading metric",
+  "file": "src/lib/db/plan.ts:283"
+ },
+ {
+  "slug": "goals-initiatives",
+  "title": "Initiative `goalId` link is never validated against the org \u2014 cross-tenant / dangling foreign reference",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "authz / referential integrity",
+  "file": "src/app/api/org/initiatives/[id]/route.ts:34 (and POST: src/app/api/org/initiatives/route.ts:53)"
+ },
+ {
+  "slug": "goals-initiatives",
+  "title": "Initiative progress bar shows 0% for an empty scope and gives no signal that the bar is meaningless",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "progress visualization / empty state",
+  "file": "src/components/org/plan/InitiativesPanel.tsx:113,136"
+ },
+ {
+  "slug": "goals-initiatives",
+  "title": "Native form controls lack labels/ARIA \u2014 date pickers, status/goal selects, and the assignee input are unlabeled for assistive tech",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "accessibility (a11y)",
+  "file": "src/components/org/plan/GoalsPanel.tsx:170-207 (and InitiativesPanel.tsx:124-176)"
+ },
+ {
+  "slug": "investment-simulator",
+  "title": "`NaN` target passes validation and produces a silent no-op projection",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Input validation / simulation math",
+  "file": "src/app/api/org/simulate/route.ts:46 (and src/lib/scoring/orgsim.ts:113,127)"
+ },
+ {
+  "slug": "investment-simulator",
+  "title": "Rank-mode and fix `target` accept out-of-range / non-finite values, then silently clamp",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Input validation / range",
+  "file": "src/app/api/org/simulate/route.ts:36 (rank) and :46 (fixes)"
+ },
+ {
+  "slug": "investment-simulator",
+  "title": "Out-of-range fix target is clamped server-side but the echoed `fixes` disagree with the saved scenario",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Data consistency",
+  "file": "src/lib/scoring/orgsim.ts:113 (and Simulator.tsx:79, 168)"
+ },
+ {
+  "slug": "investment-simulator",
+  "title": "Number inputs allow out-of-range / NaN with no clamping and a display that lies",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "Input UX / live-update feedback",
+  "file": "src/components/org/plan/Simulator.tsx:250 (primary), :283 (extra legs)"
+ },
+ {
+  "slug": "investment-simulator",
+  "title": "Simulator controls have no labels and async result/error states aren't announced",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "Accessibility (a11y)",
+  "file": "src/components/org/plan/Simulator.tsx:242-257 (controls), :314 (error), :316 (result)"
+ },
+ {
+  "slug": "launch-fleet-map",
+  "title": "Interactive star links are invisible to screen readers (`role=\"img\"` swallows the subtree)",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "Accessibility (a11y / keyboard + screen reader)",
+  "file": "src/components/launch/ConstellationField.tsx:86"
+ },
+ {
+  "slug": "launch-fleet-map",
+  "title": "Star tap targets are ~15px on mobile \u2014 far below the minimum touch size",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "Mobile / responsiveness / touch ergonomics",
+  "file": "src/components/launch/ConstellationField.tsx:145"
+ },
+ {
+  "slug": "launch-fleet-map",
+  "title": "Loading skeleton conveys \"loading\" only via animation \u2014 gone under reduced motion",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "Loading states / prefers-reduced-motion",
+  "file": "src/components/launch/ConstellationField.tsx:109"
+ },
+ {
+  "slug": "launch-fleet-map",
+  "title": "State updates after unmount in scan + hydration fetches (no mounted/abort guard around setState)",
+  "sev": "Low",
+  "lens": "bug-hunter",
+  "cat": "State on unmount / async cleanup",
+  "file": "src/components/launch/FleetMap.tsx:100"
+ },
+ {
+  "slug": "launch-fleet-map",
+  "title": "Constellation lines & faint stars sit below perceptible contrast on the dark field",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "Color / contrast / visual hierarchy",
+  "file": "src/components/launch/ConstellationField.tsx:103"
+ },
+ {
+  "slug": "live-war-room",
+  "title": "Headline tiles and leaderboard don't scale up for a projected wall",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "large-screen readability / projection",
+  "file": "src/components/org/LiveWarRoomStat.tsx:53 (and src/components/org/LiveWarRoom.tsx:338, 368)"
+ },
+ {
+  "slug": "live-war-room",
+  "title": "Celebration fires only on *crossing* into AI-Native \u2014 silent on a re-run / loop where the seed already shows AI-Native",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "celebration trigger logic / milestone detection",
+  "file": "src/components/org/LiveWarRoom.tsx:175"
+ },
+ {
+  "slug": "live-war-room",
+  "title": "Movers ticker + celebrations spam screen readers via `aria-live=\"polite\"` on a large fleet",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "accessibility / live regions",
+  "file": "src/components/org/LiveWarRoomPanels.tsx:50 (and src/components/org/LiveWarRoomCelebrations.tsx:6)"
+ },
+ {
+  "slug": "live-war-room",
+  "title": "Posture-distribution bars are scaled to the *max bucket*, not the fleet total \u2014 misreads as a true distribution on the wall",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "visual hierarchy / data honesty",
+  "file": "src/components/org/LiveWarRoomPanels.tsx:6, 22"
+ },
+ {
+  "slug": "live-war-room",
+  "title": "Audio-context closer timers accumulate in `timersRef` during a long auto-loop wall session",
+  "sev": "Low",
+  "lens": "bug-hunter",
+  "cat": "memory leak / cleanup",
+  "file": "src/components/org/LiveWarRoom.tsx:113-114"
+ },
+ {
+  "slug": "llm-provider",
+  "title": "`LLM_PROVIDER=openai` / `claude-cli` silently serve mock scores with no \"model unavailable\" caveat",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "silent failure / success theater",
+  "file": "src/lib/llm/index.ts:107-110 (with src/lib/scan.ts:117, 278)"
+ },
+ {
+  "slug": "llm-provider",
+  "title": "OpenAI provider ignores an already-aborted client signal \u2014 issues (and bills) a doomed request",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "race condition / missing abort honoring",
+  "file": "src/lib/llm/openai.ts:38-41"
+ },
+ {
+  "slug": "llm-provider",
+  "title": "Bedrock empty/whitespace tool-input + empty text yields an unhelpful throw that masks a real answer shape",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "edge case / silent degrade",
+  "file": "src/lib/llm/bedrock.ts:101-129"
+ },
+ {
+  "slug": "llm-provider",
+  "title": "No range validation on `LLM_TEMPERATURE`, `BEDROCK_MAX_TOKENS`, or a negative `LLM_TIMEOUT_MS`",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "validation gap at config boundary",
+  "file": "src/lib/llm/config.ts:8-13 (consumed at gemini.ts:50 / bedrock.ts:74-75 / openai.ts:48; timeout at gemini.ts:16, bedrock.ts:28, openai.ts:19)"
+ },
+ {
+  "slug": "llm-provider",
+  "title": "`parseJsonLoose` fence path can return a partial fenced block before trying the full-text scan",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "edge case / parsing precedence",
+  "file": "src/lib/llm/json.ts:94-110"
+ },
+ {
+  "slug": "maturity-scoring",
+  "title": "Total detector failure silently scores a repo at L1 with no headline warning",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "silent failure / empty-set edge case",
+  "file": "src/lib/scoring/engine.ts:148-154 (with src/lib/analyze/index.ts:641-659 and src/lib/maturity/model.ts:227-237)"
+ },
+ {
+  "slug": "maturity-scoring",
+  "title": "A dimension absent from the archetype lens silently vanishes from the headline mean",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "weight normalization / state corruption",
+  "file": "src/lib/maturity/model.ts:232-236 (consumed at src/lib/scoring/engine.ts:153, 211, 260)"
+ },
+ {
+  "slug": "maturity-scoring",
+  "title": "Non-finite coverage is guarded in the blend math but propagates raw into `confidence`",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "NaN propagation / trust boundary",
+  "file": "src/lib/scoring/engine.ts:183 (vs. the guard at line 70-71)"
+ },
+ {
+  "slug": "maturity-scoring",
+  "title": "Fallback roadmap ranks gaps by raw signal score, contradicting the blended headline",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "state inconsistency / validation gap",
+  "file": "src/lib/scoring/recommendations.ts:146 (called from src/lib/scoring/engine.ts:161-163)"
+ },
+ {
+  "slug": "maturity-scoring",
+  "title": "PR/governance boosts mutate `failed`-detector dimensions, masking a measurement failure",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "state corruption / ordering",
+  "file": "src/lib/analyze/pulls.ts:178-225 and 252-269 (interaction with engine.ts:88-93 and types.ts:181-185)"
+ },
+ {
+  "slug": "members-access-control",
+  "title": "Supabase-wall mode grants every signed-in viewer OWNER on every org (member admin bypass)",
+  "sev": "Critical",
+  "lens": "bug-hunter",
+  "cat": "Authorization bypass / privilege escalation / cross-tenant IDOR",
+  "file": "src/lib/authz.ts:132 (also :39 requireOrgAccess, :68 canReadOrg branch)"
+ },
+ {
+  "slug": "members-access-control",
+  "title": "`org` slug from the client is trusted into role resolution without canonicalization on the write paths",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "IDOR / input trust",
+  "file": "src/app/api/org/members/route.ts:38, src/lib/authz.ts:139-145"
+ },
+ {
+  "slug": "members-access-control",
+  "title": "`last_owner` guard is not transactional \u2014 race lets the last owner be demoted/removed",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "TOCTOU / membership race",
+  "file": "src/lib/db/members.ts:110-124 (setMembershipRole), :145-150 (removeMembership)"
+ },
+ {
+  "slug": "members-access-control",
+  "title": "`setMembershipRole` upserts a brand-new User/Membership for *any* login string \u2014 no existence/identity validation",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Data integrity / authorization input",
+  "file": "src/lib/db/members.ts:103-124, src/app/api/org/members/route.ts:35-43"
+ },
+ {
+  "slug": "members-access-control",
+  "title": "OrgSwitcher: menu items lack proper listbox/disabled semantics and no busy feedback in the list",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "Accessibility / loading-state consistency",
+  "file": "src/components/OrgSwitcher.tsx:85-107 (menu), :64-71 (trigger)"
+ },
+ {
+  "slug": "onboarding-wizard",
+  "title": "An `error` SSE event with a clean stream end strands the wizard on \"scanning\" forever",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "step-machine / scan kickoff error handling",
+  "file": "src/components/onboarding/OnboardingFlow.tsx:281 (with src/components/onboarding/importScan.ts:113-120)"
+ },
+ {
+  "slug": "onboarding-wizard",
+  "title": "Credit fetch race: clicking \"Scan\" before credits resolve silently downgrades a paid org to a preview",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "concurrent kickoff race / preview-vs-real drift",
+  "file": "src/components/onboarding/OnboardingFlow.tsx:255 (race with 176-185)"
+ },
+ {
+  "slug": "onboarding-wizard",
+  "title": "No cross-step progress indicator or `aria-current` on the pick \u2192 select \u2192 scan machine",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "wizard step indicator / a11y",
+  "file": "src/components/onboarding/OnboardingFlow.tsx:319-385 (each phase renders standalone, no stepper)"
+ },
+ {
+  "slug": "onboarding-wizard",
+  "title": "Focus is never moved to the new step on phase transitions (focus management gap)",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "a11y / focus management",
+  "file": "src/components/onboarding/OnboardingFlow.tsx:339-385; src/components/onboarding/OnboardingSelectStep.tsx:43-48; src/components/onboarding/OnboardingScanStep.tsx:88-108"
+ },
+ {
+  "slug": "onboarding-wizard",
+  "title": "Invite \"Enter\" key bypasses the busy/empty guards the button enforces",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "per-control disabled/loading consistency",
+  "file": "src/components/onboarding/OnboardingScanStep.tsx:202 (vs button at 207-213)"
+ },
+ {
+  "slug": "org-import-scan-watchlist",
+  "title": "`/api/org/scan` has no claim/lock \u2014 concurrent \"Scan all\" runs double-scan and double-bill",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "idempotency / billing race",
+  "file": "src/app/api/org/scan/route.ts:111"
+ },
+ {
+  "slug": "org-import-scan-watchlist",
+  "title": "`/api/org/scan` lacks the cron's broken-install short-circuit \u2014 revoked install burns a reserve/refund cycle per private repo",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "error handling / wasted work + alert noise",
+  "file": "src/app/api/org/scan/route.ts:97"
+ },
+ {
+  "slug": "org-import-scan-watchlist",
+  "title": "`mapPool` aborts the whole batch on the first `fn` rejection and orphans in-flight work",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "bounded-concurrency partial-failure handling",
+  "file": "src/lib/pool.ts:32"
+ },
+ {
+  "slug": "org-import-scan-watchlist",
+  "title": "Credit refunded after `persistScanReport` throws, even though billable inference already ran",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "billing correctness",
+  "file": "src/app/api/org/scan/route.ts:160"
+ },
+ {
+  "slug": "org-import-scan-watchlist",
+  "title": "OrgScanButton scan progress/errors are invisible to screen readers (no live region / aria-busy)",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "accessibility / consistency",
+  "file": "src/components/org/OrgScanButton.tsx:106"
+ },
+ {
+  "slug": "org-overview-standing",
+  "title": "Selected time range does not carry across org tabs (and the remembered period is ignored everywhere but Overview)",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "time-range selection state",
+  "file": "src/app/org/[slug]/page.tsx:92 ; src/components/org/OrgNav.tsx:73-84 ; src/app/org/[slug]/security/page.tsx:25 ; src/app/org/[slug]/executive/page.tsx:27"
+ },
+ {
+  "slug": "org-overview-standing",
+  "title": "Two different \"current maturity\" numbers render side by side with no distinction",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "empty/standing rendering \u00b7 numeric consistency",
+  "file": "src/app/org/[slug]/page.tsx:189-195 ; src/components/org/PeriodSummary.tsx:31-36,56-58"
+ },
+ {
+  "slug": "org-overview-standing",
+  "title": "Active-pill text color hardcodes `#04070e` instead of the `text-on-accent` token",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "design-token consistency / theming",
+  "file": "src/components/org/TimeRangeSelector.tsx:65 ; src/components/org/SegmentSelector.tsx:54,69,72,74"
+ },
+ {
+  "slug": "org-overview-standing",
+  "title": "OrgNav lacks an accessible name; mobile fade can occlude the rightmost active tab",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "accessibility / responsive",
+  "file": "src/components/org/OrgNav.tsx:63,92-94"
+ },
+ {
+  "slug": "org-overview-standing",
+  "title": "Mobile overflow fade uses `from-ink` over a textured body background, leaving a flat seam",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "visual polish / responsive",
+  "file": "src/components/org/OrgNav.tsx:94 ; src/app/globals.css:31-36"
+ },
+ {
+  "slug": "pdf-llm-export",
+  "title": "renderToBuffer is unguarded \u2014 a render failure 500s the download with no fallback",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "error-handling / robustness",
+  "file": "src/app/api/report/pdf/route.ts:52"
+ },
+ {
+  "slug": "pdf-llm-export",
+  "title": "Unvalidated owner/name interpolated into the Content-Disposition filename",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "input-validation / header-correctness",
+  "file": "src/app/api/report/pdf/route.ts:53-57"
+ },
+ {
+  "slug": "pdf-llm-export",
+  "title": "\"Scoring by dimension\" header renders even when there are zero dimensions",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "empty-state / partial-data",
+  "file": "src/lib/pdf/report-document.tsx:116-126"
+ },
+ {
+  "slug": "pdf-llm-export",
+  "title": "CopyForLlm: aria-live on the button announces the label, not just the status change",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "accessibility",
+  "file": "src/components/CopyForLlm.tsx:43-59"
+ },
+ {
+  "slug": "pdf-llm-export",
+  "title": "CopyForLlm: no guard against empty/whitespace text + no disabled feedback window",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "ux / edge-case",
+  "file": "src/components/CopyForLlm.tsx:22-41"
+ },
+ {
+  "slug": "people-delivery-analytics",
+  "title": "`Promise.all` makes the whole Delivery page throw if any one rollup query errors",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "error handling / data fetch resilience",
+  "file": "src/app/org/[slug]/delivery/page.tsx:46-50"
+ },
+ {
+  "slug": "people-delivery-analytics",
+  "title": "ActivityChart axis labels mislead for a 1-week (or very short) series",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "empty/edge-data rendering",
+  "file": "src/app/org/[slug]/delivery/page.tsx:22-25"
+ },
+ {
+  "slug": "people-delivery-analytics",
+  "title": "Teams page is the only one of the three with no Export CSV (cross-page inconsistency)",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "cross-page consistency / feature parity",
+  "file": "src/app/org/[slug]/teams/page.tsx:133-137 (segment bar) vs contributors/page.tsx:55-60 and delivery/page.tsx:55-60"
+ },
+ {
+  "slug": "people-delivery-analytics",
+  "title": "Empty-state coverage is uneven across the three pages (sections silently vanish)",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "empty/loading states",
+  "file": "src/app/org/[slug]/delivery/page.tsx:81,121,173 and contributors/page.tsx:75,173"
+ },
+ {
+  "slug": "people-delivery-analytics",
+  "title": "Data tables lack semantic/a11y scaffolding (no scope, caption, or aria) and meters are non-textual",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "table accessibility / responsive",
+  "file": "src/components/org/ui.tsx:108-129 (OrgTable) used by contributors/page.tsx:107-144,161-193 and delivery/page.tsx:133-168"
+ },
+ {
+  "slug": "playbooks",
+  "title": "Optimistic apply/unapply swallow API failures \u2192 UI shows adoption the server never recorded",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "silent failure / state desync",
+  "file": "src/components/org/PlaybookCard.tsx:56 (and unapply :93)"
+ },
+ {
+  "slug": "playbooks",
+  "title": "POST /repos marks adoption for ANY repo string \u2014 no org/ownership validation (orphan adoption rows)",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "repo-assignment integrity / IDOR-adjacent",
+  "file": "src/app/api/org/playbooks/[id]/repos/route.ts:23 \u2192 src/lib/db/playbooks.ts:142 (applyPlaybook)"
+ },
+ {
+  "slug": "playbooks",
+  "title": "createPlaybook upserts a phantom Organization for any slug under open/public auth",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "data integrity / authz edge",
+  "file": "src/lib/db/playbooks.ts:74 (organization.upsert) \u2190 src/app/api/org/playbooks/route.ts:37"
+ },
+ {
+  "slug": "playbooks",
+  "title": "Repo picker (and \"Open draft PR\") silently disappears when every repo is applied or repoOptions is empty",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "empty/edge state / assignment UX",
+  "file": "src/components/org/PlaybookCard.tsx:180 (`available.length > 0 && \u2026`)"
+ },
+ {
+  "slug": "playbooks",
+  "title": "Destructive remove is a tiny low-contrast link with no confirm, no aria-label, and no failure handling",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "a11y / destructive-action UX / consistency",
+  "file": "src/components/org/PlaybookCard.tsx:118 (`remove` button) + src/components/org/PlaybooksPanel.tsx:68 (`remove()`)"
+ },
+ {
+  "slug": "practices-governance-adoption",
+  "title": "Starter \"apply\" silently overwrites a repo's existing real file with a TODO scaffold",
+  "sev": "Critical",
+  "lens": "bug-hunter",
+  "cat": "Data loss / overwrite safety (privileged write to customer repos)",
+  "file": "src/lib/github/write.ts:86-90 (driven by apply/route.ts:59-70, apply-batch/route.ts:90-101)"
+ },
+ {
+  "slug": "practices-governance-adoption",
+  "title": "Reused-branch / reused-PR path ignores the requested `base`, returning the wrong PR",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Idempotency / correctness on the write path",
+  "file": "src/lib/github/write.ts:75-107 (branch `ascent/<id>` from practice-artifact.ts:292)"
+ },
+ {
+  "slug": "practices-governance-adoption",
+  "title": "Governance \"closest to green\" failCount double-counts dimensions vs the deduped UI label",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Analytics / governance math edge case",
+  "file": "src/lib/org/governance.ts:148-154 (`failCount: result.failures.length`) vs gate.ts:170-189"
+ },
+ {
+  "slug": "practices-governance-adoption",
+  "title": "Batch \"Roll out to the fleet\" opens up to 25 real PRs with no preview or confirmation, all repos pre-selected",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "Destructive action without confirmation / loading-state safety",
+  "file": "src/components/org/PracticeApply.tsx:40, 56-76, 211-219"
+ },
+ {
+  "slug": "practices-governance-adoption",
+  "title": "Meters, repo select, and PR result feedback are invisible to assistive tech",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "Accessibility (WCAG 1.3.1 / 4.1.2 / 4.1.3)",
+  "file": "src/components/org/ui.tsx:170-196 (Meter); src/components/org/PracticeApply.tsx:122-137, 156-164, 220-240"
+ },
+ {
+  "slug": "quotas-rate-limiting",
+  "title": "Refund uses \"newest hit\" not \"the hit this request charged\" \u2014 concurrent refunds on a coalesced scan double-refund and under-count the bucket",
+  "sev": "Critical",
+  "lens": "bug-hunter",
+  "cat": "TOCTOU / refund race / quota bypass",
+  "file": "src/lib/public-scan-quota.ts:259 (`removeNewestHit`) consumed by :290-293 (`refundPublicScanQuota`)"
+ },
+ {
+  "slug": "quotas-rate-limiting",
+  "title": "`clientIp` trusts the right-most X-Forwarded-For hop, which is attacker-controlled on a direct/single-hop connection \u2014 per-request bucket minting bypasses both limiters",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "key derivation / IP spoofing / rate-limit + quota bypass",
+  "file": "src/lib/rate-limit.ts:18-27 (`clientIp`), used at :67-69 and public-scan-quota.ts:164"
+ },
+ {
+  "slug": "quotas-rate-limiting",
+  "title": "Per-instance in-memory rate limiter resets on every cold start \u2014 serverless/multi-instance makes the limiter effectively non-binding",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "in-memory vs persistent state / quota bypass on deploy",
+  "file": "src/lib/rate-limit.ts:29 (`const windows = new Map`), :32-44 (`hit`)"
+ },
+ {
+  "slug": "quotas-rate-limiting",
+  "title": "Refund/peek/consume compute `now`/window with `>` cutoff but a slot that ages out exactly at the boundary is treated inconsistently across consume vs peek timing",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "window-reset edge case / header staleness",
+  "file": "src/lib/public-scan-quota.ts:118 (`remaining` from consume) and the refund at :276-302"
+ },
+ {
+  "slug": "quotas-rate-limiting",
+  "title": "QuotaBanner: remaining-count copy and reset date have a11y + clarity gaps (live count not announced, locale-formatted date can mismatch the server window, low-contrast text)",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "a11y / limit-message clarity / visual treatment",
+  "file": "src/components/report/QuotaNotice.tsx:131-146 (`QuotaBanner`), :28-31 (`formatResetAt`)"
+ },
+ {
+  "slug": "repo-report-shell",
+  "title": "Active tab can point at an unmounted panel \u2192 blank report body",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "tab state / conditional rendering",
+  "file": "src/components/report/ReportView.tsx:144 (and the guards at :181, :195, :203, :247)"
+ },
+ {
+  "slug": "repo-report-shell",
+  "title": "Skeleton\u2192report layout shift: narrow `max-w-md` fallback under a `max-w-5xl` report",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "loading layout shift",
+  "file": "src/app/report/page.tsx:19 and src/app/report/[owner]/[repo]/page.tsx:74 (with src/components/report/ReportSkeleton.tsx)"
+ },
+ {
+  "slug": "repo-report-shell",
+  "title": "Inactive tabs carry `aria-controls` pointing at panels that aren't in the DOM",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "tab bar a11y (ARIA tabs pattern)",
+  "file": "src/components/report/ReportTabBar.tsx:55"
+ },
+ {
+  "slug": "repo-report-shell",
+  "title": "Error boundary \"Try again\" re-renders the same failing children \u2192 instant re-crash",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "error boundary correctness",
+  "file": "src/components/report/ReportErrorBoundary.tsx:31 (used at ReportView wrap, e.g. ReportClient.tsx:281 and [repo]/page.tsx:70)"
+ },
+ {
+  "slug": "repo-report-shell",
+  "title": "Freshness \"Scanned \u2026 ago\" ticker drifts on tab-visibility throttling and never realigns to wall clock",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "freshness control UX",
+  "file": "src/components/report/FreshnessControl.tsx:17"
+ },
+ {
+  "slug": "repositories-segments",
+  "title": "DELETE requires admin but the UI offers it to every member, then silently \"un-deletes\" on refresh",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "authz / role-mismatch + silent failure",
+  "file": "src/components/org/RepoSegmentsPanel.tsx:89 (and src/app/api/org/segments/[id]/route.ts:38)"
+ },
+ {
+  "slug": "repositories-segments",
+  "title": "Optimistic rename is never rolled back on a duplicate-name (409) \u2014 chip diverges from the DB",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "optimistic-update / state divergence",
+  "file": "src/components/org/RepoSegmentsPanel.tsx:125"
+ },
+ {
+  "slug": "repositories-segments",
+  "title": "createSegment upserts the org, so an unknown/typo'd slug silently materializes a new Organization",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "CRUD edge / data integrity",
+  "file": "src/lib/db/segments.ts:64"
+ },
+ {
+  "slug": "repositories-segments",
+  "title": "Empty-fleet dead-end loop: Segments page sends you to Repositories to create a segment, but that page is blank with no repos",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "empty-state / navigation dead-end",
+  "file": "src/app/org/[slug]/segments/page.tsx:74 (and src/app/org/[slug]/repositories/page.tsx:15)"
+ },
+ {
+  "slug": "repositories-segments",
+  "title": "Compare picker lets B = A; the duplicate selection is silently overridden server-side",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "selection UX / silent correction",
+  "file": "src/components/org/SegmentComparePicker.tsx:41 (and src/app/org/[slug]/segments/page.tsx:94)"
+ },
+ {
+  "slug": "roadmap-recommendation",
+  "title": "Any caller can mutate every \"public\"-org recommendation's status, assignee, due-date, and audit/event trail",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "Authorization / cross-tenant write (IDOR)",
+  "file": "src/app/api/recommendations/[id]/route.ts:38-41 (gate) via src/lib/authz.ts:41 (`if (slug === PUBLIC_ORG) return null;`)"
+ },
+ {
+  "slug": "roadmap-recommendation",
+  "title": "A no-op status change reports success and announces a change that was never recorded",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Event-trail integrity / silent no-op",
+  "file": "src/lib/db/scans-recommendations.ts:99-100 (`if (events.length === 0) return toPersistedRec(current);`) + src/app/api/recommendations/[id]/route.ts:97-98"
+ },
+ {
+  "slug": "roadmap-recommendation",
+  "title": "Retry/optimistic path can desync the `<select>` from server state on overlapping edits",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "Optimistic update / state consistency",
+  "file": "src/components/report/RecommendationTracker.tsx:75-120 (esp. 81-89, 104, 194)"
+ },
+ {
+  "slug": "roadmap-recommendation",
+  "title": "Drag-reorder is implied but absent; the \"sandbox\" can't reorder or persist roadmap order, and roadmap ordering isn't keyboard-operable",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "UX / feature-gap / a11y consistency",
+  "file": "src/components/report/RoadmapSandbox.tsx:3-8 & 197 (ReportView.tsx) \"drag dimensions / drag-reorder\" framing vs. src/components/report/RoadmapPanel.tsx:108-109 (`RoadmapSteps` sorts by a fixed `priorityScore`)"
+ },
+ {
+  "slug": "roadmap-recommendation",
+  "title": "Status `<select>` is the only control and lacks clear affordance for done/dismissed muting + no row-level focus/error association",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "A11y / form semantics",
+  "file": "src/components/report/RecommendationTracker.tsx:162-176 (select) & 180-211 (error block)"
+ },
+ {
+  "slug": "scan-persistence-history",
+  "title": "Concurrent persist of the same commit double-inserts \u2014 no unique constraint backs the read-then-insert dedup",
+  "sev": "Critical",
+  "lens": "bug-hunter",
+  "cat": "concurrent-persist / duplicate row",
+  "file": "src/lib/db/scans-persist.ts:123-141 (dedup read) + :164-225 (insert); schema `Scan` model prisma/schema.prisma:269-307"
+ },
+ {
+  "slug": "scan-persistence-history",
+  "title": "`getScanReportByCommit` rebuilds a HISTORICAL pinned report with the CURRENT contributor set",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "row<->report mapping loss / stale-join on by-commit read",
+  "file": "src/lib/db/scans-read.ts:617-621 (repo include) + :653-687 (report assembly)"
+ },
+ {
+  "slug": "scan-persistence-history",
+  "title": "`findScanByScannedAt` dedup collides across genuinely different scans on a millisecond tie",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "latest-vs-by-commit / false-positive dedup",
+  "file": "src/lib/db/scans-persist.ts:131-141 + src/lib/db/scans-read.ts:51-60"
+ },
+ {
+  "slug": "scan-persistence-history",
+  "title": "Repo head pointer + ETag are written before dedup and outside the lock \u2014 a stale/no-op scan clobbers a newer head",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "latest-vs-by-commit race / last-writer-wins overwrite",
+  "file": "src/lib/db/scans-persist.ts:82-117 (repo upsert) vs :123-141 (dedup, run *after*)"
+ },
+ {
+  "slug": "scan-persistence-history",
+  "title": "Carry-forward \"previous scan\" select is non-deterministic under equal `scannedAt` and pulls from a duplicate",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "history ordering / carry-forward correctness",
+  "file": "src/lib/db/scans-persist.ts:150-159"
+ },
+ {
+  "slug": "scan-pipeline",
+  "title": "Coalesced waiters double-refund a single consumed quota slot",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "race condition / quota accounting",
+  "file": "src/app/api/scan/stream/route.ts:163 (also src/app/api/scan/route.ts:159)"
+ },
+ {
+  "slug": "scan-pipeline",
+  "title": "`parseSSE` concatenates multi-line `data:` payloads without newlines, corrupting JSON",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "streaming / parsing edge case",
+  "file": "src/lib/sse.ts:18"
+ },
+ {
+  "slug": "scan-pipeline",
+  "title": "`submitting` never resets \u2014 disabled form on bfcache/back-navigation and same-repo re-submit",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "missing state reset / stuck UI",
+  "file": "src/components/ScanForm.tsx:70 (and chip handler :160)"
+ },
+ {
+  "slug": "scan-pipeline",
+  "title": "Stream `result`/`error` framing has no flush guarantee against proxy buffering after heartbeat removal",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "SSE lifecycle / silent failure",
+  "file": "src/app/api/scan/stream/route.ts:198"
+ },
+ {
+  "slug": "scan-pipeline",
+  "title": "No empty/zero-state for the gallery rail or leaderboard; rail has no keyboard scroll affordance",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "missing state / a11y",
+  "file": "src/components/landing/ScanGallery.tsx:98"
+ },
+ {
+  "slug": "score-charts-visuals",
+  "title": "PostureQuadrant has no screen-reader fallback and degenerates when adoption == rigor == threshold",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "SVG a11y / screen-reader equivalence",
+  "file": "src/components/report/PostureQuadrant.tsx:78-159"
+ },
+ {
+  "slug": "score-charts-visuals",
+  "title": "ScoreWaterfall segments can overflow the 100% track and starve the headroom tail",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "chart layout / flex sizing",
+  "file": "src/components/report/ScoreWaterfall.tsx:50-62"
+ },
+ {
+  "slug": "score-charts-visuals",
+  "title": "chartScale.xScale clamps neither index nor count; a single-point line path silently never draws",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "SVG path generation / edge data",
+  "file": "src/components/report/chartScale.ts:38-40, src/components/report/DimLine.tsx:111"
+ },
+ {
+  "slug": "score-charts-visuals",
+  "title": "RadarChart hover radius and label/score color use hue as the sole differentiator; no keyboard reachability",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "hover/focus polish / colorblind encoding / consistency",
+  "file": "src/components/report/RadarChart.tsx:48-63, 97-104"
+ },
+ {
+  "slug": "score-charts-visuals",
+  "title": "PrSignalsPanel revert-rate threshold color is the only signal and uses a non-rubric orange",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "consistency / colorblind encoding / token usage",
+  "file": "src/components/report/PrSignalsPanel.tsx:51"
+ },
+ {
+  "slug": "security-posture-audit",
+  "title": "Audit-write failures are silently dropped \u2014 the \"react to failure\" contract is dead code",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "audit-log integrity / silent failure",
+  "file": "src/lib/db/scans-audit.ts:14-40 (callers: src/app/api/org/plan/route.ts:41, src/app/api/org/gate-policy/route.ts:41, src/app/api/org/alerts/route.ts:109/127, src/app/api/org/members/route.ts:50/74, src/app/api/org/invites/route.ts:47, src/lib/db/retention.ts:232/264)"
+ },
+ {
+  "slug": "security-posture-audit",
+  "title": "The audit trail is mutable & purgeable \u2014 no DB-level immutability or hash chaining",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "audit-log integrity / tamper-evidence",
+  "file": "prisma/schema.prisma:377-391 (model AuditLog), src/lib/db/retention.ts:225-228 (pruneAudit)"
+ },
+ {
+  "slug": "security-posture-audit",
+  "title": "Supply-chain token/permission failure renders identically to a clean fleet (silent blind spot)",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "supply-chain edge case / silent failure",
+  "file": "src/lib/security/supply-chain.ts:123-149, src/app/org/[slug]/security/page.tsx:120"
+ },
+ {
+  "slug": "security-posture-audit",
+  "title": "Dependabot alert counts are capped at 100 per repo (no pagination \u2192 undercount)",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "supply-chain edge case / data integrity",
+  "file": "src/lib/security/supply-chain.ts:68-74"
+ },
+ {
+  "slug": "security-posture-audit",
+  "title": "`org.gate_policy` audit entries render unlabeled and are unfilterable in the viewer",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "filter UX / data-completeness drift",
+  "file": "src/components/org/AuditLogViewer.tsx:17-36, src/app/api/org/gate-policy/route.ts:42"
+ },
+ {
+  "slug": "security-posture-audit",
+  "title": "Audit table a11y: no column scope, no busy/live-region during async load, color-keyed severity",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "accessibility / loading state",
+  "file": "src/components/org/AuditLogViewer.tsx:194-221, 109-125"
+ },
+ {
+  "slug": "trends-comparison",
+  "title": "Trajectory forecast ignores the active range toggle \u2014 projected ETA contradicts the chart on screen",
+  "sev": "High",
+  "lens": "ui-perfectionist",
+  "cat": "stale derived UI / range filter",
+  "file": "src/app/trends/page.tsx:115 (forecast fit) + src/components/report/DimensionTrends.tsx:78 (range slice)"
+ },
+ {
+  "slug": "trends-comparison",
+  "title": "/api/history `dims=0` light series and full series can return DIFFERENT scan counts but DimensionTrends assumes they align",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "scan-diff / series alignment",
+  "file": "src/components/report/DimensionTrends.tsx:40 + src/app/api/history/route.ts:88-91"
+ },
+ {
+  "slug": "trends-comparison",
+  "title": "Compare diff: a dimension present in only ONE scan is shown with a misleading half-filled bar and no \"added/removed\" cue",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "delta visual encoding / mismatched dimensions",
+  "file": "src/components/report/WhatChangedParts.tsx:61-69 (DiffBar single-sided branch) + 137-145 (card header)"
+ },
+ {
+  "slug": "trends-comparison",
+  "title": "ETag still keyed on overall `scannedAt`+`overallScore` \u2014 an in-place dimension-only correction serves a stale 304",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "caching / silent staleness",
+  "file": "src/app/api/history/route.ts:118-127"
+ },
+ {
+  "slug": "trends-comparison",
+  "title": "Single-point trend chart: SVG `aria-label` says \"over time\" but conveys no value; sr-table is the only equivalent",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "a11y / single-point state",
+  "file": "src/components/report/TrendChart.tsx:140-141 (aria-label) + 179-196 (line/flat-label guards)"
+ },
+ {
+  "slug": "usage-metering-badge",
+  "title": "`?logo=data:image/svg+xml,\u2026` is accepted and embedded into the served SVG (active-SVG XSS vector)",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "XSS / injection \u2014 public SVG endpoint",
+  "file": "src/app/api/badge/[owner]/[repo]/route.ts:228-229 (gate) and :151-152 (sink)"
+ },
+ {
+  "slug": "usage-metering-badge",
+  "title": "Customized \"unknown\"/\"private\"/validation-fail badges are served with a PUBLIC (`s-maxage`) cache directive",
+  "sev": "High",
+  "lens": "bug-hunter",
+  "cat": "cache-control / CDN cross-consumer leak",
+  "file": "src/app/api/badge/[owner]/[repo]/route.ts:248-249, :255-256, :304-305 (use `CACHE_NEUTRAL`); contrast :238 + :327/:336/:350"
+ },
+ {
+  "slug": "usage-metering-badge",
+  "title": "`esc()` omits the single quote (and isn't applied to numeric/derived SVG fields) \u2014 latent injection hardening gap",
+  "sev": "Medium",
+  "lens": "bug-hunter",
+  "cat": "XSS hardening / defense-in-depth",
+  "file": "src/app/api/badge/[owner]/[repo]/route.ts:69-71"
+ },
+ {
+  "slug": "usage-metering-badge",
+  "title": "Badge generator shows \"Copied!\" even when nothing was copied (clipboard unavailable / rejected)",
+  "sev": "Medium",
+  "lens": "ui-perfectionist",
+  "cat": "UX / error feedback \u2014 false success",
+  "file": "src/components/badge/BadgeGenerator.tsx:71-76"
+ },
+ {
+  "slug": "usage-metering-badge",
+  "title": "Badge preview has no loading/broken-image state \u2014 a failed badge silently shows a broken `<img>`",
+  "sev": "Low",
+  "lens": "ui-perfectionist",
+  "cat": "UX \u2014 empty/loading/error states",
+  "file": "src/components/badge/BadgeGenerator.tsx:129-138"
+ }
+]

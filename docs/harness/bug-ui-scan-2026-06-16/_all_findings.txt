@@ -1,0 +1,267 @@
+
+### ai-standard-skill
+  [H|bug] SKILL.md code fence can be closed early by a generated file body (four-backtick fence is not collision-proof)  ::  src/lib/onboarding/skill.ts:131-137
+  [H|bug] Content-Disposition filename is built from unsanitized request input (header injection / corrupt download name)  ::  src/app/api/report/skill/route.ts:54-56,60
+  [M|bug] Skill frontmatter `description` is a single YAML line but only quotes are escaped — a newline in owner/name/level breaks the frontmatter  ::  src/lib/onboarding/skill.ts:50-62
+  [M|bug] `ARCHETYPE_LABEL[report.archetype]` and an empty `dimensions` array render literal "undefined" / a header-only table  ::  src/lib/onboarding/skill.ts:99,104-106
+  [L|bug] `recordSkillGeneration` is fire-and-forget with a doubly-swallowed error — generation history can silently never persist  ::  src/app/api/report/skill/route.ts:53
+
+### app-shell-seo
+  [H|bug] /api/health leaks raw DB error strings to unauthenticated callers  ::  src/app/api/health/route.ts:35
+  [M|bug] robots disallows /connect and /onboarding while sitemap advertises them  ::  src/app/sitemap.ts:16,19 (vs src/app/robots.ts:17)
+  [M|ui-] error.tsx drops all brand chrome — visually inconsistent with not-found  ::  src/app/error.tsx:29-58
+  [L|ui-] EmptyState page variant title is an unconditional <h1> — duplicate/again-missing landmark  ::  src/components/EmptyState.tsx:48,58-59
+  [L|ui-] opengraph-image uses a literal "5-level"/"9 dimensions" string instead of the rubric — drift risk the rest of the shell avoids  ::  src/app/opengraph-image.tsx:55-56,61
+
+### backlog-management
+  [H|bug] Status → "Done"/"Dismissed" instantly removes the item from the only board surface, with no confirm and no way back  ::  src/components/org/BacklogItemRow.tsx:138-151 (status select offers all 4 statuses); src/lib/db/org-insights.ts:389 (`if (!ACTIVE.has(r.status)) continue;`)
+  [M|bug] `refresh()` swallows a failed re-fetch — board goes stale after a successful save with zero feedback  ::  src/components/org/BacklogPanel.tsx:29-35
+  [M|bug] Overdue / due-date math is frozen at page-load and never recomputes client-side  ::  src/components/org/backlogShared.ts:32-38 (`dueLabel` reads server `item.dueInDays`); src/components/org/BacklogItemRow.tsx:105,129 (`item.overdue` styling); src/lib/db/org-insights.ts:391-393 (computed once with `now`)
+  [M|ui-] Inline save / PR / promote errors are not announced (no live region)  ::  src/components/org/BacklogItemRow.tsx:213-214 (`error` and `prError` `<p>`s); also the silent-`refresh` gap from #2 has no surface at all
+  [L|ui-] Group-by segmented control exposes no selected state to assistive tech  ::  src/components/org/BacklogPanel.tsx:113-126
+
+### ci-gate
+  [C|bug] Default mock gate can return an LLM-scored verdict from cache (cross-mode read)  ::  src/app/api/gate/[owner]/[repo]/route.ts:55
+  [H|bug] `?min_security=` (empty/zero) silently disables the security floor it claims to set  ::  src/lib/scoring/gate.ts:206-209
+  [H|bug] Dimensions with a missing/NaN score slip past every floor check  ::  src/lib/scoring/gate.ts:114 (also :172, and gate-comment.ts:82)
+  [H|bug] Failing-dimension table crashes the comment build when a dimension has no `gaps`  ::  src/lib/scoring/gate-comment.ts:91
+  [M|bug] Unescaped failure/policy strings are interpolated into PR-comment markdown  ::  src/lib/scoring/gate-comment.ts:74, 92, 119
+
+### connect-repo-selection
+  [H|bug] Per-row toggles race the bulk-op rollback (no disabling during `bulkBusy`)  ::  src/components/connect/InstallationRepos.tsx:245-277 (and RepoRow checkbox at :441-451)
+  [H|bug] Bulk watch shows a green "Now watching N repos" even when every individual repo failed  ::  src/components/connect/InstallationRepos.tsx:261-270
+  [M|ui-] Per-row `watch` checkbox and `Scan` link are not distinguishable to assistive tech  ::  src/components/connect/RepoRow.tsx:54-62, :79-84
+  [M|ui-] Empty-filter state drops the filter bar, trapping the user in a zero-results view  ::  src/components/connect/InstallationRepos.tsx:437-454
+  [L|ui-] Loading skeleton omits the filter/bulk bars, causing a layout shift on data arrival  ::  src/components/connect/RepoListSkeleton.tsx:3-25 (rendered at InstallationRepos.tsx:310)
+
+### credits-entitlements
+  [H|bug] Negative-adjustment grant corrupts the ledger and clamps non-atomically  ::  src/lib/db/credits.ts:96-118
+  [H|bug] Owner-gated manual grant lets an owner mint unlimited free private scans  ::  src/app/api/org/credits/grant/route.ts:36-49
+  [H|bug] /api/scan runs paid inference, then debits best-effort — concurrent scans serve paid LLM for free  ::  src/app/api/scan/route.ts:139-143, 219-238
+  [M|bug] Slug case mismatch: authz lowercases, credit read/debit does not — silent no-op debits / 404 grants  ::  src/lib/db/credits.ts:52, 98, 146, 152 (vs grant/route.ts:36,44 and credits.ts:183)
+  [L|ui-] CreditsControl: shared busy flag, no success feedback, no aria-live for balance/errors  ::  src/components/org/CreditsControl.tsx:74-95, 124-135, 162-191
+
+### data-retention-purge
+  [C|bug] RecommendationEvent rows are never deleted — every purge leaves permanent FK orphans  ::  src/lib/db/retention.ts:137-142
+  [H|bug] Stale per-row delete loop runs outside a transaction — a timeout mid-graph corrupts scans  ::  src/lib/db/retention.ts:137-142
+  [H|bug] Scan "newest N" ranking trusts report-supplied `scannedAt` — can delete live newer scans  ::  src/lib/db/retention.ts:127-132
+  [M|bug] Purge's own compliance audit entries get purged by the next run's window  ::  src/lib/db/retention.ts:225-242, 259-264
+  [M|bug] Orphan audit sweep gated on the GLOBAL default — disabled per-org policy can't bound org-less rows  ::  src/lib/db/retention.ts:259-262
+
+### database-client-schema
+  [C|bug] DSQL-only cold start builds a Prisma client with no datasource URL — synchronous seed client is dead until the async token refresh lands  ::  src/lib/db/client.ts:296-327 (specifically the seed at 314)
+  [H|bug] init.sql ↔ schema.prisma parity test does not check indexes, so a future migration can silently ship an unindexed bootstrap  ::  prisma/init.sql:340-536 vs src/lib/db/init-sql.test.ts:24-52
+  [H|bug] Fleet-wide org rollup filters Scan by `scannedAt` through a repo relation with no supporting index  ::  src/lib/db/org-rollup.ts:220-227 and 256-260 (against schema `Scan` indexes at prisma/schema.prisma:304-306)
+  [M|bug] `findScanByScannedAt` dedup relies on exact-equality `scannedAt` matching with millisecond precision — silent duplicate Scan rows for sha-less reports  ::  src/lib/db/scans-read.ts:51-60 (used by scans-persist.ts:137-140)
+  [M|bug] `dbHealthCheck` reports `ok:false` (not "disabled") in DSQL-only mode and its non-auth failure path never self-heals a dead connection  ::  src/lib/db/client.ts:407-428 (with isDbConfigured at 285-287)
+
+### executive-briefing
+  [H|bug] Final PDF render failure surfaces as an unhandled 500 with a raw stack  ::  src/app/api/org/briefing/pdf/route.ts:44
+  [H|bug] Strengths and "Weakest dimensions" overlap when the fleet has fewer than 6 scored dimensions  ::  src/lib/org/briefing.ts:172
+  [M|ui-] Empty-data sections render a bare heading with no rows in the PDF  ::  src/lib/pdf/briefing-document.tsx:125
+  [M|ui-] Long briefings can break across pages mid-row; only Goals opt out of splitting  ::  src/lib/pdf/briefing-document.tsx:134
+  [L|ui-] `min-w-0` missing on the MoveRow name container lets long repo names overflow the truncate  ::  src/app/org/[slug]/executive/page.tsx:229
+
+### fleet-alerts-digests
+  [H|bug] Digest cron has no idempotency guard — overlapping/retried runs double-send the weekly digest  ::  src/app/api/cron/digest/route.ts:54-95
+  [H|bug] Digest window baseline is unreachable for sub-weekly cadences → "this week" delta silently vanishes  ::  src/app/api/cron/digest/route.ts:49,83 (+ src/lib/db/org-rollup.ts:255-289)
+  [M|bug] Digest headline delta can contradict its own gainers/regressers lists  ::  src/app/api/cron/digest/route.ts:83-85 (delta vs movers)
+  [M|bug] `rollup.scannedCount === 0` skip is invisible in the response — empty fleets look identical to nothing-to-do  ::  src/app/api/cron/digest/route.ts:65,95-101
+  [M|bug] Org regression thresholds accept 1..100 but the digest never applies them, and credit-line threshold double-reads can disagree  ::  src/app/api/org/alerts/route.ts:30-35,117-124; src/app/api/cron/digest/route.ts:92-93
+
+### fleet-rollups-insights
+  [H|bug] Rolling 30d/90d windows mix UTC-offset math with local-midnight, so deltas read against the wrong baseline near midnight / across DST  ::  src/lib/window.ts:93 (also :95)
+  [H|bug] `getOrgMovers` windowed baseline silently degrades to "since first in-window scan" with no flag, conflating period delta with first-ever delta  ::  src/lib/db/org-insights.ts:109
+  [M|bug] Baseline boundary uses `<=`/`>=` on the same instant, double-counting a scan exactly at `start`  ::  src/lib/db/org-rollup.ts:257 (baseline `lte: start`) vs :223 (trend `gte: start`)
+  [M|bug] `forecastTrajectory` is fed the windowed `trend`, so short windows fit a slope over 1 day and project off near-noise  ::  src/lib/db/org-rollup.ts:243 (uses `trend` built from `allScans` filtered to the window, :220-240)
+  [M|bug] `dueBucketFor`/`daysUntil` bucket on UTC calendar days while the fleet's window math is local — overdue/this-week flips for non-UTC viewers  ::  src/lib/db/org-insights.ts:223 (`daysUntil` → `Date.UTC(...)`), consumed at :234 / :391 / :465
+
+### github-app-webhooks
+  [H|bug] Replay dedup + signature have no time bound and the seen-set is process-local — a captured valid delivery replays forever against any other/cold instance  ::  src/app/api/app/webhook/route.ts:74 (and :329, :337)
+  [M|bug] Token-cache repopulation race: a concurrent mint can re-cache a token for an installation that was just removed/suspended  ::  src/lib/github/app.ts:171 (vs installations.ts:45 / app.ts:143)
+  [M|bug] Webhook reads and HMACs the entire raw body before any size guard — unauthenticated CPU/memory amplification  ::  src/app/api/app/webhook/route.ts:327
+  [M|bug] PR/push gate has a TOCTOU between `installationMatchesOwner` and the token mint, and re-confirms ownership via an unbounded GitHub call per delivery  ::  src/app/api/app/webhook/route.ts:207 (and :309)
+  [L|bug] `check_run` re-run path acts on a fully attacker-supplied `head_sha` with no ownership re-confirmation beyond the shared check inside the gate  ::  src/app/api/app/webhook/route.ts:423
+
+### github-oauth-session
+  [H|bug] Dev auth-bypass has no production guard — a single stray env var disables the entire login wall  ::  src/lib/access.ts:25 (also src/proxy.ts:17)
+  [H|ui-] Supabase sign-in failure is swallowed to the console — the user clicks and nothing visibly happens  ::  src/components/SupabaseAuthButtons.tsx:72-77 (`SupabaseSignInButton.signIn`)
+  [M|bug] Supabase OAuth callback redirects against the internal `url.origin`, not the public origin  ::  src/app/auth/callback/route.ts:24 (and :30)
+  [M|bug] `requireViewer` returns 401 JSON for unauthenticated browser navigations, never a sign-in redirect  ::  src/lib/access.ts:85
+  [L|bug] Logout/revoke same-origin guard falls fully open when both Origin and Sec-Fetch-Site are absent  ::  src/lib/auth.ts:381 (`isSameOrigin`), used by logout/route.ts:23 and revoke-sessions/route.ts:19
+
+### github-repo-data
+  [H|bug] Org listing silently under-returns when forks/archived dominate, and never paginates  ::  src/lib/github/list.ts:45-66
+  [H|bug] Non-404 errors on the org path abort the user fallback and mask rate limits as "not found"  ::  src/lib/github/list.ts:48-67
+  [H|bug] Governance and commit-activity vanish silently on 403/429 rate limits  ::  src/lib/github/governance.ts:53-88, 99-137
+  [M|bug] PR pagination can short-circuit on a partial GraphQL page, dropping requested PRs  ::  src/lib/github/graphql.ts:62-75, 124-138
+  [M|bug] Untrusted `repos[]` owner/name reach raw GitHub URLs unvalidated in org import  ::  src/app/api/org/import/route.ts:141-150 (consumes src/lib/github/source.ts ingestion)
+
+### goals-initiatives
+  [H|bug] Goal PATCH accepts any `status` string — no enum validation, corrupts the achieved/active state machine  ::  src/app/api/org/goals/[id]/route.ts:25-35
+  [H|bug] Goal progress meter shows "movement" but computes absolute position — a goal at its starting line reads 80–98% done  ::  src/lib/db/plan.ts:283
+  [M|bug] Initiative `goalId` link is never validated against the org — cross-tenant / dangling foreign reference  ::  src/app/api/org/initiatives/[id]/route.ts:34 (and POST: src/app/api/org/initiatives/route.ts:53)
+  [M|ui-] Initiative progress bar shows 0% for an empty scope and gives no signal that the bar is meaningless  ::  src/components/org/plan/InitiativesPanel.tsx:113,136
+  [L|ui-] Native form controls lack labels/ARIA — date pickers, status/goal selects, and the assignee input are unlabeled for assistive tech  ::  src/components/org/plan/GoalsPanel.tsx:170-207 (and InitiativesPanel.tsx:124-176)
+
+### investment-simulator
+  [H|bug] `NaN` target passes validation and produces a silent no-op projection  ::  src/app/api/org/simulate/route.ts:46 (and src/lib/scoring/orgsim.ts:113,127)
+  [H|ui-] Number inputs allow out-of-range / NaN with no clamping and a display that lies  ::  src/components/org/plan/Simulator.tsx:250 (primary), :283 (extra legs)
+  [M|bug] Rank-mode and fix `target` accept out-of-range / non-finite values, then silently clamp  ::  src/app/api/org/simulate/route.ts:36 (rank) and :46 (fixes)
+  [M|bug] Out-of-range fix target is clamped server-side but the echoed `fixes` disagree with the saved scenario  ::  src/lib/scoring/orgsim.ts:113 (and Simulator.tsx:79, 168)
+  [L|ui-] Simulator controls have no labels and async result/error states aren't announced  ::  src/components/org/plan/Simulator.tsx:242-257 (controls), :314 (error), :316 (result)
+
+### launch-fleet-map
+  [H|ui-] Interactive star links are invisible to screen readers (`role="img"` swallows the subtree)  ::  src/components/launch/ConstellationField.tsx:86
+  [M|ui-] Star tap targets are ~15px on mobile — far below the minimum touch size  ::  src/components/launch/ConstellationField.tsx:145
+  [M|ui-] Loading skeleton conveys "loading" only via animation — gone under reduced motion  ::  src/components/launch/ConstellationField.tsx:109
+  [L|bug] State updates after unmount in scan + hydration fetches (no mounted/abort guard around setState)  ::  src/components/launch/FleetMap.tsx:100
+  [L|ui-] Constellation lines & faint stars sit below perceptible contrast on the dark field  ::  src/components/launch/ConstellationField.tsx:103
+
+### live-war-room
+  [H|ui-] Headline tiles and leaderboard don't scale up for a projected wall  ::  src/components/org/LiveWarRoomStat.tsx:53 (and src/components/org/LiveWarRoom.tsx:338, 368)
+  [H|ui-] Posture-distribution bars are scaled to the *max bucket*, not the fleet total — misreads as a true distribution on the wall  ::  src/components/org/LiveWarRoomPanels.tsx:6, 22
+  [M|bug] Celebration fires only on *crossing* into AI-Native — silent on a re-run / loop where the seed already shows AI-Native  ::  src/components/org/LiveWarRoom.tsx:175
+  [M|ui-] Movers ticker + celebrations spam screen readers via `aria-live="polite"` on a large fleet  ::  src/components/org/LiveWarRoomPanels.tsx:50 (and src/components/org/LiveWarRoomCelebrations.tsx:6)
+  [L|bug] Audio-context closer timers accumulate in `timersRef` during a long auto-loop wall session  ::  src/components/org/LiveWarRoom.tsx:113-114
+
+### llm-provider
+  [H|bug] `LLM_PROVIDER=openai` / `claude-cli` silently serve mock scores with no "model unavailable" caveat  ::  src/lib/llm/index.ts:107-110 (with src/lib/scan.ts:117, 278)
+  [H|bug] OpenAI provider ignores an already-aborted client signal — issues (and bills) a doomed request  ::  src/lib/llm/openai.ts:38-41
+  [M|bug] Bedrock empty/whitespace tool-input + empty text yields an unhelpful throw that masks a real answer shape  ::  src/lib/llm/bedrock.ts:101-129
+  [M|bug] No range validation on `LLM_TEMPERATURE`, `BEDROCK_MAX_TOKENS`, or a negative `LLM_TIMEOUT_MS`  ::  src/lib/llm/config.ts:8-13 (consumed at gemini.ts:50 / bedrock.ts:74-75 / openai.ts:48; timeout at gemini.ts:16, bedrock.ts:28, openai.ts:19)
+  [M|bug] `parseJsonLoose` fence path can return a partial fenced block before trying the full-text scan  ::  src/lib/llm/json.ts:94-110
+
+### maturity-scoring
+  [H|bug] Total detector failure silently scores a repo at L1 with no headline warning  ::  src/lib/scoring/engine.ts:148-154 (with src/lib/analyze/index.ts:641-659 and src/lib/maturity/model.ts:227-237)
+  [H|bug] A dimension absent from the archetype lens silently vanishes from the headline mean  ::  src/lib/maturity/model.ts:232-236 (consumed at src/lib/scoring/engine.ts:153, 211, 260)
+  [M|bug] Non-finite coverage is guarded in the blend math but propagates raw into `confidence`  ::  src/lib/scoring/engine.ts:183 (vs. the guard at line 70-71)
+  [M|bug] Fallback roadmap ranks gaps by raw signal score, contradicting the blended headline  ::  src/lib/scoring/recommendations.ts:146 (called from src/lib/scoring/engine.ts:161-163)
+  [M|bug] PR/governance boosts mutate `failed`-detector dimensions, masking a measurement failure  ::  src/lib/analyze/pulls.ts:178-225 and 252-269 (interaction with engine.ts:88-93 and types.ts:181-185)
+
+### members-access-control
+  [C|bug] Supabase-wall mode grants every signed-in viewer OWNER on every org (member admin bypass)  ::  src/lib/authz.ts:132 (also :39 requireOrgAccess, :68 canReadOrg branch)
+  [H|bug] `org` slug from the client is trusted into role resolution without canonicalization on the write paths  ::  src/app/api/org/members/route.ts:38, src/lib/authz.ts:139-145
+  [M|bug] `last_owner` guard is not transactional — race lets the last owner be demoted/removed  ::  src/lib/db/members.ts:110-124 (setMembershipRole), :145-150 (removeMembership)
+  [M|bug] `setMembershipRole` upserts a brand-new User/Membership for *any* login string — no existence/identity validation  ::  src/lib/db/members.ts:103-124, src/app/api/org/members/route.ts:35-43
+  [L|ui-] OrgSwitcher: menu items lack proper listbox/disabled semantics and no busy feedback in the list  ::  src/components/OrgSwitcher.tsx:85-107 (menu), :64-71 (trigger)
+
+### onboarding-wizard
+  [H|bug] An `error` SSE event with a clean stream end strands the wizard on "scanning" forever  ::  src/components/onboarding/OnboardingFlow.tsx:281 (with src/components/onboarding/importScan.ts:113-120)
+  [H|bug] Credit fetch race: clicking "Scan" before credits resolve silently downgrades a paid org to a preview  ::  src/components/onboarding/OnboardingFlow.tsx:255 (race with 176-185)
+  [M|ui-] No cross-step progress indicator or `aria-current` on the pick → select → scan machine  ::  src/components/onboarding/OnboardingFlow.tsx:319-385 (each phase renders standalone, no stepper)
+  [M|ui-] Focus is never moved to the new step on phase transitions (focus management gap)  ::  src/components/onboarding/OnboardingFlow.tsx:339-385; src/components/onboarding/OnboardingSelectStep.tsx:43-48; src/components/onboarding/OnboardingScanStep.tsx:88-108
+  [L|ui-] Invite "Enter" key bypasses the busy/empty guards the button enforces  ::  src/components/onboarding/OnboardingScanStep.tsx:202 (vs button at 207-213)
+
+### org-import-scan-watchlist
+  [H|bug] `/api/org/scan` has no claim/lock — concurrent "Scan all" runs double-scan and double-bill  ::  src/app/api/org/scan/route.ts:111
+  [H|bug] `/api/org/scan` lacks the cron's broken-install short-circuit — revoked install burns a reserve/refund cycle per private repo  ::  src/app/api/org/scan/route.ts:97
+  [M|bug] `mapPool` aborts the whole batch on the first `fn` rejection and orphans in-flight work  ::  src/lib/pool.ts:32
+  [M|bug] Credit refunded after `persistScanReport` throws, even though billable inference already ran  ::  src/app/api/org/scan/route.ts:160
+  [M|ui-] OrgScanButton scan progress/errors are invisible to screen readers (no live region / aria-busy)  ::  src/components/org/OrgScanButton.tsx:106
+
+### org-overview-standing
+  [H|bug] Selected time range does not carry across org tabs (and the remembered period is ignored everywhere but Overview)  ::  src/app/org/[slug]/page.tsx:92 ; src/components/org/OrgNav.tsx:73-84 ; src/app/org/[slug]/security/page.tsx:25 ; src/app/org/[slug]/executive/page.tsx:27
+  [M|bug] Two different "current maturity" numbers render side by side with no distinction  ::  src/app/org/[slug]/page.tsx:189-195 ; src/components/org/PeriodSummary.tsx:31-36,56-58
+  [M|ui-] Active-pill text color hardcodes `#04070e` instead of the `text-on-accent` token  ::  src/components/org/TimeRangeSelector.tsx:65 ; src/components/org/SegmentSelector.tsx:54,69,72,74
+  [M|ui-] OrgNav lacks an accessible name; mobile fade can occlude the rightmost active tab  ::  src/components/org/OrgNav.tsx:63,92-94
+  [L|ui-] Mobile overflow fade uses `from-ink` over a textured body background, leaving a flat seam  ::  src/components/org/OrgNav.tsx:94 ; src/app/globals.css:31-36
+
+### pdf-llm-export
+  [H|bug] renderToBuffer is unguarded — a render failure 500s the download with no fallback  ::  src/app/api/report/pdf/route.ts:52
+  [H|bug] Unvalidated owner/name interpolated into the Content-Disposition filename  ::  src/app/api/report/pdf/route.ts:53-57
+  [M|bug] "Scoring by dimension" header renders even when there are zero dimensions  ::  src/lib/pdf/report-document.tsx:116-126
+  [M|ui-] CopyForLlm: aria-live on the button announces the label, not just the status change  ::  src/components/CopyForLlm.tsx:43-59
+  [L|ui-] CopyForLlm: no guard against empty/whitespace text + no disabled feedback window  ::  src/components/CopyForLlm.tsx:22-41
+
+### people-delivery-analytics
+  [H|bug] `Promise.all` makes the whole Delivery page throw if any one rollup query errors  ::  src/app/org/[slug]/delivery/page.tsx:46-50
+  [H|ui-] Data tables lack semantic/a11y scaffolding (no scope, caption, or aria) and meters are non-textual  ::  src/components/org/ui.tsx:108-129 (OrgTable) used by contributors/page.tsx:107-144,161-193 and delivery/page.tsx:133-168
+  [M|bug] ActivityChart axis labels mislead for a 1-week (or very short) series  ::  src/app/org/[slug]/delivery/page.tsx:22-25
+  [M|ui-] Teams page is the only one of the three with no Export CSV (cross-page inconsistency)  ::  src/app/org/[slug]/teams/page.tsx:133-137 (segment bar) vs contributors/page.tsx:55-60 and delivery/page.tsx:55-60
+  [M|ui-] Empty-state coverage is uneven across the three pages (sections silently vanish)  ::  src/app/org/[slug]/delivery/page.tsx:81,121,173 and contributors/page.tsx:75,173
+
+### playbooks
+  [H|bug] Optimistic apply/unapply swallow API failures → UI shows adoption the server never recorded  ::  src/components/org/PlaybookCard.tsx:56 (and unapply :93)
+  [M|bug] POST /repos marks adoption for ANY repo string — no org/ownership validation (orphan adoption rows)  ::  src/app/api/org/playbooks/[id]/repos/route.ts:23 → src/lib/db/playbooks.ts:142 (applyPlaybook)
+  [M|bug] createPlaybook upserts a phantom Organization for any slug under open/public auth  ::  src/lib/db/playbooks.ts:74 (organization.upsert) ← src/app/api/org/playbooks/route.ts:37
+  [M|ui-] Repo picker (and "Open draft PR") silently disappears when every repo is applied or repoOptions is empty  ::  src/components/org/PlaybookCard.tsx:180 (`available.length > 0 && …`)
+  [L|ui-] Destructive remove is a tiny low-contrast link with no confirm, no aria-label, and no failure handling  ::  src/components/org/PlaybookCard.tsx:118 (`remove` button) + src/components/org/PlaybooksPanel.tsx:68 (`remove()`)
+
+### practices-governance-adoption
+  [C|bug] Starter "apply" silently overwrites a repo's existing real file with a TODO scaffold  ::  src/lib/github/write.ts:86-90 (driven by apply/route.ts:59-70, apply-batch/route.ts:90-101)
+  [H|bug] Reused-branch / reused-PR path ignores the requested `base`, returning the wrong PR  ::  src/lib/github/write.ts:75-107 (branch `ascent/<id>` from practice-artifact.ts:292)
+  [M|bug] Governance "closest to green" failCount double-counts dimensions vs the deduped UI label  ::  src/lib/org/governance.ts:148-154 (`failCount: result.failures.length`) vs gate.ts:170-189
+  [M|ui-] Batch "Roll out to the fleet" opens up to 25 real PRs with no preview or confirmation, all repos pre-selected  ::  src/components/org/PracticeApply.tsx:40, 56-76, 211-219
+  [L|ui-] Meters, repo select, and PR result feedback are invisible to assistive tech  ::  src/components/org/ui.tsx:170-196 (Meter); src/components/org/PracticeApply.tsx:122-137, 156-164, 220-240
+
+### quotas-rate-limiting
+  [C|bug] Refund uses "newest hit" not "the hit this request charged" — concurrent refunds on a coalesced scan double-refund and under-count the bucket  ::  src/lib/public-scan-quota.ts:259 (`removeNewestHit`) consumed by :290-293 (`refundPublicScanQuota`)
+  [H|bug] `clientIp` trusts the right-most X-Forwarded-For hop, which is attacker-controlled on a direct/single-hop connection — per-request bucket minting bypasses both limiters  ::  src/lib/rate-limit.ts:18-27 (`clientIp`), used at :67-69 and public-scan-quota.ts:164
+  [H|bug] Per-instance in-memory rate limiter resets on every cold start — serverless/multi-instance makes the limiter effectively non-binding  ::  src/lib/rate-limit.ts:29 (`const windows = new Map`), :32-44 (`hit`)
+  [M|bug] Refund/peek/consume compute `now`/window with `>` cutoff but a slot that ages out exactly at the boundary is treated inconsistently across consume vs peek timing  ::  src/lib/public-scan-quota.ts:118 (`remaining` from consume) and the refund at :276-302
+  [L|ui-] QuotaBanner: remaining-count copy and reset date have a11y + clarity gaps (live count not announced, locale-formatted date can mismatch the server window, low-contrast text)  ::  src/components/report/QuotaNotice.tsx:131-146 (`QuotaBanner`), :28-31 (`formatResetAt`)
+
+### repo-report-shell
+  [H|bug] Active tab can point at an unmounted panel → blank report body  ::  src/components/report/ReportView.tsx:144 (and the guards at :181, :195, :203, :247)
+  [H|bug] Error boundary "Try again" re-renders the same failing children → instant re-crash  ::  src/components/report/ReportErrorBoundary.tsx:31 (used at ReportView wrap, e.g. ReportClient.tsx:281 and [repo]/page.tsx:70)
+  [M|ui-] Skeleton→report layout shift: narrow `max-w-md` fallback under a `max-w-5xl` report  ::  src/app/report/page.tsx:19 and src/app/report/[owner]/[repo]/page.tsx:74 (with src/components/report/ReportSkeleton.tsx)
+  [M|ui-] Inactive tabs carry `aria-controls` pointing at panels that aren't in the DOM  ::  src/components/report/ReportTabBar.tsx:55
+  [L|ui-] Freshness "Scanned … ago" ticker drifts on tab-visibility throttling and never realigns to wall clock  ::  src/components/report/FreshnessControl.tsx:17
+
+### repositories-segments
+  [H|bug] DELETE requires admin but the UI offers it to every member, then silently "un-deletes" on refresh  ::  src/components/org/RepoSegmentsPanel.tsx:89 (and src/app/api/org/segments/[id]/route.ts:38)
+  [H|bug] Optimistic rename is never rolled back on a duplicate-name (409) — chip diverges from the DB  ::  src/components/org/RepoSegmentsPanel.tsx:125
+  [M|bug] createSegment upserts the org, so an unknown/typo'd slug silently materializes a new Organization  ::  src/lib/db/segments.ts:64
+  [M|ui-] Empty-fleet dead-end loop: Segments page sends you to Repositories to create a segment, but that page is blank with no repos  ::  src/app/org/[slug]/segments/page.tsx:74 (and src/app/org/[slug]/repositories/page.tsx:15)
+  [M|ui-] Compare picker lets B = A; the duplicate selection is silently overridden server-side  ::  src/components/org/SegmentComparePicker.tsx:41 (and src/app/org/[slug]/segments/page.tsx:94)
+
+### roadmap-recommendation
+  [H|bug] Any caller can mutate every "public"-org recommendation's status, assignee, due-date, and audit/event trail  ::  src/app/api/recommendations/[id]/route.ts:38-41 (gate) via src/lib/authz.ts:41 (`if (slug === PUBLIC_ORG) return null;`)
+  [M|bug] A no-op status change reports success and announces a change that was never recorded  ::  src/lib/db/scans-recommendations.ts:99-100 (`if (events.length === 0) return toPersistedRec(current);`) + src/app/api/recommendations/[id]/route.ts:97-98
+  [M|bug] Retry/optimistic path can desync the `<select>` from server state on overlapping edits  ::  src/components/report/RecommendationTracker.tsx:75-120 (esp. 81-89, 104, 194)
+  [M|ui-] Drag-reorder is implied but absent; the "sandbox" can't reorder or persist roadmap order, and roadmap ordering isn't keyboard-operable  ::  src/components/report/RoadmapSandbox.tsx:3-8 & 197 (ReportView.tsx) "drag dimensions / drag-reorder" framing vs. src/components/report/RoadmapPanel.tsx:108-109 (`RoadmapSteps` sorts by a fixed `priorityScore`)
+  [L|ui-] Status `<select>` is the only control and lacks clear affordance for done/dismissed muting + no row-level focus/error association  ::  src/components/report/RecommendationTracker.tsx:162-176 (select) & 180-211 (error block)
+
+### scan-persistence-history
+  [C|bug] Concurrent persist of the same commit double-inserts — no unique constraint backs the read-then-insert dedup  ::  src/lib/db/scans-persist.ts:123-141 (dedup read) + :164-225 (insert); schema `Scan` model prisma/schema.prisma:269-307
+  [H|bug] `getScanReportByCommit` rebuilds a HISTORICAL pinned report with the CURRENT contributor set  ::  src/lib/db/scans-read.ts:617-621 (repo include) + :653-687 (report assembly)
+  [H|bug] `findScanByScannedAt` dedup collides across genuinely different scans on a millisecond tie  ::  src/lib/db/scans-persist.ts:131-141 + src/lib/db/scans-read.ts:51-60
+  [H|bug] Repo head pointer + ETag are written before dedup and outside the lock — a stale/no-op scan clobbers a newer head  ::  src/lib/db/scans-persist.ts:82-117 (repo upsert) vs :123-141 (dedup, run *after*)
+  [M|bug] Carry-forward "previous scan" select is non-deterministic under equal `scannedAt` and pulls from a duplicate  ::  src/lib/db/scans-persist.ts:150-159
+
+### scan-pipeline
+  [H|bug] Coalesced waiters double-refund a single consumed quota slot  ::  src/app/api/scan/stream/route.ts:163 (also src/app/api/scan/route.ts:159)
+  [H|bug] `parseSSE` concatenates multi-line `data:` payloads without newlines, corrupting JSON  ::  src/lib/sse.ts:18
+  [M|ui-] `submitting` never resets — disabled form on bfcache/back-navigation and same-repo re-submit  ::  src/components/ScanForm.tsx:70 (and chip handler :160)
+  [M|bug] Stream `result`/`error` framing has no flush guarantee against proxy buffering after heartbeat removal  ::  src/app/api/scan/stream/route.ts:198
+  [M|ui-] No empty/zero-state for the gallery rail or leaderboard; rail has no keyboard scroll affordance  ::  src/components/landing/ScanGallery.tsx:98
+
+### score-charts-visuals
+  [H|ui-] PostureQuadrant has no screen-reader fallback and degenerates when adoption == rigor == threshold  ::  src/components/report/PostureQuadrant.tsx:78-159
+  [H|ui-] RadarChart hover radius and label/score color use hue as the sole differentiator; no keyboard reachability  ::  src/components/report/RadarChart.tsx:48-63, 97-104
+  [M|bug] ScoreWaterfall segments can overflow the 100% track and starve the headroom tail  ::  src/components/report/ScoreWaterfall.tsx:50-62
+  [M|bug] chartScale.xScale clamps neither index nor count; a single-point line path silently never draws  ::  src/components/report/chartScale.ts:38-40, src/components/report/DimLine.tsx:111
+  [L|ui-] PrSignalsPanel revert-rate threshold color is the only signal and uses a non-rubric orange  ::  src/components/report/PrSignalsPanel.tsx:51
+
+### security-posture-audit
+  [H|bug] Audit-write failures are silently dropped — the "react to failure" contract is dead code  ::  src/lib/db/scans-audit.ts:14-40 (callers: src/app/api/org/plan/route.ts:41, src/app/api/org/gate-policy/route.ts:41, src/app/api/org/alerts/route.ts:109/127, src/app/api/org/members/route.ts:50/74, src/app/api/org/invites/route.ts:47, src/lib/db/retention.ts:232/264)
+  [H|bug] The audit trail is mutable & purgeable — no DB-level immutability or hash chaining  ::  prisma/schema.prisma:377-391 (model AuditLog), src/lib/db/retention.ts:225-228 (pruneAudit)
+  [H|bug] Supply-chain token/permission failure renders identically to a clean fleet (silent blind spot)  ::  src/lib/security/supply-chain.ts:123-149, src/app/org/[slug]/security/page.tsx:120
+  [M|bug] Dependabot alert counts are capped at 100 per repo (no pagination → undercount)  ::  src/lib/security/supply-chain.ts:68-74
+  [M|ui-] `org.gate_policy` audit entries render unlabeled and are unfilterable in the viewer  ::  src/components/org/AuditLogViewer.tsx:17-36, src/app/api/org/gate-policy/route.ts:42
+  [L|ui-] Audit table a11y: no column scope, no busy/live-region during async load, color-keyed severity  ::  src/components/org/AuditLogViewer.tsx:194-221, 109-125
+
+### trends-comparison
+  [H|ui-] Trajectory forecast ignores the active range toggle — projected ETA contradicts the chart on screen  ::  src/app/trends/page.tsx:115 (forecast fit) + src/components/report/DimensionTrends.tsx:78 (range slice)
+  [M|bug] /api/history `dims=0` light series and full series can return DIFFERENT scan counts but DimensionTrends assumes they align  ::  src/components/report/DimensionTrends.tsx:40 + src/app/api/history/route.ts:88-91
+  [M|ui-] Compare diff: a dimension present in only ONE scan is shown with a misleading half-filled bar and no "added/removed" cue  ::  src/components/report/WhatChangedParts.tsx:61-69 (DiffBar single-sided branch) + 137-145 (card header)
+  [M|bug] ETag still keyed on overall `scannedAt`+`overallScore` — an in-place dimension-only correction serves a stale 304  ::  src/app/api/history/route.ts:118-127
+  [L|ui-] Single-point trend chart: SVG `aria-label` says "over time" but conveys no value; sr-table is the only equivalent  ::  src/components/report/TrendChart.tsx:140-141 (aria-label) + 179-196 (line/flat-label guards)
+
+### usage-metering-badge
+  [H|bug] `?logo=data:image/svg+xml,…` is accepted and embedded into the served SVG (active-SVG XSS vector)  ::  src/app/api/badge/[owner]/[repo]/route.ts:228-229 (gate) and :151-152 (sink)
+  [H|bug] Customized "unknown"/"private"/validation-fail badges are served with a PUBLIC (`s-maxage`) cache directive  ::  src/app/api/badge/[owner]/[repo]/route.ts:248-249, :255-256, :304-305 (use `CACHE_NEUTRAL`); contrast :238 + :327/:336/:350
+  [M|bug] `esc()` omits the single quote (and isn't applied to numeric/derived SVG fields) — latent injection hardening gap  ::  src/app/api/badge/[owner]/[repo]/route.ts:69-71
+  [M|ui-] Badge generator shows "Copied!" even when nothing was copied (clipboard unavailable / rejected)  ::  src/components/badge/BadgeGenerator.tsx:71-76
+  [L|ui-] Badge preview has no loading/broken-image state — a failed badge silently shows a broken `<img>`  ::  src/components/badge/BadgeGenerator.tsx:129-138
