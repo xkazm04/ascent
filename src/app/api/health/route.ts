@@ -31,8 +31,19 @@ export async function GET() {
     return NextResponse.json({ status: "ok", db: "disabled", autoscan });
   }
   const result = await dbHealthCheck();
+  // Do NOT spread `result` into the public body — it carries the raw DB error string (Prisma/Postgres
+  // internals, connection details) and /api/health is unauthenticated. Report only the safe liveness
+  // shape; the underlying error is logged server-side for operators.
+  if (!result.ok && result.error) {
+    console.error("[health] database check failed", result.error);
+  }
   return NextResponse.json(
-    { status: result.ok ? "ok" : "error", db: result.ok ? "up" : "down", autoscan, ...result },
+    {
+      status: result.ok ? "ok" : "error",
+      db: result.ok ? "up" : "down",
+      reconnected: result.reconnected,
+      autoscan,
+    },
     { status: result.ok ? 200 : 503 },
   );
 }
