@@ -50,12 +50,16 @@ export async function GET(
       // via the shared head-hint store (free 304 on an unchanged repo). Null on failure → a
       // SHA-less key (best-effort).
       const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
-      const llmKey = makeCacheKey(ownerN, repoN, true, sha);
-      const mockKey = makeCacheKey(ownerN, repoN, false, sha);
-      report = cacheGet(llmKey) ?? cacheGet(mockKey);
+      // Probe ONLY the mode that was requested. The old `cacheGet(llmKey) ?? cacheGet(mockKey)` read the
+      // LLM entry first regardless of mode, so a default (mock=true) CI gate could return a STOCHASTIC
+      // LLM verdict — a PR flipping pass↔fail between runs with identical code, purely from which scan
+      // populated the cache first. Read and write the same key (useLLM = !mock) so the default gate is
+      // deterministic and reproducible, matching the verdict's stated provider.
+      const key = makeCacheKey(ownerN, repoN, !mock, sha);
+      report = cacheGet(key);
       if (!report) {
         report = await scanRepository(`${ownerN}/${repoN}`, { mock });
-        cacheSet(mock ? mockKey : llmKey, report);
+        cacheSet(key, report);
       }
     }
 
