@@ -122,11 +122,13 @@ async function pruneRepoScans(
   repoId: string,
   max: number,
   batchSize: number,
-): Promise<{ scans: number; dimensions: number; recommendations: number }> {
-  // Scans to drop = everything after the newest `max` (stable order via id tiebreak).
+): Promise<{ scans: number; dimensions: number; recommendations: number; events: number }> {
+  // Scans to drop = everything after the newest `max`. Rank by DB-authoritative `createdAt` (insertion
+  // order), NOT the report-supplied `scannedAt`: a backdated / clock-skewed `scannedAt` could otherwise
+  // rank a genuinely-newer scan below the cut and DELETE a live newer scan. id breaks any tie.
   const stale = await prisma.scan.findMany({
     where: { repoId },
-    orderBy: [{ scannedAt: "desc" }, { id: "desc" }],
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     skip: max,
     select: { id: true },
   });
@@ -134,13 +136,33 @@ async function pruneRepoScans(
   let scans = 0;
   let dimensions = 0;
   let recommendations = 0;
+  let events = 0;
   for (const ids of chunk(stale.map((s) => s.id), batchSize)) {
-    // Children first — relationMode = "prisma" emits no FK cascade.
-    dimensions += (await withRetry(() => prisma.scanDimension.deleteMany({ where: { scanId: { in: ids } } }))).count;
-    recommendations += (await withRetry(() => prisma.recommendation.deleteMany({ where: { scanId: { in: ids } } }))).count;
-    scans += (await withRetry(() => prisma.scan.deleteMany({ where: { id: { in: ids } } }))).count;
+    // Delete the whole scan sub-graph for this batch in ONE transaction so a mid-batch timeout can't
+    // leave a half-deleted graph. relationMode = "prisma" emits no FK cascade, so the grandchildren
+    // (RecommendationEvent) must be deleted BEFORE their parent Recommendation or they orphan forever —
+    // the bug the prior per-statement loop left open (events were never deleted at all).
+    // Order: grandchildren (events) → children (dimensions, recommendations) → parent (scan).
+    const counts = await withRetry(() =>
+      prisma.$transaction(async (tx) => {
+        const recIds = (
+          await tx.recommendation.findMany({ where: { scanId: { in: ids } }, select: { id: true } })
+        ).map((r) => r.id);
+        const ev = recIds.length
+          ? (await tx.recommendationEvent.deleteMany({ where: { recommendationId: { in: recIds } } })).count
+          : 0;
+        const dim = (await tx.scanDimension.deleteMany({ where: { scanId: { in: ids } } })).count;
+        const rec = (await tx.recommendation.deleteMany({ where: { scanId: { in: ids } } })).count;
+        const sc = (await tx.scan.deleteMany({ where: { id: { in: ids } } })).count;
+        return { ev, dim, rec, sc };
+      }),
+    );
+    events += counts.ev;
+    dimensions += counts.dim;
+    recommendations += counts.rec;
+    scans += counts.sc;
   }
-  return { scans, dimensions, recommendations };
+  return { scans, dimensions, recommendations, events };
 }
 
 /** Batched delete of audit entries matching `where` (oldest first), DSQL-friendly. */
@@ -168,6 +190,7 @@ export interface OrgPurgeResult {
   scansDeleted: number;
   dimensionsDeleted: number;
   recommendationsDeleted: number;
+  recommendationEventsDeleted: number;
   auditDeleted: number;
 }
 
@@ -177,6 +200,7 @@ export interface PurgeSummary {
   scansDeleted: number;
   dimensionsDeleted: number;
   recommendationsDeleted: number;
+  recommendationEventsDeleted: number;
   auditDeleted: number;
   results: OrgPurgeResult[];
   errors: string[];
@@ -210,6 +234,7 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
       let scansDeleted = 0;
       let dimensionsDeleted = 0;
       let recommendationsDeleted = 0;
+      let recommendationEventsDeleted = 0;
       let auditDeleted = 0;
 
       if (policy.maxScansPerRepo > 0) {
@@ -219,6 +244,7 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
           scansDeleted += r.scans;
           dimensionsDeleted += r.dimensions;
           recommendationsDeleted += r.recommendations;
+          recommendationEventsDeleted += r.events;
         }
       }
 
@@ -235,6 +261,7 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
           scansDeleted,
           dimensionsDeleted,
           recommendationsDeleted,
+          recommendationEventsDeleted,
           auditDeleted,
           policy: { maxScansPerRepo: policy.maxScansPerRepo, auditDays: policy.auditDays },
         },
@@ -247,6 +274,7 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
         scansDeleted,
         dimensionsDeleted,
         recommendationsDeleted,
+        recommendationEventsDeleted,
         auditDeleted,
       });
     } catch (err) {
@@ -268,6 +296,7 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
           scansDeleted: 0,
           dimensionsDeleted: 0,
           recommendationsDeleted: 0,
+          recommendationEventsDeleted: 0,
           auditDeleted,
         });
       }
@@ -290,6 +319,7 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
     scansDeleted: results.reduce((a, r) => a + r.scansDeleted, 0),
     dimensionsDeleted: results.reduce((a, r) => a + r.dimensionsDeleted, 0),
     recommendationsDeleted: results.reduce((a, r) => a + r.recommendationsDeleted, 0),
+    recommendationEventsDeleted: results.reduce((a, r) => a + r.recommendationEventsDeleted, 0),
     auditDeleted: results.reduce((a, r) => a + r.auditDeleted, 0),
     results,
     errors,
