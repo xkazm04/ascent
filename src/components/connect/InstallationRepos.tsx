@@ -267,7 +267,12 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       const failed = Array.isArray(d.failed) ? d.failed : [];
       failed.forEach((fn) => patch(fn, { watched: false }));
       const ok = targets.length - failed.length;
-      setBulkMsg({ kind: "note", text: `Now watching ${ok} repo${ok === 1 ? "" : "s"}${failed.length ? ` · ${failed.length} failed` : ""}.` });
+      // A 2xx whose every row failed is not a success — read it as an error, not a positive "watching 0".
+      if (ok === 0) {
+        setBulkMsg({ kind: "error", text: `Couldn't watch any of the ${failed.length} repo${failed.length === 1 ? "" : "s"} — none were saved.` });
+      } else {
+        setBulkMsg({ kind: "note", text: `Now watching ${ok} repo${ok === 1 ? "" : "s"}${failed.length ? ` · ${failed.length} failed` : ""}.` });
+      }
     } catch {
       targets.forEach((r) => patch(r.fullName, { watched: false }));
       setBulkMsg({ kind: "error", text: "Network error — bulk watch not saved." });

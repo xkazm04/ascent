@@ -56,13 +56,20 @@ export function PlaybookCard({
   async function apply() {
     const repo = pick;
     if (!repo || applied.includes(repo)) return;
-    setApplied((a) => [...a, repo]);
+    setApplied((a) => [...a, repo]); // optimistic
     setPick("");
-    await fetch(`/api/org/playbooks/${p.id}/repos`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repo }),
-    });
+    // Roll the optimistic add back if the server didn't record it — otherwise the card shows the repo
+    // as adopted while the DB has no row, seeding phantom Initiatives + skewed lift analytics.
+    try {
+      const res = await fetch(`/api/org/playbooks/${p.id}/repos`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo }),
+      });
+      if (!res.ok) setApplied((a) => a.filter((r) => r !== repo));
+    } catch {
+      setApplied((a) => a.filter((r) => r !== repo));
+    }
   }
 
   // Open a draft PR seeding the playbook into the picked repo (the route records adoption too).
@@ -91,12 +98,18 @@ export function PlaybookCard({
   }
 
   async function unapply(repo: string) {
-    setApplied((a) => a.filter((r) => r !== repo));
-    await fetch(`/api/org/playbooks/${p.id}/repos`, {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repo }),
-    });
+    setApplied((a) => a.filter((r) => r !== repo)); // optimistic
+    // Re-add on failure so the card can't show a repo as un-adopted while the DB still has the row.
+    try {
+      const res = await fetch(`/api/org/playbooks/${p.id}/repos`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo }),
+      });
+      if (!res.ok) setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+    } catch {
+      setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+    }
   }
 
   return (

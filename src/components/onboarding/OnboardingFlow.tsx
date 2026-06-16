@@ -278,7 +278,14 @@ export function OnboardingFlow({
             setPhase("done");
             setAnnounce(`Scan complete — ${total} ${total === 1 ? "repository" : "repositories"}.`);
           },
-          onError: (message) => setError(message),
+          // An SSE `error` event can arrive and the stream still end "cleanly" (runImportScan resolves
+          // ok:true), so the outcome handler below never runs — without advancing the phase here the
+          // wizard is stranded on "scanning" forever with no done-state and no way to recover. Move
+          // back to "select" so the error shows and the user can retry.
+          onError: (message) => {
+            setError(message);
+            setPhase("select");
+          },
         },
       );
       if (!outcome.ok) {
