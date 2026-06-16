@@ -55,6 +55,11 @@ export async function findScanByScannedAt(
   if (!isDbConfigured()) return null;
   return getPrisma().scan.findFirst({
     where: { repoId, scannedAt },
+    // Deterministic on a timestamp tie (the only thing this sha-less fallback keys on): without an
+    // orderBy, findFirst returned an arbitrary matching row. NOTE: equality dedup on a high-precision
+    // timestamp is inherently fragile — a stable content/idempotency key would be the authoritative fix
+    // (tracked as a follow-up); this just makes the existing behavior deterministic.
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: { id: true },
   });
 }

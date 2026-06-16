@@ -409,8 +409,8 @@ CREATE INDEX "Scan_repoId_idx" ON "Scan"("repoId");
 -- CreateIndex
 CREATE INDEX "Scan_repoId_scannedAt_idx" ON "Scan"("repoId", "scannedAt");
 
--- CreateIndex
-CREATE INDEX "Scan_repoId_headSha_idx" ON "Scan"("repoId", "headSha");
+-- CreateIndex (UNIQUE: cross-instance same-commit dedup backstop; NULL headSha stays unconstrained)
+CREATE UNIQUE INDEX "Scan_repoId_headSha_key" ON "Scan"("repoId", "headSha");
 
 -- CreateIndex
 CREATE INDEX "ScanDimension_scanId_idx" ON "ScanDimension"("scanId");

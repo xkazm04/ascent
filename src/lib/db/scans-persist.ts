@@ -9,6 +9,7 @@ import { matchRecommendations } from "@/lib/report/compare";
 import {
   DEFAULT_ORG_SLUG,
   ensureOrgId,
+  isUniqueConstraintError,
   upsertRacing,
   withRepoLock,
 } from "@/lib/db/scans-shared";
@@ -76,18 +77,18 @@ export async function persistScanReport(
   // the create race) wrapped in withRetry (for a genuine cross-scan OCC conflict on it).
   const orgId = await ensureOrgId(orgSlug);
 
-  // Refresh the repo's head pointer + conditional-request ETag (the durable, cross-instance
-  // copy of the in-memory head hint). `undefined` means "leave as-is": a token/private scan
-  // carries no public ETag, so it must not clobber the one a public scan stored.
+  // Repo upsert. The always-safe metadata (url/language/stars/visibility) updates unconditionally; the
+  // HEAD POINTER (headSha/headEtag/lastScanAt) is advanced SEPARATELY below under a recency guard. The
+  // old code wrote the head pointer in the update branch unconditionally, so a delayed/replayed scan of
+  // an OLDER commit rolled headSha back (and could tear it apart from headEtag) — making the next
+  // conditional re-scan send If-None-Match for the wrong commit, and lastScanAt move backwards.
+  const scannedAtDate = new Date(report.scannedAt);
   const repoWhere: Prisma.RepositoryWhereUniqueInput = { orgId_fullName: { orgId, fullName } };
   const repoUpdate: Prisma.RepositoryUpdateInput = {
     url: report.repo.url,
     primaryLanguage: report.repo.primaryLanguage ?? null,
     stars: report.repo.stars,
     isPrivate: report.repo.isPrivate ?? false,
-    lastScanAt: new Date(report.scannedAt),
-    headSha: headSha ?? undefined,
-    headEtag: opts.headEtag ?? undefined,
   };
   const repo = await withRetry(
     () =>
@@ -96,6 +97,7 @@ export async function persistScanReport(
           prisma.repository.upsert({
             where: repoWhere,
             update: repoUpdate,
+            // First-ever scan: seed the head pointer on create (nothing newer can exist yet).
             create: {
               orgId,
               owner: report.repo.owner,
@@ -105,7 +107,7 @@ export async function persistScanReport(
               isPrivate: report.repo.isPrivate ?? false,
               primaryLanguage: report.repo.primaryLanguage ?? null,
               stars: report.repo.stars,
-              lastScanAt: new Date(report.scannedAt),
+              lastScanAt: scannedAtDate,
               headSha,
               headEtag: opts.headEtag ?? null,
             },
@@ -114,6 +116,22 @@ export async function persistScanReport(
         () => prisma.repository.update({ where: repoWhere, data: repoUpdate }),
       ),
     { label: "persistScanReport:repo" },
+  );
+
+  // Advance the head pointer ONLY when this report is newer than the stored lastScanAt — never roll it
+  // back. headSha + headEtag move together (so they can't tear), and a null/undefined etag (a private
+  // /token scan that carries no public ETag) leaves the stored one alone. A no-op for the just-created
+  // row (lastScanAt already == scannedAt) and for an older/replayed scan.
+  const headAdvance: Prisma.RepositoryUpdateManyMutationInput = { lastScanAt: scannedAtDate };
+  if (headSha) headAdvance.headSha = headSha;
+  if (opts.headEtag != null) headAdvance.headEtag = opts.headEtag;
+  await withRetry(
+    () =>
+      prisma.repository.updateMany({
+        where: { id: repo.id, OR: [{ lastScanAt: null }, { lastScanAt: { lt: scannedAtDate } }] },
+        data: headAdvance,
+      }),
+    { label: "persistScanReport:repo-head" },
   );
 
   // Serialize the read-decide-write section per repo so two concurrent scans of the same repo can't
@@ -149,7 +167,11 @@ export async function persistScanReport(
     // rows, so it begins fresh each scan while the carried state persists.
     const previous = await prisma.scan.findFirst({
       where: { repoId: repo.id },
-      orderBy: { scannedAt: "desc" },
+      // Deterministic tiebreaker: `scannedAt` is not unique (two re-scores can share a timestamp, and
+      // a same-commit duplicate could once exist), so a bare `scannedAt desc` resolved "previous" to an
+      // ARBITRARY row on a tie — carrying tracked status/assignee from a non-canonical predecessor.
+      // createdAt then id break the tie to the genuinely-latest row.
+      orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       select: { recommendations: { select: { dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true } } },
     });
     const prevRecs = previous?.recommendations ?? [];
@@ -161,7 +183,10 @@ export async function persistScanReport(
     // Atomic write: the scan graph (scan + dimensions + recommendations), the contributor upserts,
     // and the audit entry commit together or roll back together — closing the partial-write hole
     // where a crash mid-way left a scan with no contributors or no audit row.
-    const scanId = await prisma.$transaction(
+    let dedupedByRace = false;
+    let scanId: string;
+    try {
+    scanId = await prisma.$transaction(
       async (tx) => {
         const scan = await tx.scan.create({
           data: {
@@ -293,6 +318,21 @@ export async function persistScanReport(
       // tight over a remote DSQL link, so allow more time (and a longer wait to acquire a connection).
       { timeout: 20_000, maxWait: 10_000 },
     );
+    } catch (err) {
+      // Cross-instance same-commit race: the @@unique([repoId, headSha]) constraint rejected our
+      // insert with P2002 because another instance committed the identical commit between our dedup
+      // read and our insert. Re-read the winner and treat it as a dedup — no duplicate Scan row, no
+      // second metered charge. (The process-local lock is the fast path; this constraint is the
+      // cross-instance backstop the read-then-insert dedup lacked.) Any other error propagates.
+      if (headSha && isUniqueConstraintError(err)) {
+        const winner = await findScanByCommit(repo.id, headSha);
+        if (!winner) throw err;
+        scanId = winner.id;
+        dedupedByRace = true;
+      } else {
+        throw err;
+      }
+    }
 
     // A fresh=1 re-test of an UNCHANGED commit just wrote this new Scan row, but this instance's
     // scan cache still holds the prior report under the same owner/repo[@sha]::mode key (TTL/LRU
@@ -305,7 +345,7 @@ export async function persistScanReport(
       cacheDelete(makeCacheKey(owner, name, useLLM));
     }
 
-    return { scanId, deduped: false, headSha, failures: { audit: false, contributors: 0 } };
+    return { scanId, deduped: dedupedByRace, headSha, failures: { audit: false, contributors: 0 } };
   }, { label: "persistScanReport:scan" }));
   });
 }

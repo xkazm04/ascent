@@ -303,7 +303,12 @@ model Scan {
 
   @@index([repoId])
   @@index([repoId, scannedAt])
-  @@index([repoId, headSha])
+  // Cross-instance dedup backstop: two serverless instances persisting the SAME commit concurrently
+  // both miss the read-then-insert dedup (the row isn't committed yet) and both insert. A unique
+  // constraint makes the loser fail with P2002 (handled in persistScanReport → deduped). headSha is
+  // nullable, so sha-less scans (NULLs are distinct in Postgres) are unconstrained and fall back to
+  // the scannedAt dedup. Replaces the plain @@index (a unique index also serves the lookup).
+  @@unique([repoId, headSha])
 }
 
 model ScanDimension {
