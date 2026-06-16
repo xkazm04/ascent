@@ -308,9 +308,23 @@ export function getPrisma(): PrismaClient {
     return g.__ascentPrisma.client;
   }
 
-  // Cold start. In DSQL mode we seed from DATABASE_URL if present (the deploy-time token) so the
-  // synchronous accessor always has a client, then immediately refresh in the background to mint
-  // our own short-lived token.
+  // Cold start. In DSQL mode a deploy-time DATABASE_URL seed token is REQUIRED: getPrisma() is
+  // synchronous and can't mint an IAM token, so without a seed the cold client would be built with no
+  // datasource URL and 500 every first query (with a cryptic "Environment variable not found:
+  // DATABASE_URL") until the async mint lands. Direct getPrisma() callers (125 sites) hit this; withDb()
+  // awaits a mint first and is safe. Fail fast here with an actionable message rather than serving a
+  // dead client. (withDb's getClient seeds g.__ascentPrisma via a mint before reaching this path, so a
+  // warm/refreshed instance never trips this — it's strictly the no-seed misconfiguration guard.)
+  if (cfg && !process.env.DATABASE_URL) {
+    throw new Error(
+      "DSQL is configured (DSQL_ENDPOINT) but DATABASE_URL is unset. Set DATABASE_URL to a deploy-time " +
+        "DSQL connection string so the synchronous client has a datasource URL on cold start; the module " +
+        "then refreshes its own short-lived IAM token. (DATABASE_URL is required even in DSQL mode.)",
+    );
+  }
+
+  // We seed from DATABASE_URL (the deploy-time token) so the synchronous accessor always has a client,
+  // then immediately refresh in the background to mint our own short-lived token.
   const client = newClient(process.env.DATABASE_URL);
   // Mark the seed STALE-NOW (expiresAt 0), not a full fresh TTL. The deploy-time token may already be
   // aged or expired (a frozen instance thawing past the TTL), so crediting it a full TTL blinds
