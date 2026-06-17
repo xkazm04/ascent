@@ -83,7 +83,10 @@ export function ConstellationField({
       </div>
 
       <div className="relative mt-3 aspect-square">
-        <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="img" aria-label={`${c.login} constellation`}>
+        {/* role="group" (not "img"): the map contains interactive per-star <a> report links — role="img"
+            collapses the whole SVG to one image and makes every star link (+ its aria-label) unreachable
+            to screen readers. A group keeps the label AND exposes the links. */}
+        <svg viewBox="0 0 120 120" className="absolute inset-0 h-full w-full" role="group" aria-label={`${c.login} constellation — ${repos.length} ${repos.length === 1 ? "repository" : "repositories"}`}>
           {/* constellation lines from the org core to each scanned repo star */}
           {c.status === "done" &&
             repos.map((r, i) => {

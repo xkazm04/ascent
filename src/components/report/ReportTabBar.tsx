@@ -52,7 +52,9 @@ export function ReportTabBar({
             role="tab"
             id={`report-tab-${t.id}`}
             aria-selected={isActive}
-            aria-controls={`report-panel-${t.id}`}
+            // Only the ACTIVE panel is mounted, so only the active tab's aria-controls resolves to a
+            // real element — pointing an inactive tab at an unrendered panel id is a dangling reference.
+            aria-controls={isActive ? `report-panel-${t.id}` : undefined}
             tabIndex={isActive ? 0 : -1}
             data-testid={`report-tab-btn-${t.id}`}
             onClick={() => onSelect(t.id)}
