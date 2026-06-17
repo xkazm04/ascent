@@ -107,6 +107,7 @@ export default async function ContributorInsightsPage({
           <OrgTable
             className="mt-3"
             minWidth={720}
+            caption="Contributors by involvement — repos, commits, and AI-commit share"
             head={
               <tr>
                 <th className="px-4 py-2 text-left">Contributor</th>
@@ -160,6 +161,7 @@ export default async function ContributorInsightsPage({
           />
           <OrgTable
             className="mt-3"
+            caption="AI-commit adoption by repository"
             head={
               <tr>
                 <th className="px-4 py-2 text-left">Repo</th>

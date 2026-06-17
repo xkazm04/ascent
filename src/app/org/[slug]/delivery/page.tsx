@@ -132,6 +132,7 @@ export default async function OrgDelivery({
           </div>
           <OrgTable
             className="mt-3"
+            caption="Delivery and governance metrics by repository"
             head={
               <tr>
                 <th className="px-4 py-2 text-left">Repo</th>

@@ -110,15 +110,20 @@ export function OrgTable({
   children,
   minWidth = 640,
   className = "",
+  caption,
 }: {
   head: React.ReactNode;
   children: React.ReactNode;
   minWidth?: number;
   className?: string;
+  /** Accessible name for the table (rendered visually-hidden) — a data table with no caption/label is
+   *  announced as just "table" by a screen reader, with no idea what it holds. */
+  caption?: string;
 }) {
   return (
     <div className={`overflow-x-auto rounded-2xl border border-slate-800 ${className}`}>
       <table className="w-full text-base" style={{ minWidth: `${minWidth}px` }}>
+        {caption ? <caption className="sr-only">{caption}</caption> : null}
         <thead className="bg-slate-900/60 font-mono text-sm uppercase tracking-widest text-slate-500">{head}</thead>
         <tbody className="divide-y divide-slate-800 [&>tr]:transition-colors [&>tr:hover]:bg-slate-900/40">
           {children}
