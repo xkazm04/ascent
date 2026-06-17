@@ -57,6 +57,20 @@ export function ScanForm({
     }
   }, [autoFocus]);
 
+  // submit() sets `submitting` and navigates to /report; when the user hits BACK, the browser restores
+  // this page from the bfcache with `submitting` still true — leaving the form permanently disabled with
+  // no way to scan again. Reset it on a bfcache restore (pageshow.persisted) so the form is usable again.
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        setSubmitting(false);
+        setPendingChip(null);
+      }
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   function submit() {
     const normalized = normalizeRepo(value);
     if (!normalized) {
