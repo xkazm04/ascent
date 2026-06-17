@@ -55,9 +55,12 @@ function frontmatter(report: ScanReport, tracks: OnboardingTrack[]): string {
     `${report.scannedAt.slice(0, 10)} (currently ${report.level.id} ${report.level.name}, ` +
     `${report.overallScore}/100). Run it to adopt the highest-leverage practices (${dims}) that ` +
     `move this repo toward autonomous, LLM-driven development.`;
+  // The description is a single YAML line: collapse any newline (and the quotes) so an interpolated
+  // value can't break out of the quoted scalar and corrupt the frontmatter block.
+  const safeDesc = desc.replace(/[\r\n]+/g, " ").replace(/"/g, "'");
   return `---
 name: ${SKILL_NAME}
-description: "${desc.replace(/"/g, "'")}"
+description: "${safeDesc}"
 ---`;
 }
 
@@ -129,12 +132,17 @@ which layer its controls belong in.`;
 }
 
 function embedFile(f: GeneratedFile): string {
-  // Four-backtick fence so any triple-backticks inside the embedded file can't close it early.
+  // Fence with MORE backticks than the longest backtick run anywhere in the body, so nothing inside —
+  // even a four-backtick line — can close the fence early and leak/garble everything below it. The old
+  // fixed four-backtick fence merely ASSUMED bodies never contained four backticks (the hand-authored
+  // .mjs scripts dodge it on purpose, but nothing enforced it for a generated body).
+  const longestRun = (f.body.match(/`+/g) ?? []).reduce((m, run) => Math.max(m, run.length), 0);
+  const fence = "`".repeat(Math.max(4, longestRun + 1));
   return `#### \`${f.path}\`
 _${f.purpose}_
 
-\`\`\`\`${f.lang}
-${f.body}\`\`\`\``;
+${fence}${f.lang}
+${f.body}${fence}`;
 }
 
 function foundation(report: ScanReport): string {

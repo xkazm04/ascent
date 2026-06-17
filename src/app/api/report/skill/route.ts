@@ -51,8 +51,11 @@ export async function GET(request: Request) {
   // STD-6: record the generation (repo, commit, tracks) so the report can show a history + track diff.
   // Fire-and-forget — the download never waits on it, and a failed write is swallowed.
   void recordSkillGeneration(`${parsed.owner}/${parsed.name}`, parsed.sha ?? null, skill.trackIds).catch(() => {});
-  const filename = `ascent-onboard-${parsed.owner}-${parsed.name}${
-    parsed.sha ? "-" + parsed.sha.slice(0, 7) : ""
+  // Sanitize every interpolated segment before the Content-Disposition header (the sha is
+  // caller-supplied and unvalidated): keep only filename-safe chars so it can't inject a header.
+  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
+  const filename = `ascent-onboard-${safe(parsed.owner)}-${safe(parsed.name)}${
+    parsed.sha ? "-" + safe(parsed.sha.slice(0, 7)) : ""
   }.SKILL.md`;
   return new NextResponse(skill.body, {
     headers: {
