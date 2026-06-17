@@ -46,6 +46,9 @@ function validName(s: string, max: number): boolean {
 // multi-MB ?logo=data:image/... is a response-amplification lever (and renders a broken giant badge).
 const MAX_LABEL_LEN = 80; // a badge label is a few words
 const MAX_LOGO_LEN = 4096; // a small inline data:image icon (~4 KB)
+// Raster image types only — explicitly NOT svg+xml (scriptable nested SVG → XSS on a directly-loaded
+// image/svg+xml badge). Matches `data:image/png;base64,…` and `data:image/png,…`.
+const RASTER_LOGO_RE = /^data:image\/(png|jpe?g|gif|webp)[;,]/i;
 
 // ---- short negative cache for unknown repos --------------------------------
 
@@ -222,11 +225,13 @@ export async function GET(
   const customLabelRaw = searchParams.get("label");
   const customLabel = customLabelRaw != null ? customLabelRaw.slice(0, MAX_LABEL_LEN) : null;
   const customColor = searchParams.get("color");
-  // Only embed a self-contained data: URI logo — never fetch an external URL (SSRF) — and only when
-  // it's within the size cap, so a multi-MB data URI can't bloat the response.
+  // Only embed a self-contained RASTER data: URI logo — never fetch an external URL (SSRF), never a
+  // data:image/svg+xml (a nested, SCRIPTABLE SVG that executes when this badge is loaded DIRECTLY as
+  // image/svg+xml — active-content XSS), and only within the size cap so a multi-MB data URI can't
+  // bloat the response. The intent was always "a small inline icon", i.e. a raster image.
   const logoParam = searchParams.get("logo");
   const logo =
-    logoParam && logoParam.startsWith("data:image/") && logoParam.length <= MAX_LOGO_LEN ? logoParam : null;
+    logoParam && RASTER_LOGO_RE.test(logoParam) && logoParam.length <= MAX_LOGO_LEN ? logoParam : null;
   const neutral = "#64748b";
 
   const defaultLabel = gateMode ? "Ascent gate" : "Ascent";
@@ -246,14 +251,14 @@ export async function GET(
 
   // 2. Validate the normalized path BEFORE touching scan/cache. Malformed → neutral badge.
   if (!validName(ownerN, 39) || !validName(repoN, 100)) {
-    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_NEUTRAL });
+    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }), { cache: customized ? CACHE_CUSTOM : CACHE_NEUTRAL });
   }
 
   const key = `${ownerN}/${repoN}`;
 
   // 3. Negative cache: a recently-failed repo returns "unknown" without re-scanning.
   if (negGet(key)) {
-    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_NEUTRAL });
+    return respond(badgeSvg({ label, value: "unknown", color: resolveColor(customColor, neutral), style, logo }), { cache: customized ? CACHE_CUSTOM : CACHE_NEUTRAL });
   }
 
   // Click-through to the live report (shareable permalink). `?ref=badge` tags the visit so a report
@@ -302,7 +307,7 @@ export async function GET(
     // cache can hold a private repo's report left by an AUTHENTICATED scan, so gate on the resolved
     // report too. Serve a neutral "private" badge, never the level / gate verdict.
     if (report.repo.isPrivate) {
-      return respond(badgeSvg({ label, value: "private", color: resolveColor(customColor, neutral), style, logo }), { cache: CACHE_NEUTRAL });
+      return respond(badgeSvg({ label, value: "private", color: resolveColor(customColor, neutral), style, logo }), { cache: customized ? CACHE_CUSTOM : CACHE_NEUTRAL });
     }
 
     // USE-1: best-effort reach tally for the "Badge reach" panel on /usage. Fire-and-forget — never
