@@ -30,7 +30,13 @@ vi.mock("@/lib/github/app", () => ({
   getInstallationToken: vi.fn(async () => "app-installation-token"),
   isAppConfigured: () => true,
 }));
-vi.mock("@/lib/github/list", () => ({ listOrgRepos: vi.fn(async () => []) }));
+vi.mock("@/lib/github/list", () => ({
+  listOrgRepos: vi.fn(async () => []),
+  // The route now validates explicit repos[] coordinates via these before any fetch — the test's
+  // repos use valid owner/name, so accept them (the real validators are unit-tested in list.test.ts).
+  isValidHandle: (s: string) => /^[A-Za-z0-9-]+$/.test(s),
+  isValidRepoName: (s: string) => /^[A-Za-z0-9._-]+$/.test(s) && !s.startsWith(".") && !s.includes(".."),
+}));
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: vi.fn(() => true) }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, getViewer: vi.fn(async () => null) }));
 vi.mock("@/lib/authz", () => ({
