@@ -31,10 +31,50 @@ interface GhRepo {
 // URL-control chars) from rewriting the request path/host — an SSRF / path-injection vector, since
 // `org` reaches here unauthenticated via /api/org/repos and /api/org/import.
 const VALID_HANDLE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+// GitHub repo names: [A-Za-z0-9._-], ≤100, never starting with a dot or containing ".." (traversal).
+const REPO_NAME_RE = /^[A-Za-z0-9._-]+$/;
+
+/** True for a valid GitHub org/user handle (login grammar). Exported so untrusted callers (the import
+ *  route's `repos[]`) can validate BEFORE any value is interpolated into a github.com URL. */
+export function isValidHandle(s: string): boolean {
+  return VALID_HANDLE.test(s);
+}
+
+/** True for a valid GitHub repository name (allows dots/underscores, unlike a login). */
+export function isValidRepoName(s: string): boolean {
+  return Boolean(s) && s.length <= 100 && REPO_NAME_RE.test(s) && !s.startsWith(".") && !s.includes("..");
+}
+
+/** Typed GitHub-listing failure so callers can map a rate-limit / auth / not-found to the RIGHT HTTP
+ *  status instead of collapsing every throw to 404 (which hid rate limits + auth outages as "no such org"). */
+export class GitHubListError extends Error {
+  constructor(
+    message: string,
+    readonly code: "NOT_FOUND" | "RATE_LIMITED" | "AUTH" | "UPSTREAM",
+    readonly retryAfterSec?: number,
+  ) {
+    super(message);
+    this.name = "GitHubListError";
+  }
+}
+
+/** Parse the `rel="next"` URL out of a GitHub `Link` header, or null when there's no next page. */
+function nextPageUrl(link: string | null): string | null {
+  if (!link) return null;
+  for (const part of link.split(",")) {
+    if (/rel="next"/.test(part)) {
+      const m = part.match(/<([^>]+)>/);
+      if (m) return m[1]!;
+    }
+  }
+  return null;
+}
+
+const MAX_LIST_PAGES = 5; // backfill across up to 5 pages of 100 before giving up on `count` results
 
 export async function listOrgRepos(org: string, count: number, token?: string): Promise<OrgRepoListItem[]> {
   if (!VALID_HANDLE.test(org)) {
-    throw new Error(`Invalid GitHub org/user handle: "${org}"`);
+    throw new GitHubListError(`Invalid GitHub org/user handle: "${org}"`, "NOT_FOUND");
   }
   const headers: Record<string, string> = {
     accept: "application/vnd.github+json",
@@ -42,27 +82,51 @@ export async function listOrgRepos(org: string, count: number, token?: string): 
     "user-agent": "ascent-org-listing",
   };
   if (token) headers.authorization = `Bearer ${token}`;
-  const perPage = Math.min(100, Math.max(1, count * 2)); // over-fetch; we filter forks/archived
-  const qs = `sort=pushed&direction=desc&type=public&per_page=${perPage}`;
+  const map = (r: GhRepo): OrgRepoListItem => ({
+    owner: r.owner.login,
+    name: r.name,
+    fullName: r.full_name,
+    url: r.html_url,
+    isPrivate: r.private,
+    stars: r.stargazers_count ?? 0,
+    pushedAt: r.pushed_at,
+    description: r.description ?? "",
+  });
 
+  // Fetch FULL 100-repo pages and FILTER forks/archived inside the pagination loop, following the
+  // Link header's rel="next" until we have `count` post-filter results or pages are exhausted. The old
+  // single `per_page=count*2` fetch returned far fewer than `count` (sometimes zero) for fork-heavy /
+  // archived-heavy orgs once count ≥ 50, and reported that short list as complete.
   for (const base of [`https://api.github.com/orgs/${org}/repos`, `https://api.github.com/users/${org}/repos`]) {
-    const res = await fetch(`${base}?${qs}`, { headers });
-    if (res.status === 404) continue; // not an org → try user
-    if (!res.ok) throw new Error(`GitHub list failed (${res.status}) for ${org}`);
-    const all = (await res.json()) as GhRepo[];
-    return all
-      .filter((r) => !r.fork && !r.archived)
-      .slice(0, count)
-      .map((r) => ({
-        owner: r.owner.login,
-        name: r.name,
-        fullName: r.full_name,
-        url: r.html_url,
-        isPrivate: r.private,
-        stars: r.stargazers_count ?? 0,
-        pushedAt: r.pushed_at,
-        description: r.description ?? "",
-      }));
+    const collected: OrgRepoListItem[] = [];
+    let url: string | null = `${base}?sort=pushed&direction=desc&type=public&per_page=100`;
+    let probed = false; // have we gotten a successful first page from this base?
+    for (let page = 0; page < MAX_LIST_PAGES && url; page++) {
+      const res = await fetch(url, { headers });
+      if (res.status === 404 && !probed) break; // not an org → try the /users/ base
+      // Don't mask a rate limit / auth failure as "not found": surface a typed error so the route can
+      // return 429/502 with a Retry-After instead of a misleading 404 for a real account.
+      if (res.status === 403 || res.status === 429) {
+        const rateLimited = res.status === 429 || res.headers.get("x-ratelimit-remaining") === "0";
+        const retryAfter = Number(res.headers.get("retry-after")) || undefined;
+        throw new GitHubListError(
+          rateLimited ? `GitHub rate limit hit while listing "${org}".` : `GitHub denied listing "${org}" (403).`,
+          rateLimited ? "RATE_LIMITED" : "AUTH",
+          retryAfter,
+        );
+      }
+      if (res.status === 401) throw new GitHubListError(`GitHub auth failed listing "${org}".`, "AUTH");
+      if (!res.ok) throw new GitHubListError(`GitHub list failed (${res.status}) for "${org}".`, "UPSTREAM");
+      probed = true;
+      const all = (await res.json()) as GhRepo[];
+      for (const r of all) {
+        if (r.fork || r.archived) continue;
+        collected.push(map(r));
+        if (collected.length >= count) return collected.slice(0, count);
+      }
+      url = nextPageUrl(res.headers.get("link"));
+    }
+    if (probed) return collected.slice(0, count); // ran out of pages/repos for this base — return what we have
   }
-  throw new Error(`No public org or user named "${org}".`);
+  throw new GitHubListError(`No public org or user named "${org}".`, "NOT_FOUND");
 }

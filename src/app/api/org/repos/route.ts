@@ -6,7 +6,7 @@
 // this endpoint stays the public, App-free listing for the free-tier funnel.
 
 import { NextResponse } from "next/server";
-import { listOrgRepos } from "@/lib/github/list";
+import { GitHubListError, listOrgRepos } from "@/lib/github/list";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,9 +21,16 @@ export async function GET(request: Request) {
     const repos = await listOrgRepos(org, count, process.env.GITHUB_TOKEN || undefined);
     return NextResponse.json({ org, repos });
   } catch (err) {
+    // Map the listing failure to the RIGHT status — a rate limit / auth outage must not read as a 404
+    // "no such org" (which made a real account on a busy shared token look like a typo).
+    if (err instanceof GitHubListError) {
+      const status = err.code === "RATE_LIMITED" ? 429 : err.code === "NOT_FOUND" ? 404 : 502;
+      const headers = err.retryAfterSec ? { "retry-after": String(err.retryAfterSec) } : undefined;
+      return NextResponse.json({ error: err.message, code: err.code }, { status, headers });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : `Could not list repositories for "${org}".` },
-      { status: 404 },
+      { status: 502 },
     );
   }
 }
