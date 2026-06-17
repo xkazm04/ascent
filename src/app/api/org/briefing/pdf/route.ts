@@ -41,8 +41,18 @@ export async function GET(request: Request) {
   const branding = (await getOrgBranding(org).catch(() => null)) ?? undefined;
   const render = (b: typeof branding) =>
     renderToBuffer(createElement(BriefingDocument, { briefing, branding: b }) as unknown as ReactElement<DocumentProps>);
-  const buffer = await render(branding).catch(() => (branding ? render(undefined) : Promise.reject(new Error("render failed"))));
-  const filename = `ascent-briefing-${org}-${briefing.generatedOn}.pdf`;
+  let buffer: Buffer;
+  try {
+    // Try branded; on a bad/unreachable logo fall back to an unbranded render. If THAT also fails (or
+    // there was no branding), the rejection used to escape as an unhandled 500 with a raw stack — wrap
+    // the whole thing so a render failure degrades to a clean error instead.
+    buffer = await render(branding).catch(() => (branding ? render(undefined) : Promise.reject(new Error("render failed"))));
+  } catch (err) {
+    console.error("[briefing/pdf] render failed", err);
+    return NextResponse.json({ error: "Failed to render the briefing PDF." }, { status: 500 });
+  }
+  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
+  const filename = `ascent-briefing-${safe(org)}-${safe(briefing.generatedOn)}.pdf`;
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "content-type": "application/pdf",

@@ -49,8 +49,20 @@ export async function GET(request: Request) {
   // ReportDocument returns a <Document>; the wrapper-component element type doesn't structurally match
   // renderToBuffer's ReactElement<DocumentProps> param, so narrow it through unknown (no `any`).
   const element = createElement(ReportDocument, { report }) as unknown as ReactElement<DocumentProps>;
-  const buffer = await renderToBuffer(element);
-  const filename = `ascent-${parsed.owner}-${parsed.name}${parsed.sha ? "-" + parsed.sha.slice(0, 7) : ""}.pdf`;
+  let buffer: Buffer;
+  try {
+    buffer = await renderToBuffer(element);
+  } catch (err) {
+    // A render failure (a malformed field, a @react-pdf edge case) must not escape as an unhandled 500
+    // with a raw stack — return a clean error the client can show.
+    console.error("[report/pdf] render failed", err);
+    return NextResponse.json({ error: "Failed to render the PDF." }, { status: 500 });
+  }
+  // Sanitize every interpolated segment before it reaches the Content-Disposition header: owner/name
+  // come from a real persisted report (clean) but the sha is caller-supplied and unvalidated — keep
+  // only filename-safe chars so nothing can inject a header or a path separator.
+  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
+  const filename = `ascent-${safe(parsed.owner)}-${safe(parsed.name)}${parsed.sha ? "-" + safe(parsed.sha.slice(0, 7)) : ""}.pdf`;
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "content-type": "application/pdf",
