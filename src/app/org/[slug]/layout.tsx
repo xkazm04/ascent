@@ -5,7 +5,7 @@ import { OrgScanButton } from "@/components/org/OrgScanButton";
 import { CreditsControl } from "@/components/org/CreditsControl";
 import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
-import { getCreditState, getMembershipRole, getOrgRollup, isDbConfigured } from "@/lib/db";
+import { getCreditState, getMembershipRole, getOrgRollup, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
@@ -89,13 +89,35 @@ export default async function OrgLayout({
   // Rollup + credit state are independent (both keyed on the slug alone), so fetch them together —
   // this shell wraps EVERY org tab, so its waterfall taxes every dashboard view. Prepaid scan-credit
   // state feeds the header chip (null for the shared public org, which is free).
-  const [rollup, credit, myRole] = await Promise.all([
-    getOrgRollup(slug),
-    slug === "public" ? Promise.resolve(null) : getCreditState(slug),
-    // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
-    // can open the Members tab). Null for the public org / non-members.
-    session?.login ? getMembershipRole(slug, session.login).catch(() => null) : Promise.resolve(null),
-  ]);
+  // The "Org demo" header link points here whenever DATABASE_URL is set — but a set-yet-unreachable
+  // DB (local Postgres not running, or a prod outage) makes these reads throw a
+  // PrismaClientInitializationError that, unguarded, crashed the whole dashboard with a raw stack.
+  // Surface the same calm empty-state the DB-less branch above uses, so the demo degrades instead of
+  // 500-ing. A query error against a LIVE DB still propagates (it's a real bug, not "DB down").
+  let rollup: Awaited<ReturnType<typeof getOrgRollup>>;
+  let credit: Awaited<ReturnType<typeof getCreditState>> | null;
+  let myRole: Awaited<ReturnType<typeof getMembershipRole>> | null;
+  try {
+    [rollup, credit, myRole] = await Promise.all([
+      getOrgRollup(slug),
+      slug === "public" ? Promise.resolve(null) : getCreditState(slug),
+      // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
+      // can open the Members tab). Null for the public org / non-members.
+      session?.login ? getMembershipRole(slug, session.login).catch(() => null) : Promise.resolve(null),
+    ]);
+  } catch (err) {
+    if (isDbUnavailableError(err)) {
+      return (
+        <Frame>
+          <OrgEmpty
+            title="Dashboard temporarily unavailable"
+            body="Couldn't reach the database that stores org rollups. Check that the database server is running, then reload."
+          />
+        </Frame>
+      );
+    }
+    throw err;
+  }
   if (!rollup || rollup.repoCount === 0) {
     return (
       <Frame>

@@ -7,6 +7,8 @@ export {
   dbHealthCheck,
   isAuthExpiryError,
   isSerializationConflictError,
+  isDbUnavailableError,
+  dbReadSafe,
   type RetryOptions,
 } from "@/lib/db/client";
 export {

@@ -28,6 +28,15 @@ html {
   color-scheme: dark;
 }
 
+/* Smooth-scroll the in-page jumps from the header nav (Levels / Method / Pricing → #levels / #how /
+   #pricing) instead of a hard snap. Gated on prefers-reduced-motion so reduced-motion users keep an
+   instant jump; the target sections carry scroll-mt-* so they clear the sticky header on arrival. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   background-color: #080d1a;
   background-image:

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildDsqlUrl,
+  dbReadSafe,
   isAuthExpiryError,
+  isDbUnavailableError,
   isSerializationConflictError,
   readDsqlConfig,
   runWithReconnect,
@@ -136,6 +138,64 @@ describe("isAuthExpiryError", () => {
     expect(isAuthExpiryError(undefined)).toBe(false);
     expect(isAuthExpiryError(new Error("unique constraint violated"))).toBe(false);
     expect(isAuthExpiryError({ code: "23505" })).toBe(false);
+  });
+});
+
+describe("isDbUnavailableError", () => {
+  it("matches the PrismaClientInitializationError class by name", () => {
+    const err = Object.assign(new Error("Can't reach database server at `localhost:5432`"), {
+      name: "PrismaClientInitializationError",
+    });
+    expect(isDbUnavailableError(err)).toBe(true);
+  });
+
+  it("matches the Prisma connection SQLSTATEs", () => {
+    expect(isDbUnavailableError({ code: "P1001" })).toBe(true); // can't reach
+    expect(isDbUnavailableError({ code: "P1002" })).toBe(true); // reach timeout
+    expect(isDbUnavailableError({ code: "P1008" })).toBe(true); // op timeout
+    expect(isDbUnavailableError({ code: "P1011" })).toBe(true); // TLS
+    expect(isDbUnavailableError({ code: "P1017" })).toBe(true); // server closed
+    expect(isDbUnavailableError({ meta: { code: "P1001" } })).toBe(true);
+  });
+
+  it("matches connection-down messages case-insensitively", () => {
+    expect(isDbUnavailableError(new Error("Can't reach database server at `localhost:5432`"))).toBe(true);
+    expect(isDbUnavailableError(new Error("connect ECONNREFUSED 127.0.0.1:5432"))).toBe(true);
+    expect(isDbUnavailableError({ message: "Connection refused" })).toBe(true);
+  });
+
+  it("is false for live-DB query errors and nullish input", () => {
+    expect(isDbUnavailableError(null)).toBe(false);
+    expect(isDbUnavailableError(undefined)).toBe(false);
+    expect(isDbUnavailableError({ code: "P2002" })).toBe(false); // unique constraint — a real bug
+    expect(isDbUnavailableError({ code: "23505" })).toBe(false);
+    expect(isDbUnavailableError(new Error("unique constraint violated"))).toBe(false);
+  });
+});
+
+describe("dbReadSafe", () => {
+  it("returns the read result when it succeeds", async () => {
+    expect(await dbReadSafe(async () => "rows", null)).toBe("rows");
+  });
+
+  it("degrades to the fallback when the database is unreachable", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = Object.assign(new Error("Can't reach database server at `localhost:5432`"), {
+      name: "PrismaClientInitializationError",
+    });
+    const result = await dbReadSafe<string | null>(async () => {
+      throw err;
+    }, null);
+    expect(result).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it("re-throws a real query error against a live database (not swallowed as 'no data')", async () => {
+    await expect(
+      dbReadSafe(async () => {
+        throw { code: "P2002", message: "Unique constraint failed" };
+      }, null),
+    ).rejects.toMatchObject({ code: "P2002" });
   });
 });
 

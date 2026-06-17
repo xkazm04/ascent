@@ -146,6 +146,56 @@ export function isSerializationConflictError(err: unknown): boolean {
   );
 }
 
+/**
+ * Does this error mean the database is configured but UNREACHABLE — the server is down, the
+ * host/port is wrong, or the network is broken — as opposed to a query error against a live DB?
+ * This is the gap isDbConfigured() can't see: DATABASE_URL is set (so the read functions never
+ * short-circuit to their no-DB fallback), yet the first getPrisma().<model>.<op>() throws a
+ * PrismaClientInitializationError at connect time ("Can't reach database server at localhost:5432").
+ * Left unhandled that crashes every DB-reading page/route the moment the local Postgres (or a prod
+ * DB during an outage) isn't up. Matches that error class by name, the Prisma connection SQLSTATEs
+ * (P1001 can't-reach, P1002 reach-timeout, P1008 op-timeout, P1011 TLS, P1017 server-closed), and the
+ * connection-refused messages. Pure + exported for unit testing. Distinct from isAuthExpiryError (a
+ * live server rejecting credentials) and isSerializationConflictError (a live server's OCC abort).
+ */
+export function isDbUnavailableError(err: unknown): boolean {
+  if (err == null) return false;
+  const name =
+    typeof err === "object" && "name" in err ? (err as { name?: unknown }).name : undefined;
+  if (name === "PrismaClientInitializationError") return true;
+  const { code, message } = errorInfo(err);
+  if (code && (code === "P1001" || code === "P1002" || code === "P1008" || code === "P1011" || code === "P1017")) {
+    return true;
+  }
+  const m = message.toLowerCase();
+  return (
+    m.includes("can't reach database server") ||
+    m.includes("cannot reach database server") ||
+    m.includes("connection refused") ||
+    m.includes("econnrefused") ||
+    m.includes("the database server was reached but timed out")
+  );
+}
+
+/**
+ * Run a best-effort READ and degrade to `fallback` when the database is configured but UNREACHABLE
+ * (see {@link isDbUnavailableError}) — the same graceful no-data path the read functions already take
+ * when persistence is unconfigured (isDbConfigured() === false). Lets a DB-less *and* a DB-down
+ * deployment render the keyless MVP instead of 500-ing. A query error against a LIVE database (bad
+ * SQL, a constraint violation, a genuine bug) is NOT swallowed — it re-throws unchanged.
+ */
+export async function dbReadSafe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (isDbUnavailableError(err)) {
+      console.warn("[db] read degraded — database unreachable:", errorInfo(err).message);
+      return fallback;
+    }
+    throw err;
+  }
+}
+
 // ── Serialization-conflict retry (DSQL optimistic concurrency) ─────────────────────────────
 
 /** Tunables for {@link withRetry}. All optional; `sleep`/`random` exist so tests stay deterministic. */

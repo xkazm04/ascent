@@ -18,7 +18,7 @@ import type {
   RepoArchetype,
   ScanReport,
 } from "@/lib/types";
-import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
@@ -77,16 +77,23 @@ export async function getHeadHint(
   opts: { orgSlug?: string } = {},
 ): Promise<{ headSha: string; etag: string | null } | null> {
   if (!isDbConfigured()) return null;
-  const prisma = getPrisma();
-  const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
-  const orgId = await resolveOrgId(orgSlug);
-  if (!orgId) return null;
-  const repo = await prisma.repository.findUnique({
-    where: { orgId_fullName: { orgId, fullName: `${owner}/${name}` } },
-    select: { headSha: true, headEtag: true },
-  });
-  if (!repo?.headSha) return null;
-  return { headSha: repo.headSha, etag: repo.headEtag ?? null };
+  // The conditional-head OPTIMIZATION is the first DB touch on the public-scan path: when the DB is
+  // configured (DATABASE_URL set) but unreachable, resolveOrgId/findUnique throws a
+  // PrismaClientInitializationError that propagated out of lookupCachedScan and 500'd the whole scan
+  // ("Unexpected error while scanning the repository"). Degrade to null on a DB-down — the caller
+  // simply skips the conditional request and runs a fresh scan, exactly as it does with no DB at all.
+  return dbReadSafe(async () => {
+    const prisma = getPrisma();
+    const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
+    const orgId = await resolveOrgId(orgSlug);
+    if (!orgId) return null;
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId, fullName: `${owner}/${name}` } },
+      select: { headSha: true, headEtag: true },
+    });
+    if (!repo?.headSha) return null;
+    return { headSha: repo.headSha, etag: repo.headEtag ?? null };
+  }, null);
 }
 
 export interface HistoryPoint {
