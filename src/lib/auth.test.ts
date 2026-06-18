@@ -1,9 +1,21 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 
-// auth.ts imports `cookies` from next/headers at module load; we never exercise the cookie store
-// in these tests (only the pure encode/build/decode helpers), so stub it out to keep the import
-// side-effect-free in a plain Node test environment.
-vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+// auth.ts imports `cookies` AND `headers` from next/headers at module load. The original pure-helper
+// tests never touch the cookie store; the new session-state / authorization tests below drive both,
+// so the mocks are shared, hoisted vi.fn()s reset per-test (defaults restored in beforeEach).
+const { mockCookies, mockHeaders, mockIsDbConfigured, mockGetSessionVersion } = vi.hoisted(() => ({
+  mockCookies: vi.fn(),
+  mockHeaders: vi.fn(),
+  mockIsDbConfigured: vi.fn(),
+  mockGetSessionVersion: vi.fn(),
+}));
+
+vi.mock("next/headers", () => ({ cookies: mockCookies, headers: mockHeaders }));
+vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: vi.fn() }));
+vi.mock("@/lib/db/sessions", () => ({
+  getSessionVersion: mockGetSessionVersion,
+  bumpSessionVersion: vi.fn(),
+}));
 
 import {
   buildSession,
@@ -11,13 +23,52 @@ import {
   decodeSession,
   publicOriginForRequest,
   safeNext,
+  getSessionState,
+  readableOrgForOwner,
+  isSameOrigin,
   type Session,
   type UserInstallation,
 } from "./auth";
 
 // hmac() reads AUTH_SECRET lazily at call time, so setting it before the tests run is enough.
+// The OAuth client id/secret are read by isAuthConfigured() (gate at the top of getSessionState),
+// so they must be present for the session-state tests to get past it.
 beforeAll(() => {
   process.env.AUTH_SECRET = "test-secret-for-auth-spec";
+  process.env.GITHUB_OAUTH_CLIENT_ID = "test-client-id";
+  process.env.GITHUB_OAUTH_CLIENT_SECRET = "test-client-secret";
+});
+
+/** A cookie store double. `get(name)` returns the seeded session cookie; `set` is recorded so a
+ *  test can assert a re-mint happened (or make it throw to model a read-only Server Component store). */
+function fakeCookieStore(rawSessionValue?: string, setImpl?: (...a: unknown[]) => void) {
+  const set = vi.fn(setImpl);
+  return {
+    store: {
+      get: vi.fn((name: string) =>
+        name === "ascent_session" && rawSessionValue !== undefined ? { value: rawSessionValue } : undefined,
+      ),
+      set,
+    },
+    set,
+  };
+}
+
+// secureCookieForRequest() calls headers().get("x-forwarded-proto"); a plain store is enough.
+function fakeHeaderStore(values: Record<string, string> = {}) {
+  return { get: vi.fn((name: string) => values[name.toLowerCase()] ?? null) };
+}
+
+beforeEach(() => {
+  mockCookies.mockReset();
+  mockHeaders.mockReset();
+  mockIsDbConfigured.mockReset();
+  mockGetSessionVersion.mockReset();
+  // Sensible defaults: no cookie, stateless (no DB), benign headers. Each test overrides as needed.
+  mockCookies.mockResolvedValue(fakeCookieStore().store);
+  mockHeaders.mockResolvedValue(fakeHeaderStore());
+  mockIsDbConfigured.mockReturnValue(false);
+  mockGetSessionVersion.mockResolvedValue(0);
 });
 
 afterEach(() => {
@@ -242,5 +293,203 @@ describe("buildSession — discovered orgs", () => {
     expect(session.seededOrg).toBeUndefined();
     expect(session.installations.length).toBeGreaterThan(0);
     expect(encodeSession(session).length).toBeLessThan(BROWSER_COOKIE_LIMIT);
+  });
+});
+
+// ── Helpers for the authorization / session-state suites ────────────────────────────────────────
+
+/** Seed a valid, currently-decodable session cookie into the mocked cookie store, and return the
+ *  store double so a test can assert on its `set` spy (the re-mint). `exp` defaults to the future so
+ *  no refresh fires unless a test deliberately spends it. */
+function seedSession(session: Session, opts: { setImpl?: (...a: unknown[]) => void } = {}) {
+  const { store, set } = fakeCookieStore(encodeSession(session), opts.setImpl);
+  mockCookies.mockResolvedValue(store);
+  return { store, set };
+}
+
+/** A full, currently-valid session whose short access window is far in the future (no refresh due). */
+function activeSession(overrides: Partial<Session> = {}): Session {
+  const now = Date.now();
+  return {
+    login: "octocat",
+    installations: [{ id: 1, login: "Acme" }],
+    exp: now + 60 * 60_000,
+    rexp: now + 7 * 86_400_000,
+    sv: 3,
+    ...overrides,
+  };
+}
+
+describe("readableOrgForOwner — cross-tenant read gate", () => {
+  it("returns the lowercased owner org when the viewer HAS a matching installation", async () => {
+    // Session installation login is "Acme" (mixed case); the owner param is "acme" (lower). The
+    // case-insensitive match must hold and the canonical lowercased slug be returned.
+    seedSession(activeSession({ installations: [{ id: 1, login: "Acme" }] }));
+    await expect(readableOrgForOwner("acme")).resolves.toBe("acme");
+  });
+
+  it("matches case-insensitively when BOTH sides differ in casing (Acme vs acme)", async () => {
+    seedSession(activeSession({ installations: [{ id: 7, login: "acme" }] }));
+    await expect(readableOrgForOwner("ACME")).resolves.toBe("acme");
+  });
+
+  it("DENIES (falls back to public) a viewer who is NOT a member of the target org", async () => {
+    // The session is a member of "other-org" only — reading "private-tenant" must NOT leak it.
+    seedSession(activeSession({ installations: [{ id: 2, login: "other-org" }] }));
+    const org = await readableOrgForOwner("private-tenant");
+    expect(org).toBe("public");
+    expect(org).not.toBe("private-tenant"); // the load-bearing invariant: never the private slug
+  });
+
+  it("returns public for an absent session (no cookie)", async () => {
+    mockCookies.mockResolvedValue(fakeCookieStore(undefined).store); // no session cookie
+    await expect(readableOrgForOwner("acme")).resolves.toBe("public");
+  });
+
+  it("returns public when a member-less session reads its own-cased owner", async () => {
+    // Even an exact-case owner string is denied when the session carries no matching installation.
+    seedSession(activeSession({ installations: [] }));
+    await expect(readableOrgForOwner("Acme")).resolves.toBe("public");
+  });
+});
+
+describe("isSameOrigin — CSRF guard", () => {
+  const reqWith = (headers: Record<string, string>) =>
+    new Request("https://app.example.com/api/auth/logout", { method: "POST", headers });
+
+  it("ACCEPTS a request whose Origin host matches the Host header", () => {
+    expect(
+      isSameOrigin(reqWith({ host: "app.example.com", origin: "https://app.example.com" })),
+    ).toBe(true);
+  });
+
+  it("REJECTS a cross-site Origin (the drive-by CSRF path)", () => {
+    expect(isSameOrigin(reqWith({ host: "app.example.com", origin: "https://evil.com" }))).toBe(false);
+  });
+
+  it("REJECTS an Origin that matches host but on a different port", () => {
+    // new URL("https://app.example.com:8443").host is "app.example.com:8443" ≠ "app.example.com".
+    expect(
+      isSameOrigin(reqWith({ host: "app.example.com", origin: "https://app.example.com:8443" })),
+    ).toBe(false);
+  });
+
+  it("REJECTS an un-parseable Origin (URL constructor throws → caught → false)", () => {
+    expect(isSameOrigin(reqWith({ host: "app.example.com", origin: "not a url" }))).toBe(false);
+  });
+
+  it("ACCEPTS a no-Origin request whose Sec-Fetch-Site is same-origin", () => {
+    expect(
+      isSameOrigin(reqWith({ host: "app.example.com", "sec-fetch-site": "same-origin" })),
+    ).toBe(true);
+  });
+
+  it("REJECTS a no-Origin request whose Sec-Fetch-Site is cross-site", () => {
+    expect(
+      isSameOrigin(reqWith({ host: "app.example.com", "sec-fetch-site": "cross-site" })),
+    ).toBe(false);
+  });
+
+  it("REJECTS a no-Origin request with same-site (not same-ORIGIN) fetch metadata", () => {
+    expect(
+      isSameOrigin(reqWith({ host: "app.example.com", "sec-fetch-site": "same-site" })),
+    ).toBe(false);
+  });
+
+  it("REJECTS a request with neither Origin nor fetch metadata (fail closed)", () => {
+    expect(isSameOrigin(reqWith({ host: "app.example.com" }))).toBe(false);
+  });
+});
+
+describe("getSessionState — revocation + fail-open state machine", () => {
+  it("returns status none when no session cookie is present", async () => {
+    mockCookies.mockResolvedValue(fakeCookieStore(undefined).store);
+    const state = await getSessionState();
+    expect(state).toEqual({ session: null, status: "none" });
+  });
+
+  it("returns status expired (not none) for a present-but-undecodable cookie", async () => {
+    // A garbage cookie value decodes to null — distinguished from 'none' so the UI can say "expired".
+    mockCookies.mockResolvedValue(fakeCookieStore("garbage.notavalidhmac").store);
+    const state = await getSessionState();
+    expect(state.session).toBeNull();
+    expect(state.status).toBe("expired");
+  });
+
+  it("REJECTS a version-mismatched (revoked) session: stored sv > token sv ⇒ expired", async () => {
+    // The teeth behind server-side logout: a newer stored version kills the older-minted token.
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetSessionVersion.mockResolvedValue(5); // authority says current version is 5
+    seedSession(activeSession({ sv: 3 })); // token was minted at version 3 → revoked
+    const state = await getSessionState();
+    expect(state).toEqual({ session: null, status: "expired" });
+  });
+
+  it("ALLOWS a current-version session whose access window is still open", async () => {
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetSessionVersion.mockResolvedValue(3); // matches token sv → not revoked
+    seedSession(activeSession({ sv: 3 }));
+    const state = await getSessionState();
+    expect(state.status).toBe("active");
+    expect(state.session?.login).toBe("octocat");
+  });
+
+  it("does NOT extend a spent token when the DB authority can't answer (unknown ⇒ expired)", async () => {
+    // Past the short access exp + DB configured + version lookup throws (→ verdict 'unknown'):
+    // an unaffirmed token must lapse at the access TTL, NOT survive to the 7-day horizon.
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetSessionVersion.mockRejectedValue(new Error("db blip"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const now = Date.now();
+    seedSession(activeSession({ exp: now - 1_000, rexp: now + 86_400_000, sv: 3 }));
+    const state = await getSessionState();
+    expect(state).toEqual({ session: null, status: "expired" });
+    expect(warn).toHaveBeenCalled(); // fail-open path is logged, not silent
+  });
+
+  it("re-mints a spent-but-affirmed token with a fresh access window (silent refresh)", async () => {
+    // Past exp + verdict 'valid' ⇒ re-mint: new exp/rexp and status active. The cookie store's
+    // set() is the re-mint; the returned expiresAt is the freshly slid horizon.
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetSessionVersion.mockResolvedValue(3); // affirmed
+    const now = Date.now();
+    const { set } = seedSession(activeSession({ exp: now - 1_000, rexp: now + 60_000, sv: 3 }));
+    const state = await getSessionState();
+    expect(state.status).toBe("active");
+    expect(set).toHaveBeenCalledTimes(1); // re-mint written
+    expect(state.session?.exp).toBeGreaterThan(now); // fresh access window
+    expect(state.expiresAt ?? 0).toBeGreaterThan(now + 60_000); // horizon slid forward past the old rexp
+    expect(state.needsRefresh).toBeUndefined();
+  });
+
+  it("in stateless mode (no DB) a spent token is governed by the inactivity horizon alone", async () => {
+    // No DB authority ⇒ verdict 'unknown', but the DB-gate (now>=exp && isDbConfigured && !valid)
+    // does NOT fire, so a token past its short exp but within rexp stays active and re-mints.
+    mockIsDbConfigured.mockReturnValue(false);
+    const now = Date.now();
+    const { set } = seedSession(activeSession({ exp: now - 1_000, rexp: now + 86_400_000, sv: 0 }));
+    const state = await getSessionState();
+    expect(state.status).toBe("active");
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(mockGetSessionVersion).not.toHaveBeenCalled(); // no revocation authority consulted
+  });
+
+  it("on a read-only cookie store (set throws) stays active with needsRefresh, NOT logged out", async () => {
+    // Server Component render: the re-mint can't be written. The user must remain signed in and
+    // the refresh deferred (needsRefresh) rather than abruptly dropped.
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetSessionVersion.mockResolvedValue(3);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const now = Date.now();
+    seedSession(activeSession({ exp: now - 1_000, rexp: now + 86_400_000, sv: 3 }), {
+      setImpl: () => {
+        throw new Error("Cookies can only be modified in a Server Action or Route Handler");
+      },
+    });
+    const state = await getSessionState();
+    expect(state.status).toBe("active");
+    expect(state.session?.login).toBe("octocat");
+    expect(state.needsRefresh).toBe(true);
+    expect(warn).toHaveBeenCalled();
   });
 });
