@@ -52,16 +52,41 @@ vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn() }));
 
 import { POST } from "./route";
 import { after } from "next/server";
-import { AppApiError, getInstallation, listInstallationRepos } from "@/lib/github/app";
-import { reconcileWatchedRepos, removeInstallation, unwatchReposForInstallation, upsertInstallation } from "@/lib/db";
+import { AppApiError, getInstallation, getInstallationToken, listInstallationRepos } from "@/lib/github/app";
+import {
+  getInstallationIdForOwner,
+  getScanReportByCommit,
+  isRepoWatched,
+  persistScanReport,
+  reconcileWatchedRepos,
+  removeInstallation,
+  unwatchReposForInstallation,
+  upsertInstallation,
+} from "@/lib/db";
+import { scanRepository } from "@/lib/scan";
+import { evaluateGate } from "@/lib/scoring/gate";
+import { buildGateComment } from "@/lib/scoring/gate-comment";
+import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
+import { checkAndAlertRegression } from "@/lib/scan-alerts";
 
 const mockGetInstallation = vi.mocked(getInstallation);
+const mockGetToken = vi.mocked(getInstallationToken);
 const mockUpsert = vi.mocked(upsertInstallation);
 const mockRemove = vi.mocked(removeInstallation);
 const mockAfter = vi.mocked(after);
 const mockListRepos = vi.mocked(listInstallationRepos);
 const mockReconcile = vi.mocked(reconcileWatchedRepos);
 const mockUnwatch = vi.mocked(unwatchReposForInstallation);
+const mockIdForOwner = vi.mocked(getInstallationIdForOwner);
+const mockScan = vi.mocked(scanRepository);
+const mockEvaluateGate = vi.mocked(evaluateGate);
+const mockBuildComment = vi.mocked(buildGateComment);
+const mockCreateCheckRun = vi.mocked(createCheckRun);
+const mockStickyComment = vi.mocked(upsertStickyComment);
+const mockIsRepoWatched = vi.mocked(isRepoWatched);
+const mockPersist = vi.mocked(persistScanReport);
+const mockGetReportByCommit = vi.mocked(getScanReportByCommit);
+const mockCheckRegression = vi.mocked(checkAndAlertRegression);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
 async function runDeferred(): Promise<void> {
@@ -196,5 +221,152 @@ describe("POST /api/app/webhook — installation_repositories confirmation disci
     expect(second.duplicate).toBeUndefined();
     await runDeferred();
     expect(mockReconcile).toHaveBeenCalledWith(42, []);
+  });
+});
+
+// Pins test-mastery 06-18 critical #1: the cross-tenant authorization gate `installationMatchesOwner`
+// (route.ts:109-148) must FAIL CLOSED. A forged-but-signed pull_request/push delivery that pairs a
+// VICTIM's installation id with an ATTACKER's owner login must NOT mint a token / scan a private repo.
+// The invariant asserted here, end-to-end through the deferred runPrGate/runPushRescan:
+//   getInstallationToken is called ONLY when (a) a STORED owner->installation mapping equals the
+//   payload installation id, OR (b) no mapping exists AND GitHub's getInstallation(id).account
+//   case-insensitively equals the payload owner. On a DB error, a stored-id mismatch, or a
+//   GitHub-account mismatch, NO token is minted (fail closed). A fail-open regression breaks a test.
+describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (installationMatchesOwner)", () => {
+  // Minimal benign downstream stubs so a PASSING gate doesn't throw before the mint we assert on.
+  function stubPrHappyDownstream() {
+    mockGetToken.mockResolvedValue("ghs_minted_token");
+    mockScan.mockResolvedValue({ repo: { headSha: "headsha" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockEvaluateGate.mockReturnValue({} as ReturnType<typeof evaluateGate>);
+    mockBuildComment.mockReturnValue({
+      conclusion: "success",
+      title: "t",
+      summary: "s",
+      commentBody: "b",
+    } as ReturnType<typeof buildGateComment>);
+    mockCreateCheckRun.mockResolvedValue(undefined as Awaited<ReturnType<typeof createCheckRun>>);
+    mockStickyComment.mockResolvedValue(undefined as Awaited<ReturnType<typeof upsertStickyComment>>);
+  }
+
+  const prPayload = (owner: string, installationId: number) => ({
+    action: "opened",
+    installation: { id: installationId },
+    repository: { name: "secret-repo", default_branch: "main", owner: { login: owner } },
+    pull_request: { number: 7, head: { sha: "deadbeef", ref: "feature" }, base: { ref: "main" } },
+  });
+
+  // ---- pull_request path (runPrGate) ----
+
+  it("ALLOWS the mint when the STORED owner mapping equals the payload installation id", async () => {
+    stubPrHappyDownstream();
+    mockIdForOwner.mockResolvedValueOnce("99"); // stored: victimOwner -> installation 99
+    await post("pull_request", "gate-stored-match", prPayload("victimOwner", 99));
+    await runDeferred();
+    expect(mockGetToken).toHaveBeenCalledTimes(1);
+    expect(mockGetToken).toHaveBeenCalledWith(99);
+    // No GitHub confirmation needed when a stored mapping already agrees.
+    expect(mockGetInstallation).not.toHaveBeenCalled();
+  });
+
+  it("REJECTS (no mint) when a STORED mapping points at a DIFFERENT installation id (forged pairing)", async () => {
+    stubPrHappyDownstream();
+    // The attacker forges owner=victimOwner but uses their OWN installation id 99; the stored truth
+    // is that victimOwner is installation 42, so the pairing is rejected — no token, no scan.
+    mockIdForOwner.mockResolvedValueOnce("42");
+    await post("pull_request", "gate-stored-mismatch", prPayload("victimOwner", 99));
+    await runDeferred();
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockCreateCheckRun).not.toHaveBeenCalled();
+  });
+
+  it("FAILS CLOSED (no mint) when the owner-mapping DB lookup throws (no fall-through to GitHub path)", async () => {
+    stubPrHappyDownstream();
+    // A DB error must NOT be downgraded to "no mapping" and slip into the looser confirmation path.
+    mockIdForOwner.mockRejectedValueOnce(new Error("db unavailable"));
+    await post("pull_request", "gate-db-error", prPayload("victimOwner", 99));
+    await runDeferred();
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+    // Crucially: it does NOT fall through to a GitHub confirmation when the DB hiccups.
+    expect(mockGetInstallation).not.toHaveBeenCalled();
+  });
+
+  it("ALLOWS the mint for an UNKNOWN owner only when GitHub confirms the account matches", async () => {
+    stubPrHappyDownstream();
+    mockIdForOwner.mockResolvedValueOnce(null); // no stored mapping yet
+    mockGetInstallation.mockResolvedValueOnce(installation({ id: 77, account: "NewOrg" }));
+    // Payload owner casing differs from GitHub's — match must be case-insensitive.
+    await post("pull_request", "gate-unknown-confirmed", prPayload("neworg", 77));
+    await runDeferred();
+    expect(mockGetInstallation).toHaveBeenCalledWith(77);
+    expect(mockGetToken).toHaveBeenCalledTimes(1);
+    expect(mockGetToken).toHaveBeenCalledWith(77);
+  });
+
+  it("REJECTS (no mint) for an UNKNOWN owner when GitHub's account does NOT match the payload owner", async () => {
+    stubPrHappyDownstream();
+    mockIdForOwner.mockResolvedValueOnce(null); // no stored mapping
+    // The forged payload claims owner=attacker but installation 42 really belongs to "acme".
+    mockGetInstallation.mockResolvedValueOnce(installation({ id: 42, account: "acme" }));
+    await post("pull_request", "gate-github-mismatch", prPayload("attacker", 42));
+    await runDeferred();
+    expect(mockGetInstallation).toHaveBeenCalledWith(42);
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("FAILS CLOSED (no mint) for an UNKNOWN owner when the GitHub confirmation lookup throws", async () => {
+    stubPrHappyDownstream();
+    mockIdForOwner.mockResolvedValueOnce(null);
+    mockGetInstallation.mockRejectedValueOnce(new AppApiError(502, "/app/installations/42"));
+    await post("pull_request", "gate-github-error", prPayload("attacker", 42));
+    await runDeferred();
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  // ---- push path (runPushRescan) — the SAME gate fronts the rescan mint ----
+
+  const pushPayload = (owner: string, installationId: number) => ({
+    installation: { id: installationId },
+    repository: { name: "secret-repo", default_branch: "main", owner: { login: owner } },
+    ref: "refs/heads/main",
+    after: "1111111111111111111111111111111111111111",
+    deleted: false,
+  });
+
+  it("REJECTS the push rescan mint on a forged owner pairing (stored mapping mismatch)", async () => {
+    mockIdForOwner.mockResolvedValueOnce("42"); // victimOwner truly maps to 42
+    mockIsRepoWatched.mockResolvedValue(true);
+    await post("push", "push-stored-mismatch", pushPayload("victimOwner", 99));
+    await runDeferred();
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+    // The gate is checked BEFORE the watch check / mint, so no rescan side effects fire.
+    expect(mockCheckRegression).not.toHaveBeenCalled();
+  });
+
+  it("FAILS CLOSED on the push path when the owner-mapping lookup throws", async () => {
+    mockIdForOwner.mockRejectedValueOnce(new Error("db down"));
+    mockIsRepoWatched.mockResolvedValue(true);
+    await post("push", "push-db-error", pushPayload("victimOwner", 99));
+    await runDeferred();
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("ALLOWS the push rescan mint only after the gate passes (stored mapping agrees)", async () => {
+    mockIdForOwner.mockResolvedValueOnce("88"); // victimOwner -> 88, payload also 88: agrees
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_push_token");
+    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
+    mockScan.mockResolvedValue({ repo: { headSha: "h" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
+    await post("push", "push-stored-match", pushPayload("victimOwner", 88));
+    await runDeferred();
+    expect(mockGetToken).toHaveBeenCalledTimes(1);
+    expect(mockGetToken).toHaveBeenCalledWith(88);
+    expect(mockScan).toHaveBeenCalled();
   });
 });
