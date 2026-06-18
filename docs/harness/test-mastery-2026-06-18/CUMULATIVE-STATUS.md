@@ -1,0 +1,72 @@
+# Test Mastery — ascent — Cumulative Status (all 8 waves)
+
+> Scan: `test_mastery` over 38 contexts (2026-06-18) → **192 findings (60C / 76H / 40M / 16L)**.
+> Fix run: **8 themed waves, 60/60 criticals closed, 0 regressions.**
+> Branch: `vibeman/test-mastery-auth-idor` (off `master`).
+
+## Headline
+
+| | Start | End | Delta |
+|---|---:|---:|---:|
+| Critical findings open | 60 | **0** | **−60** |
+| Tests passing | 509 | **1155** | **+646** |
+| Test files | 57 | 93 | +36 |
+| tsc source errors | 0 | 0 | — |
+| `next build` | compiles | compiles | — |
+
+- **45 atomic fix commits** + 8 wave-summary docs + 1 scan-docs commit + this file ≈ **62 commits** ahead of `master`.
+- **Production source changed only in Wave 5 + one Wave-7 extract** — four behavior-preserving extractions out of `"use client"` components (`mergeStars`, `canRunReal`, `watchState`, `repoKey`); every other wave was purely additive tests.
+- **Pre-existing `dev-inspector` working-tree changes were never touched.**
+
+## Per-wave ledger
+
+| Wave | Theme | Commits | Criticals | Suite after |
+|---|---|---:|---:|---:|
+| 1 | Cross-tenant auth & IDOR | 7 | 11 | 592 |
+| 2 | Money: charge / refund / reserve / dedup | 6 | 9 | 664 |
+| 3 | Destructive writes & audit atomicity | 6 | 7 | 723 |
+| 4 | Score / verdict integrity math | 7 | 8 | 833 |
+| 5 | Frontend integrity (extraction + SSE) | 4 | 4 | 866 |
+| 6 | Server-side tail (auth/IDOR/secrets) | 7 | 7 | 996 |
+| 7 | Orchestration & trust-boundary parse | 7 | 9 | 1111 |
+| 8 | The long tail | 5 | 5 | 1155 |
+| **Total** | | **49** | **60** | **1155** |
+
+## The 8 documented-and-pinned latent bugs
+
+These are real defects the tests **pin as current behavior** (labeled KNOWN) rather than fix — so the suite documents them and a future fix is a deliberate, test-visible change. None were introduced by this run.
+
+1. **gate `minDimension:0` always-pass** (`gate.ts`) — a `0` floor passes any dimension; `policyFromParams` requires `>0` but `sanitizeGatePolicy` doesn't.
+2. **briefing strength/risk overlap** (`briefing.ts`) — on a sparse fleet the same dimension is shown as both a top strength and a top risk.
+3. **orgsim axisScore absent-dim deflation** (`model.ts`) — absent dimensions charged at 0 full-weight (not renormalized), deflating the axis and flipping posture for partially-scanned repos.
+4. **`parseRepoUrl` host-suffix gap** (`source.ts`) — `/github\.com$/` lacks a left boundary, so `notgithub.com` matches.
+5. **`/api/health` no-try/catch tripwire** (`health/route.ts`) — relies on `dbHealthCheck` never throwing; a raw rejection would leak.
+6. **scan-alerts audit-suppresses-alert** (`scan-alerts.ts:71`) — `recordAudit` isn't `.catch`-wrapped, so an audit failure silently drops a real regression alert.
+7. **movers/rollup baseline asymmetry** (`org-insights.ts` vs `org-rollup.ts`) — `<= start` inclusive vs strict `lt: start` can show contradictory fleet movement.
+8. **manifest command-quote truncation** (`manifest.ts`/`doctor.ts`) — a command containing a `"` JSON-escapes on write but the doctor regex stops at the first quote (no real command has quotes today).
+
+**Recommended follow-up:** each is a small, well-scoped fix now backed by a failing-on-change test. Address them in a separate `fix(...)` pass (not part of this test-only run).
+
+## 42-item pattern catalogue
+
+Accumulated across the 8 waves (see each `FIXES-WAVE-N.md` for the per-wave additions). The highest-leverage, reusable across any audit:
+
+- **Gate-then-fetch org-threading** (#1) — capture the org arg passed to the data fetch, assert it `===` the gated org.
+- **Reject-path "dependency-not-called"** (#2) — a gate that 403s but still ran the read/write is still a leak.
+- **fakePrisma where-clause capture** (#3) — assert the org filter is in the query, pinning the tenant boundary.
+- **Same-tx atomicity** (#13) — assert every write lands on the `$transaction` `tx`, never the top-level client.
+- **Body-smuggle rejection** (#32) — a body-supplied foreign org id must be ignored; the gate keys on the resource's true owner.
+- **Forge-and-expiry matrix** (#33) — the full rejection set for an HMAC/signed token.
+- **Pin-known-bug-with-control** (#23) — pin the buggy numbers labeled KNOWN plus a control showing the correct path.
+- **Round-trip via the shipped parser** (#41) — feed the real serializer output to the actual shipped parser, not a hand-copy.
+- **Only-after-event accounting** (#38) / **idempotent state-stamp** (#39) / **scope-narrowing query** (#40) / **blip-vs-genuine-zero** (#42).
+
+## What remains (out of scope for this run)
+
+- **76 Highs + 40 Mediums + 16 Lows** untouched — the same themes, one tier down (token-mint edge cases, error-branch coverage, CSV formula-injection, baseline-window math, etc.). A follow-on run can pipeline them the same way.
+- **A per-area / changed-code coverage gate** in CI (Theme G from the INDEX) — nothing yet stops these pins from rotting back; a ratchet on changed files is the durable backstop.
+- **The 8 latent bugs above** — fix pass, each now test-guarded.
+
+## How to resume
+
+Read `INDEX.md` (triage + the original 6→8 wave plan) and this file. The 8 latent bugs and the Highs are the natural next targets. Every fix in this run is one atomic commit with a `Refs:` line back to its per-context report, so `git log` recovers the why.
