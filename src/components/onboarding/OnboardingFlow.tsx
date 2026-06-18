@@ -9,10 +9,11 @@ import { ScanStep } from "@/components/onboarding/OnboardingScanStep";
 import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import type { OrgRepo } from "@/components/onboarding/types";
 import { runImportScan } from "@/components/onboarding/importScan";
+import { canRunRealScan } from "@/components/onboarding/canRunReal";
 
 /** Credit context for the select step's cost disclosure, tagged with the org it was read for so a
  *  late response from a previously-picked org can never label the current one. */
-interface OrgCredit {
+export interface OrgCredit {
   org: string;
   balance: number;
   unlimited: boolean;
@@ -252,7 +253,7 @@ export function OnboardingFlow({
     // Run a REAL scan only on the App path AND when the org has credits (the import route meters +
     // refunds on failure) — otherwise a disclosed preview, so a credit-less org never dead-ends on a
     // 402 and scores are never silently fabricated. The public-handle funnel is always a preview.
-    const canRunReal = !!sourceInstallId && !!credit && credit.org === sourceLabel && (credit.unlimited || credit.balance > 0);
+    const canRunReal = canRunRealScan({ sourceInstallId, credit, sourceLabel });
     setPreviewScan(!canRunReal);
     try {
       const outcome = await runImportScan(
