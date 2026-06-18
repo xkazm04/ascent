@@ -1,12 +1,14 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   buildSegmentComparison,
+  compareSegments,
   normalizeColor,
   normalizeSegmentName,
   setRepoSegment,
   setRepoSegmentsBulk,
   type SegmentSummary,
 } from "@/lib/db/segments";
+import { segmentScope } from "@/lib/db/org-shared";
 
 // The DB client is mocked away so the module never touches Prisma. The pure-helper tests below
 // don't use it; the DB-write tests drive a fakePrisma through it (see fakePrisma()).
@@ -305,5 +307,211 @@ describe("setRepoSegmentsBulk — org-scoped bulk tagging boundary + count contr
     await setRepoSegmentsBulk("A", "seg1", ["a/one", "a/one", "a/two"], true);
 
     expect(fp.calls.repoFindMany[0]!.where.fullName.in).toEqual(["a/one", "a/two"]);
+  });
+});
+
+// ── Segment-scoped rollup actually filters to the segment's repos (CRITICAL #2) ───────────────────
+//
+// Every per-segment number on the comparison page is a getOrgRollup() scoped by seg.id:
+//   compareSegments → summarizeSegment(orgSlug, seg) → getOrgRollup(orgSlug, undefined, seg.id)
+//     → segmentScope(seg.id) → { segments: { some: { segmentId } } } spread into the repo query.
+// If segmentScope ever returns {} for a non-null id, or getOrgRollup stops forwarding the id, EVERY
+// segment silently reports the whole-fleet average and the comparison shows two identical columns
+// with a zero delta — "platform and legacy are equally mature." That is the exact comparison theater
+// the feature exists to disprove, and it would ship green without these tests. We pin the wiring two
+// ways: (1) segmentScope's literal Prisma fragment, and (2) the end-to-end query the rollup issues,
+// asserting a non-null id NARROWS the repo set (and two different segments narrow to DIFFERENT sets).
+
+describe("segmentScope — the Prisma where-fragment that scopes a rollup to one segment", () => {
+  it("returns an EMPTY fragment for a null/undefined id (rollup stays fleet-wide)", () => {
+    expect(segmentScope(null)).toEqual({});
+    expect(segmentScope(undefined)).toEqual({});
+    expect(segmentScope()).toEqual({});
+  });
+
+  it("returns { segments: { some: { segmentId } } } for a real id — the narrowing filter", () => {
+    expect(segmentScope("s1")).toEqual({ segments: { some: { segmentId: "s1" } } });
+    // The id is threaded through verbatim — a different segment narrows to a DIFFERENT set.
+    expect(segmentScope("s2")).toEqual({ segments: { some: { segmentId: "s2" } } });
+    expect(segmentScope("s1")).not.toEqual(segmentScope("s2"));
+  });
+});
+
+// A fakePrisma that drives the REAL getOrgRollup (imported live by summarizeSegment) so we observe
+// the actual scoped query, not a hand-built summary. `reposBySegment[segmentId]` is the repo set
+// tagged into that segment; the unscoped key "" is the whole fleet. `repository.findMany` reads the
+// `segments.some.segmentId` out of the supplied where and returns ONLY that segment's repos — exactly
+// like the join the real query performs — so an unscoped regression (no segmentId in the where) would
+// fall through to the whole fleet and the assertions below would catch it.
+function rollupPrisma(opts: {
+  orgSlug: string;
+  orgId: string;
+  segments: { id: string; name: string }[];
+  // segmentId → repos in it; "" (empty key) → the whole fleet. Each repo carries its latest scan.
+  reposBySegment: Record<string, { id: string; fullName: string; overall: number; adoption: number; rigor: number }[]>;
+}) {
+  const repoQueries: Array<{ segmentId: string | undefined; where: Record<string, unknown> }> = [];
+  const scanQueries: Array<{ segmentId: string | undefined; where: Record<string, unknown> }> = [];
+
+  const segIdOf = (seg: unknown): string | undefined => {
+    const s = seg as { some?: { segmentId?: string } } | undefined;
+    return s?.some?.segmentId;
+  };
+  const reposFor = (segmentId: string | undefined) => opts.reposBySegment[segmentId ?? ""] ?? [];
+
+  const repoRow = (r: { id: string; fullName: string; overall: number; adoption: number; rigor: number }) => ({
+    id: r.id,
+    fullName: r.fullName,
+    owner: r.fullName.split("/")[0],
+    name: r.fullName.split("/")[1],
+    isPrivate: false,
+    watched: true,
+    primaryLanguage: "TypeScript",
+    scanSchedule: "weekly",
+    lastScanAt: null,
+    lastScanStatus: "ok",
+    lastScanError: null,
+    aiConformance: null,
+    scans: [
+      {
+        level: "L3",
+        overallScore: r.overall,
+        adoptionScore: r.adoption,
+        rigorScore: r.rigor,
+        posture: "ai-native",
+        scannedAt: new Date("2026-01-01T00:00:00Z"),
+        dimensions: [{ dimId: "D1", score: r.overall }],
+      },
+    ],
+  });
+
+  const prisma = {
+    organization: {
+      findUnique: vi.fn(async ({ where }: { where: { slug: string } }) =>
+        where.slug === opts.orgSlug ? { id: opts.orgId } : null,
+      ),
+    },
+    segment: {
+      findMany: vi.fn(async ({ where }: { where: { orgId: string; id: { in: string[] } } }) =>
+        where.orgId === opts.orgId
+          ? opts.segments.filter((s) => where.id.in.includes(s.id)).map((s) => ({ id: s.id, name: s.name }))
+          : [],
+      ),
+    },
+    repository: {
+      findMany: vi.fn(async ({ where }: { where: { orgId: string; segments?: unknown } }) => {
+        const segmentId = segIdOf(where.segments);
+        repoQueries.push({ segmentId, where });
+        if (where.orgId !== opts.orgId) return [];
+        return reposFor(segmentId).map(repoRow);
+      }),
+    },
+    scan: {
+      findMany: vi.fn(async ({ where }: { where: { repo?: { orgId?: string; segments?: unknown } } }) => {
+        const segmentId = segIdOf(where.repo?.segments);
+        scanQueries.push({ segmentId, where });
+        return reposFor(segmentId).map((r) => ({
+          scannedAt: new Date("2026-01-01T00:00:00Z"),
+          overallScore: r.overall,
+        }));
+      }),
+    },
+  };
+  return { prisma, repoQueries, scanQueries };
+}
+
+describe("summarizeSegment scope — the segment rollup must filter to the segment's repos", () => {
+  // platform = two strong repos; legacy = one weak repo; the fleet ("") = all three.
+  const FLEET = [
+    { id: "r1", fullName: "acme/platform-a", overall: 90, adoption: 88, rigor: 92 },
+    { id: "r2", fullName: "acme/platform-b", overall: 84, adoption: 80, rigor: 88 },
+    { id: "r3", fullName: "acme/legacy-a", overall: 30, adoption: 20, rigor: 40 },
+  ];
+  const PLATFORM = [FLEET[0]!, FLEET[1]!];
+  const LEGACY = [FLEET[2]!];
+
+  function harness(reposBySegment: Record<string, typeof FLEET>) {
+    const rp = rollupPrisma({
+      orgSlug: "acme",
+      orgId: "org_acme",
+      segments: [
+        { id: "platform", name: "Platform" },
+        { id: "legacy", name: "Legacy" },
+      ],
+      reposBySegment,
+    });
+    mockGetPrisma.mockReturnValue(rp.prisma);
+    return rp;
+  }
+
+  it("threads the segment id into the repo query as { segments: { some: { segmentId } } }", async () => {
+    const rp = harness({ "": FLEET, platform: PLATFORM, legacy: LEGACY });
+
+    // Compare a single segment against the whole fleet (bId = null).
+    const cmp = await compareSegments("acme", "platform", null);
+    expect(cmp).not.toBeNull();
+
+    // The SEGMENT side issued a repo query narrowed to platform; the FLEET side issued an unscoped one.
+    const scopedSegmentIds = rp.repoQueries.map((q) => q.segmentId);
+    expect(scopedSegmentIds).toContain("platform"); // segment side narrowed
+    expect(scopedSegmentIds).toContain(undefined); // fleet side (id=null) NOT narrowed
+    const platformQuery = rp.repoQueries.find((q) => q.segmentId === "platform")!;
+    expect(platformQuery.where).toMatchObject({ orgId: "org_acme", segments: { some: { segmentId: "platform" } } });
+    // The fleet-side query carries no `segments` key at all.
+    const fleetQuery = rp.repoQueries.find((q) => q.segmentId === undefined)!;
+    expect(fleetQuery.where).not.toHaveProperty("segments");
+  });
+
+  it("a segment reports ITS repos' average, not the whole fleet's (single-segment vs fleet)", async () => {
+    harness({ "": FLEET, platform: PLATFORM, legacy: LEGACY });
+
+    const cmp = await compareSegments("acme", "platform", null);
+    expect(cmp).not.toBeNull();
+    // a = platform segment (2 strong repos, avg 87); b = whole fleet (3 repos, avg 68).
+    expect(cmp!.a.id).toBe("platform");
+    expect(cmp!.a.repoCount).toBe(2);
+    expect(cmp!.a.avgOverall).toBe(Math.round((90 + 84) / 2)); // 87
+    expect(cmp!.b.id).toBeNull(); // the fleet baseline
+    expect(cmp!.b.repoCount).toBe(3);
+    expect(cmp!.b.avgOverall).toBe(Math.round((90 + 84 + 30) / 3)); // 68
+    // The segment is measurably above the fleet — NOT the identical-column theater.
+    expect(cmp!.deltas.overall).toBe(87 - 68);
+    expect(cmp!.deltas.overall).not.toBe(0);
+  });
+
+  it("ANTI-COMPARISON-THEATER: two different segments produce DIFFERENT scoped inputs → different columns", async () => {
+    const rp = harness({ "": FLEET, platform: PLATFORM, legacy: LEGACY });
+
+    const cmp = await compareSegments("acme", "platform", "legacy");
+    expect(cmp).not.toBeNull();
+
+    // Each side narrowed to its OWN segment id — the two repo queries are distinct, not both fleet.
+    const ids = rp.repoQueries.map((q) => q.segmentId).filter(Boolean);
+    expect(ids).toContain("platform");
+    expect(ids).toContain("legacy");
+    expect(rp.repoQueries.every((q) => q.segmentId !== undefined)).toBe(true); // neither side is fleet-wide
+
+    // Different repo sets → genuinely different averages → a non-zero delta (the whole point).
+    expect(cmp!.a.avgOverall).toBe(87); // platform
+    expect(cmp!.b.avgOverall).toBe(30); // legacy
+    expect(cmp!.a.avgOverall).not.toBe(cmp!.b.avgOverall);
+    expect(cmp!.deltas.overall).toBe(57);
+    expect(cmp!.deltas.overall).not.toBe(0);
+  });
+
+  it("an empty segment yields a ZERO rollup, not the whole-fleet average", async () => {
+    // platform has repos; legacy is tagged into nothing → its scoped query returns [].
+    harness({ "": FLEET, platform: PLATFORM, legacy: [] });
+
+    const cmp = await compareSegments("acme", "platform", "legacy");
+    expect(cmp).not.toBeNull();
+    // The empty segment did NOT silently fall back to the 3-repo fleet (avg 68).
+    expect(cmp!.b.id).toBe("legacy");
+    expect(cmp!.b.repoCount).toBe(0);
+    expect(cmp!.b.scannedCount).toBe(0);
+    expect(cmp!.b.avgOverall).toBe(0);
+    // Platform is intact, so the comparison is a real gap (87 vs 0), not theater.
+    expect(cmp!.a.avgOverall).toBe(87);
+    expect(cmp!.deltas.overall).toBe(87);
   });
 });
