@@ -7,8 +7,8 @@
 // `parseRepoUrl` is pure and has no side-effect imports at module top (only a `type` import), so we
 // import and call it directly — no mocks needed.
 
-import { describe, it, expect } from "vitest";
-import { parseRepoUrl } from "./source";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { parseRepoUrl, GitHubPublicSource } from "./source";
 
 // The hard security invariant the whole module rests on: a non-null result NEVER carries a coordinate
 // that could rewrite the request path. owner and repo must each match the GitHub name charset — no
@@ -156,5 +156,183 @@ describe("parseRepoUrl — CURRENT-BEHAVIOR pins (documented quirks; safe becaus
     const out = parseRepoUrl("notgithub.com/o/r");
     expect(out).toEqual({ owner: "o", repo: "r" });
     assertSafe(out);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// estimateCoverage — the cache-poison gate (finding test-mastery #2, source.ts:630)
+// ---------------------------------------------------------------------------------------------------
+// estimateCoverage is module-PRIVATE (no source change is in scope to export it), so we pin its
+// behaviour through the only public surface that exercises it: GitHubPublicSource.fetchSnapshot().
+// fetchSnapshot computes `coverage = estimateCoverage(blobs.length, files.length, picks.length,
+// truncated)` and returns it on the snapshot — and the scan routes' cache-pin guard keys off exactly
+// this number. The invariant under test: a TRANSIENT raw-host blip that drops some picked files must
+// scale coverage DOWN (fetched/attempted) so a degraded snapshot can't be cached at ~0.95 as if it
+// were a real, fully-read scan. A genuinely-empty repo (no files picked) is distinguished from a blip
+// because it leaves `attempted = 0`, which takes the `*1` rate branch rather than poisoning to 0.
+//
+// We mock the global `fetch` (the same seam list.test.ts/resolveHead use) and route by URL:
+//   api.github.com/repos/o/r            -> repo metadata (size kept small => totalBlobs <= MAX_FILES)
+//   api.github.com/repos/o/r/git/trees  -> the tree (controls totalBlobs, picks, and `truncated`)
+//   api.github.com/repos/o/r/commits    -> [] (irrelevant to coverage)
+//   raw.githubusercontent.com/...        -> per-file content: 200 = a successful pick, non-2xx OR a
+//                                          thrown network error = a transient blip (file dropped)
+
+const API = "https://api.github.com";
+const RAW = "https://raw.githubusercontent.com";
+
+/** A Response-like object (mirrors list.test.ts's helper) that also supports .text() for raw files. */
+function res(
+  body: unknown,
+  init: { status?: number; headers?: Record<string, string>; text?: string } = {},
+): Response {
+  const status = init.status ?? 200;
+  const h = new Map(Object.entries(init.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => body,
+    text: async () => init.text ?? (typeof body === "string" ? body : JSON.stringify(body)),
+    headers: { get: (k: string) => h.get(k.toLowerCase()) ?? null },
+  } as unknown as Response;
+}
+
+const repoMetaBody = {
+  name: "r",
+  owner: { login: "o" },
+  html_url: "https://github.com/o/r",
+  description: null,
+  private: false,
+  stargazers_count: 0,
+  forks_count: 0,
+  open_issues_count: 0,
+  language: "TypeScript",
+  pushed_at: "2026-01-01T00:00:00Z",
+  default_branch: "main",
+  size: 100,
+  license: null,
+  topics: [],
+};
+
+function treeBody(paths: string[], truncated: boolean) {
+  return {
+    sha: "a".repeat(40),
+    truncated,
+    tree: paths.map((p) => ({ path: p, type: "blob", size: 10, sha: "b".repeat(40) })),
+  };
+}
+
+/**
+ * Build a fetch mock for a fixed tree. `rawOutcome(path)` decides each raw-host file fetch:
+ *   "ok"    -> 200 with content (a successful pick → counts toward `fetched`)
+ *   "blip"  -> 503 (non-2xx → fetchRaw returns null → file dropped, a transient blip)
+ *   "throw" -> the fetch itself rejects (network error → caught → file dropped, a transient blip)
+ */
+function makeFetch(paths: string[], truncated: boolean, rawOutcome: (path: string) => "ok" | "blip" | "throw") {
+  return vi.fn(async (url: string) => {
+    if (url.startsWith(`${API}/repos/o/r/git/trees/`)) return res(treeBody(paths, truncated));
+    if (url.startsWith(`${API}/repos/o/r/commits`)) return res([]);
+    if (url === `${API}/repos/o/r`) return res(repoMetaBody);
+    if (url.startsWith(`${RAW}/o/r/`)) {
+      // The raw URL is `${RAW}/o/r/<ref>/<encoded path>`; recover the path tail for the outcome map.
+      const tail = decodeURIComponent(url.slice(`${RAW}/o/r/main/`.length));
+      const outcome = rawOutcome(tail);
+      if (outcome === "throw") throw new Error("transient raw-host network blip");
+      if (outcome === "blip") return res("", { status: 503 });
+      return res(null, { text: `// content of ${tail}\n` });
+    }
+    throw new Error(`unexpected fetch in test: ${url}`);
+  });
+}
+
+// 8 exact-high-signal filenames: pickFilesToFetch adds each exactly once (none has a source/test
+// extension, so no extra sample-bucket picks sneak in) → a DETERMINISTIC attempted=8.
+const EIGHT_PICKS = [
+  "readme.md",
+  "package.json",
+  "tsconfig.json",
+  "dockerfile",
+  "security.md",
+  "changelog.md",
+  "contributing.md",
+  "renovate.json",
+];
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient blip must not poison the cache", () => {
+  it("(a) small repo, ALL picks succeed → 0.95 (full confidence)", async () => {
+    vi.stubGlobal("fetch", makeFetch(EIGHT_PICKS, false, () => "ok"));
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.files).toHaveLength(8); // fetched === attempted
+    expect(snap.coverage).toBe(0.95);
+  });
+
+  it("(b) small repo, HALF the picks blip out (fetched=4/attempted=8) → coverage scaled DOWN, below the cache-pin threshold (NOT a false 0.95)", async () => {
+    // The exact regression the function's comment was written to prevent: a transient raw-host blip
+    // dropping half the files must NOT still read as ~0.95 and get cached for the full TTL.
+    const drop = new Set(EIGHT_PICKS.slice(0, 4)); // first 4 fail (503)
+    vi.stubGlobal("fetch", makeFetch(EIGHT_PICKS, false, (p) => (drop.has(p) ? "blip" : "ok")));
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.files).toHaveLength(4); // fetched=4, attempted=8 → fetchRate=0.5
+    expect(snap.coverage).toBeLessThan(0.95); // the cache-poison guard: degraded ≠ full
+    expect(snap.coverage).toBeLessThan(0.6); // well under any sane cache-pin threshold
+    expect(snap.coverage).toBe(0.48); // pin the exact math: round(0.95 * 0.5) = 0.48
+  });
+
+  it("(b') a THROWN network blip (not just non-2xx) is also caught and scales coverage down identically", async () => {
+    // fetchRaw swallows both a non-2xx AND a thrown fetch → same degrade path. Proven so a refactor
+    // that handles only one error shape still keeps the poison gate closed for the other.
+    const drop = new Set(EIGHT_PICKS.slice(0, 4));
+    vi.stubGlobal("fetch", makeFetch(EIGHT_PICKS, false, (p) => (drop.has(p) ? "throw" : "ok")));
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.files).toHaveLength(4);
+    expect(snap.coverage).toBe(0.48);
+  });
+
+  it("(c) a TRUNCATED tree clamps coverage to ≤ 0.6 regardless of a perfect fetch rate", async () => {
+    vi.stubGlobal("fetch", makeFetch(EIGHT_PICKS, true, () => "ok"));
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.truncated).toBe(true);
+    expect(snap.coverage).toBeLessThanOrEqual(0.6);
+    expect(snap.coverage).toBe(0.6); // min(0.95, 0.6)
+  });
+
+  it("(d) GENUINELY-empty signal (a repo with files but NONE worth picking) → attempted=0 takes the *1 branch, NOT a poisoned 0 or NaN", async () => {
+    // This is the empty-but-SUCCESSFUL case the finding asks to distinguish from a fetch failure: the
+    // repo has a blob, but it's an opaque binary nothing picks, so picks.length===0. The fetchRate
+    // guard (`attempted > 0 ? … : 1`) must keep coverage finite and high, never NaN and never a
+    // confident-low number a blip would have produced.
+    const fetchMock = makeFetch(["assets/logo.bin"], false, () => "ok");
+    vi.stubGlobal("fetch", fetchMock);
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.files).toHaveLength(0); // attempted = 0
+    expect(Number.isNaN(snap.coverage)).toBe(false); // no NaN
+    expect(snap.coverage).toBe(0.95); // the `*1` branch, distinct from a blip's degraded number
+    // No raw-host fetch should have fired at all (nothing was picked) — proves attempted=0 is real,
+    // not a silent all-blip.
+    const rawCalls = fetchMock.mock.calls.filter(([u]) => String(u).startsWith(`${RAW}/`));
+    expect(rawCalls).toHaveLength(0);
+  });
+
+  it("(e) LARGE repo (totalBlobs > MAX_FILES) uses the 0.4 + fetched/totalBlobs branch, capped at 0.9", async () => {
+    // 40 plain source files → totalBlobs=40 (> MAX_FILES=32); the sample bucket caps picks at 6.
+    const big = Array.from({ length: 40 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
+    vi.stubGlobal("fetch", makeFetch(big, false, () => "ok"));
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.tree.length).toBe(40);
+    expect(snap.files).toHaveLength(6); // sample bucket .slice(0, 6)
+    // 0.4 + fetched/totalBlobs = 0.4 + 6/40 = 0.55, under the 0.9 cap.
+    expect(snap.coverage).toBe(0.55);
+    expect(snap.coverage).toBeLessThanOrEqual(0.9);
+  });
+
+  it("(e') LARGE repo where the picks blip out scores LOWER still (degrade survives the large-repo branch too)", async () => {
+    const big = Array.from({ length: 40 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
+    vi.stubGlobal("fetch", makeFetch(big, false, () => "blip")); // all 6 picks fail
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.files).toHaveLength(0); // fetched=0
+    // 0.4 + 0/40 = 0.4 — still a finite, sub-perfect number, never 0.9.
+    expect(snap.coverage).toBe(0.4);
   });
 });
