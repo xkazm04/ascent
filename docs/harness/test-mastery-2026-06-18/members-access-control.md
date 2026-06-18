@@ -1,0 +1,51 @@
+> Total: 5 findings (2 critical, 2 high, 1 medium)
+# Test Mastery — Members & Access Control
+
+This context is the org tenant-isolation + RBAC core: `requireOrgRole`/`requireOrgAccess`/`requireOrgRead` (the per-handler auth gates), the membership data layer (`setMembershipRole`/`removeMembership` with their last-owner transactions), and the owner-only `/api/org/members` route. The single biggest theme: the *pure* helpers are well tested (`roleAtLeast`, `isOrgRole`, and the gate decision-tree in `authz.test.ts`), but every path that actually **writes membership rows or guards owner-orphaning runs against a mocked-away DB and is therefore unexecuted**. The route that owners use to grant `admin`/`owner` privileges has no test at all.
+
+---
+
+## 1. Test the last-owner transaction guard in setMembershipRole / removeMembership against a real (faked) Prisma
+- **Severity**: Critical
+- **Category**: coverage-gap
+- **File**: src/lib/db/members.ts:109 (setMembershipRole), src/lib/db/members.ts:154 (removeMembership)
+- **Scenario**: A refactor to the `$transaction` bodies — reordering the `existing?.role === "owner"` check, flipping `owners <= 1` to `< 1`, dropping the `role !== "owner"` early-out, or moving the `count` outside the tx — demotes or deletes an org's **last owner**, leaving the org permanently un-manageable (no one can grant roles, invite, or recover it). Equally, a regression that makes the guard *too* aggressive (refuses a legitimate demotion when a second owner exists) silently breaks owner hand-off. Nothing catches either.
+- **Root cause**: `members.test.ts:6` hard-stubs `isDbConfigured: () => false`, so both functions return at their `if (!isDbConfigured())` line before any transaction logic runs. The entire last-owner CAS — the most safety-critical code in the module — has **zero executed assertions**. The test file's own header even says "Pure functions — the DB client is mocked away," conceding it never reaches the writes.
+- **Impact**: Org lock-out / loss of administrative control of a tenant; a silently-orphaned org is a data-integrity and support-escalation event. This is the canonical "risk lives one layer above where the tests stop" gap.
+- **Fix sketch**: Add `members.transaction.test.ts` reusing the `fakePrisma` + `$transaction(fn => fn(tx))` pattern already proven in `credits.test.ts:26-52`. Assert the invariants: (a) demoting the *only* owner → `"last_owner"` and **no** `membership.upsert/delete` call fired; (b) demoting one of *two* owners → `"ok"` and the write fired; (c) setting `role:"owner"` skips the guard entirely (it only fires for `role !== "owner"`); (d) `removeMembership` of the last owner → `"last_owner"`, of a non-owner → `"ok"`; (e) a thrown tx → `setMembershipRole` returns `"error"` / `removeMembership` returns `"not_found"` (the `catch`). The load-bearing invariant: **an org's owner count can never transition to 0 through these functions.**
+
+## 2. Add a route test for /api/org/members proving the owner-gate and CSRF guard actually block
+- **Severity**: Critical
+- **Category**: coverage-gap
+- **File**: src/app/api/org/members/route.ts:24 (GET), :37 (POST), :69 (DELETE)
+- **Scenario**: This is the privilege-granting surface — a POST here can mint an `owner`/`admin`. A regression that (a) drops or reorders the `requireOrgRole(org, "owner")` call below the `setMembershipRole` mutation, (b) removes the `isSameOrigin` CSRF check, or (c) lets a non-owner past the gate would allow **privilege escalation / cross-tenant member-admin takeover or CSRF role-grant** — and ship green, because there is no `route.test.ts` for this file (confirmed: glob `src/app/api/org/members/**/*.test.ts` → none).
+- **Root cause**: The gate's *decision logic* is unit-tested in `authz.test.ts`, but its **wiring into the route** is not: nothing asserts that a 403 from `requireOrgRole` is returned *before* the DB write, that POST/DELETE reject cross-origin first, or that `last_owner`→409 / `error`→404 / `not_found`→404 are mapped correctly. Gate-correct-but-not-called is a classic success-theater gap one level up from the tested unit.
+- **Impact**: Silent privilege escalation or CSRF-driven role grant on the most sensitive endpoint in the app; cross-tenant control-plane compromise.
+- **Fix sketch**: Add `route.test.ts` mocking `@/lib/authz` (`requireOrgRole`), `@/lib/auth` (`isSameOrigin`, `getSession`), and the `@/lib/db` members fns. Assert, ordering-sensitively: POST with a non-null `requireOrgRole` response → that exact 403 returned and `setMembershipRole` **never called**; cross-origin POST/DELETE → 403 and gate **never reached**; invalid `role`/`login` shape → 400 before the gate's side effects; `setMembershipRole`→`"last_owner"` maps to **409**, `"error"`→404; a successful POST calls `recordAudit("org.member.role", …)` with the canonical lower-cased `org`/`login`. Invariant: **no membership write occurs unless an owner-level gate passed AND the request is same-origin.**
+
+## 3. Cover the requireOrgRole trust-on-first-use claim seam against a real orgHasOwner / membership store
+- **Severity**: High
+- **Category**: success-theater
+- **File**: src/lib/authz.ts:141-155 (Supabase-wall branch), src/lib/db/members.ts:47 (orgHasOwner)
+- **Scenario**: The Supabase-wall branch is the documented production config (`isAuthConfigured()===false`, wall ON). Its safety rests on `orgHasOwner(slug)`: an owned org must **deny** an unknown viewer, an unowned org **claims** the first viewer as owner. `authz.test.ts:220-258` exercises this — but with `orgHasOwner` fully **mocked** (`mockOrgHasOwner.mockResolvedValue(true/false)`). So the test proves the gate *reacts* to a boolean it is handed; it never proves `orgHasOwner` returns the right boolean. A regression in `orgHasOwner` (e.g. counting any role instead of `role:"owner"`, or an `orgIdForSlug` miss returning `false`→treating an owned org as claimable) re-opens cross-tenant takeover, and every existing test still passes.
+- **Root cause**: The two halves of the security invariant are tested in isolation with the seam mocked on both sides — `orgHasOwner`'s real query (`membership.count({ where:{ orgId, role:"owner" } })`) is never executed (it dies at `isDbConfigured()===false` in `members.test.ts`), and `authz.test.ts` injects the answer.
+- **Impact**: A latent change to `orgHasOwner` silently converts "trust-on-first-use" into "trust-anyone," handing any free Supabase account owner rights on an existing tenant — exactly the cross-tenant takeover this branch was added to close.
+- **Fix sketch**: In the new `members.transaction.test.ts` (finding 1), add `orgHasOwner` cases against `fakePrisma`: returns `false` when the org row is missing, `false` when only non-owner roles exist, `true` only when an `owner` membership exists. Assert the invariant `orgHasOwner` upholds: **`true` iff at least one membership with `role==="owner"` exists for the resolved orgId.** That closes the half `authz.test.ts` can only assume.
+
+## 4. Assert audit is recorded with canonical identifiers on every successful privilege change
+- **Severity**: High
+- **Category**: coverage-gap
+- **File**: src/app/api/org/members/route.ts:60-65 (POST audit), :84-85 (DELETE audit)
+- **Scenario**: Every role grant/removal is supposed to leave an immutable trail ("the action that most needs a trail," per the route header). If a refactor drops the `recordAudit` call, swaps `actorId`/`orgId`, records the un-normalized (mixed-case) `login`, or omits `prevRole`, the audit log silently loses or corrupts the record of who-escalated-whom — and no test notices.
+- **Root cause**: No route test exists, so the audit side effect — including the deliberate `login.toLowerCase()` canonicalization and the `prevRole` captured *before* the upsert (route.ts:53) — is entirely unverified. `prevRole` capture is especially fragile: it's a separate `getMembershipRole` call that must run before `setMembershipRole` overwrites the row.
+- **Impact**: A compliance/forensics gap — privilege escalations become untraceable, defeating the audit log's purpose during a security review.
+- **Fix sketch**: In the finding-2 route test, assert `recordAudit` is called exactly once on success with `("org.member.role", { org, login: <lowercased>, newRole, prevRole: <prior role or null> }, { orgId, actorId })`, and is **not** called on a `last_owner`/`error`/gate-denied outcome. Invariant: **a successful role mutation produces exactly one audit row carrying the canonical lower-cased org+login, the new role, and the prior role.**
+
+## 5. Add error-branch tests for getMembershipRole resolution misses (unknown user / unknown org)
+- **Severity**: Medium
+- **Category**: error-branch
+- **File**: src/lib/db/members.ts:56-71 (getMembershipRole), :194-199 (listOrgMembers mapping)
+- **Scenario**: `getMembershipRole` has three independent early-return-null branches (no DB, blank login, no user row, no org row) plus a `isOrgRole(m.role) ? m.role : "member"` normalization for a corrupted/legacy role string. `requireOrgRole` trusts `null` to mean "no role → deny/claim"; if a refactor made an unknown-user lookup throw or return a stray truthy value instead of `null`, the gate's claim/deny decision flips. The `m.role` normalization (a DB-corruption guard) and `listOrgMembers`' `?? "(unknown)"` / role-coercion fallbacks are likewise unasserted.
+- **Root cause**: `isDbConfigured: () => false` in `members.test.ts` short-circuits every one of these branches; only the pure `roleAtLeast`/`isOrgRole` helpers are reached.
+- **Impact**: A wrong null/non-null from the role resolver feeds directly into the auth gate's deny-vs-claim decision — a subtle authorization regression — and a broken role-normalization surfaces an invalid role to RBAC checks.
+- **Fix sketch**: With `fakePrisma`, assert `getMembershipRole` returns `null` for: blank login, `user.findUnique`→null, `orgIdForSlug`→null, and `membership`→null; returns the stored role when present; and **coerces a non-`OrgRole` stored value to `"member"`** (the corruption guard). For `listOrgMembers`, assert a row with `githubLogin:null` maps to `"(unknown)"` and a junk role maps to `"member"`. Invariant: **role resolution yields a valid `OrgRole` or `null`, never an invalid or throwing value, on any DB-shape miss.**

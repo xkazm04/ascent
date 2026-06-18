@@ -1,0 +1,49 @@
+> Total: 5 findings (1 critical, 2 high, 1 medium, 1 low)
+# Test Mastery — App Shell, SEO & Error Pages
+
+Context 8 (`app-shell-seo-error-pages`) is the global wrapper every page inherits: root layout/SEO metadata, the error/global-error/not-found boundaries, robots/sitemap/OG image, and the unauthenticated `/api/health` liveness endpoint. **Not a single file in this context has a test** (`src/app/api/health/route.ts`, `robots.ts`, `sitemap.ts`, `layout.tsx`, `error.tsx`, `global-error.tsx`, `not-found.tsx`, `opengraph-image.tsx`, `Brand.tsx`, `EmptyState.tsx` — zero `.test.ts(x)` siblings). The findings below are ranked by business blast radius. The `/api/health` info-leak guard is the only security-grade invariant here and is completely unguarded.
+
+## 1. Pin the /api/health no-error-leak invariant: unauthenticated body must never contain the raw DB error
+- **Severity**: Critical
+- **Category**: coverage-gap
+- **File**: src/app/api/health/route.ts:33-48
+- **Scenario**: Someone "simplifies" the route to `return NextResponse.json({ status, ...result }, ...)` or adds `error: result.error` to the body for debuggability. The endpoint is unauthenticated (`runtime nodejs`, no auth gate) and now leaks Prisma/Postgres internals — connection host/port, DSQL endpoint, IAM-auth failure text, SQLSTATE — to any anonymous caller. Tests stay green because nothing asserts the body shape on the failure path.
+- **Root cause**: The route's own comment (lines 34-37) declares the rule "Do NOT spread `result` into the public body — it carries the raw DB error string … and /api/health is unauthenticated", but that rule lives only in a comment. There is no test exercising the `result.ok === false && result.error` branch, so the guard is enforced by convention, not by CI.
+- **Impact**: Information disclosure on the public surface — exactly the class of leak that turns a maturity-SaaS into a CVE. Reconnaissance fuel (infra hostnames, DB driver/version) handed to attackers with one GET.
+- **Fix sketch**: `route.test.ts` mocking `@/lib/db` (`isDbConfigured: () => true`, `dbHealthCheck: vi.fn()`) and `@/lib/github/app`. Drive `dbHealthCheck` to `{ ok: false, reconnected: true, error: "Can't reach database server at dsql-xyz.us-east-1.on.aws:5432 (token expired)" }` and assert: (a) status code is **503**, (b) `JSON.stringify(body)` does **not** contain the substring `"dsql-xyz"` / `"token expired"` / the word `"5432"`, (c) body keys are exactly `{status:"error", db:"down", reconnected:true, autoscan}`. Invariant: **no field of the health body is derived from `result.error`.** Add a companion case for `{ok:true}` → 200, `db:"up"`, and the `isDbConfigured()===false` early return → 200, `db:"disabled"`.
+
+## 2. Test autoscanReadiness as a misconfiguration tripwire — its whole reason to exist is catching silent failure
+- **Severity**: High
+- **Category**: coverage-gap
+- **File**: src/app/api/health/route.ts:21-26
+- **Scenario**: A refactor flips a boolean (`ready: cronSecret || githubApp || db`, or drops the `&&` on `db`), or `isAppConfigured()` changes semantics. `autoscan.ready` now reports `true` on a deploy that will never autoscan (missing `CRON_SECRET` or GitHub App or DB). The monitor that was supposed to page on "scans mysteriously stopped" goes silent forever. No test asserts the readiness truth table.
+- **Root cause**: `autoscanReadiness()` is a pure 3-input AND fold with per-flag breakout — the comment (lines 8-12) frames it as the tripwire for "a deploy missing any of these silently never autoscans" — yet nothing pins that `ready` is the conjunction of all three flags. It's exactly the LLM-generatable invariant batch (8 rows of a truth table) that closes a real gap fast.
+- **Impact**: A degraded-but-green health signal defeats the monitoring this endpoint was built to enable; the org's scheduled fleet rescans quietly stop and nobody is alerted.
+- **Fix sketch**: In the same `route.test.ts`, mock `isAppConfigured` and toggle `process.env.CRON_SECRET` / `DATABASE_URL` (with `beforeEach`/`afterEach` env save-restore, per the repo's existing env pattern). Assert the full truth table: `ready === (cronSecret && githubApp && db)` across all 8 combinations, and that each individual flag (`autoscan.cronSecret`, `.githubApp`, `.db`) is reported independently. Invariant: **`ready` is true iff all three sub-flags are true, and each sub-flag mirrors its source.**
+
+## 3. Lock robots.ts disallow list and sitemap.ts base-gating against accidental indexing of private/funnel routes
+- **Severity**: High
+- **Category**: coverage-gap
+- **File**: src/app/robots.ts:17 / src/app/sitemap.ts:10-22
+- **Scenario**: A merge resolves a conflict by dropping `/api/` (or `/connect`) from `robots.disallow`, or `sitemap.ts` starts emitting per-tenant `/org/[slug]` URLs, or someone removes the `if (!base) return []` guard so relative URLs ship. Search engines crawl and cache machine API endpoints and per-user funnels; the sitemap emits malformed relative entries. All silent — robots/sitemap are runtime-generated and nobody renders them in CI.
+- **Root cause**: Both are pure functions of `process.env`, but the security/SEO contract — "APIs are machine endpoints, the per-user funnels carry no indexable content" and "a sitemap needs absolute URLs so with no base configured emit nothing" — is asserted nowhere. They're trivially unit-testable (call the default export, inspect the returned object) and currently untested.
+- **Impact**: Crawled/cached API routes and the `/connect`/`/onboarding`/`/launch` funnels (and any future tenant route) become an SEO and minor-info-exposure liability; a broken sitemap (relative URLs) hurts indexing of the legitimate marketing surface.
+- **Fix sketch**: `robots.test.ts`: assert `robots().rules[0].disallow` contains `/api/`, `/connect`, `/onboarding`, `/launch` (a regression guard list), `allow === "/"`, and that `sitemap`/`host` are present only when `ASCENT_PUBLIC_URL` is set. `sitemap.test.ts`: with no base env → `[]`; with a base → every entry's `url` starts with the base, is absolute, and the set contains only the intended public routes (no `/api/`, no `/org/`). Invariant: **disallow always covers the API + private funnels; sitemap is empty without an absolute base and never contains a non-public path.** Bonus: assert `robots.ts`'s local `baseUrl()` and `lib/site.publicBaseUrl()` resolve identically for the same env (they duplicate the trailing-slash-strip logic and will drift).
+
+## 4. Cover the error-boundary digest-rendering and reset wiring (error.tsx / global-error.tsx)
+- **Severity**: Medium
+- **Category**: error-branch
+- **File**: src/app/error.tsx:18-58 / src/app/global-error.tsx:9-100
+- **Scenario**: The `error.digest && (...)` reference line is removed or `reset` is no longer wired to the "Try again" button (e.g. an `onClick={reset}` typo passing the event, or dropping `() => reset()`). Users hit an unrecoverable page with no way to retry and operators lose the `digest` correlation id they need to find the server log. `global-error.tsx` additionally must render its own `<html>/<body>` (it replaces the document) — if that regresses, the last-resort screen is blank.
+- **Root cause**: These are client components with branching render logic (digest present/absent) and a recovery affordance, but no render test exists. The `global-error` self-containment contract (own html/body, inline styles, no Tailwind/imports) is a documented constraint (lines 1-7) with no guard.
+- **Impact**: A broken retry button or missing digest degrades incident recovery and support triage on the worst-day path — the boundary that fires precisely when everything else has failed.
+- **Fix sketch**: React Testing Library render tests. For `error.tsx`: render with `error={{message:"x", digest:"abc123"}}` and a `reset` spy → assert "Reference: abc123" is shown, clicking "Try again" calls `reset` exactly once, and a "Back to home" link to `/` exists; render without a digest → "Reference:" absent. For `global-error.tsx`: render and assert the output contains its own `<html>`/`<body>` and the digest branch behaves the same. Invariant: **digest is shown iff present; the retry control invokes `reset`; global-error owns its document.**
+
+## 5. Add a tiny render/branch test for EmptyState — the canonical notice reused across sign-in, org, and trends empties
+- **Severity**: Low
+- **Category**: edge-case
+- **File**: src/components/EmptyState.tsx:43-80
+- **Scenario**: A change to the `variant`/`actions`/`children` branching (e.g. the action-row only renders when `actions.length > 0 || children`, or the `section` heading switches `<h1>`↔`<div>` for a11y) silently breaks every consumer (`SignInNotice`, `OrgEmpty`, `SectionEmpty`, trends empty/error, repo-picker empties — per the docstring). The duplicated action-`key` (`${a.href}::${a.label}`) could collide for two identical actions and React-warn.
+- **Root cause**: A shared presentational primitive with real conditional logic (two variants, optional icon/alert/body/actions/children, page-vs-section heading element) and many downstream consumers, yet zero render coverage. Cheap, deterministic, LLM-generatable.
+- **Impact**: Low individually, but a regression here multiplies across every empty/error surface in the product; the page-variant `<h1>` is also the document heading for whole-page empties (a11y).
+- **Fix sketch**: RTL tests: `variant="page"` with a title renders an `<h1>`; `variant="section"` renders a non-heading title `<div>`; `actions` render as links with correct `href`; the primary action gets the accent class and non-primary gets the outline class; with no `actions` and no `children` the action row is absent; `children` and `actions` both render together. Invariant: **page-variant title is an `<h1>`, section-variant is not; the action row appears iff there are actions or children; primary vs outline styling matches the `primary` flag.**

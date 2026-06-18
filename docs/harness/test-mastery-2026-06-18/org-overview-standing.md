@@ -1,0 +1,51 @@
+> Total: 5 findings (1 critical, 2 high, 2 medium)
+# Test Mastery — Org Overview & Standing
+
+This context is mostly presentational (server components rendering pre-computed rollups), but the *numbers* those panels show are produced by pure, exported, currently-untested functions: cohort-matched period deltas, the baseline-date window math, and the movers diff. Each has a code comment documenting a real bug it was written to fix — and no test pinning that fix. The headline "net maturity ▲+8" tile, the "Quarter in review" banner, and the movers/regressions panel all read from these. A silent regression here doesn't crash anything; it quietly reports a fleet movement that never happened — to executives and into the scheduled digest.
+
+The auth gate (`canReadOrg`, `requireOrgRole`) that wraps this layout is already well-covered in `src/lib/authz.test.ts`, and `percentileOf` is covered in `org-insights.test.ts`, so those are deliberately excluded below.
+
+## 1. Test computeWindowDeltas for cohort matching, not just the happy path
+- **Severity**: Critical
+- **Category**: coverage-gap
+- **File**: src/lib/db/org-rollup.ts:130
+- **Scenario**: Someone "simplifies" `computeWindowDeltas` — e.g. drops the `now = current.filter((c) => beforeIds.has(c.repoId))` re-filter, or changes the `Set` intersection so it averages the *whole* current fleet against the baseline cohort. The function still returns a `{overall, adoption, rigor}` object and every consumer renders fine. But onboarding 5 low-scoring repos mid-quarter now reads as the fleet "slipping" ~25 points that no individual repo experienced (and onboarding strong repos manufactures a fake climb). The movers panel below still shows zero regressions, so the dashboard contradicts itself — and the digest emails the fabricated number.
+- **Root cause**: The function is pure, exported, and the file comment explicitly documents this exact past bug, yet there is no `org-rollup.test.ts` at all. The cohort-intersection invariant (deltas measured ONLY over repos present on both sides) is the entire reason this function exists, and nothing locks it in.
+- **Impact**: The single most-glanced number on the org dashboard ("net maturity" + per-tile deltas) and the weekly digest report a fleet trajectory that is an artifact of fleet *composition* change, not score movement. Leaders make investment calls on a phantom regression/climb.
+- **Fix sketch**: New `src/lib/db/org-rollup.test.ts` exercising `computeWindowDeltas` (no DB needed — it takes plain `RepoScoreSnap[]`). Assert: (a) **cohort invariant** — given current `[A=80,B=90,C(new)=10]` and baseline `[A=70,B=80]`, `overall` delta is `+10` (avg of A,B now − avg of A,B then), NOT dragged down by C; (b) repos in baseline but gone from current are likewise excluded; (c) **no overlap ⇒ null** (current `[C,D]`, baseline `[A,B]`); (d) empty current or empty baseline ⇒ null; (e) rounding matches `Math.round` of the cohort averages (e.g. `[70,71]` vs `[70,70]` → `+1` not `+0.5`).
+
+## 2. Pin the window baseline-date math (resolveWindow + parsePeriodCookie)
+- **Severity**: High
+- **Category**: coverage-gap
+- **File**: src/lib/window.ts:89
+- **Scenario**: A refactor reverts the local-midnight snap on the rolling windows (`startOfDay(now - 90d)` back to a raw `now - 90*DAY` offset). All tiles still render; but the baseline instant becomes an arbitrary wall-clock time (14:37…) that flickers within a calendar day and drifts an hour across DST, so a boundary-day scan lands on the wrong side of `start` depending on the hour the page rendered — non-deterministic deltas. Separately, an off-by-one in `parsePeriodCookie`'s `split("|")` validation (e.g. accepting an unknown range key) silently widens or resets every user's remembered window.
+- **Root cause**: `window.ts` is explicitly authored as "pure + isomorphic … injectable `now` for testing", and its comments document two prior bugs (the DST/midnight drift and the half-open baseline), but there is no `window.test.ts`. The `now`-injection seam is there precisely so this can be tested deterministically, and it never was.
+- **Impact**: Every period-over-period delta in this context, plus the trend/movers bounds on every sibling org tab, share this resolver. A regression makes the comparison baseline non-deterministic — deltas that change on page reload, or a "remembered period" that resets — undermining trust in the whole dashboard.
+- **Fix sketch**: New `src/lib/window.test.ts`. With a fixed injected `now` (e.g. `2026-06-15T14:37:00`): assert `resolveWindow({range:"90d"}, now).start` equals **local midnight** of `now − 90d` (h/m/s/ms all zero); assert `quarter` start is the first day of the calendar quarter at local midnight; assert `custom` with `to` makes `end` inclusive of the whole `to` day (`+DAY-1`); assert an unknown `range` falls back to `DEFAULT_RANGE`. For `parsePeriodCookie`: round-trips a `serializePeriodCookie` output, returns null on empty/garbage/unknown-range, and parses `custom|from|to` into the three params.
+
+## 3. Test the movers diff (buildMove / getOrgMovers sign + onboarded-repo logic)
+- **Severity**: High
+- **Category**: coverage-gap
+- **File**: src/lib/db/org-insights.ts:47
+- **Scenario**: A change flips a subtraction in `buildMove` (`now − prev` → `prev − now`) or mis-ranks `LEVEL_RANK`, so a regressed repo shows up under "Top gainers" with a green ▲. Or the onboarded-repo baseline fallback (`arr.find(s => s.scannedAt <= start) ?? arr[arr.length-1]`) is removed, so a repo first scanned mid-period silently vanishes from movers instead of showing its first→now climb. Tests stay green because nothing asserts the sign or the bucket.
+- **Root cause**: `buildMove` is a pure transform (takes two `ScanLite` objects) and the bucketing in `getOrgMovers` is simple filter/sort logic, but neither is tested. The `levelDelta` sign also feeds `PeriodSummary`'s "N promoted / N slipped" counts and the `MoversList` level-pair contradiction guard in `page.tsx:63`, so one sign bug corrupts three surfaces at once.
+- **Impact**: The Movers & Regressions panel and the period-in-review banner are how a leader sees *who* moved. A sign or bucketing regression mislabels regressions as wins (or hides onboarded repos), directly misdirecting where attention goes.
+- **Fix sketch**: Extract `buildMove` (already file-local; export it) and unit-test it with no DB: `now overall 80 / prev 70, level L4←L3` ⇒ `dOverall=+10`, `levelDelta=+1`, `sinceDays` rounded from the timestamp gap; the reverse ⇒ `dOverall=-10`, `levelDelta=-1`. Then a thin test over the in-memory grouping that feeds `getOrgMovers`: assert a single-in-window-scan repo (`prev === now`) is **skipped**, an onboarded repo (no scan ≤ start) falls back to its earliest in-window scan and **appears**, and `gainers`/`regressers` partition strictly on `dOverall` sign (a 0-delta repo is in neither).
+
+## 4. Lock the org-window precedence (?range > cookie > default) in resolveOrgWindow
+- **Severity**: Medium
+- **Category**: coverage-gap
+- **File**: src/lib/org/period.ts:19
+- **Scenario**: A refactor swaps the precedence so the remembered cookie wins over an explicit `?range=` (or reads the cookie even when `sp.range` is present). A shared link like `…/org/acme?range=30d` silently renders the recipient's *own* remembered 90d window instead — the link is no longer authoritative, and a user navigating between tabs sees the range reset. No test catches it.
+- **Root cause**: The whole reason `resolveOrgWindow` exists is to centralize the precedence (the comment documents "a range chosen on Overview was lost on every other tab"), but there's no `period.test.ts`. The only DB-free seam is `cookies()`, which is mockable.
+- **Impact**: Shareable, deep-linked dashboard URLs are a core UX promise here (URL-as-state). A precedence regression makes shared links lie about what window they show, and makes the period silently reset on navigation — exactly the bug this function was written to kill.
+- **Fix sketch**: New `src/lib/org/period.test.ts` mocking `next/headers` `cookies()`. Assert: explicit `sp.range="30d"` wins even when the cookie holds `90d` (cookie is NOT read when `sp.range` is set — verify the mock isn't consulted); with no `sp.range`, a valid period cookie is used; with neither, the result is `DEFAULT_RANGE` (90d); a malformed cookie value falls through to the default rather than throwing.
+
+## 5. Test PeriodSummary's cohort-now / onboarded derivation against a false-narrative regression
+- **Severity**: Medium
+- **Category**: error-branch
+- **File**: src/components/org/PeriodSummary.tsx:25
+- **Scenario**: The banner sentence is built from `cohortNow = baseline.avgOverall + deltas.overall` and `onboarded = max(0, scannedCount − baseline.repos)`, plus `promoted`/`demoted` counts off `movers.levelChanges`. If a change uses `rollup.avgOverall` (fleet-wide) as the "to" instead of `cohortNow`, the banner's "climbed +X to Y" sentence stops reconciling with the cohort-matched delta number shown to its right — the prose says one thing, the big number says another. Or a negative `onboarded` (baseline larger than current cohort) leaks a "+-2 repos onboarded" string.
+- **Root cause**: This derivation is pure and trivially extractable, but lives inline in a server component with no test, and this Vitest setup has no jsdom/RTL to render it. The `null`-when-no-baseline branch (`if (!baseline || !deltas) return null`) and the promoted/demoted tallies are also unasserted.
+- **Impact**: The "Quarter in review" banner is the first sentence a leader reads. A regression makes its narrative contradict its own headline number, eroding trust in the dashboard's honesty.
+- **Fix sketch**: Extract the sentence-shaping into a pure helper (e.g. `summarizePeriod({baseline, deltas, movers, scannedCount}) → {maturity, levels, cohortNow, onboarded, promoted, demoted}`) and unit-test it: `cohortNow === baseline.avgOverall + deltas.overall` (NOT `rollup.avgOverall`); `onboarded` is clamped ≥ 0; `promoted`/`demoted` count only `levelDelta > 0` / `< 0`; and `summarizePeriod` returns the no-render signal when `baseline`/`deltas` are null (the "All time" range). The component then renders the helper's output, so the invariant is testable without a DOM.

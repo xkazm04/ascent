@@ -1,0 +1,56 @@
+> Total: 5 findings (1 critical, 2 high, 1 medium, 1 low)
+# Test Mastery — Database Client & Schema
+
+This context is the persistence foundation: the Prisma client factory (`db/client.ts`), the schema/init-SQL pair, the `db/index` barrel, and the shared row/tenant helpers (`db/scans-shared.ts`, named in the context purpose). The existing tests are genuinely good where they exist — `client.test.ts` exercises the pure error classifiers, `buildDsqlUrl`, `runWithReconnect`, `withRetry`, and one real proactive-refresh fall-through; `init-sql.test.ts` enforces table/column/block-index parity. The gaps are concentrated in (a) the tenant-resolution layer that decides which org every Scan/Repository/AuditLog row is written under, and (b) a parity test that silently ignores half the unique indexes it claims to guard.
+
+---
+
+## 1. Test `ensureOrgId` — the tenant-resolution + orphan-write guard that decides where every persisted row lands
+
+- **Severity**: Critical
+- **Category**: coverage-gap
+- **File**: src/lib/db/scans-shared.ts:84 (`ensureOrgId`), :70 (`invalidateOrgIdCache`), :92 (re-verify path)
+- **Scenario**: A regression in the cache re-verify or invalidation logic ships green. Concretely: the 5-minute `ORG_REVERIFY_MS` PK re-check is removed or its `if (stillThere)` branch is inverted, so after an org is deleted (retention purge, re-seed with a new id) an instance keeps returning the stale cached id. Every subsequent anonymous/org scan then writes `Scan`, `Repository`, and `AuditLog` rows pointing at an org row that no longer exists — and because `relationMode="prisma"` emits **no foreign keys**, the DB raises no error. The data is silently orphaned (invisible in every org rollup, audit view, and the report). Equally: a future edit makes the first-create path read `slug` but write under the wrong tenant, cross-contaminating two orgs' scans.
+- **Root cause**: `ensureOrgId` is referenced only by its caller (`scans-persist.ts`) and a *comment* in `init-sql.test.ts`; `grep` confirms **zero tests** drive it. The whole point of this function — cache hit, re-verify-on-expiry, invalidate-and-re-resolve, P2002 create-race recovery via `upsertRacing`, serialization retry via `withRetry` — is the part most likely to break, and none of it is asserted. (`upsertRacing`/`withRepoLock`/`isUniqueConstraintError` ARE tested via `scans.test.ts`, but the org-resolution logic wrapping them is not.)
+- **Impact**: Silent cross-tenant data corruption / orphaned scans — the worst class of data-integrity bug for an audit product, because the symptom is "data quietly missing or attributed to the wrong customer," with no exception to alert on.
+- **Fix sketch**: A pure-mock unit test (no real DB) injecting a fake `prisma.organization` via the module's `getPrisma`. Assert the invariants: (1) **cache hit within the window** returns the id with **no** DB call; (2) **after `ORG_REVERIFY_MS`**, a `findUnique({where:{id}})` returning `null` causes the entry to be dropped and the org re-resolved (the orphan-write guard); a non-null re-check refreshes `verifiedAt` and reuses the id; (3) `invalidateOrgIdCache(slug)` forces a DB re-resolve on the next call, `invalidateOrgIdCache()` clears all; (4) a `findUnique`-by-slug miss triggers `create`, and a `create` that throws P2002 falls through to the conflict re-read (id never duplicated). The load-bearing invariant: **a cached id is never returned for an org row that no longer exists past the re-verify window.**
+
+## 2. Make `init-sql.test.ts` check inline single-field `@unique` indexes, not only `@@unique([...])` blocks
+
+- **Severity**: High
+- **Category**: success-theater
+- **File**: src/lib/db/init-sql.test.ts:57-79 (the `@@index`/`@@unique` parity loop)
+- **Scenario**: A regenerated `init.sql` (per the documented `prisma migrate diff` regen) drops a unique index backing a single-field `@unique` attribute — e.g. `User_githubLogin_key`, `Invite_token_key`, `User_email_key`, or `Subscription_orgId_key`. The parity test **stays green**. In prod the constraint is silently absent, so a webhook redelivery double-creates an `Invite` for the same token, or two `User` rows share a `githubLogin` — the exact "duplicate that should be impossible" class the unique index exists to prevent. For `Organization.slug`, a missing `Organization_slug_key` breaks the `ON CONFLICT ("slug") DO NOTHING` public-org seed at the bottom of init.sql.
+- **Root cause**: The parity loop only matches block-level `@@index([...])` and `@@unique([...])`. The schema declares **6 inline `@unique`** attributes (`Organization.slug`, `User.email`, `User.githubLogin`, `Invite.token`, `Subscription.orgId`, `CreditLedger.externalId`) that emit `CREATE UNIQUE INDEX "<Model>_<field>_key"` — and the test never parses inline `@unique`. Only `CreditLedger.externalId` is checked, and only because someone hand-wrote a one-off assertion (line 46). The test's docstring claims it "mirrors every @@index/@@unique," giving false confidence it covers all uniques.
+- **Impact**: The schema-drift guard — the project's *only* defense against the documented 2026-06 init.sql drift recurring — is blind to half the unique constraints, including the ones enforcing identity uniqueness and idempotency.
+- **Fix sketch**: Extend the loop to also parse inline field uniques: for each `model` body, match `^\s*(\w+)\s+\S+.*@unique` (excluding `@@unique`) and require `init.sql` to contain `"<Model>_<field>_key"`. Drop the one-off `externalId` assertion once the generic check covers it. Invariant: **every `@unique` (inline or block) in schema.prisma has a matching `CREATE UNIQUE INDEX` in init.sql, with no manual allow-listing.**
+
+## 3. Test `getPrisma` cold-start branching and `dbHealthCheck`/`reconnectDb` self-heal — the DSQL deploy-time failure modes
+
+- **Severity**: High
+- **Category**: coverage-gap
+- **File**: src/lib/db/client.ts:346 (`getPrisma`), :398 (`reconnectDb`), :471 (`dbHealthCheck`)
+- **Scenario**: The DSQL cold-start guards regress and the "2 AM silent outage" the module was built to prevent returns. Examples: (a) the seed `expiresAt: cfg ? 0 : Infinity` (line 384) is "optimized" to a full TTL, so `tokenIsStale` is blinded and the proactive refresh never fires — the deploy-time token expires and every query 500s until the process recycles (the exact failure the comment at :379 warns against); (b) the `cfg && !process.env.DATABASE_URL` fail-fast (line 368) is removed, so DSQL-without-seed serves a dead client with a cryptic error instead of an actionable one; (c) `dbHealthCheck`'s "self-heal on ANY first failure" reverts to auth-only, so a cold-start init-error keep-warm ping flatlines as unhealthy forever.
+- **Root cause**: `client.test.ts` imports only the pure helpers (`buildDsqlUrl`, classifiers, `runWithReconnect`, `withDb`, `withRetry`). It **never imports** `getPrisma`, `reconnectDb`, `dbHealthCheck`, or `isDbConfigured` — so the stateful singleton/seed/self-heal logic, which carries the densest "do not regress" comments in the file, has no test at all. The one `withDb` test that touches global state is excellent but covers only the proactive-refresh fall-through.
+- **Impact**: The headline reliability feature (survive DSQL's 15-min IAM token TTL) and the monitoring endpoint that self-heals it can both silently regress, reintroducing a deploy-time-only outage that local dev (static mode) never exercises.
+- **Fix sketch**: Tests manipulating `globalThis.__ascentPrisma` + env (the existing `withDb` test already establishes the pattern). Assert: (1) a fresh DSQL cold start seeds `expiresAt === 0` (stale-now) and kicks one single-flighted refresh; (2) DSQL mode with `DSQL_ENDPOINT` set but `DATABASE_URL` unset throws the actionable seed error, not a generic one; (3) `dbHealthCheck` returns `{ok:true, reconnected:true}` when the first ping throws a *non-auth* `PrismaClientInitializationError` and the re-ping after `reconnectDb` succeeds (the cold-start self-heal), and `{ok:false}` when the re-ping still fails. Inject `getPrisma`/`reconnectDb` ping via a fake client so no real DB is touched. Invariant: **a freshly seeded DSQL client is always treated as stale-now so the first refresh actually fires.**
+
+## 4. Test `toPersistedRec` against malformed/adversarial stored `explore` JSON and date edge cases
+
+- **Severity**: Medium
+- **Category**: error-branch
+- **File**: src/lib/db/scans-shared.ts:181 (`toPersistedRec`)
+- **Scenario**: A row's `explore` column contains non-array JSON (`'"oops"'`, `'{"a":1}'`), invalid JSON, or an array with non-string entries (`'[1,null,"keep"]'`). If the `Array.isArray` guard or the `.filter(typeof === "string")` is later loosened, the API now emits non-string `explore` items or throws on `JSON.parse`, breaking every report and recommendation read path that maps rows through this helper. The `targetDate.toISOString().slice(0,10)` path also silently assumes a valid `Date`.
+- **Root cause**: `toPersistedRec` is the single mapper shared by `scans-read.ts` and `scans-recommendations.ts` (both read paths), yet `grep` shows **no test** drives it. Its whole job is to harden untrusted stored JSON, but the hardening is unverified — exactly the kind of "looks like a one-liner" parser that rots when edited.
+- **Impact**: A malformed stored value (from a prior bug, a manual DB edit, or a schema change) corrupts or 500s the recommendation/report API with no test to catch it; the defensive filtering can be removed without any failure.
+- **Fix sketch**: Pure table-driven unit test (no DB). Inputs: valid `'["a","b"]'`; non-array JSON → `[]`; invalid JSON → `[]`; mixed array `'[1,null,"keep"]'` → `["keep"]`; missing/undefined `explore` → `[]`. Plus: `targetDate: null` → `null`, a real `Date` → `YYYY-MM-DD`. Invariant: **`explore` is always a `string[]` and the function never throws on any stored value.**
+
+## 5. Add a calibrated coverage gate on `src/lib/db/**` so new untested DB helpers can't merge silently
+
+- **Severity**: Low
+- **Category**: quality-gate
+- **File**: vitest config (project root) + CI; scope `src/lib/db/scans-shared.ts`, `src/lib/db/client.ts`
+- **Scenario**: A new persistence helper (the next `ensureOrgId`-class tenant/row function) is added with zero tests and merges green — the same way `ensureOrgId`/`toPersistedRec` already slipped through. Coverage on the persistence layer drifts down silently.
+- **Root cause**: No per-area coverage threshold gates the data layer; coverage is a global number (if measured at all), so a money/tenant-critical module landing untested doesn't move the needle enough to fail CI.
+- **Impact**: The data-integrity layer accretes untested branches over time; regressions like findings #1/#3 become the norm rather than the exception.
+- **Fix sketch**: Add a Vitest `coverage.thresholds` override scoped to `src/lib/db/**` (e.g. branches ≥ 70%, functions ≥ 80%), calibrated to the *current* level once findings #1/#3/#4 land so it ratchets forward without a big-bang backfill — and ideally run on changed files in PR CI. The gate must assert presence of meaningful branch coverage on the tenant-resolution and client-factory modules specifically, not a repo-wide average that the well-tested pure helpers inflate.
