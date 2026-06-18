@@ -9,6 +9,7 @@ import { RepoFilterBar } from "./RepoFilterBar";
 import { RepoListSkeleton } from "./RepoListSkeleton";
 import { RepoRow } from "./RepoRow";
 import { type AppRepo, type RepoState, type Visibility } from "./installationRepoTypes";
+import { applyWatchOptimistic, patchRepoState, rollbackWatch } from "./watchState";
 
 type View =
   | { status: "loading" }
@@ -154,14 +155,26 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   function patch(fullName: string, next: Partial<RepoState>) {
     setView((v) =>
       v.status === "done"
-        ? {
-            status: "done",
-            repos: v.repos.map((r) =>
-              r.fullName === fullName
-                ? { ...r, state: { watched: false, scanSchedule: "off", level: null, overall: null, ...r.state, ...next } }
-                : r,
-            ),
-          }
+        ? { status: "done", repos: patchRepoState(v.repos, fullName, next) }
+        : v,
+    );
+  }
+
+  // Optimistic flip → requested value. Same setState/view-guard orchestration as `patch`; the pure
+  // next-state transform lives in watchState.ts so the watch/schedule rollback logic is unit-testable.
+  function patchOptimistic(fullName: string, next: Partial<RepoState>) {
+    setView((v) =>
+      v.status === "done"
+        ? { status: "done", repos: applyWatchOptimistic(v.repos, fullName, next) }
+        : v,
+    );
+  }
+
+  // Rollback → exact prior value, so a non-2xx/network failure can't masquerade as a saved change.
+  function patchRollback(fullName: string, prev: Partial<RepoState>) {
+    setView((v) =>
+      v.status === "done"
+        ? { status: "done", repos: rollbackWatch(v.repos, fullName, prev) }
         : v,
     );
   }
@@ -183,7 +196,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   // (showing a state the server never saved) on watch/schedule means scans silently never run.
   async function toggleWatch(r: AppRepo, watched: boolean) {
     const prevWatched = r.state?.watched ?? false;
-    patch(r.fullName, { watched });
+    patchOptimistic(r.fullName, { watched });
     setRowError(r.fullName, null);
     try {
       const res = await fetch("/api/org/watch", {
@@ -192,18 +205,18 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
         body: JSON.stringify({ org, owner: r.owner, name: r.name, fullName: r.fullName, url: r.url, private: r.private, watched }),
       });
       if (!res.ok) {
-        patch(r.fullName, { watched: prevWatched });
+        patchRollback(r.fullName, { watched: prevWatched });
         setRowError(r.fullName, `Couldn't ${watched ? "watch" : "unwatch"} — not saved. Try again.`);
       }
     } catch {
-      patch(r.fullName, { watched: prevWatched });
+      patchRollback(r.fullName, { watched: prevWatched });
       setRowError(r.fullName, "Network error — change not saved. Try again.");
     }
   }
 
   async function changeSchedule(r: AppRepo, schedule: string) {
     const prevSchedule = r.state?.scanSchedule ?? "off";
-    patch(r.fullName, { scanSchedule: schedule });
+    patchOptimistic(r.fullName, { scanSchedule: schedule });
     setRowError(r.fullName, null);
     try {
       const res = await fetch("/api/org/schedule", {
@@ -212,11 +225,11 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
         body: JSON.stringify({ org, fullName: r.fullName, schedule }),
       });
       if (!res.ok) {
-        patch(r.fullName, { scanSchedule: prevSchedule });
+        patchRollback(r.fullName, { scanSchedule: prevSchedule });
         setRowError(r.fullName, "Couldn't change the schedule — not saved. Try again.");
       }
     } catch {
-      patch(r.fullName, { scanSchedule: prevSchedule });
+      patchRollback(r.fullName, { scanSchedule: prevSchedule });
       setRowError(r.fullName, "Network error — schedule not saved. Try again.");
     }
   }
