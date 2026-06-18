@@ -6,6 +6,7 @@ import type { ScanProgress, ScanReport } from "@/lib/types";
 import { ReportView } from "@/components/report/ReportView";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { parseScanReport } from "@/lib/report/validate";
+import { repoKey } from "./repoKey";
 import { Empty, Loading, parseSSE, type Progress } from "@/components/report/ReportClientStatus";
 import {
   QuotaBanner,
@@ -25,16 +26,6 @@ type State =
 
 /** Free weekly public-scan allowance surfaced from the x-ascent-quota-* response headers. */
 type Quota = { remaining: number; resetAt: number | null; scope: QuotaScope };
-
-/** Canonical `owner/repo` key for comparing what we asked for against what a peek returned. */
-function repoKey(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/^https?:\/\/github\.com\//, "")
-    .replace(/^github\.com\//, "")
-    .replace(/\.git$/, "")
-    .replace(/^\/+|\/+$/g, "");
-}
 
 export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   const params = useSearchParams();
