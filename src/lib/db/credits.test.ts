@@ -151,3 +151,141 @@ describe("grantCredits ledger invariant (negative-adjustment clamp)", () => {
     expect(ledger).toHaveLength(0);
   });
 });
+
+/**
+ * Fake prisma that models the idempotency machinery the redelivery guarantee rides on: a unique
+ * `externalId` index over the ledger. `creditLedger.findUnique({where:{externalId}})` is the fast-path
+ * lookup; `creditLedger.create` rejects a duplicate externalId by throwing a Prisma `{code:"P2002"}`
+ * (the unique-constraint rollback the catch swallows). The org `findUnique` is exposed at BOTH the
+ * top level (used by getCreditState on the fast-path / P2002 return) and inside the tx.
+ *
+ * `failNextCreate` forces the NEXT create to throw P2002 regardless of seen ids — simulating the
+ * concurrent-duplicate race where both callers miss the pre-check and the loser's insert is the one
+ * the unique constraint rolls back.
+ */
+function fakePrismaForGrantIdempotent(initialBalance: number, opts: { plan?: string } = {}) {
+  const row = { id: "org_1", scanCredits: initialBalance, plan: opts.plan ?? "free" };
+  const ledger: Array<{ delta: number; balanceAfter: number; reason: string; externalId: string | null }> = [];
+  const seenExternalIds = new Set<string>();
+  const state = { failNextCreate: false };
+
+  const findOrg = vi.fn(async () => ({ id: row.id, scanCredits: row.scanCredits, plan: row.plan }));
+  const create = vi.fn(
+    async ({
+      data,
+    }: {
+      data: { delta: number; balanceAfter: number; reason: string; externalId: string | null };
+    }) => {
+      const dup = state.failNextCreate || (data.externalId !== null && seenExternalIds.has(data.externalId));
+      if (dup) {
+        state.failNextCreate = false;
+        throw { code: "P2002", message: "Unique constraint failed on the fields: (`externalId`)" };
+      }
+      if (data.externalId !== null) seenExternalIds.add(data.externalId);
+      ledger.push({
+        delta: data.delta,
+        balanceAfter: data.balanceAfter,
+        reason: data.reason,
+        externalId: data.externalId,
+      });
+      return data;
+    },
+  );
+
+  const findLedgerByExternalId = vi.fn(async ({ where }: { where: { externalId: string } }) =>
+    seenExternalIds.has(where.externalId) ? { id: `cl_${where.externalId}` } : null,
+  );
+
+  const tx = {
+    organization: {
+      findUnique: findOrg,
+      // The grant increment is applied only when this create does NOT roll back. So the fake's update
+      // bumps the balance, but a subsequent thrown create simulates the whole tx rolling back — we undo
+      // it by snapshotting+restoring around the tx run below.
+      update: vi.fn(async ({ data }: { data: { scanCredits: { increment: number } } }) => {
+        row.scanCredits += data.scanCredits.increment;
+        return { scanCredits: row.scanCredits };
+      }),
+    },
+    creditLedger: { create },
+  };
+
+  const prisma = {
+    organization: { findUnique: findOrg },
+    creditLedger: { findUnique: findLedgerByExternalId },
+    $transaction: async (fn: (t: typeof tx) => unknown) => {
+      // Model atomic rollback: if the tx body throws, any balance increment it applied is reverted.
+      const snapshot = row.scanCredits;
+      try {
+        return await fn(tx);
+      } catch (err) {
+        row.scanCredits = snapshot;
+        throw err;
+      }
+    },
+  };
+
+  return { prisma, row, ledger, state, findLedgerByExternalId, create };
+}
+
+describe("grantCredits idempotency (webhook redelivery anti-double-grant)", () => {
+  it("a genuinely new externalId grants exactly once", async () => {
+    const { prisma, ledger, row } = fakePrismaForGrantIdempotent(0);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await grantCredits("acme", 100, { externalId: "ord_1", reason: "topup" });
+
+    expect(balance).toBe(100);
+    expect(row.scanCredits).toBe(100);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ delta: 100, balanceAfter: 100, externalId: "ord_1" });
+  });
+
+  it("a redelivery with the SAME externalId does not add a second ledger row or double the balance (fast-path)", async () => {
+    const { prisma, ledger, row, findLedgerByExternalId, create } = fakePrismaForGrantIdempotent(0);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const first = await grantCredits("acme", 100, { externalId: "ord_1" });
+    const second = await grantCredits("acme", 100, { externalId: "ord_1" });
+
+    // Exactly one grant landed; the redelivery short-circuited on the pre-existing externalId.
+    expect(first).toBe(100);
+    expect(second).toBe(100); // returns CURRENT balance, not a doubled one, and does not throw
+    expect(row.scanCredits).toBe(100);
+    expect(ledger).toHaveLength(1);
+    expect(ledger.filter((e) => e.externalId === "ord_1")).toHaveLength(1);
+    // The fast-path looked up the externalId on the redelivery and never re-attempted the insert.
+    expect(findLedgerByExternalId).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { externalId: "ord_1" } }),
+    );
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("a concurrent duplicate that slips past the fast-path and hits a P2002 is swallowed (no throw, no double grant)", async () => {
+    const { prisma, ledger, row, state } = fakePrismaForGrantIdempotent(40);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // First grant lands normally.
+    const first = await grantCredits("acme", 100, { externalId: "ord_2" });
+    expect(first).toBe(140);
+
+    // Now simulate the race: a second delivery whose pre-check missed (different/raced id state) but
+    // whose insert loses to the unique constraint. Force the next create to throw P2002.
+    state.failNextCreate = true;
+    const second = await grantCredits("acme", 100, { externalId: "ord_3" });
+
+    // The P2002 rolled the whole tx back: balance is NOT double-incremented, no extra ledger row, and
+    // the function returns the current balance instead of surfacing the error.
+    expect(second).toBe(140);
+    expect(row.scanCredits).toBe(140);
+    expect(ledger).toHaveLength(1);
+  });
+
+  it("a P2002 WITHOUT an externalId is NOT swallowed — it propagates (only redelivery dedup is silent)", async () => {
+    const { prisma, state } = fakePrismaForGrantIdempotent(0);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    state.failNextCreate = true;
+    await expect(grantCredits("acme", 100, { reason: "grant" })).rejects.toMatchObject({ code: "P2002" });
+  });
+});
