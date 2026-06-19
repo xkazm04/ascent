@@ -10,6 +10,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { parseRepoUrl, GitHubPublicSource, resolveHead } from "./source";
 import { fetchBranchGovernance } from "./governance";
+import { fetchPullRequests, type PrNode } from "./graphql";
+import { summarizePullRequests } from "@/lib/analyze/pulls";
 
 // The hard security invariant the whole module rests on: a non-null result NEVER carries a coordinate
 // that could rewrite the request path. owner and repo must each match the GitHub name charset — no
@@ -573,5 +575,266 @@ describe("fetchBranchGovernance — rule extraction + the readable-vs-null contr
   it("a thrown fetch is swallowed → null (no leaked rejection into the scan)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
     expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// fetchPullRequests — cursor pagination + partial-data resilience (finding test-mastery #
+// github-repo-data-access MEDIUM, src/lib/github/graphql.ts:110). Sibling module, same global-fetch
+// seam, so pinned here alongside the rest of the GitHub I/O contract (RULES: extend only source.test.ts).
+// ---------------------------------------------------------------------------------------------------
+// fetchPullRequests walks the GraphQL `pullRequests` connection with a cursor until it has `limit`
+// nodes or the repo runs out, instead of silently truncating at GraphQL's 100/page cap. A regression
+// here means the maturity score is computed off a non-representative PR slice. The hard invariants:
+//   - it FOLLOWS the cursor across pages, requesting `min(100, target-have)` each page and passing the
+//     prior page's endCursor as `after`, accumulating up to `limit` nodes;
+//   - it STOPS on a short page (hasNextPage:false) OR an empty page (nodes:[]) — never loops forever
+//     (bounded by MAX_PAGES) and never over-fetches past `limit`;
+//   - `data.repository === null` (missing/denied repo) → break with whatever accumulated; a zero-PR
+//     repo → totalCount/nodes both empty, NOT a crash;
+//   - a non-2xx mid-pagination PROPAGATES (githubGraphql throws on !res.ok) — the partial pages already
+//     pushed are discarded by the throw, which is the real code's behaviour (the scan fails loudly
+//     rather than scoring a half-read window);
+//   - a partial-data response (PR nodes missing fields) is tolerated by the summarize step downstream:
+//     malformed PRs are skipped/defaulted, not a crash.
+//
+// We stub the global `fetch` (the same seam every block above uses). fetchPullRequests POSTs to the
+// GraphQL endpoint; we decode the request body to read the `after` cursor + `num` and answer per page.
+
+const GQL = "https://api.github.com/graphql";
+
+/** A minimal-but-complete PR node (every field PrNode requires), parameterized by number. */
+function prNode(n: number, over: Partial<PrNode> = {}): PrNode {
+  return {
+    number: n,
+    title: `PR ${n}`,
+    bodyText: "",
+    isDraft: false,
+    state: "MERGED",
+    createdAt: "2026-01-01T00:00:00Z",
+    mergedAt: "2026-01-02T00:00:00Z",
+    closedAt: null,
+    additions: 10,
+    deletions: 2,
+    changedFiles: 1,
+    author: { login: "octocat", __typename: "User" },
+    labels: { nodes: [] },
+    reviews: { totalCount: 1, nodes: [{ state: "APPROVED", submittedAt: "2026-01-01T06:00:00Z" }] },
+    comments: { totalCount: 0 },
+    ...over,
+  };
+}
+
+/** A GraphQL `pullRequests` page payload wrapped in the {data:{repository:{pullRequests}}} envelope. */
+function gqlPage(
+  nodes: PrNode[],
+  pageInfo: { hasNextPage: boolean; endCursor: string | null },
+  totalCount: number,
+) {
+  return {
+    data: { repository: { pullRequests: { totalCount, pageInfo, nodes } } },
+  };
+}
+
+/** Read `after` (cursor) + `num` out of the POSTed GraphQL request body. */
+function readVars(init: RequestInit | undefined): { after: string | null; num: number } {
+  const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as {
+    variables?: { after?: string | null; num?: number };
+  };
+  return { after: body.variables?.after ?? null, num: body.variables?.num ?? 0 };
+}
+
+/** Build a fetch mock that serves a list of pages in order, keyed by the incoming `after` cursor. */
+function makePagedFetch(pages: ReturnType<typeof gqlPage>[]) {
+  // Page 0 answers when after===null; subsequent pages answer when after===`cur<i>` (the endCursor we
+  // handed out for the prior page). This proves the function actually threads the cursor forward.
+  const cursorFor = (i: number) => `cur${i}`;
+  return vi.fn(async (url: string, init?: RequestInit) => {
+    if (url !== GQL) throw new Error(`unexpected fetch in test: ${url}`);
+    const { after } = readVars(init);
+    const idx = after === null ? 0 : pages.findIndex((_, i) => cursorFor(i) === after) + 1;
+    const page = pages[idx];
+    if (!page) throw new Error(`no page for after=${after}`);
+    return res(page);
+  });
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("fetchPullRequests — cursor pagination across pages, accumulating up to `limit`", () => {
+  it("follows the cursor across 3 pages and accumulates exactly `limit` nodes", async () => {
+    // limit=250 over a 100/page cap → 3 pages: 100 + 100 + 50. Each page hands out endCursor curN so
+    // the next request must arrive with after===curN, proving real cursor threading (not 3 identical
+    // first-page reads). totalCount is the repo-wide count, constant across pages.
+    const page = (start: number, count: number, hasNext: boolean, i: number) =>
+      gqlPage(
+        Array.from({ length: count }, (_, k) => prNode(start + k)),
+        { hasNextPage: hasNext, endCursor: hasNext ? `cur${i}` : null },
+        1000,
+      );
+    const fetchMock = makePagedFetch([
+      page(0, 100, true, 0),
+      page(100, 100, true, 1),
+      page(200, 50, false, 2),
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchPullRequests("o", "r", "tok", 250);
+    expect(out.totalCount).toBe(1000);
+    expect(out.nodes).toHaveLength(250);
+    expect(out.nodes[0]!.number).toBe(0);
+    expect(out.nodes[249]!.number).toBe(249); // every page's nodes are in order, no gaps/dupes
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    // Page 1 asked for the full 100 (after=null); page 2 carried cur0; page 3 carried cur1 and asked
+    // for only the remaining 50 (min(100, 250-200)) — proves both the cursor AND the per-page `num`.
+    const v0 = readVars(fetchMock.mock.calls[0]![1]);
+    const v1 = readVars(fetchMock.mock.calls[1]![1]);
+    const v2 = readVars(fetchMock.mock.calls[2]![1]);
+    expect([v0.after, v0.num]).toEqual([null, 100]);
+    expect([v1.after, v1.num]).toEqual(["cur0", 100]);
+    expect([v2.after, v2.num]).toEqual(["cur1", 50]);
+  });
+
+  it("stops early on a SHORT page (hasNextPage:false) even when `limit` is not yet reached", async () => {
+    // limit=200 but the repo only has 30 PRs → one short page ends it; no second fetch, no loop.
+    const fetchMock = makePagedFetch([
+      gqlPage(Array.from({ length: 30 }, (_, k) => prNode(k)), { hasNextPage: false, endCursor: null }, 30),
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchPullRequests("o", "r", "tok", 200);
+    expect(out.nodes).toHaveLength(30);
+    expect(out.totalCount).toBe(30);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // stopped on the short page, didn't keep paging
+  });
+
+  it("stops on an EMPTY page (nodes:[]) even if the server lies that hasNextPage is true", async () => {
+    // A defensive stop: an empty node array with hasNextPage:true would otherwise advance the cursor
+    // forever (or until MAX_PAGES). The `pr.nodes.length === 0` guard breaks the loop.
+    const fetchMock = makePagedFetch([
+      gqlPage([prNode(0)], { hasNextPage: true, endCursor: "cur0" }, 5),
+      gqlPage([], { hasNextPage: true, endCursor: "cur1" }, 5), // empty → break
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchPullRequests("o", "r", "tok", 50);
+    expect(out.nodes).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // fetched the empty page once, then stopped
+  });
+
+  it("never paginates past MAX_PAGES even if the server always claims hasNextPage (no infinite loop)", async () => {
+    // Every page returns a full 100 with hasNextPage:true forever. The MAX_PAGES=10 bound must cap it
+    // at 10 calls / 1000 nodes, not spin. (limit huge so `nodes.length < target` never trips first.)
+    let call = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== GQL) throw new Error(`unexpected fetch: ${url}`);
+      readVars(init); // body is well-formed
+      const base = call * 100;
+      call++;
+      return res(
+        gqlPage(
+          Array.from({ length: 100 }, (_, k) => prNode(base + k)),
+          { hasNextPage: true, endCursor: `cur${call}` },
+          100000,
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchPullRequests("o", "r", "tok", 100000);
+    expect(fetchMock).toHaveBeenCalledTimes(10); // MAX_PAGES
+    expect(out.nodes).toHaveLength(1000); // 10 * 100, hard ceiling
+  });
+
+  it("an EMPTY repo (zero PRs) → totalCount 0 + empty nodes array, no crash", async () => {
+    const fetchMock = makePagedFetch([
+      gqlPage([], { hasNextPage: false, endCursor: null }, 0),
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchPullRequests("o", "r", "tok", 40);
+    expect(out.totalCount).toBe(0);
+    expect(out.nodes).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("data.repository === null (missing/denied repo) → break with empty result, not a throw", async () => {
+    // GraphQL can resolve `data` with `repository:null` (repo not found / not visible to the token).
+    // The function must break cleanly and return an empty result, never dereference null.
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url !== GQL) throw new Error(`unexpected fetch: ${url}`);
+      return res({ data: { repository: null } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchPullRequests("o", "r", "tok", 40);
+    expect(out).toEqual({ totalCount: 0, nodes: [] });
+  });
+
+  it("a NON-2xx mid-pagination (page 2 = 502) PROPAGATES — the scan fails loudly, not on a half-read window", async () => {
+    // Page 1 is a full 100 with more to come; page 2 returns 502. githubGraphql throws on !res.ok, so
+    // the whole fetch rejects rather than silently returning the first 100 as if complete.
+    let call = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url !== GQL) throw new Error(`unexpected fetch: ${url}`);
+      call++;
+      if (call === 1) {
+        return res(
+          gqlPage(Array.from({ length: 100 }, (_, k) => prNode(k)), { hasNextPage: true, endCursor: "cur0" }, 500),
+        );
+      }
+      return res({ message: "Bad Gateway" }, { status: 502 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPullRequests("o", "r", "tok", 250)).rejects.toThrow(/502/);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // it did attempt page 2 before throwing
+  });
+
+  it("a GraphQL transport error with NO data (errors-only body) propagates the joined error message", async () => {
+    // githubGraphql throws when `data` is absent, surfacing the errors[].message — the scan can't score
+    // a window it never received.
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url !== GQL) throw new Error(`unexpected fetch: ${url}`);
+      return res({ errors: [{ message: "Something went wrong" }] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPullRequests("o", "r", "tok", 40)).rejects.toThrow(/Something went wrong/);
+  });
+
+  it("PARTIAL DATA (some PR nodes missing fields) survives summarization — malformed PRs are skipped/defaulted, never a crash", async () => {
+    // GraphQL returns BOTH partial `data` AND `errors` when one node fails to resolve; githubGraphql
+    // keeps the resolved nodes. Those nodes can carry malformed/absent fields. fetchPullRequests passes
+    // them straight through (it doesn't validate), so the resilience contract is at the summarize step:
+    // a missing author, a malformed/missing timestamp, or an empty reviews set must NOT throw — the bad
+    // PR is just defaulted out of the velocity medians / authorship tallies.
+    const malformed: PrNode[] = [
+      prNode(1), // a clean baseline PR
+      // author null (no login/__typename) — must not NPE on author?.login / __typename
+      prNode(2, { author: null }),
+      // garbage timestamps — hoursBetween returns null, so they're dropped from the medians, no NaN
+      prNode(3, { createdAt: "not-a-date", mergedAt: "also-bad" }),
+      // a review with a null submittedAt — the .filter((s): s is string => !!s) drops it
+      prNode(4, { reviews: { totalCount: 1, nodes: [{ state: "COMMENTED", submittedAt: null }] } }),
+    ];
+    const fetchMock = makePagedFetch([
+      gqlPage(malformed, { hasNextPage: false, endCursor: null }, 4),
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchPullRequests("o", "r", "tok", 40);
+    expect(out.nodes).toHaveLength(4); // all 4 passed through unfiltered by the fetcher itself
+
+    // The real resilience assertion: summarizePullRequests over the partial set does not throw and
+    // produces finite, sane stats (no NaN leaking from the bad timestamps; the null-author PR counted).
+    const stats = summarizePullRequests(out.nodes, out.totalCount);
+    expect(stats.analyzed).toBe(4);
+    expect(Number.isNaN(stats.avgReviews)).toBe(false);
+    // medianHoursToMerge is computed only from the PRs with VALID createdAt+mergedAt (PRs 1, 2, 4 here;
+    // PR 3's bad dates are dropped) — a number, never NaN, never throwing.
+    expect(stats.medianHoursToMerge === null || Number.isFinite(stats.medianHoursToMerge)).toBe(true);
+    expect(stats.medianHoursToFirstReview === null || Number.isFinite(stats.medianHoursToFirstReview)).toBe(true);
   });
 });
