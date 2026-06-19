@@ -1,0 +1,318 @@
+// Resilience of the JSON-blob signal aggregators (getOrgPrSignals / getOrgGovernance / getOrgActivity).
+// Each JSON.parse's per-repo blobs persisted by earlier scans and folds them into fleet headline
+// rates under a bare `catch {}`. These tests pin that a malformed/non-JSON/null blob is SKIPPED
+// (never throws, never corrupts the denominator), a partial blob contributes only its present fields
+// with no NaN/undefined leak, a well-formed set aggregates to correct totals, and an all-bad/empty
+// input returns the documented `null` — not a crash.
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { PrStats } from "@/lib/types";
+
+const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
+  mockIsDbConfigured: vi.fn(),
+  mockGetPrisma: vi.fn(),
+}));
+
+vi.mock("@/lib/db/client", () => ({
+  isDbConfigured: mockIsDbConfigured,
+  getPrisma: mockGetPrisma,
+  withRetry: (fn: () => unknown) => fn(),
+}));
+
+import { getOrgPrSignals, getOrgGovernance, getOrgActivity } from "./org-signals";
+
+/**
+ * Fake prisma matching the shape all three aggregators read: organization.findUnique returns the org
+ * row, repository.findMany returns one row per repo whose `scans` array is the take:1 latest scan
+ * carrying the requested blob column (prStats | governance | commitActivity).
+ *
+ * Each entry in `repoBlobs` becomes one repo. `null` models a repo with no scan / no blob (the
+ * `scans[0]?.<col>` falsy branch); a string is the stored raw blob (valid OR deliberately corrupt).
+ * `extra` lets the governance fake also carry fullName/name without bloating the call sites.
+ */
+function fakePrisma(
+  column: "prStats" | "governance" | "commitActivity",
+  repoBlobs: Array<string | null>,
+  opts: { org?: boolean; extra?: (i: number) => Record<string, unknown> } = {},
+) {
+  const orgRow = opts.org === false ? null : { id: "org_1", slug: "acme" };
+  const repos = repoBlobs.map((raw, i) => ({
+    ...(opts.extra ? opts.extra(i) : {}),
+    scans: raw === null ? [] : [{ [column]: raw }],
+  }));
+  return {
+    organization: { findUnique: vi.fn(async () => orgRow) },
+    repository: { findMany: vi.fn(async () => repos) },
+  };
+}
+
+/** A complete, well-formed PrStats blob; override only the fields a test cares about. */
+function prStats(over: Partial<PrStats> = {}): string {
+  const base: PrStats = {
+    analyzed: 10,
+    totalCount: 100,
+    open: 5,
+    merged: 8,
+    closedUnmerged: 2,
+    mergeRate: 80,
+    reviewedRate: 60,
+    avgReviews: 1,
+    avgComments: 2,
+    medianHoursToMerge: 12,
+    medianHoursToFirstReview: 4,
+    avgLineChanges: 150,
+    avgChangedFiles: 5,
+    smallPrRate: 70,
+    botAuthoredRate: 10,
+    aiInvolvedRate: 30,
+    aiGovernedRate: 50,
+    revertRate: 1,
+    draftRate: 5,
+    tools: [{ name: "copilot", count: 3 }],
+  };
+  return JSON.stringify({ ...base, ...over });
+}
+
+function gov(over: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    protected: true,
+    requiresPullRequest: true,
+    requiredApprovals: 1,
+    requiresStatusChecks: true,
+    requiresSignatures: false,
+    ruleCount: 3,
+    readable: true,
+    ...over,
+  });
+}
+
+beforeEach(() => {
+  mockIsDbConfigured.mockReset();
+  mockGetPrisma.mockReset();
+  mockIsDbConfigured.mockReturnValue(true);
+});
+
+// ── getOrgPrSignals ───────────────────────────────────────────────────────────
+
+describe("getOrgPrSignals blob resilience", () => {
+  it("a well-formed set aggregates to correct totals", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, mergeRate: 80, smallPrRate: 70, aiInvolvedRate: 30, medianHoursToMerge: 10 }),
+        prStats({ analyzed: 20, mergeRate: 60, smallPrRate: 50, aiInvolvedRate: 10, medianHoursToMerge: 20 }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res).not.toBeNull();
+    expect(res!.repos).toBe(2);
+    expect(res!.totalPrs).toBe(30); // 10 + 20
+    expect(res!.avgMergeRate).toBe(70); // mean(80,60)
+    expect(res!.avgSmallPrRate).toBe(60); // mean(70,50)
+    expect(res!.avgAiInvolvedRate).toBe(20); // mean(30,10)
+    expect(res!.typicalHoursToMerge).toBe(15); // mean(10,20)
+    // tools summed across repos (both contribute copilot:3)
+    expect(res!.tools).toEqual([{ name: "copilot", count: 6 }]);
+  });
+
+  it("malformed / non-JSON / null blobs are skipped and do NOT corrupt the aggregate", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, mergeRate: 80 }),
+        "{ not json at all",      // malformed → JSON.parse throws → caught
+        "not even close",          // non-JSON garbage
+        null,                       // no scan / no blob
+        prStats({ analyzed: 20, mergeRate: 60 }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // Only the two valid rows count: denominator = 2, not 5.
+    expect(res).not.toBeNull();
+    expect(res!.repos).toBe(2);
+    expect(res!.totalPrs).toBe(30);
+    expect(res!.avgMergeRate).toBe(70); // mean of the GOOD rows only, not skewed by NaN
+    expect(Number.isFinite(res!.avgMergeRate)).toBe(true);
+  });
+
+  it("a zero-PR (analyzed:0) row is excluded from the rate denominators", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 0, mergeRate: 0 }), // filtered out by `analyzed > 0`
+        prStats({ analyzed: 10, mergeRate: 90 }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.repos).toBe(1);
+    expect(res!.totalPrs).toBe(10);
+    expect(res!.avgMergeRate).toBe(90); // the 0% repo must not drag the mean to 45
+  });
+
+  it("partial blobs: null reviewedRate/aiGovernedRate/median contribute nothing, no NaN leaks", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, reviewedRate: 60, aiGovernedRate: 40, medianHoursToMerge: 10 }),
+        prStats({ analyzed: 10, reviewedRate: null, aiGovernedRate: null, medianHoursToMerge: null }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // The null-sampled repo is dropped from those three means (sample-aware), not counted as 0.
+    expect(res!.avgReviewedRate).toBe(60);
+    expect(res!.avgAiGovernedRate).toBe(40);
+    expect(res!.typicalHoursToMerge).toBe(10);
+    expect(Number.isNaN(res!.avgReviewedRate as number)).toBe(false);
+  });
+
+  it("all-invalid / empty input returns null (documented empty shape, not a throw)", async () => {
+    mockGetPrisma.mockReturnValue(fakePrisma("prStats", ["{bad", "also bad", null]));
+    await expect(getOrgPrSignals("acme")).resolves.toBeNull();
+
+    mockGetPrisma.mockReturnValue(fakePrisma("prStats", []));
+    await expect(getOrgPrSignals("acme")).resolves.toBeNull();
+  });
+});
+
+// ── getOrgGovernance ──────────────────────────────────────────────────────────
+
+const govExtra = (i: number) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` });
+
+describe("getOrgGovernance blob resilience", () => {
+  it("a well-formed set aggregates protected/review/checks/signed rates correctly", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "governance",
+        [
+          gov({ protected: true, requiresPullRequest: true, requiresStatusChecks: true, requiresSignatures: true }),
+          gov({ protected: true, requiresPullRequest: true, requiresStatusChecks: false, requiresSignatures: false }),
+          gov({ protected: false, requiresPullRequest: false, requiresStatusChecks: false, requiresSignatures: false }),
+          gov({ protected: true, requiresPullRequest: false, requiresStatusChecks: true, requiresSignatures: false }),
+        ],
+        { extra: govExtra },
+      ),
+    );
+
+    const res = await getOrgGovernance("acme");
+
+    expect(res).not.toBeNull();
+    expect(res!.repos).toBe(4);
+    expect(res!.protectedRate).toBe(75); // 3/4
+    expect(res!.requireReviewRate).toBe(50); // 2/4
+    expect(res!.requireChecksRate).toBe(50); // 2/4
+    expect(res!.signedRate).toBe(25); // 1/4
+    // Risk-first sort: the unprotected repo is surfaced first.
+    expect(res!.perRepo[0].protected).toBe(false);
+  });
+
+  it("malformed blobs AND readable:false repos are excluded from the denominator", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "governance",
+        [
+          gov({ protected: true }),
+          gov({ protected: false, readable: false }), // dropped by `!readable`
+          "}{ corrupt",                                 // dropped by catch
+          null,                                          // no blob
+          gov({ protected: true }),
+        ],
+        { extra: govExtra },
+      ),
+    );
+
+    const res = await getOrgGovernance("acme");
+
+    // Denominator = 2 readable+valid repos. The unreadable repo must NOT count toward protectedRate.
+    expect(res!.repos).toBe(2);
+    expect(res!.protectedRate).toBe(100); // 2/2, not 2/3 (66) — unreadable excluded entirely
+  });
+
+  it("all-invalid / all-unreadable / empty input returns null", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("governance", [gov({ readable: false }), "bad", null], { extra: govExtra }),
+    );
+    await expect(getOrgGovernance("acme")).resolves.toBeNull();
+
+    mockGetPrisma.mockReturnValue(fakePrisma("governance", [], { extra: govExtra }));
+    await expect(getOrgGovernance("acme")).resolves.toBeNull();
+  });
+});
+
+// ── getOrgActivity (element-wise, right-aligned sum) ───────────────────────────
+
+describe("getOrgActivity blob resilience and right-alignment", () => {
+  it("element-wise sums mixed-length series RIGHT-aligned (most-recent week aligns, not week 0)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("commitActivity", [
+        JSON.stringify([1, 2, 3, 4]), // 4-week repo
+        JSON.stringify([10, 20]),     // 2-week repo: pads on the LEFT, aligns at the most-recent weeks
+      ]),
+    );
+
+    const res = await getOrgActivity("acme");
+
+    expect(res).not.toBeNull();
+    expect(res!.weeks).toBe(4);
+    // [1, 2, 3+10, 4+20] — the short series lands on weeks 2&3 (newest), not 0&1.
+    expect(res!.series).toEqual([1, 2, 13, 24]);
+    expect(res!.total).toBe(40);
+    expect(res!.repos).toBe(2);
+  });
+
+  it("malformed / non-array / empty-array / null series are skipped without corrupting the sum", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("commitActivity", [
+        JSON.stringify([1, 2, 3]),
+        "[1, 2, ",          // malformed JSON
+        JSON.stringify({}), // valid JSON but not an array (Array.isArray guard)
+        JSON.stringify([]), // empty array (length guard)
+        null,                // no blob
+        JSON.stringify([4, 5, 6]),
+      ]),
+    );
+
+    const res = await getOrgActivity("acme");
+
+    expect(res!.repos).toBe(2); // only the two good arrays
+    expect(res!.series).toEqual([5, 7, 9]); // [1+4, 2+5, 3+6]
+    expect(res!.total).toBe(21);
+    expect(res!.series.every((n) => Number.isFinite(n))).toBe(true);
+  });
+
+  it("all-invalid / empty input returns null (not a throw, not an empty series)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("commitActivity", ["nope", JSON.stringify({}), JSON.stringify([]), null]),
+    );
+    await expect(getOrgActivity("acme")).resolves.toBeNull();
+
+    mockGetPrisma.mockReturnValue(fakePrisma("commitActivity", []));
+    await expect(getOrgActivity("acme")).resolves.toBeNull();
+  });
+});
+
+// ── shared guards ─────────────────────────────────────────────────────────────
+
+describe("DB-not-configured and missing-org short-circuits", () => {
+  it("all three return null when the DB is not configured (no prisma access)", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    await expect(getOrgPrSignals("acme")).resolves.toBeNull();
+    await expect(getOrgGovernance("acme")).resolves.toBeNull();
+    await expect(getOrgActivity("acme")).resolves.toBeNull();
+    expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+
+  it("all three return null when the org is not found", async () => {
+    mockGetPrisma.mockReturnValue(fakePrisma("prStats", [prStats()], { org: false }));
+    await expect(getOrgPrSignals("acme")).resolves.toBeNull();
+
+    mockGetPrisma.mockReturnValue(fakePrisma("governance", [gov()], { org: false, extra: govExtra }));
+    await expect(getOrgGovernance("acme")).resolves.toBeNull();
+
+    mockGetPrisma.mockReturnValue(fakePrisma("commitActivity", [JSON.stringify([1])], { org: false }));
+    await expect(getOrgActivity("acme")).resolves.toBeNull();
+  });
+});
