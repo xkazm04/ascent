@@ -604,3 +604,169 @@ describe("onboarding skill — frontmatter-injection + code-fence escaping invar
     }
   });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// maintain.mjs `note` subcommand is the WRITE path of the "append-only memory" ledger the whole
+// standard sells: it parses the existing `NNNN-*.md` filenames, takes `max(...)+1`, zero-pads to 4,
+// and slugifies the text. A regression in the id math (off-by-one; a non-`NNNN` file like README.md
+// leaking into the id set; a NaN slipping past the filter) yields a DUPLICATE or `NaN` id that
+// silently overwrites a prior memory entry — exactly the knowledge the store exists to preserve. The
+// slug edge (all-punctuation text -> empty -> must fall back to 'note') is equally unguarded.
+//
+// The existing maintain test ("emits a zero-dep script ...") only checks SUBSTRING PRESENCE of the
+// emitted source. The id/slug logic is pure and trivially testable but never EXERCISED. So — mirroring
+// the doctor round-trip block above — we extract the SHIPPED expressions verbatim from
+// `buildMaintain().body` (not a hand copy) and run them, pinning the monotonic-id + slug invariants.
+//
+// `note` derives, in order (maintain.ts:56-58):
+//   ids  = readdirSync(MEM).map(f => parseInt((f.match(/^(\d{4})-/) || [])[1], 10)).filter(n => !isNaN(n))
+//   next = String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')
+//   slug = text.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40) || 'note'
+// We rebuild `nextId(files)` and `slugOf(text)` from those exact fragments so a tweak to either the
+// `^(\d{4})-` filename regex, the `max+1` math, the pad width, or the slug pipeline breaks LOUDLY.
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * Pull the two pure derivations out of the EMITTED maintain source and compile them with `new
+ * Function`, so the test exercises the regexes/math that actually ship — identical strategy to
+ * `loadDoctorParsers` above. `buildMaintain().body` is the already-unescaped runtime string, so the
+ * source's `\\d{4}` literal is the real `\d{4}` here. We assert each fragment is present (a refactor
+ * that moves the logic out of these expressions would null this extraction, failing loudly) and then
+ * wrap them: `nextId(files)` over an array of filenames, `slugOf(text)` over a title.
+ */
+function loadMaintainNoteLogic(): {
+  nextId: (files: string[]) => string;
+  slugOf: (text: string) => string;
+} {
+  const body = buildMaintain().body;
+
+  // The id derivation: the `.map(...).filter(...)` over a filename list, then the `max+1`/pad string.
+  const idMapFilter = "files.map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n))";
+  const idNext = "String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')";
+  // The slug pipeline, verbatim from the source (the only difference from maintain.ts is `text` is our
+  // parameter rather than the CLI-derived local — the transform chain is byte-identical).
+  const slugExpr = "text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'note'";
+
+  // Sanity: the SHIPPED source still contains these exact fragments. If a refactor renames/reshapes
+  // them, this extraction is stale and the test must fail rather than silently testing a stand-in.
+  expect(body).toContain(".map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n))");
+  expect(body).toContain("String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')");
+  expect(body).toContain("text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'note'");
+
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const factory = new Function(
+    "return {\n" +
+      "  nextId: (files) => { const ids = " + idMapFilter + "; return " + idNext + "; },\n" +
+      "  slugOf: (text) => " + slugExpr + ",\n" +
+      "};",
+  );
+  return factory();
+}
+
+describe("maintain — memory-entry numbering + slug invariants (append-only ledger)", () => {
+  const { nextId, slugOf } = loadMaintainNoteLogic();
+
+  // --- numbering: monotonic, zero-padded, collision-free against the existing ledger ---------------
+
+  it("ignores non-NNNN files (README.md) and takes max+1, not count+1", () => {
+    // README.md must NOT enter the id set (it has no NNNN- prefix); max(1,7)+1 = 8, NOT count(3).
+    expect(nextId(["0001-a.md", "0007-b.md", "README.md"])).toBe("0008");
+  });
+
+  it("an empty memory dir starts the ledger at 0001", () => {
+    expect(nextId([])).toBe("0001");
+    // A dir with ONLY non-NNNN files is equivalent to empty for id purposes.
+    expect(nextId(["README.md", "notes.txt", "CONTEXT.md"])).toBe("0001");
+  });
+
+  it("the next id is strictly the running MAX + 1 (order-independent, not last-seen)", () => {
+    // Out-of-order and with a gap: max is 0042, so next is 0043 regardless of array order.
+    expect(nextId(["0042-z.md", "0003-a.md", "0011-m.md"])).toBe("0043");
+    expect(nextId(["0011-m.md", "0042-z.md", "0003-a.md"])).toBe("0043");
+  });
+
+  it("the derived id NEVER collides with an existing id (monotonic strictly above the max)", () => {
+    // The core append-only invariant: across a batch of growing ledgers, each next id is numerically
+    // greater than every id already present, so it can never overwrite a prior entry's file.
+    const files: string[] = [];
+    let maxSoFar = 0;
+    for (let i = 0; i < 25; i++) {
+      const id = nextId(files);
+      const n = parseInt(id, 10);
+      expect(id).toMatch(/^\d{4}$/); // always 4-digit, zero-padded
+      expect(n).toBe(maxSoFar + 1); // strictly one above the prior max — no duplicate, no NaN, no skip
+      // Append the freshly-numbered entry and re-derive: the ledger grows monotonically.
+      files.push(id + "-entry-" + i + ".md");
+      maxSoFar = n;
+    }
+    // The id set is collision-free: 25 derived ids, all distinct.
+    const ids = files.map((f) => f.slice(0, 4));
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("a malformed 3-digit or 5-digit prefix does not match ^(\\d{4})- and is ignored", () => {
+    // Only EXACTLY-4-digit prefixes count; `999-` (3) and `00001-` (5) must not pollute the max.
+    expect(nextId(["0005-real.md", "999-short.md", "00001-long.md"])).toBe("0006");
+    // If NONE are valid 4-digit, fall back to 0001 (no NaN id from an unparsable prefix).
+    expect(nextId(["999-short.md", "abc-nope.md"])).toBe("0001");
+  });
+
+  it("zero-pads past four digits without truncating large ledgers", () => {
+    // padStart(4) only pads; a 4+ digit number is emitted in full (never silently clipped to 4 chars).
+    expect(nextId(["9999-x.md"])).toBe("10000");
+  });
+
+  // --- slug: deterministic, kebab, bounded, with a guaranteed non-empty fallback -------------------
+
+  it("derives a deterministic kebab slug from the title (lowercased, [^a-z0-9]+ -> single -)", () => {
+    expect(slugOf("Adopt the AI Standard")).toBe("adopt-the-ai-standard");
+    // Runs of punctuation/space collapse to a SINGLE hyphen; same input -> same output (deterministic).
+    expect(slugOf("Use   pg_bouncer!! (prod)")).toBe("use-pg-bouncer-prod");
+    expect(slugOf("Use   pg_bouncer!! (prod)")).toBe(slugOf("Use   pg_bouncer!! (prod)"));
+  });
+
+  it("an all-punctuation title collapses to empty and falls back to 'note' (never an empty slug)", () => {
+    expect(slugOf("!!! @@@")).toBe("note");
+    expect(slugOf("   ")).toBe("note");
+    expect(slugOf("")).toBe("note");
+    // The fallback guarantees the filename is always `NNNN-<non-empty>.md`, never `NNNN-.md`.
+    expect(slugOf("---")).toBe("note");
+  });
+
+  it("a long title is bounded to <=40 chars with no LEADING hyphen", () => {
+    // The shipped pipeline trims `^-|-$` BEFORE `.slice(0, 40)`, so the cap is the binding bound: a
+    // 40-char-plus title is clamped to exactly 40 chars and never starts with a hyphen (the title is
+    // lowercased word-content here). We pin the real, deterministic output of trim-then-slice.
+    const slug = slugOf("Adopt the new standard and then write a much longer tail beyond the cap");
+    expect(slug.length).toBe(40);
+    expect(slug.startsWith("-")).toBe(false);
+    expect(slug).toBe("adopt-the-new-standard-and-then-write-a-"); // exact, deterministic clamp
+  });
+
+  it("documents the trim-then-slice ordering: the 40-char slice CAN re-expose a boundary hyphen", () => {
+    // Faithful-behavior pin (NOT an idealization): because `.replace(/^-|-$/g,'')` runs BEFORE
+    // `.slice(0,40)`, a title whose char at index 40 is a separator leaves a trailing '-' after the
+    // cut. This is a real (benign) property of the SHIPPED slug logic; if a refactor reorders the
+    // pipeline to slice-then-trim, this assertion flips and flags the behavior change loudly.
+    // 39 'a' then a separator: trimmed slug is "aaa...(39)-tail"; the separator lands at index 39, so
+    // `.slice(0,40)` keeps the first 39 'a' PLUS that hyphen — a trailing '-' the pre-slice trim can't
+    // remove (it already ran). The 41st+ chars ("tail") are dropped.
+    const slug = slugOf("a".repeat(39) + " tail");
+    expect(slug.length).toBe(40);
+    expect(slug).toBe("a".repeat(39) + "-");
+    expect(slug.endsWith("-")).toBe(true); // documented, not desired — guards against silent reorder
+  });
+
+  it("a slug is collision-free with the id: distinct titles map to distinct filenames under one id", () => {
+    // Two entries appended at the SAME ledger size get DIFFERENT ids (numbering is monotonic), so even
+    // identical slugs can't collide on the full `NNNN-slug.md` filename. Pin the joint invariant.
+    const files: string[] = [];
+    const id1 = nextId(files);
+    files.push(id1 + "-" + slugOf("same title") + ".md");
+    const id2 = nextId(files);
+    files.push(id2 + "-" + slugOf("same title") + ".md"); // identical slug, different id
+    expect(id1).not.toBe(id2);
+    expect(files[0]).not.toBe(files[1]); // the full filenames differ -> no overwrite
+    expect(new Set(files).size).toBe(files.length);
+  });
+});
