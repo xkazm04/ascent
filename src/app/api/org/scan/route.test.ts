@@ -36,12 +36,14 @@ vi.mock("@/lib/entitlement", () => ({
 import { POST } from "./route";
 import { scanRepository } from "@/lib/scan";
 import { consumeScanCredit, grantCredits, listWatchedRepos, persistScanReport } from "@/lib/db";
+import { checkScanEntitlement } from "@/lib/entitlement";
 
 const mockScan = vi.mocked(scanRepository);
 const mockConsume = vi.mocked(consumeScanCredit);
 const mockGrant = vi.mocked(grantCredits);
 const mockList = vi.mocked(listWatchedRepos);
 const mockPersist = vi.mocked(persistScanReport);
+const mockEntitlement = vi.mocked(checkScanEntitlement);
 
 const report = (provider: string) =>
   ({
@@ -66,7 +68,7 @@ async function runBulkScan() {
       body: JSON.stringify({ org: "acme" }),
     }),
   );
-  await res.text(); // drain the SSE stream so the scan work runs to completion
+  return res.text(); // drain the SSE stream so the scan work runs to completion; return body for assertions
 }
 
 beforeEach(() => {
@@ -101,5 +103,48 @@ describe("POST /api/org/scan — dedupe/degrade refund policy", () => {
     await runBulkScan();
     expect(mockConsume).toHaveBeenCalledTimes(1);
     expect(mockGrant).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/org/scan — never-scans-for-free + out-of-credits surfacing", () => {
+  // INVARIANT (never-free): a watched repo is scanned IFF a credit was actually reserved. If the
+  // per-repo atomic reservation comes back ok:false mid-pool (balance exhausted by a concurrent
+  // batch between the up-front check and this debit), the route must SKIP the repo — never run real
+  // LLM inference with no credit reserved (a free scan). Regressing this leaks money on every batch.
+  it("does NOT scan a repo whose mid-pool credit reservation was lost (never scans for free)", async () => {
+    // Up-front entitlement allows the batch (balance covers the single repo) so we reach the pool,
+    // but the authoritative per-repo debit loses the race and returns ok:false.
+    mockEntitlement.mockResolvedValueOnce({ allowed: true, unlimited: false, balance: 5 });
+    mockConsume.mockResolvedValueOnce({ ok: false, balance: 0, unlimited: false });
+
+    const body = await runBulkScan();
+
+    // The money-protecting gate: scanRepository is the real-inference call. If a credit could not be
+    // reserved, it must not run at all — and nothing billable can follow it.
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockPersist).not.toHaveBeenCalled();
+    // No reserved credit means nothing to refund — a refund here would mask a missing debit.
+    expect(mockGrant).not.toHaveBeenCalled();
+    // The skip is surfaced to the client, not silently dropped.
+    expect(body).toContain('"skipped":"insufficient_credits"');
+  });
+
+  it("surfaces an out-of-credits error (not a silent 0/0 success) when the balance slices the scan list to empty", async () => {
+    // Non-empty watchlist (2 repos) but the up-front prepaid balance is 0 → scanList sliced to empty.
+    mockList.mockResolvedValueOnce([
+      { fullName: "acme/repo-a", lastScanAt: null },
+      { fullName: "acme/repo-b", lastScanAt: null },
+    ] as unknown as Awaited<ReturnType<typeof listWatchedRepos>>);
+    mockEntitlement.mockResolvedValueOnce({ allowed: true, unlimited: false, balance: 0 });
+
+    const body = await runBulkScan();
+
+    // The customer sees a clear out-of-credits surface, not a misleading success-looking empty result.
+    expect(body).toContain("event: error");
+    expect(body).toContain("Out of scan credits");
+    // No repo was scanned and no credit was touched — nothing scored, nothing reserved.
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(body).not.toContain('"overall"'); // no per-repo scored events leaked
   });
 });
