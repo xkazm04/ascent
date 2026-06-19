@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   buildSegmentComparison,
   compareSegments,
+  getRepoSegmentMap,
   normalizeColor,
   normalizeSegmentName,
   setRepoSegment,
@@ -600,5 +601,160 @@ describe("summarizeSegment scope — the segment rollup must filter to the segme
     // Platform is intact, so the comparison is a real gap (87 vs 0), not theater.
     expect(cmp!.a.avgOverall).toBe(87);
     expect(cmp!.deltas.overall).toBe(87);
+  });
+});
+
+// ── getRepoSegmentMap inversion + sorted, deduped output (MEDIUM #5) ───────────────────────────────
+//
+// getRepoSegmentMap reads flat repoSegment rows (segment→repo membership) and INVERTS them into a
+// fullName → segments[] map consumed two ways that both trust its exact shape: the repositories page
+// builds the per-repo tagging chips from it, and the segments page RE-inverts it into reposBySegment.
+// The contract pinned here: (a) the query is org-scoped via where.segment.orgId; (b) a repo in N
+// segments lists all N (the inversion); (c) each repo's list is SORTED by segment name via
+// localeCompare; (d) a repo never appears twice for the SAME segment (dedup of a repeated row); (e)
+// two repos sharing a segment each carry that segment; (f) a repo in zero segments is ABSENT (no
+// empty array); (g) empty rows → empty map; (h) an unknown/unconfigured org → empty map, no query.
+// A regression — dropping the sort, an overwrite instead of push, or losing the orgId filter —
+// scrambles the chip order or the inverted action targets and these go red.
+
+/**
+ * A minimal fakePrisma for getRepoSegmentMap: `organization.findUnique` resolves a slug → id (via
+ * resolveOrgId), and `repoSegment.findMany` returns the supplied flat rows, capturing the `where` so
+ * we can assert the org scope. Rows are the real selected shape: { repo:{fullName}, segment:{id,name,color} }.
+ */
+function mapPrisma(opts: {
+  orgSlug: string;
+  orgId: string;
+  rows: { repo: { fullName: string }; segment: { id: string; name: string; color: string } }[];
+}) {
+  const findManyCalls: Array<{ where: { segment: { orgId: string } } }> = [];
+  const prisma = {
+    organization: {
+      findUnique: vi.fn(async ({ where }: { where: { slug: string } }) =>
+        where.slug === opts.orgSlug ? { id: opts.orgId } : null,
+      ),
+    },
+    repoSegment: {
+      findMany: vi.fn(async ({ where }: { where: { segment: { orgId: string } } }) => {
+        findManyCalls.push({ where });
+        // Mirror the real per-tenant filter: only the owning org sees its rows.
+        return where.segment.orgId === opts.orgId ? opts.rows : [];
+      }),
+    },
+  };
+  return { prisma, findManyCalls };
+}
+
+const seg = (id: string, name: string, color = "#ffffff") => ({ id, name, color });
+const row = (fullName: string, s: { id: string; name: string; color: string }) => ({
+  repo: { fullName },
+  segment: s,
+});
+
+describe("getRepoSegmentMap — inverts segment→repo rows into a sorted, deduped repo→segments map", () => {
+  it("scopes the row query to the resolved orgId via where.segment.orgId", async () => {
+    const mp = mapPrisma({
+      orgSlug: "acme",
+      orgId: "org_acme",
+      rows: [row("acme/one", seg("p", "Platform"))],
+    });
+    mockGetPrisma.mockReturnValue(mp.prisma);
+
+    await getRepoSegmentMap("acme");
+
+    // The load-bearing tenant filter: the inversion only ever sees this org's membership rows.
+    expect(mp.findManyCalls).toHaveLength(1);
+    expect(mp.findManyCalls[0]!.where).toMatchObject({ segment: { orgId: "org_acme" } });
+  });
+
+  it("a repo tagged into TWO segments lists both, sorted by segment name (localeCompare)", async () => {
+    // Rows arrive in a non-sorted order ("Platform" before "Legacy") to prove the sort, not insertion order.
+    const mp = mapPrisma({
+      orgSlug: "acme",
+      orgId: "org_acme",
+      rows: [
+        row("acme/one", seg("p", "Platform")),
+        row("acme/one", seg("l", "Legacy")),
+      ],
+    });
+    mockGetPrisma.mockReturnValue(mp.prisma);
+
+    const map = await getRepoSegmentMap("acme");
+
+    expect(Object.keys(map)).toEqual(["acme/one"]);
+    // Inversion: the repo carries BOTH of its segments…
+    expect(map["acme/one"]!.map((s) => s.id).sort()).toEqual(["l", "p"]);
+    // …and the per-repo list is name-SORTED ("Legacy" < "Platform"), regardless of row order.
+    expect(map["acme/one"]!.map((s) => s.name)).toEqual(["Legacy", "Platform"]);
+    // Each entry keeps its full { id, name, color } shape the chips depend on.
+    expect(map["acme/one"]![0]).toEqual({ id: "l", name: "Legacy", color: "#ffffff" });
+  });
+
+  it("two repos sharing a segment each carry that segment (the inversion fans out per repo)", async () => {
+    const platform = seg("p", "Platform");
+    const mp = mapPrisma({
+      orgSlug: "acme",
+      orgId: "org_acme",
+      rows: [row("acme/one", platform), row("acme/two", platform)],
+    });
+    mockGetPrisma.mockReturnValue(mp.prisma);
+
+    const map = await getRepoSegmentMap("acme");
+
+    expect(Object.keys(map).sort()).toEqual(["acme/one", "acme/two"]);
+    expect(map["acme/one"]!.map((s) => s.id)).toEqual(["p"]);
+    expect(map["acme/two"]!.map((s) => s.id)).toEqual(["p"]);
+  });
+
+  it("lists each of a repo's segments exactly once — distinct memberships are not conflated", async () => {
+    // The findMany rows are one-per-(segment,repo) — the DB's unique (segmentId, repoId) constraint
+    // guarantees a repo can't have two rows for the SAME segment. So a repo in three DISTINCT segments
+    // yields three entries with no duplicate segment id: the inversion preserves that 1:1 faithfully.
+    const mp = mapPrisma({
+      orgSlug: "acme",
+      orgId: "org_acme",
+      rows: [
+        row("acme/one", seg("p", "Platform")),
+        row("acme/one", seg("l", "Legacy")),
+        row("acme/one", seg("m", "Mobile")),
+      ],
+    });
+    mockGetPrisma.mockReturnValue(mp.prisma);
+
+    const map = await getRepoSegmentMap("acme");
+
+    const ids = map["acme/one"]!.map((s) => s.id);
+    expect(ids).toEqual(["l", "m", "p"]); // all three, sorted by name, none repeated
+    expect(new Set(ids).size).toBe(ids.length); // no segment listed twice for this repo
+  });
+
+  it("a repo in NO segment is absent from the map (no empty-array surprise for consumers)", async () => {
+    // acme/two is never tagged, so it simply never appears as a key.
+    const mp = mapPrisma({
+      orgSlug: "acme",
+      orgId: "org_acme",
+      rows: [row("acme/one", seg("p", "Platform"))],
+    });
+    mockGetPrisma.mockReturnValue(mp.prisma);
+
+    const map = await getRepoSegmentMap("acme");
+
+    expect(map).toHaveProperty("acme/one");
+    expect(map).not.toHaveProperty("acme/two"); // absent, NOT map["acme/two"] === []
+  });
+
+  it("empty membership rows → empty map", async () => {
+    const mp = mapPrisma({ orgSlug: "acme", orgId: "org_acme", rows: [] });
+    mockGetPrisma.mockReturnValue(mp.prisma);
+
+    expect(await getRepoSegmentMap("acme")).toEqual({});
+  });
+
+  it("an unknown org slug → empty map, and the membership rows are never queried", async () => {
+    const mp = mapPrisma({ orgSlug: "acme", orgId: "org_acme", rows: [row("acme/one", seg("p", "Platform"))] });
+    mockGetPrisma.mockReturnValue(mp.prisma);
+
+    expect(await getRepoSegmentMap("ghost")).toEqual({}); // resolveOrgId → null short-circuits
+    expect(mp.findManyCalls).toHaveLength(0);
   });
 });
