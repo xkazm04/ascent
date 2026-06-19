@@ -1,9 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   LEVEL_HEX,
   LEVEL_GLYPH,
   scoreHex,
   scoreGlyph,
+  freshness,
+  timeAgo,
 } from "@/lib/ui";
 import { levelForScore, LEVELS } from "@/lib/maturity/model";
 import { LEVEL_BANDS, BAND_EDGES } from "@/components/report/chartScale";
@@ -154,5 +156,143 @@ describe("chart-band ramp (LEVEL_BANDS / BAND_EDGES) equals the rubric (LEVELS) 
       expect(levelForScore(e).band[0]).toBe(e);
       expect(scoreHex(e)).not.toBe(scoreHex(e - 1));
     }
+  });
+});
+
+// -----------------------------------------------------------------------------
+// freshness / timeAgo — relative time formatting (finding score-charts-visuals #4)
+// -----------------------------------------------------------------------------
+// freshness powers the report's live "scanned 4m ago — re-test" ticker; timeAgo powers repo
+// pushedAt. Both are pure date math against Date.now(), so we drive the clock deterministically
+// with vi.setSystemTime — NEVER wall-clock. The invariants under test:
+//   * each bucket formats at the right threshold (just now / Nm / Nh -> day buckets),
+//   * a future/clock-skewed timestamp never renders a negative delta (clamped to "just now"/"today"),
+//   * null / undefined / garbage input degrades to "unknown" — never NaN / "Invalid Date".
+
+// A fixed, DST-neutral instant used as "now" for every case below. All inputs are derived as
+// `NOW - offset` so the assertions are independent of the real clock.
+const NOW = new Date("2026-06-15T12:00:00.000Z").getTime();
+const SEC = 1000;
+const MIN = 60 * SEC;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
+/** ISO string for an instant `ms` before the pinned NOW (negative ms => future). */
+const ago = (ms: number) => new Date(NOW - ms).toISOString();
+
+describe("freshness — second/minute/hour buckets at their thresholds", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('< 45s reads "just now" (incl. exact now and 44s)', () => {
+    expect(freshness(ago(0))).toBe("just now");
+    expect(freshness(ago(30 * SEC))).toBe("just now");
+    expect(freshness(ago(44 * SEC))).toBe("just now");
+  });
+
+  it('the 45s seam crosses out of "just now" into minutes', () => {
+    // secs=44 -> "just now"; secs=45 -> mins=round(45/60)=1 -> "1m ago".
+    expect(freshness(ago(44 * SEC))).toBe("just now");
+    expect(freshness(ago(45 * SEC))).toBe("1m ago");
+  });
+
+  it("formats whole minutes (rounded) below 60m", () => {
+    expect(freshness(ago(5 * MIN))).toBe("5m ago");
+    expect(freshness(ago(59 * MIN))).toBe("59m ago");
+    // round(): 59m30s = 3570s -> round(59.5)=60 -> hours=round(60/60)=1 -> "1h ago".
+    expect(freshness(ago(59 * MIN + 30 * SEC))).toBe("1h ago");
+  });
+
+  it("formats whole hours (rounded) below 24h", () => {
+    expect(freshness(ago(2 * HOUR))).toBe("2h ago");
+    expect(freshness(ago(3 * HOUR))).toBe("3h ago");
+    expect(freshness(ago(23 * HOUR))).toBe("23h ago");
+  });
+
+  it("at/after 24h it falls through to timeAgo's day buckets", () => {
+    // hours=round(24)=24 is NOT < 24, so freshness defers to timeAgo (days=1 -> "yesterday").
+    expect(freshness(ago(24 * HOUR))).toBe("yesterday");
+    expect(freshness(ago(3 * DAY))).toBe("3d ago");
+  });
+});
+
+describe("freshness — future / invalid / null inputs are safe (never negative, never NaN)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a future timestamp (clock skew) clamps to "just now", never "-3m ago"', () => {
+    expect(freshness(ago(-3 * MIN))).toBe("just now"); // 3 min in the FUTURE
+    expect(freshness(ago(-10 * HOUR))).toBe("just now");
+    expect(freshness(ago(-3 * MIN))).not.toMatch(/-/);
+  });
+
+  it('undefined / empty / garbage iso -> "unknown" (no Invalid Date)', () => {
+    expect(freshness(undefined)).toBe("unknown");
+    expect(freshness("")).toBe("unknown");
+    expect(freshness("garbage")).toBe("unknown");
+    expect(freshness("not-a-date")).toBe("unknown");
+  });
+
+  it("never emits NaN or 'Invalid Date' for any of a spread of inputs", () => {
+    const inputs = [ago(0), ago(45 * SEC), ago(2 * HOUR), ago(5 * DAY), ago(-1 * HOUR), "x", ""];
+    for (const i of inputs) {
+      const out = freshness(i as string);
+      expect(out).not.toContain("NaN");
+      expect(out).not.toContain("Invalid");
+    }
+  });
+});
+
+describe("timeAgo — day/month/year buckets at their band edges", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('today / yesterday boundaries (days <= 0 -> "today", days === 1 -> "yesterday")', () => {
+    expect(timeAgo(ago(0))).toBe("today");
+    expect(timeAgo(ago(12 * HOUR))).toBe("today"); // floor(0.5)=0
+    expect(timeAgo(ago(1 * DAY))).toBe("yesterday");
+    expect(timeAgo(ago(1 * DAY + 12 * HOUR))).toBe("yesterday"); // floor(1.5)=1
+  });
+
+  it('days in [2,29] read "Nd ago"', () => {
+    expect(timeAgo(ago(2 * DAY))).toBe("2d ago");
+    expect(timeAgo(ago(29 * DAY))).toBe("29d ago");
+  });
+
+  it('the 30-day seam crosses into months', () => {
+    expect(timeAgo(ago(29 * DAY))).toBe("29d ago");
+    expect(timeAgo(ago(30 * DAY))).toBe("1mo ago"); // floor(30/30)=1
+    expect(timeAgo(ago(364 * DAY))).toBe("12mo ago"); // floor(364/30)=12
+  });
+
+  it('the 365-day seam crosses into years', () => {
+    expect(timeAgo(ago(364 * DAY))).toBe("12mo ago");
+    expect(timeAgo(ago(365 * DAY))).toBe("1y ago"); // floor(365/365)=1
+    expect(timeAgo(ago(800 * DAY))).toBe("2y ago"); // floor(800/365)=2
+  });
+
+  it('a future timestamp reads "today" (days <= 0), never negative', () => {
+    expect(timeAgo(ago(-5 * DAY))).toBe("today");
+    expect(timeAgo(ago(-5 * DAY))).not.toMatch(/-/);
+  });
+
+  it('undefined / garbage iso -> "unknown" (NaN-safe)', () => {
+    expect(timeAgo(undefined)).toBe("unknown");
+    expect(timeAgo("")).toBe("unknown");
+    expect(timeAgo("garbage")).toBe("unknown");
   });
 });
