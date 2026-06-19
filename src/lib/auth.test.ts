@@ -30,6 +30,9 @@ import {
   getSessionState,
   readableOrgForOwner,
   isSameOrigin,
+  getActiveOrg,
+  orgOptionsForSession,
+  PUBLIC_ORG,
   type Session,
   type UserInstallation,
 } from "./auth";
@@ -630,5 +633,116 @@ describe("decodeSession — HMAC forgery rejection (trust boundary, not just rou
     const payload = realToken.slice(0, realToken.lastIndexOf("."));
     expect(decodeSession(`${payload}.deadbeef`)).toBeNull(); // short, wrong-length sig
     expect(decodeSession(`${payload}.`)).toBeNull(); // empty sig
+  });
+});
+
+describe("orgOptionsForSession — switchable org contexts", () => {
+  it("returns just 'public' for a null session (no installations)", () => {
+    expect(orgOptionsForSession(null)).toEqual([PUBLIC_ORG]);
+  });
+
+  it("offers each installation by login, with 'public' always appended LAST", () => {
+    const session = activeSession({
+      installations: [
+        { id: 1, login: "Acme" },
+        { id: 2, login: "Beta" },
+      ],
+    });
+    const options = orgOptionsForSession(session);
+    expect(options).toEqual(["Acme", "Beta", PUBLIC_ORG]);
+    expect(options[options.length - 1]).toBe(PUBLIC_ORG); // public is always last
+  });
+
+  it("de-dupes installations case-insensitively while PRESERVING the original (first) casing", () => {
+    // Two installs that differ only in case collapse to one entry — keeping the first casing seen,
+    // not the lowercased slug — so the switcher labels match the connect/org-dashboard flows.
+    const session = activeSession({
+      installations: [
+        { id: 1, login: "Acme" },
+        { id: 2, login: "acme" }, // case-only duplicate of the above
+        { id: 3, login: "Beta" },
+      ],
+    });
+    expect(orgOptionsForSession(session)).toEqual(["Acme", "Beta", PUBLIC_ORG]);
+  });
+
+  it("does not duplicate 'public' when an installation is literally named 'public'", () => {
+    const session = activeSession({ installations: [{ id: 1, login: PUBLIC_ORG }] });
+    const options = orgOptionsForSession(session);
+    expect(options).toEqual([PUBLIC_ORG]); // appears exactly once
+    expect(options.filter((o) => o === PUBLIC_ORG)).toHaveLength(1);
+  });
+});
+
+describe("getActiveOrg — tampered ACTIVE_ORG cookie can't widen access", () => {
+  /** Seed BOTH the session cookie and the ascent_active_org cookie into the mocked store. The
+   *  default fakeCookieStore only serves the session cookie, so this local double additionally
+   *  answers get('ascent_active_org') — the value an attacker would hand-set. */
+  function seedSessionAndActiveOrgCookie(session: Session | null, activeOrgCookie?: string) {
+    const raw = session ? encodeSession(session) : undefined;
+    const store = {
+      get: vi.fn((name: string) => {
+        if (name === "ascent_session") return raw !== undefined ? { value: raw } : undefined;
+        if (name === "ascent_active_org") return activeOrgCookie !== undefined ? { value: activeOrgCookie } : undefined;
+        return undefined;
+      }),
+      set: vi.fn(),
+    };
+    mockCookies.mockResolvedValue(store);
+    return store;
+  }
+
+  it("HONORS a cookie that names a real member org, returning its canonical casing (case-insensitive match)", async () => {
+    // Cookie is lowercase "acme"; the member installation login is "Acme". The match is
+    // case-insensitive but the CANONICAL option ("Acme") is returned, not the raw cookie value.
+    const session = activeSession({ installations: [{ id: 1, login: "Acme" }] });
+    seedSessionAndActiveOrgCookie(session, "acme");
+    await expect(getActiveOrg(session)).resolves.toBe("Acme");
+  });
+
+  it("REJECTS a tampered cookie naming a NON-member org — falls back to a member org, never the forged value", async () => {
+    // The load-bearing invariant: a hand-set/forged cookie for an org the session does NOT belong to
+    // must NOT be trusted. getActiveOrg falls back to the first real installation, never "evil-corp".
+    const session = activeSession({ installations: [{ id: 1, login: "Acme" }] });
+    seedSessionAndActiveOrgCookie(session, "evil-corp"); // viewer is NOT a member of evil-corp
+    const active = await getActiveOrg(session);
+    expect(active).toBe("Acme"); // fell back to the real member org
+    expect(active).not.toBe("evil-corp"); // the forged cookie was REJECTED, not honored
+  });
+
+  it("never trusts a tampered cookie to grant a non-member org even with NO installations (→ public)", async () => {
+    // A member-less session whose cookie forges "private-tenant": result is "public", never the
+    // tampered value — the cookie cannot conjure access to an org the session can't see.
+    const session = activeSession({ installations: [] });
+    seedSessionAndActiveOrgCookie(session, "private-tenant");
+    const active = await getActiveOrg(session);
+    expect(active).toBe(PUBLIC_ORG);
+    expect(active).not.toBe("private-tenant");
+  });
+
+  it("returns 'public' for a null session regardless of the cookie value", async () => {
+    // No session at all: even a syntactically-valid cookie can't select an org.
+    seedSessionAndActiveOrgCookie(null, "acme");
+    await expect(getActiveOrg(null)).resolves.toBe(PUBLIC_ORG);
+  });
+
+  it("falls back to the first installation when NO active-org cookie is set", async () => {
+    const session = activeSession({
+      installations: [
+        { id: 1, login: "Acme" },
+        { id: 2, login: "Beta" },
+      ],
+    });
+    seedSessionAndActiveOrgCookie(session, undefined); // no ascent_active_org cookie
+    await expect(getActiveOrg(session)).resolves.toBe("Acme");
+  });
+
+  it("getActiveOrg's result is ALWAYS an element of orgOptionsForSession(session) — even for a tampered cookie", async () => {
+    // The cross-cutting invariant from the finding: whatever getActiveOrg returns must be a real
+    // selectable option, so a tampered cookie can never mis-scope the workspace to an arbitrary org.
+    const session = activeSession({ installations: [{ id: 1, login: "Acme" }] });
+    seedSessionAndActiveOrgCookie(session, "totally-made-up-org");
+    const active = await getActiveOrg(session);
+    expect(orgOptionsForSession(session)).toContain(active);
   });
 });
