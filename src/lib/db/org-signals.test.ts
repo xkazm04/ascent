@@ -178,6 +178,107 @@ describe("getOrgPrSignals blob resilience", () => {
   });
 });
 
+// ── getOrgPrSignals: null-vs-zero "no sample" semantics ───────────────────────
+//
+// The dashboard must distinguish "we have NO data for this metric" (render a dash) from
+// "we measured a genuine zero" (render 0%). The sample-aware means (reviewedRate,
+// aiGovernedRate, medianHoursToMerge) collapse to `null` when no repo carries that field,
+// but stay numeric — including a real `0` — when at least one sample exists. The always-
+// present rates (mergeRate / smallPrRate / aiInvolvedRate) must report a measured all-zero
+// fleet as `0`, never `null`. These tests pin that the UI can say "no data" vs "0%" honestly.
+
+describe("getOrgPrSignals null-vs-zero (no-sample) semantics", () => {
+  it('NO sample for a metric → null (not 0): every repo has null reviewed/governed/median', async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, reviewedRate: null, aiGovernedRate: null, medianHoursToMerge: null }),
+        prStats({ analyzed: 20, reviewedRate: null, aiGovernedRate: null, medianHoursToMerge: null }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res).not.toBeNull();
+    expect(res!.repos).toBe(2); // the repos themselves still count for present fields
+    // No sample anywhere → "no data" dash, encoded as null, NOT a fabricated 0.
+    expect(res!.avgReviewedRate).toBeNull();
+    expect(res!.avgAiGovernedRate).toBeNull();
+    expect(res!.typicalHoursToMerge).toBeNull();
+    expect(res!.avgReviewedRate).not.toBe(0); // the regression we guard against
+  });
+
+  it('a genuine measured 0 → 0 (not null): every repo measured exactly 0', async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({
+          analyzed: 10,
+          reviewedRate: 0, // measured: nothing was reviewed
+          aiGovernedRate: 0, // measured: nothing was AI-governed
+          medianHoursToMerge: 0, // measured: merged instantly
+          mergeRate: 0,
+          smallPrRate: 0,
+          aiInvolvedRate: 0,
+        }),
+        prStats({
+          analyzed: 5,
+          reviewedRate: 0,
+          aiGovernedRate: 0,
+          medianHoursToMerge: 0,
+          mergeRate: 0,
+          smallPrRate: 0,
+          aiInvolvedRate: 0,
+        }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res).not.toBeNull();
+    // Real zeros are DATA: they must surface as 0, distinct from the null "no sample" above.
+    expect(res!.avgReviewedRate).toBe(0);
+    expect(res!.avgAiGovernedRate).toBe(0);
+    expect(res!.typicalHoursToMerge).toBe(0);
+    expect(res!.avgReviewedRate).not.toBeNull();
+    // Always-present rates: a measured all-zero fleet reads 0%, never null.
+    expect(res!.avgMergeRate).toBe(0);
+    expect(res!.avgSmallPrRate).toBe(0);
+    expect(res!.avgAiInvolvedRate).toBe(0);
+  });
+
+  it('a MIX of null-sample and numeric → mean over only the sampled repos (null ones ignored, not counted as 0)', async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, reviewedRate: 80, aiGovernedRate: 60, medianHoursToMerge: 8 }),
+        prStats({ analyzed: 10, reviewedRate: 40, aiGovernedRate: 20, medianHoursToMerge: 12 }),
+        prStats({ analyzed: 10, reviewedRate: null, aiGovernedRate: null, medianHoursToMerge: null }),
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // Denominator for sample-aware means = 2 (the sampled repos), NOT 3.
+    expect(res!.avgReviewedRate).toBe(60); // mean(80,40) — a 0-treated null would give 40
+    expect(res!.avgAiGovernedRate).toBe(40); // mean(60,20) — not mean(60,20,0)=27
+    expect(res!.typicalHoursToMerge).toBe(10); // mean(8,12)
+    expect(res!.repos).toBe(3); // all three repos still counted for present-field totals
+  });
+
+  it('a real 0 sample mixed with a real positive sample → the 0 IS averaged in (it is data, not absence)', async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 10, reviewedRate: 100, aiGovernedRate: 100 }),
+        prStats({ analyzed: 10, reviewedRate: 0, aiGovernedRate: 0 }), // measured zero, present sample
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // The measured 0 pulls the mean down — distinct from a null which would be dropped.
+    expect(res!.avgReviewedRate).toBe(50); // mean(100,0), NOT 100 (which a dropped-null would give)
+    expect(res!.avgAiGovernedRate).toBe(50);
+  });
+});
+
 // ── getOrgGovernance ──────────────────────────────────────────────────────────
 
 const govExtra = (i: number) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` });
