@@ -165,3 +165,76 @@ describe("recomputeRepo — partial-scan axis/overall consistency (renormalized 
     expect(postureFor(r.adoption, r.rigor).id).toBe("ai-native");
   });
 });
+
+/**
+ * DIRECTION + EXACT MAGNITUDE of the simulator's movement (Finding #5: replace the lower-bound-only
+ * `promotions >= 0` / `after.avgOverall >= before.avgOverall` assertions, which pass for a regression
+ * that zeroes promotions or flattens the lift, with hand-derived CONSTANTS).
+ *
+ * All math below is hand-computed under the "org" lens (D2 weight = 0.15, all 9 dims present, so a
+ * flat repo's overall = its flat score) and pinned exactly:
+ *
+ *   flatRepo(40): raising D2 40→100  ⇒ overall = round(40·0.85 + 100·0.15) = round(49) = 49  (Δ +9)
+ *   flatRepo(80): raising D2 80→100  ⇒ overall = round(80·0.85 + 100·0.15) = round(83) = 83  (Δ +3)
+ *   flatRepo(40): raising D2 40→70   ⇒ overall = round(40·0.85 +  70·0.15) = round(44) = 44  (Δ +4)
+ *   flatRepo(40): LOWERING D2 40→0   ⇒ overall = round(40·0.85 +   0·0.15) = round(34) = 34  (Δ −6)
+ */
+describe("simulateFleet / recomputeRepo — direction + EXACT magnitude (not just >= 0)", () => {
+  const repos = [flatRepo("o/a", 40), flatRepo("o/b", 40), flatRepo("o/c", 80)];
+
+  it("RAISE: a fix that lifts D2 yields a POSITIVE overall delta of the EXACT pinned magnitude", () => {
+    // Raise D2→100 across all three. Every repo is below 100 on D2, so every repo moves.
+    const proj = simulateFleet(repos, { dimId: "D2", target: 100 }, ["o/a", "o/b", "o/c"]);
+
+    // affected: pinned to the exact count (all 3 below target), not ">= 0".
+    expect(proj.affected).toBe(3);
+
+    // Per-repo overall + delta — exact constants, and each delta is strictly POSITIVE.
+    const a = proj.repos.find((r) => r.fullName === "o/a")!;
+    const b = proj.repos.find((r) => r.fullName === "o/b")!;
+    const c = proj.repos.find((r) => r.fullName === "o/c")!;
+    expect(a.overallBefore).toBe(40);
+    expect(a.overallAfter).toBe(49);
+    expect(a.delta).toBe(9); // direction (+) and magnitude (exactly 9)
+    expect(b.delta).toBe(9);
+    expect(c.overallBefore).toBe(80);
+    expect(c.overallAfter).toBe(83);
+    expect(c.delta).toBe(3); // c already high on D2 → smaller, but still exactly +3
+
+    // Fleet avg lift: before = avg(40,40,80) = 53; after = avg(49,49,83) = 60 → delta EXACTLY +7.
+    expect(proj.before.avgOverall).toBe(53);
+    expect(proj.after.avgOverall).toBe(60);
+    expect(proj.after.avgOverall - proj.before.avgOverall).toBe(7); // pinned, not ">= before"
+
+    // Promotions: o/a 40(L2)→49(L3) and o/b 40(L2)→49(L3) cross up; o/c stays L4 → EXACTLY 2.
+    expect(proj.promotions).toBe(2); // pinned, not ">= 0"
+  });
+
+  it("RAISE (smaller target): D2→70 leaves the high repo untouched — exact lift and zero promotions", () => {
+    // o/c is at 80 on D2 (above 70) so it does NOT move; o/a and o/b (40) each gain exactly +4.
+    const proj = simulateFleet(repos, { dimId: "D2", target: 70 }, ["o/a", "o/b", "o/c"]);
+    expect(proj.affected).toBe(2); // only the two below-target repos
+
+    const a = proj.repos.find((r) => r.fullName === "o/a")!;
+    const c = proj.repos.find((r) => r.fullName === "o/c")!;
+    expect(a.delta).toBe(4); // 40 → round(40·0.85 + 70·0.15) = 44
+    expect(c.delta).toBe(0); // untouched (already above target)
+
+    // before avg = 53; after = avg(44,44,80) = 56 → delta EXACTLY +3.
+    expect(proj.after.avgOverall - proj.before.avgOverall).toBe(3);
+    // No repo crosses a band here (44 is still L2, 80 still L4) → promotions is EXACTLY 0, not just >= 0.
+    expect(proj.promotions).toBe(0);
+  });
+
+  it("LOWER: a fix that drops a dimension yields a NEGATIVE overall delta of the EXACT magnitude", () => {
+    // simulateFleet only ever RAISES, so the lowering direction is pinned on recomputeRepo directly:
+    // a flat-40 repo's overall is 40; dropping D2 to 0 must move overall DOWN to exactly 34 (Δ −6).
+    const base = recomputeRepo(flatRepo("o/x", 40).dims, "org");
+    const lowered = recomputeRepo({ ...flatRepo("o/x", 40).dims, D2: 0 }, "org");
+    expect(base.overall).toBe(40);
+    expect(lowered.overall).toBe(34);
+    const delta = lowered.overall - base.overall;
+    expect(delta).toBeLessThan(0); // direction: negative
+    expect(delta).toBe(-6); // magnitude: exactly −6 (mirror of the +9 raise's shape)
+  });
+});
