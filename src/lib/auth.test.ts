@@ -16,6 +16,10 @@ vi.mock("@/lib/db/sessions", () => ({
   getSessionVersion: mockGetSessionVersion,
   bumpSessionVersion: vi.fn(),
 }));
+// access.ts (the auth-bypass kill-switch) imports the Supabase server client at module load; the
+// kill-switch predicate tests never reach it, so stub it out to keep this suite hermetic (no
+// @supabase/ssr / next cookies plumbing pulled in just to read env flags).
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 
 import {
   buildSession,
@@ -29,6 +33,10 @@ import {
   type Session,
   type UserInstallation,
 } from "./auth";
+// The production-bypass kill-switch lives in access.ts (the live login wall layered over auth.ts).
+// Its production hard-disable invariant — the security reason the flag exists — was asserted only in
+// a comment; pin it here alongside the session-integrity (HMAC) negatives.
+import { authBypassEnabled, authGateEnabled } from "./access";
 
 // hmac() reads AUTH_SECRET lazily at call time, so setting it before the tests run is enough.
 // The OAuth client id/secret are read by isAuthConfigured() (gate at the top of getSessionState),
@@ -491,5 +499,136 @@ describe("getSessionState — revocation + fail-open state machine", () => {
     expect(state.session?.login).toBe("octocat");
     expect(state.needsRefresh).toBe(true);
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe("authBypassEnabled / authGateEnabled — production bypass kill-switch", () => {
+  // The kill-switch reads process.env at call time, so vi.stubEnv (auto-restored by
+  // unstubAllEnvs) controls the matrix deterministically without leaking into sibling suites.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("HARD-DISABLES the bypass in production regardless of ASCENT_AUTH_BYPASS (1 / true)", () => {
+    // The whole reason the flag exists: a single stray env var must NEVER drop the login wall in prod.
+    vi.stubEnv("NODE_ENV", "production");
+    for (const v of ["1", "true"]) {
+      vi.stubEnv("ASCENT_AUTH_BYPASS", v);
+      expect(authBypassEnabled()).toBe(false);
+    }
+  });
+
+  it("enables the bypass ONLY for an explicit 1/true outside production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("ASCENT_AUTH_BYPASS", "1");
+    expect(authBypassEnabled()).toBe(true);
+    vi.stubEnv("ASCENT_AUTH_BYPASS", "true");
+    expect(authBypassEnabled()).toBe(true);
+  });
+
+  it("stays OFF by default and for non-truthy flag values (off / 0 / unset / empty)", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    for (const v of ["", "0", "off", "yes", "TRUE", "False"]) {
+      vi.stubEnv("ASCENT_AUTH_BYPASS", v);
+      expect(authBypassEnabled()).toBe(false);
+    }
+    vi.stubEnv("ASCENT_AUTH_BYPASS", undefined); // unset entirely
+    expect(authBypassEnabled()).toBe(false);
+  });
+
+  it("flipping the env flag toggles the bypass (the documented dev escape hatch works)", () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("ASCENT_AUTH_BYPASS", undefined);
+    expect(authBypassEnabled()).toBe(false); // off → wall enforced
+    vi.stubEnv("ASCENT_AUTH_BYPASS", "1");
+    expect(authBypassEnabled()).toBe(true); // flipped on → wall dropped
+  });
+
+  it("authGateEnabled is true ONLY when Supabase is configured AND the bypass is off", () => {
+    // Supabase configured + bypass off (non-prod) ⇒ the wall is enforced.
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://proj.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key");
+    vi.stubEnv("ASCENT_AUTH_BYPASS", undefined);
+    expect(authGateEnabled()).toBe(true);
+
+    // Same config, but the dev bypass flips it OFF (developer wants everything open).
+    vi.stubEnv("ASCENT_AUTH_BYPASS", "1");
+    expect(authGateEnabled()).toBe(false);
+
+    // Supabase NOT configured ⇒ nothing to enforce, gate stays open (prior behavior preserved).
+    vi.stubEnv("ASCENT_AUTH_BYPASS", undefined);
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    expect(authGateEnabled()).toBe(false);
+  });
+
+  it("a misconfigured PROD env never silently disables the gate (bypass forced off ⇒ wall holds)", () => {
+    // Production + a leaked ASCENT_AUTH_BYPASS + Supabase configured: the bypass is hard-disabled,
+    // so authGateEnabled stays TRUE — the login wall is NOT silently dropped.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://proj.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key");
+    vi.stubEnv("ASCENT_AUTH_BYPASS", "1");
+    expect(authBypassEnabled()).toBe(false);
+    expect(authGateEnabled()).toBe(true);
+  });
+});
+
+describe("decodeSession — HMAC forgery rejection (trust boundary, not just round-trip)", () => {
+  // A valid, currently-decodable session signed under the suite's AUTH_SECRET (set in beforeAll).
+  const validSession = (): Session => ({
+    login: "octocat",
+    installations: [{ id: 1, login: "acme" }],
+    exp: Date.now() + 60 * 60_000,
+    rexp: Date.now() + 7 * 86_400_000,
+    sv: 1,
+  });
+
+  it("ACCEPTS a payload bearing a valid HMAC under the current AUTH_SECRET (the positive case)", () => {
+    const session = validSession();
+    const decoded = decodeSession(encodeSession(session));
+    expect(decoded).toEqual(session); // valid token decodes to the right session
+  });
+
+  it("REJECTS a TAMPERED payload (valid structure, stale signature) ⇒ null, not a forged session", () => {
+    const token = encodeSession(validSession());
+    const dot = token.lastIndexOf(".");
+    const payload = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    // Flip one char of the base64url payload but keep the OLD signature — the HMAC no longer verifies.
+    const flipped = (payload[0] === "A" ? "B" : "A") + payload.slice(1);
+    expect(flipped).not.toBe(payload);
+    expect(decodeSession(`${flipped}.${sig}`)).toBeNull();
+  });
+
+  it("REJECTS a payload whose signature is the HMAC of a DIFFERENT payload (forged sig)", () => {
+    const realToken = encodeSession(validSession());
+    const otherToken = encodeSession({ ...validSession(), login: "attacker" });
+    const realPayload = realToken.slice(0, realToken.lastIndexOf("."));
+    const otherSig = otherToken.slice(otherToken.lastIndexOf(".") + 1);
+    // Attacker keeps the victim payload but staples on a signature from a payload they could sign.
+    expect(decodeSession(`${realPayload}.${otherSig}`)).toBeNull();
+  });
+
+  it("REJECTS a token signed under a DIFFERENT AUTH_SECRET (wrong-secret signature)", () => {
+    const real = process.env.AUTH_SECRET;
+    // Mint a structurally-perfect token under a foreign secret, then verify under the real one.
+    vi.stubEnv("AUTH_SECRET", "a-totally-different-secret");
+    const forged = encodeSession(validSession());
+    vi.stubEnv("AUTH_SECRET", real!); // restore the suite secret for the verify
+    expect(decodeSession(forged)).toBeNull();
+    vi.unstubAllEnvs();
+    process.env.AUTH_SECRET = real; // belt-and-suspenders: other suites rely on this secret
+  });
+
+  it("REJECTS a value with no '.' separator (no signature to verify)", () => {
+    expect(decodeSession("not-a-signed-token")).toBeNull();
+  });
+
+  it("REJECTS garbage / a length-mismatched signature without throwing", () => {
+    const realToken = encodeSession(validSession());
+    const payload = realToken.slice(0, realToken.lastIndexOf("."));
+    expect(decodeSession(`${payload}.deadbeef`)).toBeNull(); // short, wrong-length sig
+    expect(decodeSession(`${payload}.`)).toBeNull(); // empty sig
   });
 });
