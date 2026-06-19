@@ -62,11 +62,13 @@ vi.mock("@/lib/db", () => ({
 import { GET } from "./route";
 import { scanRepository } from "@/lib/scan";
 import { cacheGet } from "@/lib/cache";
+import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { recordBadgeImpression } from "@/lib/db";
 
 const mockScan = vi.mocked(scanRepository);
 const mockCacheGet = vi.mocked(cacheGet);
+const mockResolveHead = vi.mocked(resolveHeadWithHint);
 const mockEvaluateGate = vi.mocked(evaluateGate);
 const mockRecordImpression = vi.mocked(recordBadgeImpression);
 
@@ -305,5 +307,158 @@ describe("GET /api/badge/[owner]/[repo] — logo XSS/SSRF filter + SVG escaping 
     expect(res.status).toBe(200);
     expect(body).toContain("My Project");
     expect(body).not.toContain("&lt;"); // nothing to escape in benign input
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HIGH (finding #3): pin `validName` (route.ts:37) against path-traversal /
+// GitHub-grammar bypass.  This is a SECURITY validator with a DOCUMENTED PRIOR-BUG
+// HISTORY — the inline comment records that `.git`, `a..b`, and `..foo` slipped
+// through an earlier `s !== '.' && s !== '..'` check and were fixed by adding
+// `!s.startsWith(".") && !s.includes("..")`. It is module-private, so we pin it
+// THROUGH the route: a REJECTED name short-circuits to the neutral ">unknown<"
+// badge BEFORE the scan/cache layers (resolveHeadWithHint / cacheGet / scanRepository
+// are never touched); an ACCEPTED name flows past validation into resolveHeadWithHint
+// + cacheGet. We assert BOTH the body value AND the boundary calls so a loosened guard
+// (e.g. swapping to a single regex, or relaxing the dot rule to allow `.github`) fails.
+//
+// Note on traversal-by-encoding: in production Next decodes route segments before the
+// handler, so `%2e%2e` / encoded slashes arrive as `..` / `/` in ctx.params — both
+// rejected (`..` via !includes("..") / NAME_RE; `/` via NAME_RE). We additionally pass
+// the RAW `%2e%2e`, `%2f` forms as params: `%` is outside `[A-Za-z0-9_.-]`, so NAME_RE
+// rejects them even if a segment ever reached the handler un-decoded. Both layers pinned.
+describe("GET /api/badge/[owner]/[repo] — validName path-traversal / grammar guard (high)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockResolveHead.mockResolvedValue("sha123" as never);
+    mockEvaluateGate.mockReturnValue({ pass: true, failures: [] } as never);
+    mockRecordImpression.mockResolvedValue(undefined as never);
+    // A public cached report so an ACCEPTED name renders a real (non-"unknown") level badge,
+    // proving it flowed PAST validName rather than being rejected to the neutral badge.
+    mockCacheGet.mockReturnValue(reportWith(false));
+  });
+
+  // Drive the handler with arbitrary owner/repo PATH SEGMENTS (the existing get() helper fixes
+  // them to "o"/"r"). The URL path is cosmetic here — the route reads owner/repo from ctx.params.
+  async function badge(owner: string, repo: string) {
+    return GET(new Request("http://localhost/api/badge/x/y"), {
+      params: Promise.resolve({ owner, repo }),
+    });
+  }
+
+  // The exact REJECT set. Each is a name that must NEVER reach the scan/cache layer — it returns
+  // the neutral ">unknown<" badge. Grouped by the invariant it pins. A loosened guard makes the
+  // matching case fail. (Tested in BOTH the owner slot, cap 39, and implicitly the repo slot.)
+  const REJECT: ReadonlyArray<[string, string]> = [
+    ["", "empty string"],
+    [".", "bare single dot"],
+    ["..", "bare parent dir (traversal)"],
+    ["...", "all-dots"],
+    [".git", "leading-dot dotfile (documented prior bug)"],
+    ["..foo", "leading double-dot (documented prior bug)"],
+    [".github", "leading-dot — the 'loosened dot rule' regression vector"],
+    ["a..b", "embedded consecutive dots (documented prior bug)"],
+    ["../etc", "classic ../ traversal segment"],
+    ["..%2fetc", "encoded-slash traversal (% outside grammar)"],
+    ["%2e%2e", "encoded `..` (% outside grammar)"],
+    ["%2e%2e%2f", "encoded `../` (% outside grammar)"],
+    ["a/b", "embedded forward slash"],
+    ["a\\b", "embedded backslash"],
+    ["a:b", "colon (drive/scheme)"],
+    ["a*b", "asterisk"],
+    ["a?b", "question mark"],
+    ['a"b', "double quote"],
+    ["a<b", "less-than"],
+    ["a>b", "greater-than"],
+    ["a|b", "pipe"],
+    ["a b", "embedded space"],
+    ["foo ", "trailing space"],
+    [" foo", "leading space"],
+    ["a@b", "at-sign (outside grammar)"],
+    ["café", "non-ASCII letter (outside grammar)"],
+    ["x".repeat(40), "over owner length cap (40 > 39)"],
+  ];
+
+  for (const [name, why] of REJECT) {
+    it(`REJECTS owner=${JSON.stringify(name)} (${why}) → neutral "unknown", scan/cache untouched`, async () => {
+      const res = await badge(name, "validrepo");
+      const body = await res.text();
+
+      expect(res.status).toBe(200);
+      // Neutral badge value — the malformed path resolves to "unknown", never a level.
+      expect(body).toContain(">unknown<");
+      expect(body).not.toContain(">private<");
+      expectNoVerdictLeak(body);
+      // The whole point of validName: it runs BEFORE anything touches the scan/cache layers.
+      expect(mockResolveHead).not.toHaveBeenCalled();
+      expect(mockCacheGet).not.toHaveBeenCalled();
+      expect(mockScan).not.toHaveBeenCalled();
+    });
+  }
+
+  // The same rejection must hold when the bad segment is the REPO (cap 100), not the owner — so a
+  // valid owner can't carry a traversal repo into the scan/cache/href construction.
+  it("REJECTS a traversal segment in the REPO slot too (a..b / ../x / a/b)", async () => {
+    for (const bad of ["a..b", "../x", "a/b", ".git", "x".repeat(101)]) {
+      vi.clearAllMocks();
+      mockCacheGet.mockReturnValue(reportWith(false));
+      const res = await badge("facebook", bad);
+      const body = await res.text();
+      expect(res.status).toBe(200);
+      expect(body).toContain(">unknown<");
+      expect(mockResolveHead).not.toHaveBeenCalled();
+      expect(mockScan).not.toHaveBeenCalled();
+    }
+  });
+
+  // The exact ACCEPT set: canonical GitHub-grammar names that MUST pass validation and flow into
+  // the scan/cache path (resolveHeadWithHint called, real level rendered — not "unknown"). A guard
+  // that over-tightens (e.g. forbids interior dots, or caps too short) makes the matching case fail.
+  const ACCEPT: ReadonlyArray<[string, string]> = [
+    ["facebook", "plain owner"],
+    ["react", "plain repo"],
+    ["a.b", "single interior dot (allowed by grammar)"],
+    ["my-repo_1", "hyphen + underscore + digit"],
+    ["node.js", "dotted name like node.js"],
+    ["a", "single char"],
+    ["repo-2.0.1", "version-style dotted name (no leading/consecutive dots)"],
+    ["X".repeat(39), "owner exactly at the 39-char cap"],
+  ];
+
+  for (const [name, why] of ACCEPT) {
+    it(`ACCEPTS owner=${JSON.stringify(name)} (${why}) → flows past validName into scan/cache`, async () => {
+      const res = await badge(name, "validrepo");
+      const body = await res.text();
+
+      expect(res.status).toBe(200);
+      // A valid name is NOT the neutral badge — it rendered the seeded public level.
+      expect(body).not.toContain(">unknown<");
+      expect(body).toContain("L4"); // the seeded public report's level id
+      // It passed validation, so it reached the scan-resolution / cache lookup boundary.
+      expect(mockResolveHead).toHaveBeenCalledTimes(1);
+      expect(mockCacheGet).toHaveBeenCalled();
+    });
+  }
+
+  // The headline boundary invariant, stated once explicitly: a name that IS valid GitHub grammar
+  // in isolation but is a traversal attempt (".git", "a..b") is rejected, while the structurally
+  // identical-looking but legitimate "a.b" / "node.js" passes. This is the precise line the prior
+  // bug crossed — single dots OK, leading/consecutive dots NOT.
+  it("distinguishes a traversal-style dotted name (REJECT) from a legitimate dotted name (ACCEPT)", async () => {
+    // a..b — consecutive dots — rejected.
+    let res = await badge("a..b", "r");
+    expect(await res.text()).toContain(">unknown<");
+    expect(mockResolveHead).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    mockResolveHead.mockResolvedValue("sha123" as never);
+    mockEvaluateGate.mockReturnValue({ pass: true, failures: [] } as never);
+    mockRecordImpression.mockResolvedValue(undefined as never);
+    mockCacheGet.mockReturnValue(reportWith(false));
+
+    // a.b — one interior dot — accepted.
+    res = await badge("a.b", "r");
+    expect(await res.text()).not.toContain(">unknown<");
+    expect(mockResolveHead).toHaveBeenCalledTimes(1);
   });
 });
