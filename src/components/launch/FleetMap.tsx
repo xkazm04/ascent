@@ -6,6 +6,7 @@ import { readSSE } from "@/lib/sse";
 import { scoreHex } from "@/lib/ui";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet, Stat } from "./FleetMapChrome";
+import { applyScanEvent } from "./applyScanEvent";
 import { type Constellation, type RepoStar, mapRepos } from "./fleetMapStars";
 import { mergeStars } from "./mergeStars";
 
@@ -65,19 +66,8 @@ export function FleetMap({
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) return;
-      await readSSE(res.body, ({ event, data }) => {
-        if (event !== "repo" || !data || data.error || data.skipped || !data.repo) return;
-        const fullName = String(data.repo);
-        const overall = Number(data.overall);
-        if (!Number.isFinite(overall)) return;
-        const level = data.level != null ? String(data.level) : null;
-        setConstellations((cur) =>
-          cur.map((c) =>
-            c.login === login && c.status === "done"
-              ? { ...c, repos: c.repos.map((r) => (r.fullName === fullName ? { ...r, overall, level } : r)) }
-              : c,
-          ),
-        );
+      await readSSE(res.body, (msg) => {
+        setConstellations((cur) => applyScanEvent(cur, login, msg));
       });
     } catch {
       /* aborted or network — leave the seeded stars as-is */
