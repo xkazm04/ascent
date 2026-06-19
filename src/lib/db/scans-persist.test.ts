@@ -484,3 +484,79 @@ describe("persistScanReport — head-pointer recency guard (advance-on-newer, ho
     expect(data).not.toHaveProperty("headEtag"); // untouched, not reset to null
   });
 });
+
+// ── MEDIUM: sha-less findScanByScannedAt dedup fallback (edge-case hardening) ──────────────────────
+//
+// A report with NO resolvable commit SHA can't dedup by commit, so persist falls back to matching the
+// existing scan by the report's own `scannedAt` (scans-persist.ts:149-159). This is the ONLY guard
+// stopping a sha-less re-persist — a coalesced follower, a double-submit, a retried lane — from
+// inserting a SECOND metered Scan row. The source itself flags equality-on-timestamp as "inherently
+// fragile", which is exactly why the branch needs pinning: that findScanByScannedAt is the lookup the
+// fallback keys on (not findScanByCommit), that a hit reuses the existing id with deduped:true +
+// headSha:null and writes NO new row, that a miss persists exactly one new sha-less row (deduped:false),
+// and that a non-finite/invalid scannedAt flows through as an Invalid Date without crashing the persist.
+describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", () => {
+  it("keys the fallback on findScanByScannedAt (NOT findScanByCommit) for a sha-less report", async () => {
+    // The branch selector: with no headSha the commit-dedup lookup must be skipped entirely and the
+    // scannedAt fallback consulted instead — inverting this guard re-enables duplicate sha-less rows.
+    const { prisma } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_sameTime" });
+
+    const scannedAt = "2026-06-18T08:30:00.000Z";
+    await persistScanReport(makeReport({ headSha: null, scannedAt }));
+
+    // The fallback is consulted with the repo id and the report's own scannedAt (as a Date), and the
+    // commit-dedup path is never touched for a sha-less report.
+    expect(mockFindScanByScannedAt).toHaveBeenCalledTimes(1);
+    expect(mockFindScanByScannedAt).toHaveBeenCalledWith("repo_1", new Date(scannedAt));
+    expect(mockFindScanByCommit).not.toHaveBeenCalled();
+  });
+
+  it("HIT: a same-scannedAt row is reused (deduped:true, headSha:null) and NO new Scan row is created", async () => {
+    // The load-bearing dedup invariant: a re-persist of the SAME sha-less report must reuse the first
+    // row — zero new metered rows, no carry-forward read reached.
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_first" });
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(res).toMatchObject({ scanId: "scan_first", deduped: true, headSha: null });
+    expect(scanCreate).not.toHaveBeenCalled(); // no duplicate sha-less metered row
+    expect(prisma.scan.findFirst).not.toHaveBeenCalled(); // short-circuited before carry-forward
+  });
+
+  it("MISS: a genuinely new sha-less report persists EXACTLY ONE row (deduped:false, headSha:null)", async () => {
+    // No prior row at this scannedAt → the fallback must NOT suppress a genuinely-new sha-less scan;
+    // it persists once and the stored scan's headSha stays null.
+    const { prisma, scanCreate, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null); // never persisted before
+
+    const res = await persistScanReport(makeReport({ headSha: null }));
+
+    expect(scanCreate).toHaveBeenCalledTimes(1); // exactly one new row, not zero and not two
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, headSha: null });
+    expect(createdScans[0]).toMatchObject({ headSha: null }); // the persisted row carries no sha
+  });
+
+  it("INVALID scannedAt: a non-date timestamp flows through as an Invalid Date without crashing", async () => {
+    // A reconstructed/legacy sha-less report can carry a garbage scannedAt. `new Date(report.scannedAt)`
+    // yields an Invalid Date (getTime()===NaN) rather than throwing, so the fallback is still consulted
+    // — the persist must not blow up, and on a miss it still writes exactly one row.
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue(null);
+
+    const res = await persistScanReport(makeReport({ headSha: null, scannedAt: "not-a-date" }));
+
+    // The fallback received an Invalid Date (NaN time) and no crash propagated.
+    expect(mockFindScanByScannedAt).toHaveBeenCalledTimes(1);
+    const [, passedDate] = mockFindScanByScannedAt.mock.calls[0] as [string, Date];
+    expect(passedDate).toBeInstanceOf(Date);
+    expect(Number.isNaN(passedDate.getTime())).toBe(true);
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ deduped: false, headSha: null });
+  });
+});
