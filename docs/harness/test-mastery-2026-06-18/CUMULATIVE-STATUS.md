@@ -1,9 +1,10 @@
 # Test Mastery — ascent — Cumulative Status (criticals + highs)
 
 > Scan: `test_mastery` over 38 contexts (2026-06-18) → **192 findings (60C / 76H / 40M / 16L)**.
-> Fix run: **8 critical waves (C1–C8) + 8 high waves (H1–H8). ALL 60 criticals + ALL 76 Highs closed, 0 regressions.**
-> Branch: `vibeman/test-mastery-auth-idor` (off `master`).
-> See `FIXES-WAVE-1..8.md` (criticals) and `FIXES-HIGHS.md` (the 76 Highs).
+> Fix run: ALL 60 criticals + ALL 76 Highs + ALL 9 latent bugs + **39/40 Mediums + 14/16 Lows** closed — **189/192 findings**, 0 regressions.
+> Suite **509 → 2298 (+1789)**, tsc 0. Branch: `vibeman/test-mastery-auth-idor` (off `master`).
+> See `FIXES-WAVE-1..8.md` (criticals), `FIXES-HIGHS.md`, `FIXES-LATENT-BUGS.md`, `FIXES-MEDIUMS-LOWS.md`.
+> **The only 3 open findings are one recommendation:** add a calibrated changed-code coverage gate (needs a coverage-provider dep + CI wiring) — see FIXES-MEDIUMS-LOWS.md.
 
 ## Headline
 
@@ -68,7 +69,7 @@ Accumulated across the 8 waves (see each `FIXES-WAVE-N.md` for the per-wave addi
 
 ## What remains (out of scope for this run)
 
-- **All 76 Highs now closed** (Waves H1–H8 — see `FIXES-HIGHS.md`). **40 Mediums + 16 Lows** remain untouched — the same themes, one tier down. A follow-on run can pipeline them the same way.
+- **All 76 Highs + all 9 latent bugs + 39/40 Mediums + 14/16 Lows now closed** (see `FIXES-HIGHS.md`, `FIXES-LATENT-BUGS.md`, `FIXES-MEDIUMS-LOWS.md`). The **only remaining work is one recommendation**: a calibrated changed-code coverage gate (the 3 open findings — onboarding/db/launch — are all this same item), which needs a coverage-provider dependency + CI wiring (outside the test-only scope).
 - **A per-area / changed-code coverage gate** in CI (Theme G from the INDEX) — nothing yet stops these pins from rotting back; a ratchet on changed files is the durable backstop.
 - **The 9 latent bugs** — DONE (fixed in a 10-commit `fix(...)` pass; see `FIXES-LATENT-BUGS.md`).
 
