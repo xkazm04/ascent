@@ -6,10 +6,57 @@
 // A mock RepoSource keeps this fully offline; mock:true + no token avoids every network call.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { scanRepository } from "./scan";
+import { scanRepository, resolveScanAuth } from "./scan";
 import type { FetchOptions, ParsedRepo, RepoSource } from "@/lib/github/source";
 import type { LlmAssessment, RepoSnapshot, TokenUsage } from "@/lib/types";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
+
+// ---------------------------------------------------------------------------
+// Auth-dependency harness for the resolveScanAuth cross-tenant gate suite
+// (scan.ts:77-102). resolveScanAuth authorizes BEFORE minting an installation
+// token: a caller-supplied installationId must belong to the session
+// (sessionHasInstallation), and the repo-owner's stored installation is used
+// only for a caller who owns that org (sessionOwnsOrg); only then is
+// getInstallationToken called. Mock every dep with a vi.fn() so each branch is
+// driven deterministically and the authorize-before-mint ordering is asserted
+// (the mint fn must NOT be called on a deny path). These mocks are inert for
+// the scanRepository suites above — they never invoke resolveScanAuth.
+const authControl = {
+  appConfigured: true,
+  authConfigured: true,
+  sessionHasInstallation: vi.fn<(id: string) => Promise<boolean>>(),
+  sessionOwnsOrg: vi.fn<(owner: string) => Promise<boolean>>(),
+  getInstallationIdForOwner: vi.fn<(owner: string) => Promise<string | null>>(),
+  getInstallationToken: vi.fn<(id: string) => Promise<string>>(),
+};
+
+vi.mock("@/lib/github/app", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/github/app")>();
+  return {
+    ...actual,
+    isAppConfigured: () => authControl.appConfigured,
+    getInstallationToken: (id: string) => authControl.getInstallationToken(id),
+  };
+});
+vi.mock("@/lib/auth", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/auth")>();
+  return { ...actual, isAuthConfigured: () => authControl.authConfigured };
+});
+vi.mock("@/lib/authz", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/authz")>();
+  return {
+    ...actual,
+    sessionHasInstallation: (id: string) => authControl.sessionHasInstallation(id),
+    sessionOwnsOrg: (owner: string) => authControl.sessionOwnsOrg(owner),
+  };
+});
+vi.mock("@/lib/db", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/db")>();
+  return {
+    ...actual,
+    getInstallationIdForOwner: (owner: string) => authControl.getInstallationIdForOwner(owner),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // LLM-provider injection harness (for the usage-metering + degradation-honesty
@@ -260,5 +307,120 @@ describe("scanRepository — LLM usage metering + degradation honesty (#2/#3)", 
     expect(report.warnings ?? []).not.toContain(
       "AI analysis was unavailable, so scores reflect detected signals only (no qualitative nuance).",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveScanAuth — authorize-before-mint cross-tenant gate (scan.ts:77-102, #4).
+// This is the security boundary that decides whether a PRIVATE-repo scan is
+// authorized. The core invariant: an installation token is minted ONLY when the
+// session is authorized for that installation/org (or auth is disabled) — never
+// on an unauthorized caller-supplied id, never on the owner's stored id for a
+// caller who doesn't own the org. The deny path resolves to {orgSlug:"public"}
+// with NO token, and crucially does so BEFORE any mint (getInstallationToken is
+// never called). Anonymous/public scans (no parsed repo, app unconfigured)
+// resolve to the public org with no private token.
+// ---------------------------------------------------------------------------
+const PARSED: ParsedRepo = { owner: "AcmeCorp", repo: "secret-svc" };
+
+describe("resolveScanAuth — authorize-before-mint cross-tenant gate (#4)", () => {
+  beforeEach(() => {
+    authControl.appConfigured = true;
+    authControl.authConfigured = true;
+    authControl.sessionHasInstallation.mockReset().mockResolvedValue(false);
+    authControl.sessionOwnsOrg.mockReset().mockResolvedValue(false);
+    authControl.getInstallationIdForOwner.mockReset().mockResolvedValue(null);
+    authControl.getInstallationToken.mockReset().mockResolvedValue("ghs_tok");
+  });
+
+  it("DENIES a caller-supplied installationId the session does NOT own — public org, and NEVER mints (authorize-before-mint)", async () => {
+    // Cross-tenant IDOR attempt: an anonymous caller passes another tenant's enumerable id.
+    authControl.sessionHasInstallation.mockResolvedValue(false);
+    // No owner-stored fallback either (caller doesn't own the org).
+    authControl.sessionOwnsOrg.mockResolvedValue(false);
+    authControl.getInstallationIdForOwner.mockResolvedValue("owner-install-42");
+
+    const res = await resolveScanAuth(PARSED, "victim-install-99");
+
+    expect(res).toEqual({ orgSlug: "public" });
+    expect(res.token).toBeUndefined();
+    // THE INVARIANT: the gate denied BEFORE minting — the supplied id was checked,
+    // and getInstallationToken was never reached on the deny path.
+    expect(authControl.sessionHasInstallation).toHaveBeenCalledWith("victim-install-99");
+    expect(authControl.getInstallationToken).not.toHaveBeenCalled();
+  });
+
+  it("does NOT mint the OWNER'S stored installation for a caller who doesn't own the org", async () => {
+    // No supplied id; the owner HAS a stored installation, but the session doesn't own the org.
+    authControl.sessionOwnsOrg.mockResolvedValue(false);
+    authControl.getInstallationIdForOwner.mockResolvedValue("owner-install-42");
+
+    const res = await resolveScanAuth(PARSED);
+
+    expect(res).toEqual({ orgSlug: "public" });
+    // Ownership was checked and FAILED — the stored id is never looked up, and nothing is minted.
+    expect(authControl.sessionOwnsOrg).toHaveBeenCalledWith("AcmeCorp");
+    expect(authControl.getInstallationIdForOwner).not.toHaveBeenCalled();
+    expect(authControl.getInstallationToken).not.toHaveBeenCalled();
+  });
+
+  it("MINTS the supplied installationId when the session owns it — authorized caller gets the org + token", async () => {
+    authControl.sessionHasInstallation.mockResolvedValue(true);
+    authControl.getInstallationToken.mockResolvedValue("ghs_supplied");
+
+    const res = await resolveScanAuth(PARSED, "my-install-7");
+
+    expect(res.orgSlug).toBe("acmecorp"); // lowercased owner slug for persistence
+    expect(res.token).toBe("ghs_supplied");
+    // Minted for the SUPPLIED, session-owned id — not the owner's stored id (never consulted).
+    expect(authControl.getInstallationToken).toHaveBeenCalledWith("my-install-7");
+    expect(authControl.getInstallationIdForOwner).not.toHaveBeenCalled();
+  });
+
+  it("MINTS the owner's stored installation when the caller OWNS the org (no supplied id)", async () => {
+    authControl.sessionOwnsOrg.mockResolvedValue(true);
+    authControl.getInstallationIdForOwner.mockResolvedValue("owner-install-42");
+    authControl.getInstallationToken.mockResolvedValue("ghs_owner");
+
+    const res = await resolveScanAuth(PARSED);
+
+    expect(res).toEqual({ token: "ghs_owner", orgSlug: "acmecorp" });
+    expect(authControl.getInstallationToken).toHaveBeenCalledWith("owner-install-42");
+  });
+
+  it("auth-off (local/demo): uses the owner's stored installation WITHOUT any session check", async () => {
+    authControl.authConfigured = false;
+    authControl.getInstallationIdForOwner.mockResolvedValue("owner-install-42");
+    authControl.getInstallationToken.mockResolvedValue("ghs_localdemo");
+
+    const res = await resolveScanAuth(PARSED);
+
+    expect(res).toEqual({ token: "ghs_localdemo", orgSlug: "acmecorp" });
+    // Auth disabled ⇒ the session-authorization checks are skipped entirely.
+    expect(authControl.sessionHasInstallation).not.toHaveBeenCalled();
+    expect(authControl.sessionOwnsOrg).not.toHaveBeenCalled();
+    expect(authControl.getInstallationToken).toHaveBeenCalledWith("owner-install-42");
+  });
+
+  it("resolves anonymous/public scans to the public org with NO token (app unconfigured or no repo)", async () => {
+    authControl.appConfigured = false;
+    const res = await resolveScanAuth(PARSED, "any-install");
+    expect(res).toEqual({ orgSlug: "public" });
+    expect(authControl.getInstallationToken).not.toHaveBeenCalled();
+
+    authControl.appConfigured = true;
+    const resNull = await resolveScanAuth(null, "any-install");
+    expect(resNull).toEqual({ orgSlug: "public" });
+    expect(authControl.getInstallationToken).not.toHaveBeenCalled();
+  });
+
+  it("degrades to the public org (no token) when an AUTHORIZED mint throws", async () => {
+    authControl.sessionHasInstallation.mockResolvedValue(true);
+    authControl.getInstallationToken.mockRejectedValue(new Error("GitHub App key revoked"));
+
+    const res = await resolveScanAuth(PARSED, "my-install-7");
+
+    expect(res).toEqual({ orgSlug: "public" });
+    expect(res.token).toBeUndefined();
   });
 });
