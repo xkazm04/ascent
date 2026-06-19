@@ -5,11 +5,13 @@ import {
   buildFleetDigestMessage,
   buildLowCreditsMessage,
   creditsAlertThreshold,
+  dispatchAlert,
   isAlertConfigured,
   isLowCreditsCrossing,
   resolveAlertWebhook,
   validateAlertWebhookUrl,
   DEFAULT_THRESHOLDS,
+  type AlertMessage,
   type FleetDigestInput,
 } from "./alerts";
 import type { ScanDiff } from "@/lib/report/compare";
@@ -221,5 +223,93 @@ describe("validateAlertWebhookUrl", () => {
     ]) {
       expect(validateAlertWebhookUrl(u).ok).toBe(false);
     }
+  });
+});
+
+describe("dispatchAlert (the one real side-effect: 2xx/non-2xx/throw outcome mapping)", () => {
+  const ORG_HOOK = "https://hooks.example/acme";
+  const msg: AlertMessage = {
+    text: "🔻 Ascent: acme/api regressed",
+    blocks: [{ type: "section", text: { type: "mrkdwn", text: "*headline*" } }],
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** Stub global fetch with a vi.fn() resolving a Response-like { ok, status }. */
+  function stubFetch(impl: (...args: unknown[]) => unknown) {
+    const fetchMock = vi.fn(impl as never);
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("2xx ⇒ returns true and POSTs the documented payload to the resolved org URL", async () => {
+    const fetchMock = stubFetch(() => Promise.resolve({ ok: true, status: 200 }));
+    // Quiet the console.error-free happy path while also proving no env fallback is needed.
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+
+    const ok = await dispatchAlert(msg, { webhookUrl: ORG_HOOK });
+
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(ORG_HOOK); // per-org sink, not the (empty) global
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["content-type"]).toBe("application/json");
+    // Body carries exactly { text, blocks } — the contract every caller's boolean rides on.
+    expect(JSON.parse(init.body as string)).toEqual({ text: msg.text, blocks: msg.blocks });
+  });
+
+  it("threads opts.signal through to fetch (abortable with the surrounding work)", async () => {
+    const fetchMock = stubFetch(() => Promise.resolve({ ok: true, status: 201 }));
+    const controller = new AbortController();
+
+    const ok = await dispatchAlert(msg, { webhookUrl: ORG_HOOK, signal: controller.signal });
+
+    expect(ok).toBe(true); // 201 is 2xx
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBe(controller.signal);
+  });
+
+  it("non-2xx (4xx/5xx) ⇒ returns false (never falsely claims delivered) and does NOT throw", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const status of [400, 404, 500, 503]) {
+      const fetchMock = stubFetch(() => Promise.resolve({ ok: false, status }));
+      await expect(dispatchAlert(msg, { webhookUrl: ORG_HOOK })).resolves.toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("a network throw is caught and reported as failure — never propagates into the scan path", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = stubFetch(() => Promise.reject(new Error("ECONNREFUSED")));
+
+    // resolves(false), does not reject — the "never throws, can't fail the scan" guarantee.
+    await expect(dispatchAlert(msg, { webhookUrl: ORG_HOOK })).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("no resolvable sink ⇒ returns false and never calls fetch (never POST without a sink)", async () => {
+    const fetchMock = stubFetch(() => Promise.resolve({ ok: true, status: 200 }));
+    vi.stubEnv("ALERT_WEBHOOK_URL", ""); // no global either
+
+    const ok = await dispatchAlert(msg, { webhookUrl: null });
+
+    expect(ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the global ALERT_WEBHOOK_URL when the org has no sink", async () => {
+    const fetchMock = stubFetch(() => Promise.resolve({ ok: true, status: 200 }));
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://hooks.example/global");
+
+    const ok = await dispatchAlert(msg, { webhookUrl: null });
+
+    expect(ok).toBe(true);
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("https://hooks.example/global");
   });
 });
