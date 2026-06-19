@@ -23,8 +23,12 @@ test.describe("Org Overview — executive value", () => {
   });
 
   test("goal + standing give the org direction", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Goal · reach AI-Native" })).toBeVisible();
-    await expect(page.getByText(/to go|reached|✓/).first()).toBeVisible();
+    // GoalsOverview always renders a "Goals" section heading (SectionHeader title="Goals",
+    // src/components/org/ui.tsx:156); each active goal shows a pace chip with one of the four
+    // real verdict labels (PaceChip, src/components/org/plan/goalView.tsx:50-59 / 137) or the
+    // "No goals set yet." empty state (src/components/org/GoalsOverview.tsx:27).
+    await expect(page.getByRole("heading", { name: "Goals", exact: true })).toBeVisible();
+    await expect(page.getByText(/Reached|On pace|Behind|Tracking|No goals set yet\./).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Standing" })).toBeVisible();
   });
 
