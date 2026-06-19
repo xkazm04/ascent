@@ -471,3 +471,230 @@ describe("purgeExpiredData — opt-in no-op when nothing is configured", () => {
     expect(summary!.scansDeleted).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// pruneAudit — the audit-retention window + batch-loop TERMINATION. The audit
+// half of the job (the compliance-sensitive path) had zero coverage: every prior
+// orchestration test used retentionAuditDays:0, so pruneAudit never ran. Here we
+// drive a real multi-page sweep (full batch then partial) to prove the loop
+// terminates without re-deleting, pin the cutoff window (now − auditDays*DAY_MS)
+// and the oldest-first ordering, and prove BOTH the per-org sweep and the org-less
+// orphan sweep fire — with the orphan sweep only auditing when it deleted rows.
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Fake prisma whose auditLog.findMany pages through `pages` in order (each call returns the next
+ * page; an exhausted/extra call returns []), and whose deleteMany records every batch of ids it was
+ * asked to delete. `findManyCalls` captures the `where`/`orderBy`/`take` knobs for the window assertions.
+ * No orgs are returned, so only the org-less orphan sweep can run unless the test supplies its own.
+ */
+function fakeAuditPrisma(opts: {
+  pages: string[][];
+  org?: { id: string; slug: string; retentionMaxScans: number | null; retentionAuditDays: number | null };
+}) {
+  const { pages } = opts;
+  const deletedBatches: string[][] = [];
+  let pageIdx = 0;
+
+  const findMany = vi.fn(async (_args: unknown) => {
+    const page = pages[pageIdx] ?? [];
+    pageIdx += 1;
+    return page.map((id) => ({ id }));
+  });
+  const deleteMany = vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+    deletedBatches.push([...where.id.in]);
+    return { count: where.id.in.length };
+  });
+
+  const prisma = {
+    organization: { findMany: vi.fn(async () => (opts.org ? [opts.org] : [])) },
+    repository: { findMany: vi.fn(async () => []) },
+    scan: { findMany: vi.fn(async () => []) },
+    auditLog: { findMany, deleteMany },
+    $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+  };
+
+  return { prisma, findMany, deleteMany, deletedBatches };
+}
+
+describe("pruneAudit — window + batch-loop termination (compliance path)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+    vi.mocked(recordAudit).mockClear();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("pages a full batch then a partial page, deletes exactly those ids, and TERMINATES (no re-delete, no infinite loop)", async () => {
+    // Drive a per-org sweep with batchSize=500 (env default): a full 500-id page forces another
+    // iteration; the second page is partial (2 ids) which short-circuits the loop. A buggy loop that
+    // re-queried after the partial page (or never broke) would call findMany a 3rd time / re-delete.
+    const fullPage = Array.from({ length: RETENTION_DEFAULT_BATCH_SIZE }, (_, i) => `a${i}`);
+    const partialPage = ["tail_1", "tail_2"];
+    const { prisma, findMany, deleteMany, deletedBatches } = fakeAuditPrisma({
+      pages: [fullPage, partialPage],
+      org: { id: "org_1", slug: "acme", retentionMaxScans: 0, retentionAuditDays: 30 },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary).not.toBeNull();
+    // Two pages were fetched, then the loop STOPPED (partial page < batchSize short-circuits) —
+    // a 3rd findMany would mean it re-queried after a terminal page (potential infinite loop).
+    expect(findMany).toHaveBeenCalledTimes(2);
+    // Each page was deleted once, by its exact ids — no batch deleted twice (no re-deleting).
+    expect(deleteMany).toHaveBeenCalledTimes(2);
+    expect(deletedBatches).toEqual([fullPage, partialPage]);
+    // The org's reported auditDeleted == sum of both pages' counts.
+    expect(summary!.auditDeleted).toBe(fullPage.length + partialPage.length);
+  });
+
+  it("terminates immediately when the first page is empty (nothing in-window → no deleteMany)", async () => {
+    const { prisma, findMany, deleteMany } = fakeAuditPrisma({
+      pages: [[]],
+      org: { id: "org_1", slug: "acme", retentionMaxScans: 0, retentionAuditDays: 30 },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(findMany).toHaveBeenCalledTimes(1); // one probe, empty → break
+    expect(deleteMany).not.toHaveBeenCalled(); // never deletes an empty set
+    expect(summary!.auditDeleted).toBe(0);
+  });
+
+  it("a single exactly-full page still re-queries once (could be a boundary), then stops on the empty page", async () => {
+    // ids.length === batchSize does NOT short-circuit — only ids.length < batchSize (or 0) does.
+    // So a full page is followed by one more probe that returns [] and breaks. Pins that the loop
+    // does not under-delete by treating a full page as terminal, and does not loop past the empty one.
+    const fullPage = Array.from({ length: RETENTION_DEFAULT_BATCH_SIZE }, (_, i) => `b${i}`);
+    const { prisma, findMany, deleteMany } = fakeAuditPrisma({
+      pages: [fullPage, []],
+      org: { id: "org_1", slug: "acme", retentionMaxScans: 0, retentionAuditDays: 30 },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(findMany).toHaveBeenCalledTimes(2); // full page → probe → [] → break
+    expect(deleteMany).toHaveBeenCalledTimes(1); // only the one non-empty page is deleted
+    expect(summary!.auditDeleted).toBe(fullPage.length);
+  });
+
+  it("selects oldest-first within the window: orderBy { at: asc }, take=batchSize, at: { lt: now − auditDays*DAY_MS }", async () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-06-19T12:00:00.000Z");
+    vi.setSystemTime(now);
+    const auditDays = 30;
+
+    const { prisma, findMany } = fakeAuditPrisma({
+      pages: [["x"]],
+      org: { id: "org_1", slug: "acme", retentionMaxScans: 0, retentionAuditDays: auditDays },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await purgeExpiredData();
+
+    const callArg = findMany.mock.calls[0]![0] as {
+      where: { orgId: string; at: { lt: Date } };
+      orderBy: { at: string };
+      take: number;
+      select: { id: true };
+    };
+    // Oldest-first so the window's tail is drained first (DSQL-friendly forward paging).
+    expect(callArg.orderBy).toEqual({ at: "asc" });
+    expect(callArg.take).toBe(RETENTION_DEFAULT_BATCH_SIZE);
+    expect(callArg.select).toEqual({ id: true });
+    expect(callArg.where.orgId).toBe("org_1");
+    // Cutoff is exactly now − auditDays*DAY_MS — keeps newer, deletes older. An off-by-one on the
+    // day window (or a flipped comparator) would move this boundary and drop in-policy history.
+    const expectedCutoff = now.getTime() - auditDays * DAY_MS;
+    expect(callArg.where.at.lt).toBeInstanceOf(Date);
+    expect(callArg.where.at.lt.getTime()).toBe(expectedCutoff);
+  });
+
+  it("runs BOTH the per-org sweep and the org-less orphan sweep when the global default window is set", async () => {
+    // Global default auditDays=14 (so the orphan sweep is armed) AND an org with its own auditDays=30.
+    process.env.RETENTION_AUDIT_DAYS = "14";
+    const orgWhereSeen: Array<{ orgId: string | null }> = [];
+    const findMany = vi.fn(async ({ where }: { where: { orgId: string | null; at: { lt: Date } } }) => {
+      orgWhereSeen.push({ orgId: where.orgId });
+      // Per-org sweep finds 1 row; orphan sweep finds 1 row. Each returns a single partial page → breaks.
+      return where.orgId === null ? [{ id: "orphan_1" }] : [{ id: "org_audit_1" }];
+    });
+    const deleteMany = vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => ({
+      count: where.id.in.length,
+    }));
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "acme", retentionMaxScans: 0, retentionAuditDays: 30 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) },
+      scan: { findMany: vi.fn(async () => []) },
+      auditLog: { findMany, deleteMany },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    // The per-org sweep keyed on { orgId: "org_1" } AND the orphan sweep keyed on { orgId: null } both ran.
+    expect(orgWhereSeen.some((w) => w.orgId === "org_1")).toBe(true);
+    expect(orgWhereSeen.some((w) => w.orgId === null)).toBe(true);
+    // An (orphan) result row is recorded since the orphan sweep deleted > 0.
+    expect(summary!.results.map((r) => r.orgSlug)).toContain("(orphan)");
+  });
+
+  it("the orphan sweep records NO audit entry (and NO result row) when it deletes nothing", async () => {
+    // Global default window armed, no orgs, and the orphan sweep finds nothing → it must not push a
+    // phantom (orphan) result nor write a retention.purged audit entry for a zero-delete sweep.
+    process.env.RETENTION_AUDIT_DAYS = "14";
+    const { prisma, deleteMany } = fakeAuditPrisma({ pages: [[]] /* orphan sweep: empty */ });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(deleteMany).not.toHaveBeenCalled();
+    expect(summary!.results.map((r) => r.orgSlug)).not.toContain("(orphan)");
+    // No retention.purged audit for the orphan scope (the recordAudit is gated on auditDeleted > 0).
+    expect(vi.mocked(recordAudit)).not.toHaveBeenCalled();
+  });
+
+  it("does NOT run the orphan sweep when the global default audit window is 0/unset", async () => {
+    // Per-org audit window is set, but defaults.auditDays === 0 → the { orgId: null } orphan sweep
+    // is gated out entirely (line `if (defaults.auditDays > 0)`). Only the per-org sweep should fire.
+    const orgWhereSeen: Array<string | null> = [];
+    const findMany = vi.fn(async ({ where }: { where: { orgId: string | null } }) => {
+      orgWhereSeen.push(where.orgId);
+      return []; // empty → one probe each, breaks immediately
+    });
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "acme", retentionMaxScans: 0, retentionAuditDays: 30 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) },
+      scan: { findMany: vi.fn(async () => []) },
+      auditLog: { findMany, deleteMany: vi.fn(async () => ({ count: 0 })) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await purgeExpiredData();
+
+    // The per-org sweep ran; the org-less orphan sweep was never queried (no { orgId: null } call).
+    expect(orgWhereSeen).toContain("org_1");
+    expect(orgWhereSeen).not.toContain(null);
+  });
+});
