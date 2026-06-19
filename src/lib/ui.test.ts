@@ -5,7 +5,8 @@ import {
   scoreHex,
   scoreGlyph,
 } from "@/lib/ui";
-import { levelForScore } from "@/lib/maturity/model";
+import { levelForScore, LEVELS } from "@/lib/maturity/model";
+import { LEVEL_BANDS, BAND_EDGES } from "@/components/report/chartScale";
 
 // scoreHex / scoreGlyph route a 0..100 score through the rubric (score -> level -> color/glyph).
 // The contract the source comments promise: the displayed color/glyph is ALWAYS the rubric
@@ -98,6 +99,60 @@ describe("scoreHex / scoreGlyph — out-of-range inputs are clamped, never NaN/u
       expect(hex).toBeDefined();
       expect(hex).toMatch(/^#[0-9a-f]{6}$/i);
       expect(glyphs.has(scoreGlyph(s))).toBe(true);
+    }
+  });
+});
+
+// LEVEL_BANDS / BAND_EDGES (chartScale.ts) hardcode the maturity strata as a SEPARATE copy of the
+// rubric's level boundaries (LEVELS in model.ts). DimLine's shaded background bands read from this
+// copy while the line's color reads from scoreHex -> levelForScore -> LEVELS. If someone retunes a
+// LEVELS band but not this ramp (or vice-versa), the shaded band says "L4 starts at 60" while the
+// point color still flips at 65 — the chart visually contradicts itself and nothing fails today.
+// These tests DERIVE the expected band edges *from* LEVELS so the moment the rubric and the chart
+// ramp drift apart, a test breaks — the bands are the rubric's by construction, not by coincidence.
+describe("chart-band ramp (LEVEL_BANDS / BAND_EDGES) equals the rubric (LEVELS) — no silent drift", () => {
+  // The sorted, unique boundary set the rubric implies: every level's lower edge, plus the top cap.
+  // For LEVELS bands [0,24]/[25,44]/[45,64]/[65,84]/[85,100] this is [0,25,45,65,85,100].
+  const rubricEdges = Array.from(
+    new Set([...LEVELS.map((l) => l.band[0]), 100]),
+  ).sort((a, b) => a - b);
+
+  it("BAND_EDGES is exactly the sorted unique level boundaries derived from LEVELS", () => {
+    expect([...BAND_EDGES]).toEqual(rubricEdges);
+  });
+
+  it("each LEVEL_BANDS[i].min is a rubric level's lower band edge (top→bottom = L5→L1)", () => {
+    // LEVEL_BANDS is ordered high→low; LEVELS is ordered low→high. Reversed LEVELS lower-edges
+    // must line up one-for-one with the band mins, so a chart band can't claim a stratum the
+    // rubric doesn't define at that exact cut.
+    const expectedMinsTopDown = LEVELS.map((l) => l.band[0]).reverse(); // [85,65,45,25,0]
+    expect(LEVEL_BANDS.map((b) => b.min)).toEqual(expectedMinsTopDown);
+  });
+
+  it("there are exactly as many shaded bands as rubric levels", () => {
+    expect(LEVEL_BANDS.length).toBe(LEVELS.length);
+  });
+
+  it("every band min sits at the rubric cut where the line color flips into that level", () => {
+    // The load-bearing consistency contract: at each band's lower edge, the point color
+    // (scoreHex -> levelForScore) must already be in the level that band is shading. A drift
+    // where the band starts at 60 but the color still flips at 65 fails right here.
+    for (const band of LEVEL_BANDS) {
+      const levelAtMin = levelForScore(band.min);
+      // band.min is the inclusive lower edge of exactly one rubric level.
+      expect(levelAtMin.band[0]).toBe(band.min);
+    }
+  });
+
+  it("the interior band edges are the right-side of each rubric cut (25/45/65/85)", () => {
+    // Excluding the 0 floor and 100 cap, the interior edges are precisely the L2..L5 starts —
+    // i.e. the off-by-one-sensitive handoffs locked in the scoreHex band-edge tests above.
+    const interior = rubricEdges.filter((e) => e !== 0 && e !== 100);
+    expect(interior).toEqual([25, 45, 65, 85]);
+    // And every interior edge is the first score of a new level (color flips here).
+    for (const e of interior) {
+      expect(levelForScore(e).band[0]).toBe(e);
+      expect(scoreHex(e)).not.toBe(scoreHex(e - 1));
     }
   });
 });
