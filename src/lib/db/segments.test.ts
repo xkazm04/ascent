@@ -310,6 +310,93 @@ describe("setRepoSegmentsBulk — org-scoped bulk tagging boundary + count contr
   });
 });
 
+// ── Membership-write IDEMPOTENCY (HIGH #3) ────────────────────────────────────────────────────────
+//
+// The count contract (-1 / 0 / res.count) and fullName dedup are pinned above. What was NOT pinned is
+// the *write shape* that makes the membership writes idempotent — the load-bearing half of the finding:
+//   • single tag re-applied  → prisma.repoSegment.upsert with where:{ segmentId_repoId }, update:{} and
+//     create:{ segmentId, repoId } — an UPSERT, not an INSERT, so re-tagging an already-member repo is a
+//     no-op (no duplicate row, no unique-constraint error). If a refactor swaps upsert→create, this goes red.
+//   • single untag of a repo NOT in the segment → deleteMany matches 0 rows but still resolves true (a
+//     legitimate no-op, never an error / never false).
+//   • bulk add over a set that's ALREADY tagged → createMany({ skipDuplicates:true }) returns res.count = 0
+//     (only newly-added rows counted), the route shows "0 changed", NOT a duplicate-key crash and NOT an
+//     inflated count.
+//   • bulk untag of repos not in the segment → deleteMany returns 0 (clean no-op, not -1 / not a 404).
+
+describe("membership-write idempotency", () => {
+  it("setRepoSegment tag uses an idempotent upsert (where keyed on segmentId_repoId, update:{}, create) — re-tag is a no-op", async () => {
+    const fp = fakePrisma({ ownerOrgId: "orgA", slugToId: { A: "orgA" }, repoFullNames: ["acme/repo"] });
+    mockGetPrisma.mockReturnValue(fp.prisma);
+
+    const ok = await setRepoSegment("A", "seg1", "acme/repo", true);
+
+    expect(ok).toBe(true);
+    // The write is an UPSERT (idempotent), not a bare create: an already-tagged repo hits the conflict
+    // branch (update:{}) and produces no second row — so applying the same tag twice is a no-op.
+    expect(fp.upsert).toHaveBeenCalledTimes(1);
+    const arg = fp.upsert.mock.calls[0]![0] as {
+      where: { segmentId_repoId: { segmentId: string; repoId: string } };
+      update: Record<string, unknown>;
+      create: { segmentId: string; repoId: string };
+    };
+    expect(arg.where.segmentId_repoId).toMatchObject({ segmentId: "seg1", repoId: "repo_acme_repo" });
+    expect(arg.update).toEqual({}); // conflict branch does nothing → re-tag changes nothing
+    expect(arg.create).toMatchObject({ segmentId: "seg1", repoId: "repo_acme_repo" });
+  });
+
+  it("setRepoSegment untag of a repo NOT in the segment is a clean no-op (deleteMany matches 0, still true)", async () => {
+    // deleteCount defaults to 0 → deleteMany resolves { count: 0 } as if the repo wasn't tagged.
+    const fp = fakePrisma({ ownerOrgId: "orgA", slugToId: { A: "orgA" }, repoFullNames: ["acme/repo"] });
+    mockGetPrisma.mockReturnValue(fp.prisma);
+
+    const ok = await setRepoSegment("A", "seg1", "acme/repo", false);
+
+    // Removing an absent membership neither errors nor returns false — it is idempotent.
+    expect(ok).toBe(true);
+    expect(fp.deleteMany).toHaveBeenCalledTimes(1);
+    expect(fp.deleteMany.mock.calls[0]![0]).toMatchObject({ where: { segmentId: "seg1", repoId: "repo_acme_repo" } });
+    expect(fp.upsert).not.toHaveBeenCalled();
+  });
+
+  it("setRepoSegmentsBulk re-tag of an already-tagged set returns 0 via skipDuplicates — no dup, no crash, no inflation", async () => {
+    // The repos resolve, but every membership already exists → createMany({skipDuplicates}) skips them all
+    // and reports count 0. The contract demands 0 (a real, in-org no-op) — distinct from -1 (not owned).
+    const fp = fakePrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      repoFullNames: ["a/one", "a/two"],
+      createCount: 0, // all duplicates skipped
+    });
+    mockGetPrisma.mockReturnValue(fp.prisma);
+
+    const changed = await setRepoSegmentsBulk("A", "seg1", ["a/one", "a/two"], true);
+
+    expect(changed).toBe(0); // only NEWLY-added rows counted; idempotent re-tag adds none
+    expect(changed).not.toBe(-1); // and it is NOT the not-owned sentinel — the segment IS the org's
+    expect(fp.createMany).toHaveBeenCalledTimes(1);
+    expect(fp.createMany.mock.calls[0]![0]).toMatchObject({ skipDuplicates: true });
+  });
+
+  it("setRepoSegmentsBulk untag of repos not in the segment is a no-op count 0, never -1", async () => {
+    // Repos exist under the org but none are tagged → deleteMany matches 0 rows → 0 (a clean no-op).
+    const fp = fakePrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      repoFullNames: ["a/one"],
+      deleteCount: 0,
+    });
+    mockGetPrisma.mockReturnValue(fp.prisma);
+
+    const changed = await setRepoSegmentsBulk("A", "seg1", ["a/one"], false);
+
+    expect(changed).toBe(0);
+    expect(changed).not.toBe(-1); // an in-org untag that removes nothing is 0, not a 404
+    expect(fp.deleteMany).toHaveBeenCalledTimes(1);
+    expect(fp.createMany).not.toHaveBeenCalled();
+  });
+});
+
 // ── Segment-scoped rollup actually filters to the segment's repos (CRITICAL #2) ───────────────────
 //
 // Every per-segment number on the comparison page is a getOrgRollup() scoped by seg.id:
