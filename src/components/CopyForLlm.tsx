@@ -6,6 +6,7 @@
 // the async Clipboard API with a legacy execCommand fallback for non-secure contexts.
 
 import { useState } from "react";
+import { attemptCopy, nextCopyState } from "./copy-for-llm.logic";
 
 export function CopyForLlm({
   text,
@@ -21,22 +22,14 @@ export function CopyForLlm({
 
   async function copy() {
     setFailed(false);
-    let ok = false;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        ok = true;
-      }
-    } catch {
-      ok = false;
-    }
-    if (!ok) ok = legacyCopy(text); // insecure-context / older-browser fallback
-    if (ok) {
+    const ok = await attemptCopy(text, navigator.clipboard, legacyCopy);
+    const { next, resetMs } = nextCopyState(ok);
+    if (next === "copied") {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), resetMs);
     } else {
       setFailed(true);
-      setTimeout(() => setFailed(false), 2500);
+      setTimeout(() => setFailed(false), resetMs);
     }
   }
 
