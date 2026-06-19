@@ -698,3 +698,136 @@ describe("pruneAudit — window + batch-loop termination (compliance path)", () 
     expect(orgWhereSeen).not.toContain(null);
   });
 });
+
+// ---------------------------------------------------------------------------
+// purgeExpiredData — the FLEET-WIDE opt-in safety. The single-org no-op above
+// pins the per-org `continue` guard; this block proves the orchestrator-level
+// promise over the WHOLE run: when EVERY org is unconfigured (0/unset across the
+// fleet, env unset), the entire purge run touches no DB delete path AND writes
+// zero audit rows — a misconfiguration (or a fresh deploy that never asked for
+// retention) cannot silently wipe the corpus on the first cron tick. The
+// counterpart proves the selectivity: one configured org sitting among many
+// unconfigured ones purges ONLY itself; the others are left untouched.
+// ---------------------------------------------------------------------------
+
+describe("purgeExpiredData — fleet-wide opt-in safety (a misconfig can't silently purge)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    for (const k of ENV_KEYS) delete process.env[k]; // global defaults 0/0 — nothing configured anywhere
+    vi.mocked(recordAudit).mockClear();
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("with EVERY org unconfigured (0/null across the fleet), the whole run deletes NOTHING and writes ZERO audit rows", async () => {
+    // A mix of the ways an org expresses "no retention": null/null (inherit the 0/0 env default),
+    // explicit 0/0 (unlimited), and inherit-one / explicit-other-zero combinations. None enforces a
+    // window, so the run must be a total no-op — not a single deleteMany, not a single recordAudit.
+    const scanFindMany = vi.fn(async () => []);
+    const scanDeleteMany = vi.fn(async () => ({ count: 0 }));
+    const auditFindMany = vi.fn(async () => []);
+    const auditDeleteMany = vi.fn(async () => ({ count: 0 }));
+    const txSpy = vi.fn(async (fn: (t: unknown) => unknown) => fn({}));
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_a", slug: "a", retentionMaxScans: null, retentionAuditDays: null },
+          { id: "org_b", slug: "b", retentionMaxScans: 0, retentionAuditDays: 0 },
+          { id: "org_c", slug: "c", retentionMaxScans: null, retentionAuditDays: 0 },
+          { id: "org_d", slug: "d", retentionMaxScans: 0, retentionAuditDays: null },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => [{ id: "repo_x" }]) },
+      scan: { findMany: scanFindMany, deleteMany: scanDeleteMany },
+      auditLog: { findMany: auditFindMany, deleteMany: auditDeleteMany },
+      $transaction: txSpy,
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary).not.toBeNull();
+    // Not one org crossed the `continue` guard, so NO selection / delete path was ever touched.
+    expect(scanFindMany).not.toHaveBeenCalled();
+    expect(scanDeleteMany).not.toHaveBeenCalled();
+    expect(auditFindMany).not.toHaveBeenCalled(); // includes the org-less orphan sweep (defaults.auditDays === 0)
+    expect(auditDeleteMany).not.toHaveBeenCalled();
+    expect(txSpy).not.toHaveBeenCalled();
+    // ZERO audit rows: the job never logs a no-op enforcement (the opt-in safety).
+    expect(vi.mocked(recordAudit)).not.toHaveBeenCalled();
+    // The roll-up reports a clean no-op: nobody processed, nothing deleted, no errors.
+    expect(summary!.orgsProcessed).toBe(0);
+    expect(summary!.results).toEqual([]);
+    expect(summary!.scansDeleted).toBe(0);
+    expect(summary!.dimensionsDeleted).toBe(0);
+    expect(summary!.recommendationsDeleted).toBe(0);
+    expect(summary!.recommendationEventsDeleted).toBe(0);
+    expect(summary!.auditDeleted).toBe(0);
+    expect(summary!.errors).toEqual([]);
+  });
+
+  it("one configured org among unconfigured ones purges ONLY itself — the others are left untouched", async () => {
+    // Three orgs; only the middle one (org_on) has a real window. The other two (0/null) must be
+    // skipped by the `continue` guard, so neither their repos nor their scans are ever queried, and
+    // exactly one `retention.purged` audit (for org_on) is written.
+    const reposQueriedFor: string[] = [];
+    const scanSelectsFor: string[] = [];
+    const deletedScanIds: string[] = [];
+    const tx = {
+      recommendation: { findMany: vi.fn(async () => []), deleteMany: vi.fn(async () => ({ count: 0 })) },
+      recommendationEvent: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+      scanDimension: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+      scan: {
+        deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+          for (const id of where.id.in) deletedScanIds.push(id);
+          return { count: where.id.in.length };
+        }),
+      },
+    };
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_off1", slug: "off-1", retentionMaxScans: null, retentionAuditDays: null },
+          { id: "org_on", slug: "on", retentionMaxScans: 1, retentionAuditDays: 0 },
+          { id: "org_off2", slug: "off-2", retentionMaxScans: 0, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: {
+        findMany: vi.fn(async ({ where }: { where: { orgId: string } }) => {
+          reposQueriedFor.push(where.orgId);
+          return where.orgId === "org_on" ? [{ id: "repo_on" }] : [];
+        }),
+      },
+      scan: {
+        findMany: vi.fn(async ({ where }: { where: { repoId: string } }) => {
+          scanSelectsFor.push(where.repoId);
+          // newest-1 kept; two stale scans to drop for the one enforced repo.
+          return [{ id: "on_stale_1" }, { id: "on_stale_2" }];
+        }),
+      },
+      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary).not.toBeNull();
+    // The two unconfigured orgs were skipped BEFORE any repo/scan query — only the enabled org's
+    // repos and scans were ever touched.
+    expect(reposQueriedFor).toEqual(["org_on"]);
+    expect(scanSelectsFor).toEqual(["repo_on"]);
+    // Exactly the enabled org's stale scans were deleted — nothing from the skipped orgs.
+    expect(deletedScanIds.sort()).toEqual(["on_stale_1", "on_stale_2"]);
+    // Only the enabled org produced a result row and exactly one self-audit was written.
+    expect(summary!.results.map((r) => r.orgSlug)).toEqual(["on"]);
+    expect(summary!.orgsProcessed).toBe(1);
+    expect(summary!.scansDeleted).toBe(2);
+    expect(vi.mocked(recordAudit)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(recordAudit)).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Object),
+      expect.objectContaining({ orgId: "org_on" }),
+    );
+  });
+});
