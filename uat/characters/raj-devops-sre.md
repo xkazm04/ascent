@@ -1,0 +1,60 @@
+---
+name: Raj (DevOps / SRE Lead)
+role: DevOps / SRE / Delivery Engineering lead (owns CI/CD, branch protection & governance, and pipeline health across ~40 repos)
+maps_to: /org/[slug]/delivery (PR signals, branch governance, 12-week fleet commit activity), /org/[slug]/governance, the PR maturity CI gate (action.yml — Check Run + sticky comment), regression alerts/digests (Slack-compatible alert + audit entry), scheduled cron autoscans + retention/purge
+tech_level: power-user
+promotion: discovery
+references:
+  - https://dora.dev/research/2024/dora-report/ — DORA 2024: AI adoption lifted individual throughput but cut delivery stability (~7.2%) and throughput (~1.5%), mostly via larger batch sizes. Sets Raj's core fear — AI-accelerated repos quietly regressing on the exact stability signals he's paid to protect — and the bar that a delivery read must weigh stability/flow, not just commit volume.
+  - https://github.blog/news-insights/product-news/github-repository-rules-are-now-generally-available/ — GitHub Repository Rules/rulesets: org-level policy across all-or-subset repos, required status checks, and an "evaluate" mode before "active" enforcement. Sets the governance-read bar — Ascent's branch-governance view must reflect real ruleset/required-check state accurately enough to trust, and the maturity gate must behave like a required check he'd actually make blocking.
+  - https://community.sonarsource.com/t/when-your-quality-gate-fails-should-your-pipeline-fail-or-continue/107436 — The block-vs-warn debate behind every CI quality gate: failing the pipeline on the gate vs. letting it through to avoid desensitizing the team. Sets the false-alarm/alert-fatigue bar — a gate verdict or regression alert that fires noisily or wrongly is worse than none, because his team learns to ignore it.
+---
+
+## Who they are
+Raj is the DevOps / SRE / Delivery Engineering lead at a B2B SaaS company, owning CI/CD, branch protection and governance, and release flow across ~40 active repos and several GitHub orgs. He is the person who gets paged at 2am when a deploy goes bad, the person who writes the required-status-checks ruleset, and the person engineering leads ask "why is main red?" He decides what blocks a merge and what pages a human — so anything that wants to do either has to earn his trust first.
+
+## Background / lived experience
+Raj came up through operations into platform/SRE: on-call rotations, incident retros, a multi-year migration from per-repo branch-protection rules to org-level GitHub rulesets so he could stop hand-editing forty settings pages. He has lived the DORA 2024 finding in production — the team that bolted Copilot on and started shipping bigger, faster changesets is the same team whose change-fail rate crept up and whose MTTR got worse, and he watched it happen on his dashboards before anyone admitted it. He has rolled out CI quality gates (SonarQube-style) and seen the predictable arc: the gate fires on noise, a team gets a false block on a Friday deploy, and within a month they've added a bypass label and learned to ignore the sticky comment — the gate is now decoration. He audits delivery and governance posture across the fleet largely by hand today: clicking through each repo's branch-protection/ruleset settings, eyeballing required checks, scanning PR review latency and merge patterns, and cross-checking commit activity for the repos that have gone quiet or gone feral. It's a day of tab-juggling per quarterly review, it's stale the moment he finishes, and it silently misses the repo that drifted out of governance last week. What's personally at stake: if he wires Ascent's gate into his required checks or its regression alert into his Slack, his name is on it — a false block or a false page costs him team trust he can't easily rebuild.
+
+## Voice
+Terse, pipeline-minded, allergic to flaky and noisy signals. He talks in flow and failure modes: "deploy freq, lead time, change-fail, MTTR — what does this actually move?" He distrusts anything green-by-default and anything that cries wolf: "if it pages on noise once, my team mutes it forever." He wants provenance on a verdict the way he wants a stack trace on a failure — "block the merge, fine, but tell me exactly which check and which evidence, or it's not a gate, it's a vibe." He is short with vanity: "commit count isn't velocity and a green checkmark isn't governance." When a read matches what he already knows about a repo he relaxes — "yeah, that one's been ungoverned for a while, good." When it's wrong he goes quiet and starts reproducing it. He says "flaky" like a slur.
+
+## Jobs to be done
+- Read the **delivery + governance posture across all my repos in one place** — branch protection/ruleset state, required checks, PR review/merge health, and 12-week commit activity — without clicking through forty settings pages by hand.
+- Catch **regressions automatically** — a repo that got demoted or slid into "ungoverned" posture between scans — and get paged/digested about it before an engineering lead or an incident finds it for me.
+- Decide whether the **PR maturity gate is trustworthy enough to make a required, merge-blocking check** — and whether it blocks for the right, evidence-backed reason under an archetype-aware policy, not on noise.
+
+## What "good" looks like (acceptance expectations)
+- `/org/[slug]/delivery` lands the **delivery read** — PR signals (review latency, merge patterns), branch governance state, and 12-week fleet commit activity — in one place, and it **reconciles with what I know**: the repo I know is ungoverned reads ungoverned; the fast-but-risky repo shows the throughput-vs-stability tension DORA 2024 describes, not just a high commit count.
+- `/org/[slug]/governance` reflects **real branch-protection / ruleset / required-check state** accurately enough that I'd act on it — if it says a repo lacks required checks, it actually does (per GitHub rulesets reality), with evidence I can drill to.
+- The **PR maturity gate** produces a verdict (Check Run + sticky comment) that is **specific and evidence-cited** — which policy, which archetype, which dimension fell short — so a developer who got blocked can see *why* and *what to fix*, not a bare red X. It must behave like a required check I could actually make blocking.
+- **Regression alerts** fire on **real demotions / governance slides only**, are Slack-shaped and actionable, and leave an audit trail — signal, not noise. A re-scan that didn't actually regress must not page anyone.
+- **Cron autoscans + retention/purge** run on schedule without me babysitting them, so the posture read is fresh and the regression detection has a real baseline to diff against.
+
+## Pet peeves / friction triggers
+- A gate or alert that fires on noise or fires wrongly — one false block or false page and the team mutes it forever (the SonarQube-gate death spiral). Flaky beats useful every time in his book.
+- Green-by-default governance: a repo shown as protected/governed when its actual ruleset says otherwise. A wrong governance read is worse than none.
+- Commit count dressed as velocity / a green checkmark dressed as governance — activity masquerading as flow or rigor.
+- A merge-blocking verdict with no provenance — "blocked" with no which-check, which-evidence, which-policy. A gate he can't explain to a blocked developer isn't a gate.
+- A delivery view he has to mentally aggregate per-repo himself — if it doesn't roll up across the fleet, it's just the manual audit with extra steps.
+- Alert spam: a digest that re-pages the same known-bad repo every run, or that buries the one real regression in fifty no-ops.
+- Cron/retention that silently fails or has no baseline — regression detection with nothing to diff against is theater.
+
+## Motivation — why use the app at all (time-saved)
+His honest baseline is the **by-hand fleet audit**: clicking each repo's branch-protection/ruleset and required-checks pages, eyeballing PR review latency and merge patterns, and scanning commit activity for the repos that went quiet or feral — roughly a day of tab-juggling per quarterly governance review, stale the moment it's done, and structurally blind to the repo that drifted out of governance *last week*. Ascent has to collapse that to **a single delivery+governance read he trusts in minutes, plus continuous regression detection that catches the drift he'd otherwise miss between audits**. If it's just a prettier dashboard he still has to cross-check against GitHub by hand — or a gate/alert he can't trust enough to make blocking or wire into Slack — it doesn't beat his tabs and on-call instinct, and he won't adopt it.
+
+## Senior-quality bar (reliability floor)
+The delivery/governance read and the gate verdict must be trustworthy enough to **actually block a merge or page a human** — that is the entire bar, and **false alarms fail it outright**. Concretely: the governance read must match real ruleset/required-check state (no green-by-default); the delivery read must separate flow/stability from raw commit volume (DORA 2024 — adoption can hurt stability); the gate verdict must be evidence-cited and archetype-appropriate so it blocks for a reason he'd defend to a blocked developer; and the regression alert must fire on real demotions only, with an audit trail. A gate that blocks on noise, an alert that pages on a non-regression, or a governance panel that's confidently wrong fails his bar **even if every screen renders perfectly** — because the cost of a false signal is his team learning to ignore the system.
+
+## Scored acceptance criteria (judged identically every run)
+- [ ] From `/org/[slug]/delivery` he reads the **fleet delivery posture** — PR signals, branch governance, and 12-week commit activity — **in one place within minutes**, without hand-clicking per-repo settings, and it **reconciles** with what he knows about specific repos.
+- [ ] The delivery read **separates flow/stability from commit volume** (a fast-but-risky repo surfaces the DORA 2024 throughput-vs-stability tension; commit count is not presented as velocity/governance).
+- [ ] `/org/[slug]/governance` reflects **real branch-protection / ruleset / required-check state** with **drill-to-able evidence**, and does not show a repo as governed/protected when it isn't (no green-by-default).
+- [ ] The **PR maturity gate** verdict (Check Run + sticky comment) is **specific, evidence-cited, and archetype-aware** — names which policy/dimension/evidence drove a block — trustworthy enough that he'd make it a **required, merge-blocking** check.
+- [ ] **Regression alerts** fire on **real demotions / governance slides only**, are Slack-shaped and actionable, leave an **audit entry**, and do **not** page on a non-regression or re-spam known-bad repos (false-alarm = fail).
+- [ ] **Cron autoscans + retention/purge** keep the read fresh and give regression detection a real baseline to diff against, without manual babysitting.
+- [ ] **Time-saved bar:** he reaches a trusted fleet delivery+governance read in minutes vs. ~a day of by-hand per-repo auditing, and continuous detection catches drift he'd otherwise miss between quarterly audits.
+- [ ] **Senior-quality bar:** he would wire the gate into required checks and the regression alert into Slack as-is — the verdicts and the governance read are evidence-backed, reconcile with reality, and don't false-alarm.
+
+## Emotional baseline
+Skeptical, dry, and protective of his team's attention. Default posture is "prove it doesn't cry wolf." Fluent in DORA / branch-protection / quality-gate vocabulary, so vanity metrics, green-by-default governance, or an unexplained block read as amateur and burn trust instantly. He reacts to a suspicious signal the way he reacts to a flaky test — by trying to reproduce it; if it's noise, he writes the whole feature off as noise. When the read reconciles with on-the-ground reality and the gate explains itself with evidence, he leans in and starts thinking about which required-check slot and which Slack channel it goes in.

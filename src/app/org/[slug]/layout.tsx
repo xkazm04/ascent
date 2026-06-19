@@ -5,9 +5,9 @@ import { OrgScanButton } from "@/components/org/OrgScanButton";
 import { CreditsControl } from "@/components/org/CreditsControl";
 import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
-import { getCreditState, getMembershipRole, getOrgRollup, isDbConfigured, isDbUnavailableError } from "@/lib/db";
+import { ensureOwnerMembership, getCreditState, getMembershipRole, getOrgRollup, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
-import { authGateEnabled, getViewer } from "@/lib/access";
+import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { creditPacks, polarEnabled } from "@/lib/polar";
 import { levelForScore } from "@/lib/maturity/model";
@@ -19,7 +19,7 @@ function Frame({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SiteHeader />
-      <main id="main" className="mx-auto w-full max-w-6xl px-5 py-8">{children}</main>
+      <main id="main" className="mx-auto w-full max-w-7xl px-5 py-8">{children}</main>
       <SiteFooter />
     </>
   );
@@ -94,6 +94,11 @@ export default async function OrgLayout({
   // PrismaClientInitializationError that, unguarded, crashed the whole dashboard with a raw stack.
   // Surface the same calm empty-state the DB-less branch above uses, so the demo degrades instead of
   // 500-ing. A query error against a LIVE DB still propagates (it's a real bug, not "DB down").
+  // The login whose org role we resolve + (under the dev bypass) persist below: the custom-OAuth
+  // session wins; otherwise, under ASCENT_AUTH_BYPASS, the synthetic "developer" viewer.
+  const bypassViewer = authBypassEnabled() ? await getViewer() : null;
+  const roleLogin = session?.login ?? bypassViewer?.login ?? null;
+
   let rollup: Awaited<ReturnType<typeof getOrgRollup>>;
   let credit: Awaited<ReturnType<typeof getCreditState>> | null;
   let myRole: Awaited<ReturnType<typeof getMembershipRole>> | null;
@@ -103,7 +108,7 @@ export default async function OrgLayout({
       slug === "public" ? Promise.resolve(null) : getCreditState(slug),
       // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
       // can open the Members tab). Null for the public org / non-members.
-      session?.login ? getMembershipRole(slug, session.login).catch(() => null) : Promise.resolve(null),
+      roleLogin && slug !== "public" ? getMembershipRole(slug, roleLogin).catch(() => null) : Promise.resolve(null),
     ]);
   } catch (err) {
     if (isDbUnavailableError(err)) {
@@ -124,6 +129,18 @@ export default async function OrgLayout({
         <OrgEmpty title={`No data for ${slug}`} body="Watch some repositories on /connect and run a scan, then this dashboard fills in." href="/connect" cta="Go to Connect" />
       </Frame>
     );
+  }
+
+  // Dev-only profile seam: under ASCENT_AUTH_BYPASS there's no real session, so the synthetic
+  // "developer" viewer otherwise has no persisted profile/membership and every org-role gate is
+  // blanket-open. Persist a real owner Membership (idempotent, best-effort) on this populated org so
+  // local runs (UAT/demo) operate on a genuine profile in the production-schema PGlite DB — the
+  // Members tab, the role chip and RBAC reads then reflect a real row instead of a hollow open gate.
+  // authBypassEnabled() is hard-disabled in production, so this can never seed a ghost owner on a real
+  // deployment; gated on a populated org so a bogus-slug visit never materializes an empty org. (myRole
+  // above is null on the very first visit and fills in once the row exists.)
+  if (bypassViewer && slug !== "public") {
+    await ensureOwnerMembership(slug, bypassViewer.login, bypassViewer.name).catch(() => {});
   }
 
   const watched = rollup.repos.filter((r) => r.watched).length;
@@ -174,8 +191,12 @@ export default async function OrgLayout({
           <OrgScanButton org={slug} watchedCount={watched} />
         </div>
       </div>
-      <OrgNav slug={slug} />
-      <div className="mt-6 animate-fade-up">{children}</div>
+      <div className="mt-6 lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-8">
+        <aside className="lg:sticky lg:top-20 lg:self-start">
+          <OrgNav slug={slug} />
+        </aside>
+        <div className="mt-4 animate-fade-up lg:mt-0">{children}</div>
+      </div>
     </Frame>
   );
 }
