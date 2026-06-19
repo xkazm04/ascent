@@ -53,6 +53,21 @@ export const POSTURE_HEX: Record<string, string> = {
 
 export const shortName = (fullName: string) => fullName.split("/").pop() || fullName;
 
+/** Posture quadrants, leader-first, that the distribution bars are rendered over. */
+export const POSTURE_ORDER = ["ai-native", "ungoverned", "manual", "early"];
+
+/**
+ * Width (0–100) of one posture bar as its TRUE share of the whole scored fleet — NOT normalized to
+ * the leading bucket. Scaling to the max made the dominant posture always render as a full 100% bar
+ * regardless of its real prevalence, overstating it on a projected war-room wall. The denominator is
+ * `max(1, scored, Σcounts)`: the `1` guards an empty fleet against divide-by-zero (all bars → 0),
+ * and folding in both `scored` and the summed counts keeps the bars honest even if the two disagree.
+ */
+export function postureBarPct(count: number, scored: number, counts: Record<string, number>): number {
+  const total = Math.max(1, scored, POSTURE_ORDER.reduce((s, p) => s + (counts[p] ?? 0), 0));
+  return Math.min(100, (count / total) * 100);
+}
+
 /** A bulk-scan SSE `repo` event, classified into the shapes the server emits. */
 export type RepoEventClass =
   | { kind: "error"; message: string }

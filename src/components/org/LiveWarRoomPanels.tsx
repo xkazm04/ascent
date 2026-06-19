@@ -1,13 +1,11 @@
-import { POSTURE_LABEL, POSTURE_ORDER } from "@/components/org/ui";
+import { POSTURE_LABEL } from "@/components/org/ui";
 import { scoreHex } from "@/lib/ui";
-import { POSTURE_HEX, type Mover } from "@/components/org/liveWarRoomShared";
+import { POSTURE_HEX, POSTURE_ORDER, postureBarPct, type Mover } from "@/components/org/liveWarRoomShared";
 
 export function PostureMix({ counts, scored }: { counts: Record<string, number>; scored: number }) {
-  // Scale each bar to the TOTAL scored fleet, not the largest bucket. Scaling to the max made the
-  // LEADING posture always render as a full 100% bar regardless of its real share — on a projected
-  // war-room wall that overstates the dominant posture's prevalence to leadership. A true distribution
-  // bars each posture as its fraction of the whole.
-  const total = Math.max(1, scored, POSTURE_ORDER.reduce((s, p) => s + (counts[p] ?? 0), 0));
+  // Bar widths scale to the TOTAL scored fleet, not the largest bucket — see postureBarPct. Scaling
+  // to the max made the LEADING posture always render as a full 100% bar regardless of its real share,
+  // overstating the dominant posture's prevalence on a projected war-room wall.
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Posture distribution</h3>
@@ -24,7 +22,7 @@ export function PostureMix({ counts, scored }: { counts: Record<string, number>;
               <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
                 <div
                   className="h-full rounded-full transition-all duration-700 ease-out motion-reduce:transition-none"
-                  style={{ width: `${Math.min(100, (n / total) * 100)}%`, backgroundColor: color }}
+                  style={{ width: `${postureBarPct(n, scored, counts)}%`, backgroundColor: color }}
                 />
               </div>
               <span className="w-6 text-right font-mono tabular-nums" style={{ color: n > 0 ? color : "#64748b" }}>
