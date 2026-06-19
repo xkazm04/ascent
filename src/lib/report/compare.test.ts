@@ -154,6 +154,132 @@ describe("diffScans", () => {
     expect(d8.disappearedSignals).toEqual([]);
     expect(d8.attribution).toBeNull();
   });
+
+  it("labels a score DROP as a regression — deltas keep the sign of after − before, level/posture fall", () => {
+    // Mirror image of the happy-path test: the OLDER (higher) scan is passed as `after` here is
+    // NOT the case — instead `before` is the strong scan and `after` is the weakened one, so every
+    // delta must read negative. This pins that the sign is never flipped: a drop is a regression.
+    const before = mkScan({
+      id: "strong",
+      overallScore: 70,
+      level: "L4",
+      levelName: "Integrated",
+      adoptionScore: 60, // ≥ 50 → ai-native (both axes high)
+      rigorScore: 60,
+      dimensions: dims({
+        D1: { score: 60, gaps: ["No MCP config"] },
+        D2: { score: 70, evidence: ["Found 30 test files", "Coverage tracking configured"] },
+      }),
+    });
+    const after = mkScan({
+      id: "weakened",
+      overallScore: 40,
+      level: "L2",
+      levelName: "Assisted",
+      adoptionScore: 30, // < 50 → adoption fell below threshold; rigor stays high → manual posture
+      rigorScore: 60,
+      dimensions: dims({
+        D1: { score: 35, gaps: ["No MCP config", "CLAUDE.md deleted"] }, // lost ground
+        D2: { score: 48, evidence: ["Found 30 test files"] }, // coverage signal disappeared
+      }),
+    });
+
+    const diff = diffScans(before, after);
+
+    // Overall + axis deltas carry the real (negative) sign — not abs, not flipped.
+    expect(diff.overall.delta).toBe(-30);
+    expect(diff.adoption.delta).toBe(-30);
+    expect(diff.rigor.delta).toBe(0);
+    expect(diff.unchanged).toBe(false);
+
+    // Level fell: changed but NOT up.
+    expect(diff.level.changed).toBe(true);
+    expect(diff.level.up).toBe(false);
+    expect(diff.level.before.id).toBe("L4");
+    expect(diff.level.after.id).toBe("L2");
+
+    // Posture regressed from ai-native (both high) to manual (adoption dropped below threshold).
+    expect(diff.posture.changed).toBe(true);
+    expect(diff.posture.before.id).toBe("ai-native");
+    expect(diff.posture.after.id).toBe("manual");
+
+    // Per-dimension deltas are negative regressions; a newly opened gap and a disappeared signal.
+    const d1 = diff.dimensions.find((d) => d.id === "D1")!;
+    expect(d1.delta).toBe(-25); // 35 − 60, sign preserved
+    expect(d1.openedGaps).toEqual(["CLAUDE.md deleted"]); // new gap = regression
+    expect(d1.closedGaps).toEqual([]);
+
+    const d2 = diff.dimensions.find((d) => d.id === "D2")!;
+    expect(d2.delta).toBe(-22); // 48 − 70
+    expect(d2.signalDelta).toBe(-22);
+    expect(d2.disappearedSignals).toEqual(["Coverage tracking configured"]); // signal lost
+    expect(d2.appearedSignals).toEqual([]);
+    // The attribution line shows the negative delta and the removed evidence, not a fake gain.
+    expect(d2.attribution).toBe("D2 -22: removed Coverage tracking configured");
+
+    // Movement headline is ordered by magnitude (|−25| > |−22|) and keeps the negative signs.
+    expect(diff.movements[0].startsWith("D1 -25")).toBe(true);
+    expect(diff.movements.some((m) => m.startsWith("D2 -22"))).toBe(true);
+  });
+
+  it("attributes a blended-score move with no evidence change to the LLM judgment, not invented signals", () => {
+    // D3's blended score moves but its signalScore AND its evidence list are identical across
+    // scans → the movement came from the LLM re-judging, not a detector change. The attribution
+    // must say so rather than fabricating an appeared/disappeared signal.
+    const sharedEvidence = ["CI workflow present", "Branch protection configured"];
+    const before = mkScan({
+      id: "a",
+      dimensions: dims({
+        D3: { score: 50, signalScore: 50, evidence: sharedEvidence },
+      }),
+    });
+    const after = mkScan({
+      id: "b",
+      dimensions: dims({
+        // Blended score rose by 8 while signalScore stayed flat: pure LLM re-judgment.
+        D3: { score: 58, signalScore: 50, evidence: sharedEvidence },
+      }),
+    });
+
+    const diff = diffScans(before, after);
+    const d3 = diff.dimensions.find((d) => d.id === "D3")!;
+
+    expect(d3.delta).toBe(8); // blended score moved
+    expect(d3.signalDelta).toBe(0); // deterministic evidence did NOT
+    expect(d3.appearedSignals).toEqual([]); // no invented signals
+    expect(d3.disappearedSignals).toEqual([]);
+    // signalDelta === 0 → the "assessment shifted" wording, not the signal-score branch.
+    expect(d3.attribution).toBe("D3 +8: assessment shifted (no change in detected signals)");
+
+    // It still surfaces in the movement headline — an LLM-driven shift is real movement.
+    expect(diff.movements.some((m) => m === "D3 +8: assessment shifted (no change in detected signals)")).toBe(
+      true,
+    );
+  });
+
+  it("attributes a blended move backed by a signal-score shift (no named evidence) to that signal delta", () => {
+    // The OTHER LLM-attribution branch: signalDelta is non-zero but no individual evidence string
+    // appeared/disappeared (the signal score moved within the same named signals). The attribution
+    // cites the signal-score delta — distinct from the "assessment shifted" wording above.
+    const sharedEvidence = ["Type checking enabled"];
+    const before = mkScan({
+      id: "a",
+      dimensions: dims({ D6: { score: 40, signalScore: 40, evidence: sharedEvidence } }),
+    });
+    const after = mkScan({
+      id: "b",
+      dimensions: dims({ D6: { score: 46, signalScore: 47, evidence: sharedEvidence } }),
+    });
+
+    const diff = diffScans(before, after);
+    const d6 = diff.dimensions.find((d) => d.id === "D6")!;
+
+    expect(d6.delta).toBe(6);
+    expect(d6.signalDelta).toBe(7);
+    expect(d6.appearedSignals).toEqual([]);
+    expect(d6.disappearedSignals).toEqual([]);
+    expect(d6.attribution).toBe("D6 +6: signal score +7 with no change in named evidence");
+  });
 });
 
 describe("matchRecommendations", () => {
