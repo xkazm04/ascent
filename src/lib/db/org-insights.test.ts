@@ -44,13 +44,14 @@ describe("percentileOf", () => {
 });
 
 // ── F1 baseline-pick consistency: getOrgMovers vs getOrgRollup ─────────────────
-// The critical, previously-untested seam (test-mastery-2026-06-18, fleet-rollups-insights #1): the
-// period-window BASELINE selection differs by ONE boundary operator between the two flagship surfaces.
-//   movers  : prev = arr.find((s) => s.scannedAt <= start) ?? earliest-in-window  (INCLUSIVE of start)
+// The critical, previously-divergent seam (test-mastery-2026-06-18, fleet-rollups-insights #1): the
+// period-window BASELINE selection is now RECONCILED to ONE boundary operator across both flagship
+// surfaces — the half-open `< start`:
+//   movers  : prev = arr.find((s) => s.scannedAt <  start) ?? earliest-in-window  (STRICT, excludes start)
 //   rollup  : baseline cohort = scans with scannedAt { lt: start }                (STRICT, excludes start)
 // These tests drive the REAL functions through a crafted prisma so the boundary, onboarded-mid-window,
-// and self-compare cases are pinned — and the intended asymmetry at exactly `start` is locked as KNOWN
-// so any future reconciliation is a deliberate, test-breaking change rather than a silent drift.
+// and self-compare cases are pinned — and a scan exactly at `start` is now classified IDENTICALLY by
+// both (it belongs to the current window, not the baseline), so the panels can no longer contradict.
 
 const D = (iso: string) => new Date(iso);
 
@@ -215,7 +216,7 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     expect(rollup!.deltas).toEqual({ overall: 20, adoption: 20, rigor: 20 });
   });
 
-  it("KNOWN ASYMMETRY: a repo whose only pre-or-at-start scan is EXACTLY at `start` — movers picks it as baseline, rollup EXCLUDES it (lt vs lte)", async () => {
+  it("BOUNDARY AGREEMENT: a repo whose only pre-or-at-start scan is EXACTLY at `start` — both surfaces treat it as IN-window, not the baseline (movers `<` == rollup `lt`)", async () => {
     // r1 has a scan exactly at `start` (60) then a later in-window scan (75). No scan strictly < start.
     const repos = [repo("r1", "acme/alpha")];
     const scans = [
@@ -227,21 +228,24 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
     const rollup = await getOrgRollup("acme", WINDOW);
 
-    // MOVERS: prev = first scan with scannedAt <= start (INCLUSIVE) = the 60 at start.
-    // So movers reports alpha +15 (75 - 60).
+    // MOVERS: prev = first scan with scannedAt STRICTLY < start = NONE, so the onboarded fallback
+    // kicks in and the baseline is the EARLIEST in-window scan = the 60 at start. Both the at-start (60)
+    // and the later (75) scan are now on the SAME side of the boundary (the current window), so movers
+    // shows the in-window climb 60 -> 75 = +15 via the fallback (NOT by treating 60 as a prior baseline).
     expect(movers!.gainers).toHaveLength(1);
     expect(movers!.gainers[0]).toMatchObject({ name: "alpha", dOverall: 15 });
 
     // ROLLUP: baseline cohort is scans STRICTLY < start. The at-start scan is excluded, and there is
-    // no other prior scan, so alpha is NOT in the baseline cohort at all -> no baseline, no deltas.
-    // This is the documented half-open boundary asymmetry. Locking BOTH sides so a future
-    // reconciliation (e.g. aligning movers to strict `<`) is a deliberate, test-breaking change.
+    // no other prior scan, so alpha is NOT in the baseline cohort -> no baseline, no deltas.
+    // CONSISTENT: movers and rollup now classify the at-start scan IDENTICALLY (in-window, not baseline).
+    // Neither surface uses the at-start scan as a prior baseline; the half-open boundary is reconciled.
     expect(rollup!.baseline).toBeNull();
     expect(rollup!.deltas).toBeNull();
   });
 
   it("a scan EXACTLY at `start` that is also the repo's latest does NOT self-compare (delta 0 -> no spurious move)", async () => {
-    // r1's single scan sits exactly at start. Movers: now === prev (same row) -> skipped, no move.
+    // r1's single scan sits exactly at start. Movers: no scan strictly < start, so the fallback resolves
+    // to that SAME single row -> now === prev -> skipped, no move (the no-self-compare guard).
     // Rollup: the at-start scan is excluded from the baseline (lt) AND it is the current snapshot, so
     // no cohort overlap -> null deltas. Neither surface fabricates movement.
     const repos = [repo("r1", "acme/alpha")];
@@ -275,7 +279,9 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     expect(movers!.gainers[0]).toMatchObject({ name: "alpha", dOverall: 25 });
 
     // Rollup: no scan strictly < start -> baseline cohort empty -> no phantom delta. The onboarded
-    // repo does NOT manufacture a fake fleet climb in the headline tile. KNOWN, intended asymmetry.
+    // repo does NOT manufacture a fake fleet climb in the headline tile. The movers-side fallback
+    // (earliest in-window) is INDEPENDENT of the boundary operator, so it survives the `<= -> <`
+    // reconciliation: movers still surfaces the in-window climb while rollup withholds a baseline.
     expect(rollup!.baseline).toBeNull();
     expect(rollup!.deltas).toBeNull();
   });

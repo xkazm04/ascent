@@ -63,8 +63,9 @@ function buildMove(fullName: string, name: string, now: ScanLite, prev: ScanLite
 
 /**
  * Per-repo change over a window — the "what moved" view. With a `window.start`, each repo's
- * latest scan (≤ end) is compared to its baseline (latest scan ≤ start), so movers reflect the
- * selected period. Without a window, it falls back to the two most recent scans ("since last scan").
+ * latest scan (≤ end) is compared to its baseline (latest scan strictly < start, matching
+ * getOrgRollup's half-open cohort), so movers reflect the selected period. Without a window, it
+ * falls back to the two most recent scans ("since last scan").
  */
 export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentId?: string | null): Promise<OrgMovers | null> {
   if (!isDbConfigured()) return null;
@@ -79,7 +80,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
 
   if (start) {
     // Windowed: fetch every in-window scan (one lightweight query), group per repo, then pick the
-    // latest as "now" and the latest at-or-before `start` as the baseline.
+    // latest as "now" and the latest STRICTLY before `start` as the baseline (half-open, like rollup).
     const rows = await prisma.scan.findMany({
       where: { repo: { orgId: org.id, ...seg }, ...(end ? { scannedAt: { lte: end } } : {}) },
       select: {
@@ -102,11 +103,14 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     }
     for (const arr of byRepo.values()) {
       const now = arr[0]; // latest (rows are scannedAt desc)
-      // Baseline = latest scan at-or-before the window start. A repo ONBOARDED mid-period has no scan
-      // before `start`, so fall back to its EARLIEST in-window scan (arr is desc, so the last element)
-      // rather than dropping it from movers entirely — it genuinely moved (first score → now) within
-      // the window. A repo with a single in-window scan collapses to prev === now and is skipped below.
-      const prev = arr.find((s) => s.scannedAt <= start) ?? arr[arr.length - 1];
+      // Baseline = latest scan STRICTLY before the window start, matching getOrgRollup's half-open
+      // `lt: start` cohort so a scan exactly at `start` is classified IDENTICALLY by both surfaces (it
+      // belongs to the current window, not the baseline) — the movers panel and the headline period-delta
+      // tiles agree on the boundary. A repo ONBOARDED mid-period has no scan before `start`, so fall back
+      // to its EARLIEST in-window scan (arr is desc, so the last element) rather than dropping it from
+      // movers entirely — it genuinely moved (first score → now) within the window. A repo with a single
+      // in-window scan collapses to prev === now and is skipped below.
+      const prev = arr.find((s) => s.scannedAt < start) ?? arr[arr.length - 1];
       if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev));
     }
