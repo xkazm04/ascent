@@ -9,7 +9,7 @@ import { RepoFilterBar } from "./RepoFilterBar";
 import { RepoListSkeleton } from "./RepoListSkeleton";
 import { RepoRow } from "./RepoRow";
 import { type AppRepo, type RepoState, type Visibility } from "./installationRepoTypes";
-import { applyWatchOptimistic, patchRepoState, rollbackWatch } from "./watchState";
+import { applyWatchOptimistic, filterRepos, patchRepoState, rollbackWatch, summarizeBulkWatch } from "./watchState";
 
 type View =
   | { status: "loading" }
@@ -241,17 +241,10 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     [repos],
   );
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return repos.filter((r) => {
-      if (q && !r.fullName.toLowerCase().includes(q) && !(r.language ?? "").toLowerCase().includes(q)) return false;
-      if (visibility === "public" && r.private) return false;
-      if (visibility === "private" && !r.private) return false;
-      if (watchedOnly && !r.state?.watched) return false;
-      if (language !== "all" && r.language !== language) return false;
-      return true;
-    });
-  }, [repos, query, visibility, watchedOnly, language]);
+  const filtered = useMemo(
+    () => filterRepos(repos, { query, visibility, watchedOnly, language }),
+    [repos, query, visibility, watchedOnly, language],
+  );
 
   // Watch every currently-filtered repo that isn't watched yet, in one request. Optimistic across the
   // set; rolls failed rows back. Same no-success-theater contract as the per-row toggle.
@@ -272,20 +265,15 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
         }),
       });
       const d = (await res.json().catch(() => ({}))) as { count?: number; failed?: string[]; error?: string };
-      if (!res.ok) {
-        targets.forEach((r) => patch(r.fullName, { watched: false }));
-        setBulkMsg({ kind: "error", text: d.error ?? "Bulk watch failed — not saved." });
-        return;
-      }
-      const failed = Array.isArray(d.failed) ? d.failed : [];
-      failed.forEach((fn) => patch(fn, { watched: false }));
-      const ok = targets.length - failed.length;
-      // A 2xx whose every row failed is not a success — read it as an error, not a positive "watching 0".
-      if (ok === 0) {
-        setBulkMsg({ kind: "error", text: `Couldn't watch any of the ${failed.length} repo${failed.length === 1 ? "" : "s"} — none were saved.` });
-      } else {
-        setBulkMsg({ kind: "note", text: `Now watching ${ok} repo${ok === 1 ? "" : "s"}${failed.length ? ` · ${failed.length} failed` : ""}.` });
-      }
+      const { revertFullNames, message } = summarizeBulkWatch({
+        targetFullNames: targets.map((r) => r.fullName),
+        failed: Array.isArray(d.failed) ? d.failed : [],
+        responseOk: res.ok,
+        error: d.error,
+      });
+      revertFullNames.forEach((fn) => patch(fn, { watched: false }));
+      setBulkMsg(message);
+      if (!res.ok) return;
     } catch {
       targets.forEach((r) => patch(r.fullName, { watched: false }));
       setBulkMsg({ kind: "error", text: "Network error — bulk watch not saved." });

@@ -1,4 +1,4 @@
-import { type AppRepo, type RepoState } from "./installationRepoTypes";
+import { type AppRepo, type RepoState, type Visibility } from "./installationRepoTypes";
 
 // Pure next-state transforms behind the component's `patch(fullName, next)` helper. The optimistic
 // update and its rollback are the SAME underlying array transform (only the `next` payload differs):
@@ -35,4 +35,72 @@ export function applyWatchOptimistic(repos: AppRepo[], fullName: string, next: P
  */
 export function rollbackWatch(repos: AppRepo[], fullName: string, prev: Partial<RepoState>): AppRepo[] {
   return patchRepoState(repos, fullName, prev);
+}
+
+/**
+ * The repo filter predicate, extracted VERBATIM from InstallationRepos.tsx's `filtered` useMemo so it's
+ * unit-testable in node. Combines a free-text query (matched case-insensitively against `fullName` AND
+ * `language`), a tri-state visibility, a `watchedOnly` toggle, and a language dropdown. An empty query
+ * matches all; a contradictory filter (e.g. `visibility:"public"` while only private repos exist) matches
+ * none. Invariant: `visibility:"public"` never returns a `private:true` repo (and the symmetric private case).
+ */
+export function filterRepos(
+  repos: AppRepo[],
+  filters: { query: string; visibility: Visibility; watchedOnly: boolean; language: string },
+): AppRepo[] {
+  const { query, visibility, watchedOnly, language } = filters;
+  const q = query.trim().toLowerCase();
+  return repos.filter((r) => {
+    if (q && !r.fullName.toLowerCase().includes(q) && !(r.language ?? "").toLowerCase().includes(q)) return false;
+    if (visibility === "public" && r.private) return false;
+    if (visibility === "private" && !r.private) return false;
+    if (watchedOnly && !r.state?.watched) return false;
+    if (language !== "all" && r.language !== language) return false;
+    return true;
+  });
+}
+
+/**
+ * Bulk-watch partial-failure accounting, extracted from InstallationRepos.tsx's `watchAllFiltered` so the
+ * "a 2xx that saved nothing must read as an error" branch is unit-testable. Given the set of repos a bulk
+ * request targeted, the server's `failed` list, and whether the response was 2xx, returns which rows to
+ * roll back and the message to show. Invariants enforced here:
+ *  - `responseOk === false` → every target reverts, kind `"error"` (the route-level failure path).
+ *  - a 2xx where every target is in `failed` (`ok === 0`) → kind `"error"` ("none were saved"), NEVER a
+ *    "watching 0" false success; reverts exactly the failed subset (= all targets here).
+ *  - a 2xx with a partial `failed` → kind `"note"`, success count is `targets.length - failed.length`,
+ *    reverting exactly the failed subset.
+ *  - the claimed success count is never > 0 when every row failed.
+ */
+export function summarizeBulkWatch(input: {
+  targetFullNames: string[];
+  failed: string[];
+  responseOk: boolean;
+  error?: string;
+}): { revertFullNames: string[]; message: { kind: "note" | "error"; text: string } } {
+  const { targetFullNames, failed, responseOk, error } = input;
+  if (!responseOk) {
+    return {
+      revertFullNames: [...targetFullNames],
+      message: { kind: "error", text: error ?? "Bulk watch failed — not saved." },
+    };
+  }
+  const ok = targetFullNames.length - failed.length;
+  // A 2xx whose every row failed is not a success — read it as an error, not a positive "watching 0".
+  if (ok === 0) {
+    return {
+      revertFullNames: [...failed],
+      message: {
+        kind: "error",
+        text: `Couldn't watch any of the ${failed.length} repo${failed.length === 1 ? "" : "s"} — none were saved.`,
+      },
+    };
+  }
+  return {
+    revertFullNames: [...failed],
+    message: {
+      kind: "note",
+      text: `Now watching ${ok} repo${ok === 1 ? "" : "s"}${failed.length ? ` · ${failed.length} failed` : ""}.`,
+    },
+  };
 }
