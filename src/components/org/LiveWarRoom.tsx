@@ -7,15 +7,13 @@ import {
   CELEBRATION_MAX,
   CELEBRATION_MS,
   POSTURE_HEX,
-  TICKER_MAX,
-  classifyRepoEvent,
-  shortName,
   type Celebration,
   type LiveRepo,
   type LiveRepoSeed,
   type Mover,
   type Phase,
 } from "@/components/org/liveWarRoomShared";
+import { computeLeaderboard, computeStats, foldRepoEvent } from "@/components/org/liveWarRoomFold";
 import { AnimatedStat } from "@/components/org/LiveWarRoomStat";
 import { WarRoomHeader } from "@/components/org/LiveWarRoomHeader";
 import type { GoalProgressView } from "@/components/org/plan/goalView";
@@ -135,46 +133,30 @@ export function LiveWarRoom({
   // events are ticker-only (or dropped) — they must never overwrite a repo's real seeded standing.
   const onRepo = useCallback(
     (d: Record<string, unknown>) => {
-      const fullName = String(d.repo ?? "");
-      if (!fullName) return;
-      const ev = classifyRepoEvent(d);
-      // Malformed payload (no error/skip marker, non-finite overall): drop it rather than fold
-      // NaN into the wall — the seeded standing stays.
-      if (ev.kind === "invalid") return;
-      const id = ++idRef.current;
-      const prev = reposRef.current[fullName];
-      const name = prev?.name ?? shortName(fullName);
+      if (!String(d.repo ?? "")) return;
+      // Snapshot the pre-update repos so the fold's `prev`/`delta`/celebration are computed against
+      // the standing as it was when this event arrived (matches the prior single-`id` fold). The
+      // ticker is folded against the latest `t` inside setTicker below; the repos/celebration/skip
+      // pieces don't depend on the ticker, so an empty placeholder is fine for this first fold.
+      const prevRepos = reposRef.current;
+      // Stamp the id this event WOULD take, then fold. Drop malformed/invalid events before
+      // committing the id (`++idRef.current`), preserving the prior placement where the monotonic id
+      // only advances on events that actually land.
+      const id = idRef.current + 1;
+      const result = foldRepoEvent(prevRepos, [], d, id);
+      const lands = result.repos !== null || result.ticker !== null || result.skippedDelta !== 0 || result.celebration !== null;
+      if (!lands) return;
+      idRef.current = id;
 
-      if (ev.kind === "error") {
-        setTicker((t) =>
-          [{ id, fullName, name, overall: null, level: null, posture: null, delta: null, failed: true }, ...t].slice(0, TICKER_MAX),
-        );
-        return;
+      if (result.repos !== null) {
+        reposRef.current = result.repos;
+        setRepos(result.repos);
       }
-      if (ev.kind === "skipped") {
-        // Out of scan credits: count it and show a muted ticker entry; no score was produced.
-        setSkipped((n) => n + 1);
-        setTicker((t) =>
-          [
-            { id, fullName, name, overall: null, level: null, posture: null, delta: null, failed: false, skipped: true },
-            ...t,
-          ].slice(0, TICKER_MAX),
-        );
-        return;
-      }
-
-      const { overall, adoption, rigor, level, posture } = ev;
-      const next: LiveRepo = { fullName, name, overall, adoption, rigor, level, posture, updatedAt: id };
-      const updated = { ...reposRef.current, [fullName]: next };
-      reposRef.current = updated;
-      setRepos(updated);
-
-      const delta = prev?.overall != null ? overall - prev.overall : null;
-      setTicker((t) => [{ id, fullName, name, overall, level, posture, delta, failed: false }, ...t].slice(0, TICKER_MAX));
-
-      if (posture === "ai-native" && prev?.posture !== "ai-native") {
-        pushCelebration({ id, name, level, overall });
-      }
+      if (result.skippedDelta) setSkipped((n) => n + result.skippedDelta);
+      // Re-fold against the latest ticker inside the functional update so back-to-back events within
+      // a tick still see each other's rows (matches the prior `setTicker((t) => [row, ...t])`).
+      setTicker((t) => foldRepoEvent(prevRepos, t, d, id).ticker ?? t);
+      if (result.celebration) pushCelebration(result.celebration);
     },
     [pushCelebration],
   );
@@ -303,31 +285,9 @@ export function LiveWarRoom({
     });
   }, []);
 
-  const stats = useMemo(() => {
-    const all = Object.values(repos);
-    const s = all.filter((r) => r.overall != null);
-    const n = s.length;
-    const sum = (f: (r: LiveRepo) => number | null) => s.reduce((a, r) => a + (f(r) ?? 0), 0);
-    const postureCounts: Record<string, number> = {};
-    for (const r of s) if (r.posture) postureCounts[r.posture] = (postureCounts[r.posture] ?? 0) + 1;
-    return {
-      scored: n,
-      total: all.length,
-      avgOverall: n ? Math.round(sum((r) => r.overall) / n) : null,
-      avgAdoption: n ? Math.round(sum((r) => r.adoption) / n) : null,
-      avgRigor: n ? Math.round(sum((r) => r.rigor) / n) : null,
-      postureCounts,
-      aiNative: postureCounts["ai-native"] ?? 0,
-    };
-  }, [repos]);
+  const stats = useMemo(() => computeStats(repos), [repos]);
 
-  const leaderboard = useMemo(
-    () =>
-      Object.values(repos)
-        .filter((r) => r.overall != null)
-        .sort((a, b) => b.overall! - a.overall! || a.name.localeCompare(b.name)),
-    [repos],
-  );
+  const leaderboard = useMemo(() => computeLeaderboard(repos), [repos]);
 
   const running = phase === "running";
   const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
