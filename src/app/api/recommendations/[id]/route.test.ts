@@ -184,3 +184,118 @@ describe("PATCH /api/recommendations/:id — body validation gates run only afte
     expect(mockUpdate).toHaveBeenCalledWith("rec_1", { targetDate: "2026-06-09" }, expect.anything());
   });
 });
+
+describe("PATCH /api/recommendations/:id — every body validator rejects its bad input with 400 and NO write", () => {
+  // Exhaustive failure coverage for the validators at route.ts:59-104. The tenant gate is left ALLOWing
+  // (beforeEach defaults), so each 400 below is attributable solely to a body validator — and every case
+  // asserts updateRecommendation is NEVER called, i.e. bad data never reaches the DB. These are the only
+  // thing keeping junk out of the Recommendation row, so each rejecting branch is pinned individually.
+
+  // --- status enum guard (route.ts:60) ---
+  it("status: an out-of-enum string is rejected (400, no write)", async () => {
+    const res = await patch("rec_1", { status: "archived" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("status: empty string is rejected (400, no write)", async () => {
+    const res = await patch("rec_1", { status: "" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("status: a wrong-type (number) value is rejected (400, no write)", async () => {
+    // REC_STATUSES.includes(123) is false, so a non-string status never reaches the row.
+    const res = await patch("rec_1", { status: 123 });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- assigneeLogin guards: typeof (route.ts:70) then GitHub-login shape (route.ts:75) ---
+  it("assigneeLogin: a wrong-type (number) value is rejected by the typeof guard (400, no write)", async () => {
+    const res = await patch("rec_1", { assigneeLogin: 42 });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("assigneeLogin: an over-length login (40 chars, > 39) is rejected by the shape guard (400, no write)", async () => {
+    const res = await patch("rec_1", { assigneeLogin: "a".repeat(40) });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("assigneeLogin: an illegal-character login (underscore) is rejected by the shape guard (400, no write)", async () => {
+    const res = await patch("rec_1", { assigneeLogin: "has_underscore" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- targetDate guards: exact YYYY-MM-DD shape AND a real calendar date (route.ts:86-93) ---
+  it("targetDate: a human/full-ISO datetime ('June 9 2026') is rejected — Date.parse-able is not enough (400, no write)", async () => {
+    const res = await patch("rec_1", { targetDate: "June 9 2026" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("targetDate: a full ISO datetime is rejected — only date-only is allowed (400, no write)", async () => {
+    const res = await patch("rec_1", { targetDate: "2026-06-09T00:00:00Z" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("targetDate: an out-of-range month (2026-13-45) is rejected — Date.parse → NaN catches it (400, no write)", async () => {
+    // The guard's calendar check is Number.isNaN(Date.parse(...)). A month/day far out of range
+    // (month 13) makes Date.parse return NaN, so it's correctly rejected. NOTE: V8's Date.parse
+    // tolerantly ROLLS OVER a near-miss like "2026-02-30" (→ Mar 2) so that exact string is NOT
+    // NaN and the current validator accepts it — pinned separately below to lock real behavior.
+    const res = await patch("rec_1", { targetDate: "2026-13-45" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("targetDate: a roll-over near-miss (2026-02-30) is NOT NaN to Date.parse, so the current validator accepts it (boundary pinned)", async () => {
+    // Documents the exact edge of the guard: shape matches YYYY-MM-DD and Date.parse("2026-02-30")
+    // is a real (rolled-over) timestamp, so the route stores it verbatim. This pins the LIVE boundary
+    // so a future tightening (e.g. a strict calendar check) is a visible, intentional change here.
+    const res = await patch("rec_1", { targetDate: "2026-02-30" });
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith("rec_1", { targetDate: "2026-02-30" }, expect.anything());
+  });
+
+  it("targetDate: a wrong-type (number) value is rejected (400, no write)", async () => {
+    const res = await patch("rec_1", { targetDate: 20260609 });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- "at least one field" guard (route.ts:97): a patch that carries no recognised field is a no-op ---
+  it("an unknown-field-only body ({ foo: 'bar' }) yields an empty patch and is rejected (400, no write)", async () => {
+    const res = await patch("rec_1", { foo: "bar" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("a note-only body (no status/assignee/targetDate) is an empty patch and is rejected (400, no write)", async () => {
+    // `note` is metadata, not a patched field — on its own it produces no patch keys.
+    const res = await patch("rec_1", { note: "just a comment" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  // --- accept: a fully-valid multi-field patch passes the validators and writes exactly that subset ---
+  it("a fully-valid multi-field patch (status + assigneeLogin + targetDate) passes and writes the validated subset", async () => {
+    const res = await patch("rec_1", {
+      status: "in_progress",
+      assigneeLogin: "octocat-99",
+      targetDate: "2026-06-09",
+      foo: "ignored", // unknown field is silently dropped, not stored
+    });
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "rec_1",
+      { status: "in_progress", assigneeLogin: "octocat-99", targetDate: "2026-06-09" },
+      expect.anything(),
+    );
+  });
+});
