@@ -18,7 +18,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { getPlaybookAdoption } from "./playbooks";
+import { getPlaybookAdoption, createPlaybook, getPlaybook } from "./playbooks";
 
 // ---- fixture types (only the fields getPlaybookAdoption selects) ----
 interface PlaybookFx {
@@ -314,6 +314,192 @@ describe("getPlaybookAdoption — cross-repo aggregation math", () => {
     const out = await getPlaybookAdoption("acme");
 
     expect(out["pb_1"]).toMatchObject({ lift: -30, measured: 1 });
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+// cleanSteps / parseSteps round-trip + bounds (Test Mastery — Playbooks, HIGH #3).
+//
+// `cleanSteps` (serialize+bound) and `parseSteps` (deserialize+filter) are the SINGLE place `steps`
+// is (de)serialized and bounded for storage — per the module header. They're module-private, so we
+// exercise them through the only public surface that uses them: `createPlaybook` writes
+// cleanSteps(input.steps) into `playbook.create({ data: { steps } })`, and `getPlaybook` returns
+// parseSteps(stored.steps). We capture the serialized blob from the create call and feed blobs into
+// the find to pin both directions without touching source.
+//
+// Invariants pinned:
+//   • cleanSteps enforces bounds — ≤20 steps, ≤300 chars/step, trims, drops empty/non-string — so a
+//     hostile/huge input can't blow up storage (DSQL row-size) or the consumer.
+//   • parseSteps NEVER throws — malformed JSON, non-array, and non-string elements all yield the
+//     documented safe default (filtered `string[]`, `[]` on garbage), so one bad stored row can't
+//     500 the list route for a whole org.
+//   • Round-trip: parseSteps(cleanSteps(xs)) === the cleaned xs (a well-formed blob survives unchanged).
+//   • empty → empty.
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Prisma fake whose `playbook.create` records the serialized `steps` blob it was handed, and whose
+ *  `playbook.findUnique` returns a row carrying a caller-supplied stored `steps` string. Both directions
+ *  of the (de)serializer are observable this way. `organization.upsert` satisfies createPlaybook's org. */
+function fakeStepsPrisma() {
+  const created: { steps: string }[] = [];
+  let storedSteps = "[]";
+  return {
+    handle: {
+      organization: {
+        upsert: vi.fn(async () => ({ id: "org_1" })),
+        findUnique: vi.fn(async () => ({ id: "org_1" })),
+      },
+      playbook: {
+        create: vi.fn(async ({ data }: { data: { steps: string } }) => {
+          created.push({ steps: data.steps });
+          return { id: "pb_new" };
+        }),
+        findUnique: vi.fn(async () => ({
+          id: "pb_1",
+          title: "T",
+          dimId: "D5",
+          summary: "",
+          steps: storedSteps,
+          createdBy: null,
+          createdAt: new Date("2026-02-01T00:00:00Z"),
+          version: 1,
+          updatedAt: new Date("2026-02-01T00:00:00Z"),
+        })),
+      },
+    },
+    /** the JSON string cleanSteps produced for the i-th createPlaybook call */
+    serialized: (i = 0) => created[i].steps,
+    /** parsed array that getPlaybook returns when the stored blob is `s` */
+    setStored: (s: string) => {
+      storedSteps = s;
+    },
+  };
+}
+
+describe("playbooks steps serializer — cleanSteps bounds (via createPlaybook)", () => {
+  it("caps the step COUNT at 20 (a 50-element array is truncated — storage-bomb guard)", async () => {
+    const fx = fakeStepsPrisma();
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    await createPlaybook("acme", { title: "T", dimId: "D5", steps: Array(50).fill("x") });
+
+    const out = JSON.parse(fx.serialized());
+    expect(out).toHaveLength(20);
+    expect(out.every((s: unknown) => s === "x")).toBe(true);
+  });
+
+  it("caps each step LENGTH at 300 chars (a 400-char step is truncated)", async () => {
+    const fx = fakeStepsPrisma();
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    await createPlaybook("acme", { title: "T", dimId: "D5", steps: ["a".repeat(400)] });
+
+    const out = JSON.parse(fx.serialized());
+    expect(out).toEqual(["a".repeat(300)]);
+  });
+
+  it("trims whitespace and DROPS empty / non-string elements (['  a  ', '', 5, null] → ['a'])", async () => {
+    const fx = fakeStepsPrisma();
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    // non-string junk simulates a loosely-typed caller; the serializer must defend against it.
+    await createPlaybook("acme", {
+      title: "T",
+      dimId: "D5",
+      steps: ["  a  ", "", "   ", 5, null] as unknown as string[],
+    });
+
+    expect(JSON.parse(fx.serialized())).toEqual(["a"]);
+  });
+
+  it("empty / undefined steps serialize to an empty array (empty → empty)", async () => {
+    const fx = fakeStepsPrisma();
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    await createPlaybook("acme", { title: "T", dimId: "D5", steps: [] });
+    await createPlaybook("acme", { title: "T", dimId: "D5" }); // steps undefined
+
+    expect(fx.serialized(0)).toBe("[]");
+    expect(fx.serialized(1)).toBe("[]");
+  });
+});
+
+describe("playbooks steps serializer — parseSteps safe-default (via getPlaybook)", () => {
+  it("returns [] for malformed stored JSON instead of throwing (one bad row can't 500 the route)", async () => {
+    const fx = fakeStepsPrisma();
+    fx.setStored("not json{");
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    const pb = await getPlaybook("pb_1");
+
+    expect(pb?.steps).toEqual([]);
+  });
+
+  it("returns [] when stored JSON is valid but NOT an array (e.g. an object)", async () => {
+    const fx = fakeStepsPrisma();
+    fx.setStored('{"a":1}');
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    const pb = await getPlaybook("pb_1");
+
+    expect(pb?.steps).toEqual([]);
+  });
+
+  it("filters non-string elements out of a stored array (['a', 5, null, 'b'] → ['a','b'])", async () => {
+    const fx = fakeStepsPrisma();
+    fx.setStored(JSON.stringify(["a", 5, null, "b"]));
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    const pb = await getPlaybook("pb_1");
+
+    expect(pb?.steps).toEqual(["a", "b"]);
+  });
+
+  it("an empty stored array parses to an empty array (empty → empty)", async () => {
+    const fx = fakeStepsPrisma();
+    fx.setStored("[]");
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    const pb = await getPlaybook("pb_1");
+
+    expect(pb?.steps).toEqual([]);
+  });
+});
+
+describe("playbooks steps serializer — round-trip (cleanSteps → store → parseSteps)", () => {
+  it("a well-formed steps blob round-trips UNCHANGED through serialize + deserialize", async () => {
+    const fx = fakeStepsPrisma();
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    // 1. clean+serialize via createPlaybook
+    await createPlaybook("acme", { title: "T", dimId: "D5", steps: ["lint", "test", "deploy"] });
+    const serialized = fx.serialized();
+
+    // 2. feed that exact stored blob back through getPlaybook (parseSteps)
+    fx.setStored(serialized);
+    const pb = await getPlaybook("pb_1");
+
+    expect(pb?.steps).toEqual(["lint", "test", "deploy"]);
+  });
+
+  it("round-trip is idempotent on the CLEANED form: bounds applied once survive a second pass", async () => {
+    const fx = fakeStepsPrisma();
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    // hostile input → cleaned (≤20, trimmed, no junk)
+    await createPlaybook("acme", {
+      title: "T",
+      dimId: "D5",
+      steps: ["  keep  ", "", Array(40).fill("y").join("")] as unknown as string[],
+    });
+    const cleaned: string[] = JSON.parse(fx.serialized());
+
+    // store the cleaned blob, read it back — parseSteps must return the cleaned form verbatim
+    fx.setStored(JSON.stringify(cleaned));
+    const pb = await getPlaybook("pb_1");
+
+    expect(pb?.steps).toEqual(cleaned);
+    expect(pb?.steps).toEqual(["keep", "y".repeat(40)]); // trimmed; under the 300 cap so kept whole
   });
 });
 
