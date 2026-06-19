@@ -238,17 +238,23 @@ export function overallScoreFor(
 
 /**
  * Weighted roll-up of one axis (Adoption / Rigor) from per-dimension scores, under an
- * archetype lens (weights renormalized over just that axis's dimensions). `scoreFor`
- * supplies the score for a dimension id, so this works for a live report or a persisted
- * scan's dimension list alike.
+ * archetype lens — weights renormalized over just the axis dimensions that are actually
+ * PRESENT, exactly as `overallScoreFor` does. `scoreFor` supplies the score for a dimension
+ * id; the optional `isPresent` predicate marks which dimensions a partial scan actually
+ * persisted, so an absent dimension is excluded from BOTH the weighted sum and the weight
+ * denominator instead of being charged at 0 with full weight (which deflated the axis and
+ * flipped the posture). With no predicate every dimension counts as present (the default),
+ * and when every dimension IS present the renormalization is a no-op — so a full scan is
+ * unchanged. Works for a live report or a persisted scan's dimension list alike.
  */
 export function axisScore(
   axis: Axis,
   scoreFor: (id: DimensionId) => number,
   archetype: RepoArchetype,
+  isPresent: (id: DimensionId) => boolean = () => true,
 ): number {
   const lensW = weightsFor(archetype);
-  const dims = DIMENSIONS.filter((d) => d.axis === axis);
+  const dims = DIMENSIONS.filter((d) => d.axis === axis && isPresent(d.id));
   const wsum = dims.reduce((a, d) => a + (lensW[d.id] ?? 0), 0);
   if (wsum === 0) return 0;
   return clamp(Math.round(dims.reduce((a, d) => a + scoreFor(d.id) * (lensW[d.id] ?? 0), 0) / wsum));

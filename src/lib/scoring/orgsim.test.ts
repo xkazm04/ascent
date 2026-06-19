@@ -90,26 +90,20 @@ describe("simulateFleet", () => {
 });
 
 /**
- * KNOWN BUG (documented, NOT fixed here) — present-dims policy divergence between `overall` and
- * the axis/posture scores for a PARTIALLY-scanned repo.
- *
- * See docs/harness/test-mastery-2026-06-18/investment-simulator-forecast.md finding #1 (Critical).
+ * Present-dims policy CONSISTENCY between `overall` and the axis/posture scores for a
+ * PARTIALLY-scanned repo.
  *
  * `recomputeRepo.overall` renormalizes its weighted mean over the dimensions ACTUALLY PRESENT
- * (orgsim.ts:72-76), so a partial scan isn't deflated. But `adoption`/`rigor` come from
- * `axisScore` (model.ts:245), which divides by the FULL axis weight sum and treats every ABSENT
- * dimension as `scoreFor → 0` carrying its full weight. So a repo that is genuinely L4 on
- * `overall` shows a deflated `adoption`/`rigor`, which flips `postureFor` into the wrong (worst)
- * band — corrupting `before.postureCounts`/`after.postureCounts` in the fleet simulator.
- *
- * The tests below PIN THE REAL CURRENT BEHAVIOR (the bug), so a future fix that renormalizes
- * `axisScore` over present dims becomes a deliberate, test-visible change — these exact numbers
- * will then break and must be updated alongside the fix.
+ * (orgsim.ts), so a partial scan isn't deflated. `adoption`/`rigor` now come from `axisScore`
+ * (model.ts) renormalized over present dims TOO (via the `isPresent` predicate recomputeRepo
+ * passes), so an absent dimension is excluded from both the weighted sum and the weight
+ * denominator instead of being charged at 0 with full weight. A repo that is genuinely L4 on
+ * `overall` therefore shows matching `adoption`/`rigor` and lands in the correct posture band.
  */
-describe("recomputeRepo — partial-scan axis/overall divergence (KNOWN BUG, pinned)", () => {
+describe("recomputeRepo — partial-scan axis/overall consistency (renormalized over present dims)", () => {
   // A partially-scanned "org" repo: only D1 (adoption) and D2 (rigor) persisted, both = 80.
-  // Every PRESENT dimension is well above POSTURE_THRESHOLD (50), so a renormalized policy would
-  // place this repo firmly in the "ai-native" posture. The non-renormalized axisScore does not.
+  // Every PRESENT dimension is well above POSTURE_THRESHOLD (50), and renormalization over present
+  // dims places this repo firmly in the "ai-native" posture — axes agree with overall.
   const partial: Record<string, number> = { D1: 80, D2: 80 };
 
   it("renormalizes overall over present dims — partial repo is NOT deflated (overall = 80)", () => {
@@ -117,56 +111,53 @@ describe("recomputeRepo — partial-scan axis/overall divergence (KNOWN BUG, pin
     expect(r.overall).toBe(80); // both present dims are 80 → weighted mean is 80
   });
 
-  it("BUG: axis scores treat absent dims as 0 full-weight, deflating adoption/rigor far below overall", () => {
+  it("renormalizes axis scores over present dims too — adoption/rigor match overall", () => {
     const r = recomputeRepo(partial, "org");
-    // Hand-derived under the "org" lens:
-    //   adoption dims = D1(0.15), D4(0.12), D7(0.07); wsum = 0.34.
-    //     present: D1=80 → sum = 80*0.15 = 12; absent D4,D7 = 0.
-    //     axisScore = round(12 / 0.34) = round(35.29) = 35
-    //   rigor dims = D2(0.15),D3(0.14),D5(0.09),D6(0.07),D8(0.12),D9(0.09); wsum = 0.66.
-    //     present: D2=80 → sum = 80*0.15 = 12; rest = 0.
-    //     axisScore = round(12 / 0.66) = round(18.18) = 18
-    // These are deflated FAR below the renormalized overall of 80 — the documented defect.
-    expect(r.adoption).toBe(35);
-    expect(r.rigor).toBe(18);
+    // Hand-derived under the "org" lens, renormalizing over PRESENT dims only:
+    //   adoption present dims = D1(0.15) [D4,D7 absent → excluded]; wsum = 0.15.
+    //     sum = 80*0.15 = 12 → axisScore = round(12 / 0.15) = round(80) = 80
+    //   rigor present dims = D2(0.15) [D3,D5,D6,D8,D9 absent → excluded]; wsum = 0.15.
+    //     sum = 80*0.15 = 12 → axisScore = round(12 / 0.15) = round(80) = 80
+    // Both axes now equal the renormalized overall of 80 — no deflation from absent dims.
+    expect(r.adoption).toBe(80);
+    expect(r.rigor).toBe(80);
     expect(r.overall).toBe(80);
 
-    // The divergence itself, pinned: both axes are well below overall purely because absent
-    // dims were charged at 0. A correct (renormalized) axisScore would yield 80/80 here.
-    expect(r.overall - r.adoption).toBe(45);
-    expect(r.overall - r.rigor).toBe(62);
+    // Axes and overall agree exactly: absent dims no longer charged at 0.
+    expect(r.overall - r.adoption).toBe(0);
+    expect(r.overall - r.rigor).toBe(0);
   });
 
-  it("BUG: recomputeRepo's axes match the standalone axisScore (same non-renormalized policy)", () => {
+  it("recomputeRepo's axes match a present-dims-renormalized axisScore", () => {
     const r = recomputeRepo(partial, "org");
     const scoreFor = (id: string) => partial[id] ?? 0;
-    // recomputeRepo derives adoption/rigor by calling axisScore directly, so they must agree.
-    expect(r.adoption).toBe(axisScore("adoption", scoreFor as never, "org"));
-    expect(r.rigor).toBe(axisScore("rigor", scoreFor as never, "org"));
+    const isPresent = (id: string) => partial[id] != null;
+    // recomputeRepo derives adoption/rigor by calling axisScore with the present predicate.
+    expect(r.adoption).toBe(axisScore("adoption", scoreFor as never, "org", isPresent as never));
+    expect(r.rigor).toBe(axisScore("rigor", scoreFor as never, "org", isPresent as never));
   });
 
-  it("BUG: postureFor on the partial repo FLIPS to 'early' even though overall = 80 (L4)", () => {
+  it("postureFor on the partial repo is 'ai-native' (overall = 80, both axes ≥ 50)", () => {
     const r = recomputeRepo(partial, "org");
-    // adoption=35 (<50) and rigor=18 (<50) → both axes below POSTURE_THRESHOLD → worst bucket.
-    // A renormalized policy would have placed an all-present-≥50 repo in "ai-native".
-    expect(postureFor(r.adoption, r.rigor).id).toBe("early");
+    // adoption=80 (≥50) and rigor=80 (≥50) → both axes at/above POSTURE_THRESHOLD → best bucket.
+    expect(postureFor(r.adoption, r.rigor).id).toBe("ai-native");
     // Sanity: the headline overall of this very same repo is firmly L4-Integrated territory.
     expect(r.overall).toBeGreaterThanOrEqual(65);
   });
 
-  it("simulateFleet buckets the partial repo into the (flipped) 'early' posture in before/after", () => {
+  it("simulateFleet buckets the partial repo into the (correct) 'ai-native' posture in before/after", () => {
     const partialRepo: RepoDims = { fullName: "o/partial", name: "partial", archetype: "org", dims: partial };
     const proj = simulateFleet([partialRepo], { dimId: "D2", target: 100 }, ["o/partial"]);
-    // Even after raising D2 to 100, rigor only rises to round((100*0.15)/0.66)=23 — still <50 —
-    // so the repo stays mis-bucketed in "early": the fleet posture mix inherits the axis bug.
-    expect(proj.before.postureCounts).toEqual({ early: 1 });
-    expect(proj.after.postureCounts).toEqual({ early: 1 });
+    // Renormalized over present dims, both axes are ≥50 before (80/80) and after (D2→100 → rigor
+    // round((100*0.15)/0.15)=100), so the repo stays correctly bucketed in "ai-native".
+    expect(proj.before.postureCounts).toEqual({ "ai-native": 1 });
+    expect(proj.after.postureCounts).toEqual({ "ai-native": 1 });
   });
 
   it("CONTROL: an all-dims-present repo at 80 — axis and overall AGREE, posture is 'ai-native'", () => {
     // The case existing tests already cover, asserted explicitly as the cross-check: when every
-    // dimension is present, the renormalized overall and the (non-renormalized) axes coincide,
-    // and posture lands in the correct band. The divergence above is SOLELY a partial-scan artifact.
+    // dimension is present, the renormalized overall and axes coincide (renormalization is a no-op),
+    // and posture lands in the correct band — identical before and after the partial-scan fix.
     const r = recomputeRepo(flatRepo("o/full", 80).dims, "org");
     expect(r.overall).toBe(80);
     expect(r.adoption).toBe(80);

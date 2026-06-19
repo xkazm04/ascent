@@ -68,6 +68,7 @@ export function recomputeRepo(
 ): { overall: number; adoption: number; rigor: number } {
   const lensW = weightsFor(archetype);
   const scoreFor = (id: DimensionId) => dims[id] ?? 0;
+  const isPresent = (id: DimensionId) => dims[id] != null;
   // Renormalized weighted mean over the dimensions actually present — mirrors assembleReport.
   const present = DIMENSIONS.filter((d) => dims[d.id] != null);
   const wsum = present.reduce((a, d) => a + (lensW[d.id] ?? 0), 0);
@@ -76,8 +77,10 @@ export function recomputeRepo(
   );
   return {
     overall,
-    adoption: axisScore("adoption", scoreFor, archetype),
-    rigor: axisScore("rigor", scoreFor, archetype),
+    // Renormalize each axis over the dimensions actually present too, so a partial scan's
+    // adoption/rigor (and the posture derived from them) can't be deflated by absent dims.
+    adoption: axisScore("adoption", scoreFor, archetype, isPresent),
+    rigor: axisScore("rigor", scoreFor, archetype, isPresent),
   };
 }
 
