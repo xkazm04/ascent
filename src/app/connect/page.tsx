@@ -3,6 +3,7 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { InstallationRepos } from "@/components/connect/InstallationRepos";
+import { resolveInstallView } from "./installRouting";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { appConfigureUrl, appInstallUrl, isAppConfigured } from "@/lib/github/app";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
@@ -100,17 +101,12 @@ export default async function ConnectPage({
   // not-yet-in-session org would 403 — when auth is on we surface a one-click re-sync for it
   // instead of a panel that can't load. Auth-off has no session to re-sync, so the query-carried
   // org renders directly (the API gate is open in that mode).
-  const installs: { login: string; id?: string }[] = (session?.installations ?? []).map((i) => ({
-    login: i.login,
-    id: String(i.id),
-  }));
-  const orgInSession =
-    !org ||
-    installs.some((i) => (installation_id ? i.id === installation_id : i.login.toLowerCase() === org.toLowerCase()));
-  const pendingInstall = org && isAuthConfigured() && !orgInSession ? org : null;
-  if (org && !isAuthConfigured() && !orgInSession) {
-    installs.push({ login: org, id: installation_id });
-  }
+  const { installs, pendingInstall } = resolveInstallView({
+    session,
+    org,
+    installationId: installation_id,
+    authConfigured: isAuthConfigured(),
+  });
 
   const installCount = session?.installations.length ?? 0;
   // Orgs auto-discovered at login (see src/lib/github/discover.ts): the most-active org we
