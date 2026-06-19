@@ -7,6 +7,7 @@ import { ReportView } from "@/components/report/ReportView";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { parseScanReport } from "@/lib/report/validate";
 import { repoKey } from "./repoKey";
+import { classifyScanAbort } from "@/components/report/reportTaxonomy";
 import { Empty, Loading, parseSSE, type Progress } from "@/components/report/ReportClientStatus";
 import {
   QuotaBanner,
@@ -228,15 +229,16 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
         if (!cancelled && !settled) setState({ status: "error", message: "The scan ended unexpectedly." });
       } catch (e) {
         if (cancelled) return;
-        if ((e as Error).name === "AbortError") {
-          if (timedOut) {
-            setState({ status: "error", message: "The scan timed out. Try again, or try a smaller repository." });
-          } else {
-            // A non-timeout abort that isn't an intentional unmount (cancelled is false by here) —
-            // e.g. a connection reset — would otherwise leave the checklist spinning forever.
-            setState({ status: "error", message: "The scan was interrupted. Please try again." });
-          }
-        } else {
+        // Map the thrown error into the message taxonomy (classifyScanAbort): an AbortError from the
+        // 180s timeout → "timed out" (with smaller-repo guidance); a non-timeout abort (e.g. a
+        // connection reset; intentional-unmount aborts already returned above via `cancelled`) →
+        // "interrupted" (else the checklist spins forever); anything else → "network".
+        const kind = classifyScanAbort({ name: (e as Error).name, timedOut, cancelled });
+        if (kind === "timeout") {
+          setState({ status: "error", message: "The scan timed out. Try again, or try a smaller repository." });
+        } else if (kind === "interrupted") {
+          setState({ status: "error", message: "The scan was interrupted. Please try again." });
+        } else if (kind === "network") {
           setState({ status: "error", message: "Network error while scanning." });
         }
       } finally {

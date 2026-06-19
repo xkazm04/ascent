@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { DimensionId, PersistedRecommendation, ScanReport } from "@/lib/types";
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { parseRepositoryHistory } from "@/lib/report/validate";
+import { classifyHistoryResponse } from "@/components/report/reportTaxonomy";
 import { LEVELS, axisScore } from "@/lib/maturity/model";
 import { type TrendPoint } from "@/components/report/TrendChart";
 import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
@@ -38,12 +39,15 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
           fetch(`/api/history?repo=${encodeURIComponent(repoRef)}`),
           fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`),
         ]);
-        if (active && h.ok) setHistory(parseRepositoryHistory(await h.json()));
         // A non-OK history response is a FAILURE, not "no history yet" — without this branch an
         // HTTP 500 (e.g. a transient DB token expiry) silently rendered "Baseline established"
         // over months of real history. 503 (persistence off) and 401 (signed-out viewer) are
-        // legitimate no-trends modes and keep the quiet baseline path.
-        else if (active && h.status !== 503 && h.status !== 401) setHistError(true);
+        // legitimate no-trends modes and keep the quiet baseline path. (classifyHistoryResponse)
+        if (active) {
+          const disposition = classifyHistoryResponse(h.status, h.ok);
+          if (disposition === "ok") setHistory(parseRepositoryHistory(await h.json()));
+          else if (disposition === "error") setHistError(true);
+        }
         if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
       } catch {
         // Couldn't reach the history endpoint (offline / transient). Surface it in the trend panel
