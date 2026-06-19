@@ -1,14 +1,76 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { Prisma } from "@prisma/client";
+
+// ── Mocks for the DB-bound consume/refund integration (suites at the bottom) ───────────────────
+// The pure window math above needs no mocks. The transactional wrapper does: control the DB-config
+// gate, the DSQL-vs-Postgres branch, and replace withDb/withRetry with pass-throughs that invoke
+// the callback against a fake in-memory `tx`. recordQuotaEvent + clientIp are stubbed to no-ops.
+const { mockIsDbConfigured, mockReadDsqlConfig, mockRecordQuotaEvent } = vi.hoisted(() => ({
+  mockIsDbConfigured: vi.fn(() => true),
+  mockReadDsqlConfig: vi.fn(() => null as unknown), // null = Postgres (static) by default
+  mockRecordQuotaEvent: vi.fn(async () => {}),
+}));
+
+vi.mock("@/lib/db", () => ({
+  isDbConfigured: mockIsDbConfigured,
+  // Pass-throughs: invoke the operation against whatever client/tx the test injects via $transaction.
+  withDb: (op: (db: unknown) => unknown) => op(currentDb),
+  withRetry: (fn: () => unknown) => fn(),
+}));
+vi.mock("@/lib/db/client", () => ({ readDsqlConfig: mockReadDsqlConfig }));
+vi.mock("@/lib/db/quota-events", () => ({ recordQuotaEvent: mockRecordQuotaEvent }));
+vi.mock("@/lib/rate-limit", () => ({ clientIp: () => "203.0.113.99" }));
+
 import {
+  consumePublicScanQuota,
   decideQuota,
   parseHits,
   hashIp,
   hashKey,
   publicScanWeeklyLimit,
+  refundPublicScanQuota,
   removeHit,
   removeNewestHit,
   signedInScanWeeklyLimit,
 } from "./public-scan-quota";
+
+// Captured per-test: the fake `db` withDb hands to the operation, plus the isolation options the
+// code threads into $transaction (so the isolation-selection suite can assert the branch fired).
+let currentDb: { $transaction: (fn: (tx: unknown) => unknown, opts?: unknown) => unknown };
+let capturedTxOptions: unknown;
+
+/**
+ * A fake Prisma backed by a single in-memory PublicScanQuota row store (Map<ipHash, hitsJson>).
+ * findUnique reads the live row, upsert/update write it back — so a consume that appends a hit and a
+ * refund that drops one operate on the SAME mutable window, end-to-end. $transaction records the
+ * isolation options the code passed (quotaTxOptions()) and runs the body against this store.
+ */
+function makeFakeDb(seed: Record<string, number[]> = {}) {
+  const store = new Map<string, string>();
+  for (const [k, hits] of Object.entries(seed)) store.set(k, JSON.stringify(hits));
+  const tx = {
+    publicScanQuota: {
+      findUnique: vi.fn(async ({ where }: { where: { ipHash: string } }) =>
+        store.has(where.ipHash) ? { ipHash: where.ipHash, hits: store.get(where.ipHash)! } : null,
+      ),
+      upsert: vi.fn(
+        async ({ where, create, update }: { where: { ipHash: string }; create: { hits: string }; update: { hits: string } }) => {
+          store.set(where.ipHash, store.has(where.ipHash) ? update.hits : create.hits);
+        },
+      ),
+      update: vi.fn(async ({ where, data }: { where: { ipHash: string }; data: { hits: string } }) => {
+        store.set(where.ipHash, data.hits);
+      }),
+    },
+  };
+  const db = {
+    $transaction: (fn: (t: typeof tx) => unknown, opts?: unknown) => {
+      capturedTxOptions = opts;
+      return fn(tx);
+    },
+  };
+  return { db, store, tx };
+}
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const NOW = 1_700_000_000_000; // fixed epoch for deterministic windows
@@ -211,5 +273,156 @@ describe("signedInScanWeeklyLimit", () => {
     withEnv({ PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN: "2", PUBLIC_SCAN_WEEKLY_LIMIT: "5" }, () =>
       expect(signedInScanWeeklyLimit()).toBe(5),
     );
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// HIGH (finding #3): the transactional consume → deny → refund path against an in-memory store.
+// The window arithmetic (decideQuota / removeHit) is covered above; what's untested is the DB-bound
+// wrapper that reads the row, decides, upserts the appended hit, and on failure refunds the EXACT
+// charged slot — the layer that can actually leak money. We exercise it end-to-end against a fake
+// `tx` backed by a mutable Map, so consume and refund operate on the same persisted window.
+describe("consumePublicScanQuota / refundPublicScanQuota (transactional, in-memory store)", () => {
+  const KEY = hashIp("203.0.113.99"); // clientIp() is stubbed to this; consume buckets per-IP
+  const req = new Request("https://ascent.test/api/scan");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers(); // distinct, advancing timestamps so each charged slot is individually identifiable
+    vi.setSystemTime(1_700_000_000_000);
+    mockIsDbConfigured.mockReturnValue(true);
+    mockReadDsqlConfig.mockReturnValue(null); // Postgres
+    delete process.env.PUBLIC_SCAN_QUOTA_DISABLED;
+    process.env.PUBLIC_SCAN_WEEKLY_LIMIT = "3"; // pin the limit for deterministic counting
+    capturedTxOptions = undefined;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
+  });
+
+  it("consume decrements inside the tx, over-quota is DENIED with no decrement, and a refund nets to zero", async () => {
+    const { db, store } = makeFakeDb();
+    currentDb = db;
+
+    // Consume up to the limit (3). Each allowed consume appends exactly one hit to the persisted window.
+    // Advance the clock between calls so the three charged slots get distinct timestamps.
+    const r1 = await consumePublicScanQuota(req);
+    vi.advanceTimersByTime(1000);
+    const r2 = await consumePublicScanQuota(req);
+    vi.advanceTimersByTime(1000);
+    const r3 = await consumePublicScanQuota(req);
+    expect([r1.allowed, r2.allowed, r3.allowed]).toEqual([true, true, true]);
+    expect(r1.enforced).toBe(true);
+    expect(typeof r1.chargedAt).toBe("number"); // chargedAt is the appended timestamp
+    expect(new Set([r1.chargedAt, r2.chargedAt, r3.chargedAt]).size).toBe(3); // three distinct slots
+    expect(parseHits(store.get(KEY)).length).toBe(3); // three slots actually persisted
+
+    // The 4th (over-quota) consume is DENIED — and crucially the stored window is UNCHANGED (no
+    // check-then-act decrement on the deny path; the read+decide+write is one atomic tx body).
+    const before = store.get(KEY);
+    const denied = await consumePublicScanQuota(req);
+    expect(denied).toMatchObject({ enforced: true, allowed: false, remaining: 0, chargedAt: null });
+    expect(store.get(KEY)).toBe(before); // deny did not write
+    expect(parseHits(store.get(KEY)).length).toBe(3);
+    expect(mockRecordQuotaEvent).toHaveBeenCalledWith("quota_deny", "anon"); // denial observed
+
+    // A downstream failure refunds the EXACT slot the 3rd consume charged — transactional, no leak.
+    await refundPublicScanQuota(req, {}, r3.chargedAt);
+    const after = parseHits(store.get(KEY));
+    expect(after.length).toBe(2); // net: 3 consumed − 1 refunded = 2
+    expect(after).not.toContain(r3.chargedAt); // exactly that slot removed, not a sibling's
+    expect(after).toEqual(expect.arrayContaining([r1.chargedAt, r2.chargedAt]));
+  });
+
+  it("refund removes only its OWN charged slot and is idempotent — a second refund never over-credits", async () => {
+    const tA = Date.now() - 5000;
+    const tB = Date.now() - 4000;
+    const { store } = (() => {
+      const made = makeFakeDb({ [KEY]: [tA, tB] }); // two live slots from two distinct requests
+      currentDb = made.db;
+      return made;
+    })();
+
+    // Request A refunds ITS slot (tA) — must not peel B's still-live tB (the double-refund race fix).
+    await refundPublicScanQuota(req, {}, tA);
+    expect(parseHits(store.get(KEY))).toEqual([tB]);
+
+    // A duplicate/stray refund of the same charge is a no-op: it can't drop B's slot or go negative.
+    await refundPublicScanQuota(req, {}, tA);
+    expect(parseHits(store.get(KEY))).toEqual([tB]); // still exactly one slot — no over-refund leak
+  });
+
+  it("fails OPEN (no tx, allow) when persistence is unconfigured — the free funnel never breaks", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    const txSpy = vi.fn();
+    currentDb = { $transaction: txSpy };
+
+    const r = await consumePublicScanQuota(req);
+    expect(r).toMatchObject({ enforced: false, allowed: true, chargedAt: null });
+    expect(txSpy).not.toHaveBeenCalled(); // early return — the transaction body never runs
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────────────────────
+// HIGH (finding #4): pin the DSQL-vs-Postgres isolation selection that makes the consume race-safe.
+// quotaTxOptions() is not exported, so we assert its effect THROUGH the consume path: the options it
+// returns are exactly what reaches $transaction. Postgres ⇒ { isolationLevel: Serializable } (so a
+// concurrent racer aborts with 40001 → withRetry); DSQL ⇒ undefined (DSQL rejects explicit isolation
+// and aborts the loser via native OCC). The branch must never invert.
+describe("quota transaction isolation selection (DSQL vs Postgres)", () => {
+  const req = new Request("https://ascent.test/api/scan");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    delete process.env.PUBLIC_SCAN_QUOTA_DISABLED;
+    process.env.PUBLIC_SCAN_WEEKLY_LIMIT = "3";
+    capturedTxOptions = undefined;
+  });
+
+  afterEach(() => {
+    delete process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
+  });
+
+  it("Postgres (no DSQL config) ⇒ Serializable isolation passed to the consume transaction", async () => {
+    mockReadDsqlConfig.mockReturnValue(null);
+    currentDb = makeFakeDb().db;
+    await consumePublicScanQuota(req);
+    expect(capturedTxOptions).toEqual({
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
+
+  it("DSQL (config present) ⇒ NO explicit isolation (undefined) — DSQL rejects an isolation level", async () => {
+    mockReadDsqlConfig.mockReturnValue({ endpoint: "x.dsql.us-east-1.on.aws", region: "us-east-1" });
+    currentDb = makeFakeDb().db;
+    await consumePublicScanQuota(req);
+    expect(capturedTxOptions).toBeUndefined();
+  });
+
+  it("the refund transaction uses the SAME isolation branch (Serializable on Postgres)", async () => {
+    mockReadDsqlConfig.mockReturnValue(null);
+    const t = Date.now() - 1000;
+    currentDb = makeFakeDb({ [hashIp("203.0.113.99")]: [t] }).db;
+    await refundPublicScanQuota(req, {}, t);
+    expect(capturedTxOptions).toEqual({
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
+
+  it("never inverts: Postgres ⇏ undefined and DSQL ⇏ Serializable across both branches", async () => {
+    // Postgres branch must not be undefined.
+    mockReadDsqlConfig.mockReturnValue(null);
+    currentDb = makeFakeDb().db;
+    await consumePublicScanQuota(req);
+    expect(capturedTxOptions).not.toBeUndefined();
+
+    // DSQL branch must not carry an explicit isolation level.
+    mockReadDsqlConfig.mockReturnValue({ endpoint: "y.dsql.on.aws", region: "eu-west-1" });
+    currentDb = makeFakeDb().db;
+    await consumePublicScanQuota(req);
+    expect(capturedTxOptions).toBeUndefined();
   });
 });
