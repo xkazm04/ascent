@@ -7,11 +7,11 @@ import { scoreHex } from "@/lib/ui";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet, Stat } from "./FleetMapChrome";
 import { applyScanEvent } from "./applyScanEvent";
-import { type Constellation, type RepoStar, mapRepos } from "./fleetMapStars";
+import { type SortKey, fleetStats, makeMatcher, orderConstellations } from "./fleetMapDerive";
+import { type Constellation, mapRepos } from "./fleetMapStars";
 import { mergeStars } from "./mergeStars";
 
 const LEVEL_BANDS = ["L1", "L2", "L3", "L4", "L5", "unscanned"] as const;
-type SortKey = "name" | "maturity" | "repos" | "movement";
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "name", label: "name" },
   { key: "maturity", label: "maturity" },
@@ -140,37 +140,7 @@ export function FleetMap({
   }, [installations]);
 
   // Fleet-wide tallies that visibly climb as each org's data streams in.
-  const stats = useMemo(() => {
-    let repos = 0;
-    let scanned = 0;
-    let sum = 0;
-    let loaded = 0;
-    let risers = 0;
-    let fallers = 0;
-    for (const c of constellations) {
-      if (c.status === "done") {
-        loaded += 1;
-        repos += c.repos.length;
-        for (const r of c.repos) {
-          if (r.overall != null) {
-            scanned += 1;
-            sum += r.overall;
-          }
-          if (r.dOverall != null && r.dOverall >= 1) risers += 1;
-          else if (r.dOverall != null && r.dOverall <= -1) fallers += 1;
-        }
-      }
-    }
-    return {
-      orgs: constellations.length,
-      loaded,
-      repos,
-      scanned,
-      avg: scanned ? Math.round(sum / scanned) : null,
-      risers,
-      fallers,
-    };
-  }, [constellations]);
+  const stats = useMemo(() => fleetStats(constellations), [constellations]);
 
   const hydrating = stats.loaded < stats.orgs;
 
@@ -178,34 +148,10 @@ export function FleetMap({
   // undefined, so ConstellationField renders at full brightness (no dimming).
   const q = query.trim().toLowerCase();
   const filterActive = q !== "" || levels.size > 0 || watchedOnly;
-  const matcher = useMemo(() => {
-    if (!filterActive) return undefined;
-    return (r: RepoStar) => {
-      if (q && !r.fullName.toLowerCase().includes(q)) return false;
-      if (watchedOnly && !r.watched) return false;
-      if (levels.size > 0 && !levels.has(r.level ?? "unscanned")) return false;
-      return true;
-    };
-  }, [filterActive, q, watchedOnly, levels]);
+  const matcher = useMemo(() => makeMatcher({ q, levels, watchedOnly }), [q, levels, watchedOnly]);
 
   // Order the org cards by the chosen key; loaded constellations rank ahead of loading/error ones.
-  const ordered = useMemo(() => {
-    const metric = (c: Constellation): number => {
-      if (c.status !== "done") return -1;
-      const scored = c.repos.filter((r) => r.overall != null);
-      if (sortKey === "repos") return c.repos.length;
-      if (sortKey === "movement") return c.repos.reduce((s, r) => s + Math.abs(r.dOverall ?? 0), 0);
-      if (sortKey === "maturity") return scored.length ? scored.reduce((s, r) => s + (r.overall ?? 0), 0) / scored.length : 0;
-      return 0; // name handled below
-    };
-    return [...constellations].sort((a, b) => {
-      const da = a.status === "done" ? 0 : 1;
-      const db = b.status === "done" ? 0 : 1;
-      if (da !== db) return da - db; // done first
-      if (sortKey === "name") return a.login.localeCompare(b.login);
-      return metric(b) - metric(a); // maturity / repos / movement: high to low
-    });
-  }, [constellations, sortKey]);
+  const ordered = useMemo(() => orderConstellations(constellations, sortKey), [constellations, sortKey]);
 
   function toggleLevel(band: string) {
     setLevels((s) => {
