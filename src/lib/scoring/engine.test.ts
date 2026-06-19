@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { assembleReport, contributions, diffReports, projectDimensionClose, projectSandbox, projectedGain } from "./engine";
-import { DIMENSIONS, LEVEL_BY_ID, LLM_GUARDBAND, SCORE_BLEND, axisScore, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
+import { ARCHETYPE_WEIGHTS, DIMENSIONS, LEVEL_BY_ID, LLM_GUARDBAND, SCORE_BLEND, axisScore, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
 import { MockProvider } from "@/lib/llm/mock";
-import type { DimensionResult, DimensionSignals, LlmAssessment, RepoSnapshot, ScanReport } from "@/lib/types";
+import { classifyArchetype } from "@/lib/analyze";
+import { applyGovernanceSignals, applyPrSignals } from "@/lib/analyze/pulls";
+import type { DimensionSignals, Governance, PrStats, RepoFile, RepoSnapshot, ScanReport } from "@/lib/types";
+import type { DimensionResult, LlmAssessment } from "@/lib/types";
 
 /** All 8 dimensions at a baseline, with per-dimension score/signal/evidence/gap overrides. */
 function dims(
@@ -597,5 +600,248 @@ describe("assembleReport — failed detector excluded from the overall (#2)", ()
     const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith(llm), eng, AT, "org");
     expect(report.dimensions).toHaveLength(9);
     expect((report.warnings ?? []).some((w) => /(not measured|INCOMPLETE)/i.test(w))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyGovernanceSignals — default-branch governance fold into D6/D3/D8 (#3)
+//
+// ZERO prior tests. The governance fold feeds the rigor axis the CI gate blocks on, so a
+// drift in the boost amounts, the !gov.readable early return, or the additive-only contract
+// (absence must NEVER penalize) silently re-postures a repo. These pin each nudge.
+// ---------------------------------------------------------------------------
+
+/** A governance object with everything off; flip only the fields a test cares about. */
+function gov(over: Partial<Governance> = {}): Governance {
+  return {
+    defaultBranch: "main",
+    protected: false,
+    requiresPullRequest: false,
+    requiredApprovals: 0,
+    requiresCodeOwnerReview: false,
+    requiresStatusChecks: false,
+    requiresSignatures: false,
+    linearHistory: false,
+    ruleCount: 0,
+    readable: false,
+    ...over,
+  };
+}
+/** Per-dimension signal-only fixtures keyed by id, all starting at signalScore 50. */
+function govSignals(ids: string[]): DimensionSignals[] {
+  return ids.map((id) => ({ id: id as DimensionSignals["id"], signalScore: 50, signals: [] }));
+}
+const scoreById = (out: DimensionSignals[]) => new Map(out.map((s) => [s.id, s.signalScore]));
+
+describe("applyGovernanceSignals — branch-protection fold (#3)", () => {
+  it("an unreadable governance object returns the signals untouched (referential equality)", () => {
+    // !gov.readable early return: classic-protection repos may not expose rules to a read token,
+    // so an unreadable result must be a pure no-op — same array, no spurious nudge.
+    const input = govSignals(["D3", "D6", "D8"]);
+    expect(applyGovernanceSignals(input, gov({ readable: false, protected: true, requiresPullRequest: true }))).toBe(input);
+    // A null/undefined governance is likewise a no-op.
+    expect(applyGovernanceSignals(input, null)).toBe(input);
+    expect(applyGovernanceSignals(input, undefined)).toBe(input);
+  });
+
+  it("required PR review + code owners adds exactly 8+4 to D6 and protection adds 6 to D8", () => {
+    // D6 boost = (requiredApprovals>0 ? 8 : 4) + (requiresCodeOwnerReview ? 4 : 0) = 8 + 4 = 12.
+    // D8 boost = 6 + (requiresSignatures?3:0) + (linearHistory?2:0) = 6 (protected only).
+    const out = applyGovernanceSignals(
+      govSignals(["D3", "D6", "D8"]),
+      gov({ readable: true, protected: true, requiresPullRequest: true, requiredApprovals: 1, requiresCodeOwnerReview: true, ruleCount: 3 }),
+    );
+    const m = scoreById(out);
+    expect(m.get("D6")).toBe(62); // 50 + 12
+    expect(m.get("D8")).toBe(56); // 50 + 6 (protected, no signatures/linear)
+    expect(m.get("D3")).toBe(50); // no requiresStatusChecks → untouched
+  });
+
+  it("required status checks add exactly 8 to D3; signatures + linear history stack onto D8", () => {
+    const out = applyGovernanceSignals(
+      govSignals(["D3", "D8"]),
+      gov({ readable: true, protected: true, requiresStatusChecks: true, requiresSignatures: true, linearHistory: true, ruleCount: 4 }),
+    );
+    const m = scoreById(out);
+    expect(m.get("D3")).toBe(58); // 50 + 8
+    expect(m.get("D8")).toBe(61); // 50 + 6 + 3 (signatures) + 2 (linear)
+  });
+
+  it("PR required WITHOUT approvals/code-owners boosts D6 by only the base 4", () => {
+    const out = applyGovernanceSignals(govSignals(["D6"]), gov({ readable: true, requiresPullRequest: true, requiredApprovals: 0, requiresCodeOwnerReview: false }));
+    expect(scoreById(out).get("D6")).toBe(54); // 50 + (4 base, no approval/code-owner add)
+  });
+
+  it("additive-only: a readable-but-ungoverned repo is never penalized below its base signalScore", () => {
+    // The honesty invariant — absence of guardrails must be NEUTRAL, never a drag. Every dim
+    // keeps its base 50; partial governance leaves the un-boosted dims exactly as they were.
+    const flat = applyGovernanceSignals(govSignals(["D3", "D6", "D8"]), gov({ readable: true }));
+    expect([...scoreById(flat).values()].every((v) => v === 50)).toBe(true);
+    // Only-status-checks: D3 lifts, D6 + D8 are untouched (no spurious change).
+    const partial = applyGovernanceSignals(govSignals(["D3", "D6", "D8"]), gov({ readable: true, requiresStatusChecks: true }));
+    const m = scoreById(partial);
+    expect(m.get("D3")).toBe(58);
+    expect(m.get("D6")).toBe(50);
+    expect(m.get("D8")).toBe(50);
+  });
+
+  it("clamps the boost at the 100 ceiling instead of overshooting", () => {
+    const out = applyGovernanceSignals(
+      [{ id: "D8", signalScore: 98, signals: [] }],
+      gov({ readable: true, protected: true, requiresSignatures: true, linearHistory: true, ruleCount: 5 }),
+    );
+    // 98 + 6 + 3 + 2 = 109 → clamped to 100, never above the bound.
+    expect(out[0]!.signalScore).toBe(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyPrSignals — the D7 + D8 folds the report flags as untested (#3)
+//
+// pulls.test.ts covers only the D6 null-reviewedRate path. The D7 adoption boost (capped 18)
+// and the D8 governed-rate fold decide adoption×rigor + posture; these pin their arithmetic,
+// their guards (never fire on absent AI / null governed-rate), and clamp-at-bounds + no NaN.
+// ---------------------------------------------------------------------------
+
+/** A PrStats with neutral defaults; override only the fields a fold reads. */
+function prStats(over: Partial<PrStats> = {}): PrStats {
+  return {
+    analyzed: 10,
+    totalCount: 10,
+    open: 0,
+    merged: 10,
+    closedUnmerged: 0,
+    mergeRate: 100,
+    reviewedRate: 80,
+    avgReviews: 1,
+    avgComments: 1,
+    medianHoursToMerge: 4,
+    medianHoursToFirstReview: 2,
+    avgLineChanges: 60,
+    avgChangedFiles: 3,
+    smallPrRate: 70,
+    botAuthoredRate: 0,
+    aiInvolvedRate: 0,
+    aiGovernedRate: null,
+    revertRate: 0,
+    draftRate: 0,
+    tools: [],
+    ...over,
+  };
+}
+const d7 = (signalScore = 50): DimensionSignals[] => [{ id: "D7", signalScore, signals: [] }];
+const d8 = (signalScore = 50): DimensionSignals[] => [{ id: "D8", signalScore, signals: [] }];
+
+describe("applyPrSignals — D7 adoption boost (#3)", () => {
+  it("adds round(aiInvolvedRate·0.5 + tools.length·3) when AI is involved (under the cap)", () => {
+    // aiInvolvedRate 20, 1 tool → boost = round(20*0.5 + 1*3) = round(13) = 13 → 50 + 13 = 63.
+    // (13 < 18 so the min-cap doesn't bind here — this exercises the raw formula.)
+    const [out] = applyPrSignals(d7(), prStats({ aiInvolvedRate: 20, tools: [{ name: "Claude", count: 5 }] }));
+    expect(out!.signalScore).toBe(63);
+  });
+
+  it("caps the D7 boost at 18 no matter how high the AI involvement", () => {
+    // round(100*0.5 + 3*3) = 59, but min(18, …) = 18 → 50 + 18 = 68 (never the un-capped 109).
+    const [out] = applyPrSignals(d7(), prStats({ aiInvolvedRate: 100, tools: [{ name: "Claude", count: 9 }, { name: "Cursor", count: 4 }, { name: "Codex", count: 1 }] }));
+    expect(out!.signalScore).toBe(68);
+  });
+
+  it("never fires when aiInvolvedRate is 0 (additive-only: AI absence is not a penalty)", () => {
+    const [out] = applyPrSignals(d7(77), prStats({ aiInvolvedRate: 0, tools: [{ name: "Claude", count: 3 }] }));
+    expect(out!.signalScore).toBe(77); // untouched — no boost AND no penalty
+  });
+
+  it("clamps the boosted D7 at the 100 ceiling", () => {
+    const [out] = applyPrSignals(d7(95), prStats({ aiInvolvedRate: 100, tools: [{ name: "Claude", count: 1 }] }));
+    expect(out!.signalScore).toBe(100); // 95 + 18 = 113 → clamped
+  });
+});
+
+describe("applyPrSignals — D8 governed-rate fold (#3)", () => {
+  it("folds round(0.7·signal + 0.3·aiGovernedRate) when the governed-rate has a sample", () => {
+    // signal 50, governed 90 → round(0.7*50 + 0.3*90) = round(62) = 62. Governed AI lifts D8.
+    const [lifted] = applyPrSignals(d8(50), prStats({ aiInvolvedRate: 60, aiGovernedRate: 90 }));
+    expect(lifted!.signalScore).toBe(62);
+    // signal 80, governed 0 → round(0.7*80 + 0.3*0) = 56. Ungoverned AI drags D8 down.
+    const [dragged] = applyPrSignals(d8(80), prStats({ aiInvolvedRate: 60, aiGovernedRate: 0 }));
+    expect(dragged!.signalScore).toBe(56);
+  });
+
+  it("leaves D8 untouched when aiGovernedRate is null (too few AI PRs to be meaningful)", () => {
+    // The null branch must be a no-op, not a fold of a fabricated 0 that would drag the rigor axis.
+    const [out] = applyPrSignals(d8(73), prStats({ aiInvolvedRate: 20, aiGovernedRate: null }));
+    expect(out!.signalScore).toBe(73);
+  });
+
+  it("never yields NaN on absent/empty PR data — the whole fold no-ops", () => {
+    const input = d8(64);
+    expect(applyPrSignals(input, null)).toBe(input); // null pr → untouched array
+    expect(applyPrSignals(input, undefined)).toBe(input);
+    expect(applyPrSignals(input, prStats({ analyzed: 0 }))).toBe(input); // empty window → no-op
+    const [out] = applyPrSignals(d8(50), prStats({ aiInvolvedRate: 60, aiGovernedRate: 50 }));
+    expect(Number.isNaN(out!.signalScore)).toBe(false);
+    expect(Number.isFinite(out!.signalScore)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyArchetype — the weighting-lens selector (#3)
+//
+// ZERO prior tests, yet it silently picks the entire ARCHETYPE_WEIGHTS lens that re-weights
+// every dimension. These pin each documented boundary so an off-by-one can't reclassify a repo
+// (and thus mis-score it), and confirm the fallback lands on a real lens, never a mis-weight.
+// ---------------------------------------------------------------------------
+
+/** Build a RepoSnapshot from a star count + a tree path list (everything else is inert here). */
+function snapForArchetype(stars: number, paths: string[]): RepoSnapshot {
+  const tree: RepoFile[] = paths.map((p) => ({ path: p, type: "blob" }));
+  return {
+    meta: { owner: "acme", name: "widget", url: "", stars, forks: 0, defaultBranch: "main" },
+    tree,
+    files: [],
+    commits: [],
+    truncated: false,
+    coverage: 1,
+  };
+}
+const CODEOWNERS = ".github/CODEOWNERS";
+const WF = (n: number) => Array.from({ length: n }, (_, i) => `.github/workflows/ci${i}.yml`);
+
+describe("classifyArchetype — weighting-lens boundary selection (#3)", () => {
+  it("the org lens needs 1000 stars OR (codeowners AND ≥2 workflows)", () => {
+    // 1000 stars → org; one below → not yet org (falls to team via the ≥50 star rule).
+    expect(classifyArchetype(snapForArchetype(1000, []))).toBe("org");
+    expect(classifyArchetype(snapForArchetype(999, []))).toBe("team");
+    // codeowners + 2 workflows → org; codeowners + only 1 workflow → team (the ≥2 cut bites).
+    expect(classifyArchetype(snapForArchetype(0, [CODEOWNERS, ...WF(2)]))).toBe("org");
+    expect(classifyArchetype(snapForArchetype(0, [CODEOWNERS, ...WF(1)]))).toBe("team");
+  });
+
+  it("the team lens needs ≥50 stars OR codeowners OR ≥1 workflow", () => {
+    expect(classifyArchetype(snapForArchetype(50, []))).toBe("team"); // 50 → team
+    expect(classifyArchetype(snapForArchetype(49, []))).toBe("solo"); // one below → solo
+    expect(classifyArchetype(snapForArchetype(0, [CODEOWNERS]))).toBe("team"); // codeowners alone
+    expect(classifyArchetype(snapForArchetype(0, WF(1)))).toBe("team"); // one workflow alone
+  });
+
+  it("a bare repo (no stars, no codeowners, no workflows) falls back to the solo lens", () => {
+    expect(classifyArchetype(snapForArchetype(0, ["README.md", "src/index.ts"]))).toBe("solo");
+    // An empty tree (unknown/empty profile) must still land on a REAL lens, not a mis-weight.
+    const solo = classifyArchetype(snapForArchetype(0, []));
+    expect(solo).toBe("solo");
+    expect(ARCHETYPE_WEIGHTS[solo]).toBeDefined(); // the returned archetype is a valid lens key
+  });
+
+  it("every classification is a valid ARCHETYPE_WEIGHTS key, and each threshold flips it exactly once", () => {
+    // Walk the star axis across both documented cuts; the lens changes at 50 and at 1000, nowhere else.
+    expect(classifyArchetype(snapForArchetype(0, []))).toBe("solo");
+    expect(classifyArchetype(snapForArchetype(49, []))).toBe("solo");
+    expect(classifyArchetype(snapForArchetype(50, []))).toBe("team");
+    expect(classifyArchetype(snapForArchetype(999, []))).toBe("team");
+    expect(classifyArchetype(snapForArchetype(1000, []))).toBe("org");
+    for (const stars of [0, 49, 50, 999, 1000, 5000]) {
+      const a = classifyArchetype(snapForArchetype(stars, []));
+      expect(ARCHETYPE_WEIGHTS[a]).toBeDefined();
+    }
   });
 });
