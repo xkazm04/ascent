@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_BEDROCK_MODEL } from "./bedrock";
 import { DEFAULT_GEMINI_MODEL } from "./gemini";
 import { DEFAULT_OPENAI_MODEL } from "./openai";
+import { DEFAULT_CLAUDE_MODEL } from "./claude-cli";
 import { priceForModel } from "./config";
 
 describe("priceForModel", () => {
@@ -33,6 +34,36 @@ describe("priceForModel", () => {
     expect(mini).not.toBeNull();
     expect(full).not.toBeNull();
     expect(mini!.inPerMTok).toBeLessThan(full!.inPerMTok);
+  });
+
+  it("prices the bare claude-cli model aliases (sonnet/haiku/opus) at first-party rates", () => {
+    // A claude-cli scan persists engineModel: "sonnet"/"haiku"/"opus" (CLAUDE_MODEL); each bare
+    // alias must price, not return null ("no estimate") on a first-class local/eval provider.
+    expect(priceForModel("sonnet")).toEqual({ prefix: "sonnet", inPerMTok: 3, outPerMTok: 15 });
+    expect(priceForModel("haiku")).toEqual({ prefix: "haiku", inPerMTok: 1, outPerMTok: 5 });
+    expect(priceForModel("opus")).toEqual({ prefix: "opus", inPerMTok: 5, outPerMTok: 25 });
+  });
+
+  it("prices the claude-cli default model (derived from claude-cli's own constant)", () => {
+    const price = priceForModel(DEFAULT_CLAUDE_MODEL);
+    expect(price, `no built-in rate for DEFAULT_CLAUDE_MODEL "${DEFAULT_CLAUDE_MODEL}"`).not.toBeNull();
+    expect(price!.inPerMTok).toBeGreaterThan(0);
+    expect(price!.outPerMTok).toBeGreaterThan(0);
+  });
+
+  it("longest-prefix tie-break: a specific Bedrock id beats the shorter bare alias row", () => {
+    // "anthropic.claude-sonnet-4-6" must match the long "anthropic.claude-sonnet-4" row, never a
+    // shorter accidental match — a future reorder/edit of MODEL_PRICES must not let a short prefix
+    // mistier the bill. Assert the matched prefix is the long, most-specific one.
+    const sonnet46 = priceForModel("anthropic.claude-sonnet-4-6");
+    expect(sonnet46).not.toBeNull();
+    expect(sonnet46!.prefix).toBe("anthropic.claude-sonnet-4");
+    expect(sonnet46).toEqual({ prefix: "anthropic.claude-sonnet-4", inPerMTok: 3, outPerMTok: 15 });
+
+    // The geo-stripped Bedrock id likewise resolves to the long row, not the bare "sonnet" alias.
+    expect(priceForModel("us.anthropic.claude-sonnet-4-6")!.prefix).toBe(
+      "anthropic.claude-sonnet-4",
+    );
   });
 
   it("is case-insensitive and tolerant of surrounding whitespace", () => {
