@@ -41,8 +41,11 @@ function capabilities(text) {
   if (!block) return {};
   const caps = {};
   for (const line of block.split('\\n')) {
-    const m = line.match(/^\\s{2}([\\w-]+):\\s*\\{\\s*command:\\s*"([^"]*)"/);
-    if (m) caps[m[1]] = m[2];
+    // command is JSON.stringify'd by the serializer, so the value can contain backslash-escaped
+    // quotes (\\") and other JSON escapes. Match the full quoted string (escapes allowed) and JSON-
+    // parse it back so a command containing a " round-trips exactly, instead of truncating at \\".
+    const m = line.match(/^\\s{2}([\\w-]+):\\s*\\{\\s*command:\\s*("(?:[^"\\\\]|\\\\.)*")/);
+    if (m) { try { caps[m[1]] = JSON.parse(m[2]); } catch { caps[m[1]] = m[2].replace(/^"|"$/g, ''); } }
     else if (/^[^\\s#]/.test(line)) break;
   }
   return caps;

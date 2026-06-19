@@ -300,19 +300,16 @@ describe("manifest <-> doctor round-trip", () => {
 
   // --- Edge content the serializer CAN emit, pinned against the doctor that must parse it ----------
 
-  it("KNOWN drift: a command containing a double-quote does NOT round-trip (serializer JSON-escapes; doctor regex stops at the escaped quote)", () => {
-    // The serializer writes the command via JSON.stringify -> `"echo \"hi\""`. The doctor's
-    // capability regex is `command:\s*"([^"]*)"` which captures up to the FIRST `"`, i.e. it stops
-    // at the backslash-escaped quote and yields the truncated `echo \` instead of `echo "hi"`.
-    // No real command has quotes today, so this is latent — but it IS a serializer/parser drift.
-    // Pinned as CURRENT behavior so any future change to either side is a deliberate, visible one.
+  it("a command containing a double-quote round-trips EXACTLY (serializer JSON-escapes; doctor JSON-unescapes)", () => {
+    // The serializer writes the command via JSON.stringify -> `"echo \"hi\""`. The doctor's capability
+    // regex now matches the FULL JSON-escaped string (`"(?:[^"\\]|\\.)*"`) and JSON-parses the capture,
+    // so a backslash-escaped quote reads back as a real `"`. The command round-trips byte-for-byte.
     const data = buildManifestData(makeReport());
     data.capabilities.test = { command: 'echo "hi"', verified: false };
     const yaml = serializeManifestYaml(data);
     const caps = parsers.capabilities(yaml);
-    // Faithful round-trip WOULD be 'echo "hi"'. It is not — document the truncation.
-    expect(caps.test).not.toBe('echo "hi"');
-    expect(caps.test).toBe('echo \\'); // truncated at the first escaped quote (\" -> \)
+    // Faithful round-trip: the inner quotes survive intact, not truncated at the first escaped quote.
+    expect(caps.test).toBe('echo "hi"');
   });
 
   it("a command with shell special chars (no quotes needed by JSON) round-trips faithfully", () => {
