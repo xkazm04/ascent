@@ -10,6 +10,7 @@ import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import type { OrgRepo } from "@/components/onboarding/types";
 import { runImportScan } from "@/components/onboarding/importScan";
 import { canRunRealScan } from "@/components/onboarding/canRunReal";
+import { byProminence } from "@/components/onboarding/byProminence";
 
 /** Credit context for the select step's cost disclosure, tagged with the org it was read for so a
  *  late response from a previously-picked org can never label the current one. */
@@ -32,12 +33,6 @@ interface ResumeSnapshot {
   sourceInstallId: string | null;
   selected: string[];
 }
-
-/** Rank repos for preselection: most-starred first, then most-recently-pushed. The recency
- *  tie-break is what makes the installation path (private repos, usually 0 stars) preselect the
- *  repos a user actually works in, while public listings still lead with their popular repos. */
-const byProminence = (a: OrgRepo, b: OrgRepo) =>
-  b.stars - a.stars || (b.pushedAt ?? "").localeCompare(a.pushedAt ?? "");
 
 // Cap the installation selector so a large org (hundreds/thousands of repos) yields a usable
 // list rather than an endless wall of buttons — mirrors the public listing's bound. The
