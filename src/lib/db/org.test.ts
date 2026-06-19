@@ -36,6 +36,41 @@ describe("dueBucketFor", () => {
     const lateInDay = new Date("2026-06-02T23:59:59Z");
     expect(dueBucketFor(day("2026-06-02"), lateInDay)).toBe("this_week"); // still today, not overdue
   });
+
+  // ---- boundary edges: pin the exact day each bucket flips, tied to the dueInDays sign. The
+  // invariant on the board is `dueInDays < 0` ⇔ bucket `overdue`, so the today (d=0) vs.
+  // yesterday (d=-1) edge must not drift if daysUntil's Math.round ever becomes Math.floor.
+  // `now` is fixed at 2026-06-02 (UTC date-only), so every assertion is deterministic — no
+  // wall-clock, no fake timers needed.
+  it("flips overdue→this_week exactly at the today boundary (d=-1 vs d=0)", () => {
+    expect(dueBucketFor(day("2026-06-01"), now)).toBe("overdue"); // d=-1: strictly past ⇒ overdue
+    expect(dueBucketFor(day("2026-06-02"), now)).toBe("this_week"); // d=0: today is NOT overdue
+  });
+
+  it("flips this_week→this_month exactly at d=7 vs d=8", () => {
+    expect(dueBucketFor(day("2026-06-09"), now)).toBe("this_week"); // d=7: last day inside the week
+    expect(dueBucketFor(day("2026-06-10"), now)).toBe("this_month"); // d=8: first day of this_month
+  });
+
+  it("flips this_month→later exactly at d=31 vs d=32", () => {
+    expect(dueBucketFor(day("2026-07-03"), now)).toBe("this_month"); // d=31: last day inside the month
+    expect(dueBucketFor(day("2026-07-04"), now)).toBe("later"); // d=32: first day of later
+  });
+
+  // ---- error branches: a null/undefined/invalid date must resolve deterministically with no
+  // NaN-driven crash. null & undefined are the documented "no due date" path; an Invalid Date
+  // object is truthy, so it slips the `!targetDate` guard and (NaN comparisons all false) falls
+  // through to `later` — pinned here as the current, crash-free behavior.
+  it("buckets an explicitly undefined due date as no_date", () => {
+    expect(dueBucketFor(undefined as unknown as Date | null, now)).toBe("no_date");
+  });
+
+  it("does not crash on an Invalid Date and resolves deterministically", () => {
+    const invalid = new Date("not-a-real-date");
+    expect(Number.isNaN(invalid.getTime())).toBe(true);
+    expect(() => dueBucketFor(invalid, now)).not.toThrow();
+    expect(dueBucketFor(invalid, now)).toBe("later"); // NaN days ⇒ all bounds false ⇒ falls through
+  });
 });
 
 // Cohort-matched period deltas (biz-bug-scan-2026-06-11, org-dashboard #2): movement is measured
