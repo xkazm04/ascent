@@ -378,3 +378,109 @@ describe("persistScanReport — carry-forward of recommendation tracking state",
     expect(recs[1]).toMatchObject({ title: "First", status: "open", assigneeLogin: null });
   });
 });
+
+// ── HIGH: head-pointer recency guard (replaces the hollow "exercised by e2e" claim) ───────────────
+//
+// The repo's head pointer (headSha / headEtag / lastScanAt) is the conditional-re-scan freshness
+// reference: the next re-scan sends `If-None-Match` from headEtag and shows "up to date" from
+// lastScanAt. The persist layer advances it through a SINGLE `repository.updateMany` carrying a
+// recency-guarded `where` — `OR:[{lastScanAt:null},{lastScanAt:{lt:scannedAtDate}}]` — so the row
+// only ever moves FORWARD. The source comment (scans-persist.ts:81-84) documents a previously-shipped
+// data-corruption bug where the head was written unconditionally, letting a delayed/replayed scan of
+// an OLDER commit roll headSha back and tear it apart from headEtag. These tests PIN that fix: the
+// guard predicate is always present (so an older scan is a structural no-op), headSha+headEtag move
+// TOGETHER on a newer scan, and the report read returns the head — the latest — not an older row.
+describe("persistScanReport — head-pointer recency guard (advance-on-newer, hold-on-older)", () => {
+  /** Grab the single head-advance updateMany call args (the one carrying the lastScanAt recency OR). */
+  function headAdvanceCall(prisma: ReturnType<typeof fakePrisma>["prisma"]) {
+    const calls = prisma.repository.updateMany.mock.calls as Array<
+      [{ where: { id: string; OR: Array<Record<string, unknown>> }; data: Record<string, unknown> }]
+    >;
+    const headCall = calls.find((c) => Array.isArray(c[0]?.where?.OR));
+    expect(headCall, "expected a recency-guarded head-advance updateMany").toBeDefined();
+    return headCall![0];
+  }
+
+  it("HEAD ADVANCES ON NEWER: the update is gated on lastScanAt < scannedAt and moves headSha+headEtag together", async () => {
+    const { prisma } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null); // new sha → full persist runs
+
+    const scannedAt = "2026-06-19T00:00:00.000Z";
+    await persistScanReport(
+      makeReport({ headSha: "sha_newer", scannedAt }),
+      { headEtag: 'W/"etag-newer"' },
+    );
+
+    const { where, data } = headAdvanceCall(prisma);
+    // The guard predicate must be present so a newer scan advances but an older one can't — the exact
+    // clause whose loss (regressing to an unconditional update) re-opens the head-rollback bug.
+    expect(where.id).toBe("repo_1");
+    expect(where.OR).toEqual([
+      { lastScanAt: null },
+      { lastScanAt: { lt: new Date(scannedAt) } },
+    ]);
+    // headSha + headEtag advance TOGETHER in the same write (so they can't tear apart), with the new
+    // lastScanAt — the head pointer now references the just-persisted newer scan.
+    expect(data).toMatchObject({
+      lastScanAt: new Date(scannedAt),
+      headSha: "sha_newer",
+      headEtag: 'W/"etag-newer"',
+    });
+  });
+
+  it("HEAD HOLDS ON OLDER: an out-of-order older scan's head-advance is a DB no-op (the latest stays latest)", async () => {
+    // The DB enforces the recency guard: for an OLDER scan the OR predicate matches no row, so
+    // updateMany affects 0 rows and the stored head (a newer commit) is NOT moved backward. Model that
+    // by having updateMany report count:0 for this older replay.
+    const { prisma } = fakePrisma({ previousRecs: null });
+    prisma.repository.updateMany.mockResolvedValue({ count: 0 }); // older scan → guard matches nothing
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const olderScannedAt = "2026-01-01T00:00:00.000Z"; // earlier than an already-stored newer head
+    const res = await persistScanReport(
+      makeReport({ headSha: "sha_older", scannedAt: olderScannedAt }),
+      { headEtag: 'W/"etag-older"' },
+    );
+
+    // The head-advance still carries the recency guard, and because it matched 0 rows the stored head
+    // pointer is untouched — no rollback of headSha/headEtag/lastScanAt to the older commit.
+    const { where } = headAdvanceCall(prisma);
+    expect(where.OR).toEqual([
+      { lastScanAt: null },
+      { lastScanAt: { lt: new Date(olderScannedAt) } },
+    ]);
+    expect(prisma.repository.updateMany).toHaveResolvedWith({ count: 0 });
+    expect(res?.headSha).toBe("sha_older"); // the scan still records its own sha; the repo head did not roll back
+  });
+
+  it("REPORT READ RETURNS THE HEAD (latest), not an older row: dedup reuses the head scan for the head commit", async () => {
+    // The dedup read keys on the repo's head commit — re-persisting the head sha resolves to the
+    // existing HEAD scan, never an older one. This is the read-side of the recency invariant: the
+    // returned scan is the latest pinned to the head commit.
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_head" }); // findScanByCommit returns the head row
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_head" }));
+
+    expect(mockFindScanByCommit).toHaveBeenCalledWith("repo_1", "sha_head");
+    expect(res).toMatchObject({ scanId: "scan_head", deduped: true, headSha: "sha_head" });
+    expect(scanCreate).not.toHaveBeenCalled(); // no new row — the head scan is the report read result
+  });
+
+  it("a null/absent headEtag leaves the stored etag alone (advances lastScanAt only)", async () => {
+    // A private /token scan carries no public ETag; the head-advance must not null out the stored one.
+    const { prisma } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const scannedAt = "2026-06-19T12:00:00.000Z";
+    await persistScanReport(makeReport({ headSha: "sha_noetag", scannedAt })); // no headEtag opt
+
+    const { data } = headAdvanceCall(prisma);
+    expect(data).toMatchObject({ lastScanAt: new Date(scannedAt), headSha: "sha_noetag" });
+    expect(data).not.toHaveProperty("headEtag"); // untouched, not reset to null
+  });
+});
