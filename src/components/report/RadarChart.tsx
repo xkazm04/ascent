@@ -37,9 +37,12 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
   const n = dimensions.length;
   const angleFor = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
 
+  // Round to 2dp: Node and the browser can disagree on the last ULP of Math.cos/sin, which surfaces
+  // as a hydration mismatch on the raw SVG coordinate strings (axes/labels/dots). 2dp is sub-pixel here.
+  const r2 = (n: number) => Math.round(n * 100) / 100;
   const point = (i: number, frac: number) => {
     const a = angleFor(i);
-    return [cx + radius * frac * Math.cos(a), cy + radius * frac * Math.sin(a)] as const;
+    return [r2(cx + radius * frac * Math.cos(a)), r2(cy + radius * frac * Math.sin(a))] as const;
   };
 
   const rings = [0.25, 0.5, 0.75, 1];

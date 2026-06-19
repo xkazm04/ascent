@@ -1,5 +1,6 @@
 import type { ScanReport } from "@/lib/types";
 import { scoreHex } from "@/lib/ui";
+import { Kicker, Surface } from "@/components/ui";
 
 function fmtHours(h: number | null): string {
   if (h == null) return "—";
@@ -10,8 +11,8 @@ function fmtHours(h: number | null): string {
 
 function PrMetric({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
+    <div className="rounded-xl border border-divider bg-slate-950/40 p-3">
+      <Kicker tone="muted">{label}</Kicker>
       <div className="mt-1 font-mono text-xl font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
         {value}
       </div>
@@ -22,7 +23,7 @@ function PrMetric({ label, value, color, hint }: { label: string; value: string;
 
 export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prStats"]> }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+    <Surface radius="2xl" className="p-6">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold text-white">Pull request signals</h2>
@@ -65,6 +66,6 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
           </span>
         )}
       </div>
-    </div>
+    </Surface>
   );
 }

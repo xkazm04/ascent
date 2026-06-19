@@ -17,6 +17,13 @@
   --color-danger-soft: #fca5a5;
   /* Warning accent (was raw #f97316 in inline styles). */
   --color-warn: #f97316;
+  /* Brand surface system (the editorial "Index" identity). Panels use the translucent form
+     (bg-surface/40) so the body's altimeter gradient shows through; `divider` is the single hairline
+     token for card borders + rules (replaces the slate-800/slate-700 drift). Utilities generated:
+     bg-surface, bg-surface-strong, border-divider, text-* … all accept opacity modifiers. */
+  --color-surface: #0f172a;          /* slate-900 — panel base; use bg-surface/40 */
+  --color-surface-strong: #020617;   /* slate-950 — deeper panel; bg-surface-strong/40 */
+  --color-divider: #1e293b;          /* slate-800 — hairline rules + card borders */
 }
 
 @theme inline {
@@ -36,6 +43,61 @@ html {
     scroll-behavior: smooth;
   }
 }
+
+/* /about scroll-snap deck: one section per viewport, snapping between them. Scoped to html.snap-deck,
+   which the AboutLanding client component toggles on only while the deck is mounted, so every other
+   page keeps normal scrolling. Disabled under reduced-motion (those users free-scroll). Each section
+   is min-h-screen + snap-start and clears the sticky header with its own internal top padding. */
+@media (prefers-reduced-motion: no-preference) {
+  html.snap-deck {
+    /* proximity (not mandatory): snaps section-to-section when you come to rest near one, but still
+       lets you free-scroll past the last section to a trailing footer without being trapped. */
+    scroll-snap-type: y proximity;
+  }
+}
+
+/* One section per scroll: scroll-snap-stop:always forbids a gesture from passing over a section's
+   snap point, so each scroll lands on the next section instead of skipping several. */
+.snap-deck section[id] {
+  position: relative;
+  scroll-snap-stop: always;
+}
+
+/* Decorative connector — a linear hairline + glowing azure node in the bottom margin of each section,
+   threading the full-viewport sections together so they don't read as disconnected screens. Hidden on
+   each deck's final section (no next section to point to). */
+.snap-deck section[id]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 1.6rem;
+  width: 1px;
+  height: 2.75rem;
+  transform: translateX(-50%);
+  background: linear-gradient(to bottom, transparent, var(--color-divider) 45%, rgba(59, 158, 255, 0.55));
+  pointer-events: none;
+}
+.snap-deck section[id]::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 1.25rem;
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background: var(--color-accent);
+  box-shadow: 0 0 9px 1px rgba(59, 158, 255, 0.45);
+  pointer-events: none;
+}
+.snap-deck section#pricing::after,
+.snap-deck section#pricing::before,
+.snap-deck section#cta::after,
+.snap-deck section#cta::before {
+  display: none;
+}
+
 
 body {
   background-color: #080d1a;

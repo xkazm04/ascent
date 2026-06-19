@@ -6,6 +6,7 @@ import type { DimensionDiff, ScanDiff } from "@/lib/report/compare";
 import type { LevelId } from "@/lib/types";
 import { LEVEL_CLASSES, LEVEL_GLYPH, scoreGlyph, scoreHex, timeAgo } from "@/lib/ui";
 import { DeltaTag } from "@/components/report/deltas";
+import { Kicker, Surface } from "@/components/ui";
 
 /** A short, human label for one side of the comparison (score · level · when · engine). */
 export function scanCaption(scan: ComparableScan): string {
@@ -36,9 +37,9 @@ export function Transition({
   changed: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+    <Surface radius="xl" className="p-4">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</span>
+        <Kicker tone="muted">{label}</Kicker>
         {changed ? (
           <span className="font-mono text-sm uppercase tracking-widest text-accent">changed</span>
         ) : (
@@ -52,7 +53,7 @@ export function Transition({
         </span>
         {after}
       </div>
-    </div>
+    </Surface>
   );
 }
 
@@ -130,7 +131,7 @@ function SignalList({ title, signals, tone }: { title: string; signals: string[]
 export function DimensionDiffCard({ d }: { d: DimensionDiff }) {
   const afterColor = d.after !== null ? scoreHex(d.after) : "#475569";
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+    <Surface radius="xl" className="p-4">
       <div className="flex items-center gap-3">
         <span className="font-mono text-sm text-slate-500">{d.id}</span>
         <span className="flex-1 font-semibold text-white">{d.name}</span>
@@ -157,14 +158,14 @@ export function DimensionDiffCard({ d }: { d: DimensionDiff }) {
           <GapList title="New gaps" gaps={d.openedGaps} tone="opened" />
         </div>
       )}
-    </div>
+    </Surface>
   );
 }
 
 export function AxisDeltaRow({ label, axis }: { label: string; axis: ScanDiff["adoption"] }) {
   const color = scoreHex(axis.after);
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+    <Surface radius="xl" className="p-4">
       <div className="flex items-center justify-between">
         <span className="text-base font-medium text-white">{label}</span>
         <div className="flex items-center gap-2 font-mono text-base tabular-nums">
@@ -175,6 +176,6 @@ export function AxisDeltaRow({ label, axis }: { label: string; axis: ScanDiff["a
         </div>
       </div>
       <DiffBar before={axis.before} after={axis.after} />
-    </div>
+    </Surface>
   );
 }

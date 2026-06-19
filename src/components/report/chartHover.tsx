@@ -62,7 +62,7 @@ export function ChartTooltip({
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute z-20 whitespace-nowrap rounded-lg border border-slate-700 bg-slate-950/95 px-2.5 py-1.5 shadow-lg shadow-black/40"
+      className="pointer-events-none absolute z-20 whitespace-nowrap rounded-lg border border-divider bg-surface-strong/95 px-2.5 py-1.5 shadow-lg shadow-black/40"
       style={{ left: `${xFrac * 100}%`, top: `${yFrac * 100}%`, transform: `translate(${tx}, ${ty})` }}
     >
       {children}

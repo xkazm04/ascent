@@ -58,3 +58,10 @@ next-env.d.ts
 # stray local artifacts (accidental path-mangled dumps, IDE specs)
 /Userskazdakiroverify_ideas.json
 .kiro/
+
+# embedded local-dev PGlite database (scripts/pglite-server.mjs) — local data, never commit
+.pglite/
+
+# dev-only prototype/QA screenshots (scripts/proto-shot.mjs, shot-landing.mjs) + dev inspector log
+.proto-shots/
+.inspect-dev.log

@@ -188,6 +188,19 @@ async function runScan(
     // a typo or a mid-scan refresh must not burn a free slot or a prepaid credit.
     await refundQuota();
     await refundCredit();
+    // Error fallback: when a live scan FAILS (transient upstream/LLM/rate-limit) but we've scored this
+    // repo before, serve the most recent persisted report instead of a hard error — the same any-commit
+    // salvage the quota wall uses (peek&latest). Anonymous public, parseable repos only (token scans are
+    // per-tenant and never share this store); never on a client abort (no one is waiting); never a
+    // private snapshot (defense-in-depth on the shared store). x-ascent-stale + x-ascent-fallback flag it.
+    if (parsed && !token && !(err instanceof Error && err.name === "AbortError")) {
+      const last = await getScanReportByCommit(parsed.owner, parsed.repo, {}).catch(() => null);
+      if (last && !last.repo.isPrivate) {
+        return NextResponse.json(last, {
+          headers: { "x-ascent-cache": "miss", "x-ascent-stale": "true", "x-ascent-fallback": "error" },
+        });
+      }
+    }
     throw err;
   }
   // Don't poison the shared `::llm` cache entry with a deterministic mock report produced by a

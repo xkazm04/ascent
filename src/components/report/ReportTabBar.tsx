@@ -38,7 +38,7 @@ export function ReportTabBar({
     <div
       role="tablist"
       aria-label="Report sections"
-      className="flex flex-wrap gap-1.5 rounded-2xl border border-slate-800 bg-slate-900/40 p-1.5"
+      className="flex flex-wrap gap-1.5 rounded-2xl border border-divider bg-surface/40 p-1.5"
     >
       {tabs.map((t, i) => {
         const isActive = t.id === active;

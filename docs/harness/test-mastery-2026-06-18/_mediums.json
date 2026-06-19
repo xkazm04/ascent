@@ -1,0 +1,242 @@
+[
+  {
+    "slug": "ai-native-standard-onboarding-skill",
+    "title": "Cover the /api/report/skill route: auth gate, 404/503, and Content-Disposition sanitization",
+    "file": "src/app/api/report/skill/route.ts:26",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "app-shell-seo-error-pages",
+    "title": "Cover the error-boundary digest-rendering and reset wiring (error.tsx / global-error.tsx)",
+    "file": "src/app/error.tsx:18-58 / src/app/global-error.tsx:9-100",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "backlog-management",
+    "title": "Add error-branch cases to dueBucketFor and a determinism guard on the `now` default",
+    "file": "src/lib/db/org-insights.ts:223-241 (tested via src/lib/db/org.test.ts:7-39)",
+    "theme": "C.math/aggregate"
+  },
+  {
+    "slug": "ci-gate-status-checks",
+    "title": "Add `min_overall=0` / `min_dimension=0` cases to `policyFromParams` — close the always-pass asymmetry the security floor already guards",
+    "file": "src/lib/scoring/gate.ts:242-244",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "connect-repo-selection",
+    "title": "Test the connect page's install-routing derivation (orgInSession / pendingInstall / auth-off push)",
+    "file": "src/app/connect/page.tsx:103-113 (installs",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "credits-entitlements",
+    "title": "Assert consumeScanCredit's plan-resolution and casing contract for non-enterprise unlimited tiers",
+    "file": "src/lib/db/credits.ts:147-189",
+    "theme": "B.money"
+  },
+  {
+    "slug": "data-retention-purge",
+    "title": "Cover pruneAudit's window + batch-loop termination",
+    "file": "src/lib/db/retention.ts:169-184 (audit prune loop) and the cutoff math at 252 / 289",
+    "theme": "C.math/aggregate"
+  },
+  {
+    "slug": "database-client-schema",
+    "title": "Test `toPersistedRec` against malformed/adversarial stored `explore` JSON and date edge cases",
+    "file": "src/lib/db/scans-shared.ts:181 (toPersistedRec)",
+    "theme": "D.parse/data-integrity"
+  },
+  {
+    "slug": "executive-briefing",
+    "title": "Cover `briefingMarkdown`'s null/empty branches — only the all-populated path is tested",
+    "file": "src/lib/org/briefing.ts:194",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "first-run-onboarding-wizard",
+    "title": "Add a changed-code coverage gate for `src/components/onboarding/` so this context can't regress to zero",
+    "file": "src/components/onboarding/ (whole directory — currently 0 tests)",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "fleet-alerts-digests",
+    "title": "Pin the low-credits \"fires exactly once, never skipped\" crossing at the orchestrator level (multi-unit debit)",
+    "file": "src/lib/scan-alerts.ts:105 (maybeAlertLowCredits)",
+    "theme": "B.money"
+  },
+  {
+    "slug": "fleet-rollups-insights",
+    "title": "Test getOrgBacklog's projectedPoints ROI assembly and overdue/dueSoon counting",
+    "file": "src/lib/db/org-insights.ts:372-465 (per-repo ROI + counts + grouping)",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "github-app-installation-webhooks",
+    "title": "Test the replay dedup window: TTL expiry and `DELIVERY_MAX` eviction",
+    "file": "src/app/api/app/webhook/route.ts:72-101",
+    "theme": "D.parse/data-integrity"
+  },
+  {
+    "slug": "github-oauth-session",
+    "title": "Cover `getActiveOrg`/`orgOptionsForSession` so a tampered ACTIVE_ORG cookie can't widen access",
+    "file": "src/lib/auth.ts:344-373",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "github-repo-data-access",
+    "title": "Add an error-branch test for `fetchPullRequests` partial-data and pagination-stop behavior",
+    "file": "src/lib/github/graphql.ts:39 (githubGraphql) and :110 (fetchPullRequests)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "goals-initiatives",
+    "title": "Batch-test the pure plan helpers (`metricLabel`, `isGoalMetric`, `parseRepos`, `parseTargetDate`, `dailyAvg`)",
+    "file": "src/lib/db/plan.ts:17 (isGoalMetric)",
+    "theme": "D.parse/data-integrity"
+  },
+  {
+    "slug": "investment-simulator-forecast",
+    "title": "Assert the simulate route rejects a non-finite / out-of-range target (the documented NaN no-op regression)",
+    "file": "src/app/api/org/simulate/route.ts:54 (fix validation) + :37 (rank-target fallback)",
+    "theme": "C.math/aggregate"
+  },
+  {
+    "slug": "launch-fleet-map",
+    "title": "Cover the FleetMap derivations: `stats` tallies, `matcher` filter, and `ordered` sort",
+    "file": "src/components/launch/FleetMap.tsx:167",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "live-war-room",
+    "title": "Cover the daysUntil deadline-countdown branches with an injectable clock",
+    "file": "src/components/org/LiveWarRoomHeader.tsx:25 (daysUntil)",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "llm-provider-abstraction",
+    "title": "Cover priceForModel's bare CLI aliases and the longest-prefix tie-break that prevents mispricing",
+    "file": "src/lib/llm/config.ts:48-75 (MODEL_PRICES sonnet/haiku/opus aliases + priceForModel)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "maturity-model-scoring-engine",
+    "title": "Cover `cheapestPathToNextLevel`'s unreachable + greedy-stop branches",
+    "file": "src/lib/scoring/engine.ts:320-371",
+    "theme": "C.math/aggregate"
+  },
+  {
+    "slug": "members-access-control",
+    "title": "Add error-branch tests for getMembershipRole resolution misses (unknown user / unknown org)",
+    "file": "src/lib/db/members.ts:56-71 (getMembershipRole)",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "org-import-scan-watchlist",
+    "title": "Test claimRescan's CAS contract and listDueRescans round-robin fairness — org.test.ts covers a different module",
+    "file": "src/lib/db/org-watch.ts:194 (claimRescan)",
+    "theme": "C.math/aggregate"
+  },
+  {
+    "slug": "org-overview-standing",
+    "title": "Lock the org-window precedence (?range > cookie > default) in resolveOrgWindow",
+    "file": "src/lib/org/period.ts:19",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "org-overview-standing",
+    "title": "Test PeriodSummary's cohort-now / onboarded derivation against a false-narrative regression",
+    "file": "src/components/org/PeriodSummary.tsx:25",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "pdf-llm-export",
+    "title": "Pin the PDF document's score-band and conditional-section rendering (no render crash on edge reports)",
+    "file": "src/lib/pdf/report-document.tsx:15-20",
+    "theme": "C.math/aggregate"
+  },
+  {
+    "slug": "people-delivery-analytics",
+    "title": "Test the null-vs-zero \"no sample\" semantics in `getOrgPrSignals` / `getOrgGovernance`",
+    "file": "src/lib/db/org-signals.ts:43-63",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "people-delivery-analytics",
+    "title": "Pin the \"small-population success-theater\" guards for champions and AI-active share",
+    "file": "src/app/org/[slug]/contributors/page.tsx:75 ",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "playbooks",
+    "title": "Test the [id] PATCH/DELETE per-row gate + version-bump branch",
+    "file": "src/app/api/org/playbooks/[id]/route.ts:17-70 (gate :17",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "practices-governance-adoption",
+    "title": "Lock the language→commands map and the empty/unknown-language fallback in buildArtifact",
+    "file": "src/lib/practice-artifact.ts:49-63 (commandsFor)",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "quotas-rate-limiting",
+    "title": "Cover the abuse-observability counters in `quota-events.ts`",
+    "file": "src/lib/db/quota-events.ts:12 (recordQuotaEvent)",
+    "theme": "B.money"
+  },
+  {
+    "slug": "repo-report-shell-tabs",
+    "title": "Cover the history HTTP-status branch and the abort/timeout taxonomy that decide which message the user sees",
+    "file": "src/components/report/ReportView.tsx:42-52 (503/401 vs other status)",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "repositories-segments",
+    "title": "Cover `getRepoSegmentMap` inversion + sorted, deduped output",
+    "file": "src/lib/db/segments.ts:176 (getRepoSegmentMap)",
+    "theme": "D.parse/data-integrity"
+  },
+  {
+    "slug": "roadmap-recommendation-tracking",
+    "title": "Verify the timeline read order and the tracker's per-row optimistic rollback",
+    "file": "src/lib/db/scans-recommendations.ts:153-168 (getRecommendationEvents)",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "scan-persistence-history",
+    "title": "Test the sha-less `findScanByScannedAt` dedup fallback and the negative/NaN `limit` clamp in getRepositoryHistory",
+    "file": "src/lib/db/scans-read.ts:51-65 (findScanByScannedAt)",
+    "theme": "C.math/aggregate"
+  },
+  {
+    "slug": "scan-pipeline-ingestion",
+    "title": "Test makeCacheKey/normalizeRepoName collapse casing and percent-encoding to one key",
+    "file": "src/lib/cache.ts:25-59 (normalizeRepoName",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "score-charts-visuals",
+    "title": "Cover the time-formatting branches in `freshness`/`timeAgo` (drives the report's \"re-test\" control)",
+    "file": "src/lib/ui.ts:178 (freshness)",
+    "theme": "E.frontend/ui"
+  },
+  {
+    "slug": "security-posture-audit-log",
+    "title": "Test the audit CSV export for formula-injection neutralization and `until`-boundary integrity",
+    "file": "src/app/api/audit/route.ts:18 (csvCell) and :27 (exportCsv)",
+    "theme": "A.security/validation"
+  },
+  {
+    "slug": "trends-comparison",
+    "title": "Add a regression-direction and LLM-attribution test to `diffScans` so the \"What changed\" story can't silently flip",
+    "file": "src/lib/report/compare.ts:179-204",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "usage-metering-public-badge",
+    "title": "Test `safeFilenameSlug` header-injection guard and the public-org day cap",
+    "file": "src/app/api/usage/route.ts:25",
+    "theme": "A.security/validation"
+  }
+]

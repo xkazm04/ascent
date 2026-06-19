@@ -1,0 +1,82 @@
+[
+  {
+    "slug": "ai-native-standard-onboarding-skill",
+    "title": "Add a focused property test for maintain.mjs memory-entry numbering/slug invariants",
+    "file": "src/lib/standard/maintain.ts:56 (note id derivation + slug)"
+  },
+  {
+    "slug": "app-shell-seo-error-pages",
+    "title": "Add a tiny render/branch test for EmptyState — the canonical notice reused across sign-in, org, and trends empties",
+    "file": "src/components/EmptyState.tsx:43-80"
+  },
+  {
+    "slug": "backlog-management",
+    "title": "LLM-batch the backlogShared display helpers (dueLabel / eventValue) against their invariants",
+    "file": "src/components/org/backlogShared.ts:25-38"
+  },
+  {
+    "slug": "connect-repo-selection",
+    "title": "Add one Playwright e2e for the watch-toggle rollback path",
+    "file": "src/components/connect/InstallationRepos.tsx:188-201 (the network round-trip) — new spec under e2e/"
+  },
+  {
+    "slug": "data-retention-purge",
+    "title": "Assert the opt-in \"nothing configured = delete nothing, write no audit\" safety at the orchestrator level",
+    "file": "src/lib/db/retention.ts:231 (if (policy.maxScansPerRepo <= 0 && policy.auditDays <= 0) continue"
+  },
+  {
+    "slug": "database-client-schema",
+    "title": "Add a calibrated coverage gate on `src/lib/db/` so new untested DB helpers can't merge silently",
+    "file": "vitest config (project root) + CI"
+  },
+  {
+    "slug": "executive-briefing",
+    "title": "Make `buildExecBriefing`'s generated dates deterministic and pin them",
+    "file": "src/lib/org/briefing.ts:99"
+  },
+  {
+    "slug": "fleet-rollups-insights",
+    "title": "Pin the org-level recommendation leverage formula against silent re-weighting",
+    "file": "src/lib/db/org-insights.ts:185-198 (getOrgRecommendations leverage)"
+  },
+  {
+    "slug": "investment-simulator-forecast",
+    "title": "Make orgsim/forecast assertions catch the *direction* and *magnitude*, not just `>= 0`",
+    "file": "src/lib/scoring/orgsim.test.ts:52 and :45"
+  },
+  {
+    "slug": "launch-fleet-map",
+    "title": "Add a calibrated changed-code coverage gate so new launch logic can't ship untested",
+    "file": "vitest.config.ts:1"
+  },
+  {
+    "slug": "live-war-room",
+    "title": "Guard the PostureMix true-distribution scaling against the regression it just fixed",
+    "file": "src/components/org/LiveWarRoomPanels.tsx:10 (total = Math.max(1"
+  },
+  {
+    "slug": "llm-provider-abstraction",
+    "title": "Assert parseJsonLoose's recovery-cost guards (oversize reply + structural-start cap) stay enforced",
+    "file": "src/lib/llm/json.ts:32-33"
+  },
+  {
+    "slug": "pdf-llm-export",
+    "title": "Cover CopyForLlm's clipboard fallback and state machine without coupling to the DOM render",
+    "file": "src/components/CopyForLlm.tsx:22-41"
+  },
+  {
+    "slug": "scan-pipeline-ingestion",
+    "title": "Test parseSSE/readSSE frame parsing — the live-result delivery primitive",
+    "file": "src/lib/sse.ts:13-51 (parseSSE"
+  },
+  {
+    "slug": "score-charts-visuals",
+    "title": "Add regression tests for the two empty/unknown-input fallbacks that prevent vanished charts",
+    "file": "src/components/report/RadarChart.tsx:22 (empty-dimensions guard)"
+  },
+  {
+    "slug": "trends-comparison",
+    "title": "Unit-test `withinRange` for the range-toggle edge cases (NaN date keep-rule, boundary, empty)",
+    "file": "src/components/report/DimensionTrendsRange.tsx:15-22"
+  }
+]

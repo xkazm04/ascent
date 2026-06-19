@@ -5,6 +5,7 @@ import { contributions } from "@/lib/scoring/engine";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/Charts";
 import { fmtPts } from "@/components/report/PosturePanel";
+import { Kicker, Surface } from "@/components/ui";
 
 /**
  * Glass-box score waterfall — the single biggest objection to any rating is "it's a black box",
@@ -25,10 +26,10 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
   );
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+    <Surface radius="2xl" className="p-6">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">Why this score</div>
+          <Kicker tone="accent">Why this score</Kicker>
           <h2 className="mt-1 text-lg font-semibold text-white">Score waterfall</h2>
           <p className="mt-1 text-base text-slate-400">
             Every point attributed — each dimension contributes its{" "}
@@ -88,6 +89,6 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
           );
         })}
       </ul>
-    </div>
+    </Surface>
   );
 }

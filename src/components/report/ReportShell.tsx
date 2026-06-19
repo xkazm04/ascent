@@ -9,7 +9,7 @@ export function ReportShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SiteHeader />
-      <main id="main" className="mx-auto w-full max-w-5xl px-5 py-10">
+      <main id="main" className="mx-auto w-full max-w-6xl px-5 py-10">
         {children}
       </main>
       <SiteFooter />

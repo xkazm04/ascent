@@ -9,12 +9,13 @@ import { classifyHistoryResponse } from "@/components/report/reportTaxonomy";
 import { LEVELS, axisScore } from "@/lib/maturity/model";
 import { type TrendPoint } from "@/components/report/TrendChart";
 import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
-import { ReportTabBar, type ReportTab } from "@/components/report/ReportTabBar";
+import { type ReportTab } from "@/components/report/ReportTabBar";
 import { ReportHeader } from "@/components/report/ReportHeader";
 import { ScoringTab } from "@/components/report/ScoringTab";
 import { NextLevelPath, RoadmapSteps, TrustLadder } from "@/components/report/RoadmapPanel";
 import { RecommendationTracker } from "@/components/report/RecommendationTracker";
-import { PrSignalsPanel } from "@/components/report/PrSignalsPanel";
+import { ContributorsPanel } from "@/components/report/ContributorsPanel";
+import { SideNav, type SideNavGroup } from "@/components/ui";
 
 export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?: () => void }) {
   const { repo, level } = report;
@@ -157,6 +158,9 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
     { id: "sandbox", label: "Sandbox" },
   ];
   if (showActivity) tabs.push({ id: "contributors", label: "Contributors" });
+  const navGroups: SideNavGroup[] = [
+    { items: tabs.map((t) => ({ label: t.label, active: tab === t.id, onSelect: () => setTab(t.id) })) },
+  ];
 
   return (
     <div className="animate-fade-up space-y-8" data-testid="report">
@@ -178,10 +182,13 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
         </div>
       )}
 
-      {/* Section tabs — one panel renders at a time; header, caveats, flagged-for-review and the
-          share badge stay outside the tabs as always-visible context. */}
-      <ReportTabBar tabs={tabs} active={tab} onSelect={setTab} />
-
+      {/* Left-rail section nav + the active panel. Header / caveats / flagged-for-review stay
+          full-width outside the rail as always-visible context. */}
+      <div className="lg:grid lg:grid-cols-[180px_minmax(0,1fr)] lg:gap-8">
+        <aside className="lg:sticky lg:top-20 lg:self-start">
+          <SideNav groups={navGroups} ariaLabel="Report sections" />
+        </aside>
+        <div className="mt-4 space-y-8 lg:mt-0">
       {tab === "scoring" && (
         <ScoringTab
           report={report}
@@ -197,59 +204,16 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
       )}
 
       {tab === "sandbox" && (
-        <div role="tabpanel" id="report-panel-sandbox" aria-labelledby="report-tab-sandbox" tabIndex={0} className="focus:outline-none" data-testid="report-tab-sandbox">
-      {/* Roadmap sandbox — drag dimensions, watch the future (client-side what-if recompute) */}
-      <RoadmapSandbox report={report} />
-
+        <div data-testid="report-tab-sandbox">
+          {/* Roadmap sandbox — drag dimensions, watch the future (client-side what-if recompute) */}
+          <RoadmapSandbox report={report} />
         </div>
       )}
 
-      {showActivity && tab === "contributors" && (
-        <div role="tabpanel" id="report-panel-contributors" aria-labelledby="report-tab-contributors" tabIndex={0} className="space-y-8 focus:outline-none" data-testid="report-tab-contributors">
-      {/* Contributors — recent activity + AI attribution */}
-      {report.contributors.filter((c) => c.login !== "unknown").length > 0 && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-          <h2 className="text-lg font-semibold text-white">Recent contributors</h2>
-          <p className="mt-1 text-base text-slate-400">
-            From sampled commit history — bar shows the share that&apos;s AI-attributed.
-          </p>
-          <div className="mt-3 space-y-2">
-            {report.contributors
-              .filter((c) => c.login !== "unknown")
-              .slice(0, 8)
-              .map((c) => {
-                const pctAI = c.commits ? Math.round((c.aiCommits / c.commits) * 100) : 0;
-                return (
-                  <div key={c.login} className="flex items-center gap-3 text-base">
-                    <span className="w-40 shrink-0 truncate text-slate-200">{c.login}</span>
-                    <div
-                      className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800"
-                      role="progressbar"
-                      aria-valuenow={pctAI}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label={`${c.login}: ${pctAI}% AI-attributed commits`}
-                    >
-                      <div className="h-full rounded-full bg-accent" style={{ width: `${pctAI}%` }} />
-                    </div>
-                    <span className="w-32 shrink-0 text-right font-mono text-sm text-slate-500">
-                      {c.aiCommits}/{c.commits} AI · {pctAI}%
-                    </span>
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
-
-      {/* Pull request signals — how systematically the team ships (GraphQL ingestion) */}
-      {report.prStats && report.prStats.analyzed > 0 && <PrSignalsPanel stats={report.prStats} />}
-
-        </div>
-      )}
+      {showActivity && tab === "contributors" && <ContributorsPanel report={report} />}
 
       {tab === "roadmap" && (
-        <div role="tabpanel" id="report-panel-roadmap" aria-labelledby="report-tab-roadmap" tabIndex={0} className="space-y-8 focus:outline-none" data-testid="report-tab-roadmap">
+        <div className="space-y-8" data-testid="report-tab-roadmap">
       {/* Trust ladder — where this repo sits, what the next rung needs */}
       <TrustLadder currentId={report.level.id} />
 
@@ -275,6 +239,8 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
 
         </div>
       )}
+        </div>
+      </div>
 
       {report.discrepancies.length > 0 && (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.03] p-5">

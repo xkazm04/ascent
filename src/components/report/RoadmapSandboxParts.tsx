@@ -17,6 +17,7 @@ import {
   scoreHex,
 } from "@/lib/ui";
 import { DeltaTag } from "@/components/report/deltas";
+import { Kicker } from "@/components/ui";
 
 export type Overrides = Partial<Record<DimensionId, number>>;
 
@@ -39,7 +40,7 @@ export function DimensionSlider({
   const changed = value !== base;
   const color = scoreHex(value);
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
+    <div className="rounded-lg border border-divider bg-surface/40 px-3 py-2">
       <div className="flex items-center justify-between gap-2 text-base">
         <span className="flex min-w-0 items-center gap-2">
           <span className="font-mono text-sm text-slate-500">{id}</span>
@@ -129,7 +130,7 @@ function LevelChip({
 }) {
   const lc = LEVEL_CLASSES[id];
   const cls = muted
-    ? "border-slate-700 bg-slate-900/60 text-slate-400"
+    ? "border-slate-700 bg-surface/60 text-slate-400"
     : demoted
       ? "border-red-500/40 bg-red-500/10 text-red-300"
       : `${lc.border} ${lc.bg} ${lc.text}`;
@@ -148,8 +149,8 @@ function LevelChip({
 /** Projected axis value with its baseline delta — the two numbers the posture quadrant plots. */
 export function AxisStat({ label, value, base }: { label: string; value: number; base: number }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-      <div className="font-mono text-sm uppercase tracking-wider text-slate-500">{label}</div>
+    <div className="rounded-lg border border-divider bg-slate-950/40 px-3 py-2">
+      <Kicker tone="muted">{label}</Kicker>
       <div className="mt-0.5 flex items-baseline gap-2">
         <span className="font-mono text-lg font-bold tabular-nums" style={{ color: scoreHex(value) }}>
           {value}
@@ -243,10 +244,8 @@ export function RoadmapSimulators({
 }) {
   const onPath = new Set(path.steps.map((s) => s.dimension));
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-4">
-      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
-        Simulate a recommendation
-      </div>
+    <div className="rounded-xl border border-divider bg-slate-950/30 p-4">
+      <Kicker tone="muted">Simulate a recommendation</Kicker>
       <ul className="mt-3 space-y-2">
         {report.roadmap.map((item: LlmRoadmapItem, i) => {
           const dimName = DIMENSION_BY_ID[item.dimension]?.name ?? item.dimension;
@@ -255,7 +254,7 @@ export function RoadmapSimulators({
           return (
             <li
               key={i}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-divider bg-surface/40 px-3 py-2"
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">

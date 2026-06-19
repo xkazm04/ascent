@@ -1,6 +1,7 @@
 import type { ScanReport } from "@/lib/types";
 import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { timeAgo } from "@/lib/ui";
+import { Kicker } from "@/components/ui";
 import { FreshnessControl } from "@/components/report/FreshnessControl";
 
 /** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row. */
@@ -13,7 +14,8 @@ export function ReportHeader({ report, onRetest }: { report: ScanReport; onRetes
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-bold text-white">
+        <Kicker tone="muted">Repository report</Kicker>
+        <h1 className="mt-2 text-2xl font-bold text-white">
           <a href={repo.url} target="_blank" rel="noreferrer" className="hover:text-accent">
             {repo.owner}/{repo.name}
           </a>
@@ -26,7 +28,7 @@ export function ReportHeader({ report, onRetest }: { report: ScanReport; onRetes
       </div>
       <div className="flex flex-col items-start gap-2 sm:items-end">
         <div className="flex flex-wrap items-center gap-2 text-sm sm:justify-end">
-          <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-400">
+          <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
             {ARCHETYPE_LABEL[report.archetype]}
           </span>
           {report.aiUsage.detected && (
@@ -43,11 +45,11 @@ export function ReportHeader({ report, onRetest }: { report: ScanReport; onRetes
               Demo · deterministic rubric
             </span>
           ) : (
-            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-400">
+            <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
               engine: {report.engine.provider} · {report.engine.model}
             </span>
           )}
-          <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-400">
+          <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
             confidence {Math.round(report.confidence * 100)}%
           </span>
         </div>

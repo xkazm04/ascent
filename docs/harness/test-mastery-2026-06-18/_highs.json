@@ -1,0 +1,458 @@
+[
+  {
+    "slug": "ai-native-standard-onboarding-skill",
+    "title": "Execute the generated doctor against a fixture repo and assert the score/exit-code gate",
+    "file": "src/lib/standard/doctor.ts:124 (weight={pass:1",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "ai-native-standard-onboarding-skill",
+    "title": "Test the SKILL.md frontmatter-injection and code-fence escaping invariants for malicious inputs",
+    "file": "src/lib/onboarding/skill.ts:60 (safeDesc) and src/lib/onboarding/skill.ts:139 (embedFile fence sizing)",
+    "theme": "F.parse/validation"
+  },
+  {
+    "slug": "app-shell-seo-error-pages",
+    "title": "Test autoscanReadiness as a misconfiguration tripwire — its whole reason to exist is catching silent failure",
+    "file": "src/app/api/health/route.ts:21-26",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "app-shell-seo-error-pages",
+    "title": "Lock robots.ts disallow list and sitemap.ts base-gating against accidental indexing of private/funnel routes",
+    "file": "src/app/robots.ts:17 / src/app/sitemap.ts:10-22",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "backlog-management",
+    "title": "Cover the getOrgBacklog aggregation: counts, ACTIVE filtering, and group ordering",
+    "file": "src/lib/db/org-insights.ts:316-484",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "backlog-management",
+    "title": "Test the PATCH route's tenant gate, validation, and public-org block for FAILURE",
+    "file": "src/app/api/recommendations/[id]/route.ts:38-102",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "ci-gate-status-checks",
+    "title": "Test the gate HTTP endpoint's 200/422 contract — the literal interface CI branches on",
+    "file": "src/app/api/gate/[owner]/[repo]/route.ts:66-84",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "ci-gate-status-checks",
+    "title": "Test `upsertStickyComment`'s find-or-create + 404-fallback logic in `github/checks.ts`",
+    "file": "src/lib/github/checks.ts:65-101",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "ci-gate-status-checks",
+    "title": "Test the base-file overwrite guard in `github/write.ts` — a destructive, fleet-fanout path",
+    "file": "src/lib/github/write.ts:81-88",
+    "theme": "C.destructive/atomicity"
+  },
+  {
+    "slug": "connect-repo-selection",
+    "title": "Test the bulk-watch partial-failure accounting — a 2xx that saved nothing must read as an error",
+    "file": "src/components/connect/InstallationRepos.tsx:245-282 (watchAllFiltered)",
+    "theme": "E.frontend"
+  },
+  {
+    "slug": "connect-repo-selection",
+    "title": "Test the repo filter predicate against query/visibility/watched/language combinations",
+    "file": "src/components/connect/InstallationRepos.tsx:231-241 (the filtered useMemo)",
+    "theme": "E.frontend"
+  },
+  {
+    "slug": "credits-entitlements",
+    "title": "Cover getCreditReconciliation's refund-vs-grant classification",
+    "file": "src/lib/db/credits.ts:227-241 (no test anywhere)",
+    "theme": "B.money/metering"
+  },
+  {
+    "slug": "credits-entitlements",
+    "title": "Add a route test for the grant endpoint's authorization + mint guards",
+    "file": "src/app/api/org/credits/grant/route.ts:21-49 (no test file exists)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "data-retention-purge",
+    "title": "Pin the scan-selection invariant in pruneRepoScans — the test never proves the RIGHT rows are chosen",
+    "file": "src/lib/db/retention.ts:129-134",
+    "theme": "E.frontend"
+  },
+  {
+    "slug": "data-retention-purge",
+    "title": "Test per-org error isolation — one failing org must not abort the whole fleet purge",
+    "file": "src/lib/db/retention.ts:228-283 (the for (const org of orgs) loop and its catch at 280-282)",
+    "theme": "C.destructive/atomicity"
+  },
+  {
+    "slug": "database-client-schema",
+    "title": "Make `init-sql.test.ts` check inline single-field `@unique` indexes, not only `@@unique([...])` blocks",
+    "file": "src/lib/db/init-sql.test.ts:57-79 (the @@index/@@unique parity loop)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "database-client-schema",
+    "title": "Test `getPrisma` cold-start branching and `dbHealthCheck`/`reconnectDb` self-heal — the DSQL deploy-time failure modes",
+    "file": "src/lib/db/client.ts:346 (getPrisma)",
+    "theme": "G.orchestration/runtime"
+  },
+  {
+    "slug": "executive-briefing",
+    "title": "Assert strengths and risks are disjoint — sparse fleets list a dimension as both",
+    "file": "src/lib/org/briefing.ts:172",
+    "theme": "F.parse/validation"
+  },
+  {
+    "slug": "executive-briefing",
+    "title": "Test the PDF route's auth gate and render-failure degradation",
+    "file": "src/app/api/org/briefing/pdf/route.ts:19",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "first-run-onboarding-wizard",
+    "title": "Lock the watch-schedule cost-disclosure contract: the POST body and the disclosed copy must never drift",
+    "file": "src/components/onboarding/importScan.ts:10",
+    "theme": "E.frontend"
+  },
+  {
+    "slug": "first-run-onboarding-wizard",
+    "title": "Test the `byProminence` preselection ordering — it decides which repos auto-spend credits",
+    "file": "src/components/onboarding/OnboardingFlow.tsx:38",
+    "theme": "B.money/metering"
+  },
+  {
+    "slug": "fleet-alerts-digests",
+    "title": "Cover the cron digest route end-to-end — auth fail-closed, per-tenant routing, and partial-failure isolation",
+    "file": "src/app/api/cron/digest/route.ts:32 (no route.test.ts in that dir)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "fleet-alerts-digests",
+    "title": "Cover the `dispatchAlert` side-effect: 2xx vs non-2xx vs network throw, and the no-sink short-circuit",
+    "file": "src/lib/alerts.ts:317 (dispatchAlert",
+    "theme": "G.orchestration/runtime"
+  },
+  {
+    "slug": "fleet-rollups-insights",
+    "title": "Test contributor intelligence: bus factor, champion ranking, and AI-share weighting",
+    "file": "src/lib/db/org-contributors.ts:121-186 (getContributorInsights)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "fleet-rollups-insights",
+    "title": "Test the JSON-blob signal aggregators for malformed and partial data",
+    "file": "src/lib/db/org-signals.ts:32-63 (prStats)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "github-app-installation-webhooks",
+    "title": "Test the PR gate path `runPrGate` — failure must post a neutral check, never a silent absent required check",
+    "file": "src/app/api/app/webhook/route.ts:202-273",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "github-app-installation-webhooks",
+    "title": "Test the `push` rescan gate: watched-only, default-branch-only, head-moved guards",
+    "file": "src/app/api/app/webhook/route.ts:304-324",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "github-oauth-session",
+    "title": "Lock the production bypass kill-switch (`authBypassEnabled`/`authGateEnabled`)",
+    "file": "src/lib/access.ts:27-46",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "github-oauth-session",
+    "title": "Add a forgery-rejection test to `decodeSession` (HMAC tamper), not just round-trip",
+    "file": "src/lib/auth.ts:118-140 (tested by src/lib/auth.test.ts:39-102)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "github-repo-data-access",
+    "title": "Cover `resolveHead`'s status mapping — the SHA that keys cache freshness and the free-304 promise",
+    "file": "src/lib/github/source.ts:185 (resolveHead)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "github-repo-data-access",
+    "title": "Test `fetchBranchGovernance`'s rule extraction and `readable`-vs-null contract",
+    "file": "src/lib/github/governance.ts:47 (fetchBranchGovernance)",
+    "theme": "D.score/aggregate math"
+  },
+  {
+    "slug": "goals-initiatives",
+    "title": "Add route tests for the goals/initiatives API: authz gate, validation, and not-found",
+    "file": "src/app/api/org/goals/route.ts",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "goals-initiatives",
+    "title": "Fix the success-theater e2e: it asserts a goal heading the UI no longer renders",
+    "file": "e2e/org-suite/overview.spec.ts:26",
+    "theme": "E.frontend"
+  },
+  {
+    "slug": "investment-simulator-forecast",
+    "title": "Cover the untested simulator DB orchestration layer (simulateOrgFixes / rankOrgInvestments / goalImpactsForScenario)",
+    "file": "src/lib/db/plan.ts:501 (simulateOrgFixes)",
+    "theme": "G.orchestration/runtime"
+  },
+  {
+    "slug": "investment-simulator-forecast",
+    "title": "Test projectGoal's pace verdict — the on-pace / behind / required-rate logic leaders plan against",
+    "file": "src/lib/maturity/forecast.ts:223 (projectGoal)",
+    "theme": "D.score/aggregate math"
+  },
+  {
+    "slug": "launch-fleet-map",
+    "title": "Test the `scanOrg` SSE event filter — the only path that writes live maturity scores onto the map",
+    "file": "src/components/launch/FleetMap.tsx:82",
+    "theme": "C.destructive/atomicity"
+  },
+  {
+    "slug": "launch-fleet-map",
+    "title": "Add a generatable invariant batch for `mapRepos`, `starPosition`, and `starLook`",
+    "file": "src/components/launch/fleetMapStars.ts:50",
+    "theme": "E.frontend"
+  },
+  {
+    "slug": "live-war-room",
+    "title": "Pin the org-casing contract between mint-authz and token-payload",
+    "file": "src/lib/live-share.ts:29 (org.toLowerCase()) vs src/app/api/org/live-share/route.ts:24 (requireOrgRole(body.org",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "live-war-room",
+    "title": "Extract and test the war-room SSE fold (stats, leaderboard, celebration-on-crossing)",
+    "file": "src/components/org/LiveWarRoom.tsx:136 (onRepo)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "llm-provider-abstraction",
+    "title": "Cover the usage/token-attribution path — bill only the provider that actually scored",
+    "file": "src/lib/scan.ts:204-218",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "llm-provider-abstraction",
+    "title": "Test the model-output hardening guards in validateAssessment (field caps, dup/oversize arrays, level-unlock sanity)",
+    "file": "src/lib/llm/provider.ts:59-88 (cap",
+    "theme": "D.score/aggregate math"
+  },
+  {
+    "slug": "maturity-model-scoring-engine",
+    "title": "Cover `applyGovernanceSignals` and the D7/D8 folds in `applyPrSignals` — the rigor-axis inputs the gate blocks on",
+    "file": "src/lib/analyze/pulls.ts:236-270 (governance)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "maturity-model-scoring-engine",
+    "title": "Test `classifyArchetype` boundaries — a wrong lens re-weights every dimension",
+    "file": "src/lib/analyze/index.ts:703-711",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "members-access-control",
+    "title": "Cover the requireOrgRole trust-on-first-use claim seam against a real orgHasOwner / membership store",
+    "file": "src/lib/authz.ts:141-155 (Supabase-wall branch)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "members-access-control",
+    "title": "Assert audit is recorded with canonical identifiers on every successful privilege change",
+    "file": "src/app/api/org/members/route.ts:60-65 (POST audit)",
+    "theme": "C.destructive/atomicity"
+  },
+  {
+    "slug": "org-import-scan-watchlist",
+    "title": "Test the \"lost reservation never scans for free\" + \"out of credits surfaces\" paths in org/scan — the test today only proves the happy refund",
+    "file": "src/app/api/org/scan/route.test.ts (3 tests",
+    "theme": "B.money/metering"
+  },
+  {
+    "slug": "org-import-scan-watchlist",
+    "title": "Test org/import's credit-cap slice and per-repo refund — the import test only pins token discipline",
+    "file": "src/app/api/org/import/route.test.ts (token-discipline only)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "org-overview-standing",
+    "title": "Pin the window baseline-date math (resolveWindow + parsePeriodCookie)",
+    "file": "src/lib/window.ts:89",
+    "theme": "D.score/aggregate math"
+  },
+  {
+    "slug": "org-overview-standing",
+    "title": "Test the movers diff (buildMove / getOrgMovers sign + onboarded-repo logic)",
+    "file": "src/lib/db/org-insights.ts:47",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "pdf-llm-export",
+    "title": "Assert the Content-Disposition filename sanitization actually neutralizes header/path injection",
+    "file": "src/app/api/report/pdf/route.ts:64-69",
+    "theme": "F.parse/validation"
+  },
+  {
+    "slug": "people-delivery-analytics",
+    "title": "Extract and unit-test `getContributorInsights`' bus-factor / concentration / orgAiShare math",
+    "file": "src/lib/db/org-contributors.ts:142-185",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "people-delivery-analytics",
+    "title": "Test `getOrgActivity`'s unequal-length weekly-series alignment",
+    "file": "src/lib/db/org-signals.ts:174-182",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "playbooks",
+    "title": "Test cleanSteps/parseSteps round-trip and bounds — the only thing protecting stored playbook content",
+    "file": "src/lib/db/playbooks.ts:30-46 (parseSteps :30",
+    "theme": "F.parse/validation"
+  },
+  {
+    "slug": "playbooks",
+    "title": "Test playbookStarterFile — the exact artifact committed into customer repos — and a \"success-theater\" gap in the brief test",
+    "file": "src/lib/org/playbook-brief.ts:35-53 (playbookStarterFile)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "practices-governance-adoption",
+    "title": "Test buildGovernanceOverview's green-path math and per-reason dedup — the dashboard's correctness lives here, not in governanceMarkdown",
+    "file": "src/lib/org/governance.ts:99-176 (buildGovernanceOverview)",
+    "theme": "B.money/metering"
+  },
+  {
+    "slug": "practices-governance-adoption",
+    "title": "Test buildAdoptionOverview's distribution bucketing and null-guard against real contributor inputs",
+    "file": "src/lib/org/adoption.ts:30-57 (buildAdoptionOverview)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "quotas-rate-limiting",
+    "title": "Test the transactional consume → deny → refund path against a real (in-memory) store",
+    "file": "src/lib/public-scan-quota.ts:157 (consumePublicScanQuota)",
+    "theme": "B.money/metering"
+  },
+  {
+    "slug": "quotas-rate-limiting",
+    "title": "Pin the DSQL-vs-Postgres isolation selection that makes the consume race-safe",
+    "file": "src/lib/public-scan-quota.ts:35 (quotaTxOptions)",
+    "theme": "B.money/metering"
+  },
+  {
+    "slug": "repo-report-shell-tabs",
+    "title": "Test `parseRepositoryHistory` so junk history can never crash or fabricate trend points",
+    "file": "src/lib/report/validate.ts:114-146 (parseRepositoryHistory)",
+    "theme": "D.score/aggregate math"
+  },
+  {
+    "slug": "repo-report-shell-tabs",
+    "title": "Test the SSE frame parser (`parseSSE`) and the stream drain for multi-line / CRLF / no-trailing-blank-line frames",
+    "file": "src/components/report/ReportClientStatus.tsx:21-40 (parseSSE)",
+    "theme": "F.parse/validation"
+  },
+  {
+    "slug": "repositories-segments",
+    "title": "Assert the membership-write idempotency and count contract",
+    "file": "src/lib/db/segments.ts:145 (setRepoSegmentsBulk return value)",
+    "theme": "C.destructive/atomicity"
+  },
+  {
+    "slug": "repositories-segments",
+    "title": "Gate-test the four segment routes (auth + per-row tenant resolution)",
+    "file": "src/app/api/org/segments/[id]/route.ts:14 (gate → DELETE requires admin)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "roadmap-recommendation-tracking",
+    "title": "Test the PATCH body validators for FAILURE — they are the only thing keeping junk out of the row",
+    "file": "src/app/api/recommendations/[id]/route.ts:59-104",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "roadmap-recommendation-tracking",
+    "title": "Cover `toPersistedRec` — the corrupt-data firewall on every recommendation read",
+    "file": "src/lib/db/scans-shared.ts:181-214 (toPersistedRec)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "scan-persistence-history",
+    "title": "Replace the hollow \"exercised by the e2e suite\" claim with a real head-pointer recency-guard test",
+    "file": "src/lib/db/scans-persist.ts:121-135 (claim at scans.test.ts:6)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "scan-persistence-history",
+    "title": "Add an LLM-generatable batch for the persisted-JSON parse helpers in scans-read (corruption defenses)",
+    "file": "src/lib/db/scans-read.ts:555-609 (parseStringArray / parseJsonObject / parseNumberArray / parseDiscrepancies)",
+    "theme": "F.parse/validation"
+  },
+  {
+    "slug": "scan-pipeline-ingestion",
+    "title": "Test the isAssessmentUsable degrade gate flags llmFailed + warning (anti-success-theater)",
+    "file": "src/lib/scan.ts:212-216",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "scan-pipeline-ingestion",
+    "title": "Test resolveScanAuth's authorize-before-mint cross-tenant gate",
+    "file": "src/lib/scan.ts:77-102 (resolveScanAuth)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "score-charts-visuals",
+    "title": "Lock `vScale`/`xScale` against the NaN-path corruption they were written to prevent",
+    "file": "src/components/report/chartScale.ts:22 (vScale)",
+    "theme": "D.score/aggregate math"
+  },
+  {
+    "slug": "score-charts-visuals",
+    "title": "Guard the chart-band ramp against silent drift from the rubric it visually claims to match",
+    "file": "src/components/report/chartScale.ts:7 (LEVEL_BANDS)",
+    "theme": "D.score/aggregate math"
+  },
+  {
+    "slug": "security-posture-audit-log",
+    "title": "Test `buildSecurityOverview` gate verdict and band classification for failure, not just the markdown",
+    "file": "src/lib/org/security.ts:34 (buildSecurityOverview)",
+    "theme": "A.auth/IDOR/secret"
+  },
+  {
+    "slug": "security-posture-audit-log",
+    "title": "Test the supply-chain provider's quiet-degradation and demo-honesty path",
+    "file": "src/lib/security/supply-chain.ts:63 (githubProvider.fetchAdvisories) and :112 (getOrgSupplyChain)",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "trends-comparison",
+    "title": "Test `parseRepositoryHistory` — the trust boundary that keeps a drifted /api/history body from white-screening the trend charts",
+    "file": "src/lib/report/validate.ts:114-146",
+    "theme": "D.score/aggregate math"
+  },
+  {
+    "slug": "trends-comparison",
+    "title": "Cover the /api/history CSV export for cell-shifting commas, header injection, and formula injection",
+    "file": "src/app/api/history/route.ts:19-48",
+    "theme": "F.parse/validation"
+  },
+  {
+    "slug": "usage-metering-public-badge",
+    "title": "Pin `validName` against path-traversal / GitHub-grammar bypass",
+    "file": "src/app/api/badge/[owner]/[repo]/route.ts:37",
+    "theme": "Z.other"
+  },
+  {
+    "slug": "usage-metering-public-badge",
+    "title": "Test the badge logo XSS/SSRF filter and SVG escaping",
+    "file": "src/app/api/badge/[owner]/[repo]/route.ts:51",
+    "theme": "A.auth/IDOR/secret"
+  }
+]

@@ -266,9 +266,12 @@ type DsqlSignerModule = {
 async function mintDsqlToken(cfg: DsqlConfig): Promise<string> {
   let mod: DsqlSignerModule;
   try {
-    // Indirect specifier so the static/local build doesn't try to resolve the (optional) SDK.
+    // Indirect specifier + bundler-ignore comments so the static/local build never tries to RESOLVE
+    // this optional SDK (it's only installed in the DSQL deployment, loaded lazily at runtime there).
+    // Without the ignore hints, Turbopack/webpack statically analyze the dynamic import and emit a
+    // "Module not found: @aws-sdk/dsql-signer" warning on every DB-importing route in a non-DSQL env.
     const specifier = "@aws-sdk/dsql-signer";
-    mod = (await import(specifier)) as DsqlSignerModule;
+    mod = (await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ specifier)) as DsqlSignerModule;
   } catch {
     throw new Error(
       "DSQL_ENDPOINT is set but @aws-sdk/dsql-signer is not installed. " +
@@ -295,12 +298,22 @@ type PrismaState = {
 const g = globalThis as unknown as {
   __ascentPrisma?: PrismaState;
   __ascentPrismaRefresh?: Promise<PrismaClient>;
+  // Local-dev embedded PGlite driver adapter, constructed in src/instrumentation.ts when
+  // PGLITE_DATA_DIR is set. Typed loosely here so this module never statically imports the
+  // (dev-only, externalized) pglite packages.
+  __ascentPgliteAdapter?: unknown;
 };
 
 function newClient(url?: string): PrismaClient {
+  const log = process.env.NODE_ENV === "development" ? (["warn", "error"] as const) : (["error"] as const);
+  // Local dev: an embedded in-process PGlite (src/instrumentation.ts) provides the connection via a
+  // Prisma driver adapter — the datasource URL is ignored. No socket, nothing to drop during a long scan.
+  if (g.__ascentPgliteAdapter) {
+    return new PrismaClient({ adapter: g.__ascentPgliteAdapter as never, log: [...log] });
+  }
   return new PrismaClient({
     ...(url ? { datasourceUrl: url } : {}),
-    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
+    log: [...log],
   });
 }
 

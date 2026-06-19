@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
 import { ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/RoadmapPanel";
 import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
+import { Surface } from "@/components/ui";
 
 const STATUS_LABEL: Record<RecStatus, string> = {
   open: "Open",
@@ -124,7 +125,7 @@ export function RecommendationTracker({
         {announcement}
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+      <Surface radius="xl" className="p-4">
         <div className="flex items-center justify-between text-base">
           <span className="font-medium text-white">
             {done} of {total} done
@@ -135,7 +136,7 @@ export function RecommendationTracker({
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
           <div className="h-full rounded-full bg-gradient-to-r from-accent to-emerald-500 transition-all" style={{ width: `${pct}%` }} />
         </div>
-      </div>
+      </Surface>
 
       {items.map((item) => {
         const muted = item.status === "done" || item.status === "dismissed";
@@ -146,7 +147,7 @@ export function RecommendationTracker({
           <div
             key={item.id}
             aria-busy={saving}
-            className="rounded-xl border bg-slate-900/40 p-5"
+            className="rounded-xl border bg-surface/40 p-5"
             style={{ borderLeftWidth: 3, borderLeftColor: edge }}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">

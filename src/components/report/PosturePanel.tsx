@@ -1,6 +1,7 @@
 import type { ScanReport } from "@/lib/types";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
 import { PostureQuadrant } from "@/components/report/Charts";
+import { Kicker, Surface } from "@/components/ui";
 
 export function PosturePanel({
   report,
@@ -10,9 +11,9 @@ export function PosturePanel({
   prev?: { adoption: number; rigor: number } | null;
 }) {
   return (
-    <div className="grid items-center gap-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6 sm:grid-cols-2">
+    <Surface radius="2xl" className="grid items-center gap-6 p-6 sm:grid-cols-2">
       <div className="flex flex-col justify-center">
-        <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">Posture</div>
+        <Kicker tone="accent">Posture</Kicker>
         <h2 className="mt-1 text-xl font-bold text-white">{report.posture.label}</h2>
         <p className="mt-1 text-base leading-relaxed text-slate-400">{report.posture.blurb}</p>
         <div className="mt-5 flex flex-col gap-4">
@@ -28,7 +29,7 @@ export function PosturePanel({
           prev={prev}
         />
       </div>
-    </div>
+    </Surface>
   );
 }
 

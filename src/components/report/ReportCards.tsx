@@ -1,5 +1,6 @@
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_CLASSES, LEVEL_GLYPH, scoreHex } from "@/lib/ui";
+import { Surface } from "@/components/ui";
 
 export function LevelLadder({ currentId }: { currentId: string }) {
   return (
@@ -28,7 +29,7 @@ export function ListCard({ title, items, tone }: { title: string; items: string[
   if (items.length === 0) return null;
   const mark = tone === "good" ? "text-emerald-400" : "text-amber-400";
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+    <Surface radius="2xl" className="p-5">
       <h3 className="font-semibold text-white">{title}</h3>
       <ul className="mt-3 space-y-2 text-base text-slate-300">
         {items.map((it, i) => (
@@ -38,6 +39,6 @@ export function ListCard({ title, items, tone }: { title: string; items: string[
           </li>
         ))}
       </ul>
-    </div>
+    </Surface>
   );
 }

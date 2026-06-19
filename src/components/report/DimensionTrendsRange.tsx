@@ -23,7 +23,7 @@ export function withinRange(scans: HistoryPoint[], days: number | null): History
 
 export function RangeToggle({ value, onChange }: { value: RangeKey; onChange: (k: RangeKey) => void }) {
   return (
-    <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900/60 p-0.5 font-mono text-sm">
+    <div className="inline-flex rounded-lg border border-divider bg-surface/60 p-0.5 font-mono text-sm">
       {RANGES.map((r) => {
         const active = r.key === value;
         return (

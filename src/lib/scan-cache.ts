@@ -17,6 +17,28 @@ import { cacheGet, cacheSet, headHintGet, headHintSet, makeCacheKey } from "@/li
 import { getHeadHint, getScanReportByCommit } from "@/lib/db";
 import type { ScanReport } from "@/lib/types";
 
+/**
+ * Max age of a PERSISTED (commit-pinned) scan before it's re-scanned even when the repo's head is
+ * unchanged — so a preset/popular repo that hasn't moved still gets a fresh reading roughly weekly,
+ * and stale LLM analysis / rubric drift doesn't live forever behind the cross-instance cache.
+ * Env-overridable (`SCAN_MAX_CACHE_AGE_DAYS`); default 7 days. Set to 0 to disable (cache never
+ * ages out on commit). The in-memory tier keeps its own short TTL; this gate is the durable one.
+ */
+export function scanMaxCacheAgeMs(): number {
+  const days = Number(process.env.SCAN_MAX_CACHE_AGE_DAYS);
+  const d = Number.isFinite(days) && days >= 0 ? days : 7;
+  return d * 24 * 60 * 60 * 1000;
+}
+
+/** Is a persisted scan still within the max cache age? Stale (or unparseable) → re-scan. Pure. */
+export function isPersistedScanFresh(scannedAt: string | undefined, now: number = Date.now()): boolean {
+  const maxAge = scanMaxCacheAgeMs();
+  if (maxAge <= 0) return true; // gate disabled — never ages out
+  const t = scannedAt ? new Date(scannedAt).getTime() : NaN;
+  if (!Number.isFinite(t)) return false; // no/garbled timestamp → don't trust it, re-scan
+  return now - t <= maxAge;
+}
+
 export interface ScanCacheLookup {
   /** Where to write the fresh scan. Pinned to the resolved sha, or SHA-less if the head lookup
    *  failed (best-effort caching). Always present so the caller can cacheSet() its result. */
@@ -99,9 +121,11 @@ export async function lookupCachedScan(opts: {
   if (mem) return { cacheKey, headSha, etag, cached: mem, source: "memory" };
 
   // Tier 2: persistent (cross-instance) — rebuild the report pinned to this commit, then warm
-  // the in-memory tier so the next reader on this instance skips the DB round-trip.
+  // the in-memory tier so the next reader on this instance skips the DB round-trip. A persisted
+  // report older than scanMaxCacheAgeMs() is treated as a miss so an unchanged-but-stale repo
+  // re-scans (the weekly-refresh allowance), instead of serving an ageing snapshot forever.
   const persisted = await getScanReportByCommit(owner, repo, { headSha, orgSlug }).catch(() => null);
-  if (persisted) {
+  if (persisted && isPersistedScanFresh(persisted.scannedAt)) {
     cacheSet(cacheKey, persisted);
     return { cacheKey, headSha, etag, cached: persisted, source: "db" };
   }

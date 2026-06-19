@@ -9,6 +9,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import type { HistoryPoint } from "@/lib/db/scans";
 import { timeAgo } from "@/lib/ui";
+import { Kicker, Surface } from "@/components/ui";
 
 function optionLabel(s: HistoryPoint, isLatest: boolean): string {
   return `${s.overallScore} · ${s.level} · ${timeAgo(s.scannedAt)} · ${s.engineProvider}${isLatest ? " · latest" : ""}`;
@@ -17,7 +18,7 @@ function optionLabel(s: HistoryPoint, isLatest: boolean): string {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</span>
+      <Kicker tone="muted">{label}</Kicker>
       <div className="mt-1">{children}</div>
     </label>
   );
@@ -48,7 +49,7 @@ export function ScanComparePicker({
     "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-200 outline-none focus:border-accent";
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+    <Surface radius="2xl" className="p-4">
       <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
         <Field label="Baseline (before)">
           <select
@@ -92,6 +93,6 @@ export function ScanComparePicker({
           </select>
         </Field>
       </div>
-    </div>
+    </Surface>
   );
 }

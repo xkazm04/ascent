@@ -6,6 +6,7 @@ import { LLM_GUARDBAND } from "@/lib/maturity/model";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/Charts";
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
+import { Surface } from "@/components/ui";
 
 export function DimensionCard({
   d,
@@ -33,7 +34,7 @@ export function DimensionCard({
   const chevronTransition = reduced ? undefined : "transform 0.3s ease-out";
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+    <Surface radius="xl" className="p-4">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -91,7 +92,7 @@ export function DimensionCard({
               </div>
             )}
             {series && series.length >= 2 && (
-              <div className="flex items-center gap-3 border-t border-slate-800 pt-2">
+              <div className="flex items-center gap-3 border-t border-divider pt-2">
                 <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Trend</span>
                 <Sparkline points={series} />
                 <span className="text-sm text-slate-500">
@@ -103,7 +104,7 @@ export function DimensionCard({
           </div>
         </div>
       </div>
-    </div>
+    </Surface>
   );
 }
 
@@ -129,24 +130,27 @@ function ProvenanceTrack({ signal, llm, blended }: { signal: number; llm: number
       <line x1={x(0)} x2={x(100)} y1={trackY} y2={trackY} stroke="#1e293b" strokeWidth={3} strokeLinecap="round" />
       {/* ±guardband zone around the signal */}
       <rect x={x(bandLo)} y={trackY - 4} width={x(bandHi) - x(bandLo)} height={8} rx={2} fill="#3b9eff" opacity={0.14}>
-        <title>Guardband: the LLM can move the score at most ±{LLM_GUARDBAND} from the signal</title>
+        {/* Single template-literal child: React 19 special-cases <title> as metadata and only renders a
+            lone text child — mixed text+number children make it drop on the server but render on the
+            client (a hydration mismatch). Keep every SVG <title> a single string. */}
+        <title>{`Guardband: the LLM can move the score at most ±${LLM_GUARDBAND} from the signal`}</title>
       </rect>
       {/* filled bar from signal → blended result */}
       <line x1={x(signal)} x2={x(blended)} y1={trackY} y2={trackY} stroke={color} strokeWidth={3} strokeLinecap="round" />
       {/* signal tick */}
       <g>
         <line x1={x(signal)} x2={x(signal)} y1={trackY - 6} y2={trackY + 6} stroke="#94a3b8" strokeWidth={2} />
-        <title>Signal (deterministic): {signal}</title>
+        <title>{`Signal (deterministic): ${signal}`}</title>
       </g>
       {/* llm tick */}
       <g>
         <circle cx={x(llm)} cy={trackY} r={3} fill="#cbd5e1" stroke="#0f172a" strokeWidth={1} />
-        <title>LLM judgment: {llm}</title>
+        <title>{`LLM judgment: ${llm}`}</title>
       </g>
       {/* blended marker */}
       <g>
         <circle cx={x(blended)} cy={trackY} r={3.5} fill={color} stroke="#020617" strokeWidth={1} />
-        <title>Blended result: {blended}</title>
+        <title>{`Blended result: ${blended}`}</title>
       </g>
       {/* The numeric values are intentionally not drawn into this 22px-tall track — a 7px legend
           failed both legibility and contrast. They're conveyed by the svg aria-label

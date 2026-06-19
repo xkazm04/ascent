@@ -11,6 +11,7 @@ import { PosturePanel } from "@/components/report/PosturePanel";
 import { ScoreWaterfall } from "@/components/report/ScoreWaterfall";
 import { LevelLadder, ListCard } from "@/components/report/ReportCards";
 import { DimensionCard } from "@/components/report/DimensionCard";
+import { Surface } from "@/components/ui";
 
 export function ScoringTab({
   report,
@@ -38,7 +39,7 @@ export function ScoringTab({
   return (
     <div role="tabpanel" id="report-panel-scoring" aria-labelledby="report-tab-scoring" tabIndex={0} className="space-y-8 focus:outline-none" data-testid="report-tab-scoring">
       {/* Score + headline + ladder */}
-      <div className="relative grid gap-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40 p-6 lg:grid-cols-[auto_1fr]">
+      <Surface radius="2xl" className="relative grid gap-6 overflow-hidden p-6 lg:grid-cols-[auto_1fr]">
         <div aria-hidden className="strata pointer-events-none absolute inset-0" />
         <div className="relative flex flex-col items-center justify-center">
           <ScoreRing score={report.overallScore} level={level} />
@@ -55,7 +56,7 @@ export function ScoringTab({
           <p className="mt-2 text-base leading-relaxed text-slate-400">{level.description}</p>
           <LevelLadder currentId={level.id} />
         </div>
-      </div>
+      </Surface>
 
       {/* Glass-box score waterfall — the headline, attributed to each dimension */}
       <ScoreWaterfall report={report} />
@@ -65,7 +66,7 @@ export function ScoringTab({
 
       {/* Trend over time */}
       {trendPoints.length >= 1 && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        <Surface radius="2xl" className="p-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-lg font-semibold text-white">Maturity over time</h2>
@@ -98,7 +99,7 @@ export function ScoringTab({
               Dimension-level trends →
             </Link>
           </div>
-        </div>
+        </Surface>
       )}
 
       {/* Strengths / Risks */}
@@ -111,9 +112,9 @@ export function ScoringTab({
 
       {/* Radar + dimension breakdown */}
       <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-        <div className="flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+        <Surface radius="2xl" className="flex items-center justify-center p-4">
           <RadarChart dimensions={report.dimensions} />
-        </div>
+        </Surface>
         <div className="space-y-3">
           {report.dimensions.map((d, i) => (
             <DimensionCard key={d.id} d={d} index={i} prevScore={prevDimScores?.get(d.id)} series={dimSeries?.get(d.id)} />

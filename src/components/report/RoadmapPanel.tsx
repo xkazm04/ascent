@@ -2,6 +2,7 @@ import type { DimensionId, Effort, Impact, LevelId, LlmRoadmapItem, ScanReport }
 import { DIMENSION_BY_ID, LEVELS } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, projectDimensionClose } from "@/lib/scoring/engine";
 import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
+import { Kicker, Surface } from "@/components/ui";
 
 export function RoadmapMeta({ item }: { item: Pick<LlmRoadmapItem, "impact" | "effort"> }) {
   return (
@@ -15,8 +16,8 @@ export function RoadmapMeta({ item }: { item: Pick<LlmRoadmapItem, "impact" | "e
 export function ExploreList({ items }: { items?: string[] }) {
   if (!items?.length) return null;
   return (
-    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
-      <div className="font-mono text-sm uppercase tracking-widest text-accent">Explore</div>
+    <div className="mt-3 rounded-lg border border-divider bg-slate-950/40 p-3">
+      <Kicker tone="accent">Explore</Kicker>
       <ul className="mt-1.5 space-y-1 text-base text-slate-300">
         {items.map((q, i) => (
           <li key={i} className="flex gap-2">
@@ -33,10 +34,10 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
   const cur = LEVELS.findIndex((l) => l.id === currentId);
   const next = cur >= 0 && cur < LEVELS.length - 1 ? LEVELS[cur + 1] : null;
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+    <Surface radius="2xl" className="p-5">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold text-white">Trust ladder</h2>
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">trust = adoption × rigor</span>
+        <Kicker tone="muted">trust = adoption × rigor</Kicker>
       </div>
       <div className="mt-3 flex gap-1.5">
         {LEVELS.map((l, i) => {
@@ -61,7 +62,7 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
           ? `Next rung — ${next.id} ${next.name}: ${next.tagline}. The gaps below are inputs to explore on the way.`
           : "Top of the ladder — the work now is sustaining trust and sharing what works."}
       </p>
-    </div>
+    </Surface>
   );
 }
 
@@ -91,7 +92,7 @@ export function NextLevelPath({ report }: { report: ScanReport }) {
   const names = path.steps.map((s) => DIMENSION_SHORT[s.dimension]).join(" + ");
   return (
     <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3 text-base">
-      <span className="font-mono text-sm uppercase tracking-widest text-accent">Fastest path</span>
+      <Kicker tone="accent">Fastest path</Kicker>
       <p className="mt-1 text-slate-300">
         Closing <span className="font-semibold text-white">{names}</span> projects to{" "}
         <span className="font-semibold text-white">~{path.projected.overallScore}/100</span> — enough to reach{" "}
@@ -115,7 +116,7 @@ export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; repor
         return (
           <li
             key={i}
-            className="rounded-xl border bg-slate-900/40 p-5"
+            className="rounded-xl border bg-surface/40 p-5"
             style={quick ? { borderColor: "rgba(16,185,129,0.35)" } : { borderColor: "rgb(30,41,59)" }}
           >
             <div className="flex items-start gap-4">

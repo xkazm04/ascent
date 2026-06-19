@@ -10,6 +10,7 @@ import { githubCommitUrl, reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { parseRepositoryHistory } from "@/lib/report/validate";
 import { EmptyState } from "@/components/EmptyState";
+import { Kicker, Surface } from "@/components/ui";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { DimLine, type ScanMeta } from "@/components/report/DimLine";
 import { RANGES, RangeToggle, withinRange, type RangeKey } from "@/components/report/DimensionTrendsRange";
@@ -117,9 +118,9 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="font-mono text-sm uppercase tracking-widest text-slate-500">
+        <Kicker tone="muted">
           {overallScans.length} {overallScans.length === 1 ? "scan" : "scans"} shown
-        </div>
+        </Kicker>
         <RangeToggle value={range} onChange={setRange} />
       </div>
 
@@ -135,25 +136,23 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
         </EmptyState>
       ) : (
         <>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+          <Surface radius="2xl" className="p-6">
             <h2 className="text-lg font-semibold text-white">Overall maturity</h2>
             <div className="mt-3">
               <TrendChart points={overall} />
             </div>
-          </div>
+          </Surface>
 
           <div ref={dimRef}>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">By dimension</h2>
-              <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
-                {overallChrono.length} scans
-              </span>
+              <Kicker tone="muted">{overallChrono.length} scans</Kicker>
             </div>
 
             {dimState === "done" ? (
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {rows.map((r) => (
-                  <div key={r.id} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+                  <Surface key={r.id} radius="xl" className="p-4">
                     <div className="flex items-start justify-between">
                       <div>
                         <span className="font-mono text-sm text-slate-500">{r.id}</span>
@@ -182,7 +181,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                       </div>
                     </div>
                     <DimLine values={r.series} meta={meta} name={r.name} current={r.current} />
-                  </div>
+                  </Surface>
                 ))}
               </div>
             ) : dimState === "error" ? (
@@ -201,10 +200,10 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
               // idle / loading — shimmer placeholder cards while the dimension rows load.
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
                 {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+                  <Surface key={i} radius="xl" className="p-4">
                     <div className="h-4 w-24 animate-pulse rounded bg-slate-800" />
                     <div className="mt-3 h-[90px] w-full animate-pulse rounded bg-slate-800/60" />
-                  </div>
+                  </Surface>
                 ))}
               </div>
             )}

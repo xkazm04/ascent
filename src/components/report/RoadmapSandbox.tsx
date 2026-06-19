@@ -14,6 +14,7 @@ import { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
 import { scoreHex } from "@/lib/ui";
 import { PostureQuadrant, RadarChart, ScoreRing } from "@/components/report/Charts";
 import { DeltaPill } from "@/components/report/deltas";
+import { Kicker } from "@/components/ui";
 import {
   AxisStat,
   DimensionSlider,
@@ -64,10 +65,10 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
     setOverrides(Object.fromEntries(report.dimensions.map((d) => [d.id, 100])) as Overrides);
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+    <section className="rounded-2xl border border-divider bg-surface/40 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">Plan</div>
+          <Kicker tone="accent">Plan</Kicker>
           <h2 className="mt-1 text-xl font-bold text-white">Roadmap sandbox</h2>
           <p className="mt-1 max-w-prose text-base leading-relaxed text-slate-400">
             What if Testing hit 80? Drag any dimension and watch your score, radar, posture, and
@@ -103,9 +104,7 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
 
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
-                  Drag to explore
-                </span>
+                <Kicker tone="muted">Drag to explore</Kicker>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -143,9 +142,9 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
           {/* The "watch the future" shape change: radar + posture quadrant re-render live, with a
               trail from where the repo sits today to where the sliders would take it. */}
           <div className="grid gap-6 md:grid-cols-2">
-            <div className="flex flex-col rounded-xl border border-slate-800 bg-slate-950/30 p-4">
+            <div className="flex flex-col rounded-xl border border-divider bg-slate-950/30 p-4">
               <div className="mb-2 flex items-center justify-between">
-                <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Posture</span>
+                <Kicker tone="muted">Posture</Kicker>
                 <span className="text-base font-semibold" style={{ color: scoreHex(proj.adoptionScore) }}>
                   {proj.posture.label}
                 </span>
@@ -164,10 +163,10 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
                 <AxisStat label="Eng. Rigor" value={proj.rigorScore} base={report.rigorScore} />
               </div>
             </div>
-            <div className="flex flex-col items-center justify-center rounded-xl border border-slate-800 bg-slate-950/30 p-4">
-              <span className="self-start font-mono text-sm uppercase tracking-widest text-slate-500">
+            <div className="flex flex-col items-center justify-center rounded-xl border border-divider bg-slate-950/30 p-4">
+              <Kicker tone="muted" className="self-start">
                 Projected radar
-              </span>
+              </Kicker>
               <RadarChart dimensions={proj.dimensions} size={320} />
             </div>
           </div>

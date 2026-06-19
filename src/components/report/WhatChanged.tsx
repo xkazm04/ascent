@@ -7,6 +7,7 @@ import type { ComparableScan } from "@/lib/db/scans";
 import type { ScanDiff } from "@/lib/report/compare";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import { DeltaPill } from "@/components/report/deltas";
+import { Kicker, Surface } from "@/components/ui";
 import {
   AxisDeltaRow,
   DimensionDiffCard,
@@ -29,10 +30,10 @@ export function WhatChanged({
   return (
     <div className="animate-fade-up space-y-6" data-testid="what-changed">
       {/* Headline — the two scans being compared + at-a-glance counts. */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+      <Surface radius="2xl" className="p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="font-mono text-sm uppercase tracking-[0.25em] text-accent">What changed</div>
+            <Kicker tone="accent">What changed</Kicker>
             <p className="mt-1 text-base text-slate-400">
               <span className="text-slate-300">{scanCaption(before)}</span>
               <span aria-hidden className="mx-2 text-slate-600">→</span>
@@ -43,11 +44,11 @@ export function WhatChanged({
         </div>
 
         {sameScan ? (
-          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-base text-slate-400">
+          <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 text-base text-slate-400">
             Same scan selected on both sides — pick two different scans to see a diff.
           </p>
         ) : diff.unchanged ? (
-          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-base text-slate-400">
+          <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 text-base text-slate-400">
             No measurable change between these two scans — same level, posture, scores, and open gaps.
           </p>
         ) : (
@@ -79,11 +80,11 @@ export function WhatChanged({
             )}
           </div>
         )}
-      </div>
+      </Surface>
 
       {/* Explained movement — each score change tied to the concrete evidence behind it. */}
       {diff.movements.length > 0 && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        <Surface radius="2xl" className="p-6">
           <h2 className="text-lg font-semibold text-white">Why it moved</h2>
           <p className="mt-1 text-base text-slate-400">
             Each dimension&apos;s score change attributed to the specific signals that drove it.
@@ -92,13 +93,13 @@ export function WhatChanged({
             {diff.movements.map((m, i) => (
               <li
                 key={i}
-                className="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 font-mono text-sm leading-relaxed text-slate-300"
+                className="rounded-lg border border-divider bg-slate-950/40 px-3 py-2 font-mono text-sm leading-relaxed text-slate-300"
               >
                 {m}
               </li>
             ))}
           </ul>
-        </div>
+        </Surface>
       )}
 
       {/* Level + posture transitions. */}
@@ -113,12 +114,12 @@ export function WhatChanged({
           label="Posture"
           changed={diff.posture.changed}
           before={
-            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-sm text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-surface/60 px-2.5 py-1 text-sm text-slate-300">
               {diff.posture.before.label}
             </span>
           }
           after={
-            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-sm text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-surface/60 px-2.5 py-1 text-sm text-slate-300">
               {diff.posture.after.label}
             </span>
           }
@@ -146,7 +147,7 @@ export function WhatChanged({
 
       {/* Recommendations that moved to done. */}
       {diff.recsMovedToDone.length > 0 && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+        <Surface radius="2xl" className="p-6">
           <h2 className="text-lg font-semibold text-white">Recommendations completed</h2>
           <p className="mt-1 text-base text-slate-400">
             Tracked items marked done between these two scans.
@@ -162,7 +163,7 @@ export function WhatChanged({
               </li>
             ))}
           </ul>
-        </div>
+        </Surface>
       )}
     </div>
   );

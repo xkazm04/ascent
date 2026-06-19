@@ -131,7 +131,7 @@ export function QuotaBanner({
   return (
     <div
       role="status"
-      className="mx-auto mb-4 flex max-w-3xl items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-sm text-slate-400"
+      className="mx-auto mb-4 flex max-w-3xl items-center gap-2 rounded-lg border border-divider bg-surface/40 px-3 py-2 text-sm text-slate-400"
     >
       <span aria-hidden>◷</span>
       <span className="flex-1">
