@@ -15,13 +15,21 @@ export const dynamic = "force-dynamic";
 
 /** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180). Total by design: a value
  *  whose String() throws (a throwing toString, an unexpected object from a future DB shape) must not
- *  blow up the whole export — it degrades to an empty cell, not a generic 500 for every scan. */
+ *  blow up the whole export — it degrades to an empty cell, not a generic 500 for every scan.
+ *
+ *  Formula-injection mitigation: a cell whose first character is `=`, `+`, `-`, or `@` is treated as a
+ *  live formula by Excel / Google Sheets when the CSV is opened. Prefix such a value with a single quote
+ *  (the standard neutralizer) so it renders as literal text, and quote the field so the leading `'` is
+ *  unambiguously part of the data rather than CSV syntax. */
 function csvField(v: unknown): string {
   let s: string;
   try {
     s = v == null ? "" : String(v);
   } catch {
     s = "";
+  }
+  if (/^[=+\-@]/.test(s)) {
+    return `"'${s.replace(/"/g, '""')}"`;
   }
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }

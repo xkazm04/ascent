@@ -176,9 +176,9 @@ describe("GET /api/history — org-scoping & auth gate", () => {
 //   1. column-alignment   — a cell with a comma is quoted so it can't shift downstream columns;
 //   2. RFC-4180 quoting   — a cell with a `"` is doubled; a cell with a newline is quoted (no row break);
 //   3. fixed header        — the header row is code-derived, never injectable from a data cell;
-//   4. formula injection   — DECIDED-AND-PINNED below: the route does NOT prefix `= + - @`, so we assert
-//                            the CURRENT behavior so the (risky) decision is explicit, not accidental,
-//                            while still proving the column-shift defense holds even for a formula cell.
+//   4. formula injection   — a cell whose first char is `= + - @` is NEUTRALIZED: prefixed with a single
+//                            quote and quoted so it renders as literal text, never an executable formula,
+//                            while the column-shift defense still holds for a formula cell with a comma.
 // --------------------------------------------------------------------------------------------------
 
 /** RFC-4180 line splitter: split a CSV document into logical rows, honoring quoted fields so a quoted
@@ -338,27 +338,27 @@ describe("GET /api/history — CSV export escaping (cell-shift / injection)", ()
     expect(unquote(fields[4])).toBe("scannedAt,overall,level"); // engine column, not a new header row
   });
 
-  it("PINS the formula-injection policy: a leading = + - @ is NOT prefixed today (decision made explicit)", async () => {
-    // DECIDED-AND-PINNED: the route's csvField only quotes on [",\n] and does NOT neutralize spreadsheet
-    // formula prefixes (= + - @). This test documents the CURRENT (risky) behavior so a future change to
-    // ADD neutralization is a deliberate, reviewed flip — not a silent regression either way. See
-    // trends-comparison.md finding #3: "if intentionally not, document it and assert the current behavior."
+  it("neutralizes a leading = + - @ so the cell cannot execute as a spreadsheet formula", async () => {
+    // csvField prefixes a formula-leading cell (= + - @) with a single quote and quotes the field, the
+    // standard CSV-injection mitigation: Excel / Sheets render the value as literal text instead of
+    // evaluating it. The leading `'` is inside the quotes so it is unambiguously part of the data.
     const csv = await csvBody(hostileHistory({ levelName: "=1+1", engineProvider: "@SUM(A1:A9)" }));
     const fields = splitCsvFields(splitCsvRows(csv)[1]);
-    // A bare formula with no comma/quote/newline is emitted RAW (un-prefixed, un-quoted) — the value
-    // would evaluate if opened in Excel. Pin it so the gap is visible, not accidental.
-    expect(fields[3]).toBe("=1+1");
-    expect(fields[4]).toBe("@SUM(A1:A9)");
+    // Each formula cell is now `'`-prefixed and quoted — it can no longer evaluate if opened in Excel.
+    expect(fields[3]).toBe("\"'=1+1\"");
+    expect(unquote(fields[3])).toBe("'=1+1");
+    expect(fields[4]).toBe("\"'@SUM(A1:A9)\"");
+    expect(unquote(fields[4])).toBe("'@SUM(A1:A9)");
   });
 
-  it("still protects column alignment for a formula cell that ALSO carries a comma", async () => {
-    // The formula prefix isn't neutralized, but the comma-quoting defense MUST still hold so a formula
-    // cell can't additionally shift columns.
+  it("neutralizes AND protects column alignment for a formula cell that ALSO carries a comma", async () => {
+    // Both defenses apply at once: the leading `=` is neutralized with a `'` prefix AND the field is
+    // quoted, so the embedded comma can't shift columns and the formula can't execute.
     const csv = await csvBody(hostileHistory({ levelName: "=cmd(),evil" }));
     const rows = splitCsvRows(csv);
     const fields = splitCsvFields(rows[1]);
     expect(fields.length).toBe(splitCsvFields(rows[0]).length); // aligned despite the comma
-    expect(fields[3]).toBe('"=cmd(),evil"'); // quoted as a single field
-    expect(unquote(fields[3])).toBe("=cmd(),evil");
+    expect(fields[3]).toBe("\"'=cmd(),evil\""); // `'`-prefixed and quoted as a single field
+    expect(unquote(fields[3])).toBe("'=cmd(),evil");
   });
 });
