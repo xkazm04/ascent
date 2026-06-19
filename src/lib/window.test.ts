@@ -2,8 +2,16 @@
 // baseline date. Pin that preset starts snap to a stable LOCAL-MIDNIGHT day boundary (not a raw
 // wall-clock ms offset that flickers within a day / drifts across DST) and the period cookie round-trips.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveWindow, parsePeriodCookie, serializePeriodCookie, DEFAULT_RANGE } from "./window";
+
+// resolveOrgWindow (src/lib/org/period.ts) is server-only: it reads the period cookie via
+// next/headers `cookies()`. Mock that boundary so we can drive the cookie value and assert the
+// precedence chain. The real (pure) resolveWindow runs underneath — we don't model its date math.
+let cookieValue: string | undefined; // the ascent_period cookie the mocked store returns
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: (name: string) => (cookieValue === undefined ? undefined : { name, value: cookieValue }) }),
+}));
 
 const DAY = 86_400_000;
 
@@ -154,5 +162,83 @@ describe("parsePeriodCookie — malformed-input fallthrough and round-trip into 
     expect(parsePeriodCookie("180d|foo|bar")).toBeNull();
     expect(parsePeriodCookie("|2026-01-01|2026-03-31")).toBeNull(); // missing range key
     expect(parsePeriodCookie("")).toBeNull();
+  });
+});
+
+// ── resolveOrgWindow precedence chain (test-mastery-2026-06-18, org-overview-standing) ───────────
+// Lock the canonical org-window precedence so a refactor can't silently swap "?range over cookie"
+// for "cookie over ?range" (which would make a shared link's range silently reset to the viewer's
+// remembered period). period.ts pins: an explicit ?range is authoritative; with NO ?range the
+// remembered cookie wins; with neither, the default. The function short-circuits the cookie read
+// whenever sp.range is truthy — so the cookie is only ever consulted when ?range is ABSENT.
+describe("resolveOrgWindow — precedence: ?range > cookie > default", () => {
+  // Imported lazily AFTER the next/headers mock is registered.
+  let resolveOrgWindow: typeof import("./org/period").resolveOrgWindow;
+
+  beforeEach(async () => {
+    cookieValue = undefined; // each test sets the remembered-period cookie it needs
+    ({ resolveOrgWindow } = await import("./org/period"));
+  });
+
+  // 1. ?range present and valid ⇒ wins over the cookie (shared URLs stay authoritative).
+  it("a valid ?range WINS over a conflicting cookie", async () => {
+    cookieValue = "90d"; // remembered period says 90d…
+    const w = await resolveOrgWindow({ range: "30d" }); // …but the URL says 30d
+    expect(w.key).toBe("30d"); // the URL wins
+  });
+
+  it("a valid ?range wins even when there is NO cookie at all", async () => {
+    cookieValue = undefined;
+    expect((await resolveOrgWindow({ range: "quarter" })).key).toBe("quarter");
+  });
+
+  it("the ?range carries its own custom from/to through (cookie not consulted)", async () => {
+    cookieValue = "30d"; // would resolve to 30d if it leaked through — it must NOT
+    const w = await resolveOrgWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" });
+    expect(w.key).toBe("custom");
+    expect(w.from).toBe("2026-01-01");
+    expect(w.to).toBe("2026-03-31");
+  });
+
+  // 2. NO ?range + a valid cookie ⇒ the cookie wins over the default.
+  it("with NO ?range, a valid cookie WINS over the default", async () => {
+    cookieValue = "30d";
+    expect((await resolveOrgWindow({})).key).toBe("30d"); // not the 90d default
+  });
+
+  it("with NO ?range, a custom cookie round-trips its from/to into the window", async () => {
+    cookieValue = serializePeriodCookie({ range: "custom", from: "2026-01-01", to: "2026-03-31" });
+    const w = await resolveOrgWindow({});
+    expect(w.key).toBe("custom");
+    expect(w.from).toBe("2026-01-01");
+    expect(w.to).toBe("2026-03-31");
+  });
+
+  // 3. Neither ?range nor a usable cookie ⇒ the default range.
+  it("with neither ?range nor cookie, falls back to the DEFAULT_RANGE", async () => {
+    cookieValue = undefined;
+    expect((await resolveOrgWindow({})).key).toBe(DEFAULT_RANGE);
+  });
+
+  it("an unparseable cookie (no ?range) is ignored ⇒ default, not a crash", async () => {
+    cookieValue = "totally-bogus-cookie"; // parsePeriodCookie → null
+    expect((await resolveOrgWindow({})).key).toBe(DEFAULT_RANGE);
+  });
+
+  // 4. An INVALID ?range short-circuits the cookie (sp.range is truthy) and falls to the DEFAULT —
+  //    it does NOT fall through to the cookie. Pinning the ACTUAL code: the cookie is read only when
+  //    sp.range is falsy, so a present-but-invalid range never consults the remembered period.
+  it("an INVALID ?range falls to the default, NOT the cookie (truthy sp.range skips the cookie read)", async () => {
+    cookieValue = "30d"; // a valid remembered period that must NOT be picked up here
+    const w = await resolveOrgWindow({ range: "bogus" });
+    expect(w.key).toBe(DEFAULT_RANGE); // default, not 30d
+    expect(w.key).not.toBe("30d"); // the cookie was bypassed by the truthy ?range
+  });
+
+  it("an array-shaped ?range (Next searchParams) is still treated as present ⇒ cookie bypassed", async () => {
+    cookieValue = "30d";
+    // sp.range is a non-empty array (truthy) ⇒ cookie skipped; resolveWindow reads its first element.
+    const w = await resolveOrgWindow({ range: ["quarter", "90d"] });
+    expect(w.key).toBe("quarter");
   });
 });
