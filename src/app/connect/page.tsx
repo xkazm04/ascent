@@ -3,6 +3,8 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { InstallationRepos } from "@/components/connect/InstallationRepos";
+import { ConnectPrivacyNotice } from "@/components/connect/PrivacyNotice";
+import { ConnectDiscovered } from "@/components/connect/ConnectDiscovered";
 import { resolveInstallView } from "./installRouting";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { appConfigureUrl, appInstallUrl, isAppConfigured } from "@/lib/github/app";
@@ -49,6 +51,7 @@ export default async function ConnectPage({
         your repositories using a short-lived installation token — Ascent stores only the
         derived scores and evidence, never your source.
       </p>
+      <ConnectPrivacyNotice />
       {error && (
         <div
           role="alert"
@@ -153,49 +156,7 @@ export default async function ConnectPage({
           </div>
         )}
         {/* Login-time org auto-discovery: a ready-to-explore seeded dashboard + orgs to connect. */}
-        {(seededOrg || suggestedOrgs.length > 0) && (
-          <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">
-              Discovered from your GitHub
-            </div>
-            {seededOrg && (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-                <p className="text-base text-slate-300">
-                  We pre-loaded <span className="font-mono text-white">{seededOrg}</span>&apos;s most
-                  active repositories onto your watchlist — its dashboard is ready to scan.
-                </p>
-                <Link
-                  href={`/org/${encodeURIComponent(seededOrg)}`}
-                  className="focus-ring shrink-0 rounded-lg bg-emerald-500 px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-emerald-400"
-                >
-                  View {seededOrg} dashboard →
-                </Link>
-              </div>
-            )}
-            {suggestedOrgs.length > 0 && (
-              <div className="mt-3">
-                <p className="text-base text-slate-400">
-                  You belong to {suggestedOrgs.length === 1 ? "this organization" : "these organizations"} —
-                  install the App to scan private repos, or{" "}
-                  <Link href="/onboarding" className="text-accent hover:text-white">
-                    scan their public repos now →
-                  </Link>
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {suggestedOrgs.map((o) => (
-                    <Link
-                      key={o}
-                      href="/onboarding"
-                      className="focus-ring rounded-full border border-slate-700 px-3 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
-                    >
-                      {o}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
-        )}
+        <ConnectDiscovered seededOrg={seededOrg} suggestedOrgs={suggestedOrgs} />
         {/* Self-serve refresh: re-fetch installations and re-issue the session without waiting
             out the 7-day cookie, so a repo/org just added on GitHub shows up immediately. */}
         {session && (

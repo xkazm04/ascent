@@ -1,11 +1,23 @@
 // /pricing — public plan comparison, rendered from PLAN_FEATURES (the single source of truth the
 // credit/entitlement layer also reads). The destination for the quota/credit "upgrade" CTAs (QUOTA-1).
-// Pricing amounts live in the billing provider (Polar, CRED-1); this surface shows what each tier
-// includes, not dollar figures. Credits are bought from the org dashboard (CreditsControl → Polar).
+// Subscription dollar amounts live in the billing provider (Polar, CRED-1) and aren't invented here —
+// so we show the one price we DO know honestly (Free = $0), the prepaid-credit model plainly (private
+// scans run on credits, 1 per scan; public scans are always free), and Enterprise as "Custom". Credits
+// are bought from the org dashboard (CreditsControl → Polar).
 
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
-import { PLAN_FEATURES, PLAN_ORDER } from "@/lib/plans";
+import { PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
+
+// Display-only price labels. Free is genuinely $0; Pro/Team run on prepaid credits (no fixed
+// subscription price is asserted in code); Enterprise is bespoke. Kept here, not in plans.ts, so the
+// feature/allotment source of truth stays free of pricing claims.
+const PRICE: Record<PlanId, { amount: string; note: string }> = {
+  free: { amount: "$0", note: "free forever" },
+  pro: { amount: "Prepaid", note: "credits — 1 per private scan" },
+  team: { amount: "Prepaid", note: "credits — 1 per private scan" },
+  enterprise: { amount: "Custom", note: "contact us" },
+};
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +52,11 @@ export default function PricingPage() {
                 }`}
               >
                 <h2 className="text-lg font-semibold text-white">{p.label}</h2>
-                <p className="mt-1 text-sm text-slate-400">{p.blurb}</p>
+                <p className="mt-2">
+                  <span className="text-3xl font-bold text-white">{PRICE[id].amount}</span>{" "}
+                  <span className="text-sm text-slate-400">{PRICE[id].note}</span>
+                </p>
+                <p className="mt-2 text-sm text-slate-400">{p.blurb}</p>
                 <p className="mt-3 font-mono text-sm text-accent">
                   {p.unlimited
                     ? "Unlimited private scans"

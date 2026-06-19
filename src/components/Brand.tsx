@@ -40,25 +40,24 @@ export async function SiteHeader() {
   const orgOptions = showSwitcher ? orgOptionsForSession(session) : [];
   const activeOrg = showSwitcher ? await getActiveOrg(session) : "public";
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-800/70 bg-ink/80 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-divider/70 bg-ink/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
         <Link href="/" className="focus-ring rounded-sm">
           <Logo />
         </Link>
         <nav className="flex items-center gap-3 font-mono text-sm uppercase tracking-widest text-slate-400 sm:gap-6">
-          <Link href="/#levels" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
-            Levels
-          </Link>
-          <Link href="/#how" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
-            Method
-          </Link>
-          <Link href="/#pricing" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
+          {/* Page-level nav only — section links (Levels / Method / Pricing) live inside the deck's
+              right-edge section nav now, not the topbar. */}
+          <Link href="/pricing" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
             Pricing
+          </Link>
+          <Link href="/about" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
+            About
           </Link>
           {dbOn && (
             <Link
               href="/org/vercel"
-              className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white"
+              className="focus-ring rounded-md border border-divider px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white"
             >
               Org demo
             </Link>
@@ -114,15 +113,18 @@ export async function SiteHeader() {
 
 export function SiteFooter() {
   return (
-    <footer className="mt-auto border-t border-slate-800/70 py-8 text-center text-base text-slate-400">
+    <footer className="mt-auto border-t border-divider/70 py-8 text-center text-base text-slate-400">
       <div className="mx-auto max-w-6xl px-5">
         <Logo className="justify-center opacity-80" />
         <p className="mt-3 font-mono text-sm uppercase tracking-widest text-slate-400">
           The maturity index for AI-native engineering
         </p>
         <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
-          <Link href="/#pricing" className="focus-ring rounded-sm hover:text-accent">
+          <Link href="/pricing" className="focus-ring rounded-sm hover:text-accent">
             Pricing
+          </Link>
+          <Link href="/about" className="focus-ring rounded-sm hover:text-accent">
+            About
           </Link>
           <Link href="/connect" className="focus-ring rounded-sm hover:text-accent">
             Connect
