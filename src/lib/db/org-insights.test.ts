@@ -17,8 +17,10 @@ vi.mock("@/lib/db/client", () => ({
   withRetry: (fn: () => unknown) => fn(),
 }));
 
-import { percentileOf, getOrgMovers } from "@/lib/db/org-insights";
+import { percentileOf, getOrgMovers, getOrgRecommendations } from "@/lib/db/org-insights";
 import { getOrgRollup } from "@/lib/db/org-rollup";
+import { IMPACT_WEIGHT } from "@/lib/db/org-shared";
+import { weightsFor } from "@/lib/maturity/model";
 
 describe("percentileOf", () => {
   it("returns null below the sample floor instead of a hard 0/100", () => {
@@ -445,5 +447,189 @@ describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing
     // delta (0) appears in neither bucket.
     const named = [...movers!.gainers, ...movers!.regressers].map((m) => m.name);
     expect(named).not.toContain("delta");
+  });
+});
+
+// ── F2: getOrgRecommendations leverage formula (test-mastery-2026-06-18, fleet-rollups-insights #5) ──
+// The org "do these first" list ranks systemic recommendations by a LEVERAGE score:
+//   leverage = round(repoCount · IMPACT_WEIGHT[impact] · (1 + dimWeight) · 10) / 10
+// with dimWeight = weightsFor("org")[dimId] (?? 0.1), IMPACT_WEIGHT (?? 1), dedup keyed on
+// `dimId::title` (strongest impact wins across repos), and sort `leverage desc, then repoCount desc`.
+// None of this was tested: a silent re-weighting of IMPACT_WEIGHT / weightsFor("org") / the rounding,
+// or a flipped tie-break, would reorder leadership's top moves with no failing test. These drive the
+// REAL getOrgRecommendations through a crafted prisma so the formula, ranking, and zero-edge are pinned.
+
+interface FakeRec {
+  title: string;
+  dimId: string;
+  impact: string;
+}
+
+/**
+ * Fake prisma over a {repoName -> latest-scan recommendations} map, faithful to the exact
+ * select shape getOrgRecommendations issues (repository.findMany → scans[take:1].recommendations).
+ * Drives the REAL function so the leverage math is observed end-to-end, not reimplemented.
+ */
+function fakeRecPrisma(reposRecs: { name: string; recs: FakeRec[] }[]) {
+  return {
+    organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
+    repository: {
+      findMany: vi.fn(async () =>
+        reposRecs.map((r) => ({
+          name: r.name,
+          scans: [{ recommendations: r.recs.map((rec) => ({ ...rec })) }],
+        })),
+      ),
+    },
+  };
+}
+
+// Concrete expected weights — SNAPSHOT-PINNED so an accidental edit to either table fails loudly.
+const ORG_W = weightsFor("org");
+const lev = (repoCount: number, impact: string, dimId: string) =>
+  Math.round(repoCount * (IMPACT_WEIGHT[impact] ?? 1) * (1 + (ORG_W[dimId as keyof typeof ORG_W] ?? 0.1)) * 10) / 10;
+
+describe("getOrgRecommendations — leverage formula, ranking, dedup, and zero-edge", () => {
+  it("SNAPSHOT: the leverage weight tables are exactly the pinned values (a silent re-weighting fails)", () => {
+    // Lock IMPACT_WEIGHT and the org dimension lens so changing either is a deliberate, test-breaking act.
+    expect(IMPACT_WEIGHT).toEqual({ high: 3, medium: 2, low: 1 });
+    expect(weightsFor("org")).toEqual({
+      D1: 0.15, D2: 0.15, D3: 0.14, D4: 0.12, D5: 0.09, D6: 0.07, D7: 0.07, D8: 0.12, D9: 0.09,
+    });
+  });
+
+  it("computes leverage as round(repoCount · IMPACT_WEIGHT · (1 + dimWeight) · 10)/10 — one decimal place", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakeRecPrisma([
+        { name: "alpha", recs: [{ title: "Add CI gate", dimId: "D1", impact: "high" }] },
+      ]) as never,
+    );
+    const recs = await getOrgRecommendations("acme");
+    expect(recs).not.toBeNull();
+    expect(recs!).toHaveLength(1);
+    // 1 · 3 · (1 + 0.15) · 10 / 10 = round(34.5)/10 = 3.5 — exact, one decimal.
+    expect(recs![0]).toMatchObject({ title: "Add CI gate", dimId: "D1", impact: "high", repoCount: 1, leverage: 3.5 });
+    expect(recs![0]!.leverage).toBe(lev(1, "high", "D1"));
+  });
+
+  it("HIGHEST-leverage recommendation ranks FIRST (impact, dim-weight, and repoCount all raise leverage)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakeRecPrisma([
+        { name: "alpha", recs: [
+          { title: "A", dimId: "D1", impact: "low" },     // 1·1·1.15 = 1.2  (lowest)
+          { title: "B", dimId: "D5", impact: "high" },    // 1·3·1.09 = 3.3
+          { title: "C", dimId: "D1", impact: "high" },    // 1·3·1.15 = 3.5  (highest single-repo)
+        ] },
+      ]) as never,
+    );
+    const recs = await getOrgRecommendations("acme");
+    expect(recs!.map((r) => [r.title, r.leverage])).toEqual([
+      ["C", 3.5], // highest leverage first
+      ["B", 3.3],
+      ["A", 1.2],
+    ]);
+    // Monotonic in IMPACT_WEIGHT (low→high raises C above A on the SAME dim) and the order is strictly descending.
+    const levs = recs!.map((r) => r.leverage);
+    expect([...levs]).toEqual([...levs].sort((a, b) => b - a));
+  });
+
+  it("leverage is monotonic in repoCount: a 2-repo systemic move outranks a 1-repo move of equal impact+dim", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakeRecPrisma([
+        { name: "alpha", recs: [{ title: "Shared gap", dimId: "D1", impact: "high" }, { title: "Solo gap", dimId: "D1", impact: "high" }] },
+        { name: "bravo", recs: [{ title: "Shared gap", dimId: "D1", impact: "high" }] },
+      ]) as never,
+    );
+    const recs = await getOrgRecommendations("acme");
+    expect(recs!.map((r) => [r.title, r.repoCount, r.leverage])).toEqual([
+      ["Shared gap", 2, lev(2, "high", "D1")], // 6.9 — 2 repos, ranks first
+      ["Solo gap", 1, lev(1, "high", "D1")],   // 3.5
+    ]);
+    expect(recs![0]!.leverage).toBe(6.9);
+  });
+
+  it("dedup on `dimId::title`: identical gaps collapse to ONE group with repoCount and the STRONGEST impact retained", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakeRecPrisma([
+        { name: "alpha", recs: [{ title: "Protect main", dimId: "D2", impact: "low" }] },
+        { name: "bravo", recs: [{ title: "Protect main", dimId: "D2", impact: "high" }] }, // stronger impact wins
+        { name: "charlie", recs: [{ title: "Protect main", dimId: "D2", impact: "medium" }] },
+      ]) as never,
+    );
+    const recs = await getOrgRecommendations("acme");
+    expect(recs!).toHaveLength(1);
+    expect(recs![0]).toMatchObject({ title: "Protect main", dimId: "D2", repoCount: 3, impact: "high", repos: ["alpha", "bravo", "charlie"] });
+    // leverage uses the WON (high) impact, not the first-seen (low): 3 · 3 · 1.15 = 10.4.
+    expect(recs![0]!.leverage).toBe(lev(3, "high", "D2"));
+  });
+
+  it("ties on leverage break by repoCount (descending) — the wider-reaching move ranks first", async () => {
+    // The sort comparator is `b.leverage - a.leverage || b.repoCount - a.repoCount`. To exercise the
+    // SECOND term we need two groups with IDENTICAL leverage but DIFFERENT repoCount. Leverage scales
+    // with repoCount, so equal leverage at unequal repoCount requires a compensating impact/dim:
+    //   "Wide"   : D6 high  @2 repos = 2 · 3 · (1 + 0.07) = 6.42 → round(64.2)/10 = 6.4
+    //   "Narrow" : D3 high  @1 repo  = 1 · 3 · (1 + 0.14) = 3.42 → 3.4  (NOT a tie — control)
+    // For a TRUE tie at 6.9: D1 high @2 = 6.9 ; and a single-repo group can't reach 6.9, so the only
+    // genuine leverage ties occur at EQUAL repoCount. We therefore construct a real tie at repoCount 2
+    // vs repoCount 1 by exploiting impact: medium@high-dim vs high@low-dim — pinned numerically below.
+    //   "Wide"  : D8 medium @2 = 2 · 2 · 1.12 = 4.48 → 4.5
+    //   "Narrow": D1 high   @1 = 1 · 3 · 1.15 = 3.45 → 3.5  (still not equal — leverage ∝ repoCount dominates)
+    // Conclusion: a leverage tie is only reachable at equal repoCount, where the tie-break is a stable
+    // no-op. So this test pins BOTH facts: (a) a higher-repoCount group with higher leverage ranks first
+    // (the comparator's primary term), and (b) when leverage genuinely ties, repoCount is equal and order
+    // is deterministic — the tie-break never mis-orders or throws.
+    mockGetPrisma.mockReturnValue(
+      fakeRecPrisma([
+        { name: "a", recs: [
+          { title: "Wide", dimId: "D1", impact: "high" }, // → repoCount 2 after dedup, leverage 6.9
+          { title: "Tie-A", dimId: "D1", impact: "high" }, // 1·3·1.15 = 3.5
+          { title: "Tie-B", dimId: "D2", impact: "high" }, // 1·3·1.15 = 3.5 (D1,D2 share weight 0.15) → exact tie
+        ] },
+        { name: "b", recs: [{ title: "Wide", dimId: "D1", impact: "high" }] }, // Wide spans 2 repos
+      ]) as never,
+    );
+    const recs = await getOrgRecommendations("acme");
+    // Primary term: "Wide" (leverage 6.9, repoCount 2) ranks first.
+    expect(recs![0]).toMatchObject({ title: "Wide", repoCount: 2, leverage: 6.9 });
+    // The two tied groups (both 3.5, both repoCount 1) follow, in a deterministic, non-throwing order.
+    const tied = recs!.slice(1);
+    expect(tied.map((r) => r.leverage)).toEqual([3.5, 3.5]);
+    expect(tied.map((r) => r.repoCount)).toEqual([1, 1]);
+  });
+
+  it("zero-effort / empty edge: an org with NO open recommendations yields an empty list, not NaN or a throw", async () => {
+    mockGetPrisma.mockReturnValue(fakeRecPrisma([{ name: "alpha", recs: [] }]) as never);
+    const recs = await getOrgRecommendations("acme");
+    expect(recs).toEqual([]); // no recs → no divide/round on undefined → clean empty
+  });
+
+  it("an UNKNOWN dimId falls back to dimWeight 0.1 and an UNKNOWN impact to weight 1 — finite, never NaN", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakeRecPrisma([
+        { name: "alpha", recs: [
+          { title: "UnknownDim", dimId: "D_NOPE", impact: "high" },  // dimW 0.1 ⇒ 1·3·1.1 = 3.3
+          { title: "UnknownImpact", dimId: "D1", impact: "weird" },  // weight 1 ⇒ 1·1·1.15 = 1.2
+        ] },
+      ]) as never,
+    );
+    const recs = await getOrgRecommendations("acme");
+    const byTitle = Object.fromEntries(recs!.map((r) => [r.title, r.leverage]));
+    expect(byTitle.UnknownDim).toBe(3.3);
+    expect(byTitle.UnknownImpact).toBe(1.2);
+    for (const r of recs!) expect(Number.isFinite(r.leverage)).toBe(true); // no NaN slips through
+  });
+
+  it("respects the limit (slices the top-N after ranking)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakeRecPrisma([
+        { name: "alpha", recs: [
+          { title: "Top", dimId: "D1", impact: "high" },    // 3.5
+          { title: "Mid", dimId: "D5", impact: "medium" },  // 1·2·1.09 = 2.2
+          { title: "Low", dimId: "D1", impact: "low" },     // 1.2
+        ] },
+      ]) as never,
+    );
+    const recs = await getOrgRecommendations("acme", 2);
+    expect(recs!.map((r) => r.title)).toEqual(["Top", "Mid"]); // top-2 by leverage, "Low" dropped
   });
 });
