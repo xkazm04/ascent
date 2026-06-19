@@ -78,7 +78,7 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
   const hadScheme = s.includes("://");
   try {
     const url = new URL(hadScheme ? s : `https://${s}`);
-    if (/github\.com$/i.test(url.hostname)) {
+    if (/(^|\.)github\.com$/i.test(url.hostname)) {
       const parts = url.pathname.split("/").filter(Boolean);
       [owner, repo] = parts;
     } else if (hadScheme) {

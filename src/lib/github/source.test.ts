@@ -148,15 +148,13 @@ describe("parseRepoUrl — CURRENT-BEHAVIOR pins (documented quirks; safe becaus
     assertSafe(out);
   });
 
-  it("host-suffix gap: a host merely ENDING in 'github.com' matches (e.g. notgithub.com)", () => {
-    // KNOWN LIMITATION pinned to current behavior: /github\.com$/ has no left boundary, so
-    // `notgithub.com` satisfies it. Coords are still charset-clean, so this is not itself an SSRF
-    // (the request would target notgithub.com only if that host were used downstream — it isn't here;
-    // owner/repo are interpolated into the fixed api.github.com base). Pinned so any tightening of the
-    // host check to a strict match is a conscious change that updates this assertion.
-    const out = parseRepoUrl("notgithub.com/o/r");
-    expect(out).toEqual({ owner: "o", repo: "r" });
-    assertSafe(out);
+  it("host-suffix look-alike is rejected: a host merely ENDING in 'github.com' is NOT github.com (e.g. notgithub.com)", () => {
+    // The host check is anchored to the EXACT host `github.com` (or a real `*.github.com` subdomain),
+    // so a suffix look-alike like `notgithub.com` has no left boundary at `github.com` and is rejected.
+    // As a scheme-less shorthand it also fails the bare parser's leading-dot heuristic, so it returns null.
+    expect(parseRepoUrl("notgithub.com/o/r")).toBeNull();
+    expect(parseRepoUrl("https://notgithub.com/o/r")).toBeNull();
+    expect(parseRepoUrl("https://evilgithub.com/o/r")).toBeNull();
   });
 });
 
