@@ -8,7 +8,8 @@
 // import and call it directly — no mocks needed.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { parseRepoUrl, GitHubPublicSource } from "./source";
+import { parseRepoUrl, GitHubPublicSource, resolveHead } from "./source";
+import { fetchBranchGovernance } from "./governance";
 
 // The hard security invariant the whole module rests on: a non-null result NEVER carries a coordinate
 // that could rewrite the request path. owner and repo must each match the GitHub name charset — no
@@ -334,5 +335,245 @@ describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient 
     expect(snap.files).toHaveLength(0); // fetched=0
     // 0.4 + 0/40 = 0.4 — still a finite, sub-perfect number, never 0.9.
     expect(snap.coverage).toBe(0.4);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// resolveHead — the status→HeadLookup mapping that keys cache freshness (finding test-mastery #3, src/lib/github/source.ts:185)
+// ---------------------------------------------------------------------------------------------------
+// resolveHead is only ever MOCKED elsewhere (scan-cache.test.ts); its real status→HeadLookup mapping is
+// never exercised. This block pins the producer contract directly. The returned `ok.sha` becomes the
+// `owner/repo@sha::mode` cache key, so a wrong status→SHA mapping silently defeats invalidation (a stale
+// report served after a push) or fragments/poisons the cache with a bogus SHA. We stub the global `fetch`
+// (the seam list.test.ts uses) and pin status→result per case. Invariants:
+//   - a returned ok.sha ALWAYS matches /^[0-9a-f]{7,40}$/ and is lowercased;
+//   - 304 maps to `unmodified` (the free-revalidation promise — GitHub doesn't bill a 304), and only then
+//     is `If-None-Match` sent (so the 304 path can actually be reached on a quiet repo);
+//   - every non-ok / non-304 status (404, 403, 500) AND a non-SHA 200 body AND a thrown fetch map to
+//     `error` — NEVER a fabricated `ok` SHA that would key (and serve) a stale scan.
+
+const SHA40 = /^[0-9a-f]{7,40}$/;
+
+/** Capture the single request resolveHead makes so we can assert the headers/url it sent. */
+function captureHeadFetch(impl: (url: string, init: RequestInit) => Response | Promise<Response>) {
+  return vi.fn(async (url: string, init: RequestInit = {}) => impl(url, init));
+}
+
+describe("resolveHead — status→HeadLookup mapping keys cache freshness; a wrong map can't serve a stale scan", () => {
+  it("304 → {status:'unmodified'} and sends If-None-Match (the free re-validation promise on a quiet repo)", async () => {
+    const fetchMock = captureHeadFetch(() => res("", { status: 304 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await resolveHead({ owner: "o", repo: "r" }, { etag: 'W/"abc123"' });
+    expect(out).toEqual({ status: "unmodified" }); // no sha echoed back — caller owns it via the ETag
+    // The conditional request MUST carry the supplied ETag, else GitHub can never answer 304 and the
+    // "costs zero quota" re-scan promise is dead.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://api.github.com/repos/o/r/commits/HEAD");
+    const sentHeaders = (init as RequestInit).headers as Record<string, string>;
+    expect(sentHeaders["If-None-Match"]).toBe('W/"abc123"');
+    // The cheap-lookup media type + no-store are load-bearing (sha-only body, no framework cache).
+    expect(sentHeaders["Accept"]).toBe("application/vnd.github.sha");
+    expect((init as RequestInit).cache).toBe("no-store");
+  });
+
+  it("no etag passed → NO If-None-Match header (an unconditional first lookup)", async () => {
+    const fetchMock = captureHeadFetch(() => res("c".repeat(40), { headers: { etag: 'W/"e"' } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await resolveHead({ owner: "o", repo: "r" });
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    const sentHeaders = init.headers as Record<string, string>;
+    expect("If-None-Match" in sentHeaders).toBe(false);
+  });
+
+  it("200 + a 40-hex body → {status:'ok', sha:lowercased, etag} (the SHA that keys the cache)", async () => {
+    const upper = "ABCDEF0123456789ABCDEF0123456789ABCDEF01"; // 40 hex, mixed case
+    const fetchMock = captureHeadFetch(() => res(upper, { headers: { etag: 'W/"fresh"' } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await resolveHead({ owner: "o", repo: "r" });
+    expect(out.status).toBe("ok");
+    if (out.status !== "ok") throw new Error("unreachable");
+    expect(out.sha).toBe(upper.toLowerCase()); // lowercased so the cache key is canonical
+    expect(out.sha).toMatch(SHA40); // invariant: a returned sha is always SHA-shaped
+    expect(out.etag).toBe('W/"fresh"'); // captured for the next conditional lookup
+  });
+
+  it("200 + a short-but-valid 7-hex body still maps to ok (the 7..40 guard lower bound)", async () => {
+    vi.stubGlobal("fetch", captureHeadFetch(() => res("abc1234")));
+    const out = await resolveHead({ owner: "o", repo: "r" });
+    expect(out.status).toBe("ok");
+    if (out.status === "ok") expect(out.sha).toMatch(SHA40);
+  });
+
+  it("200 + a NON-SHA body (an HTML error page) → {status:'error'} — a bogus SHA must NEVER key the cache", async () => {
+    // The exact cache-poison vector: if the SHA-shape guard loosens, an HTML/error body becomes a cache
+    // key, colliding or fragmenting scans. It must be rejected as `error`, not returned as `ok`.
+    vi.stubGlobal("fetch", captureHeadFetch(() => res("<!DOCTYPE html><html>nope</html>")));
+    const out = await resolveHead({ owner: "o", repo: "r" });
+    expect(out).toEqual({ status: "error" });
+  });
+
+  it("200 + a truncated/garbage body (too long, non-hex chars) → {status:'error'}", async () => {
+    vi.stubGlobal("fetch", captureHeadFetch(() => res("z".repeat(41))));
+    const out = await resolveHead({ owner: "o", repo: "r" });
+    expect(out).toEqual({ status: "error" });
+  });
+
+  it("404 (missing/private repo) → {status:'error'} — falls back to a SHA-less key, not a fake ok", async () => {
+    vi.stubGlobal("fetch", captureHeadFetch(() => res("Not Found", { status: 404 })));
+    expect(await resolveHead({ owner: "o", repo: "r" })).toEqual({ status: "error" });
+  });
+
+  it("403 (rate-limited/denied) → {status:'error'} — a denial is unreadable, NOT a confident head", async () => {
+    vi.stubGlobal("fetch", captureHeadFetch(() => res("rate limited", { status: 403 })));
+    expect(await resolveHead({ owner: "o", repo: "r" })).toEqual({ status: "error" });
+  });
+
+  it("500 (upstream error) → {status:'error'}", async () => {
+    vi.stubGlobal("fetch", captureHeadFetch(() => res("boom", { status: 500 })));
+    expect(await resolveHead({ owner: "o", repo: "r" })).toEqual({ status: "error" });
+  });
+
+  it("a thrown/aborted fetch (network/timeout) → {status:'error'}, never a leaked rejection", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
+    expect(await resolveHead({ owner: "o", repo: "r" })).toEqual({ status: "error" });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// fetchBranchGovernance — protection-rule extraction + the readable-vs-null contract (finding test-mastery #4,
+// src/lib/github/governance.ts:47). Lives in a sibling module but shares the global-fetch seam, so it is
+// pinned here alongside the rest of the GitHub I/O contract (RULES: extend only source.test.ts).
+// ---------------------------------------------------------------------------------------------------
+// Governance posture feeds the maturity score, the org security/governance dashboards, and exec PDFs.
+// A regression in the ruleset parsing or the `readable` gate makes a PROTECTED branch read as
+// "no protection" — a credibility-critical false negative — or returns null="unknown" when a call
+// actually succeeded. The hard invariant: `null` is returned IFF neither REST call returned 200 (an
+// all-fail/denied read is "unreadable"/null, distinct from an empty-but-readable {readable:true}
+// result). We mock the two paired REST calls (branches/{branch} + rules/branches/{branch}) with
+// vi.fn() and route by URL.
+
+const GAPI = "https://api.github.com";
+const branchUrl = (b: string) => `${GAPI}/repos/o/r/branches/${b}`;
+const rulesUrl = (b: string) => `${GAPI}/repos/o/r/rules/branches/${b}`;
+
+/** Full applied ruleset: PR (with approvals + code-owner), status checks, signatures, linear history. */
+const FULL_RULES = [
+  {
+    type: "pull_request",
+    parameters: { required_approving_review_count: 2, require_code_owner_review: true },
+  },
+  { type: "required_status_checks", parameters: { required_status_checks: [{ context: "ci" }] } },
+  { type: "required_signatures" },
+  { type: "required_linear_history" },
+];
+
+/**
+ * Mock the two paired governance fetches. `branch` and `rules` each give a status + body; either may be
+ * a non-200 to simulate a partial/denied read.
+ */
+function makeGovFetch(
+  branch: { status: number; body: unknown },
+  rules: { status: number; body: unknown },
+) {
+  return vi.fn(async (url: string) => {
+    if (url === branchUrl("main")) return res(branch.body, { status: branch.status });
+    if (url === rulesUrl("main")) return res(rules.body, { status: rules.status });
+    throw new Error(`unexpected governance fetch in test: ${url}`);
+  });
+}
+
+describe("fetchBranchGovernance — rule extraction + the readable-vs-null contract (null IFF neither call is 200)", () => {
+  it("full ruleset, both 200 → every flag true and requiredApprovals plucked from parameters", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeGovFetch({ status: 200, body: { protected: true } }, { status: 200, body: FULL_RULES }),
+    );
+    const gov = await fetchBranchGovernance("o", "r", "main", "tok");
+    expect(gov).toEqual({
+      defaultBranch: "main",
+      protected: true,
+      requiresPullRequest: true,
+      requiredApprovals: 2, // plucked from pull_request.parameters, not defaulted to 0
+      requiresCodeOwnerReview: true,
+      requiresStatusChecks: true,
+      requiresSignatures: true,
+      linearHistory: true,
+      ruleCount: 4,
+      readable: true,
+    });
+  });
+
+  it("readable but NO pull_request rule → requiresPullRequest:false & requiredApprovals:0 (not a crash, not null)", async () => {
+    // An empty-but-readable result: the calls succeeded, the branch just has no PR rule. This is the
+    // case that MUST stay distinct from the unreadable→null case below.
+    vi.stubGlobal(
+      "fetch",
+      makeGovFetch(
+        { status: 200, body: { protected: false } },
+        { status: 200, body: [{ type: "required_signatures" }] },
+      ),
+    );
+    const gov = await fetchBranchGovernance("o", "r", "main", "tok");
+    expect(gov).not.toBeNull();
+    expect(gov!.readable).toBe(true);
+    expect(gov!.requiresPullRequest).toBe(false);
+    expect(gov!.requiredApprovals).toBe(0);
+    expect(gov!.requiresSignatures).toBe(true);
+    expect(gov!.ruleCount).toBe(1);
+  });
+
+  it("one call 200 / one 404 → readable:true object (a partial read is still authoritative, not null)", async () => {
+    // branch 200, rules 404: readable === (200 || 404===200) === true. The rules array is empty (404
+    // body isn't an array) so PR flags are false — but the result is a real object, NOT the null="unknown".
+    vi.stubGlobal(
+      "fetch",
+      makeGovFetch({ status: 200, body: { protected: true } }, { status: 404, body: { message: "Not Found" } }),
+    );
+    const gov = await fetchBranchGovernance("o", "r", "main", "tok");
+    expect(gov).not.toBeNull();
+    expect(gov!.readable).toBe(true);
+    expect(gov!.protected).toBe(true);
+    expect(gov!.requiresPullRequest).toBe(false);
+    expect(gov!.ruleCount).toBe(0);
+  });
+
+  it("the SYMMETRIC partial: rules 200 / branch 404 → readable:true object, rules still parsed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeGovFetch({ status: 404, body: { message: "Not Found" } }, { status: 200, body: FULL_RULES }),
+    );
+    const gov = await fetchBranchGovernance("o", "r", "main", "tok");
+    expect(gov).not.toBeNull();
+    expect(gov!.readable).toBe(true);
+    expect(gov!.requiresPullRequest).toBe(true);
+    expect(gov!.requiredApprovals).toBe(2);
+    expect(gov!.protected).toBe(false); // branch call failed → protected flag absent → false
+  });
+
+  it("BOTH calls 404 → null (unreadable/unknown), NOT a false readable:false 'no rules' object", async () => {
+    // The core invariant: neither call returned 200, so posture is UNKNOWN and must be null. Returning a
+    // {readable:false, requiresPullRequest:false,…} object here would misreport an unknown as "no protection".
+    vi.stubGlobal(
+      "fetch",
+      makeGovFetch({ status: 404, body: { message: "Not Found" } }, { status: 404, body: { message: "Not Found" } }),
+    );
+    expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
+  });
+
+  it("a DENIED read (both 403) → null, never a false 'no rules' (a denial is unreadable, not unprotected)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeGovFetch({ status: 403, body: { message: "Forbidden" } }, { status: 403, body: { message: "Forbidden" } }),
+    );
+    expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
+  });
+
+  it("a thrown fetch is swallowed → null (no leaked rejection into the scan)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
+    expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
   });
 });
