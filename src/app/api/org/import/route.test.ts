@@ -16,6 +16,10 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
+// The metered (non-unlimited) credit path reaches maybeAlertLowCredits after a reserved debit; the
+// ambient-token suite never enters that branch (it pins unlimited:true) so it omits this mock. The
+// credit-cap suite below DOES enter it, so stub the alert glue to keep the test hermetic.
+vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 vi.mock("@/lib/db", () => ({
   consumeScanCredit: vi.fn(),
   getInstallationIdForOwner: vi.fn(async () => null),
@@ -57,12 +61,16 @@ import { POST } from "./route";
 import { scanRepository } from "@/lib/scan";
 import { isAuthConfigured } from "@/lib/auth";
 import { sessionOwnsOrg } from "@/lib/authz";
-import { getInstallationIdForOwner } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, grantCredits } from "@/lib/db";
+import { checkScanEntitlement } from "@/lib/entitlement";
 
 const mockScan = vi.mocked(scanRepository);
 const mockAuthOn = vi.mocked(isAuthConfigured);
 const mockOwnsOrg = vi.mocked(sessionOwnsOrg);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
+const mockConsume = vi.mocked(consumeScanCredit);
+const mockGrant = vi.mocked(grantCredits);
+const mockEntitlement = vi.mocked(checkScanEntitlement);
 
 const report = {
   engine: { provider: "mock", model: "m" },
@@ -123,5 +131,119 @@ describe("POST /api/org/import — ambient-token discipline", () => {
     const opts = mockScan.mock.calls[0][1]!;
     expect(opts.token).toBe("operator-pat-with-repo-scope");
     expect(opts.noAmbientToken).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Credit-cap slice + per-repo refund (watchlist HIGH #4). The ambient-token suite above pins
+// checkScanEntitlement → {unlimited:true}, so the metered branch (the entire credit dimension of the
+// import funnel) is out of its frame. This suite enters the metered path — a real-inference import
+// (mock:false) into a PRIVATE org (org !== "public") — and pins the money-protecting invariants:
+//   • the up-front cap scans only the affordable SLICE (exactly `balance` repos, never balance+1);
+//   • the import surfaces an honest "N of M scanned, capped at balance" result (a notice + a non-zero
+//     skippedForCredits), not a silent partial;
+//   • a per-repo scan FAILURE refunds that repo's reserved credit (never charge for a non-product).
+// A non-mock report is used so the refund-on-degrade branch (provider === "mock") doesn't fire and
+// confound the cap test — here every scanned repo produces billable real inference.
+
+// A real-LLM (non-mock) report — so a successful scan is genuinely billable and NOT auto-refunded.
+const realReport = { ...(report as object), engine: { provider: "anthropic", model: "claude" } } as unknown as ScanReport;
+
+/** Drain the SSE stream and return the decoded `event: …\ndata: …` frames as {event,data} pairs. */
+async function collectImport(body: Record<string, unknown>): Promise<{ event: string; data: unknown }[]> {
+  const res = await POST(
+    new Request("http://localhost/api/org/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+  const text = await res.text();
+  const events: { event: string; data: unknown }[] = [];
+  for (const frame of text.split("\n\n")) {
+    const ev = frame.match(/^event: (.+)$/m)?.[1];
+    const dataLine = frame.match(/^data: (.+)$/m)?.[1];
+    if (ev && dataLine) events.push({ event: ev, data: JSON.parse(dataLine) });
+  }
+  return events;
+}
+
+describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)", () => {
+  beforeEach(() => {
+    // Metered path = real inference into a private org. Default each reserve to a successful debit;
+    // the unaffordable tail never reaches consumeScanCredit because the up-front slice drops it.
+    mockScan.mockResolvedValue(realReport);
+    mockConsume.mockResolvedValue({ ok: true, balance: 1, unlimited: false });
+    mockGrant.mockResolvedValue(0);
+  });
+
+  it("caps the batch to the credit balance — scans exactly `balance` repos (the affordable slice), not balance+1", async () => {
+    // balance:2, three watched repos → only the first 2 are affordable; the 3rd must never scan.
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 2 });
+    const events = await collectImport({
+      org: "acme",
+      repos: ["acme/a", "acme/b", "acme/c"],
+      mock: false,
+      watch: false,
+    });
+
+    // SLICE BOUNDARY pinned: exactly 2 scans (balance), never the 3rd (balance+1).
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    const scannedRepos = mockScan.mock.calls.map((c) => c[0]);
+    expect(scannedRepos).toEqual(["acme/a", "acme/b"]);
+    expect(scannedRepos).not.toContain("acme/c");
+    // A credit is reserved per scanned repo — never for the capped-out tail.
+    expect(mockConsume).toHaveBeenCalledTimes(2);
+
+    // HONEST partial: an up-front notice AND a non-zero skippedForCredits in the result — not a
+    // silent 0-skipped success.
+    const notice = events.find((e) => e.event === "notice");
+    expect(notice?.data).toMatchObject({ reason: "insufficient_credits", scanning: 2, skipped: 1 });
+    const result = events.find((e) => e.event === "result");
+    expect(result?.data).toMatchObject({ org: "acme", scanned: 2, total: 2, skippedForCredits: 1 });
+  });
+
+  it("does NOT cap when the balance covers the whole batch — scans every repo, no skip notice", async () => {
+    // Guard the lower edge of the boundary: balance:3 for 3 repos → no slice, all three scan.
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 3 });
+    const events = await collectImport({
+      org: "acme",
+      repos: ["acme/a", "acme/b", "acme/c"],
+      mock: false,
+      watch: false,
+    });
+    expect(mockScan).toHaveBeenCalledTimes(3);
+    expect(events.find((e) => e.event === "notice")).toBeUndefined();
+    expect(events.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 3, skippedForCredits: 0 });
+  });
+
+  it("refunds the reserved credit when a per-repo scan throws — never charge for a non-product", async () => {
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5 });
+    mockScan.mockRejectedValueOnce(new Error("github 500"));
+    const events = await collectImport({ org: "acme", repos: ["acme/boom"], mock: false, watch: false });
+
+    // The reservation was made (consumeScanCredit) and then refunded exactly once on the throw.
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    expect(mockGrant).toHaveBeenCalledTimes(1);
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    // The failure is surfaced honestly on the repo event, not swallowed.
+    expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ repo: "acme/boom", error: "github 500" });
+  });
+
+  it("does not refund a successful, genuinely-billable scan — a real product is charged", async () => {
+    // Pins the other side of the refund invariant: a non-mock, non-deduped scan keeps its debit.
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5 });
+    await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    expect(mockGrant).not.toHaveBeenCalled();
+  });
+
+  it("never reserves a credit on the free mock funnel into a private org (mock is free)", async () => {
+    // mock:true → metered = !mock && … = false: the credit dimension is skipped entirely.
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 2 });
+    await collectImport({ org: "acme", repos: ["acme/a", "acme/b"], mock: true, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockEntitlement).not.toHaveBeenCalled();
   });
 });
