@@ -124,19 +124,31 @@ describe("GET /api/health — DB check fails (the no-leak invariant)", () => {
     expect("error" in body).toBe(false);
   });
 
-  it("DOCUMENTS current behavior: the no-leak guard holds on dbHealthCheck's RESOLVED failure shape, not a raw reject", async () => {
+  it("when dbHealthCheck THROWS, the route catches it and returns a generic 503 with NO leaked error", async () => {
     // The real `dbHealthCheck()` (src/lib/db/client.ts) catches internally and ALWAYS resolves to
-    // `{ ok, reconnected, error? }` — it never rejects. The route relies on that: it reads the
-    // resolved shape and emits the safe body (asserted in the test above). This test pins the flip
-    // side as a tripwire: the route does NOT wrap dbHealthCheck in try/catch, so IF a future refactor
-    // made the check throw, the rejection would propagate to the framework's error serializer (a
-    // leak risk). Today that contract is "dbHealthCheck never throws" — pin it so a regression that
-    // makes it throw fails loudly here and forces adding a try/catch returning the generic 503 shape.
+    // `{ ok, reconnected, error? }`. But the route must not RELY on that — a future refactor (or an
+    // unexpected throw) could make it reject. The route now wraps dbHealthCheck in try/catch and emits
+    // the generic degraded shape so the rejection never reaches the framework's error serializer (a
+    // leak on this unauthenticated endpoint). This test asserts that defense: a thrown LEAKY_ERROR
+    // surfaces as a clean 503 / db:"down" with none of the secret substrings in the body.
     mockDbHealthCheck.mockRejectedValue(new Error(LEAKY_ERROR));
-    // Current behavior: GET propagates the rejection (no in-route catch). This is the documented gap.
-    await expect(GET()).rejects.toThrow();
-    // Reinforces WHY the resolved-shape no-leak test above is the real protection: the route's own
-    // body construction (the path actually taken in production) never includes result.error.
+
+    const { status, text, body } = await callGet();
+
+    // Degraded, generic status — the throw is swallowed and mapped to the safe failure shape.
+    expect(status).toBe(503);
+    expect(body.status).toBe("error");
+    expect(body.db).toBe("down");
+
+    // THE INVARIANT on the throwing path: no secret-ish substring of the thrown error leaks.
+    for (const secret of SECRET_SUBSTRINGS) {
+      expect(text).not.toContain(secret);
+    }
+    expect(text).not.toContain(LEAKY_ERROR);
+
+    // Body has only the safe keys — nothing derived from the thrown error.
+    expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "reconnected", "status"]);
+    expect("error" in body).toBe(false);
   });
 });
 
