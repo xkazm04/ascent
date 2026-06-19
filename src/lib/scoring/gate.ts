@@ -79,17 +79,23 @@ export function sanitizeGatePolicy(raw: unknown): GatePolicy | null {
     const n = Number(v);
     return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.trunc(n) : undefined;
   };
+  // A floor of 0 (or negative) is an always-pass gate that still LOOKS configured. Treat <= 0 as
+  // "not set" and DROP the key, matching policyFromParams's `> 0` rule (a real floor is positive).
+  const floorScore = (v: unknown): number | undefined => {
+    const n = clampScore(v);
+    return n !== undefined && n > 0 ? n : undefined;
+  };
   const pol: GatePolicy = {};
   if (typeof r.minLevel === "string" && isLevelId(r.minLevel)) pol.minLevel = r.minLevel;
-  const mo = clampScore(r.minOverall);
+  const mo = floorScore(r.minOverall);
   if (mo !== undefined) pol.minOverall = mo;
-  const md = clampScore(r.minDimension);
+  const md = floorScore(r.minDimension);
   if (md !== undefined) pol.minDimension = md;
   if (r.minDimensionFor && typeof r.minDimensionFor === "object") {
     const floors: Partial<Record<DimensionId, number>> = {};
     for (const [k, v] of Object.entries(r.minDimensionFor as Record<string, unknown>)) {
       if (/^D[1-9]$/.test(k)) {
-        const n = clampScore(v);
+        const n = floorScore(v);
         if (n !== undefined) floors[k as DimensionId] = n;
       }
     }

@@ -134,31 +134,21 @@ describe("sanitizeGatePolicy", () => {
     expect(sanitizeGatePolicy({ minOverall: "70.8" })).toEqual({ minOverall: 70 });
   });
 
-  it("keeps the inclusive range boundaries 0 and 100", () => {
+  it("keeps the inclusive upper boundary 100 but DROPS a 0 floor (no always-pass gate)", () => {
     expect(sanitizeGatePolicy({ minOverall: 100 })).toEqual({ minOverall: 100 });
-    // TRAP (pinned as CURRENT behavior): clampScore treats 0 as a VALID floor (finite, >=0, <=100),
-    // so { minDimension: 0 } survives sanitization as a real `0` floor — an always-pass dimension
-    // gate that still LOOKS configured. Unlike policyFromParams (which requires min_security > 0),
-    // sanitizeGatePolicy does NOT drop a 0 here. If this assertion ever needs to flip to expect a
-    // dropped key, that is a DELIBERATE hardening — not a silent regression.
-    expect(sanitizeGatePolicy({ minDimension: 0 })).toEqual({ minDimension: 0 });
-    expect(sanitizeGatePolicy({ minOverall: 0 })).toEqual({ minOverall: 0 });
+    // A floor of 0 (or negative) is an always-pass gate that still LOOKS configured. Like
+    // policyFromParams (which requires min_security > 0), sanitizeGatePolicy now treats <= 0 as
+    // "not set" and DROPS the key — so a 0-only policy is empty → null, no real 0 floor survives.
+    expect(sanitizeGatePolicy({ minDimension: 0 })).toBeNull();
+    expect(sanitizeGatePolicy({ minOverall: 0 })).toBeNull();
   });
 
-  it("the 0-floor passthrough is an always-pass gate (documents the trap end-to-end)", () => {
-    const pol = sanitizeGatePolicy({ minDimension: 0 }) as GatePolicy;
-    // A report with the worst possible dimension score (0) still PASSES a minDimension=0 gate.
-    const res = evaluateGate(
-      {
-        archetype: "org",
-        level: { id: "L4" },
-        overallScore: 70,
-        dimensions: [{ id: "D9", name: "Security", score: 0 }],
-        posture: { id: "ai-native", label: "AI-native" },
-      } as unknown as ScanReport,
-      pol,
-    );
-    expect(res.pass).toBe(true); // 0 is NOT below the 0 floor → no dimension failure
+  it("a dropped 0 floor leaves no dimension gate (the always-pass trap is closed)", () => {
+    // { minDimension: 0 } no longer survives — the only key is dropped, so the policy is null and
+    // there is no dimension floor to (vacuously) pass. A real floor must be a positive number.
+    expect(sanitizeGatePolicy({ minDimension: 0 })).toBeNull();
+    // A 0-valued per-dimension floor is likewise dropped, leaving no minDimensionFor.
+    expect(sanitizeGatePolicy({ minDimensionFor: { D9: 0 } })).toBeNull();
   });
 
   // --- minDimensionFor: only /^D[1-9]$/ keys, each value clampScore'd ---
