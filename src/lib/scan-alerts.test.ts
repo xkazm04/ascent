@@ -230,35 +230,32 @@ describe("checkAndAlertRegression — per-org threshold override", () => {
 });
 
 describe("checkAndAlertRegression — throw-safety (never fails the scan path)", () => {
-  // KNOWN (test-mastery critical #2): recordAudit() at scan-alerts.ts:71 is awaited WITHOUT a
-  // .catch() (unlike orgWebhook/getOrgAlertThresholds). It is, however, inside the outer try/catch,
-  // so a recordAudit rejection is SWALLOWED rather than propagated — which is throw-safe for the
-  // scan path, but ALSO means the alert is never dispatched (the catch returns dispatched:false).
-  // We pin BOTH current behaviors below so a future fix (wrapping recordAudit in .catch so audit and
-  // dispatch become independent) is a deliberate, test-visible change.
+  // recordAudit() at scan-alerts.ts is now .catch()-wrapped (like orgWebhook/getOrgAlertThresholds),
+  // so a flaky audit write is decoupled from alert dispatch: it neither throws into the scan path NOR
+  // suppresses a real regression alert. The two tests below pin both halves of that contract.
 
-  it("does NOT throw when recordAudit rejects (scan path resilience holds via the outer try/catch)", async () => {
+  it("does NOT throw when recordAudit rejects (scan path resilience holds)", async () => {
     mockDetect.mockReturnValue(REGRESSED);
     mockWebhook.mockResolvedValue("https://hooks.example/acme");
     mockAudit.mockRejectedValue(new Error("audit table write failed"));
 
     // Contract: alerting must never throw into the scan path.
     const out = await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
-    expect(out).toEqual({ regressed: false, verdict: null, dispatched: false });
+    expect(out.regressed).toBe(true);
   });
 
-  it("KNOWN BUG (current behavior): a recordAudit failure SUPPRESSES the alert — dispatch is never reached", async () => {
-    // This pins the finding's worst case: a flaky audit write silently drops a REAL regression alert,
-    // because recordAudit is not .catch()-wrapped so its throw skips straight to the outer catch
-    // (which returns dispatched:false) before dispatchAlert is ever called. If a future change wraps
-    // recordAudit in .catch(()=>{}) to decouple audit from dispatch, THIS expectation must be updated
-    // (dispatch should then fire) — making the fix a conscious, reviewed decision.
+  it("a recordAudit failure does NOT suppress the alert — dispatch STILL fires (audit/alert decoupled)", async () => {
+    // The fix: recordAudit is .catch()-wrapped so an audit-write blip is swallowed/logged rather than
+    // skipping straight to the outer catch. A REAL regression alert must still be dispatched even when
+    // the audit row can't be written — the audit trail and the alert are independent best-efforts.
     mockDetect.mockReturnValue(REGRESSED);
     mockWebhook.mockResolvedValue("https://hooks.example/acme");
     mockAudit.mockRejectedValue(new Error("audit table write failed"));
 
-    await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
-    expect(mockDispatch).not.toHaveBeenCalled(); // <-- regression alert dropped by an unrelated audit blip
+    const out = await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
+    expect(mockDispatch).toHaveBeenCalledTimes(1); // <-- alert NOT dropped by an unrelated audit blip
+    expect(out.regressed).toBe(true);
+    expect(out.dispatched).toBe(true);
   });
 
   it("does NOT throw when dispatchAlert rejects; resolves to dispatched:false", async () => {

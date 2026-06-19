@@ -68,6 +68,9 @@ export async function checkAndAlertRegression(
     if (!verdict.regressed) return { regressed: false, verdict, dispatched: false };
 
     const fullName = `${fresh.repo.owner}/${fresh.repo.name}`;
+    // Best-effort audit — a flaky audit write must NOT suppress the regression alert below, so its
+    // failure is swallowed (logged) rather than skipping straight to the outer catch (which would
+    // return dispatched:false and silently drop a real alert).
     await recordAudit(
       "scan.regression",
       {
@@ -78,7 +81,9 @@ export async function checkAndAlertRegression(
         to: { level: diff.level.after.id, overall: diff.overall.after },
       },
       { orgId: opts.orgId },
-    );
+    ).catch((err) => {
+      console.error("[scan-alerts] audit write failed (alert still dispatched)", err instanceof Error ? err.message : err);
+    });
 
     let dispatched = false;
     const webhookUrl = await orgWebhook(opts.orgSlug);
