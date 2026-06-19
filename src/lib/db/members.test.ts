@@ -13,7 +13,7 @@ vi.mock("@/lib/db/client", () => ({
   isDbConfigured: mockIsDbConfigured,
 }));
 
-import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership } from "./members";
+import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole } from "./members";
 
 describe("roleAtLeast", () => {
   it("orders owner > admin > member > viewer", () => {
@@ -332,5 +332,153 @@ describe("canonical-identifier audit invariant", () => {
       expect(res).toBe("not_found"); // route maps this to 404 and skips recordAudit
       expect(writes).toHaveLength(0);
     });
+  });
+});
+
+// --- getMembershipRole resolution-miss invariant (members-access-control.md MEDIUM #5) ----------------
+// getMembershipRole is the role resolver requireOrgRole trusts: `null` means "no role → deny/claim", a
+// non-null OrgRole grants exactly that role. It walks three independent lookups — user (by githubLogin),
+// org (by slug), membership (by orgId_userId) — each guarded by an early `return null`. The load-bearing
+// invariant: ANY miss (DB-off, blank login, unknown user, unknown org, no membership row) yields `null`
+// and NEVER a crash, a default-grant, or a stray truthy role; a present-but-corrupted role string is
+// coerced down to "member" (the DB-corruption guard at members.ts:70), never surfaced raw to RBAC.
+//
+// `resolverPrisma` lets each leg of the walk independently resolve or miss: `user`/`org` are the lookup
+// results (null = miss), `membershipRole` is the stored role string (null = no row). It records the exact
+// githubLogin + slug + orgId_userId reaching each lookup so a test can assert the normalized login is used
+// and that a downstream lookup is SKIPPED once an upstream leg misses (short-circuit, no wasted query).
+function resolverPrisma(opts: {
+  user?: { id: string } | null;
+  org?: { id: string } | null;
+  membershipRole?: string | null;
+} = {}) {
+  const user = opts.user === undefined ? { id: "user_1" } : opts.user;
+  const org = opts.org === undefined ? { id: "org_1" } : opts.org;
+  const membershipRole = opts.membershipRole === undefined ? null : opts.membershipRole;
+
+  const userLoginLookups: string[] = [];
+  const orgSlugLookups: string[] = [];
+  const membershipKeys: Array<{ orgId: string; userId: string }> = [];
+
+  const prisma = {
+    user: {
+      findUnique: vi.fn(async (args: { where: { githubLogin: string } }) => {
+        userLoginLookups.push(args.where.githubLogin);
+        return user;
+      }),
+    },
+    organization: {
+      findUnique: vi.fn(async (args: { where: { slug: string } }) => {
+        orgSlugLookups.push(args.where.slug);
+        return org;
+      }),
+    },
+    membership: {
+      findUnique: vi.fn(async (args: { where: { orgId_userId: { orgId: string; userId: string } } }) => {
+        membershipKeys.push(args.where.orgId_userId);
+        return membershipRole === null ? null : { role: membershipRole };
+      }),
+    },
+  };
+
+  return { prisma, userLoginLookups, orgSlugLookups, membershipKeys };
+}
+
+describe("getMembershipRole resolution misses", () => {
+  it("returns null when the DB is not configured (documented DB-off value), never touching Prisma", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    // getPrisma must not be consulted at all when the DB is off.
+    mockGetPrisma.mockImplementation(() => {
+      throw new Error("getPrisma should not be called when DB is unconfigured");
+    });
+
+    await expect(getMembershipRole("acme", "alice")).resolves.toBeNull();
+  });
+
+  it("returns null for a blank login (after trim) before any user lookup", async () => {
+    const { prisma, userLoginLookups } = resolverPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(getMembershipRole("acme", "   ")).resolves.toBeNull();
+    expect(userLoginLookups).toHaveLength(0); // short-circuits before hitting the DB
+  });
+
+  it("returns null for an unknown user (user lookup miss) and never resolves the org", async () => {
+    const { prisma, userLoginLookups, orgSlugLookups, membershipKeys } = resolverPrisma({ user: null });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(getMembershipRole("acme", "ghost")).resolves.toBeNull();
+    expect(userLoginLookups).toEqual(["ghost"]); // user lookup ran, with the normalized login
+    expect(orgSlugLookups).toHaveLength(0); // org lookup short-circuited
+    expect(membershipKeys).toHaveLength(0); // membership lookup short-circuited
+  });
+
+  it("returns null for an unknown org (org lookup miss) and never reads a membership row", async () => {
+    const { prisma, orgSlugLookups, membershipKeys } = resolverPrisma({ user: { id: "user_1" }, org: null });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(getMembershipRole("no-such-org", "alice")).resolves.toBeNull();
+    expect(orgSlugLookups).toEqual(["no-such-org"]); // org lookup ran
+    expect(membershipKeys).toHaveLength(0); // membership lookup short-circuited
+  });
+
+  it("returns null when the user + org resolve but no membership row exists (no default-grant)", async () => {
+    const { prisma, membershipKeys } = resolverPrisma({
+      user: { id: "user_1" },
+      org: { id: "org_1" },
+      membershipRole: null,
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(getMembershipRole("acme", "alice")).resolves.toBeNull();
+    // The membership lookup DID run, keyed on the resolved org + user ids — the miss is the row, not a skip.
+    expect(membershipKeys).toEqual([{ orgId: "org_1", userId: "user_1" }]);
+  });
+
+  it("normalizes the login (trim + lowercase) before the user lookup", async () => {
+    const { prisma, userLoginLookups } = resolverPrisma({ user: null });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getMembershipRole("acme", "  AliceLogin  ");
+    expect(userLoginLookups).toEqual(["alicelogin"]); // not "  AliceLogin  ", not "AliceLogin"
+  });
+
+  it("returns the stored role when a valid membership row exists", async () => {
+    const { prisma } = resolverPrisma({
+      user: { id: "user_1" },
+      org: { id: "org_1" },
+      membershipRole: "admin",
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(getMembershipRole("acme", "alice")).resolves.toBe("admin");
+  });
+
+  it("coerces a corrupted/legacy non-OrgRole stored value down to 'member' (never surfaces it raw to RBAC)", async () => {
+    const { prisma } = resolverPrisma({
+      user: { id: "user_1" },
+      org: { id: "org_1" },
+      membershipRole: "superuser", // not one of owner|admin|member|viewer
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(getMembershipRole("acme", "alice")).resolves.toBe("member");
+  });
+
+  it("yields a valid OrgRole or null on every shape — never throws across the resolution walk", async () => {
+    // Sweep each miss leg + the happy path; the resolver must always settle to OrgRole|null, never reject.
+    const cases: Array<{ p: ReturnType<typeof resolverPrisma>["prisma"]; expected: string | null }> = [
+      { p: resolverPrisma({ user: null }).prisma, expected: null },
+      { p: resolverPrisma({ org: null }).prisma, expected: null },
+      { p: resolverPrisma({ membershipRole: null }).prisma, expected: null },
+      { p: resolverPrisma({ membershipRole: "owner" }).prisma, expected: "owner" },
+      { p: resolverPrisma({ membershipRole: "" }).prisma, expected: "member" }, // empty string is not an OrgRole
+    ];
+    for (const { p, expected } of cases) {
+      mockGetPrisma.mockReturnValue(p);
+      const r = await getMembershipRole("acme", "alice");
+      expect(r === null || isOrgRole(r)).toBe(true);
+      expect(r).toBe(expected);
+    }
   });
 });
