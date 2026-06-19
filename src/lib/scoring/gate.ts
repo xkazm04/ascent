@@ -245,9 +245,17 @@ export function policyFromParams(params: URLSearchParams, archetype: RepoArchety
 
   return {
     minLevel: isLevelId(minLevel) ? minLevel : base.minLevel,
-    minOverall: Number.isFinite(minOverall) && params.get("min_overall") != null ? minOverall : base.minOverall,
+    // Require a POSITIVE floor (like min_security): `?min_overall=` (Number("")=0) and `?min_overall=0`
+    // both parse to a finite 0, which would install an always-pass gate that silently disarms CI
+    // protection. A <=0 / invalid value falls back to the archetype default rather than weakening the gate.
+    minOverall:
+      Number.isFinite(minOverall) && minOverall > 0 && params.get("min_overall") != null
+        ? minOverall
+        : base.minOverall,
     minDimension:
-      Number.isFinite(minDimension) && params.get("min_dimension") != null ? minDimension : base.minDimension,
+      Number.isFinite(minDimension) && minDimension > 0 && params.get("min_dimension") != null
+        ? minDimension
+        : base.minDimension,
     minDimensionFor: wantSecurity ? { [SECURITY_DIM]: securityFloor } : base.minDimensionFor,
     forbidPostures:
       noUngoverned === "1" || noUngoverned === "true" || wantSecurity ? ["ungoverned"] : base.forbidPostures,

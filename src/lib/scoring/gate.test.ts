@@ -2,7 +2,7 @@
 // parsing and evaluation: a D9 (Security) floor plus a forbidden "ungoverned" posture.
 
 import { describe, it, expect } from "vitest";
-import { policyFromParams, evaluateGate, sanitizeGatePolicy, DEFAULT_SECURITY_MIN } from "./gate";
+import { policyFromParams, evaluateGate, sanitizeGatePolicy, defaultGatePolicy, DEFAULT_SECURITY_MIN } from "./gate";
 import type { GatePolicy } from "./gate";
 import type { DimensionResult, ScanReport } from "@/lib/types";
 
@@ -208,5 +208,91 @@ describe("sanitizeGatePolicy", () => {
       minLevel: "L2",
       minDimension: 25,
     });
+  });
+});
+
+// policyFromParams turns an UNTRUSTED query string (the user-authored badge/CI URL) into a GatePolicy,
+// falling back to the archetype default for anything unset. These cases pin its overload-resolution
+// contract for the `min_overall` / `min_dimension` thresholds:
+//   - a param sets the floor ONLY when `Number(value)` is finite AND `params.get(key) != null`;
+//   - a non-numeric / NaN / absent value is IGNORED → the archetype default survives;
+//   - a finite POSITIVE value IS honored as the floor; a <=0 / empty value falls back to the default.
+// CONTRACT: min_overall / min_dimension now require a strictly POSITIVE floor — consistent with
+//   min_security's `> 0` rule and sanitizeGatePolicy's `<= 0` drop. `?min_dimension=0` and
+//   `?min_dimension=` (→ `Number("")===0`) would otherwise install an always-pass 0 floor that
+//   silently disarms the CI gate via a query param, so a <=0 value falls back to the archetype
+//   default rather than weakening the gate.
+describe("policyFromParams — min_overall / min_dimension threshold parsing", () => {
+  const ORG_DEFAULT = defaultGatePolicy("org"); // { minLevel: "L3", minDimension: 40, forbidPostures: ["ungoverned"] }
+
+  // --- a finite POSITIVE value sets the floor (the only unambiguous "request") ---
+  it("?min_dimension=50 sets a positive minDimension floor", () => {
+    expect(policyFromParams(new URLSearchParams("min_dimension=50"), "org").minDimension).toBe(50);
+  });
+
+  it("?min_overall=55 sets a positive minOverall floor", () => {
+    expect(policyFromParams(new URLSearchParams("min_overall=55"), "org").minOverall).toBe(55);
+  });
+
+  // --- absent / non-numeric / NaN values are IGNORED → archetype default survives ---
+  it("an absent min_dimension param keeps the archetype default floor (not 0)", () => {
+    // No min_dimension in the query → params.get() === null → default 40 used.
+    expect(policyFromParams(new URLSearchParams("min_overall=55"), "org").minDimension).toBe(
+      ORG_DEFAULT.minDimension,
+    );
+  });
+
+  it("a non-numeric min_dimension is ignored and falls back to the archetype default", () => {
+    expect(policyFromParams(new URLSearchParams("min_dimension=abc"), "org").minDimension).toBe(
+      ORG_DEFAULT.minDimension,
+    );
+  });
+
+  it("an explicit NaN string for min_dimension is ignored (Number('NaN') is not finite)", () => {
+    expect(policyFromParams(new URLSearchParams("min_dimension=NaN"), "org").minDimension).toBe(
+      ORG_DEFAULT.minDimension,
+    );
+  });
+
+  it("an absent min_overall param leaves minOverall unset (org default has none)", () => {
+    // The org archetype default carries no minOverall, so an unset param must not invent one.
+    expect(policyFromParams(new URLSearchParams("min_dimension=50"), "org").minOverall).toBeUndefined();
+  });
+
+  // --- 0 / empty-value behavior: a <=0 floor is REJECTED and falls back to the archetype default ---
+  // (consistent with min_security / sanitizeGatePolicy) so a query param can't silently disarm the gate.
+  it("?min_dimension=0 is rejected (<=0) and falls back to the archetype default floor", () => {
+    expect(policyFromParams(new URLSearchParams("min_dimension=0"), "org").minDimension).toBe(
+      ORG_DEFAULT.minDimension,
+    );
+  });
+
+  it("?min_dimension= (empty → Number('')===0) falls back to the archetype default", () => {
+    expect(policyFromParams(new URLSearchParams("min_dimension="), "org").minDimension).toBe(
+      ORG_DEFAULT.minDimension,
+    );
+  });
+
+  it("?min_overall=0 is rejected and leaves minOverall at the archetype default (org has none)", () => {
+    expect(policyFromParams(new URLSearchParams("min_overall=0"), "org").minOverall).toBe(ORG_DEFAULT.minOverall);
+  });
+
+  it("?min_overall= (empty) falls back to the archetype default (unset for org)", () => {
+    expect(policyFromParams(new URLSearchParams("min_overall="), "org").minOverall).toBe(ORG_DEFAULT.minOverall);
+  });
+
+  it("a 0 minDimension param falls back to the default floor (NOT an always-pass gate)", () => {
+    // With the <=0 guard, ?min_dimension=0 -> the org default floor (40), so the worst-scoring
+    // dimension (0) IS below the floor and fails - the gate can't be disarmed via the query param.
+    const pol = policyFromParams(new URLSearchParams("min_dimension=0"), "org");
+    const res = evaluateGate(report({ d9: 0 }), pol);
+    expect(res.failures.some((f) => f.code === "dimension")).toBe(true);
+  });
+
+  it("a 0 minOverall param falls back to the org default (no overall floor) -> no 'overall' failure", () => {
+    // The org archetype carries no minOverall, so a rejected 0 leaves it unset -> no overall floor at all.
+    const pol = policyFromParams(new URLSearchParams("min_overall=0"), "org");
+    const res = evaluateGate(report({ d9: 80, overall: 0 }), pol);
+    expect(res.failures.some((f) => f.code === "overall")).toBe(false);
   });
 });
