@@ -285,3 +285,179 @@ describe("getOrgBacklog — empty / boundary", () => {
     expect(await getOrgBacklog("acme", null, NOW)).toBeNull();
   });
 });
+
+// ── projectedPoints (engine-true ROI) + due-boundary counts ───────────────────────────────────────
+// The base harness above ships scans with empty `dimensions`, so projectedGain is skipped and every
+// item's projectedPoints stays null (the documented pre-dimension path). These tests instead feed REAL
+// dimension rows + an archetype so projectedGain runs, and pin: (1) the engine-true points/unlocks each
+// rec receives, computed independently from the same overallScoreFor/levelForScore math the engine uses
+// (org lens: D1 .15/D2 .15/D3 .14/D4 .12/D5 .09/D6 .07/D7 .07/D8 .12/D9 .09); (2) that a rec whose dimId
+// is absent from the scan's dims projects 0 points / null unlocks (truthy 0, never null/NaN); and (3)
+// that overdue/dueSoon land exactly on the inclusive [today .. +7d] window with a fixed clock.
+
+// A scan-with-dimensions variant: same shape as fakePrisma, but each repo carries dimension rows + a
+// real archetype so the projectedGain path executes. Kept local so the shared fakePrisma (which pins
+// the null-projection path) is untouched.
+function fakePrismaWithDims(opts: {
+  repos: Array<{
+    fullName: string;
+    name: string;
+    archetype: string;
+    dims: Array<{ dimId: string; score: number }>;
+    recs: ReturnType<typeof rec>[];
+  }>;
+  contributors?: string[];
+}) {
+  const repoRows = opts.repos.map((r) => ({
+    fullName: r.fullName,
+    name: r.name,
+    scans: [{ archetype: r.archetype, dimensions: r.dims, recommendations: r.recs }],
+  }));
+  const contributorRows = (opts.contributors ?? []).map((login) => ({ login }));
+  return {
+    organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
+    repository: { findMany: vi.fn(async () => repoRows) },
+    repoContributor: { findMany: vi.fn(async () => contributorRows) },
+  };
+}
+
+// A single repo whose latest scan carries all 9 dimensions at 60 except D2 at 20 (org lens overall=54,
+// L3). Three active recs target D2, D1, and a dimension NOT in the scan, so we can pin each ROI path.
+function projectionFleet() {
+  const dims = [
+    { dimId: "D1", score: 60 },
+    { dimId: "D2", score: 20 },
+    { dimId: "D3", score: 60 },
+    { dimId: "D4", score: 60 },
+    { dimId: "D5", score: 60 },
+    { dimId: "D6", score: 60 },
+    { dimId: "D7", score: 60 },
+    { dimId: "D8", score: 60 },
+    { dimId: "D9", score: 60 },
+  ];
+  return fakePrismaWithDims({
+    repos: [
+      {
+        fullName: "acme/web",
+        name: "web",
+        archetype: "org",
+        dims,
+        recs: [
+          // D2 is the deep gap: closing it (20→100) lifts overall 54→66, crossing L3→L4.
+          rec({ id: "p2", status: "open", dimId: "D2", assigneeLogin: "alice", targetDate: day("2026-06-20") }),
+          // D1 is already at 60: closing it lifts overall 54→60 (+6) but stays in L3 → unlocks null.
+          rec({ id: "p1", status: "in_progress", dimId: "D1", assigneeLogin: "alice", targetDate: null }),
+          // dimId not present in the scan's dims → projectedGain raises nothing → 0 points, null unlocks.
+          rec({ id: "p0", status: "open", dimId: "D2x", assigneeLogin: "bob", targetDate: null }),
+        ],
+      },
+    ],
+    contributors: ["alice", "bob"],
+  });
+}
+
+describe("getOrgBacklog — projectedPoints (engine-true ROI assembly)", () => {
+  const byId = (b: NonNullable<Awaited<ReturnType<typeof getOrgBacklog>>>, id: string) =>
+    b.byOwner.flatMap((g) => g.items).find((i) => i.id === id)!;
+
+  it("attaches engine-true points + unlocks to each item from the scan's dims + archetype", async () => {
+    mockGetPrisma.mockReturnValue(projectionFleet());
+    const b = (await getOrgBacklog("acme", null, NOW))!;
+
+    // D2 gap (20→100): overall 54→66 → +12 pts, crosses L3→L4.
+    const p2 = byId(b, "p2");
+    expect(p2.projectedPoints).toBe(12);
+    expect(p2.unlocks).toBe("L4");
+
+    // D1 gap (60→100): overall 54→60 → +6 pts, stays within L3 → no unlock.
+    const p1 = byId(b, "p1");
+    expect(p1.projectedPoints).toBe(6);
+    expect(p1.unlocks).toBeNull();
+  });
+
+  it("projects 0 points / null unlocks (never NaN) for a rec whose dimId is absent from the scan", async () => {
+    mockGetPrisma.mockReturnValue(projectionFleet());
+    const b = (await getOrgBacklog("acme", null, NOW))!;
+
+    // p0 targets D2x, which is not among the scan's dimension rows: projectedGain raises nothing, so the
+    // overall is unchanged → 0 points. Crucially this is 0 (the truthy-object branch), NOT null, and the
+    // `gain ? gain.points : null` ternary doesn't collapse a legitimate 0 to null.
+    const p0 = byId(b, "p0");
+    expect(p0.projectedPoints).toBe(0);
+    expect(p0.unlocks).toBeNull();
+    expect(Number.isNaN(p0.projectedPoints as number)).toBe(false);
+  });
+
+  it("keeps projectedPoints null (not 0) when the scan predates persisted dimensions", async () => {
+    // The shared fakePrisma ships dimensions:[] → projectedGain is skipped entirely. That MUST surface as
+    // null (unknown ROI), not 0 (a known zero-point gain) — distinct meanings the UI relies on.
+    mockGetPrisma.mockReturnValue(mixedFleet());
+    const b = (await getOrgBacklog("acme", null, NOW))!;
+    for (const it of b.byOwner.flatMap((g) => g.items)) {
+      expect(it.projectedPoints).toBeNull();
+      expect(it.unlocks).toBeNull();
+    }
+  });
+
+  it("the ROI fields are display-only and never reorder the list (sort is due/impact/recency)", async () => {
+    // p2 has the larger ROI (+12) but a +5d due date; p1 is undated. The sort is soonest-due first, so a
+    // dated item precedes the undated one regardless of projectedPoints — pin that ROI doesn't leak in.
+    mockGetPrisma.mockReturnValue(projectionFleet());
+    const b = (await getOrgBacklog("acme", null, NOW))!;
+    const alice = b.byOwner.find((g) => g.login === "alice")!;
+    expect(alice.items.map((i) => i.id)).toEqual(["p2", "p1"]); // p2 (+5d) before p1 (undated), not by ROI
+  });
+});
+
+describe("getOrgBacklog — overdue / dueSoon at the date boundaries", () => {
+  // A fixed clock (NOW = 2026-06-15) makes day-deltas deterministic. dueSoon is the inclusive window
+  // [today .. +7d]; overdue is strictly past (dueInDays < 0). These pin the four edges: -1, 0, +7, +8.
+  function boundaryFleet() {
+    return fakePrismaWithDims({
+      repos: [
+        {
+          fullName: "acme/b",
+          name: "b",
+          archetype: "org",
+          dims: [], // null projection — irrelevant here; we only assert the date math
+          recs: [
+            // -1 day → overdue (not dueSoon)
+            rec({ id: "d-1", status: "open", assigneeLogin: "alice", targetDate: day("2026-06-14") }),
+            // 0 days → due today → dueSoon (lower-inclusive), NOT overdue
+            rec({ id: "d0", status: "open", assigneeLogin: "alice", targetDate: day("2026-06-15") }),
+            // +7 days → last day of the dueSoon window (upper-inclusive)
+            rec({ id: "d7", status: "open", assigneeLogin: "alice", targetDate: day("2026-06-22") }),
+            // +8 days → just past the window → neither overdue nor dueSoon
+            rec({ id: "d8", status: "open", assigneeLogin: "alice", targetDate: day("2026-06-23") }),
+          ],
+        },
+      ],
+      contributors: ["alice"],
+    });
+  }
+
+  it("counts overdue strictly-past and dueSoon inclusive on both edges (today and +7d)", async () => {
+    mockGetPrisma.mockReturnValue(boundaryFleet());
+    const b = (await getOrgBacklog("acme", null, NOW))!;
+
+    // Only d-1 is past today.
+    expect(b.overdue).toBe(1);
+    // d0 (today, dueInDays 0) and d7 (+7) are in-window; d8 (+8) is out; d-1 (overdue) is excluded.
+    expect(b.dueSoon).toBe(2);
+
+    const byId2 = (id: string) => b.byOwner.flatMap((g) => g.items).find((i) => i.id === id)!;
+    expect(byId2("d-1").dueInDays).toBe(-1);
+    expect(byId2("d-1").overdue).toBe(true);
+    expect(byId2("d0").dueInDays).toBe(0);
+    expect(byId2("d0").overdue).toBe(false);
+    expect(byId2("d7").dueInDays).toBe(7);
+    expect(byId2("d8").dueInDays).toBe(8);
+
+    // Bucket placement matches the counts: d-1 overdue, d0+d7 this_week, d8 this_month.
+    const bucketOf = (id: string) => byId2(id).dueBucket;
+    expect(bucketOf("d-1")).toBe("overdue");
+    expect(bucketOf("d0")).toBe("this_week");
+    expect(bucketOf("d7")).toBe("this_week");
+    expect(bucketOf("d8")).toBe("this_month");
+  });
+});
