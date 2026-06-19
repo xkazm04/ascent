@@ -307,4 +307,75 @@ describe("toPersistedRec — corrupt-data firewall", () => {
     expect(out!.explore).toEqual([]);
     expect(out!.id).toBe("rec_1"); // rest of the object still maps — no crash mid-map.
   });
+
+  // ── ADVERSARIAL stored explore JSON: deeply-nested, huge, and prototype-pollution-shaped ─────
+  // The firewall sits on UNTRUSTED stored bytes (a prior bug, a manual DB edit, a hostile import).
+  // Beyond merely-corrupt, prove it absorbs *adversarial* shapes — without throwing, polluting the
+  // prototype chain, or shipping a single non-string into the report-UI consumer.
+
+  it("deeply-nested array entries are dropped, not flattened, and never throw (no stack blowup)", () => {
+    // A pathologically deep nested array as a single entry — JSON.parse handles the depth; the
+    // top-level filter sees one non-string element and drops it. A "keep" sibling still survives.
+    const depth = 5000;
+    const deep = `${"[".repeat(depth)}1${"]".repeat(depth)}`;
+    let out: ReturnType<typeof toPersistedRec> | undefined;
+    expect(() => {
+      out = toPersistedRec({ ...baseRecFields(), explore: `[${deep}, "keep"]` });
+    }).not.toThrow();
+    // Only the top-level string survives; the nested array is a non-string entry -> dropped.
+    expect(out!.explore).toEqual(["keep"]);
+    expect(out!.explore.every((x) => typeof x === "string")).toBe(true);
+  });
+
+  it("a huge array degrades to only its string members and never ships a non-string", () => {
+    // 20k entries alternating string / number — a payload-size attack. The mapper must keep every
+    // string, drop every number, and never let a non-string through to the consumer.
+    const entries: unknown[] = [];
+    for (let i = 0; i < 20_000; i++) entries.push(i % 2 === 0 ? `s${i}` : i);
+    let out: ReturnType<typeof toPersistedRec> | undefined;
+    expect(() => {
+      out = toPersistedRec({ ...baseRecFields(), explore: JSON.stringify(entries) });
+    }).not.toThrow();
+    expect(out!.explore).toHaveLength(10_000);
+    expect(out!.explore.every((x) => typeof x === "string")).toBe(true);
+    expect(out!.explore[0]).toBe("s0");
+    expect(out!.explore.at(-1)).toBe("s19998");
+  });
+
+  it("a prototype-pollution-shaped object is non-array -> drops to [] and does NOT pollute Object.prototype", () => {
+    // The classic __proto__ / constructor.prototype payload. explore is an OBJECT (not an array),
+    // so the Array.isArray guard rejects it wholesale -> []. Crucially, parsing + mapping must not
+    // mutate the global prototype: ({}).polluted stays undefined for every prototype-shaped key.
+    const payloads = [
+      '{"__proto__":{"polluted":true}}',
+      '{"constructor":{"prototype":{"polluted":true}}}',
+    ];
+    for (const explore of payloads) {
+      let out: ReturnType<typeof toPersistedRec> | undefined;
+      expect(() => {
+        out = toPersistedRec({ ...baseRecFields(), explore });
+      }).not.toThrow();
+      expect(out!.explore).toEqual([]); // object, not array -> rejected wholesale
+    }
+    // No write reached the prototype chain.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it("prototype-pollution-shaped KEYS appearing as array string entries are kept as plain strings", () => {
+    // When __proto__ / constructor arrive as string *elements* (the realistic stored shape — they
+    // were authored as suggestion text), they're legitimate strings and pass through verbatim. They
+    // are inert data, never applied as object keys, so they still can't pollute anything.
+    let out: ReturnType<typeof toPersistedRec> | undefined;
+    expect(() => {
+      out = toPersistedRec({
+        ...baseRecFields(),
+        explore: '["__proto__", "constructor", "prototype", {"__proto__":1}, "keep"]',
+      });
+    }).not.toThrow();
+    // String entries (incl. the prototype-named ones) survive; the embedded object is dropped.
+    expect(out!.explore).toEqual(["__proto__", "constructor", "prototype", "keep"]);
+    expect(out!.explore.every((x) => typeof x === "string")).toBe(true);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
 });
