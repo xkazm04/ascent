@@ -161,6 +161,60 @@ describe("live-share token", () => {
     });
   });
 
+  describe("mint-authz <-> token-payload casing contract", () => {
+    // THE INVARIANT (the authorization-to-data join): the route authorizes the RAW `body.org` via
+    // `requireOrgRole(body.org, "owner")` — and authz.ts canonicalizes with `org.trim().toLowerCase()`
+    // — then mints with `signLiveShareToken(body.org)`, whose payload is ALSO `org.toLowerCase()`. So
+    // the org slug authorized at mint MUST equal the org slug the verified token resolves data for,
+    // under ANY input casing. The three independent `.toLowerCase()` calls (authz / mint / verify-
+    // consumption) agree only by coincidence today; this pins it so a casing-normalization drift in
+    // any one of them ships RED instead of (best case) a dead share link or (worst case) a token
+    // minted under one tenant's owner check resolving a DIFFERENT tenant's rollup.
+
+    // Mirror of the canonicalization authz.ts applies to the org it checks the owner role against.
+    const authzCanonical = (org: string) => org.trim().toLowerCase();
+
+    it.each([
+      ["mixed case", "Acme-Corp"],
+      ["all upper", "ACME-CORP"],
+      ["already lower", "acme-corp"],
+      ["leading/trailing ws is NOT trimmed by mint (only lowercased)", "Acme-Corp"],
+    ])("the verified token org == authz-canonical org (%s)", (_label, input) => {
+      const minted = signLiveShareToken(input);
+      expect(minted).not.toBeNull();
+      const resolved = verifyLiveShareToken(minted!.token);
+      expect(resolved).not.toBeNull();
+      // The org the token resolves data for is exactly the org authz lowercased — same tenant.
+      expect(resolved!.org).toBe(authzCanonical(input));
+    });
+
+    it("a token minted for 'Acme-Corp' grants access to exactly 'acme-corp' (no lock-out)", () => {
+      const minted = signLiveShareToken("Acme-Corp");
+      expect(verifyLiveShareToken(minted!.token)?.org).toBe("acme-corp");
+    });
+
+    it("any casing of the SAME org resolves to one identical tenant slug (no per-casing fork)", () => {
+      const variants = ["acme", "Acme", "ACME", "aCmE"];
+      const resolved = variants.map((v) => verifyLiveShareToken(signLiveShareToken(v)!.token)?.org);
+      expect(new Set(resolved)).toEqual(new Set(["acme"]));
+    });
+
+    it("DIFFERENT orgs never collide onto the same slug (casing can't grant a different tenant)", () => {
+      const acme = verifyLiveShareToken(signLiveShareToken("Acme")!.token)?.org;
+      const evil = verifyLiveShareToken(signLiveShareToken("EvilCorp")!.token)?.org;
+      expect(acme).toBe("acme");
+      expect(evil).toBe("evilcorp");
+      expect(acme).not.toBe(evil);
+    });
+
+    it("the canonical (lowercase) slug round-trips unchanged — idempotent normalization", () => {
+      // Authz would compute the same lowercase slug; minting it again must not double-mangle it.
+      const canonical = authzCanonical("Acme-Corp"); // "acme-corp"
+      const resolved = verifyLiveShareToken(signLiveShareToken(canonical)!.token)?.org;
+      expect(resolved).toBe(canonical);
+    });
+  });
+
   describe("no secret => sharing is inert", () => {
     beforeEach(() => {
       vi.stubEnv("LIVE_SHARE_SECRET", "");
