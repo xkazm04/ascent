@@ -289,3 +289,133 @@ describe("grantCredits idempotency (webhook redelivery anti-double-grant)", () =
     await expect(grantCredits("acme", 100, { reason: "grant" })).rejects.toMatchObject({ code: "P2002" });
   });
 });
+
+/**
+ * Fake prisma for the reconciliation READ path. `getCreditReconciliation` calls `getCreditLedger`,
+ * which resolves the org id via `organization.findUnique`, then pulls rows via `creditLedger.findMany`.
+ * We hand findMany a fixed, crafted set of rows so the classifier (positive-delta refund-vs-grant split,
+ * negative-delta debited bucket) and the date window are exercised in isolation. Each row carries a real
+ * `Date` createdAt so the `e.createdAt.getTime() >= cutoff` window filter runs for real.
+ */
+function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string; createdAt: Date }>) {
+  let lastFindManyArgs: unknown = null;
+  const prisma = {
+    organization: {
+      findUnique: vi.fn(async () => ({ id: "org_1" })),
+    },
+    creditLedger: {
+      findMany: vi.fn(async (args: unknown) => {
+        lastFindManyArgs = args;
+        // Mirror the columns getCreditLedger selects; the reconciler only reads delta/reason/createdAt.
+        return rows.map((r, i) => ({
+          id: `cl_${i}`,
+          delta: r.delta,
+          balanceAfter: 0,
+          reason: r.reason,
+          repoFullName: null,
+          scanId: null,
+          actor: null,
+          createdAt: r.createdAt,
+        }));
+      }),
+    },
+  };
+  return { prisma, getArgs: () => lastFindManyArgs };
+}
+
+import { getCreditReconciliation } from "./credits";
+
+describe("getCreditReconciliation refund-vs-grant classification", () => {
+  const now = Date.now();
+  const daysAgo = (d: number) => new Date(now - d * 86_400_000);
+
+  it("classifies a refund as refunded (NOT granted) and a grant as granted — over a mixed ledger", async () => {
+    // A 30-day window: one scan debit (-1), one refund (+1), one top-up grant (+50).
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: -1, reason: "scan", createdAt: daysAgo(1) },
+      { delta: 1, reason: "refund: deduped scan", createdAt: daysAgo(2) },
+      { delta: 50, reason: "grant", createdAt: daysAgo(3) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", 30);
+
+    // THE refund-vs-grant boundary: a +1/"refund" lands in `refunded`, the +50/"grant" in `granted`.
+    // If a misclassification double-counted the refund as a fresh grant, granted would be 51 (and
+    // refunded 0) — these exact-value assertions fail in that case.
+    expect(rec).not.toBeNull();
+    expect(rec!.refunded).toBe(1);
+    expect(rec!.granted).toBe(50);
+    expect(rec!.debited).toBe(1); // abs of the -1 scan spend
+    // Totals reconcile: net is the sum of all deltas (-1 + 1 + 50 = 50), and a positive delta is
+    // counted in EXACTLY one of refunded/granted — never both — so refunded + granted === sum of positives.
+    expect(rec!.net).toBe(50);
+    expect(rec!.refunded + rec!.granted).toBe(51);
+    expect(rec!.entries).toBe(3);
+    // debited - refunded reconciles to net credit consumption inside the window.
+    expect(rec!.debited - rec!.refunded).toBe(0);
+  });
+
+  it("a refund never inflates `granted` even when several refunds and grants coexist", async () => {
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: 2, reason: "REFUND (failed scan)", createdAt: daysAgo(1) }, // case-insensitive /refund/i
+      { delta: 3, reason: "scan refund", createdAt: daysAgo(1) },
+      { delta: 100, reason: "topup", createdAt: daysAgo(1) },
+      { delta: 25, reason: "grant", createdAt: daysAgo(1) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", 30);
+
+    expect(rec!.refunded).toBe(5); // 2 + 3, matched case-insensitively
+    expect(rec!.granted).toBe(125); // 100 + 25, the non-refund positives only
+    expect(rec!.refunded + rec!.granted).toBe(130); // == sum of all positive deltas
+    expect(rec!.net).toBe(130);
+  });
+
+  it("a negative/adjustment delta is bucketed into `debited` (abs), never into granted/refunded", async () => {
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: -5, reason: "adjustment", createdAt: daysAgo(1) },
+      { delta: -1, reason: "scan", createdAt: daysAgo(1) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", 30);
+
+    expect(rec!.debited).toBe(6); // |−5| + |−1|
+    expect(rec!.refunded).toBe(0);
+    expect(rec!.granted).toBe(0);
+    expect(rec!.net).toBe(-6);
+  });
+
+  it("windows by createdAt: a row just before the cutoff is excluded; one just after is included", async () => {
+    // 7-day window. One grant 6 days ago (inside) and one 8 days ago (outside the cutoff).
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: 10, reason: "grant", createdAt: daysAgo(6) },
+      { delta: 99, reason: "grant", createdAt: daysAgo(8) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", 7);
+
+    expect(rec!.entries).toBe(1); // only the in-window row survived the filter
+    expect(rec!.granted).toBe(10);
+    expect(rec!.net).toBe(10);
+  });
+
+  it("an empty ledger yields all zeroes and never NaN", async () => {
+    const { prisma } = fakePrismaForReconciliation([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", 30);
+
+    expect(rec).toEqual({ debited: 0, refunded: 0, granted: 0, net: 0, entries: 0 });
+    for (const v of Object.values(rec!)) expect(Number.isNaN(v)).toBe(false);
+  });
+
+  it("returns null when persistence is off (no DB)", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    const rec = await getCreditReconciliation("acme", 30);
+    expect(rec).toBeNull();
+  });
+});
