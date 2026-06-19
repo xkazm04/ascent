@@ -1,9 +1,30 @@
 // Regression tests for the assessment-validation honesty fix (scan-and-decide idea 3f8ac320):
 // a dimension that arrives without a real numeric score must be SKIPPED, not coerced to 0, so
 // the isAssessmentUsable coverage gate can't be fooled by a model that returns ids but no scores.
+//
+// Also (test-mastery-2026-06-18, llm-provider-abstraction finding #2 — PROVIDER layer): each
+// provider must attribute usage for the result IT actually produced, mapping its OWN native token
+// field names onto the canonical TokenUsage { inputTokens, outputTokens } metering shape — and the
+// keyless/degraded MockProvider must attribute NO real tokens. scan.test.ts pins the orchestration
+// (report.usage == the *used* provider's tokens); this file pins the layer beneath it that the
+// orchestration trusts. See the usage-attribution describe blocks at the bottom of this file.
 
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { validateAssessment, isAssessmentUsable } from "./provider";
+import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
+import type { TokenUsage } from "@/lib/types";
+
+// @google/genai mock for the Gemini usage-attribution suite. Mirrors what GeminiProvider reads:
+// response.text + response.usageMetadata (promptTokenCount / candidatesTokenCount = Gemini's NATIVE
+// field names). vi.mock is hoisted, so this governs the dynamic import("./gemini") below.
+const genai = vi.hoisted(() => ({
+  generateContent: vi.fn<(args: unknown) => Promise<unknown>>(),
+}));
+vi.mock("@google/genai", () => ({
+  GoogleGenAI: class {
+    models = { generateContent: genai.generateContent };
+  },
+}));
 
 describe("validateAssessment — score coercion (#1)", () => {
   it("keeps a genuine 0 score", () => {
@@ -60,5 +81,175 @@ describe("isAssessmentUsable — coverage gate honesty (#1)", () => {
   it("treats genuine zeros as real coverage", () => {
     const raw = { dimensions: Array.from({ length: 9 }, (_, i) => ({ id: `D${i + 1}`, score: 0 })) };
     expect(isAssessmentUsable(validateAssessment(raw), 9)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Usage / token attribution at the PROVIDER layer (finding #2).
+// Invariant: a provider attributes usage for the result IT produced, re-keying its native token
+// fields onto the canonical { inputTokens, outputTokens } shape (the metering basis scan.ts
+// persists on report.usage); a failed call attributes nothing; the mock provider attributes ZERO.
+// ===========================================================================
+
+// A parseable, usable assessment (9/9 dims) so validateAssessment accepts it — keeps the focus on
+// usage attribution, not the coverage gate.
+const USABLE_JSON = JSON.stringify({
+  dimensions: ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"].map((id) => ({
+    id,
+    score: 70,
+    summary: `${id} ok`,
+  })),
+  headline: "AI-written headline",
+  strengths: [],
+  risks: [],
+  roadmap: [],
+  discrepancies: [],
+});
+
+const usageInput: LlmScoreInput = {
+  repo: {
+    owner: "acme",
+    name: "rocket",
+    url: "https://github.com/acme/rocket",
+    stars: 1,
+    forks: 0,
+    defaultBranch: "main",
+    headSha: "sha-1",
+  },
+  signals: [
+    { id: "D1", signalScore: 50, signals: [] },
+    { id: "D2", signalScore: 60, signals: [] },
+  ],
+  files: [],
+  commitSample: [],
+  archetype: "team",
+};
+
+/** Capture every onUsage call so we can assert exactly one, with the right shape. */
+function usageRecorder() {
+  const calls: TokenUsage[] = [];
+  const onUsage = (u: TokenUsage) => calls.push(u);
+  return { calls, onUsage };
+}
+
+describe("provider usage attribution", () => {
+  beforeEach(() => {
+    vi.stubEnv("GEMINI_MODEL", "");
+    vi.stubEnv("OPENAI_MODEL", "");
+    vi.stubEnv("OPENAI_BASE_URL", "");
+    vi.stubEnv("LLM_TIMEOUT_MS", "60000");
+    genai.generateContent.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  describe("GeminiProvider.assess — attributes its OWN usage in the canonical shape", () => {
+    it("maps Gemini's promptTokenCount/candidatesTokenCount onto { inputTokens, outputTokens }", async () => {
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({
+        text: USABLE_JSON,
+        usageMetadata: { promptTokenCount: 4096, candidatesTokenCount: 512 },
+      });
+      const provider: LLMProvider = new GeminiProvider("test-key");
+      const { calls, onUsage } = usageRecorder();
+
+      const a = await provider.assess(usageInput, { onUsage });
+
+      expect(provider.name).toBe("gemini");
+      expect(a.dimensions.length).toBeGreaterThan(0); // genuinely produced this result
+      // ATTRIBUTION INVARIANT: exactly one usage report, carrying THIS provider's real tokens,
+      // re-keyed onto the metering-basis field shape scan.ts persists on report.usage.
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual({ inputTokens: 4096, outputTokens: 512 });
+    });
+
+    it("does NOT fabricate token counts when the model omits usage metadata", async () => {
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON }); // no usageMetadata
+      const provider = new GeminiProvider("test-key");
+      const { calls, onUsage } = usageRecorder();
+
+      await provider.assess(usageInput, { onUsage });
+
+      // Still attributed to THIS call's result, but with undefined counts — never invented numbers.
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual({ inputTokens: undefined, outputTokens: undefined });
+    });
+
+    it("attributes NO usage when the call produces no result (empty response throws first)", async () => {
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: "", usageMetadata: { promptTokenCount: 9 } });
+      const provider = new GeminiProvider("test-key");
+      const { calls, onUsage } = usageRecorder();
+
+      await expect(provider.assess(usageInput, { onUsage })).rejects.toThrow();
+      // No result produced ⇒ no tokens billed (onUsage fires only after a non-empty response).
+      expect(calls).toHaveLength(0);
+    });
+  });
+
+  describe("OpenAiProvider.assess — attributes its OWN usage in the canonical shape", () => {
+    it("maps OpenAI's prompt_tokens/completion_tokens onto { inputTokens, outputTokens }", async () => {
+      const { OpenAiProvider } = await import("./openai");
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: USABLE_JSON } }],
+          usage: { prompt_tokens: 321, completion_tokens: 123 },
+        }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider: LLMProvider = new OpenAiProvider({ apiKey: "sk-test" });
+      const { calls, onUsage } = usageRecorder();
+
+      const a = await provider.assess(usageInput, { onUsage });
+
+      expect(provider.name).toBe("openai");
+      expect(a.dimensions.length).toBeGreaterThan(0);
+      // ATTRIBUTION INVARIANT: this provider's native usage names re-keyed onto the metering basis.
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual({ inputTokens: 321, outputTokens: 123 });
+    });
+
+    it("attributes NO usage when the request fails (non-ok response throws before onUsage)", async () => {
+      const { OpenAiProvider } = await import("./openai");
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        text: async () => "rate limited",
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = new OpenAiProvider({ apiKey: "sk-test" });
+      const { calls, onUsage } = usageRecorder();
+
+      await expect(provider.assess(usageInput, { onUsage })).rejects.toThrow();
+      // A failed attempt produced no result ⇒ none of its (would-be) tokens are attributed.
+      expect(calls).toHaveLength(0);
+    });
+  });
+
+  describe("MockProvider.assess — a mock/degraded result attributes NO real tokens", () => {
+    it("never calls onUsage, so a mock result can't carry a real provider's token counts", async () => {
+      const { MockProvider } = await import("./mock");
+      const provider: LLMProvider = new MockProvider();
+      const onUsage = vi.fn<(u: TokenUsage) => void>();
+
+      // Fresh repo identity so the mock's internal LRU cache can't short-circuit before onUsage.
+      const a = await provider.assess(
+        { ...usageInput, repo: { ...usageInput.repo, headSha: "mock-no-usage-1" } },
+        { onUsage } satisfies AssessOptions,
+      );
+
+      expect(provider.name).toBe("mock");
+      expect(a.dimensions.length).toBe(usageInput.signals.length); // it really produced this result
+      // HONESTY INVARIANT: the keyless/degraded provider reports ZERO usage. Paired with scan.ts
+      // stamping report.usage = { ...capturedUsage }, a mock scan therefore carries no input/output
+      // tokens — a real provider's name can never sit atop mock tokens.
+      expect(onUsage).not.toHaveBeenCalled();
+    });
   });
 });
