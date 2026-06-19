@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   buildManifestData,
   serializeManifestYaml,
@@ -316,5 +320,140 @@ describe("manifest <-> doctor round-trip", () => {
     const yaml = serializeManifestYaml(data);
     const repoBlock = (yaml.split(/\nrepo:\n/)[1] || "").split(/\n[a-z]/i)[0];
     expect(parsers.sub(repoBlock, "purpose")).toBe("Billing: API, v2 (prod)");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// The conformance SCORE and EXIT CODE are the CI merge gate every adopting repo runs. The round-trip
+// block above proves the doctor's PARSERS read the serializer's manifest; this block proves the whole
+// SCRIPT — findings collection, the `weight={pass:1,warn:0.5,fail:0}` score, the `exit(fails>0?1:0)`
+// verdict, and the `--json` payload shape POSTed to /api/report/conformance. The round-trip tests run
+// only the four parser functions in `new Function`; they can't see the top-level `await`/`fetch`/
+// `process.exit` logic. So here we materialize `buildDoctor().body` to a real `doctor.mjs` and EXECUTE
+// it with the project's own Node against crafted fixture repos in a temp dir.
+//
+// INVARIANT pinned: a CONFORMANT fixture (valid manifest + memory + context-index + a local hook the
+// prePush controls are wired into) makes the gate PASS (exit 0, JSON fails===0); each NON-conformant
+// fixture (missing manifest; a bad `schema:` field) makes it FAIL (non-zero exit, a `fail` finding
+// naming the reason). The --json summary shape is exactly what conformance/route.ts ingests.
+// ---------------------------------------------------------------------------------------------------
+
+describe("doctor execution gate (score + exit code against fixture repos)", () => {
+  /** Write the shipped doctor body to <dir>/.ai/doctor.mjs and run it with --json. Returns the parsed
+   *  summary plus the raw exit code so tests can assert BOTH the gate verdict and the payload. */
+  function runDoctor(dir: string): {
+    status: number;
+    stdout: string;
+    json: { score: number; fails: number; warns: number; findings: { level: string; msg: string }[] };
+  } {
+    const doctorPath = join(dir, ".ai", "doctor.mjs");
+    mkdirSync(dirname(doctorPath), { recursive: true });
+    writeFileSync(doctorPath, buildDoctor().body, "utf8");
+    // Run from the fixture root so the doctor's `process.cwd()`-relative existsSync checks resolve
+    // against the fixture, not Ascent. Strip the conformance env so it never tries to POST.
+    const res = spawnSync(process.execPath, [doctorPath, "--json"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, ASCENT_CONFORMANCE_URL: "", ASCENT_CONFORMANCE_TOKEN: "", GITHUB_REPOSITORY: "" },
+    });
+    expect(res.error, res.error?.message).toBeUndefined();
+    const stdout = res.stdout ?? "";
+    // The --json line is the LAST JSON object on stdout (after the human-readable report).
+    const jsonLine = stdout.trim().split("\n").reverse().find((l) => l.trim().startsWith("{"));
+    expect(jsonLine, "doctor did not emit a --json summary line. stdout=\n" + stdout).toBeTruthy();
+    return { status: res.status ?? -1, stdout, json: JSON.parse(jsonLine!) };
+  }
+
+  /** Lay down a genuinely conformant `.ai/` foundation for `report` plus a local hook that wires the
+   *  backed prePush controls (lint, typecheck) — so the doctor finds ZERO fails. */
+  function writeConformantRepo(dir: string, report = makeReport()) {
+    for (const f of buildFoundation(report)) {
+      const p = join(dir, f.path);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, f.body, "utf8");
+    }
+    // A pre-commit/pre-push hook the prePush controls are wired into (manifest declares
+    // prePush:[lint,typecheck,scan-secrets]; lint+typecheck are backed capabilities the doctor checks
+    // are present in the hook text). Without this the doctor emits a FAIL ("NO local hook").
+    writeFileSync(join(dir, "lefthook.yml"), "pre-push:\n  commands:\n    lint: { run: npm run lint }\n    typecheck: { run: npx tsc --noEmit }\n", "utf8");
+    // At least one CI workflow so ciHardPass doesn't even warn about missing CI.
+    mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(dir, ".github", "workflows", "ci.yml"), "name: CI\non: [pull_request]\n", "utf8");
+  }
+
+  let tmp: string;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "ascent-doctor-"));
+  });
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("CONFORMANT fixture → gate PASSES: exit 0 and JSON fails===0", () => {
+    writeConformantRepo(tmp);
+    const { status, json } = runDoctor(tmp);
+
+    // The gate passes: no fail-level findings, process exits 0.
+    expect(json.fails).toBe(0);
+    expect(status).toBe(0);
+    // The verdict score follows the documented weight={pass:1,warn:0.5,fail:0} contract: with no
+    // fails it cannot be below the mean of pass(1)/warn(0.5) findings, i.e. it is comfortably high.
+    expect(json.score).toBeGreaterThanOrEqual(50);
+    expect(json.score).toBeLessThanOrEqual(100);
+    // It still positively confirmed the spine (schema + capabilities) rather than vacuously passing.
+    expect(json.findings.some((f) => f.level === "pass" && /schema ok/.test(f.msg))).toBe(true);
+    expect(json.findings.some((f) => f.level === "pass" && /declares \d+ capabilities/.test(f.msg))).toBe(true);
+  });
+
+  it("NON-conformant (missing .ai/manifest.yaml) → gate FAILS: exit 1 with a fail naming the missing manifest", () => {
+    // Empty repo: doctor body present, but no manifest beside it. The doctor's very first check fails.
+    const { status, json } = runDoctor(tmp);
+
+    expect(status).toBe(1); // exit(fails>0?1:0)
+    expect(json.fails).toBeGreaterThanOrEqual(1);
+    const fail = json.findings.find((f) => f.level === "fail");
+    expect(fail, "expected a fail finding").toBeTruthy();
+    expect(fail!.msg).toMatch(/missing .ai\/manifest\.yaml/);
+    // A missing-spine repo must NOT score 100 — the gate is not toothless.
+    expect(json.score).toBeLessThan(100);
+  });
+
+  it("NON-conformant (bad manifest field: schema id not 'ai-manifest') → gate FAILS: exit 1 with the schema fail", () => {
+    // Take the otherwise-conformant repo, then corrupt only the `schema:` line of the manifest. The
+    // structure is intact (capabilities still parse) so the ONLY new fail is the schema-id check —
+    // proving the gate keys on the specific field, not just on presence.
+    writeConformantRepo(tmp);
+    const manifestPath = join(tmp, ".ai", "manifest.yaml");
+    const good = serializeManifestYaml(buildManifestData(makeReport()));
+    const broken = good.replace(/^schema: ai-manifest$/m, "schema: ai-manifest-BROKEN");
+    expect(broken).not.toBe(good); // the corruption actually landed
+    writeFileSync(manifestPath, broken, "utf8");
+
+    const { status, json } = runDoctor(tmp);
+    expect(status).toBe(1);
+    expect(json.fails).toBeGreaterThanOrEqual(1);
+    expect(json.findings.some((f) => f.level === "fail" && /schema id is not/.test(f.msg))).toBe(true);
+  });
+
+  it("the --json payload has exactly the {score,fails,warns,findings} shape conformance/route.ts ingests", () => {
+    // The doctor auto-POSTs { repo, headSha, score, fails, warns } and prints { score, fails, warns,
+    // findings }. The route reads score/fails/warns as numbers — pin those keys + types so a payload
+    // rename can't silently break ingestion (the route would then 400 on missing numerics).
+    writeConformantRepo(tmp);
+    const { json } = runDoctor(tmp);
+    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "score", "warns"]);
+    expect(typeof json.score).toBe("number");
+    expect(typeof json.fails).toBe("number");
+    expect(typeof json.warns).toBe("number");
+    expect(Array.isArray(json.findings)).toBe(true);
+    // Every finding is a {level,msg} with a level the score's weight map knows.
+    for (const f of json.findings) {
+      expect(["pass", "warn", "fail"]).toContain(f.level);
+      expect(typeof f.msg).toBe("string");
+    }
+    // The reported counts agree with the findings array (the numbers the route trusts are derived,
+    // not free-floating).
+    expect(json.fails).toBe(json.findings.filter((f) => f.level === "fail").length);
+    expect(json.warns).toBe(json.findings.filter((f) => f.level === "warn").length);
   });
 });
