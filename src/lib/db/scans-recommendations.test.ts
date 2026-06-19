@@ -22,6 +22,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { updateRecommendation } from "./scans-recommendations";
+import { toPersistedRec } from "./scans-shared";
 
 /** A minimal Recommendation row that satisfies toPersistedRec's field reads. */
 function recRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -203,5 +204,107 @@ describe("updateRecommendation — atomic mutation + audit", () => {
     );
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.recommendation.update).not.toHaveBeenCalled();
+  });
+});
+
+// ── toPersistedRec — the corrupt-data firewall on every recommendation read ──────────────────
+// toPersistedRec is the SINGLE normalization choke point shared by the read path
+// (getLatestRecommendations) and this module's write path (updateRecommendation's return mapping).
+// Its whole reason to exist is to tolerate a corrupt persisted row — malformed/`null`/object/
+// mixed-type `explore` JSON, a stray Date — WITHOUT throwing and WITHOUT shipping a non-string
+// `explore` entry into the report UI. One bad row would otherwise blank the backlog list and break
+// every edit on that scan. These pure cases pin that firewall (no mocks needed — toPersistedRec is
+// a pure mapper). Imported from scans-shared.ts, the file the finding targets.
+
+/** The non-`explore` fields of a well-formed row, so each case isolates the `explore` behavior. */
+function baseRecFields(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "rec_1",
+    title: "Add CI gate",
+    dimId: "automation",
+    impact: "high",
+    effort: "medium",
+    rationale: "because",
+    levelUnlock: null as string | null,
+    status: "open",
+    assigneeLogin: null as string | null,
+    targetDate: null as Date | null,
+    ...overrides,
+  };
+}
+
+describe("toPersistedRec — corrupt-data firewall", () => {
+  it("maps a fully well-formed row to the correct persisted shape, verbatim", () => {
+    const out = toPersistedRec({
+      ...baseRecFields({
+        levelUnlock: "level-3",
+        status: "in_progress",
+        assigneeLogin: "octocat",
+        targetDate: new Date("2026-06-09T13:45:00.000Z"),
+      }),
+      explore: JSON.stringify(["What blocks the gate?", "Who owns CI?"]),
+    });
+
+    // status / owner / level survive a valid row verbatim; targetDate is sliced to YYYY-MM-DD.
+    expect(out).toEqual({
+      id: "rec_1",
+      title: "Add CI gate",
+      dimension: "automation",
+      impact: "high",
+      effort: "medium",
+      rationale: "because",
+      explore: ["What blocks the gate?", "Who owns CI?"],
+      levelUnlock: "level-3",
+      status: "in_progress",
+      assigneeLogin: "octocat",
+      targetDate: "2026-06-09",
+    });
+  });
+
+  // ── explore JSON: corrupt input degrades to a SAFE string[] — never throws, never non-string ──
+  it.each<[string, string | undefined, string[]]>([
+    ["empty JSON array", "[]", []],
+    ["valid string array", '["a","b"]', ["a", "b"]],
+    ["malformed JSON", "{not json", []],
+    ["JSON object (not an array)", '{"a":1}', []],
+    ["array with mixed non-string entries", '["ok", 1, null, true, "two"]', ["ok", "two"]],
+    ["JSON null", "null", []],
+    ["JSON number", "42", []],
+    ["nested arrays/objects as entries", '[["x"], {"y":1}, "keep"]', ["keep"]],
+    ["undefined column (absent)", undefined, []],
+  ])("explore: %s -> string-only array, no throw", (_label, explore, expected) => {
+    let out: ReturnType<typeof toPersistedRec> | undefined;
+    expect(() => {
+      out = toPersistedRec({ ...baseRecFields(), explore });
+    }).not.toThrow();
+    expect(out!.explore).toEqual(expected);
+    // The firewall invariant: every surviving entry is a string (never a number/null/object that
+    // would crash the report UI consumer).
+    expect(out!.explore.every((x) => typeof x === "string")).toBe(true);
+  });
+
+  it("targetDate: a Date maps to YYYY-MM-DD and null maps to null", () => {
+    expect(
+      toPersistedRec({ ...baseRecFields({ targetDate: new Date("2026-12-31T23:59:59Z") }) }).targetDate,
+    ).toBe("2026-12-31");
+    expect(toPersistedRec({ ...baseRecFields({ targetDate: null }) }).targetDate).toBeNull();
+  });
+
+  it("nullable fields normalize: levelUnlock null -> undefined, assigneeLogin null -> null", () => {
+    const out = toPersistedRec({ ...baseRecFields({ levelUnlock: null, assigneeLogin: null }) });
+    expect(out.levelUnlock).toBeUndefined();
+    expect(out.assigneeLogin).toBeNull();
+  });
+
+  it("never throws on a row whose explore is the worst-case corrupt blob", () => {
+    // A single bad row used to blank the whole list + break every edit on that scan. Prove the
+    // mapper absorbs it and still returns a usable object the consumer can render.
+    let out: ReturnType<typeof toPersistedRec> | undefined;
+    expect(() => {
+      out = toPersistedRec({ ...baseRecFields(), explore: '["good", {"bad":1}, 7, null, "also-good"' });
+    }).not.toThrow();
+    // Malformed (unterminated) JSON -> caught -> safe empty default, not a partial/garbage array.
+    expect(out!.explore).toEqual([]);
+    expect(out!.id).toBe("rec_1"); // rest of the object still maps — no crash mid-map.
   });
 });
