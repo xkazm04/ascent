@@ -1,7 +1,7 @@
 // The "Copy for LLM" payload is a product contract — a dev pastes it into Claude Code. Lock its
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { briefingMarkdown, type ExecBriefing } from "./briefing";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
@@ -620,5 +620,69 @@ describe("briefingMarkdown — partially-populated briefing renders only present
     });
     expect(md).toContain("Security (D9 Security): 35/100");
     expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildExecBriefing — DETERMINISTIC generatedOn (test-mastery-2026-06-18, LOW:
+// "make buildExecBriefing's generated dates deterministic and pin them"). The
+// briefing stamps `generatedOn: new Date().toISOString().slice(0, 10)` at line
+// 156 — wall-clock, so an un-pinned assertion would flake at a UTC date boundary
+// and the stamp itself was never asserted from a real assembly. Control the
+// CLOCK (no source change): with vi.useFakeTimers() + setSystemTime, the stamp
+// is exactly the fixed day, the documented YYYY-MM-DD form, and the derived
+// prior-period window is computed off that same frozen now — all reproducible.
+// ---------------------------------------------------------------------------
+describe("buildExecBriefing — deterministic generatedOn (frozen clock)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("stamps generatedOn to the frozen system date in documented YYYY-MM-DD form", async () => {
+    // Pin the clock to a precise instant. toISOString() is UTC, so we freeze on a
+    // UTC instant and assert the UTC calendar day — exactly what the source slices.
+    vi.setSystemTime(new Date("2026-06-18T12:34:56.000Z"));
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.generatedOn).toBe("2026-06-18"); // exact, deterministic — no flake
+    expect(b.generatedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/); // documented YYYY-MM-DD form
+  });
+
+  it("is reproducible: two assemblies under the SAME frozen clock stamp the SAME date", async () => {
+    vi.setSystemTime(new Date("2026-01-09T00:00:00.000Z"));
+    const a = (await buildExecBriefing("acme"))!;
+    const b = (await buildExecBriefing("acme"))!;
+    expect(a.generatedOn).toBe("2026-01-09");
+    expect(b.generatedOn).toBe(a.generatedOn); // identical stamp, no wall-clock drift
+  });
+
+  it("re-stamps to a DIFFERENT frozen date when the clock is moved (the stamp tracks now)", async () => {
+    vi.setSystemTime(new Date("2025-12-31T23:59:59.000Z"));
+    expect((await buildExecBriefing("acme"))!.generatedOn).toBe("2025-12-31");
+    // Advance one second across the year boundary — the UTC calendar day rolls over.
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    expect((await buildExecBriefing("acme"))!.generatedOn).toBe("2026-01-01");
+  });
+
+  it("derives the prior-period window off the SAME frozen now (open-ended window end = frozen now)", async () => {
+    // An open-ended window (start but no end) makes the source fall back to `new Date()`
+    // for the window end when computing the prior window length. Freezing the clock makes
+    // that fallback — and the prior window it produces — fully deterministic.
+    vi.setSystemTime(new Date("2026-06-18T00:00:00.000Z"));
+    const start = new Date("2026-06-11T00:00:00.000Z"); // 7 days before frozen now
+    const window: OrgWindow = { start }; // no end ⇒ end defaults to frozen now
+    mockRollup.mockResolvedValueOnce(rollup()).mockResolvedValueOnce(rollup({ scannedCount: 4, avgOverall: 60 }));
+
+    const b = (await buildExecBriefing("acme", window))!;
+    expect(b.generatedOn).toBe("2026-06-18"); // stamp uses the same frozen now
+
+    // Prior window ends where the current window starts, and spans (frozen now − start) before it.
+    expect(mockRollup).toHaveBeenCalledTimes(2);
+    const priorWindow = mockRollup.mock.calls[1][1] as OrgWindow;
+    const len = new Date("2026-06-18T00:00:00.000Z").getTime() - start.getTime(); // 7 days, off frozen now
+    expect(priorWindow.end?.getTime()).toBe(start.getTime());
+    expect(priorWindow.start?.getTime()).toBe(start.getTime() - len);
   });
 });
