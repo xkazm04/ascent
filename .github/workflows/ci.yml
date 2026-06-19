@@ -23,5 +23,7 @@ jobs:
         run: npx tsc --noEmit
       - name: Unit tests
         run: npx vitest run
+      - name: Coverage gate (calibrated floors on src/lib/db, src/components/launch, src/components/onboarding)
+        run: npm run test:coverage
       - name: Build
         run: npm run build

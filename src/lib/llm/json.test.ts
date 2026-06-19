@@ -114,7 +114,11 @@ describe("parseJsonLoose", () => {
     const elapsed = Date.now() - start;
     expect(err).toBeInstanceOf(ProviderParseError);
     expect((err as ProviderParseError).message).toContain("No JSON value found");
-    expect(elapsed).toBeLessThan(1000);
+    // Bound proves the 512-start cap holds: an UNCAPPED scan of 50_000 starts (each balanced-parse
+    // over up to 50_000 chars ≈ 2.5e9 char-ops) would take tens of seconds. A generous ceiling keeps
+    // that protection while tolerating v8-coverage instrumentation, which ~doubles wall-clock (the
+    // capped run is ~2s instrumented vs ~0.x s plain) — a tight 1s bound flaked only under --coverage.
+    expect(elapsed).toBeLessThan(8000);
   });
 
   it("structural-start requirement: a reply with no structural start fails fast (no recovery attempt)", () => {
