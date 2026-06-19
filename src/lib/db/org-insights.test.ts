@@ -309,3 +309,135 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     expect(rollup!.deltas).toEqual({ overall: 10, adoption: 10, rigor: 10 });
   });
 });
+
+// ── buildMove sign + bucketing (test-mastery-2026-06-18, org-overview-standing #3) ─────────────
+// buildMove is file-local (not exported), so its sign/level/sinceDays math is pinned end-to-end
+// THROUGH getOrgMovers — the only public surface. The invariant: an IMPROVING repo yields a
+// POSITIVE dOverall and lands in `gainers`; a DECLINING repo yields a NEGATIVE dOverall and lands
+// in `regressers` (the `now - prev` subtraction is NOT flipped). levelDelta moves with the score
+// (LEVEL_RANK is not mis-ranked), and a strictly-0 delta is in NEITHER bucket. The onboarded-repo
+// fallback (no scan ≤ start ⇒ earliest in-window) means a repo first scanned mid-period still
+// appears as its first→now move rather than silently vanishing — yet a single-scan repo (prev===now)
+// is skipped (no phantom mover). These would all survive if a future change flipped the subtraction,
+// dropped the fallback, or mis-bucketed — nothing else asserts them.
+
+describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing", () => {
+  it("an IMPROVING repo yields a POSITIVE dOverall and lands in gainers (sign not flipped)", async () => {
+    const repos = [repo("r1", "acme/alpha")];
+    const scans = [
+      scan("r1", "2026-03-01T00:00:00.000Z", 60, { adoptionScore: 55, rigorScore: 50, level: "L2", posture: "developing" }),
+      scan("r1", "2026-05-11T00:00:00.000Z", 80, { adoptionScore: 75, rigorScore: 64, level: "L3", posture: "advanced" }), // +20 over 71d
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    expect(movers!.regressers).toHaveLength(0);
+    expect(movers!.gainers).toHaveLength(1);
+    const m = movers!.gainers[0];
+    expect(m.dOverall).toBe(20); // now(80) - prev(60), POSITIVE for an improvement
+    expect(m.dAdoption).toBe(20); // 75 - 55
+    expect(m.dRigor).toBe(14); // 64 - 50
+    expect(m.overall).toBe(80); // current score, not the delta
+    // level/posture pair from→to is oriented prev→now, and levelDelta moves WITH the score.
+    expect(m).toMatchObject({ levelFrom: "L2", levelTo: "L3", postureFrom: "developing", postureTo: "advanced" });
+    expect(m.levelDelta).toBe(1); // L3 > L2 ⇒ +1 (promoted), sign matches the climb
+    // sinceDays = whole-day gap between baseline and current scans (rounded), never negative.
+    expect(m.sinceDays).toBe(71);
+    // levelChanges carries the promotion (levelDelta !== 0).
+    expect(movers!.levelChanges).toHaveLength(1);
+    expect(movers!.levelChanges[0]).toMatchObject({ name: "alpha", levelDelta: 1 });
+  });
+
+  it("a DECLINING repo yields a NEGATIVE dOverall and lands in regressers (mirror of the climb)", async () => {
+    const repos = [repo("r1", "acme/alpha")];
+    const scans = [
+      scan("r1", "2026-03-01T00:00:00.000Z", 80, { level: "L3", posture: "advanced" }),
+      scan("r1", "2026-05-01T00:00:00.000Z", 70, { level: "L2", posture: "developing" }), // -10
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    expect(movers!.gainers).toHaveLength(0);
+    expect(movers!.regressers).toHaveLength(1);
+    const m = movers!.regressers[0];
+    expect(m.dOverall).toBe(-10); // now(70) - prev(80), NEGATIVE for a regression
+    expect(m).toMatchObject({ name: "alpha", levelFrom: "L3", levelTo: "L2" });
+    expect(m.levelDelta).toBe(-1); // L2 < L3 ⇒ demoted, sign matches the decline
+    expect(movers!.levelChanges[0]).toMatchObject({ name: "alpha", levelDelta: -1 });
+  });
+
+  it("a repo whose overall is unchanged (delta 0) is in NEITHER gainers nor regressers", async () => {
+    // Same overall at both ends but a real second scan ⇒ buildMove still runs (prev !== now), and the
+    // strict `> 0` / `< 0` partition keeps a 0-delta repo out of both buckets.
+    const repos = [repo("r1", "acme/alpha")];
+    const scans = [
+      scan("r1", "2026-03-01T00:00:00.000Z", 70, { level: "L2" }),
+      scan("r1", "2026-05-01T00:00:00.000Z", 70, { level: "L3" }), // overall flat, but level moved
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    expect(movers!.comparedRepos).toBe(1); // it WAS compared…
+    expect(movers!.gainers).toHaveLength(0); // …but the 0 overall-delta excludes it from both
+    expect(movers!.regressers).toHaveLength(0);
+    // levelChanges still partitions on levelDelta independently of dOverall.
+    expect(movers!.levelChanges).toHaveLength(1);
+    expect(movers!.levelChanges[0]).toMatchObject({ name: "alpha", levelDelta: 1 });
+  });
+
+  it("an ONBOARDED repo (no scan ≤ start) appears via its EARLIEST in-window scan, not as a phantom", async () => {
+    // bravo is onboarded mid-window: earliest in-window 40 → latest 65 = +25. The fallback
+    // (arr.find(<=start) ?? earliest-in-window) keeps it visible instead of dropping it.
+    const repos = [repo("r1", "acme/bravo")];
+    const scans = [
+      scan("r1", "2026-04-20T00:00:00.000Z", 40, { level: "L1" }),
+      scan("r1", "2026-05-10T00:00:00.000Z", 52, { level: "L2" }), // a middle scan must NOT be the baseline
+      scan("r1", "2026-06-05T00:00:00.000Z", 65, { level: "L2" }),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    expect(movers!.gainers).toHaveLength(1);
+    expect(movers!.gainers[0]).toMatchObject({ name: "bravo", dOverall: 25, levelFrom: "L1", levelTo: "L2" });
+    expect(movers!.comparedRepos).toBe(1);
+  });
+
+  it("a repo with a SINGLE in-window scan and no baseline (prev === now) is SKIPPED — no phantom mover", async () => {
+    // Only one in-window scan, nothing at-or-before start ⇒ fallback resolves to that same row ⇒
+    // prev === now ⇒ the repo is dropped, not reported as a 0-move.
+    const repos = [repo("r1", "acme/charlie")];
+    const scans = [scan("r1", "2026-05-01T00:00:00.000Z", 55)];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    expect(movers!.comparedRepos).toBe(0);
+    expect(movers!.gainers).toHaveLength(0);
+    expect(movers!.regressers).toHaveLength(0);
+    expect(movers!.levelChanges).toHaveLength(0);
+  });
+
+  it("a mixed fleet partitions strictly by dOverall sign and sorts each bucket by magnitude", async () => {
+    const repos = [repo("r1", "acme/alpha"), repo("r2", "acme/bravo"), repo("r3", "acme/charlie"), repo("r4", "acme/delta")];
+    const scans = [
+      // alpha: +10 (gainer)
+      scan("r1", "2026-03-01T00:00:00.000Z", 50), scan("r1", "2026-05-01T00:00:00.000Z", 60),
+      // bravo: +30 (bigger gainer ⇒ sorts ahead of alpha)
+      scan("r2", "2026-03-01T00:00:00.000Z", 40), scan("r2", "2026-05-01T00:00:00.000Z", 70),
+      // charlie: -25 (regresser)
+      scan("r3", "2026-03-01T00:00:00.000Z", 85), scan("r3", "2026-05-01T00:00:00.000Z", 60),
+      // delta: 0 (neither bucket)
+      scan("r4", "2026-03-01T00:00:00.000Z", 75), scan("r4", "2026-05-01T00:00:00.000Z", 75),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    expect(movers!.comparedRepos).toBe(4);
+    // gainers: positive only, largest climb first.
+    expect(movers!.gainers.map((m) => [m.name, m.dOverall])).toEqual([["bravo", 30], ["alpha", 10]]);
+    // regressers: negative only, most-negative first.
+    expect(movers!.regressers.map((m) => [m.name, m.dOverall])).toEqual([["charlie", -25]]);
+    // delta (0) appears in neither bucket.
+    const named = [...movers!.gainers, ...movers!.regressers].map((m) => m.name);
+    expect(named).not.toContain("delta");
+  });
+});
