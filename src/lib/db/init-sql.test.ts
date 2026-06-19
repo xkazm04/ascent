@@ -40,10 +40,11 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
     expect(initSql).toMatch(/"alertWebhookUrl" TEXT/);
   });
 
-  it("mirrors the CreditLedger idempotency key column + unique index (Polar billing, additive)", () => {
+  it("mirrors the CreditLedger idempotency key column (Polar billing, additive)", () => {
+    // The CreditLedger_externalId_key UNIQUE index itself is now covered by the generic
+    // inline-@unique parity check below (no model-specific allow-listing).
     expect(schema).toMatch(/externalId\s+String\?\s+@unique/);
     expect(initSql).toMatch(/"externalId" TEXT/);
-    expect(initSql).toMatch(/CREATE UNIQUE INDEX "CreditLedger_externalId_key" ON "CreditLedger"\("externalId"\)/);
   });
 
   it("keeps the idempotent public-org seed regeneration must re-apply", () => {
@@ -74,6 +75,54 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
           missing.push(`${model}.@@${d.kind === "key" ? "unique" : "index"}([${cols.join(", ")}]) -> "${idxName}"`);
         }
       }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  // The loop above only matches BLOCK-level @@index([...])/@@unique([...]). Prisma also emits a
+  // CREATE UNIQUE INDEX for every INLINE single-field `@unique` field attribute (Organization.slug,
+  // User.email, User.githubLogin, Invite.token, Subscription.orgId, CreditLedger.externalId) — the
+  // identity-uniqueness + webhook-idempotency constraints. The old test never parsed inline @unique,
+  // so a regenerated init.sql could silently drop e.g. Invite_token_key (webhook double-create) or
+  // Organization_slug_key (breaking the public-org seed's ON CONFLICT) and stay green. This closes
+  // that half of the drift hole with the SAME no-allow-listing rule as the block-level check (#2).
+  it("mirrors every inline single-field @unique into a matching CREATE UNIQUE INDEX in init.sql", () => {
+    const modelBlocks = [...schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)];
+    const inlineUniques: { model: string; field: string }[] = [];
+    for (const [, model, body] of modelBlocks) {
+      for (const line of body!.split("\n")) {
+        const trimmed = line.trim();
+        // Skip block-level @@unique([...]) / @@index([...]) — those are covered above.
+        if (trimmed.startsWith("@@")) continue;
+        // An inline field declaration carrying @unique: `field Type ... @unique` (and not @@unique).
+        const m = /^(\w+)\s+\S+.*\B@unique\b/.exec(trimmed);
+        if (m && !/@@unique/.test(trimmed)) {
+          inlineUniques.push({ model: model!, field: m[1]! });
+        }
+      }
+    }
+
+    // Sanity: the 6 known inline @unique attributes must be discovered, so a parser regression that
+    // matches nothing can't make this assertion vacuously pass.
+    expect(inlineUniques.map((u) => `${u.model}.${u.field}`).sort()).toEqual(
+      [
+        "CreditLedger.externalId",
+        "Invite.token",
+        "Organization.slug",
+        "Subscription.orgId",
+        "User.email",
+        "User.githubLogin",
+      ].sort(),
+    );
+
+    const missing: string[] = [];
+    for (const { model, field } of inlineUniques) {
+      // Prisma's deterministic name for a single-field @unique: "<Model>_<field>_key".
+      const idxName = `${model}_${field}_key`;
+      const created = new RegExp(
+        `CREATE UNIQUE INDEX "${idxName}" ON "${model}"\\("${field}"\\)`,
+      ).test(initSql);
+      if (!created) missing.push(`${model}.${field} -> CREATE UNIQUE INDEX "${idxName}"`);
     }
     expect(missing).toEqual([]);
   });
