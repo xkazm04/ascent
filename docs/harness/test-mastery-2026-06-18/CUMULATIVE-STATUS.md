@@ -1,10 +1,10 @@
 # Test Mastery — ascent — Cumulative Status (criticals + highs)
 
 > Scan: `test_mastery` over 38 contexts (2026-06-18) → **192 findings (60C / 76H / 40M / 16L)**.
-> Fix run: ALL 60 criticals + ALL 76 Highs + ALL 9 latent bugs + **39/40 Mediums + 14/16 Lows** closed — **189/192 findings**, 0 regressions.
+> Fix run: ALL 60 criticals + 76 Highs + 9 latent bugs + **40/40 Mediums + 16/16 Lows** closed — **192/192 findings, 0 open**, 0 regressions.
 > Suite **509 → 2298 (+1789)**, tsc 0. Branch: `vibeman/test-mastery-auth-idor` (off `master`).
 > See `FIXES-WAVE-1..8.md` (criticals), `FIXES-HIGHS.md`, `FIXES-LATENT-BUGS.md`, `FIXES-MEDIUMS-LOWS.md`.
-> **The only 3 open findings are one recommendation:** add a calibrated changed-code coverage gate (needs a coverage-provider dep + CI wiring) — see FIXES-MEDIUMS-LOWS.md.
+> **Theme G done:** a calibrated v8 coverage gate now ratchets `src/lib/db`, `src/components/launch`, `src/components/onboarding` in CI (`npm run test:coverage`, per-dir floors calibrated 2026-06-19). The `@vitest/coverage-v8` lock entry rides with the in-progress dependency WIP commit.
 
 ## Headline
 
@@ -69,8 +69,8 @@ Accumulated across the 8 waves (see each `FIXES-WAVE-N.md` for the per-wave addi
 
 ## What remains (out of scope for this run)
 
-- **All 76 Highs + all 9 latent bugs + 39/40 Mediums + 14/16 Lows now closed** (see `FIXES-HIGHS.md`, `FIXES-LATENT-BUGS.md`, `FIXES-MEDIUMS-LOWS.md`). The **only remaining work is one recommendation**: a calibrated changed-code coverage gate (the 3 open findings — onboarding/db/launch — are all this same item), which needs a coverage-provider dependency + CI wiring (outside the test-only scope).
-- **A per-area / changed-code coverage gate** in CI (Theme G from the INDEX) — nothing yet stops these pins from rotting back; a ratchet on changed files is the durable backstop.
+- **Nothing remains — all 192 findings are closed.** Highs, the 9 latent bugs, 40/40 Mediums, and 16/16 Lows are all done (see `FIXES-HIGHS.md`, `FIXES-LATENT-BUGS.md`, `FIXES-MEDIUMS-LOWS.md`).
+- **Theme G (the coverage gate) — DONE.** `@vitest/coverage-v8` + a `test:coverage` script + per-directory calibrated thresholds in `vitest.config.js` (db 60/52/62/64, launch 38/33/26/36, onboarding 15/11/6/16) + a CI "Coverage gate" step. Verified: passes at the floors (2298 green), a breached floor fails CI. The durable backstop is now in place; raise a floor as real coverage climbs.
 - **The 9 latent bugs** — DONE (fixed in a 10-commit `fix(...)` pass; see `FIXES-LATENT-BUGS.md`).
 
 ## How to resume
