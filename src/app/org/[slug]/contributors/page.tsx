@@ -1,5 +1,6 @@
 import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { Meter, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { getContributorInsights, listSegments } from "@/lib/db";
 import { scoreHex, timeAgo } from "@/lib/ui";
 
@@ -50,15 +51,11 @@ export default async function ContributorInsightsPage({
           Inputs to explore where trust in AI could grow across the team — who&apos;s leaning in, whose approach others could
           learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
         </p>
-        <div className="flex shrink-0 items-center gap-2">
-          {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
-          <a
-            href={`/api/org/export?org=${encodeURIComponent(slug)}&kind=contributors&format=csv${segmentId ? `&segment=${segmentId}` : ""}`}
-            className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
-          >
-            Export CSV
-          </a>
-        </div>
+        {segments.length > 0 && (
+          <div className="flex shrink-0 items-center gap-2">
+            <SegmentSelector segments={segments} active={segmentId} />
+          </div>
+        )}
       </div>
 
         {/* Summary tiles */}
@@ -72,7 +69,7 @@ export default async function ContributorInsightsPage({
         {/* AI champions — only a meaningful "leaderboard" once the population is large enough. Below 3
             contributors a single Copilot user becomes a celebrated "#1 ★ champion" and the tiles read
             "100% AI-active" for a team of one — success theater that overstates a barely-adopted fleet. */}
-        {insights.champions.length > 0 && insights.totalContributors >= 3 && (
+        {insights.champions.length > 0 && insights.totalContributors >= CHAMPION_MIN_POP && (
           <div className="mt-8">
             <SectionHeader
               title="AI champions"
@@ -98,12 +95,31 @@ export default async function ContributorInsightsPage({
           </div>
         )}
 
-        {/* Involvement table */}
-        <div className="mt-8">
-          <SectionHeader
-            title="Involvement"
-            description="Breadth (repos) × depth (commits) and each person's AI-commit share — context to explore, not a scoreboard."
-          />
+        {/* Per-individual involvement — OPT-IN, default collapsed. The default contributor view is
+            team-level (the tiles, champions-when-population-allows, and Concentration / bus-factor below);
+            naming individuals is a deliberate drill-down for capability/coverage planning, never a passive
+            performance scoreboard. The per-person CSV lives here too, behind the same deliberate opt-in. */}
+        <details className="mt-8 rounded-xl border border-slate-800 bg-slate-900/20">
+          <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 font-medium text-slate-200 marker:text-slate-600">
+            <span>
+              Individual involvement <span className="font-mono text-sm text-slate-500">({insights.contributors.length})</span>
+            </span>
+            <span className="font-mono text-sm uppercase tracking-widest text-slate-500">names individuals — expand</span>
+          </summary>
+          <div className="border-t border-slate-800 px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <p className="max-w-2xl text-sm text-slate-400">
+                For capability and coverage planning — who could seed agent guidance, where key-person risk sits —{" "}
+                <span className="text-slate-300">not performance evaluation</span>. Breadth (repos) × depth (commits) and each
+                person&apos;s AI-commit share.
+              </p>
+              <a
+                href={`/api/org/export?org=${encodeURIComponent(slug)}&kind=contributors&format=csv${segmentId ? `&segment=${segmentId}` : ""}`}
+                className="focus-ring shrink-0 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+              >
+                Export CSV
+              </a>
+            </div>
           <OrgTable
             className="mt-3"
             minWidth={720}
@@ -146,7 +162,8 @@ export default async function ContributorInsightsPage({
           {insights.contributors.length > 50 && (
             <p className="mt-2 font-mono text-sm text-slate-600">Showing top 50 of {insights.contributors.length} by commits.</p>
           )}
-        </div>
+          </div>
+        </details>
 
         {/* Concentration / bus factor */}
         <div className="mt-8">

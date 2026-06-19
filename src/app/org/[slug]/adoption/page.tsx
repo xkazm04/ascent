@@ -4,6 +4,7 @@
 
 import { buildAdoptionOverview, adoptionMarkdown } from "@/lib/org/adoption";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { scoreHex } from "@/lib/ui";
 
@@ -71,7 +72,11 @@ export default async function OrgAdoption({ params }: { params: Promise<{ slug: 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionHeader size="sm" title="AI champions" description="Culture carriers — high AI adoption across real volume." />
-          {a.champions.length === 0 ? (
+          {a.contributors.total < CHAMPION_MIN_POP ? (
+            // Same small-population guard as the Contributors tab: below the floor, one AI user reads as a
+            // celebrated "#1" — a ranking, not a culture signal. Suppress consistently across tabs.
+            <InlineEmpty>Too few contributors to surface champions without it reading as a ranking.</InlineEmpty>
+          ) : a.champions.length === 0 ? (
             <InlineEmpty>No AI-attributed contributors yet.</InlineEmpty>
           ) : (
             <div className="mt-3 space-y-1.5">

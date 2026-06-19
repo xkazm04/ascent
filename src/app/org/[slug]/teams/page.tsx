@@ -1,4 +1,5 @@
 import { Card, Meter, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex, fmtDelta } from "@/components/org/ui";
+import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { getOrgTeamRollup, listSegments, type TeamRollup } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
@@ -67,7 +68,7 @@ function TeamCard({ team }: { team: TeamRollup }) {
             </span>
             <span className="text-sm text-slate-500">of recent commits · {team.aiContributors}/{team.contributors} AI-active</span>
           </div>
-          {team.champions.length > 0 && (
+          {team.contributors >= CHAMPION_MIN_POP && team.champions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
               {team.champions.map((c) => (
                 <span key={c.login} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-accent" title={`${c.aiCommits} AI commits · ${c.aiShare}% AI`}>
