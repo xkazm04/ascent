@@ -106,6 +106,65 @@ describe("GET /api/audit — authorized read", () => {
   });
 });
 
+describe("GET /api/audit?format=csv — formula-injection neutralization + RFC-4180 escaping", () => {
+  // A realistic audit entry, matching the AuditLogEntry shape the CSV branch maps to cells.
+  const entry = (over: Partial<Record<string, unknown>> = {}) => ({
+    id: "audit_1",
+    action: "scan.completed",
+    actorId: "user_1",
+    at: "2026-01-02T00:00:00.000Z",
+    meta: { scanId: "scan_1" },
+    scan: { id: "scan_1", repo: "acme/web", level: "L2", overall: 87, headSha: "abc123" },
+    ...over,
+  });
+  // Return one page of the given entries then stop (single do/while iteration).
+  const onePage = (entries: unknown[]) =>
+    mockGetAuditLog.mockResolvedValue({ entries, nextCursor: null } as never);
+
+  it("neutralizes a formula-injection payload in the action cell (= forced to literal text)", async () => {
+    onePage([entry({ action: "=HYPERLINK(0)" })]);
+
+    const body = await (await get("?org=acme&format=csv")).text();
+
+    // The cell starting with = is prefixed with ' and quoted, so it renders as text, not a live formula.
+    expect(body).toContain("\"'=HYPERLINK(0)\"");
+    // The raw, executable form must NOT appear unguarded at the start of a field.
+    expect(body).not.toMatch(/(^|,)=HYPERLINK/m);
+  });
+
+  it("neutralizes each of = + - @ as a leading char (actorId cell, attacker-influencable)", async () => {
+    for (const payload of ["=cmd", "+cmd", "-cmd", "@cmd"]) {
+      onePage([entry({ actorId: payload })]);
+      const body = await (await get("?org=acme&format=csv")).text();
+      // Every dangerous leader is rewritten to a quoted, '-prefixed literal cell.
+      expect(body).toContain(`"'${payload}"`);
+      expect(body).not.toMatch(new RegExp(`(^|,)\\${payload[0]}cmd`, "m"));
+    }
+  });
+
+  it("still RFC-4180 escapes comma / quote / newline in a non-formula cell", async () => {
+    onePage([entry({ action: 'Doe, "Jane"\nInc' })]);
+
+    const body = await (await get("?org=acme&format=csv")).text();
+
+    // Wrapped in quotes with embedded quotes doubled, newline kept inside the quoted field.
+    expect(body).toContain('"Doe, ""Jane""\nInc"');
+    // The raw comma must NOT leak as an unquoted field separator.
+    expect(body).not.toContain('Doe, "Jane",');
+  });
+
+  it("emits the fixed header row and one CSV data line per entry", async () => {
+    onePage([entry({ id: "a1" }), entry({ id: "a2", action: "scan.deleted" })]);
+
+    const res = await get("?org=acme&format=csv");
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    const lines = (await res.text()).trim().split("\n");
+
+    expect(lines[0]).toBe("at,action,actorId,repo,level,overall,headSha,meta");
+    expect(lines).toHaveLength(3); // header + 2 entries
+  });
+});
+
 describe("GET /api/audit — pre-gate short-circuits", () => {
   it("returns 503 (and neither gates nor reads) when the DB is not configured", async () => {
     mockIsDbConfigured.mockReturnValue(false);

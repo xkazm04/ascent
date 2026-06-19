@@ -14,10 +14,17 @@ import { requireOrgRead } from "@/lib/authz";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** RFC-4180 CSV cell: wrap in quotes and double any embedded quotes; null/undefined → empty. */
+/**
+ * RFC-4180 CSV cell: wrap in quotes and double any embedded quotes; null/undefined → empty.
+ * Also neutralizes spreadsheet formula injection — a cell whose first char is = + - @ can
+ * execute as a formula in Excel/Sheets, so it is prefixed with ' to force literal text. Since
+ * `action`/`actorId`/`meta` are caller- and attacker-influencable, this guard keeps the
+ * compliance-evidence export from turning a crafted audit row into a live formula.
+ */
 function csvCell(v: unknown): string {
   const s = v == null ? "" : String(v);
-  return `"${s.replace(/"/g, '""')}"`;
+  const escaped = s.replace(/"/g, '""');
+  return /^[=+\-@]/.test(s) ? `"'${escaped}"` : `"${escaped}"`;
 }
 
 const CSV_COLUMNS = ["at", "action", "actorId", "repo", "level", "overall", "headSha", "meta"] as const;
