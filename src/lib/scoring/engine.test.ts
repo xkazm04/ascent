@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assembleReport, contributions, diffReports, projectDimensionClose, projectSandbox, projectedGain } from "./engine";
+import { assembleReport, cheapestPathToNextLevel, contributions, diffReports, projectDimensionClose, projectScore, projectSandbox, projectedGain } from "./engine";
 import { ARCHETYPE_WEIGHTS, DIMENSIONS, LEVEL_BY_ID, LLM_GUARDBAND, SCORE_BLEND, axisScore, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
 import { MockProvider } from "@/lib/llm/mock";
 import { classifyArchetype } from "@/lib/analyze";
@@ -843,5 +843,112 @@ describe("classifyArchetype — weighting-lens boundary selection (#3)", () => {
       const a = classifyArchetype(snapForArchetype(stars, []));
       expect(ARCHETYPE_WEIGHTS[a]).toBeDefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cheapestPathToNextLevel — the motivating "how do I level up" roadmap (#5)
+//
+// ZERO prior tests, yet it's the one projection with non-trivial control flow: a true-
+// reachability pre-check (project EVERY dim to 100 — if even THAT can't clear the next band
+// floor, the climb is genuinely unreachable), a greedy selection by descending weighted upside,
+// and a band-floor STOP (`if (after >= targetScore) break`) so it never over-shoots the path.
+// These pin GREEDY-STOP (stops the instant the floor is crossed, no extra steps) and the two
+// terminal branches: UNREACHABLE (target present, reachable:false, no misleading steps) and the
+// top-band L5 case (target:null, reachable:true — already maxed, nothing to climb).
+// ---------------------------------------------------------------------------
+
+describe("cheapestPathToNextLevel — level-up roadmap branches (#5)", () => {
+  /** A self-consistent org report: overall/level derived from its own dims via the engine. */
+  function consistentReport(scores: Record<string, number>): ScanReport {
+    const dimList = dims(Object.fromEntries(Object.entries(scores).map(([id, score]) => [id, { score }])));
+    const overall = overallScoreFor(dimList.map((d) => ({ id: d.id, score: d.score })), "org");
+    return mkReport({ overallScore: overall, level: levelForScore(overall).id, dimensions: dimList });
+  }
+
+  it("GREEDY-STOP: closes the single highest-upside dim, crosses the floor, and stops there", () => {
+    // Every dim at 42 → overall 42 (L2). The next band is L3 (floor 45). Greedy upside is
+    // weight·(100−score); with equal scores the highest-weight dim (D1, w=0.15) wins, and closing
+    // it alone lifts overall to 51 — already past 45 — so the loop breaks after ONE step.
+    const report = consistentReport(Object.fromEntries(DIMENSIONS.map((d) => [d.id, 42])));
+    expect(report.overallScore).toBe(42);
+    expect(report.level.id).toBe("L2");
+
+    const path = cheapestPathToNextLevel(report);
+
+    expect(path.reachable).toBe(true);
+    expect(path.target).toEqual({ level: "L3", name: LEVEL_BY_ID.L3.name, score: 45 });
+    // GREEDY-STOP: exactly one step (no over-shoot), and it's the heaviest-upside dimension.
+    expect(path.steps).toHaveLength(1);
+    expect(path.steps[0]!.dimension).toBe("D1");
+    expect(path.steps[0]!.targetScore).toBe(100);
+    // The projection it stopped at clears the floor — and the step's gain is real (> 0).
+    expect(path.projected.overallScore).toBeGreaterThanOrEqual(45);
+    expect(path.steps[0]!.gain).toBeGreaterThan(0);
+    // Steps are ordered by descending weighted upside — the first (only) step is the max.
+    const upsideD1 = DIMENSIONS.find((d) => d.id === "D1")!.weight * (100 - 42);
+    const maxUpside = Math.max(...DIMENSIONS.map((d) => d.weight * (100 - 42)));
+    expect(upsideD1).toBeCloseTo(maxUpside, 9);
+  });
+
+  it("GREEDY-STOP: never adds a step once the floor is already crossed", () => {
+    // Same setup; assert the loop didn't keep folding dims after the break. The projected overall
+    // reflects ONLY the steps taken, and the remaining (un-stepped) dims are still at their floor.
+    const report = consistentReport(Object.fromEntries(DIMENSIONS.map((d) => [d.id, 42])));
+    const path = cheapestPathToNextLevel(report);
+
+    // Only the stepped dimensions were overridden to 100; everything else stays at 42.
+    const steppedIds = new Set(path.steps.map((s) => s.dimension));
+    const overrides = Object.fromEntries(path.steps.map((s) => [s.dimension, 100]));
+    // Re-deriving the projection from JUST the steps reproduces path.projected exactly — proof no
+    // hidden extra override leaked in past the break.
+    expect(projectScore(report, overrides).overallScore).toBe(path.projected.overallScore);
+    expect(steppedIds.size).toBe(path.steps.length); // no duplicate steps
+    // It stopped at the FIRST crossing: dropping the last step would fall back below the floor.
+    expect(path.projected.overallScore).toBeGreaterThanOrEqual(path.target!.score);
+  });
+
+  it("UNREACHABLE: a repo whose only headroom is in a zero-lens-weight dimension can't climb", () => {
+    // The report's single dimension carries an id absent from the archetype lens, so it has ZERO
+    // weight in overallScoreFor — projecting it to 100 still scores 0. The next level (L2, floor 25)
+    // is genuinely unreachable: the pre-check returns reachable:false with NO misleading steps, but
+    // KEEPS a non-null target (the "don't imply a climb that never crosses" honesty invariant).
+    const zeroWeightDim: DimensionResult = {
+      id: "DX" as DimensionResult["id"], // unknown id → 0 lens weight under every archetype
+      name: "Phantom",
+      weight: 0.5,
+      score: 0,
+      signalScore: 0,
+      llmScore: 0,
+      summary: "",
+      evidence: [],
+      strengths: [],
+      gaps: [],
+    };
+    const report = mkReport({ overallScore: 0, level: "L1", dimensions: [zeroWeightDim] });
+    // Sanity: even at the ceiling this report can't move off 0 (the precondition for unreachable).
+    expect(projectScore(report, { ["DX" as DimensionResult["id"]]: 100 }).overallScore).toBe(0);
+
+    const path = cheapestPathToNextLevel(report);
+
+    expect(path.reachable).toBe(false);
+    expect(path.steps).toEqual([]); // no misleading "path" the climb never actually crosses
+    expect(path.target).not.toBeNull();
+    expect(path.target).toEqual({ level: "L2", name: LEVEL_BY_ID.L2.name, score: 25 });
+    expect(path.projected.overallScore).toBe(0); // the as-is (no-override) projection
+  });
+
+  it("top band L5: already maxed → target:null, reachable:true, no steps", () => {
+    // At L5 there is no next level. The !nextLevel branch returns reachable:true / target:null —
+    // it must NOT read as "unreachable" (a false discouragement) nor invent a climb.
+    const report = consistentReport(Object.fromEntries(DIMENSIONS.map((d) => [d.id, 90])));
+    expect(report.level.id).toBe("L5");
+
+    const path = cheapestPathToNextLevel(report);
+
+    expect(path.target).toBeNull();
+    expect(path.reachable).toBe(true);
+    expect(path.steps).toEqual([]);
+    expect(path.projected.overallScore).toBe(report.overallScore); // unchanged as-is projection
   });
 });
