@@ -37,9 +37,16 @@ vi.mock("@/lib/db", () => ({
   reportPermalink: vi.fn((fullName: string) => `/r/${fullName}`),
 }));
 
-import { checkAndAlertRegression } from "./scan-alerts";
+import { checkAndAlertRegression, maybeAlertLowCredits } from "./scan-alerts";
 import { diffReports } from "@/lib/scoring/engine";
-import { detectRegression, dispatchAlert, buildRegressionMessage } from "@/lib/alerts";
+import {
+  detectRegression,
+  dispatchAlert,
+  buildRegressionMessage,
+  buildLowCreditsMessage,
+  creditsAlertThreshold,
+  isLowCreditsCrossing,
+} from "@/lib/alerts";
 import { getOrgAlertThresholds, getOrgAlertWebhook, recordAudit } from "@/lib/db";
 
 const mockDiff = vi.mocked(diffReports);
@@ -49,6 +56,9 @@ const mockBuildMsg = vi.mocked(buildRegressionMessage);
 const mockThresholds = vi.mocked(getOrgAlertThresholds);
 const mockWebhook = vi.mocked(getOrgAlertWebhook);
 const mockAudit = vi.mocked(recordAudit);
+const mockCrossing = vi.mocked(isLowCreditsCrossing);
+const mockCreditsThreshold = vi.mocked(creditsAlertThreshold);
+const mockBuildLow = vi.mocked(buildLowCreditsMessage);
 
 // A ScanReport is only read by the orchestrator for fresh.repo.{owner,name,headSha}; the diff itself
 // is mocked, so a minimal shape cast is sufficient and keeps the test focused on the decision logic.
@@ -277,5 +287,85 @@ describe("checkAndAlertRegression — throw-safety (never fails the scan path)",
     expect(out.regressed).toBe(true);
     expect(out.dispatched).toBe(false);
     expect(mockDispatch).not.toHaveBeenCalled();
+  });
+});
+
+// --- maybeAlertLowCredits — fires-EXACTLY-ONCE on the threshold crossing -----------------------
+// Sibling of checkAndAlertRegression: pushes a depletion alert after a metered unit debit. The
+// design (alerts.ts) deliberately keys off the EDGE, not the level: debits are unit-sized, so the
+// balance lands EXACTLY on the threshold once on the way down (and exactly on 0 once at depletion).
+// isLowCreditsCrossing(b, t) === (b === 0 || b === t). These tests pin that the alert fires once at
+// the crossing and never spams on the subsequent below-threshold scans — the test-mastery
+// "fires exactly once, never skipped" invariant. We give the mocked predicate its REAL semantics so
+// the fires-once edge is pinned honestly rather than against a hard-wired stub.
+describe("maybeAlertLowCredits — fires exactly once on the threshold crossing", () => {
+  const THRESH = 5;
+  beforeEach(() => {
+    // Honest predicate: only the exact-threshold and exact-zero landings count as a crossing,
+    // mirroring isLowCreditsCrossing's real body (b === 0 || b === threshold).
+    mockCrossing.mockImplementation((balanceAfter: number, threshold: number) => balanceAfter === 0 || balanceAfter === threshold);
+    mockCreditsThreshold.mockReturnValue(THRESH);
+    mockBuildLow.mockReturnValue({ text: "low", blocks: [] } as never);
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+    mockDispatch.mockResolvedValue(true);
+  });
+
+  it("fires exactly ONCE on the way down: the alert is sent only on the scan that lands ON the threshold", async () => {
+    // Simulate a unit-debit descent 8 → 7 → 6 → 5(threshold) → 4 → 3. Only the balance that lands
+    // exactly on 5 is a crossing; every other observation is a clean no-op. This is the core
+    // "fires exactly once, never skipped, no spam" invariant.
+    const descent = [8, 7, 6, 5, 4, 3];
+    const results: boolean[] = [];
+    for (const b of descent) results.push(await maybeAlertLowCredits("acme", b));
+
+    expect(results).toEqual([false, false, false, true, false, false]);
+    // The dispatch fired exactly once across the whole descent — no spam on the sub-threshold scans.
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT fire while strictly above the threshold (level, not crossing)", async () => {
+    for (const b of [100, 50, 9, 6]) {
+      expect(await maybeAlertLowCredits("acme", b)).toBe(false);
+    }
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("fires again on a NEW crossing after the balance recovers above the threshold (edge, not level)", async () => {
+    // Cross down to 5 (fire #1), recover to 12 (top-up, no fire), then debit back down through 5
+    // again (fire #2). The alert keys on the crossing edge, so each fresh descent through the line
+    // re-arms — it does NOT stay latched, and it does NOT stay silent after recovery.
+    const series = [6, 5 /* cross #1 */, 12 /* recover, no fire */, 6, 5 /* cross #2 */];
+    const results: boolean[] = [];
+    for (const b of series) results.push(await maybeAlertLowCredits("acme", b));
+
+    expect(results).toEqual([false, true, false, false, true]);
+    expect(mockDispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("fires on the depletion crossing too: landing exactly on 0 alerts even below the threshold", async () => {
+    // Per the real predicate, 0 is its own crossing (depletion), distinct from the threshold line —
+    // so a fleet draining 5 → … → 0 alerts at the threshold AND again at empty.
+    expect(await maybeAlertLowCredits("acme", 0)).toBe(true);
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect(mockBuildLow).toHaveBeenCalledWith(expect.objectContaining({ balance: 0, threshold: THRESH }));
+  });
+
+  it("a balance already below the threshold at first observation is NOT a crossing (no retroactive fire)", async () => {
+    // First time we ever see this org it's already at 3 (below 5, above 0). Because the predicate is
+    // edge-based and this debit did not LAND on the line, it must not fire — matching the real code,
+    // which has no dedupe table and relies purely on the unit-sized landing.
+    expect(await maybeAlertLowCredits("acme", 3)).toBe(false);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("a crossing with NO resolvable sink is a clean no-op (does not dispatch, does not throw)", async () => {
+    mockWebhook.mockResolvedValue(null); // isAlertConfigured(null) => false
+    expect(await maybeAlertLowCredits("acme", THRESH)).toBe(false);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("never throws into the scan path when dispatch rejects on a real crossing; resolves false", async () => {
+    mockDispatch.mockRejectedValue(new Error("webhook 500"));
+    await expect(maybeAlertLowCredits("acme", THRESH)).resolves.toBe(false);
   });
 });
