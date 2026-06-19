@@ -14,6 +14,9 @@
 //   • aiActiveShare = round(#humans-with-AI / #humans * 100).
 //   • [bot]/unknown rows are excluded from every human aggregate.
 //   • An empty / zero-commit fleet returns the documented zero-defaults, never a divide-by-zero NaN.
+//   • championScore = (aiShare/100)·√repoCount·log2(commits+1), rounded to 2dp; the `champions` list
+//     filters to commits≥3 AND aiCommits>0, orders by championScore desc, and slices to the top 6.
+//     A 1-commit champion stays FINITE (log2(commits+1), not log2(commits)) — no -Infinity ranking.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -275,6 +278,96 @@ describe("getContributorInsights empty / zero-commit safety", () => {
     expect(c.topShare).toBe(0); // guarded by `total ? ... : 0`
     expect(Number.isNaN(c.topShare)).toBe(false);
     expect(res.contributors[0].aiShare).toBe(0); // per-person share also guarded
+  });
+});
+
+// ── champion ranking: score formula, filter, ordering, finiteness ────────────────
+
+/** Find a champion entry by login (throws if absent — the filter should have kept it). */
+function champ(res: NonNullable<Awaited<ReturnType<typeof getContributorInsights>>>, login: string) {
+  const c = res.champions.find((x) => x.login === login);
+  if (!c) throw new Error(`no champion entry for "${login}"`);
+  return c;
+}
+
+describe("getContributorInsights champion ranking", () => {
+  it("championScore = (aiShare/100)·√repoCount·log2(commits+1), and breadth beats raw volume", async () => {
+    // A: 100% AI across 3 repos, 7 commits each → repoCount=3, commits=21.
+    //    score = 1 · √3 · log2(22) = 1.7320508 · 4.4594316 = 7.7244… → 7.72
+    // B: 100% AI in ONE repo, 21 commits → repoCount=1, commits=21.
+    //    score = 1 · 1 · log2(22) = 4.4594… → 4.46
+    // Same volume & AI share, but A spreads AI across repos → A must outrank B. A formula change
+    // that dropped the √repoCount breadth term (or used a raw mean) would flip this ordering.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "A", commits: 7, aiCommits: 7, repo: "acme/r1" },
+        { login: "A", commits: 7, aiCommits: 7, repo: "acme/r2" },
+        { login: "A", commits: 7, aiCommits: 7, repo: "acme/r3" },
+        { login: "B", commits: 21, aiCommits: 21, repo: "acme/solo" },
+      ]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.champions.map((c) => c.login)).toEqual(["A", "B"]); // A ranked first
+    expect(champ(res, "A").championScore).toBeCloseTo(7.72, 2);
+    expect(champ(res, "B").championScore).toBeCloseTo(4.46, 2);
+    expect(champ(res, "A").championScore).toBeGreaterThan(champ(res, "B").championScore);
+  });
+
+  it("excludes contributors with <3 commits or zero AI commits from champions", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "qualifies", commits: 5, aiCommits: 3, repo: "acme/r" }, // ≥3 commits, AI>0 → in
+        { login: "tooFewCommits", commits: 2, aiCommits: 2, repo: "acme/r" }, // commits<3 → out
+        { login: "noAi", commits: 50, aiCommits: 0, repo: "acme/r" }, // aiCommits===0 → out
+      ]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.champions.map((c) => c.login)).toEqual(["qualifies"]);
+    // noAi has the most commits but is correctly absent from the AI-champions list.
+    expect(res.champions.find((c) => c.login === "noAi")).toBeUndefined();
+  });
+
+  it("a 1-commit AI champion has a finite score (log2(commits+1), never -Infinity)", async () => {
+    // championScore uses log2(commits + 1): a single-commit dim → log2(2)=1, finite. Dropping the +1
+    // would yield log2(0) = -Infinity, dumping a legit 1-commit champion to the bottom of the ranking.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "tiny", commits: 3, aiCommits: 3, repo: "acme/r" }, // min commits to qualify
+        { login: "big", commits: 30, aiCommits: 30, repo: "acme/r" },
+      ]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    const tiny = champ(res, "tiny");
+    expect(Number.isFinite(tiny.championScore)).toBe(true);
+    expect(tiny.championScore).toBeGreaterThan(0);
+    // tiny: 1·1·log2(4)=2.00 ; big: 1·1·log2(31)=4.954… → 4.95. big outranks tiny but both finite.
+    expect(tiny.championScore).toBeCloseTo(2.0, 2);
+    expect(res.champions.map((c) => c.login)).toEqual(["big", "tiny"]);
+  });
+
+  it("caps the champions list at the top 6 by championScore", async () => {
+    // 8 distinct qualifying champions, descending commits → descending championScore (all 100% AI,
+    // single repo). Only the top 6 survive the slice; the two smallest drop off.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        Array.from({ length: 8 }, (_, i) => ({
+          login: `c${i}`,
+          commits: 100 - i * 5, // 100, 95, 90, … strictly descending, all ≥3
+          aiCommits: 100 - i * 5,
+          repo: "acme/r",
+        })),
+      ),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.champions).toHaveLength(6);
+    expect(res.champions.map((c) => c.login)).toEqual(["c0", "c1", "c2", "c3", "c4", "c5"]);
+    // strictly non-increasing championScore across the kept list
+    const scores = res.champions.map((c) => c.championScore);
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
   });
 });
 
