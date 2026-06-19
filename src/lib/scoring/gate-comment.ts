@@ -120,6 +120,17 @@ export function buildGateComment(
     }
   }
 
+  // Surface WHICH scoring path produced this verdict on the Check Run summary itself — not just the
+  // sticky comment — so a dev blocked by the gate can tell an AI-graded verdict from the
+  // deterministic-rubric floor (the keyless/mock default). Prominent when mock; quiet when live.
+  const scoredByMock = report.engine.provider === "mock";
+  lines.push("");
+  lines.push(
+    scoredByMock
+      ? "> ⚠️ **Scored by the deterministic rubric** (no LLM) — configure an LLM provider for the full AI-graded maturity verdict."
+      : `<sub>Scored by Ascent — ${mdInline(report.engine.provider)} · ${mdInline(report.engine.model)}</sub>`,
+  );
+
   const summary = lines.join("\n");
   const policyBits: string[] = [];
   if (gate.policy.minLevel) policyBits.push(`min ${gate.policy.minLevel}`);
@@ -127,11 +138,12 @@ export function buildGateComment(
   if (typeof gate.policy.minDimension === "number") policyBits.push(`no dim < ${gate.policy.minDimension}`);
   if (gate.policy.forbidPostures?.length) policyBits.push(`forbid ${gate.policy.forbidPostures.join("/")}`);
 
+  // Provider/mode now lives in `summary` (above), so the footer carries only the policy — no dupe.
   const commentBody = [
     GATE_COMMENT_MARKER,
     summary,
     "",
-    `<sub>Policy: ${policyBits.join(" · ") || "archetype default"} · scored by Ascent (${mdInline(report.engine.provider)})</sub>`,
+    `<sub>Policy: ${policyBits.join(" · ") || "archetype default"}</sub>`,
   ].join("\n");
 
   return { conclusion, title, summary, commentBody };

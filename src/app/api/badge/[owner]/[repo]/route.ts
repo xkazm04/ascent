@@ -316,12 +316,20 @@ export async function GET(
     // lower bound on true views (most are served from the camo/CDN cache and never reach the origin).
     void recordBadgeImpression(`${ownerN}/${repoN}`, refererHost(req)).catch(() => {});
 
+    // Be honest when the level/score/gate verdict came from the deterministic mock rubric (no LLM)
+    // rather than a real AI scan: mark the badge "· demo" so a README badge can't present the
+    // deterministic floor as the credible verdict (or silently diverge from the LLM report once one
+    // exists). Mirrors the report header's `isMock` treatment. engine may be absent on a legacy /
+    // partial cached report → treat as not-mock (don't mislabel a real report).
+    const isMock = report.engine?.provider === "mock";
+    const verdictLabel = isMock ? `${label} · demo` : label;
+
     // Gate badge: a green pass / red fail against the (configurable, archetype-aware) policy.
     if (gateMode) {
       const gate = evaluateGate(report, policyFromParams(searchParams, report.archetype));
       return respond(
         badgeSvg({
-          label,
+          label: verdictLabel,
           // ✓/✗ so the pass/fail verdict survives without color (red/green collapses for CVD viewers).
           value: gate.pass ? "✓ pass" : "✗ fail",
           color: resolveColor(customColor, gate.pass ? LEVEL_HEX.L5 : LEVEL_HEX.L1),
@@ -337,7 +345,7 @@ export async function GET(
     // Score variant (USE-2): the numeric headline (with the level glyph + colour) instead of the level name.
     if (scoreMode) {
       return respond(
-        badgeSvg({ label, value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.overallScore}/100`, color, style, logo, href }),
+        badgeSvg({ label: verdictLabel, value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.overallScore}/100`, color, style, logo, href }),
         { cache: customized ? CACHE_CUSTOM : resolvedCache },
       );
     }
@@ -345,7 +353,7 @@ export async function GET(
       // Prepend the level glyph (○◔◑◕●) so the red→green level isn't signalled by hue alone — the
       // same non-color redundancy lib/ui.ts mandates everywhere a level color appears in the app.
       badgeSvg({
-        label,
+        label: verdictLabel,
         value: `${LEVEL_GLYPH[report.level.id as LevelId]} ${report.level.id} ${report.level.name}`,
         color,
         style,

@@ -132,4 +132,20 @@ describe("buildGateComment", () => {
     // The pipe in the name is escaped so the table row keeps its columns.
     expect(c.summary).toContain("Sec \\| urity");
   });
+
+  it("flags a MOCK-scored verdict on the Check Run summary, not just the sticky comment", () => {
+    // Default report() engine is { provider: "mock" } — a dev blocked by the gate must be able to
+    // see on the check itself that the verdict came from the deterministic rubric, not the AI.
+    const c = buildGateComment(report(), passGate);
+    expect(c.summary).toContain("deterministic rubric");
+    expect(c.summary).toContain("no LLM");
+    expect(c.commentBody).toContain("deterministic rubric"); // summary is embedded in the comment too
+  });
+
+  it("names the LIVE provider on the Check Run summary when scored by an LLM (no mock warning)", () => {
+    const c = buildGateComment(report({ engine: { provider: "claude-cli", model: "sonnet" } }), passGate);
+    expect(c.summary).toContain("Scored by Ascent");
+    expect(c.summary).toContain("claude-cli");
+    expect(c.summary).not.toContain("deterministic rubric");
+  });
 });

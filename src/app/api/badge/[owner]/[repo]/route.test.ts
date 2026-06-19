@@ -462,3 +462,60 @@ describe("GET /api/badge/[owner]/[repo] — validName path-traversal / grammar g
     expect(mockResolveHead).toHaveBeenCalledTimes(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mock-vs-live verdict honesty (P1 — credibility fidelity). The badge must not present a
+// deterministic-rubric (mock) level/score/gate verdict as if it were the credible LLM verdict —
+// otherwise a README badge silently diverges from the LLM report. Drive off report.engine.provider:
+// a "mock" report is marked "· demo"; a real LLM report is not; an engine-less legacy report is
+// treated as not-mock (never mislabel a real report as demo).
+describe("GET /api/badge/[owner]/[repo] — mock-vs-live verdict honesty", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockResolveHead.mockResolvedValue("sha123" as never);
+    mockEvaluateGate.mockReturnValue({ pass: true, failures: [] } as never);
+    mockRecordImpression.mockResolvedValue(undefined as never);
+  });
+
+  function reportScoredBy(provider: string): ScanReport {
+    return {
+      repo: { fullName: "acme/api", isPrivate: false },
+      overallScore: 87,
+      level: { id: "L4", name: "Autonomous", band: [80, 89], tagline: "", description: "" },
+      archetype: "service",
+      engine: { provider, model: provider === "mock" ? "rubric" : "sonnet" },
+    } as unknown as ScanReport;
+  }
+
+  it("marks a MOCK-scored public badge as '· demo' (can't masquerade as the credible verdict)", async () => {
+    mockCacheGet.mockReturnValue(reportScoredBy("mock"));
+    const body = await (await get()).text();
+    expect(body).toContain("demo"); // label suffixed "· demo"
+    expect(body).toContain("L4"); // still renders the level
+  });
+
+  it("does NOT mark a LIVE-LLM-scored public badge as demo", async () => {
+    mockCacheGet.mockReturnValue(reportScoredBy("claude-cli"));
+    const body = await (await get()).text();
+    expect(body).not.toContain("demo");
+    expect(body).toContain("L4");
+  });
+
+  it("does NOT mark the gate badge demo when scored live (and DOES when mock)", async () => {
+    mockCacheGet.mockReturnValue(reportScoredBy("claude-cli"));
+    expect(await (await get("?gate=1")).text()).not.toContain("demo");
+    vi.clearAllMocks();
+    mockResolveHead.mockResolvedValue("sha123" as never);
+    mockEvaluateGate.mockReturnValue({ pass: true, failures: [] } as never);
+    mockRecordImpression.mockResolvedValue(undefined as never);
+    mockCacheGet.mockReturnValue(reportScoredBy("mock"));
+    expect(await (await get("?gate=1")).text()).toContain("demo");
+  });
+
+  it("treats an engine-less legacy cached report as not-mock (never mislabels a real report)", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false)); // no engine field
+    const body = await (await get()).text();
+    expect(body).not.toContain("demo");
+    expect(body).toContain("L4");
+  });
+});
