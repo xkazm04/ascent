@@ -151,6 +151,12 @@ export interface OrgRec {
   repoCount: number;
   repos: string[];
   leverage: number;
+  /** Engine-true ROI: the AVERAGE overall-score points an affected repo gains if this dimension's gap
+   *  is fully closed (mean of projectedGain over each affected repo's stored dims + archetype). Null when
+   *  no affected repo has persisted dimension rows (pre-dimension scans). Turns "explore" into a decision. */
+  projectedPoints: number | null;
+  /** How many of the affected repos this move would advance to the next maturity level. */
+  liftsRepos: number;
 }
 
 /** Aggregate open recommendations across the fleet's latest scans → highest-leverage moves. */
@@ -167,15 +173,25 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
       scans: {
         orderBy: { scannedAt: "desc" },
         take: 1,
-        select: { recommendations: { where: { status: { in: ["open", "in_progress"] } }, select: { title: true, dimId: true, impact: true } } },
+        select: {
+          // Dimension scores + archetype feed projectedGain — the engine-true "+N pts" per move, so the
+          // overview can NAME the highest-leverage decision (and its maturity gain), not just rank gaps.
+          archetype: true,
+          dimensions: { select: { dimId: true, score: true } },
+          recommendations: { where: { status: { in: ["open", "in_progress"] } }, select: { title: true, dimId: true, impact: true } },
+        },
       },
     },
   });
 
   const w = weightsFor("org");
+  // Per-repo dims + archetype, so a rec-group can compute the projected gain over exactly its affected repos.
+  const repoDims = new Map<string, { archetype: string; dims: { id: string; score: number }[] }>();
   const groups = new Map<string, { title: string; dimId: string; impact: string; repos: Set<string> }>();
   for (const r of repos) {
-    const recs = r.scans[0]?.recommendations ?? [];
+    const scan = r.scans[0];
+    if (scan) repoDims.set(r.name, { archetype: scan.archetype, dims: (scan.dimensions ?? []).map((d) => ({ id: d.dimId, score: d.score })) });
+    const recs = scan?.recommendations ?? [];
     for (const rec of recs) {
       const key = `${rec.dimId}::${rec.title}`;
       const g = groups.get(key) ?? { title: rec.title, dimId: rec.dimId, impact: rec.impact, repos: new Set<string>() };
@@ -189,6 +205,19 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
   const recs: OrgRec[] = [...groups.values()].map((g) => {
     const repoCount = g.repos.size;
     const dimW = w[g.dimId as DimensionId] ?? 0.1;
+    // Engine-true projected gain over THIS move's affected repos: mean overall-points each would gain if
+    // the dimension is closed, and how many would advance a level. Repos with no persisted dims are skipped.
+    let sumPoints = 0;
+    let withDims = 0;
+    let liftsRepos = 0;
+    for (const name of g.repos) {
+      const rd = repoDims.get(name);
+      if (!rd || rd.dims.length === 0) continue;
+      const gain = projectedGain(rd.dims, rd.archetype, g.dimId);
+      sumPoints += gain.points;
+      if (gain.unlocks) liftsRepos += 1;
+      withDims += 1;
+    }
     return {
       title: g.title,
       dimId: g.dimId,
@@ -196,6 +225,8 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
       repoCount,
       repos: [...g.repos].sort(),
       leverage: Math.round(repoCount * (IMPACT_WEIGHT[g.impact] ?? 1) * (1 + dimW) * 10) / 10,
+      projectedPoints: withDims > 0 ? Math.round((sumPoints / withDims) * 10) / 10 : null,
+      liftsRepos,
     };
   });
   recs.sort((a, b) => b.leverage - a.leverage || b.repoCount - a.repoCount);

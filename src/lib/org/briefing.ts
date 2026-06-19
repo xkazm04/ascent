@@ -255,10 +255,22 @@ export function briefingMarkdown(b: ExecBriefing): string {
       out.push(`- ${g.label}: ${g.current}/${g.target} (${g.pct}%, ${g.pace}${g.etaDays != null ? `, ETA ~${g.etaDays}d` : ""})`);
     }
   }
+  // Name the recommended next move ON-SCREEN — the product makes the call (the fleet's weakest
+  // dimension is its highest-leverage lift) instead of offloading the decision to the reader's LLM.
+  const focus = b.risks[0] ?? b.security ?? null;
+  if (focus) {
+    out.push("");
+    out.push("## Recommended next move");
+    out.push(
+      `Raise **${focus.dimId} ${focus.label}** — the fleet's weakest dimension at ${focus.avg}/100. It carries the most headroom, so closing it is the highest-leverage lift toward the next maturity level.`,
+    );
+  }
   out.push("");
   out.push("## Ask");
   out.push(
-    "Given this AI-native engineering maturity briefing, propose the 3 highest-leverage actions to raise overall maturity next quarter, focused on the weakest dimensions above. For each action give: the concrete change, which repositories it applies to, and which dimension it should move.",
+    focus
+      ? `Elaborate the recommended move above (raise ${focus.dimId} ${focus.label}) into concrete, repo-level steps: for the repositories weakest on this dimension, the specific change to make and the practice that addresses it — then any second-order move across the other weak dimensions.`
+      : "Given this AI-native engineering maturity briefing, propose the highest-leverage actions to raise overall maturity next quarter, focused on the weakest dimensions above. For each action give: the concrete change, which repositories it applies to, and which dimension it should move.",
   );
   return out.join("\n");
 }

@@ -69,9 +69,14 @@ describe("briefingMarkdown", () => {
     expect(md).toContain("Lift security: 41/70 (22%, behind, ETA ~120d)");
   });
 
-  it("ends with an actionable ASK so it's paste-ready for an LLM", () => {
+  it("NAMES the recommended next move (weakest dim) instead of offloading the decision to the LLM", () => {
+    // The product makes the call on-screen — the fleet's weakest dimension (D9 Security, 41) — and the
+    // trailing Ask now asks the LLM to ELABORATE that move into steps, not to GENERATE the recommendation.
+    expect(md).toContain("## Recommended next move");
+    expect(md).toMatch(/Raise \*\*D9 Security\*\*/);
     expect(md).toContain("## Ask");
-    expect(md).toMatch(/3 highest-leverage actions/);
+    expect(md).toMatch(/Elaborate the recommended move above/);
+    expect(md).not.toMatch(/propose the 3 highest-leverage actions/);
   });
 
   it("omits the period-delta suffix when there is no baseline", () => {

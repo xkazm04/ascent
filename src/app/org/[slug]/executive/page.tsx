@@ -151,6 +151,26 @@ export default async function OrgExecutive({
         </Card>
       )}
 
+      {(briefing.risks[0] ?? briefing.security) && (
+        <Card>
+          <SectionHeader size="sm" title="Recommended next move" />
+          {(() => {
+            const focus = briefing.risks[0] ?? briefing.security!;
+            return (
+              <p className="mt-2 text-base text-slate-300">
+                Raise{" "}
+                <span className="font-semibold text-white">
+                  {focus.dimId} {focus.label}
+                </span>{" "}
+                — the fleet&apos;s weakest dimension at{" "}
+                <span style={{ color: scoreHex(focus.avg) }}>{focus.avg}/100</span>. It carries the most
+                headroom, so closing it is the highest-leverage lift toward the next maturity level.
+              </p>
+            );
+          })()}
+        </Card>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionHeader size="sm" title="Strengths" />

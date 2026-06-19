@@ -21,6 +21,7 @@ import { percentileOf, getOrgMovers, getOrgRecommendations } from "@/lib/db/org-
 import { getOrgRollup } from "@/lib/db/org-rollup";
 import { IMPACT_WEIGHT } from "@/lib/db/org-shared";
 import { weightsFor } from "@/lib/maturity/model";
+import { projectedGain } from "@/lib/scoring/engine";
 
 describe("percentileOf", () => {
   it("returns null below the sample floor instead of a hard 0/100", () => {
@@ -546,6 +547,40 @@ describe("getOrgRecommendations — leverage formula, ranking, dedup, and zero-e
       ["Solo gap", 1, lev(1, "high", "D1")],   // 3.5
     ]);
     expect(recs![0]!.leverage).toBe(6.9);
+  });
+
+  it("stamps an engine-true projected gain (avg overall points + repos it lifts a level) on each move", async () => {
+    // A repo weakest on D9 → closing D9 yields a real overall-score gain (and may unlock a level).
+    const dimRows = [
+      { dimId: "D1", score: 60 },
+      { dimId: "D2", score: 60 },
+      { dimId: "D9", score: 10 },
+    ];
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
+      repository: {
+        findMany: vi.fn(async () => [
+          {
+            name: "alpha",
+            scans: [{ archetype: "org", dimensions: dimRows, recommendations: [{ title: "Lift security", dimId: "D9", impact: "high" }] }],
+          },
+        ]),
+      },
+    } as never);
+
+    const recs = await getOrgRecommendations("acme");
+    const expected = projectedGain(dimRows.map((d) => ({ id: d.dimId, score: d.score })), "org", "D9");
+    expect(recs![0].projectedPoints).toBe(Math.round(expected.points * 10) / 10);
+    expect(recs![0].projectedPoints!).toBeGreaterThan(0); // closing the weakest dim demonstrably lifts overall
+    expect(recs![0].liftsRepos).toBe(expected.unlocks ? 1 : 0);
+  });
+
+  it("projectedPoints is null (not 0) when affected repos have no persisted dimension rows (legacy scans)", async () => {
+    // fakeRecPrisma returns scans WITHOUT dimensions/archetype → can't project → null, never a fake 0.
+    mockGetPrisma.mockReturnValue(fakeRecPrisma([{ name: "alpha", recs: [{ title: "X", dimId: "D1", impact: "high" }] }]) as never);
+    const recs = await getOrgRecommendations("acme");
+    expect(recs![0].projectedPoints).toBeNull();
+    expect(recs![0].liftsRepos).toBe(0);
   });
 
   it("dedup on `dimId::title`: identical gaps collapse to ONE group with repoCount and the STRONGEST impact retained", async () => {
