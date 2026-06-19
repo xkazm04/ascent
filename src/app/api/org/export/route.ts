@@ -10,7 +10,7 @@ import { requireOrgRead } from "@/lib/authz";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180); total — never throws. */
+/** Quote a CSV field (RFC 4180) and neutralize spreadsheet formula injection; total — never throws. */
 function csvField(v: unknown): string {
   let s: string;
   try {
@@ -18,6 +18,8 @@ function csvField(v: unknown): string {
   } catch {
     s = "";
   }
+  // A cell starting with = + - @ can execute as a formula in Excel/Sheets — prefix with ' to force literal text.
+  if (/^[=+\-@]/.test(s)) return `"'${s.replace(/"/g, '""')}"`;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

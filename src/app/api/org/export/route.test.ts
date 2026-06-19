@@ -212,6 +212,20 @@ describe("GET /api/org/export — filename sanitization + CSV quoting (injection
     // The raw comma in the name must NOT leak as an unquoted field separator.
     expect(body).not.toContain("Doe, \"Jane\",");
   });
+
+  it("neutralizes spreadsheet formula injection in a contributor name (=/+/-/@ forced to literal)", async () => {
+    mockGetContributorInsights.mockResolvedValue({
+      contributors: [contributor({ login: "evil", name: "=HYPERLINK(0)" })],
+    } as never);
+
+    const res = await get("?org=acme&kind=contributors&format=csv");
+    const body = await res.text();
+
+    // A cell starting with = (or + - @) is prefixed with ' and quoted, so it renders as text, not a live formula.
+    expect(body).toContain("\"'=HYPERLINK(0)\"");
+    // The raw, executable form must NOT appear unguarded.
+    expect(body).not.toMatch(/(^|,)=HYPERLINK/m);
+  });
 });
 
 describe("GET /api/org/export — pre-gate short-circuits (no gate, no read)", () => {
