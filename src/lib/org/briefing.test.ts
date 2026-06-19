@@ -445,3 +445,180 @@ describe("buildExecBriefing — end-to-end into briefingMarkdown (no garbage on 
     expect(md).toContain("Overall maturity: **70/100** (L4 Integrated)");
   });
 });
+
+// ---------------------------------------------------------------------------
+// briefingMarkdown — null / empty BRANCHES (test-mastery-2026-06-18, MEDIUM:
+// "only the all-populated path is tested"). The serializer feeds the exec page,
+// the "Copy for LLM" payload AND the PDF; every optional field is a conditional
+// branch. Pin the empty-state output of each so a missing benchmark/forecast/
+// prior-period/mover/goal/security never leaks "undefined"/"null"/"NaN" — and a
+// PARTIALLY-populated briefing renders only the sections that are present.
+// ---------------------------------------------------------------------------
+
+// A fully-empty briefing: no delta, no benchmark, no forecast, no prior period,
+// no strengths/risks, no security, no movers, no goals. Every conditional OFF.
+const emptyBriefing: ExecBriefing = {
+  org: "acme",
+  periodTitle: "all time",
+  generatedOn: "2026-06-09",
+  maturity: { overall: 0, levelId: "L1", levelName: "Ad-hoc", adoption: 0, rigor: 0 },
+  coverage: { scanned: 0, total: 0 },
+  periodDelta: null,
+  priorPeriod: null,
+  forecastHeadline: null,
+  benchmark: null,
+  strengths: [],
+  risks: [],
+  security: null,
+  topGainers: [],
+  topRegressions: [],
+  goals: [],
+  regressionCount: 0,
+};
+
+describe("briefingMarkdown — null / empty branches", () => {
+  const md = briefingMarkdown(emptyBriefing);
+
+  it("never leaks undefined / null / NaN and does not crash on a fully-empty briefing", () => {
+    expect(() => briefingMarkdown(emptyBriefing)).not.toThrow();
+    expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+
+  it("still renders the fixed scaffold (standing + headers + trailing Ask)", () => {
+    // The non-conditional skeleton is always present even with zero data.
+    expect(md).toContain("# Ascent — AI-native engineering maturity briefing: acme");
+    expect(md).toContain("## Standing");
+    expect(md).toContain("Overall maturity: **0/100** (L1 Ad-hoc)");
+    expect(md).toContain("- AI Adoption: 0/100 · Engineering Rigor: 0/100");
+    expect(md).toContain("Coverage: 0/0 repositories scanned");
+    expect(md).toContain("## Strengths (top dimensions)");
+    expect(md).toContain("## Weakest dimensions (where to focus)");
+    expect(md).toContain("## Ask");
+  });
+
+  it("omits the standing-line extras when benchmark / cohort / forecast are absent", () => {
+    expect(md).not.toMatch(/percentile/);
+    expect(md).not.toMatch(/Peer cohort/);
+    expect(md).not.toMatch(/Trajectory:/);
+  });
+
+  it("omits the whole 'vs previous period' section when priorPeriod is null", () => {
+    expect(md).not.toContain("## vs previous period");
+  });
+
+  it("omits the Movement section when there are no gainers and no regressions", () => {
+    expect(md).not.toContain("## Movement this period");
+    expect(md).not.toMatch(/[▲▼]/);
+  });
+
+  it("omits the Goals section when there are no goals", () => {
+    expect(md).not.toContain("## Goals");
+  });
+
+  it("omits the security line when security is null", () => {
+    // The Weakest-dimensions header is present, but no Security: row underneath.
+    expect(md).toContain("## Weakest dimensions (where to focus)");
+    expect(md).not.toMatch(/Security \(/);
+  });
+
+  it("leaves the Strengths / Weakest sections header-only (no bullet rows) when both lists are empty", () => {
+    const lines = md.split("\n");
+    const after = (header: string) => {
+      const i = lines.indexOf(header);
+      return i >= 0 ? lines[i + 1] : undefined;
+    };
+    // The line directly after each header is NOT a "- " bullet (it's the blank
+    // separator or the next header) — i.e. the empty list produced no rows.
+    expect(after("## Strengths (top dimensions)")?.startsWith("- ")).toBe(false);
+    expect(after("## Weakest dimensions (where to focus)")?.startsWith("- ")).toBe(false);
+  });
+});
+
+describe("briefingMarkdown — partially-populated briefing renders only present sections", () => {
+  it("renders ONLY a benchmark with no cohort (corpus line shown, cohort line skipped)", () => {
+    const md = briefingMarkdown({
+      ...emptyBriefing,
+      benchmark: { percentile: 60, corpusRepos: 100, corpusAvgOverall: 50, cohort: null },
+    });
+    expect(md).toContain("60th percentile vs 100 repos (corpus avg 50)");
+    expect(md).not.toMatch(/Peer cohort/);
+    expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+
+  it("renders a benchmark whose percentile is null without the percentile line", () => {
+    const md = briefingMarkdown({
+      ...emptyBriefing,
+      benchmark: { percentile: null, corpusRepos: 100, corpusAvgOverall: 50, cohort: null },
+    });
+    expect(md).not.toMatch(/percentile vs/);
+    expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+
+  it("renders a cohort line but omits the adoption clause when cohort.adoptionPercentile is null", () => {
+    const md = briefingMarkdown({
+      ...emptyBriefing,
+      benchmark: {
+        percentile: 60,
+        corpusRepos: 100,
+        corpusAvgOverall: 50,
+        cohort: { language: "Go", repos: 30, overallPercentile: 64, adoptionPercentile: null },
+      },
+    });
+    expect(md).toContain("Peer cohort (Go): 64th percentile overall vs 30 Go repos");
+    expect(md).not.toMatch(/on AI adoption/);
+    expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+
+  it("renders a prior period but drops zero-delta dimension rows", () => {
+    const md = briefingMarkdown({
+      ...emptyBriefing,
+      priorPeriod: {
+        overall: 50,
+        adoption: 48,
+        rigor: 52,
+        dOverall: 5,
+        dAdoption: 3,
+        dRigor: 7,
+        dims: [
+          { dimId: "D1", label: "Tooling", now: 60, prior: 50, delta: 10 },
+          { dimId: "D2", label: "Testing", now: 40, prior: 40, delta: 0 }, // unchanged → dropped
+        ],
+      },
+    });
+    expect(md).toContain("## vs previous period");
+    expect(md).toContain("D1 Tooling: 50 → 60 (+10)");
+    expect(md).not.toMatch(/D2 Testing/); // zero-delta row filtered out
+    expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+
+  it("renders a goal without an ETA clause when etaDays is null", () => {
+    const md = briefingMarkdown({
+      ...emptyBriefing,
+      goals: [{ label: "Raise rigor", current: 30, target: 60, pct: 50, pace: "on track", etaDays: null }],
+    });
+    expect(md).toContain("## Goals");
+    expect(md).toContain("Raise rigor: 30/60 (50%, on track)");
+    expect(md).not.toMatch(/ETA/);
+    expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+
+  it("renders only gainers (Movement section appears) when regressions are empty", () => {
+    const md = briefingMarkdown({
+      ...emptyBriefing,
+      topGainers: [{ name: "api", dOverall: 7, levelFrom: "L2", levelTo: "L2" }],
+    });
+    expect(md).toContain("## Movement this period");
+    expect(md).toMatch(/▲ api: \+7(?!\s*\()/); // same level → no (Lx→Ly) suffix
+    expect(md).not.toMatch(/▼/); // no regression rows
+    expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+
+  it("shows the security line when only security is populated", () => {
+    const md = briefingMarkdown({
+      ...emptyBriefing,
+      security: { dimId: "D9", label: "Security", avg: 35 },
+    });
+    expect(md).toContain("Security (D9 Security): 35/100");
+    expect(md).not.toMatch(/undefined|null|NaN/);
+  });
+});
