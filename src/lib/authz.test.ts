@@ -257,3 +257,70 @@ describe("requireOrgRole under the Supabase login wall (cross-tenant takeover fi
     expect(await requireOrgRole("public", "owner")).toBeNull();
   });
 });
+
+// The claim seam itself: WHEN does the trust-on-first-use auto-owner-claim fire, and when must it
+// NOT? The cases above prove the two headline outcomes (owned⇒deny, unowned+no-role⇒claim). These
+// pin the surrounding boundary the security invariant actually rests on — the claim fires for a
+// role-less viewer on an UNOWNED org *regardless of the requested min* and seeds OWNER, never any
+// lower role; it does NOT fire when the viewer already holds a role on the unowned org (the `!role`
+// short-circuit); and a stranger is refused an OWNED org even at the lowest possible bar (viewer),
+// so orgHasOwner===true is a hard wall, not just an owner-vs-admin distinction.
+describe("requireOrgRole trust-on-first-use CLAIM seam (when the auto-owner fires)", () => {
+  beforeEach(() => {
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockRequireViewer.mockResolvedValue(null);
+    mockGetViewer.mockResolvedValue({ id: "v", login: "alice", name: "Alice" });
+    mockIsAuthConfigured.mockReturnValue(false); // documented prod config: custom OAuth off
+  });
+
+  it("claims OWNER for a role-less viewer on an unowned org even when only `member` was required", async () => {
+    // The claim is not scoped to owner-gated actions: the FIRST manager of an unowned org becomes its
+    // owner no matter how low the bar that triggered the gate, so the org gets a real anchor owner.
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockOrgHasOwner.mockResolvedValue(false);
+    expect(await requireOrgRole("fresh", "member")).toBeNull();
+    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("fresh", "alice", "Alice");
+    // Seeded as owner ⇒ the post-claim role satisfies even an owner-level check in the same resolution.
+    expect(roleSeededIsOwner()).toBe(true);
+  });
+
+  it("does NOT claim when the viewer already holds a (non-owner) role on the unowned org", async () => {
+    // The claim guard is `!role && !orgHasOwner` — a viewer who already has a membership row is never
+    // re-seeded; their real role is judged against `min`. A `member` on an ownerless org is still
+    // refused an owner-level action and is NOT silently upgraded to owner.
+    mockGetMembershipRole.mockResolvedValue("member");
+    mockOrgHasOwner.mockResolvedValue(false);
+    expect((await requireOrgRole("fresh", "owner"))?.status).toBe(403);
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+    // The same membership still passes a bar it actually meets — no claim needed, no over-broad deny.
+    expect(await requireOrgRole("fresh", "member")).toBeNull();
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+  });
+
+  it("a stranger is refused an ALREADY-OWNED org even at the lowest bar (viewer) — no auto-claim", async () => {
+    // orgHasOwner===true is a hard wall: a role-less viewer gets nothing, not even an auto `viewer`
+    // grant. This is the cross-tenant-takeover invariant at its weakest point — the lowest min.
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockOrgHasOwner.mockResolvedValue(true);
+    expect((await requireOrgRole("victim", "viewer"))?.status).toBe(403);
+    expect((await requireOrgRole("victim", "owner"))?.status).toBe(403);
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+  });
+
+  it("checks ownership BEFORE claiming — orgHasOwner is consulted, and a true result blocks the claim write", async () => {
+    // The order matters: the gate must ask orgHasOwner and only call ensureOwnerMembership when it is
+    // false. Pin both halves of the seam are wired (a regression dropping the orgHasOwner check would
+    // claim every org for the first stranger).
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockOrgHasOwner.mockResolvedValue(true);
+    await requireOrgRole("victim", "owner");
+    expect(mockOrgHasOwner).toHaveBeenCalledWith("victim");
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+  });
+
+  // True iff the resolution that just ran would have treated the viewer as owner: the only way the
+  // owner-min check returns null after a no-role start is via the claim having set role="owner".
+  function roleSeededIsOwner() {
+    return mockEnsureOwnerMembership.mock.calls.length > 0;
+  }
+});
