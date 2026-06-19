@@ -114,6 +114,17 @@ export async function buildExecBriefing(
   const dimSorted = [...rollup.dimAverages].sort((a, b) => b.avg - a.avg);
   const security = rollup.dimAverages.find((d) => d.dimId === "D9");
 
+  // Strengths = top dims; risks = bottom dims. On a sparse fleet (<6 distinct dims) slice(0,3) and
+  // slice(-3) would overlap, listing the same dim as both a top strength AND a top risk. Keep the two
+  // lists DISJOINT by excluding any strength from the risk pool (rich-fleet behavior is unchanged —
+  // there they were already disjoint). Ordering preserved: strengths strongest-first, risks weakest-first.
+  const strengthDims = dimSorted.slice(0, 3);
+  const strengthIds = new Set(strengthDims.map((d) => d.dimId));
+  const riskDims = dimSorted
+    .filter((d) => !strengthIds.has(d.dimId))
+    .slice(-3)
+    .reverse();
+
   const priorPeriod =
     priorRollup && priorRollup.scannedCount > 0
       ? (() => {
@@ -169,8 +180,8 @@ export async function buildExecBriefing(
             : null,
         }
       : null,
-    strengths: dimSorted.slice(0, 3).map(named),
-    risks: dimSorted.slice(-3).reverse().map(named),
+    strengths: strengthDims.map(named),
+    risks: riskDims.map(named),
     security: security ? named(security) : null,
     topGainers: (movers?.gainers ?? []).slice(0, 3).map(moveRow),
     topRegressions: (movers?.regressers ?? []).slice(0, 3).map(moveRow),

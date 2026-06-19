@@ -303,7 +303,7 @@ describe("buildExecBriefing — strengths / risks selection", () => {
     // dimAverages (5): D1=90, D2=80, D4=60, D8=40, D9=30 — already the default fixture.
     const b = (await buildExecBriefing("acme"))!;
     expect(b.strengths.map((d) => d.dimId)).toEqual(["D1", "D2", "D4"]); // top 3 desc
-    expect(b.risks.map((d) => d.dimId)).toEqual(["D9", "D8", "D4"]); // bottom 3, weakest first
+    expect(b.risks.map((d) => d.dimId)).toEqual(["D9", "D8"]); // bottom of the non-strength pool, weakest first (D4 excluded — already a strength)
     // Real labels come from DIMENSION_BY_ID, not the raw id.
     expect(b.strengths[0]).toMatchObject({ dimId: "D1", label: "AI Tooling & Conventions", avg: 90 });
     expect(b.risks[0]).toMatchObject({ dimId: "D9", label: "Supply Chain & Security", avg: 30 });
@@ -321,30 +321,29 @@ describe("buildExecBriefing — strengths / risks selection", () => {
     expect((await buildExecBriefing("acme"))!.security).toBeNull();
   });
 
-  // INVARIANT (finding #2 High): on a SPARSE fleet (<6 dimensions), slice(0,3) and slice(-3) overlap,
-  // so a dimension is listed as BOTH a top strength and a top risk. The code does NOT de-dupe.
-  // These tests PIN THE CURRENT (overlapping) BEHAVIOR so a future de-dup is a deliberate, visible
-  // change — and they FLAG it: the disjointness invariant the briefing arguably wants is NOT met.
-  it("KNOWN ISSUE: with 5 dimensions the middle dim appears in BOTH strengths and risks (overlap, not de-duped)", async () => {
-    // Default fixture has 5 dims; D4 (60) is index 2 — head-3 tail and tail-3 head collide on it.
+  // INVARIANT (finding #2 High, fixed): on a SPARSE fleet (<6 dimensions) slice(0,3) and slice(-3)
+  // would overlap, listing the same dim as BOTH a top strength and a top risk. buildExecBriefing now
+  // excludes any strength from the risk pool, so the two lists are DISJOINT on sparse fleets too.
+  it("with 5 dimensions strengths and risks are DISJOINT (the middle dim is not in both)", async () => {
+    // Default fixture has 5 dims; D4 (60) is index 2 — head-3 tail and tail-3 head used to collide on it.
     const b = (await buildExecBriefing("acme"))!;
+    expect(b.strengths.map((d) => d.dimId)).toEqual(["D1", "D2", "D4"]); // top 3 desc
+    expect(b.risks.map((d) => d.dimId)).toEqual(["D9", "D8"]); // bottom of the non-strength pool, weakest first
     const sIds = new Set(b.strengths.map((d) => d.dimId));
     const rIds = new Set(b.risks.map((d) => d.dimId));
     const overlap = [...sIds].filter((id) => rIds.has(id));
-    expect(overlap).toEqual(["D4"]); // self-contradictory: D4 is both a top strength and a top risk
-    // Pin it explicitly so the assembly is NOT (yet) disjoint on sparse fleets:
-    expect(overlap.length).toBeGreaterThan(0);
+    expect(overlap).toEqual([]); // D4 is no longer both a top strength and a top risk
   });
 
-  it("KNOWN ISSUE: with exactly 3 dimensions every dim is listed as both a strength and a risk", async () => {
+  it("with exactly 3 dimensions all 3 are strengths and risks is empty (no dim in both)", async () => {
     mockRollup.mockResolvedValue(
       rollup({ dimAverages: [{ dimId: "D1", avg: 90 }, { dimId: "D2", avg: 60 }, { dimId: "D9", avg: 30 }] }),
     );
     const b = (await buildExecBriefing("acme"))!;
     expect(b.strengths.map((d) => d.dimId)).toEqual(["D1", "D2", "D9"]);
-    expect(b.risks.map((d) => d.dimId)).toEqual(["D9", "D2", "D1"]); // same set, reversed → full overlap
+    expect(b.risks.map((d) => d.dimId)).toEqual([]); // all dims claimed as strengths → no overlap left
     const sIds = new Set(b.strengths.map((d) => d.dimId));
-    expect(b.risks.every((d) => sIds.has(d.dimId))).toBe(true);
+    expect(b.risks.every((d) => sIds.has(d.dimId))).toBe(true); // vacuously true: disjoint
   });
 
   it("on a fleet with ≥7 dimensions strengths and risks ARE disjoint", async () => {
