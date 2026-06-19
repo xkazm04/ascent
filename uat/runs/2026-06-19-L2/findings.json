@@ -1,0 +1,62 @@
+{
+  "run": "2026-06-19-L2",
+  "level": "L2",
+  "status": "partial-infra-blocked",
+  "environment": {
+    "server": "reused :3001 (claude-cli configured; confirmed via scan-stream provider event)",
+    "constraint": "Next.js 16 single-dev-server-per-project — could not start a dedicated L2 server alongside :3001",
+    "claude_cli_healthy": true,
+    "claude_cli_direct_test_ms": 1907,
+    "blocker": "shared dev server wedged under machine load (~25 parallel claude --dangerously-skip-permissions sessions + ~60 node procs); swr live scan exceeded the 150s CLAUDE_CLI_TIMEOUT_MS and fell back to mock, then /api/health went unresponsive",
+    "cleanup": "killed only the 1 headless scan child (-p --output-format json); the 25 interactive sessions and the operator's dev server were left untouched / not restarted"
+  },
+  "findings": [
+    {
+      "id": "L2-mock-floor-confirmed",
+      "cert_level": "L2",
+      "type": "trust",
+      "dimension": "trust",
+      "severity": "major",
+      "title": "Default mock path confirms the L1-predicted floor on a live scan",
+      "got": "swr mock scan: engine.provider=mock, discrepancies=[] (0), roadmap=catalog template ('Agent guidance is thin', 'AI isn't in the loop yet', 'AI use is ad hoc'), D2=100 (signal verbatim)",
+      "expected": "the credibility-bearing LLM layer (discrepancies, repo-specific roadmap) is absent on the default path",
+      "evidence": ["uat/runs/2026-06-19-L2/swr-mock.json", "src/lib/llm/mock.ts:86"],
+      "code_check": "confirmed-present",
+      "verdict": "confirmed",
+      "raised_by": ["Sam", "Dana", "Oliver"]
+    },
+    {
+      "id": "L2-claude-cli-healthy",
+      "cert_level": "L2",
+      "type": "trust",
+      "dimension": "senior-quality",
+      "severity": "polish",
+      "strength": true,
+      "title": "claude-cli engine works headlessly (subscription auth)",
+      "got": "direct `claude -p --output-format json --model sonnet` (no ANTHROPIC_API_KEY) returned valid JSON in ~1.9s",
+      "evidence": ["direct CLI test"],
+      "code_check": "n-a",
+      "verdict": "confirmed"
+    },
+    {
+      "id": "L2-live-scan-quality-UNRESOLVED",
+      "cert_level": "L2",
+      "type": "quality-gap",
+      "dimension": "senior-quality",
+      "severity": "major",
+      "title": "Live claude-cli scan-quality comparison not completed (env-blocked, not a product defect)",
+      "expected": "live scan: non-empty re-traceable discrepancies, repo-specific roadmap, LLM-corrected D2, gate provider=claude, reconciling scores",
+      "got": "not captured — shared dev server wedged under load; engine proven healthy separately",
+      "evidence": ["uat/runs/2026-06-19-L2/report.md"],
+      "code_check": "n-a",
+      "verdict": "uncertain",
+      "l2_priority": "re-run on a quiet dedicated server, small repo, one scan at a time; diff vs swr-mock.json"
+    }
+  ],
+  "carry_forwards_already_verified_during_P1_P6": [
+    "Badge mock-vs-live honesty (P1)", "Gate provider on Check Run (P1)", "Privacy disclosure /connect (P2)",
+    "Pricing legibility + nav (P2)", "Gate require_protection/min_security round-trip (P3)",
+    "Decision-grade overview move + projected gain (P4)", "Contributors opt-in + bus-factor default (P5)",
+    "Badge/.ai-standard discoverability (P6)"
+  ]
+}
