@@ -5,7 +5,7 @@
 // processing must keep the slot (genuine replays stay deduped). The GitHub / DB boundaries are
 // mocked; signature verification is stubbed true (it has its own unit coverage).
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { InstallationInfo } from "@/lib/github/app";
 
 vi.mock("next/server", () => ({
@@ -588,5 +588,89 @@ describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", ()
     expect(mockScan).toHaveBeenCalledTimes(1);
     expect(mockPersist).toHaveBeenCalledTimes(1);
     expect(mockCheckRegression).not.toHaveBeenCalled();
+  });
+});
+
+// Pins test-mastery 06-18 medium #5 (route.ts:72-101): the replay-dedup window itself — the
+// `deliveryAlreadySeen` Map with a 10-minute TTL (`DELIVERY_TTL_MS`) and a 2000-entry bounded
+// eviction (`DELIVERY_MAX`). The earlier redelivery-net suites reuse a fresh id per case, so they
+// never reach the TIME-expiry branch (`exp > now`) or the SIZE-overflow eviction. Here the wall
+// clock is frozen with fake timers (the map keys on `Date.now()`), and the dedup verdict is read
+// through the route's `duplicate` response flag end-to-end. The carrier is an `installation` event
+// with no recognized action: it passes signature + dedup but does no DB/GitHub side effects, so the
+// ONLY observable is whether the delivery was deduped.
+//   Invariant A (TTL): a delivery seen at T dedups again at T+5min (inside the 10-min window) but is
+//   RE-PROCESSED at T+11min (past DELIVERY_TTL_MS) — never stuck-deduped forever.
+//   Invariant B (eviction): when the map exceeds DELIVERY_MAX it evicts OLDEST-first so memory stays
+//   bounded — the oldest id becomes re-processable while a recent id is still deduped, and the map
+//   never grows past the cap (an unexpired-but-overflow id may be reprocessed; size is bounded).
+describe("POST /api/app/webhook — replay-dedup window: TTL expiry + DELIVERY_MAX eviction", () => {
+  const DELIVERY_TTL_MS = 10 * 60_000; // mirrors route.ts:72
+  const DELIVERY_MAX = 2000; // mirrors route.ts:73
+
+  // A benign carrier: valid signature (stubbed true), runs through the dedup gate, but no side effects.
+  const carrier = { action: "labeled", installation: { id: 1 } };
+  // `duplicate === true` ONLY when the dedup map short-circuited the delivery.
+  const isDuplicate = (res: Record<string, unknown>): boolean => res.duplicate === true;
+
+  beforeEach(() => {
+    // Pin the wall clock — the dedup map keys expiry on Date.now(). Start at a non-zero epoch so
+    // `exp && exp > now` truthiness is unambiguous (a 0 expiry would be falsy).
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-18T00:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("dedups a redelivery within the TTL window, then RE-PROCESSES it once the TTL expires", async () => {
+    const id = "ttl-window-id";
+
+    // T+0: first sighting — recorded, not a duplicate.
+    expect(isDuplicate(await post("installation", id, carrier))).toBe(false);
+
+    // T+5min: still inside the 10-min window — the same id is deduped (processed once).
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(isDuplicate(await post("installation", id, carrier))).toBe(true);
+
+    // T+5min again (no clock move): still deduped — repeated replays in-window stay collapsed.
+    expect(isDuplicate(await post("installation", id, carrier))).toBe(true);
+
+    // T+11min total: now PAST DELIVERY_TTL_MS — the entry has expired, so a legitimate GitHub
+    // redelivery of the same id is processed again rather than being stuck-deduped forever.
+    vi.advanceTimersByTime(6 * 60_000); // 5 + 6 = 11 minutes elapsed
+    expect(vi.getMockedSystemTime()!.getTime() > DELIVERY_TTL_MS).toBe(true); // sanity: clock advanced
+    expect(isDuplicate(await post("installation", id, carrier))).toBe(false);
+
+    // And re-recorded fresh: an immediate replay of the reprocessed id is deduped again.
+    expect(isDuplicate(await post("installation", id, carrier))).toBe(true);
+  });
+
+  it("EVICTS oldest-first when the map exceeds DELIVERY_MAX, keeping memory bounded (oldest reprocessable, recent still deduped)", async () => {
+    // All inserted at the SAME frozen instant: none are TTL-expired, so the overflow `while` loop is
+    // the ONLY thing that can bound the map — it must evict by insertion order (oldest first).
+    const oldestId = "evict-oldest";
+    const recentId = "evict-recent";
+
+    // Seed the oldest entry first (it sits at the head of the Map's insertion order).
+    expect(isDuplicate(await post("installation", oldestId, carrier))).toBe(false);
+
+    // Fill EXACTLY to the cap with filler ids: after this the map holds DELIVERY_MAX entries
+    // (1 oldest + (DELIVERY_MAX - 2) filler + the recent one we add next) — the next insert overflows.
+    for (let i = 0; i < DELIVERY_MAX - 2; i++) {
+      await post("installation", `filler-${i}`, carrier);
+    }
+    // A recent id, still well under/at the cap — recorded, deduped on immediate replay (sanity).
+    expect(isDuplicate(await post("installation", recentId, carrier))).toBe(false);
+    expect(isDuplicate(await post("installation", recentId, carrier))).toBe(true);
+
+    // Now push the map OVER DELIVERY_MAX with one more distinct id. No entry is expired (clock frozen),
+    // so eviction must drop the OLDEST insertion-order entry to stay bounded.
+    expect(isDuplicate(await post("installation", "overflow-trigger", carrier))).toBe(false);
+
+    // Invariant: the OLDEST id was evicted (bounded memory) → it is re-processable, not a duplicate.
+    expect(isDuplicate(await post("installation", oldestId, carrier))).toBe(false);
+    // ...while the RECENT id survived eviction → still deduped. Oldest-first, never an unexpired-recent.
+    expect(isDuplicate(await post("installation", recentId, carrier))).toBe(true);
   });
 });
