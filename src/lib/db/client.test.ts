@@ -1,11 +1,53 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Mock the PrismaClient constructor so the cold-start / warm-reuse / health-check / reconnect
+// branches can be driven with fake clients — no real database, no @aws-sdk/dsql-signer. Each
+// constructed instance pulls the NEXT programmed behavior off `fakeClientQueue` (or falls back to
+// a healthy default), and every construction is recorded on `constructed` so a test can assert how
+// many clients were built (the load-bearing "lazily constructs once and reuses" invariant).
+type FakeClient = {
+  id: number;
+  datasourceUrl?: string;
+  $queryRaw: ReturnType<typeof vi.fn>;
+  $disconnect: ReturnType<typeof vi.fn>;
+};
+const constructed: FakeClient[] = [];
+// Per-construction overrides; each entry programs how the NEXT-built client's first $queryRaw behaves.
+let fakeClientQueue: Array<{ pingError?: unknown }> = [];
+let fakeClientSeq = 0;
+
+vi.mock("@prisma/client", () => {
+  class PrismaClient {
+    id: number;
+    datasourceUrl?: string;
+    $queryRaw: ReturnType<typeof vi.fn>;
+    $disconnect: ReturnType<typeof vi.fn>;
+    constructor(opts?: { datasourceUrl?: string }) {
+      this.id = ++fakeClientSeq;
+      this.datasourceUrl = opts?.datasourceUrl;
+      const program = fakeClientQueue.shift();
+      this.$queryRaw = vi.fn(async () => {
+        if (program?.pingError !== undefined) throw program.pingError;
+        return [{ "?column?": 1 }];
+      });
+      this.$disconnect = vi.fn(async () => {});
+      constructed.push(this as unknown as FakeClient);
+    }
+  }
+  return { PrismaClient };
+});
+
 import {
   buildDsqlUrl,
+  dbHealthCheck,
   dbReadSafe,
+  getPrisma,
   isAuthExpiryError,
+  isDbConfigured,
   isDbUnavailableError,
   isSerializationConflictError,
   readDsqlConfig,
+  reconnectDb,
   runWithReconnect,
   withDb,
   withRetry,
@@ -456,5 +498,160 @@ describe("withRetry", () => {
     expect(result).toBe("done");
     expect(calls).toBe(2);
     expect(delays).toHaveLength(1);
+  });
+});
+
+// Pins test-mastery 06-18 #3 (HIGH): getPrisma cold-start branching + dbHealthCheck/reconnectDb
+// self-heal. The PrismaClient constructor is mocked above, so these drive cold-vs-warm and
+// healthy-vs-failing entirely in-memory. Invariants pinned:
+//  (1) getPrisma lazily CONSTRUCTS the client once on cold start and REUSES the cached instance on
+//      every warm call — no per-call reconstruction.
+//  (2) dbHealthCheck returns {ok:true} on a healthy ping and a degraded {ok:false} on a failing one,
+//      surfacing only errorInfo(err).message — never leaking the raw error object.
+//  (3) reconnectDb re-establishes a fresh client (static mode rebuilds + disconnects the old), and
+//      dbHealthCheck SELECTS it on a first-ping failure, re-pinging the reconnected client.
+describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mocked PrismaClient)", () => {
+  const g = globalThis as unknown as {
+    __ascentPrisma?: { client: unknown; expiresAt: number };
+    __ascentPrismaRefresh?: Promise<unknown>;
+  };
+  const ENV = ["DATABASE_URL", "DSQL_ENDPOINT", "DSQL_REGION"] as const;
+  const savedEnv: Record<string, string | undefined> = {};
+  let savedState: typeof g.__ascentPrisma;
+
+  beforeEach(() => {
+    for (const k of ENV) savedEnv[k] = process.env[k];
+    for (const k of ENV) delete process.env[k];
+    savedState = g.__ascentPrisma;
+    g.__ascentPrisma = undefined; // force a cold start
+    g.__ascentPrismaRefresh = undefined;
+    constructed.length = 0;
+    fakeClientQueue = [];
+    fakeClientSeq = 0;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(async () => {
+    await g.__ascentPrismaRefresh?.catch(() => {});
+    for (const k of ENV) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+    g.__ascentPrisma = savedState;
+    g.__ascentPrismaRefresh = undefined;
+    vi.restoreAllMocks();
+  });
+
+  // ── getPrisma: cold-start vs warm-reuse ──────────────────────────────────────────────────
+  it("throws an actionable error when neither DATABASE_URL nor DSQL is configured (cold, no config)", () => {
+    expect(() => getPrisma()).toThrow(/DATABASE_URL is not set/i);
+    expect(constructed).toHaveLength(0); // never builds a dead client
+  });
+
+  it("lazily CONSTRUCTS the client once on a static cold start and seeds it with DATABASE_URL", () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    const client = getPrisma();
+    expect(constructed).toHaveLength(1);
+    expect((client as unknown as FakeClient).datasourceUrl).toBe("postgresql://localhost:5432/app");
+    // Static mode caches with a never-expiring sentinel.
+    expect(g.__ascentPrisma?.expiresAt).toBe(Infinity);
+  });
+
+  it("REUSES the cached instance on warm calls — no reconstruct per call", () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    const first = getPrisma();
+    const second = getPrisma();
+    const third = getPrisma();
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+    expect(constructed).toHaveLength(1); // built exactly once across three calls
+  });
+
+  it("throws the actionable seed error in DSQL mode when DATABASE_URL is unset (no dead client built)", () => {
+    process.env.DSQL_ENDPOINT = "abc.dsql.us-east-1.on.aws";
+    process.env.DSQL_REGION = "us-east-1";
+    // DSQL configured but no deploy-time seed URL → fail fast, never serve a dead client.
+    expect(() => getPrisma()).toThrow(/DATABASE_URL is unset/i);
+    expect(constructed).toHaveLength(0);
+  });
+
+  it("seeds a DSQL cold start STALE-NOW (expiresAt 0) so the first proactive refresh actually fires", async () => {
+    process.env.DSQL_ENDPOINT = "abc.dsql.us-east-1.on.aws";
+    process.env.DSQL_REGION = "us-east-1";
+    process.env.DATABASE_URL = "postgresql://abc.dsql.us-east-1.on.aws:5432/postgres";
+    const client = getPrisma();
+    expect(constructed).toHaveLength(1);
+    expect((client as unknown as FakeClient).datasourceUrl).toContain("dsql");
+    // The load-bearing cold-start invariant: a freshly seeded DSQL client is treated as stale-now,
+    // not credited a full TTL, so tokenIsStale() is true on the very next call and the refresh fires.
+    expect(g.__ascentPrisma?.expiresAt).toBe(0);
+    // The single-flighted refresh was kicked (it rejects here: @aws-sdk/dsql-signer isn't installed).
+    expect(g.__ascentPrismaRefresh).toBeDefined();
+    await g.__ascentPrismaRefresh?.catch(() => {});
+  });
+
+  // ── dbHealthCheck: healthy vs failing, with self-heal via reconnectDb ─────────────────────
+  it("returns {ok:true,reconnected:false} on a healthy first ping", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    const res = await dbHealthCheck();
+    expect(res).toEqual({ ok: true, reconnected: false });
+    expect(constructed).toHaveLength(1); // one client, one ping, no reconnect
+    expect(constructed[0].$queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("self-heals: a failing first ping SELECTS reconnectDb, re-pings the fresh client, returns {ok:true,reconnected:true}", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    // First-built client's ping throws a non-auth cold-start init error; the reconnect-built client is healthy.
+    const initError = Object.assign(new Error("Can't reach database server"), {
+      name: "PrismaClientInitializationError",
+    });
+    fakeClientQueue = [{ pingError: initError }]; // only the first client fails; the rest are healthy
+    const res = await dbHealthCheck();
+    expect(res).toEqual({ ok: true, reconnected: true });
+    // reconnectDb rebuilt the client (static mode), so a SECOND client was constructed and re-pinged.
+    expect(constructed).toHaveLength(2);
+    expect(constructed[0].$queryRaw).toHaveBeenCalledTimes(1); // failed ping
+    expect(constructed[1].$queryRaw).toHaveBeenCalledTimes(1); // healthy re-ping on the reconnected client
+    expect(constructed[0].$disconnect).toHaveBeenCalled(); // old client disconnected on reconnect
+    expect(g.__ascentPrisma?.client).toBe(constructed[1]); // the fresh client is now cached
+  });
+
+  it("returns degraded {ok:false,reconnected:true} WITHOUT leaking the raw error when the re-ping still fails", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    const rawError = Object.assign(new Error("still unreachable — secret-stacktrace-token"), {
+      name: "PrismaClientInitializationError",
+      cause: { credentials: "do-not-leak" },
+    });
+    // Both the first client and the reconnect-built client fail their pings.
+    fakeClientQueue = [{ pingError: rawError }, { pingError: rawError }];
+    const res = await dbHealthCheck();
+    expect(res.ok).toBe(false);
+    expect(res.reconnected).toBe(true);
+    // Only the message string surfaces — never the raw Error object / its cause.
+    expect(res.error).toBe("still unreachable — secret-stacktrace-token");
+    expect(typeof res.error).toBe("string");
+    expect(res).not.toHaveProperty("cause");
+    expect(res.error).not.toContain("do-not-leak");
+  });
+
+  it("returns {ok:false} without touching the DB when persistence is unconfigured", async () => {
+    // No DATABASE_URL / DSQL_ENDPOINT.
+    expect(isDbConfigured()).toBe(false);
+    const res = await dbHealthCheck();
+    expect(res).toEqual({ ok: false, reconnected: false, error: "persistence disabled" });
+    expect(constructed).toHaveLength(0); // short-circuits before constructing any client
+  });
+
+  // ── reconnectDb: re-establishes the client ────────────────────────────────────────────────
+  it("reconnectDb (static) rebuilds a fresh client, caches it never-expiring, and disconnects the old one", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    const before = getPrisma();
+    expect(constructed).toHaveLength(1);
+    const after = await reconnectDb();
+    expect(after).not.toBe(before); // a genuinely fresh client
+    expect(constructed).toHaveLength(2);
+    expect((before as unknown as FakeClient).$disconnect).toHaveBeenCalled();
+    expect(g.__ascentPrisma?.client).toBe(after);
+    expect(g.__ascentPrisma?.expiresAt).toBe(Infinity);
   });
 });
