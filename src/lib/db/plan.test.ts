@@ -4,8 +4,16 @@
 // that guards `achievedAt` from being re-stamped (and the recorded achievement date corrupted) on
 // every subsequent page load is the `g.status === "active"` idempotency guard — pinned here, plus
 // the below-target "no write" case and the progress / laggard derivation math.
+//
+// ALSO pins the *what-if simulator orchestration* (test-mastery-2026-06-18 finding #2, High): the
+// DB-glue functions `simulateOrgFixes`, `rankOrgInvestments`, and `goalImpactsForScenario` read the
+// fleet snapshot / active goals from Prisma and feed the PURE simulator math (orgsim.ts) + goal
+// projector (forecast.ts). The pure leaves are covered in orgsim.test.ts / forecast.test.ts; here we
+// mock the readers and let the real math run, pinning the glue: archetype defaulting, empty-scope →
+// all-scanned-repos resolution, the documented null-on-no-data path (so the route 404s), the
+// projected fleet delta, the by-value investment ranking, and the per-scenario goal-impact mapping.
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
@@ -17,7 +25,8 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { listGoals } from "./plan";
+import { listGoals, simulateOrgFixes, rankOrgInvestments, goalImpactsForScenario } from "./plan";
+import { DIMENSIONS } from "@/lib/maturity/model";
 
 const ORG_ID = "org_1";
 const ORG_SLUG = "acme";
@@ -255,5 +264,343 @@ describe("listGoals progress / laggard / pct derivation", () => {
     expect(g.perWeek).toBe(0);
     expect(g.etaDays).toBeNull();
     expect(g.etaDate).toBeNull();
+  });
+});
+
+// ── What-if simulator orchestration (finding #2, High) ───────────────────────
+// simulateOrgFixes / rankOrgInvestments read fleetSnapshot from Prisma then run the PURE
+// simulateFleet / rankFleetInvestments. We mock the readers (resolveOrgId + repository.findMany)
+// and let the real math run, pinning the GLUE: scope resolution, archetype defaulting, the
+// null-on-no-data contract, and the exact projected delta / ranking the real pure layer produces.
+
+const ALL_DIMS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"] as const;
+
+/** A repo seed with every dimension at one flat score — under the "org" lens recompute === flat. */
+function flatRepoSeed(fullName: string, score: number, archetype = "org"): SimRepoSeed {
+  const dims: Record<string, number> = {};
+  for (const d of ALL_DIMS) dims[d] = score;
+  return { fullName, name: fullName.split("/")[1] ?? fullName, overall: score, archetype, dims };
+}
+
+interface SimRepoSeed {
+  fullName: string;
+  name: string;
+  overall: number;
+  /** null models a scan that never persisted an archetype → must default to "org". */
+  archetype?: string | null;
+  dims: Record<string, number>;
+}
+
+/**
+ * Fake prisma for the simulator orchestration: covers `resolveOrgId` (organization.findUnique) and
+ * `fleetSnapshot` (repository.findMany). `orgId: null` models an unknown org (resolveOrgId → null).
+ */
+function fakeSimPrisma(opts: { repos: SimRepoSeed[]; orgId?: string | null }) {
+  const orgId = opts.orgId === undefined ? ORG_ID : opts.orgId;
+  const repoRows = opts.repos.map((r) => ({
+    fullName: r.fullName,
+    name: r.name,
+    scans: [
+      {
+        overallScore: r.overall,
+        adoptionScore: r.overall,
+        rigorScore: r.overall,
+        archetype: r.archetype === undefined ? "org" : r.archetype,
+        dimensions: Object.entries(r.dims).map(([dimId, score]) => ({ dimId, score })),
+      },
+    ],
+  }));
+  return {
+    organization: { findUnique: vi.fn(async () => (orgId ? { id: orgId } : null)) },
+    repository: { findMany: vi.fn(async () => repoRows) },
+  };
+}
+
+describe("simulateOrgFixes orchestration (DB snapshot → pure simulateFleet)", () => {
+  // A hand-derived fleet (all values verified against the real orgsim source):
+  //   acme/a=40, acme/b=40, acme/c=80 (all dims flat, "org" lens).
+  //   Raise D2→70: a,b move 40→44 (D2 weight 0.15: 40*0.85 + 70*0.15 = 44.5 → 45? round 44),
+  //   c (at 80) is untouched. before avg = round((40+40+80)/3)=53, after avg = round((44+44+80)/3)=56.
+  const fleet = () => [flatRepoSeed("acme/a", 40), flatRepoSeed("acme/b", 40), flatRepoSeed("acme/c", 80)];
+
+  it("empty scope resolves to ALL scanned repos and projects the exact fleet delta", async () => {
+    const prisma = fakeSimPrisma({ repos: fleet() });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const proj = await simulateOrgFixes(ORG_SLUG, [{ dimId: "D2", target: 70 }], []);
+
+    expect(proj).not.toBeNull();
+    // scope defaulted to every scanned repo (3), affected = the two below-target repos.
+    expect(proj!.scopeCount).toBe(3);
+    expect(proj!.affected).toBe(2);
+    // THE pinned orchestration invariant: the projected fleet delta off the DB snapshot.
+    expect(proj!.before.avgOverall).toBe(53);
+    expect(proj!.after.avgOverall).toBe(56);
+    // Per-repo movement: a,b each rise 40→44; c stays at 80.
+    const byRepo = Object.fromEntries(proj!.repos.map((r) => [r.fullName, r]));
+    expect(byRepo["acme/a"]!.overallBefore).toBe(40);
+    expect(byRepo["acme/a"]!.overallAfter).toBe(44);
+    expect(byRepo["acme/a"]!.delta).toBe(4);
+    expect(byRepo["acme/c"]!.delta).toBe(0); // already above target → untouched
+  });
+
+  it("an explicit scope restricts which repos the projection moves", async () => {
+    const prisma = fakeSimPrisma({ repos: fleet() });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const proj = await simulateOrgFixes(ORG_SLUG, [{ dimId: "D2", target: 70 }], ["acme/a"]);
+
+    expect(proj!.scopeCount).toBe(1);
+    expect(proj!.affected).toBe(1);
+    // Only acme/a moved; acme/b is below target but OUT of scope, so it stays put.
+    const byRepo = Object.fromEntries(proj!.repos.map((r) => [r.fullName, r]));
+    expect(byRepo["acme/a"]!.delta).toBe(4);
+    expect(byRepo["acme/b"]!.delta).toBe(0);
+    expect(proj!.before.avgOverall).toBe(53);
+    expect(proj!.after.avgOverall).toBe(55); // only one repo lifted: round((44+40+80)/3)=55
+  });
+
+  it("a repo with a null archetype is scored under the 'org' lens — never NaN", async () => {
+    // The whole fleet has NO persisted archetype; fleetSnapshot must default each to "org" so the
+    // weighted blend has real weights. A regression that dropped the default → NaN weights → NaN avg.
+    const prisma = fakeSimPrisma({
+      repos: [
+        { fullName: "acme/n", name: "n", overall: 50, archetype: null, dims: flatRepoSeed("acme/n", 50).dims },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const proj = await simulateOrgFixes(ORG_SLUG, [{ dimId: "D2", target: 70 }], []);
+
+    expect(proj).not.toBeNull();
+    expect(Number.isNaN(proj!.before.avgOverall)).toBe(false);
+    expect(Number.isNaN(proj!.after.avgOverall)).toBe(false);
+    expect(proj!.before.avgOverall).toBe(50); // flat 50 under the org lens
+    expect(proj!.after.avgOverall).toBe(53); // D2 50→70 under org lens: 50 + 20*0.15 = 53
+  });
+
+  it("returns null on an empty fixes list (so the route 404s, not a no-op 200)", async () => {
+    const prisma = fakeSimPrisma({ repos: fleet() });
+    mockGetPrisma.mockReturnValue(prisma);
+    expect(await simulateOrgFixes(ORG_SLUG, [], [])).toBeNull();
+  });
+
+  it("returns null when the org has NO scanned repos (the documented no-data contract)", async () => {
+    const prisma = fakeSimPrisma({ repos: [] });
+    mockGetPrisma.mockReturnValue(prisma);
+    const proj = await simulateOrgFixes(ORG_SLUG, [{ dimId: "D2", target: 70 }], []);
+    expect(proj).toBeNull(); // null ⇒ the API layer can 404; never a NaN/empty 200 projection
+  });
+
+  it("returns null for an unknown org (resolveOrgId → null)", async () => {
+    const prisma = fakeSimPrisma({ repos: fleet(), orgId: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    expect(await simulateOrgFixes(ORG_SLUG, [{ dimId: "D2", target: 70 }], [])).toBeNull();
+  });
+
+  it("returns null (no DB call) when persistence is unconfigured", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    const prisma = fakeSimPrisma({ repos: fleet() });
+    mockGetPrisma.mockReturnValue(prisma);
+    expect(await simulateOrgFixes(ORG_SLUG, [{ dimId: "D2", target: 70 }], [])).toBeNull();
+    expect(prisma.organization.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe("rankOrgInvestments orchestration (DB snapshot → pure rankFleetInvestments)", () => {
+  const fleet = () => [flatRepoSeed("acme/a", 40), flatRepoSeed("acme/b", 40), flatRepoSeed("acme/c", 80)];
+
+  it("returns one ranked entry per dimension, sorted by projected gain (value), desc", async () => {
+    const prisma = fakeSimPrisma({ repos: fleet() });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const ranks = await rankOrgInvestments(ORG_SLUG, 70, []);
+
+    expect(ranks).not.toBeNull();
+    // One entry per model dimension, no dimension dropped or duplicated.
+    expect(ranks!).toHaveLength(DIMENSIONS.length);
+    expect(new Set(ranks!.map((r) => r.dimId)).size).toBe(DIMENSIONS.length);
+
+    // THE pinned ranking invariant: ordered by `gain` descending (the by-value order leaders steer by).
+    const gains = ranks!.map((r) => r.gain);
+    for (let i = 1; i < gains.length; i++) expect(gains[i]!).toBeLessThanOrEqual(gains[i - 1]!);
+
+    // On a uniform fleet, payoff tracks dimension weight: the top entry is a max-weight dim and
+    // outranks the lowest-weight dim D9 (weight 0.09 < D1/D2's 0.15) by strictly more gain.
+    const byDim = Object.fromEntries(ranks!.map((r) => [r.dimId, r]));
+    expect(byDim["D1"]!.gain).toBeGreaterThan(byDim["D9"]!.gain);
+    expect(ranks![0]!.gain).toBeGreaterThanOrEqual(byDim["D1"]!.gain);
+    // Every entry carries the requested target through.
+    expect(ranks!.every((r) => r.target === 70)).toBe(true);
+  });
+
+  it("at target 100 the top dimension promotes repos and reports the largest lift", async () => {
+    const prisma = fakeSimPrisma({ repos: fleet() });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const ranks = await rankOrgInvestments(ORG_SLUG, 100, []);
+
+    const top = ranks![0]!;
+    // Raising the highest-weight dim to 100 lifts the two low repos enough to cross a band.
+    expect(top.gain).toBe(7); // round((47+47+80)/3)=58 vs before 53 → +... pinned to the real number
+    expect(top.promotions).toBe(2);
+    expect(top.affected).toBe(3); // all three repos are below 100 on that dim
+    expect(top.target).toBe(100);
+  });
+
+  it("empty scope resolves to all repos; an explicit scope narrows the ranked lift", async () => {
+    const prisma = fakeSimPrisma({ repos: fleet() });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const all = await rankOrgInvestments(ORG_SLUG, 70, []);
+    const oneRepo = await rankOrgInvestments(ORG_SLUG, 70, ["acme/a"]);
+
+    // Narrowing to one repo can only move ≤ as many repos, so the top gain cannot exceed the
+    // whole-fleet top gain — the scope resolution actually flows into the ranking.
+    expect(oneRepo![0]!.affected).toBeLessThanOrEqual(all![0]!.affected);
+    expect(oneRepo![0]!.affected).toBe(1);
+  });
+
+  it("returns null with no scanned repos / unknown org / DB off", async () => {
+    mockGetPrisma.mockReturnValue(fakeSimPrisma({ repos: [] }));
+    expect(await rankOrgInvestments(ORG_SLUG, 70, [])).toBeNull();
+
+    mockGetPrisma.mockReturnValue(fakeSimPrisma({ repos: [flatRepoSeed("acme/a", 40)], orgId: null }));
+    expect(await rankOrgInvestments(ORG_SLUG, 70, [])).toBeNull();
+
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReturnValue(fakeSimPrisma({ repos: [flatRepoSeed("acme/a", 40)] }));
+    expect(await rankOrgInvestments(ORG_SLUG, 70, [])).toBeNull();
+  });
+});
+
+describe("goalImpactsForScenario orchestration (active axis goals → forecast coupling)", () => {
+  const NOW = Date.parse("2026-06-01T00:00:00.000Z");
+
+  /**
+   * Fake prisma for goalImpactsForScenario: resolveOrgId + goal.findMany(active) + metricSeries
+   * (scan.findMany for axis metrics). `axisSeries` seeds a rising "overall" trend so a real ETA
+   * crossing exists; omit it for the no-trend (null ETA) path.
+   */
+  function fakeImpactPrisma(opts: { goals: GoalSeed[]; axisSeries?: { at: Date; overall: number }[] }) {
+    const goalRows = opts.goals.map((g) => ({
+      id: g.id,
+      orgId: ORG_ID,
+      label: g.label ?? `Goal ${g.id}`,
+      metric: g.metric ?? "overall",
+      target: g.target,
+      targetDate: g.targetDate ?? null,
+      status: g.status ?? "active",
+      achievedAt: g.achievedAt ?? null,
+      createdAt: g.createdAt ?? new Date("2026-01-01T00:00:00.000Z"),
+    }));
+    const scanRows = (opts.axisSeries ?? []).map((p) => ({
+      scannedAt: p.at,
+      overallScore: p.overall,
+      adoptionScore: p.overall,
+      rigorScore: p.overall,
+    }));
+    return {
+      organization: { findUnique: vi.fn(async () => ({ id: ORG_ID })) },
+      goal: { findMany: vi.fn(async () => goalRows) },
+      scan: { findMany: vi.fn(async () => scanRows) },
+      scanDimension: { findMany: vi.fn(async () => []) },
+    };
+  }
+
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(NOW);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("maps each active axis goal to one impact and skips goals the scenario doesn't move", async () => {
+    const prisma = fakeImpactPrisma({
+      goals: [
+        { id: "g_overall", metric: "overall", target: 90, status: "active" },
+        { id: "g_rigor", metric: "rigor", target: 90, status: "active" }, // before==after on rigor → skipped
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const before = { avgOverall: 50, avgAdoption: 50, avgRigor: 50 };
+    const after = { avgOverall: 62, avgAdoption: 50, avgRigor: 50 }; // only overall moved
+
+    const impacts = await goalImpactsForScenario(ORG_SLUG, before, after);
+
+    expect(impacts).not.toBeNull();
+    // rigor didn't move (sim<=cur) → it is dropped; only the overall goal maps through.
+    expect(impacts!.map((i) => i.id)).toEqual(["g_overall"]);
+    const imp = impacts![0]!;
+    expect(imp.metric).toBe("overall");
+    expect(imp.currentValue).toBe(50); // from `before`
+    expect(imp.simulatedValue).toBe(62); // from `after`
+    expect(imp.target).toBe(90);
+    expect(imp.reachedNow).toBe(false); // 62 < 90
+  });
+
+  it("flags reachedNow when the simulated value already meets the goal target", async () => {
+    const prisma = fakeImpactPrisma({
+      goals: [{ id: "g1", metric: "overall", target: 60, status: "active" }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const impacts = await goalImpactsForScenario(
+      ORG_SLUG,
+      { avgOverall: 50, avgAdoption: 50, avgRigor: 50 },
+      { avgOverall: 75, avgAdoption: 50, avgRigor: 50 }, // 75 >= target 60
+    );
+
+    expect(impacts![0]!.reachedNow).toBe(true);
+  });
+
+  it("with a fittable rising trend, landing the fix pulls the goal ETA forward (daysSooner > 0)", async () => {
+    // A +1/day "overall" series. current(before)=55 → 15 days to 70; simulated(after)=62 → 8 days.
+    const axisSeries = Array.from({ length: 10 }, (_, i) => ({
+      at: new Date(Date.parse("2026-05-22T00:00:00.000Z") + i * 86_400_000),
+      overall: 50 + i,
+    }));
+    const prisma = fakeImpactPrisma({
+      goals: [{ id: "g1", metric: "overall", target: 70, status: "active" }],
+      axisSeries,
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const impacts = await goalImpactsForScenario(
+      ORG_SLUG,
+      { avgOverall: 55, avgAdoption: 50, avgRigor: 50 },
+      { avgOverall: 62, avgAdoption: 50, avgRigor: 50 },
+    );
+
+    const imp = impacts![0]!;
+    expect(imp.currentEtaDate).toBe("2026-06-16"); // 55 → 70 at +1/day, 15 days out from NOW
+    expect(imp.simulatedEtaDate).toBe("2026-06-09"); // 62 → 70, 8 days out
+    expect(imp.daysSooner).toBe(7); // the fix pulls the target 15-8=7 days forward
+  });
+
+  it("returns [] when the org has no active axis goals (empty, not null)", async () => {
+    const prisma = fakeImpactPrisma({
+      goals: [{ id: "g_dim", metric: "D2", target: 80, status: "active" }], // dimension goal → filtered out
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const impacts = await goalImpactsForScenario(
+      ORG_SLUG,
+      { avgOverall: 50, avgAdoption: 50, avgRigor: 50 },
+      { avgOverall: 70, avgAdoption: 70, avgRigor: 70 },
+    );
+    expect(impacts).toEqual([]);
+  });
+
+  it("returns null when persistence is unconfigured", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReturnValue(fakeImpactPrisma({ goals: [] }));
+    const impacts = await goalImpactsForScenario(
+      ORG_SLUG,
+      { avgOverall: 50, avgAdoption: 50, avgRigor: 50 },
+      { avgOverall: 70, avgAdoption: 50, avgRigor: 50 },
+    );
+    expect(impacts).toBeNull();
   });
 });
