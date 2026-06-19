@@ -25,8 +25,8 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { listGoals, simulateOrgFixes, rankOrgInvestments, goalImpactsForScenario } from "./plan";
-import { DIMENSIONS } from "@/lib/maturity/model";
+import { listGoals, simulateOrgFixes, rankOrgInvestments, goalImpactsForScenario, isGoalMetric, metricLabel, createGoal, createInitiative, listInitiatives } from "./plan";
+import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 
 const ORG_ID = "org_1";
 const ORG_SLUG = "acme";
@@ -602,5 +602,244 @@ describe("goalImpactsForScenario orchestration (active axis goals → forecast c
       { avgOverall: 70, avgAdoption: 50, avgRigor: 50 },
     );
     expect(impacts).toBeNull();
+  });
+});
+
+// ── The pure plan helpers (test-mastery-2026-06-18 finding #5, Medium) ────────
+// Small, pure, hot-path validators/formatters that had no batch. Two are exported and called
+// directly (isGoalMetric, metricLabel); the other three (parseRepos, parseTargetDate, dailyAvg)
+// are module-private, so they're pinned through the public functions that consume them —
+// listInitiatives (parseRepos + targetDate read-back), createGoal/createInitiative (parseTargetDate
+// write side), and listGoals (dailyAvg trend collapse → fittable pace). No source change.
+
+describe("isGoalMetric — accepts exactly {overall, adoption, rigor, D1..D9}, rejects the rest", () => {
+  const VALID = ["overall", "adoption", "rigor", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"];
+
+  it.each(VALID)("accepts the valid metric id %s", (m) => {
+    expect(isGoalMetric(m)).toBe(true);
+  });
+
+  // The drift invariant: the accepted dimension set is EXACTLY the model's dimensions — no more, no less.
+  it("accepts every model DimensionId and no phantom dimension", () => {
+    for (const d of DIMENSIONS) expect(isGoalMetric(d.id)).toBe(true);
+    expect(DIMENSIONS.map((d) => d.id).sort()).toEqual(["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"]);
+  });
+
+  it.each(["D0", "D10", "D99", "", "overall ", " overall", "Overall", "OVERALL", "adoption2", "dimension", "d1", "rigour"])(
+    "rejects the junk id %j",
+    (m) => {
+      expect(isGoalMetric(m)).toBe(false);
+    },
+  );
+});
+
+describe("metricLabel — friendly labels for axes, model name for dimensions, raw-id fallback", () => {
+  it("maps the three axis metrics to their friendly labels", () => {
+    expect(metricLabel("overall")).toBe("Overall maturity");
+    expect(metricLabel("adoption")).toBe("AI Adoption");
+    expect(metricLabel("rigor")).toBe("Engineering Rigor");
+  });
+
+  // Each dimension id resolves to the model's name — pinning that label and model stay IN SYNC.
+  it.each(DIMENSIONS.map((d) => [d.id, d.name] as const))("metricLabel(%s) === the model's '%s'", (id, name) => {
+    expect(metricLabel(id)).toBe(name);
+    expect(metricLabel(id)).toBe(DIMENSION_BY_ID[id].name);
+  });
+
+  it("D2 specifically returns the model's 'Automated Testing' (a concrete sync anchor)", () => {
+    expect(metricLabel("D2")).toBe("Automated Testing");
+  });
+
+  it("echoes an unknown id back verbatim as a safe fallback (never throws / never undefined)", () => {
+    expect(metricLabel("D10")).toBe("D10");
+    expect(metricLabel("bogus")).toBe("bogus");
+    expect(metricLabel("")).toBe("");
+  });
+});
+
+describe("parseRepos (via listInitiatives) — tolerant of corrupt repos JSON, never throws", () => {
+  // Fake prisma covering listInitiatives' reads: resolveOrgId, fleetSnapshot (repository.findMany),
+  // initiative.findMany (the row whose `repos` column we corrupt), and the goal/playbook label joins.
+  function fakeInitPrisma(reposRaw: string) {
+    return {
+      organization: { findUnique: vi.fn(async () => ({ id: ORG_ID })) },
+      repository: { findMany: vi.fn(async () => []) },
+      initiative: {
+        findMany: vi.fn(async () => [
+          {
+            id: "i1",
+            title: "T",
+            dimId: "D2",
+            practiceId: null,
+            targetScore: 70,
+            repos: reposRaw,
+            status: "active",
+            assigneeLogin: null,
+            targetDate: null,
+            goalId: null,
+            playbookId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ]),
+      },
+      goal: { findMany: vi.fn(async () => []) },
+      playbook: { findMany: vi.fn(async () => []) },
+    };
+  }
+
+  it.each([
+    ["not json at all", "{not json"],
+    ["a JSON object (non-array)", '{"a":1}'],
+    ["a JSON number", "42"],
+    ["JSON null", "null"],
+    ["empty string", ""],
+  ])("returns [] for %s (no throw, panel survives a corrupted column)", async (_label, raw) => {
+    mockGetPrisma.mockReturnValue(fakeInitPrisma(raw));
+    const out = await listInitiatives(ORG_SLUG);
+    expect(out).not.toBeNull();
+    expect(out![0]!.repos).toEqual([]);
+    expect(out![0]!.progress.total).toBe(0);
+  });
+
+  it("drops non-string entries from a mixed array: [1,'a',null,'b'] ⇒ ['a','b']", async () => {
+    mockGetPrisma.mockReturnValue(fakeInitPrisma(JSON.stringify([1, "a", null, "b", { x: 1 }, "c"])));
+    const out = await listInitiatives(ORG_SLUG);
+    expect(out![0]!.repos).toEqual(["a", "b", "c"]);
+    expect(out![0]!.progress.total).toBe(3);
+  });
+
+  it("passes a clean string array through unchanged", async () => {
+    mockGetPrisma.mockReturnValue(fakeInitPrisma(JSON.stringify(["acme/x", "acme/y"])));
+    const out = await listInitiatives(ORG_SLUG);
+    expect(out![0]!.repos).toEqual(["acme/x", "acme/y"]);
+  });
+});
+
+describe("parseTargetDate (via createGoal write + listInitiatives read) — valid ⇒ Date, junk ⇒ null, never NaN/throw", () => {
+  /** createGoal upserts the org then creates the goal; capture the `targetDate` value it writes. */
+  function fakeCreateGoalPrisma() {
+    const created: Array<{ targetDate: unknown }> = [];
+    return {
+      created,
+      prisma: {
+        organization: { upsert: vi.fn(async () => ({ id: ORG_ID })) },
+        goal: {
+          create: vi.fn(async ({ data }: { data: { targetDate: unknown } }) => {
+            created.push({ targetDate: data.targetDate });
+            return { id: "g_new" };
+          }),
+        },
+      },
+    };
+  }
+
+  it.each([
+    ["a valid ISO date", "2026-12-31", "2026-12-31"],
+    ["a full ISO datetime", "2026-06-01T00:00:00.000Z", "2026-06-01"],
+  ])("%s is parsed to a Date carrying the right calendar day", async (_label, input, isoDay) => {
+    const { prisma, created } = fakeCreateGoalPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 70, targetDate: input });
+    const td = created[0]!.targetDate as Date;
+    expect(td).toBeInstanceOf(Date);
+    expect(Number.isNaN(td.getTime())).toBe(false);
+    expect(td.toISOString().slice(0, 10)).toBe(isoDay);
+  });
+
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["empty string", ""],
+    ["non-date text", "not-a-date"],
+  ])("%s parses to null (open-ended goal, never an Invalid Date)", async (_label, input) => {
+    const { prisma, created } = fakeCreateGoalPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 70, targetDate: input as string | null });
+    expect(created[0]!.targetDate).toBeNull();
+  });
+
+  it("a stored targetDate Date round-trips to its YYYY-MM-DD in listInitiatives", async () => {
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: ORG_ID })) },
+      repository: { findMany: vi.fn(async () => []) },
+      initiative: {
+        findMany: vi.fn(async () => [
+          {
+            id: "i1", title: "T", dimId: "D2", practiceId: null, targetScore: 70, repos: "[]",
+            status: "active", assigneeLogin: null, targetDate: new Date("2026-09-15T12:00:00.000Z"),
+            goalId: null, playbookId: null, createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          },
+        ]),
+      },
+      goal: { findMany: vi.fn(async () => []) },
+      playbook: { findMany: vi.fn(async () => []) },
+    });
+    const out = await listInitiatives(ORG_SLUG);
+    expect(out![0]!.targetDate).toBe("2026-09-15");
+  });
+});
+
+describe("dailyAvg (via listGoals trend) — collapses same-day points to a per-day mean, sorted ascending", () => {
+  // Many scans on the same calendar day must collapse to ONE per-day mean; two days of clearly
+  // different means produce a fittable rising/flat trend. A regression in the collapse or the
+  // ascending sort would change the slope the goal projector fits — observable as a different pace.
+  function fakeTrendPrisma(scans: { at: string; overall: number }[]) {
+    return {
+      organization: { findUnique: vi.fn(async () => ({ id: ORG_ID })) },
+      repository: {
+        findMany: vi.fn(async () => [
+          { fullName: "acme/a", name: "a", scans: [{ overallScore: 60, adoptionScore: 60, rigorScore: 60, archetype: "org", dimensions: [] }] },
+        ]),
+      },
+      goal: {
+        findMany: vi.fn(async () => [
+          { id: "g1", orgId: ORG_ID, label: "G", metric: "overall", target: 90, targetDate: null, status: "active", achievedAt: null, createdAt: new Date("2026-01-01T00:00:00.000Z") },
+        ]),
+      },
+      scan: {
+        findMany: vi.fn(async () =>
+          scans.map((s) => ({ scannedAt: new Date(s.at), overallScore: s.overall, adoptionScore: s.overall, rigorScore: s.overall })),
+        ),
+      },
+      scanDimension: { findMany: vi.fn(async () => []) },
+    };
+  }
+
+  it("a single day of duplicate points yields no fittable slope (one collapsed point → flat 'tracking')", async () => {
+    // Three readings on ONE day collapse to a single mean point; one point can't define a slope.
+    const prisma = fakeTrendPrisma([
+      { at: "2026-05-01T01:00:00.000Z", overall: 40 },
+      { at: "2026-05-01T09:00:00.000Z", overall: 60 },
+      { at: "2026-05-01T18:00:00.000Z", overall: 80 }, // same-day mean = 60
+    ]);
+    // patch the update fn the real listGoals may call (goal already not reached → it won't, but be safe)
+    (prisma.goal as { update?: unknown }).update = vi.fn(async () => ({ id: "g1" }));
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+    // With a single collapsed day there's no trend to fit → neutral pace, no ETA.
+    expect(g.pace).toBe("tracking");
+    expect(g.perWeek).toBe(0);
+    expect(g.etaDays).toBeNull();
+  });
+
+  it("a clear rising day-over-day mean yields a positive trend (perWeek > 0, an ETA exists)", async () => {
+    // Day 1 mean ≈ 50, then a strictly rising mean each day for two weeks → positive slope.
+    const scans = Array.from({ length: 14 }, (_, d) => ({
+      at: `2026-05-${String(d + 1).padStart(2, "0")}T06:00:00.000Z`,
+      overall: 50 + d * 2, // rises 2/day across distinct days
+    }));
+    // add a same-day duplicate on day 1 that must be averaged in (50 and 54 → mean 52, still rising)
+    scans.push({ at: "2026-05-01T20:00:00.000Z", overall: 54 });
+    const prisma = fakeTrendPrisma(scans);
+    (prisma.goal as { update?: unknown }).update = vi.fn(async () => ({ id: "g1" }));
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+    // The collapse + ascending sort produced a fittable upward trend the projector can read.
+    expect(g.perWeek).toBeGreaterThan(0);
+    expect(g.trajectory.length).toBeGreaterThan(0);
+    expect(g.etaDays).not.toBeNull();
+    expect(g.etaDays!).toBeGreaterThan(0);
   });
 });
