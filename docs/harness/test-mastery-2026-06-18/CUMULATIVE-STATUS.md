@@ -1,18 +1,20 @@
-# Test Mastery — ascent — Cumulative Status (all 8 waves)
+# Test Mastery — ascent — Cumulative Status (criticals + highs)
 
 > Scan: `test_mastery` over 38 contexts (2026-06-18) → **192 findings (60C / 76H / 40M / 16L)**.
-> Fix run: **8 themed waves, 60/60 criticals closed, 0 regressions.**
+> Fix run: **8 critical waves (C1–C8) + 8 high waves (H1–H8). ALL 60 criticals + ALL 76 Highs closed, 0 regressions.**
 > Branch: `vibeman/test-mastery-auth-idor` (off `master`).
+> See `FIXES-WAVE-1..8.md` (criticals) and `FIXES-HIGHS.md` (the 76 Highs).
 
 ## Headline
 
-| | Start | End | Delta |
+| | Start | After criticals | After highs |
 |---|---:|---:|---:|
-| Critical findings open | 60 | **0** | **−60** |
-| Tests passing | 509 | **1155** | **+646** |
-| Test files | 57 | 93 | +36 |
-| tsc source errors | 0 | 0 | — |
-| `next build` | compiles | compiles | — |
+| Critical findings open | 60 | **0** | 0 |
+| High findings open | 76 | 76 | **0** |
+| Tests passing | 509 | 1155 | **1727 (+1218)** |
+| Test files | 57 | 93 | **114** |
+| tsc source errors | 0 | 0 | **0** |
+| `next build` | compiles | compiles | **compiles** |
 
 - **45 atomic fix commits** + 8 wave-summary docs + 1 scan-docs commit + this file ≈ **62 commits** ahead of `master`.
 - **Production source changed only in Wave 5 + one Wave-7 extract** — four behavior-preserving extractions out of `"use client"` components (`mergeStars`, `canRunReal`, `watchState`, `repoKey`); every other wave was purely additive tests.
@@ -63,7 +65,7 @@ Accumulated across the 8 waves (see each `FIXES-WAVE-N.md` for the per-wave addi
 
 ## What remains (out of scope for this run)
 
-- **76 Highs + 40 Mediums + 16 Lows** untouched — the same themes, one tier down (token-mint edge cases, error-branch coverage, CSV formula-injection, baseline-window math, etc.). A follow-on run can pipeline them the same way.
+- **All 76 Highs now closed** (Waves H1–H8 — see `FIXES-HIGHS.md`). **40 Mediums + 16 Lows** remain untouched — the same themes, one tier down. A follow-on run can pipeline them the same way.
 - **A per-area / changed-code coverage gate** in CI (Theme G from the INDEX) — nothing yet stops these pins from rotting back; a ratchet on changed files is the durable backstop.
 - **The 8 latent bugs above** — fix pass, each now test-guarded.
 
