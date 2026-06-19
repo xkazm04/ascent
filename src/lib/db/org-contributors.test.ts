@@ -371,6 +371,106 @@ describe("getContributorInsights champion ranking", () => {
   });
 });
 
+// ── small-population success-theater guards (finding #5) ─────────────────────────
+// Two load-bearing overstatement guards keep a barely-adopted fleet from being presented
+// as "100% AI-native":
+//   (1) DATA-LEVEL champion floor: the `champions` filter requires `commits >= 3 && aiCommits > 0`,
+//       so a single low-volume Copilot user can never become a celebrated "#1 ★ champion".
+//   (2) PAGE-LEVEL population gate (contributors/page.tsx): the AI-champions leaderboard only renders
+//       when `champions.length > 0 && totalContributors >= 3`. The data layer can't enforce the JSX
+//       gate, but it MUST report `totalContributors` truthfully so the page's `>= 3` floor sees the
+//       real population. We pin the boundary (1 / 2 / 3 contributors) and the canonical "team of one
+//       reads 100% AI-active" theater number that the gate exists to suppress.
+// The pinned floor for the page gate is `MIN_CONTRIBUTORS_FOR_CHAMPIONS = 3`; if the source ever
+// exports a shared constant, swap this local for the import — the boundary assertions stay identical.
+
+const MIN_CONTRIBUTORS_FOR_CHAMPIONS = 3;
+
+describe("getContributorInsights small-population champion guard", () => {
+  it("a single AI committer (team of one) is NOT a celebrated champion — data-level commits>=3 floor", async () => {
+    // The exact success-theater case the page comment warns about: one Copilot user, 1 commit, all AI.
+    // `aiActiveShare` is a true 100% for this one person, but `champions` must be EMPTY (commits < 3),
+    // so the data layer never hands the page a "#1 ★ champion" for a team of one.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([{ login: "solo-copilot", commits: 1, aiCommits: 1, repo: "acme/r" }]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.totalContributors).toBe(1);
+    expect(res.aiActiveShare).toBe(100); // honest-but-misleading for n=1 — hence the page gate
+    expect(res.orgAiShare).toBe(100);
+    expect(res.champions).toEqual([]); // commits<3 floor suppresses the lone Copilot user
+    expect(res.totalContributors).toBeLessThan(MIN_CONTRIBUTORS_FOR_CHAMPIONS); // page would hide the section
+  });
+
+  it("a single HIGH-volume AI committer still falls below the page population floor (n=1 < 3)", async () => {
+    // Even with 50 commits the data layer DOES list this person as a champion (commits>=3, aiCommits>0),
+    // but totalContributors is 1 — so the page's `>= 3` gate, not the data floor, is what suppresses the
+    // "100% AI-active fleet" overstatement. Pin both halves: a populated champion list AND a sub-floor n.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([{ login: "power-copilot", commits: 50, aiCommits: 50, repo: "acme/r" }]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.totalContributors).toBe(1);
+    expect(res.aiActiveShare).toBe(100);
+    expect(res.champions.map((c) => c.login)).toEqual(["power-copilot"]); // data layer lists it…
+    expect(res.totalContributors).toBeLessThan(MIN_CONTRIBUTORS_FOR_CHAMPIONS); // …but the page hides it (n<3)
+  });
+
+  it("a 2-contributor fleet is still below the population floor — page suppresses the leaderboard", async () => {
+    // 2 qualifying AI champions, but totalContributors === 2 < 3. The data layer surfaces them; the page
+    // gate (totalContributors >= 3) is the line that keeps a 2-person team off the "champions" podium.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "a", commits: 10, aiCommits: 10, repo: "acme/r" },
+        { login: "b", commits: 8, aiCommits: 8, repo: "acme/r" },
+      ]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.totalContributors).toBe(2);
+    expect(res.totalContributors).toBeLessThan(MIN_CONTRIBUTORS_FOR_CHAMPIONS); // below the floor
+    expect(res.champions.length).toBeGreaterThan(0); // data has them, page must gate them out
+  });
+
+  it("at exactly 3 contributors the population floor is met — champions surface normally", async () => {
+    // The boundary: totalContributors === 3 satisfies `>= 3`, so a sufficiently-large population reports
+    // normally and the leaderboard is allowed to render. Pin that 3 is the inclusive threshold.
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "a", commits: 12, aiCommits: 12, repo: "acme/r" },
+        { login: "b", commits: 9, aiCommits: 6, repo: "acme/r" },
+        { login: "c", commits: 6, aiCommits: 3, repo: "acme/r" },
+      ]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.totalContributors).toBe(3);
+    expect(res.totalContributors).toBeGreaterThanOrEqual(MIN_CONTRIBUTORS_FOR_CHAMPIONS); // floor met
+    expect(res.champions.map((c) => c.login)).toEqual(["a", "b", "c"]); // all three qualify, surfaced normally
+  });
+
+  it("non-AI contributors pad the population but cannot themselves be champions (floor is AI-gated)", async () => {
+    // A 3-person fleet where only ONE person uses AI. The population floor (>=3) is met so the page would
+    // render the section, but the champion list contains ONLY the AI user — a non-AI majority can't be
+    // dressed up as champions, and the lone AI user isn't inflated into a fleet-wide "everyone uses AI".
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "ai-user", commits: 10, aiCommits: 10, repo: "acme/r" },
+        { login: "no-ai-1", commits: 20, aiCommits: 0, repo: "acme/r" },
+        { login: "no-ai-2", commits: 15, aiCommits: 0, repo: "acme/r" },
+      ]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.totalContributors).toBe(3); // floor met → page renders the section
+    expect(res.champions.map((c) => c.login)).toEqual(["ai-user"]); // only the genuine AI adopter
+    expect(res.aiActive).toBe(1);
+    expect(res.aiActiveShare).toBe(33); // round(1/3*100) — an HONEST one-third, not a theatrical 100%
+  });
+});
+
 // ── shared short-circuits ────────────────────────────────────────────────────────
 
 describe("getContributorInsights guards", () => {
