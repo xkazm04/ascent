@@ -177,3 +177,133 @@ describe("GET /api/badge/[owner]/[repo] — private-repo disclosure gate (critic
     expect(mockScan).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// HIGH (finding #4): the badge logo XSS/SSRF filter (RASTER_LOGO_RE) and the
+// esc() SVG escaper. This endpoint is UNAUTHENTICATED and its body is served as
+// `image/svg+xml` — an executable image format. A `?logo=` of `data:image/svg+xml`
+// (nested scriptable SVG → active-content XSS), `https?://…` / `javascript:…`
+// (SSRF / scheme abuse), or an over-cap data URI must be REJECTED (logo → null,
+// so NO <image> element embeds). Any caller-influenced text (label/value/color/
+// logo/href) must pass through esc() so `<`/`>`/`&`/`"` can't break out of the
+// SVG text node or an attribute. We render a PUBLIC repo so the customized body
+// (with the candidate logo + label) is actually produced.
+describe("GET /api/badge/[owner]/[repo] — logo XSS/SSRF filter + SVG escaping (high)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEvaluateGate.mockReturnValue({ pass: true, failures: [] } as never);
+    mockRecordImpression.mockResolvedValue(undefined as never);
+    // Public repo so the badge renders its customizable body (logo/label flow through).
+    mockCacheGet.mockReturnValue(reportWith(false));
+  });
+
+  // --- (a) logo acceptance: only same-origin raster data: URIs embed ---------
+
+  it("REJECTS a data:image/svg+xml logo (nested scriptable SVG → XSS): no <image>, no <script>", async () => {
+    const res = await get(
+      `?logo=${encodeURIComponent("data:image/svg+xml,<svg onload=alert(1)><script>alert(1)</script></svg>")}`,
+    );
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    // The svg+xml logo is filtered out → logo is null → no <image> element at all.
+    expect(body).not.toContain("<image");
+    // And absolutely none of the scriptable payload leaks into the served svg+xml body.
+    expect(body).not.toContain("<script");
+    expect(body).not.toContain("onload=");
+    expect(body).not.toContain("data:image/svg+xml");
+  });
+
+  it("REJECTS an http(s):// logo (SSRF / external fetch): no <image>, no external href", async () => {
+    const res = await get(`?logo=${encodeURIComponent("https://evil.example/x.png")}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).not.toContain("<image");
+    expect(body).not.toContain("https://evil.example");
+  });
+
+  it("REJECTS a javascript: scheme logo: no <image>, no javascript: in body", async () => {
+    const res = await get(`?logo=${encodeURIComponent("javascript:alert(document.cookie)")}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).not.toContain("<image");
+    expect(body).not.toContain("javascript:");
+  });
+
+  it("REJECTS a raster data: logo that exceeds MAX_LOGO_LEN (4096): no <image>", async () => {
+    // A valid-prefix raster URI, but oversized → rejected by the length cap (response-bloat lever).
+    const huge = "data:image/png;base64," + "A".repeat(4096);
+    const res = await get(`?logo=${encodeURIComponent(huge)}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).not.toContain("<image");
+  });
+
+  it("ACCEPTS a legitimate raster data:image/png logo and embeds it as an escaped <image>", async () => {
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+    const res = await get(`?logo=${encodeURIComponent(png)}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    // The accepted raster logo renders as an <image> with an href bearing the data: URI.
+    expect(body).toContain("<image");
+    expect(body).toContain(png);
+  });
+
+  it("ACCEPTS a data:image/jpeg logo (the jpe?g alternation)", async () => {
+    const jpg = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+    const res = await get(`?logo=${encodeURIComponent(jpg)}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).toContain("<image");
+    expect(body).toContain(jpg);
+  });
+
+  // --- (b) esc(): caller-supplied text can't break out of the SVG ------------
+
+  it("ESCAPES a markup-breaking ?label= so no raw <script> / raw < > \" land in the SVG", async () => {
+    const payload = `</text><script>alert(1)</script>"&<>`;
+    const res = await get(`?label=${encodeURIComponent(payload)}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    // No unescaped script tag and no raw breakout characters survive from the payload.
+    expect(body).not.toContain("<script>alert(1)</script>");
+    expect(body).not.toContain("</text><script");
+    // The escaped entities ARE present, proving the payload was neutralized, not dropped.
+    expect(body).toContain("&lt;");
+    expect(body).toContain("&gt;");
+    expect(body).toContain("&quot;");
+    expect(body).toContain("&amp;");
+    // The label is reflected into a role="img" aria-label attribute (double-quoted) AND a
+    // <text> node — neither must contain a raw `"` or `<` from the payload that could close
+    // the attribute or open a tag. The only `<`/`"` in the body are structural SVG syntax.
+  });
+
+  it("ESCAPES a crafted owner/repo name so a repo name can't break out of the SVG text node", async () => {
+    // owner/repo arrive normalized+lowercased then validName-checked; a name with markup chars
+    // fails NAME_RE → neutral "unknown" badge, but the route still passes `value:"unknown"` and the
+    // (un-validated, sliced) label through esc(). Drive the escaper via the label, which is the
+    // user-influenced text that survives to the SVG, and assert no raw breakout char appears.
+    const res = await get(`?label=${encodeURIComponent('"><script>x</script>')}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).not.toContain('"><script>');
+    expect(body).not.toContain("<script>x</script>");
+    expect(body).toContain("&lt;script&gt;");
+  });
+
+  it("renders a legitimate plain ?label= verbatim (escaper does not mangle benign text)", async () => {
+    const res = await get(`?label=${encodeURIComponent("My Project")}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).toContain("My Project");
+    expect(body).not.toContain("&lt;"); // nothing to escape in benign input
+  });
+});
