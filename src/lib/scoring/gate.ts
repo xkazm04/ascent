@@ -21,10 +21,16 @@ export interface GatePolicy {
   minDimensionFor?: Partial<Record<DimensionId, number>>;
   /** Postures that fail the gate outright (e.g. "ungoverned" = heavy AI, light guardrails). */
   forbidPostures?: Posture["id"][];
+  /** Fail the gate when the default branch is readable but NOT protected. Branch protection is folded
+   *  into the dimension scores ADDITIVELY (its absence never demotes — a read token may not see classic
+   *  protection), so a repo with no guardrails can still pass on score alone. This makes "is the default
+   *  branch actually protected?" an explicit, enforceable bar. Opt-in, and only fails when governance was
+   *  READABLE (a token saw the rules), so a no-token scan never false-fails. */
+  requireProtectedBranch?: boolean;
 }
 
 export interface GateFailure {
-  code: "level" | "overall" | "dimension" | "posture";
+  code: "level" | "overall" | "dimension" | "posture" | "governance";
   message: string;
 }
 
@@ -105,6 +111,7 @@ export function sanitizeGatePolicy(raw: unknown): GatePolicy | null {
     const allowed = r.forbidPostures.filter((p): p is "ungoverned" => p === "ungoverned");
     if (allowed.length) pol.forbidPostures = allowed;
   }
+  if (r.requireProtectedBranch === true) pol.requireProtectedBranch = true;
   return Object.keys(pol).length ? pol : null;
 }
 
@@ -159,6 +166,13 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
       message: `Posture "${report.posture.label}" is not permitted by the gate.`,
     });
   }
+  // Governance: only enforce when readable (a token saw the rules) so a no-token scan never false-fails.
+  if (pol.requireProtectedBranch && report.governance?.readable && !report.governance.protected) {
+    failures.push({
+      code: "governance",
+      message: `Default branch "${report.governance.defaultBranch}" has no branch-protection rules — the gate requires a protected default branch.`,
+    });
+  }
 
   return { pass: failures.length === 0, policy: pol, failures };
 }
@@ -172,6 +186,10 @@ export interface GateSnapshot {
   overall: number;
   posture: string; // posture id, e.g. "ungoverned"
   dims: { dimId: string; score: number }[];
+  /** Default-branch protection, when the rollup carries it. `requireProtectedBranch` is enforced here
+   *  only when `govReadable` is true (parity with evaluateGate's readable-gated check); absent → skipped. */
+  protected?: boolean;
+  govReadable?: boolean;
 }
 
 /**
@@ -219,6 +237,11 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
   if (policy.forbidPostures?.some((p) => p === snap.posture)) {
     failures.push({ code: "posture", message: `Posture "${snap.posture}" is not permitted by the gate.` });
   }
+  // Parity with evaluateGate: enforce only when the snapshot carries readable governance. Rollups that
+  // don't yet carry per-repo protection simply leave it unset → skipped (no false-fail on the fleet view).
+  if (policy.requireProtectedBranch && snap.govReadable && snap.protected === false) {
+    failures.push({ code: "governance", message: "Default branch has no branch-protection rules — the gate requires a protected default branch." });
+  }
   return { pass: failures.length === 0, policy, failures };
 }
 
@@ -232,6 +255,7 @@ export function policyFromParams(params: URLSearchParams, archetype: RepoArchety
   const minOverall = Number(params.get("min_overall"));
   const minDimension = Number(params.get("min_dimension"));
   const noUngoverned = params.get("no_ungoverned");
+  const requireProtection = params.get("require_protection");
 
   // Security gate: `?security=1` (default D9 floor) or `?min_security=N` (explicit floor). Both pin a
   // per-dimension floor on Security (D9) AND forbid the "ungoverned" posture — the security policy.
@@ -259,5 +283,7 @@ export function policyFromParams(params: URLSearchParams, archetype: RepoArchety
     minDimensionFor: wantSecurity ? { [SECURITY_DIM]: securityFloor } : base.minDimensionFor,
     forbidPostures:
       noUngoverned === "1" || noUngoverned === "true" || wantSecurity ? ["ungoverned"] : base.forbidPostures,
+    requireProtectedBranch:
+      requireProtection === "1" || requireProtection === "true" ? true : base.requireProtectedBranch,
   };
 }

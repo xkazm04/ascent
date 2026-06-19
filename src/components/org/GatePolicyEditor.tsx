@@ -18,6 +18,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
   const [minDimension, setMinDimension] = useState<string>(initial?.minDimension != null ? String(initial.minDimension) : "");
   const [security, setSecurity] = useState<boolean>(initial?.minDimensionFor?.D9 != null);
   const [noUngoverned, setNoUngoverned] = useState<boolean>(Boolean(initial?.forbidPostures?.includes("ungoverned")));
+  const [requireProtection, setRequireProtection] = useState<boolean>(Boolean(initial?.requireProtectedBranch));
   const [busy, setBusy] = useState<"save" | "reset" | null>(null);
   const [msg, setMsg] = useState<{ kind: "note" | "error"; text: string } | null>(null);
 
@@ -28,6 +29,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
     if (minDimension.trim()) p.minDimension = Number(minDimension);
     if (security) p.minDimensionFor = { D9: 50 };
     if (noUngoverned || security) p.forbidPostures = ["ungoverned"];
+    if (requireProtection) p.requireProtectedBranch = true;
     return p;
   }
 
@@ -57,6 +59,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
     setMinDimension("");
     setSecurity(false);
     setNoUngoverned(false);
+    setRequireProtection(false);
     void post(null, "reset");
   }
 
@@ -110,6 +113,10 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
         <label className="flex items-center gap-2 text-sm text-slate-400">
           <input type="checkbox" checked={noUngoverned} onChange={(e) => setNoUngoverned(e.target.checked)} className="accent-accent" />
           Forbid &quot;ungoverned&quot; posture
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-400">
+          <input type="checkbox" checked={requireProtection} onChange={(e) => setRequireProtection(e.target.checked)} className="accent-accent" />
+          Require a protected default branch
         </label>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">

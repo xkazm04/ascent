@@ -289,10 +289,12 @@ describe("getOrgGovernance blob resilience", () => {
       fakePrisma(
         "governance",
         [
-          gov({ protected: true, requiresPullRequest: true, requiresStatusChecks: true, requiresSignatures: true }),
-          gov({ protected: true, requiresPullRequest: true, requiresStatusChecks: false, requiresSignatures: false }),
-          gov({ protected: false, requiresPullRequest: false, requiresStatusChecks: false, requiresSignatures: false }),
-          gov({ protected: true, requiresPullRequest: false, requiresStatusChecks: true, requiresSignatures: false }),
+          gov({ protected: true, requiresPullRequest: true, requiredApprovals: 1, requiresStatusChecks: true, requiresSignatures: true }),
+          // PR required to merge, but ZERO required approvals — the author can self-merge unreviewed.
+          // This must NOT count toward "require review" (the old requiresPullRequest predicate over-counted it).
+          gov({ protected: true, requiresPullRequest: true, requiredApprovals: 0, requiresStatusChecks: false, requiresSignatures: false }),
+          gov({ protected: false, requiresPullRequest: false, requiredApprovals: 0, requiresStatusChecks: false, requiresSignatures: false }),
+          gov({ protected: true, requiresPullRequest: false, requiredApprovals: 0, requiresStatusChecks: true, requiresSignatures: false }),
         ],
         { extra: govExtra },
       ),
@@ -303,7 +305,7 @@ describe("getOrgGovernance blob resilience", () => {
     expect(res).not.toBeNull();
     expect(res!.repos).toBe(4);
     expect(res!.protectedRate).toBe(75); // 3/4
-    expect(res!.requireReviewRate).toBe(50); // 2/4
+    expect(res!.requireReviewRate).toBe(25); // 1/4 — only the repo requiring ≥1 approval (NOT the PR-required-but-0-approvals one)
     expect(res!.requireChecksRate).toBe(50); // 2/4
     expect(res!.signedRate).toBe(25); // 1/4
     // Risk-first sort: the unprotected repo is surfaced first.

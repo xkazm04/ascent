@@ -62,6 +62,33 @@ describe("rubric calibration — extended D2 / D3 signals", () => {
     expect(labels).toMatch(/contract/i);
   });
 
+  it("D2 ranks a behaviorally-tested suite ABOVE an assertion-free one of the same size", () => {
+    // Same number of test FILES (so the count/ratio base is identical) — only the sampled test
+    // BODIES differ: one asserts behavior, the other only calls code. The vanity suite must score lower.
+    const paths = Array.from({ length: 8 }, (_, i) => `tests/m${i}.test.ts`);
+    const extra = ["src/app.ts", "vitest.config.ts"];
+    const vanityFiles = Object.fromEntries(
+      paths.map((p) => [p, "it('renders a', () => { render(A); });\nit('renders b', () => { render(B); });\n"]),
+    );
+    const realFiles = Object.fromEntries(
+      paths.map((p) => [p, "it('adds', () => { expect(add(1,2)).toBe(3); });\nit('throws', () => { expect(() => boom()).toThrow(); });\n"]),
+    );
+    const vanity = analyzeSignals(snap([...paths, ...extra], vanityFiles));
+    const real = analyzeSignals(snap([...paths, ...extra], realFiles));
+    expect(score(real, "D2")).toBeGreaterThan(score(vanity, "D2"));
+    const labels = (sigs: DimensionSignals[]) => sigs.find((d) => d.id === "D2")!.signals.map((s) => s.label).join(" | ");
+    expect(labels(vanity)).toMatch(/assert nothing/i);
+    expect(labels(real)).toMatch(/assert behavior/i);
+  });
+
+  it("D2 stays neutral when no test BODIES were sampled (paths only) — no false demotion", () => {
+    // Tree has test files but the ingest budget fetched no test contents → can't judge → no adjustment.
+    const labels = analyzeSignals(snap(["tests/a.test.ts", "tests/b.test.ts", "src/app.ts"]))
+      .find((d) => d.id === "D2")!.signals.map((s) => s.label).join(" | ");
+    expect(labels).not.toMatch(/assert nothing/i);
+    expect(labels).not.toMatch(/assert behavior/i);
+  });
+
   it("D3 recognizes delivery-as-code (GitOps / progressive delivery / migrations / policy)", () => {
     const s = snap([
       "clusters/prod/app.yaml",

@@ -239,6 +239,30 @@ const d2: Detector = (idx) => {
   if (/schemathesis|\bdredd\b|@stoplight\/spectral|\bspectral\b|openapi.*(validate|lint)|\bprism\b/.test(adv))
     s.add(6, "API-schema validation");
 
+  // Assertion-quality signal — read the SAMPLED test BODIES (within the ≤32-file ingest budget) and
+  // judge whether tests actually ASSERT behavior, not just exist. A high-count, assertion-free suite
+  // (snapshot dumps, bodies that call code but never assert) must not reach the same band as a
+  // behaviorally-tested one. We judge only what was fetched: with no test bodies in the sample we stay
+  // neutral (never a false demotion from absence of data). `toMatchSnapshot`/bare `expect(` don't count
+  // as substantive — a snapshot-only suite is exactly the vanity case this guards against.
+  const sampledTestBodies = [...idx.contentByLowerPath]
+    .filter(([p]) => TEST_PATH.test(p) && !VENDOR.test(p))
+    .map(([, c]) => c);
+  if (sampledTestBodies.length > 0) {
+    const body = sampledTestBodies.join("\n");
+    const cases = (body.match(/\b(it|test|describe|context)\s*\(|^\s*def\s+test_|\bfunc\s+Test[A-Z]|@Test\b|#\[test\]/gim) ?? []).length;
+    const substantive = (
+      body.match(
+        /\.(toBe|toEqual|toStrictEqual|toThrow|toContain|toHaveBeen[A-Za-z]*|toMatchObject|toBeGreaterThan|toBeLessThan|toBeCloseTo|toBeTruthy|toBeFalsy|toBeNull|toBeDefined|toBeInstanceOf|resolves|rejects)\b|\bassert[A-Za-z_]*\s*[(!]|\bassert\s+\w|\bt\.(Error|Errorf|Fatal|Fatalf|Fail|is|deepEqual|truthy|throws)\b|\b(EXPECT|ASSERT)_[A-Z]/gi,
+      ) ?? []
+    ).length;
+    if (cases >= 4 && substantive === 0) {
+      s.add(-15, "Sampled tests assert nothing", `${sampledTestBodies.length} sampled test file(s), ~${cases} cases, 0 substantive assertions — counting files, not behavior`);
+    } else if (substantive >= 4) {
+      s.add(8, "Sampled tests assert behavior", `${substantive} substantive assertions across ${sampledTestBodies.length} sampled test file(s)`);
+    }
+  }
+
   return s.result("D2", `tests=${n}, source=${sourceFiles.length}`);
 };
 

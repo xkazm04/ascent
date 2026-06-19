@@ -54,7 +54,7 @@ export interface GovernanceOverview {
   failing: number;
   passRate: number; // 0..100
   /** How many repos fail on each condition (deduped per repo) — where the fleet is weakest. */
-  byReason: { level: number; overall: number; dimension: number; posture: number };
+  byReason: { level: number; overall: number; dimension: number; posture: number; governance: number };
   failures: GovernanceFailure[]; // worst first (most failing conditions, then lowest overall)
   /** Failing repos CLOSEST to passing — single-condition + smallest gap first (PRAC-6). */
   closestToGreen: GreenPathItem[];
@@ -75,15 +75,22 @@ function policyText(p: GatePolicy): string[] {
     t.push(`${dim} (${DIMENSION_BY_ID[dim as DimensionId]?.name ?? dim}) ≥ ${floor}`);
   }
   if (p.forbidPostures?.length) t.push(`No ${p.forbidPostures.map((x) => `"${x}"`).join(" / ")} posture`);
+  if (p.requireProtectedBranch) t.push("Default branch must be protected");
   return t;
 }
 
+// gateQuery + ciWith MUST emit every condition policyText shows — otherwise the dashboard enforces a bar
+// the copyable CI snippet / gate URL silently drops (policy drift). The Security (D9) floor maps to the
+// gate's `min_security` param (the one per-dimension floor the policy editor exposes); protection maps
+// to `require_protection`.
 function gateQuery(p: GatePolicy): string {
   const q = new URLSearchParams();
   if (p.minLevel) q.set("min_level", p.minLevel);
   if (typeof p.minOverall === "number") q.set("min_overall", String(p.minOverall));
   if (typeof p.minDimension === "number") q.set("min_dimension", String(p.minDimension));
+  if (typeof p.minDimensionFor?.D9 === "number") q.set("min_security", String(p.minDimensionFor.D9));
   if (p.forbidPostures?.includes("ungoverned")) q.set("no_ungoverned", "1");
+  if (p.requireProtectedBranch) q.set("require_protection", "1");
   return q.toString();
 }
 
@@ -92,7 +99,9 @@ function ciWith(p: GatePolicy): string[] {
   if (p.minLevel) w.push(`min-level: ${p.minLevel}`);
   if (typeof p.minOverall === "number") w.push(`min-overall: '${p.minOverall}'`);
   if (typeof p.minDimension === "number") w.push(`min-dimension: '${p.minDimension}'`);
+  if (typeof p.minDimensionFor?.D9 === "number") w.push(`min-security: '${p.minDimensionFor.D9}'`);
   if (p.forbidPostures?.includes("ungoverned")) w.push(`no-ungoverned: 'true'`);
+  if (p.requireProtectedBranch) w.push(`require-protection: 'true'`);
   return w;
 }
 
@@ -104,7 +113,7 @@ export async function buildGovernanceOverview(orgSlug: string): Promise<Governan
   const policy = (await getOrgGatePolicy(orgSlug)) ?? defaultGatePolicy(ORG_POLICY_ARCHETYPE);
   const scannedRepos = rollup.repos.filter((r) => r.latest);
 
-  const byReason = { level: 0, overall: 0, dimension: 0, posture: 0 };
+  const byReason = { level: 0, overall: 0, dimension: 0, posture: 0, governance: 0 };
   const failures: GovernanceFailure[] = [];
   const greenPath: GreenPathItem[] = [];
   let passing = 0;

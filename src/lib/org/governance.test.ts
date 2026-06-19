@@ -48,7 +48,7 @@ const fixture: GovernanceOverview = {
   passing: 7,
   failing: 3,
   passRate: 70,
-  byReason: { level: 2, overall: 0, dimension: 3, posture: 1 },
+  byReason: { level: 2, overall: 0, dimension: 3, posture: 1, governance: 0 },
   failures: [
     {
       name: "web",
@@ -231,5 +231,26 @@ describe("buildGovernanceOverview", () => {
 
     mockGetOrgRollup.mockResolvedValueOnce(rollupOf(0, []));
     expect(await buildGovernanceOverview("empty")).toBeNull();
+  });
+
+  it("emits the Security (D9) floor + require-protection in the CI snippet AND gate URL (no drift)", async () => {
+    // The dashboard policyText already shows these conditions; the COPYABLE CI snippet / gate URL must
+    // carry them too, or the gate enforces a different (weaker) bar than the dashboard advertises.
+    mockGetOrgGatePolicy.mockResolvedValue({
+      minLevel: "L3",
+      minDimension: 40,
+      minDimensionFor: { D9: 50 },
+      forbidPostures: ["ungoverned"],
+      requireProtectedBranch: true,
+    });
+    mockGetOrgRollup.mockResolvedValue(rollupOf(1, [PASS("ok")]));
+
+    const ov = (await buildGovernanceOverview("acme"))!;
+    expect(ov.gateQuery).toContain("min_security=50");
+    expect(ov.gateQuery).toContain("require_protection=1");
+    expect(ov.ciWith).toContain("min-security: '50'");
+    expect(ov.ciWith).toContain("require-protection: 'true'");
+    expect(ov.policyText).toContain("Default branch must be protected");
+    expect(ov.policyText.some((t) => /D9.*≥\s*50/.test(t))).toBe(true);
   });
 });

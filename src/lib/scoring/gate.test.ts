@@ -74,6 +74,38 @@ describe("empty/zero security floor + fail-closed dimensions (CIGATE #2, #3)", (
   });
 });
 
+// requireProtectedBranch closes Raj's gap: branch protection is folded into the dimension scores ADDITIVELY
+// (absence never demotes), so a high-scoring but UNGOVERNED repo could pass on score alone. This opt-in
+// criterion makes "is the default branch actually protected?" an explicit, enforceable, readable-gated bar.
+describe("requireProtectedBranch (ungoverned can't pass on score alone)", () => {
+  const withGov = (gov: unknown) => ({ ...report({ d9: 90, overall: 90, level: "L4" }), governance: gov }) as unknown as ScanReport;
+
+  it("?require_protection=1 sets the policy flag (and is absent otherwise)", () => {
+    expect(policyFromParams(new URLSearchParams("require_protection=1"), "org").requireProtectedBranch).toBe(true);
+    expect(policyFromParams(new URLSearchParams(""), "org").requireProtectedBranch).toBeUndefined();
+  });
+
+  it("FAILS a readable but UNPROTECTED default branch even when every score is high", () => {
+    const res = evaluateGate(withGov({ defaultBranch: "main", protected: false, readable: true }), { requireProtectedBranch: true });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "governance")).toBe(true);
+  });
+
+  it("PASSES a protected default branch", () => {
+    expect(evaluateGate(withGov({ defaultBranch: "main", protected: true, readable: true }), { requireProtectedBranch: true }).pass).toBe(true);
+  });
+
+  it("does NOT false-fail when governance is unreadable or absent (no token saw the rules)", () => {
+    expect(evaluateGate(withGov({ defaultBranch: "main", protected: false, readable: false }), { requireProtectedBranch: true }).pass).toBe(true);
+    expect(evaluateGate(withGov(null), { requireProtectedBranch: true }).pass).toBe(true);
+  });
+
+  it("sanitizeGatePolicy keeps requireProtectedBranch:true and drops a non-true value", () => {
+    expect(sanitizeGatePolicy({ requireProtectedBranch: true })).toEqual({ requireProtectedBranch: true });
+    expect(sanitizeGatePolicy({ requireProtectedBranch: "yes" })).toBeNull();
+  });
+});
+
 // sanitizeGatePolicy is the SINGLE boundary that turns an untrusted org gate policy (settings form /
 // DB row) into a trusted GatePolicy. A regression here either silently disarms merge protection
 // (a 0/absent floor stops enforcing) or hard-blocks every PR org-wide. These tests pin its REAL

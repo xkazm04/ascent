@@ -8,7 +8,9 @@
 //   --min-level L3        minimum overall maturity level
 //   --min-overall 60      minimum overall score (0..100)
 //   --min-dimension 40    no dimension may score below this
+//   --min-security 50     minimum Security (D9) score — the security gate floor
 //   --no-ungoverned       fail if the posture is "ungoverned" (heavy AI, light guardrails)
+//   --require-protection  fail if the default branch has no branch-protection rules (when readable)
 //   --ref <sha|branch>    gate a specific ref (e.g. a PR head sha) instead of the default branch
 //   --live                score with the configured LLM instead of the deterministic mock
 //
@@ -33,7 +35,9 @@ const qs = new URLSearchParams();
 if (opt("min-level")) qs.set("min_level", opt("min-level"));
 if (opt("min-overall")) qs.set("min_overall", opt("min-overall"));
 if (opt("min-dimension")) qs.set("min_dimension", opt("min-dimension"));
+if (opt("min-security")) qs.set("min_security", opt("min-security"));
 if (flag("no-ungoverned")) qs.set("no_ungoverned", "1");
+if (flag("require-protection")) qs.set("require_protection", "1");
 if (flag("live")) qs.set("mock", "0");
 // --ref <sha|branch>: gate a specific ref (e.g. a PR head) so the score reflects what the PR
 // changes, not the default branch. In a PR workflow: --ref "$GITHUB_SHA" or the PR head sha.

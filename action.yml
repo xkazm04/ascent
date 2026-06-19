@@ -41,8 +41,16 @@ inputs:
     description: "No single dimension may score below this."
     required: false
     default: ""
+  min-security:
+    description: "Minimum Security (D9) dimension score — the security gate floor."
+    required: false
+    default: ""
   no-ungoverned:
     description: "Fail if the posture is 'ungoverned' (heavy AI, light guardrails)."
+    required: false
+    default: "false"
+  require-protection:
+    description: "Fail if the default branch has no branch-protection rules (when readable)."
     required: false
     default: "false"
   live:
@@ -65,7 +73,9 @@ runs:
         if [ -n "${{ inputs.min-level }}" ]; then ARGS+=(--min-level "${{ inputs.min-level }}"); fi
         if [ -n "${{ inputs.min-overall }}" ]; then ARGS+=(--min-overall "${{ inputs.min-overall }}"); fi
         if [ -n "${{ inputs.min-dimension }}" ]; then ARGS+=(--min-dimension "${{ inputs.min-dimension }}"); fi
+        if [ -n "${{ inputs.min-security }}" ]; then ARGS+=(--min-security "${{ inputs.min-security }}"); fi
         if [ -n "${{ inputs.ref }}" ]; then ARGS+=(--ref "${{ inputs.ref }}"); fi
         if [ "${{ inputs.no-ungoverned }}" = "true" ]; then ARGS+=(--no-ungoverned); fi
+        if [ "${{ inputs.require-protection }}" = "true" ]; then ARGS+=(--require-protection); fi
         if [ "${{ inputs.live }}" = "true" ]; then ARGS+=(--live); fi
         node "${{ github.action_path }}/scripts/maturity-gate.mjs" "${ARGS[@]}"

@@ -133,7 +133,10 @@ export async function getOrgGovernance(orgSlug: string, segmentId?: string | nul
   return {
     repos: perRepo.length,
     protectedRate: rate((g) => g.protected),
-    requireReviewRate: rate((g) => g.requiresPullRequest),
+    // "Require review" must mean an APPROVAL is required (required_approving_review_count ≥ 1), not
+    // merely that a PR is required to merge — a PR-required branch with 0 required approvals lets the
+    // author self-merge unreviewed. Counting requiresPullRequest overstated approval-enforced coverage.
+    requireReviewRate: rate((g) => g.requiredApprovals >= 1),
     requireChecksRate: rate((g) => g.requiresStatusChecks),
     signedRate: rate((g) => g.requiresSignatures),
     perRepo,
