@@ -22,6 +22,7 @@ vi.mock("@/lib/github/app", async () => {
 });
 
 import { openDraftPr } from "./write";
+import { upsertStickyComment } from "./checks";
 import { githubAppFetch } from "@/lib/github/app";
 
 const mockFetch = vi.mocked(githubAppFetch);
@@ -207,5 +208,150 @@ describe("openDraftPr — retry/idempotency signals", () => {
     });
     const res = await openDraftPr(baseInput());
     expect(res).toMatchObject({ url: "https://github.com/acme/app/pull/3", number: 3, reused: true });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// upsertStickyComment (checks.ts) — find-or-create + 404-recreate. Same module/test file because it
+// shares the SAME mocked githubAppFetch + REAL AppApiError surface (the 404→fall-through branch is an
+// `instanceof AppApiError` check, so the real class is load-bearing). The sticky comment is the bot's
+// single in-place verdict on a PR; a regression either STACKS a duplicate every sync, or THROWS when a
+// race-deleted comment 404s the PATCH and kills the whole PR write. These pin find-vs-create-vs-404.
+// ---------------------------------------------------------------------------------------------------
+
+const PR_NUMBER = 42;
+const MARKER = "<!-- ascent-maturity-gate -->";
+// A real caller embeds the marker in the body so the NEXT run can find this same comment again.
+const STICKY_BODY = `${MARKER}\n## Maturity gate: PASS\nScore 82/100`;
+
+const stickyInput = () => ({
+  token: "installation-token",
+  owner: OWNER,
+  repo: REPO,
+  prNumber: PR_NUMBER,
+  marker: MARKER,
+  body: STICKY_BODY,
+});
+
+const commentPatches = () => calls.filter((c) => c.method === "PATCH" && c.path.includes("/issues/comments/"));
+const commentPosts = () =>
+  calls.filter((c) => c.method === "POST" && c.path.endsWith(`/issues/${PR_NUMBER}/comments`));
+
+/**
+ * Router for the comments API. `pages` is the sequence of list-pages githubAppFetch returns for the
+ * GET .../issues/{n}/comments?page=… loop; `patch` controls the PATCH outcome (ok / a deleted-comment
+ * 404 / some other error). PATCH/POST echo the marker'd body back as html_url-bearing JSON.
+ */
+function installCommentRouter(state: {
+  pages: { id: number; body: string }[][]; // one entry per page returned by the search loop
+  patch?: "ok" | "404" | "500"; // outcome of the PATCH to an existing comment
+}) {
+  mockFetch.mockImplementation(async (path: string, _auth: string, init: RequestInit = {}) => {
+    const method = (init.method ?? "GET").toUpperCase();
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = init.body ? (JSON.parse(init.body as string) as Record<string, unknown>) : null;
+    } catch {
+      body = null;
+    }
+    calls.push({ path, method, body });
+
+    // search loop: GET .../issues/{n}/comments?per_page=100&page=K
+    // (match `&page=` specifically — `page=` alone also hits the `per_page=` substring).
+    if (method === "GET" && path.includes(`/issues/${PR_NUMBER}/comments`)) {
+      const page = Number(path.split("&page=")[1] ?? "1");
+      return (state.pages[page - 1] ?? []) as never;
+    }
+    // update existing: PATCH .../issues/comments/{id}
+    if (method === "PATCH" && path.includes("/issues/comments/")) {
+      if (state.patch === "404") throw new AppApiError(404, path, "Not Found");
+      if (state.patch === "500") throw new AppApiError(500, path, "Server Error");
+      return { html_url: "https://github.com/acme/app/pull/42#issuecomment-111" } as never;
+    }
+    // create new: POST .../issues/{n}/comments
+    if (method === "POST" && path.endsWith(`/issues/${PR_NUMBER}/comments`)) {
+      return { html_url: "https://github.com/acme/app/pull/42#issuecomment-999" } as never;
+    }
+    throw new Error(`unrouted call: ${method} ${path}`);
+  });
+}
+
+describe("upsertStickyComment — find-or-create + 404-recreate (one in-place comment, never stacked)", () => {
+  it("FINDS a prior comment by its marker and UPDATES it in place: exactly one PATCH, zero POST, updated:true", async () => {
+    installCommentRouter({
+      pages: [[{ id: 7, body: "lgtm" }, { id: 8, body: `${MARKER}\n## old verdict` }]],
+      patch: "ok",
+    });
+
+    const res = await upsertStickyComment(stickyInput());
+
+    expect(res).toEqual({ url: "https://github.com/acme/app/pull/42#issuecomment-111", updated: true });
+    // The match is keyed on the marker → it must PATCH that exact comment id, once, and never POST a dup.
+    const patches = commentPatches();
+    expect(patches).toHaveLength(1);
+    expect(patches[0].path).toContain("/issues/comments/8");
+    expect(commentPosts()).toHaveLength(0);
+    // Marker preserved in the written body so the NEXT run finds this same comment again.
+    expect(patches[0].body?.body).toContain(MARKER);
+  });
+
+  it("CREATES a new comment (POST) when no prior comment matches the marker: zero PATCH, updated:false, marker carried", async () => {
+    installCommentRouter({
+      pages: [[{ id: 1, body: "ci passed" }, { id: 2, body: "needs review" }]],
+    });
+
+    const res = await upsertStickyComment(stickyInput());
+
+    expect(res).toEqual({ url: "https://github.com/acme/app/pull/42#issuecomment-999", updated: false });
+    expect(commentPatches()).toHaveLength(0);
+    const posts = commentPosts();
+    expect(posts).toHaveLength(1);
+    // The marker must be in the created body, otherwise the next sync can't find-and-update it.
+    expect(posts[0].body?.body).toContain(MARKER);
+  });
+
+  it("404 on the PATCH (comment was deleted between read and write) FALLS BACK to a create instead of throwing", async () => {
+    installCommentRouter({
+      pages: [[{ id: 8, body: `${MARKER}\nstale` }]],
+      patch: "404",
+    });
+
+    const res = await upsertStickyComment(stickyInput());
+
+    // It tried the in-place PATCH, ate the 404, and recreated — returning the POSTed comment's url, updated:false.
+    expect(res).toEqual({ url: "https://github.com/acme/app/pull/42#issuecomment-999", updated: false });
+    expect(commentPatches()).toHaveLength(1); // the doomed update was attempted...
+    expect(commentPosts()).toHaveLength(1); // ...then recovery created a fresh sticky comment
+  });
+
+  it("a non-404 PATCH failure RE-THROWS (does not silently double-post on a transient/permission error)", async () => {
+    installCommentRouter({
+      pages: [[{ id: 8, body: `${MARKER}\nstale` }]],
+      patch: "500",
+    });
+
+    await expect(upsertStickyComment(stickyInput())).rejects.toMatchObject({
+      name: "AppApiError",
+      status: 500,
+    });
+    // Critically: no fallback POST on a 500 — only a 404 means "deleted, safe to recreate".
+    expect(commentPosts()).toHaveLength(0);
+  });
+
+  it("matches a marker found on a LATER page (paginated search), still a single PATCH", async () => {
+    // Page 1 is full (100 comments) with no match → loop continues to page 2 where the marker lives.
+    const fullFirstPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, body: `noise ${i}` }));
+    installCommentRouter({
+      pages: [fullFirstPage, [{ id: 808, body: `${MARKER}\non page two` }]],
+      patch: "ok",
+    });
+
+    const res = await upsertStickyComment(stickyInput());
+
+    expect(res.updated).toBe(true);
+    const patches = commentPatches();
+    expect(patches).toHaveLength(1);
+    expect(patches[0].path).toContain("/issues/comments/808");
+    expect(commentPosts()).toHaveLength(0);
   });
 });
