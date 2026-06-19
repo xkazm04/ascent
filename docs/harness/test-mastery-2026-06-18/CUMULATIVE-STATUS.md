@@ -34,7 +34,10 @@
 | 8 | The long tail | 5 | 5 | 1155 |
 | **Total** | | **49** | **60** | **1155** |
 
-## The 8 documented-and-pinned latent bugs
+## The latent bugs — NOW ALL FIXED (see FIXES-LATENT-BUGS.md)
+
+> These 8 (a 9th, `/api/history` CSV formula-injection, was surfaced in the High tier) were originally **pinned as KNOWN current behavior**. They have since **all been fixed** in a dedicated 10-commit `fix(...)` pass — each fix flipped its KNOWN test to enforce the corrected behavior. The list below is retained for provenance.
+
 
 These are real defects the tests **pin as current behavior** (labeled KNOWN) rather than fix — so the suite documents them and a future fix is a deliberate, test-visible change. None were introduced by this run.
 
@@ -47,7 +50,7 @@ These are real defects the tests **pin as current behavior** (labeled KNOWN) rat
 7. **movers/rollup baseline asymmetry** (`org-insights.ts` vs `org-rollup.ts`) — `<= start` inclusive vs strict `lt: start` can show contradictory fleet movement.
 8. **manifest command-quote truncation** (`manifest.ts`/`doctor.ts`) — a command containing a `"` JSON-escapes on write but the doctor regex stops at the first quote (no real command has quotes today).
 
-**Recommended follow-up:** each is a small, well-scoped fix now backed by a failing-on-change test. Address them in a separate `fix(...)` pass (not part of this test-only run).
+**DONE:** all fixed in a separate `fix(...)` pass — see `FIXES-LATENT-BUGS.md`. Each was a small, well-scoped fix backed by its now-flipped test.
 
 ## 42-item pattern catalogue
 
@@ -67,7 +70,7 @@ Accumulated across the 8 waves (see each `FIXES-WAVE-N.md` for the per-wave addi
 
 - **All 76 Highs now closed** (Waves H1–H8 — see `FIXES-HIGHS.md`). **40 Mediums + 16 Lows** remain untouched — the same themes, one tier down. A follow-on run can pipeline them the same way.
 - **A per-area / changed-code coverage gate** in CI (Theme G from the INDEX) — nothing yet stops these pins from rotting back; a ratchet on changed files is the durable backstop.
-- **The 8 latent bugs above** — fix pass, each now test-guarded.
+- **The 9 latent bugs** — DONE (fixed in a 10-commit `fix(...)` pass; see `FIXES-LATENT-BUGS.md`).
 
 ## How to resume
 
