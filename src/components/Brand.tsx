@@ -126,6 +126,9 @@ export function SiteFooter() {
           <Link href="/about" className="focus-ring rounded-sm hover:text-accent">
             About
           </Link>
+          <Link href="/badge" className="focus-ring rounded-sm hover:text-accent">
+            Badge
+          </Link>
           <Link href="/connect" className="focus-ring rounded-sm hover:text-accent">
             Connect
           </Link>

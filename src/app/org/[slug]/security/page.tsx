@@ -147,6 +147,24 @@ export default async function OrgSecurity({
         </Card>
       )}
 
+      {/* Empty state (Nadia): when supply-chain scanning is OFF (or no advisory data yet) the card above
+          silently vanished — so the tab looked like it simply had no supply-chain feature. Say so, and
+          reinforce that this is a SEPARATE signal that does not change the D9 score. */}
+      {!(supply && supply.scanned > 0) && (
+        <Card>
+          <SectionHeader
+            size="sm"
+            title="Supply chain"
+            description="Open Dependabot advisories per repo — a separate signal that does NOT change the Security (D9) score."
+          />
+          <InlineEmpty>
+            {(process.env.SUPPLY_CHAIN_PROVIDER ?? "off").toLowerCase() === "off"
+              ? 'Supply-chain scanning isn’t enabled. Set SUPPLY_CHAIN_PROVIDER=github (live — needs the GitHub App’s "Dependabot alerts: read") or =mock (demo data) to surface advisory counts here.'
+              : "No Dependabot advisory data for scanned repos yet — re-scan with the supply-chain provider configured."}
+          </InlineEmpty>
+        </Card>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionHeader size="sm" title="Weakest on security" />

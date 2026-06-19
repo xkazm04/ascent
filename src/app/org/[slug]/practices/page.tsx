@@ -29,6 +29,23 @@ export default async function OrgPractices({ params }: { params: Promise<{ slug:
         repoOptions={repoOptions}
       />
 
+      {/* Discoverability (Priya): the .ai/ standard + onboarding-skill generator lived only on the
+          per-repo report header — undiscoverable from the platform lead's home tab. Surface it here. */}
+      <Card>
+        <SectionHeader
+          size="sm"
+          title="Install the AI-native standard"
+          description="A vendor-neutral .ai/ foundation — manifest, an executable doctor conformance check, structured memory, and a CONTEXT graph — plus a personalized onboarding SKILL.md a repo runs with its own Claude Code CLI to reach the next maturity level."
+        />
+        <p className="mt-2 text-base text-slate-400">
+          Generated per repository from its report. Open any repo&apos;s report and use{" "}
+          <span className="text-slate-300">Onboarding skill</span> to download it.
+        </p>
+        <Link href={`/org/${slug}/repositories`} className="mt-3 inline-block font-mono text-sm uppercase tracking-widest text-accent hover:text-white">
+          Pick a repository →
+        </Link>
+      </Card>
+
       <SectionHeader
         descriptionClassName="max-w-3xl"
         title="Practice Library"
