@@ -16,6 +16,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { consumeScanCredit, grantCredits } from "./credits";
+import { isUnlimitedPlan, PLAN_ORDER } from "@/lib/plans";
 
 /**
  * Fake prisma where the org row is shared mutable state, but findUnique always returns a STALE
@@ -324,6 +325,114 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
 }
 
 import { getCreditReconciliation } from "./credits";
+
+/**
+ * Fake prisma for consumeScanCredit's plan-resolution + casing contract. Unlike `fakePrisma` (which
+ * hard-codes a single org and ignores the `where` clause), this one:
+ *  - records the `where.slug` handed to BOTH the org `findUnique` and the conditional `updateMany`, so
+ *    we can assert the slug is canonicalized to lowercase before it ever reaches the query layer; and
+ *  - returns `null` from `findUnique` when `org` is null, modelling a non-existent / unknown org so the
+ *    deny path (`{ ok:false }`, no debit, no ledger row) is exercised — not a silent free scan.
+ * The live row is mutated by `updateMany`/re-read so the metered debit-by-one is real.
+ */
+function fakePrismaForPlanResolution(org: { scanCredits: number; plan: string } | null) {
+  const row = org ? { id: "org_1", scanCredits: org.scanCredits, plan: org.plan } : null;
+  const ledger: Array<{ delta: number; balanceAfter: number; reason: string }> = [];
+  const slugs: { findUnique: string[]; updateMany: string[] } = { findUnique: [], updateMany: [] };
+  const tx = {
+    organization: {
+      findUnique: vi.fn(async ({ where }: { where: { slug: string } }) => {
+        slugs.findUnique.push(where.slug);
+        return row ? { id: row.id, scanCredits: row.scanCredits, plan: row.plan } : null;
+      }),
+      findUniqueOrThrow: vi.fn(async () => {
+        if (!row) throw new Error("no row");
+        return { scanCredits: row.scanCredits };
+      }),
+      updateMany: vi.fn(async ({ where }: { where: { slug: string; scanCredits: { gt: number } } }) => {
+        slugs.updateMany.push(where.slug);
+        if (!row || row.scanCredits <= 0) return { count: 0 };
+        row.scanCredits -= 1;
+        return { count: 1 };
+      }),
+    },
+    creditLedger: {
+      create: vi.fn(async ({ data }: { data: (typeof ledger)[number] }) => {
+        ledger.push({ delta: data.delta, balanceAfter: data.balanceAfter, reason: data.reason });
+        return data;
+      }),
+    },
+  };
+  return {
+    prisma: { $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) },
+    row,
+    ledger,
+    slugs,
+    updateMany: tx.organization.updateMany,
+  };
+}
+
+describe("consumeScanCredit plan-resolution + casing contract", () => {
+  // (a) Drive the unlimited no-op off the isUnlimitedPlan CONTRACT, not the literal "enterprise":
+  // for EVERY plan the contract calls unlimited, a debit must be a no-op; for a metered plan it debits.
+  const unlimitedPlans = PLAN_ORDER.filter((p) => isUnlimitedPlan(p));
+  const meteredPlans = PLAN_ORDER.filter((p) => !isUnlimitedPlan(p));
+
+  it("sanity: the plan catalogue actually has both an unlimited and a metered tier to test", () => {
+    expect(unlimitedPlans.length).toBeGreaterThan(0);
+    expect(meteredPlans.length).toBeGreaterThan(0);
+  });
+
+  it.each(unlimitedPlans)("plan %s (isUnlimitedPlan=true) is a no-op: no debit, no ledger row", async (plan) => {
+    const { prisma, ledger, row } = fakePrismaForPlanResolution({ scanCredits: 5, plan });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("acme");
+
+    // Keyed on the plan's `unlimited` flag (data-driven from PLAN_FEATURES), never on a hardcoded string.
+    expect(res).toEqual({ ok: true, balance: 5, unlimited: true });
+    expect(ledger).toHaveLength(0);
+    expect(row!.scanCredits).toBe(5);
+  });
+
+  it.each(meteredPlans)("plan %s (isUnlimitedPlan=false) decrements by exactly 1 and stamps the ledger", async (plan) => {
+    const { prisma, ledger, row } = fakePrismaForPlanResolution({ scanCredits: 5, plan });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("acme");
+
+    expect(res).toEqual({ ok: true, balance: 4, unlimited: false });
+    expect(row!.scanCredits).toBe(4);
+    expect(ledger).toEqual([{ delta: -1, balanceAfter: 4, reason: "scan" }]);
+  });
+
+  it("canonicalizes a mixed-case slug to lowercase on BOTH the read and the conditional decrement (no double-account)", async () => {
+    const { prisma, slugs } = fakePrismaForPlanResolution({ scanCredits: 5, plan: "pro" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("ACME");
+
+    // "ACME" must resolve the SAME org/plan as "acme" — the slug is lowercased before it hits Prisma,
+    // so a mixed-case caller can't fork into a $0/free phantom org and get wrongly paywalled.
+    expect(res.ok).toBe(true);
+    expect(slugs.findUnique).toEqual(["acme"]);
+    expect(slugs.updateMany).toEqual(["acme"]);
+    expect(slugs.findUnique).not.toContain("ACME");
+    expect(slugs.updateMany).not.toContain("ACME");
+  });
+
+  it("a non-existent org denies (ok:false, zero balance) — never a silent free scan", async () => {
+    const { prisma, ledger, updateMany } = fakePrismaForPlanResolution(null);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("ghost");
+
+    // Per the real code: org === null short-circuits to a denial; no decrement attempt, no ledger row.
+    expect(res).toEqual({ ok: false, balance: 0, unlimited: false });
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(ledger).toHaveLength(0);
+  });
+});
 
 describe("getCreditReconciliation refund-vs-grant classification", () => {
   const now = Date.now();
