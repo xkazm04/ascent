@@ -1,8 +1,9 @@
 "use client";
 
+import { importWatchMonthlyCredits } from "@/components/onboarding/importCost";
 import { IMPORT_WATCH_SCHEDULE } from "@/components/onboarding/importScan";
 import type { OrgRepo } from "@/components/onboarding/types";
-import { CREDIT_ESTIMATE_NOTE, MONTHLY_RUNS } from "@/lib/credit-estimate";
+import { CREDIT_ESTIMATE_NOTE } from "@/lib/credit-estimate";
 
 /** The "choose up to maxSelect repos" phase: sticky action bar, repo list (or skeleton), scan/back. */
 export function SelectStep({
@@ -37,7 +38,7 @@ export function SelectStep({
   const atCap = selected.size >= maxSelect;
   // The scan button also COMMITS these repos to a weekly autoscan (watch:true in the import) —
   // a recurring prepaid-credit draw that was previously invisible at this exact decision moment.
-  const monthlyCredits = selected.size * (MONTHLY_RUNS[IMPORT_WATCH_SCHEDULE] ?? 0);
+  const monthlyCredits = importWatchMonthlyCredits(selected.size);
   const underAMonth = credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
   return (
     <div key="select" className="animate-phase-in">
