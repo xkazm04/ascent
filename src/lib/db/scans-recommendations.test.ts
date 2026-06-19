@@ -21,7 +21,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { updateRecommendation } from "./scans-recommendations";
+import { updateRecommendation, getRecommendationEvents } from "./scans-recommendations";
 import { toPersistedRec } from "./scans-shared";
 
 /** A minimal Recommendation row that satisfies toPersistedRec's field reads. */
@@ -204,6 +204,69 @@ describe("updateRecommendation — atomic mutation + audit", () => {
     );
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.recommendation.update).not.toHaveBeenCalled();
+  });
+});
+
+// ── getRecommendationEvents — the activity timeline read order (newest-first + stable tiebreak) ──
+// The timeline is the audit narrative "who changed what, when". Its ordering is deliberate
+// (roadmap-recommendation-tracking #5a): orderBy [{createdAt:"desc"},{id:"desc"}] — newest first,
+// with id desc as a STABLE tiebreak so two events written in the same millisecond (a multi-field
+// patch writes several rows in one createMany) return in a deterministic order rather than arbitrary.
+// We assert the orderBy is pinned at the query layer AND that the mapped result preserves that order
+// and ISO-formats `at` — so a refactor that drops the tiebreak (a quietly-wrong narrative) is caught.
+
+describe("getRecommendationEvents — newest-first timeline order + ISO mapping", () => {
+  function fakePrismaForEvents(rows: Array<Record<string, unknown>>) {
+    const findMany = vi.fn(async () => rows);
+    return { prisma: { recommendationEvent: { findMany } }, findMany };
+  }
+
+  it("queries with the documented newest-first + stable id tiebreak orderBy", async () => {
+    const { prisma, findMany } = fakePrismaForEvents([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRecommendationEvents("rec_1");
+
+    expect(findMany).toHaveBeenCalledTimes(1);
+    const args = findMany.mock.calls[0][0] as { where: { recommendationId: string }; orderBy: unknown };
+    expect(args.where).toEqual({ recommendationId: "rec_1" });
+    // The exact, order-sensitive tiebreak: createdAt desc FIRST, then id desc. Dropping the id
+    // tiebreak lets same-millisecond events return in arbitrary order — a wrong audit narrative.
+    expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+  });
+
+  it("preserves the DB row order in the mapped result and ISO-formats `at`", async () => {
+    // Rows as the DB returns them under the desc orderBy (newest first). The mapper must NOT re-sort.
+    const newer = new Date("2026-06-09T12:00:00.000Z");
+    const older = new Date("2026-06-08T09:30:00.000Z");
+    const { prisma } = fakePrismaForEvents([
+      { id: "ev_2", actor: "alice", kind: "status", fromValue: "open", toValue: "done", note: null, createdAt: newer },
+      { id: "ev_1", actor: "bob", kind: "assignee", fromValue: null, toValue: "octocat", note: "n", createdAt: older },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const events = await getRecommendationEvents("rec_1");
+
+    expect(events!.map((e) => e.id)).toEqual(["ev_2", "ev_1"]); // newest-first order preserved
+    expect(events![0]).toEqual({
+      id: "ev_2",
+      actor: "alice",
+      kind: "status",
+      from: "open",
+      to: "done",
+      note: null,
+      at: "2026-06-09T12:00:00.000Z", // createdAt -> ISO string
+    });
+    expect(events![1].at).toBe("2026-06-08T09:30:00.000Z");
+  });
+
+  it("returns null without querying when persistence is disabled", async () => {
+    const { prisma, findMany } = fakePrismaForEvents([]);
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    expect(await getRecommendationEvents("rec_1")).toBeNull();
+    expect(findMany).not.toHaveBeenCalled();
   });
 });
 

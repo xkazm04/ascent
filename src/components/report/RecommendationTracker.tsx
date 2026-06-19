@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
 import { ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/RoadmapPanel";
+import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
 
 const STATUS_LABEL: Record<RecStatus, string> = {
   open: "Open",
@@ -79,14 +80,11 @@ export function RecommendationTracker({
     // snapshot (the old `setItems(prev)`) would clobber other rows' concurrent optimistic or
     // already-confirmed changes when several updates overlap.
     const priorStatus = row?.status;
-    const rollback = () =>
-      setItems((cur) =>
-        cur.map((i) => (i.id === id && priorStatus !== undefined ? { ...i, status: priorStatus } : i)),
-      );
+    const rollback = () => setItems((cur) => rollbackRowStatus(cur, id, priorStatus));
 
     setSaving(id, true);
     clearError(id);
-    setItems((cur) => cur.map((i) => (i.id === id ? { ...i, status } : i))); // optimistic, this row only
+    setItems((cur) => applyOptimisticStatus(cur, id, status)); // optimistic, this row only
     try {
       const res = await fetch(`/api/recommendations/${id}`, {
         method: "PATCH",
