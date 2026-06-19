@@ -32,6 +32,7 @@ vi.mock("@/lib/github/app", () => ({
 }));
 vi.mock("@/lib/db", () => ({
   getInstallationIdForOwner: vi.fn(),
+  getOrgGatePolicy: vi.fn(),
   getOrgId: vi.fn(),
   getScanReportByCommit: vi.fn(),
   isDbConfigured: () => true,
@@ -55,6 +56,8 @@ import { after } from "next/server";
 import { AppApiError, getInstallation, getInstallationToken, listInstallationRepos } from "@/lib/github/app";
 import {
   getInstallationIdForOwner,
+  getOrgGatePolicy,
+  getOrgId,
   getScanReportByCommit,
   isRepoWatched,
   persistScanReport,
@@ -68,6 +71,7 @@ import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment } from "@/lib/scoring/gate-comment";
 import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
+import { diffReports } from "@/lib/scoring/engine";
 
 const mockGetInstallation = vi.mocked(getInstallation);
 const mockGetToken = vi.mocked(getInstallationToken);
@@ -87,6 +91,9 @@ const mockIsRepoWatched = vi.mocked(isRepoWatched);
 const mockPersist = vi.mocked(persistScanReport);
 const mockGetReportByCommit = vi.mocked(getScanReportByCommit);
 const mockCheckRegression = vi.mocked(checkAndAlertRegression);
+const mockGetOrgGatePolicy = vi.mocked(getOrgGatePolicy);
+const mockGetOrgId = vi.mocked(getOrgId);
+const mockDiffReports = vi.mocked(diffReports);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
 async function runDeferred(): Promise<void> {
@@ -368,5 +375,218 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     expect(mockGetToken).toHaveBeenCalledTimes(1);
     expect(mockGetToken).toHaveBeenCalledWith(88);
     expect(mockScan).toHaveBeenCalled();
+  });
+});
+
+// Pins test-mastery 06-18 high #3 (route.ts:202-273, 402-413): the PR maturity gate `runPrGate` must
+// never leave a PR's *required* check silently absent. The cross-tenant auth gate already has coverage
+// above; here the owner mapping always AGREES so the gate is authorized, and we pin the three documented
+// outcomes of the gate body itself:
+//   • a PASSING evaluation posts a SUCCESS check-run for the PR head SHA (and a sticky comment);
+//   • a head-ref scan failure FALLS BACK to the default branch and STILL posts a real check (a fork PR's
+//     head can be unreachable — the check must not vanish);
+//   • a hard failure AFTER the token mint posts a NEUTRAL "could not run" check (never throws into the
+//     handler, never leaves the PR unchecked) and RELEASES the delivery so a redelivery retries.
+// Invariant: once a token is minted, a pull_request event ALWAYS completes with either a real or a
+// neutral Check Run — it never throws out of runPrGate and never leaves the PR with no check.
+describe("POST /api/app/webhook — PR maturity gate outcomes (runPrGate)", () => {
+  const prPayload = (over: Record<string, unknown> = {}) => ({
+    action: "opened",
+    installation: { id: 55 },
+    repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
+    pull_request: { number: 9, head: { sha: "headsha9", ref: "feature" }, base: { ref: "main" } },
+    ...over,
+  });
+
+  // The auth gate is satisfied by a stored owner->installation mapping that matches the payload id (55),
+  // so getInstallationMatchesOwner returns true WITHOUT consulting GitHub — keeping these tests focused
+  // on the gate body, not the (separately covered) authorization branch.
+  function authorize() {
+    mockIdForOwner.mockResolvedValue("55");
+    mockGetOrgGatePolicy.mockResolvedValue(null as Awaited<ReturnType<typeof getOrgGatePolicy>>);
+    mockGetToken.mockResolvedValue("ghs_pr_token");
+    mockStickyComment.mockResolvedValue(undefined as Awaited<ReturnType<typeof upsertStickyComment>>);
+    mockDiffReports.mockReturnValue({} as ReturnType<typeof diffReports>);
+  }
+
+  it("posts a SUCCESS check-run for the PR head when the gate passes (and a sticky comment)", async () => {
+    authorize();
+    mockScan.mockResolvedValue({ repo: { headSha: "headsha9" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockEvaluateGate.mockReturnValue({} as ReturnType<typeof evaluateGate>);
+    mockBuildComment.mockReturnValue({
+      conclusion: "success",
+      title: "Passed",
+      summary: "s",
+      commentBody: "b",
+    } as ReturnType<typeof buildGateComment>);
+    mockCreateCheckRun.mockResolvedValue(undefined as Awaited<ReturnType<typeof createCheckRun>>);
+
+    await post("pull_request", "pr-gate-pass", prPayload());
+    await runDeferred();
+
+    // The head ref is scored first; the gate posts exactly one check, with the comment's conclusion.
+    expect(mockScan).toHaveBeenCalledWith("acme/repo", expect.objectContaining({ mock: true, ref: "headsha9" }));
+    expect(mockCreateCheckRun).toHaveBeenCalledTimes(1);
+    const check = mockCreateCheckRun.mock.calls[0][0] as { conclusion: string; headSha: string };
+    expect(check.conclusion).toBe("success");
+    expect(check.headSha).toBe("headsha9");
+    expect(mockStickyComment).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the default branch and STILL posts a real check when the head ref is unreachable", async () => {
+    authorize();
+    // First scan (head ref) rejects — a fork PR head unreachable via the base repo's tree API. The gate
+    // must NOT give up: it re-scans the default branch and still posts a check (no baseline diff).
+    mockScan.mockRejectedValueOnce(new Error("head ref 404"));
+    mockScan.mockResolvedValueOnce({ repo: { headSha: "defaultsha" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockEvaluateGate.mockReturnValue({} as ReturnType<typeof evaluateGate>);
+    mockBuildComment.mockReturnValue({
+      conclusion: "success",
+      title: "Passed (default)",
+      summary: "s",
+      commentBody: "b",
+    } as ReturnType<typeof buildGateComment>);
+    mockCreateCheckRun.mockResolvedValue(undefined as Awaited<ReturnType<typeof createCheckRun>>);
+
+    await post("pull_request", "pr-gate-fallback", prPayload());
+    await runDeferred();
+
+    // Two scans: the failed head ref, then the default-branch fallback (no `ref`). No baseline diff is
+    // computed when the head wasn't scored, so diffReports is never called — but a real check still posts.
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    expect(mockScan).toHaveBeenNthCalledWith(2, "acme/repo", expect.not.objectContaining({ ref: expect.anything() }));
+    expect(mockDiffReports).not.toHaveBeenCalled();
+    expect(mockCreateCheckRun).toHaveBeenCalledTimes(1);
+    expect((mockCreateCheckRun.mock.calls[0][0] as { conclusion: string }).conclusion).toBe("success");
+  });
+
+  it("posts a NEUTRAL 'could not run' check and releases the delivery when the gate throws after mint", async () => {
+    authorize();
+    // The token mints, but every scan attempt fails — a hard failure inside the gate body. The handler
+    // must NOT throw; it posts a neutral check (with a Re-run action) so the required check isn't absent.
+    mockScan.mockRejectedValue(new Error("scan exploded"));
+    mockCreateCheckRun.mockResolvedValue(undefined as Awaited<ReturnType<typeof createCheckRun>>);
+
+    await post("pull_request", "pr-gate-neutral", prPayload());
+    // runDeferred awaits the gate — it must resolve, not reject, even though the gate failed internally.
+    await expect(runDeferred()).resolves.toBeUndefined();
+
+    expect(mockGetToken).toHaveBeenCalledTimes(1);
+    // The PR is never left unchecked: exactly one neutral check is posted on the minted token.
+    expect(mockCreateCheckRun).toHaveBeenCalledTimes(1);
+    const neutral = mockCreateCheckRun.mock.calls[0][0] as { conclusion: string; headSha: string; actions?: unknown[] };
+    expect(neutral.conclusion).toBe("neutral");
+    expect(neutral.headSha).toBe("headsha9");
+    expect(neutral.actions).toBeDefined(); // the Re-run action gives the author recourse
+
+    // The delivery slot is released so GitHub's redelivery actually re-runs the dropped gate.
+    mockScan.mockReset();
+    mockScan.mockResolvedValue({ repo: { headSha: "headsha9" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockEvaluateGate.mockReturnValue({} as ReturnType<typeof evaluateGate>);
+    mockBuildComment.mockReturnValue({
+      conclusion: "success",
+      title: "Passed",
+      summary: "s",
+      commentBody: "b",
+    } as ReturnType<typeof buildGateComment>);
+    mockCreateCheckRun.mockClear();
+    const redelivery = await post("pull_request", "pr-gate-neutral", prPayload());
+    expect(redelivery.duplicate).toBeUndefined(); // NOT deduped — the slot was freed
+    await runDeferred();
+    expect(mockCreateCheckRun).toHaveBeenCalledTimes(1);
+    expect((mockCreateCheckRun.mock.calls[0][0] as { conclusion: string }).conclusion).toBe("success");
+  });
+});
+
+// Pins test-mastery 06-18 high #4 (route.ts:304-324, 431-440): the `push` rescan gate must auto-rescan
+// ONLY a watched repo, ONLY on the default branch, and ONLY when the head actually moved. A no-op /
+// non-default / unwatched / branch-delete push must NOT mint a token, scan, persist, or charge a
+// regression check. The auth gate is satisfied (stored mapping agrees) so these pin the rescan guards
+// themselves, not the authorization branch (covered above).
+// Invariant: scanRepository fires for a push iff (watched AND default-branch AND head-moved); otherwise
+// no rescan and no spend.
+describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", () => {
+  const pushPayload = (over: Record<string, unknown> = {}) => ({
+    installation: { id: 66 },
+    repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
+    ref: "refs/heads/main",
+    after: "abc1230000000000000000000000000000000000",
+    deleted: false,
+    ...over,
+  });
+
+  function expectNoRescan() {
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockPersist).not.toHaveBeenCalled();
+    expect(mockCheckRegression).not.toHaveBeenCalled();
+  }
+
+  it("does NOT rescan or charge an UNWATCHED repo on a default-branch push", async () => {
+    mockIdForOwner.mockResolvedValue("66"); // auth gate agrees
+    mockIsRepoWatched.mockResolvedValue(false); // ...but the repo isn't watched
+    await post("push", "push-unwatched", pushPayload());
+    await runDeferred();
+    expectNoRescan();
+  });
+
+  it("does NOT rescan a push to a NON-DEFAULT branch (the guard is checked before runPushRescan)", async () => {
+    mockIdForOwner.mockResolvedValue("66");
+    mockIsRepoWatched.mockResolvedValue(true);
+    // A feature-branch push: ref != refs/heads/<default_branch>, so runPushRescan is never scheduled.
+    await post("push", "push-nondefault", pushPayload({ ref: "refs/heads/feature" }));
+    await runDeferred();
+    expectNoRescan();
+  });
+
+  it("does NOT rescan a branch-DELETE push (after is all-zeros / deleted)", async () => {
+    mockIdForOwner.mockResolvedValue("66");
+    mockIsRepoWatched.mockResolvedValue(true);
+    // A branch delete: deleted=true and after is the all-zero SHA — the head did not move forward.
+    await post("push", "push-deleted", pushPayload({
+      deleted: true,
+      after: "0000000000000000000000000000000000000000",
+    }));
+    await runDeferred();
+    expectNoRescan();
+  });
+
+  it("DOES rescan + alert a watched, default-branch, head-moved push and persists a fresh report", async () => {
+    mockIdForOwner.mockResolvedValue("66"); // auth gate agrees
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_push_token");
+    const prior = { repo: { headSha: "prev" } } as Awaited<ReturnType<typeof getScanReportByCommit>>;
+    mockGetReportByCommit.mockResolvedValue(prior);
+    mockScan.mockResolvedValue({ repo: { headSha: "abc123" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
+    mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
+    mockCheckRegression.mockResolvedValue(undefined as Awaited<ReturnType<typeof checkAndAlertRegression>>);
+
+    await post("push", "push-rescan-ok", pushPayload());
+    await runDeferred();
+
+    expect(mockGetToken).toHaveBeenCalledWith(66);
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockPersist).toHaveBeenCalledTimes(1);
+    // A non-deduped persist drives a regression check against the PRIOR report.
+    expect(mockCheckRegression).toHaveBeenCalledTimes(1);
+    expect(mockCheckRegression.mock.calls[0][0]).toBe(prior);
+  });
+
+  it("does NOT alert when the persisted report is a DEDUPED no-op (same commit already scored)", async () => {
+    mockIdForOwner.mockResolvedValue("66");
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_push_token");
+    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
+    mockScan.mockResolvedValue({ repo: { headSha: "abc123" } } as Awaited<ReturnType<typeof scanRepository>>);
+    // This commit was already persisted — a deduped write must SUPPRESS the regression alert (no double-charge).
+    mockPersist.mockResolvedValue({ deduped: true } as Awaited<ReturnType<typeof persistScanReport>>);
+
+    await post("push", "push-rescan-deduped", pushPayload());
+    await runDeferred();
+
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockPersist).toHaveBeenCalledTimes(1);
+    expect(mockCheckRegression).not.toHaveBeenCalled();
   });
 });
