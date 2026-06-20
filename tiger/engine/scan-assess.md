@@ -8,7 +8,7 @@ output_contract: src/lib/llm/schema.ts (ASSESSMENT_JSON_SCHEMA) → validateAsse
 providers: [claude-cli (dev), gemini (MVP/public), bedrock (enterprise/private), openai, mock (floor)]
 default_model: { dev: "sonnet (claude-cli)", mvp: "gemini-3-flash", enterprise: "us.anthropic.claude-sonnet-4-6" } — sonnet floor CONFIRMED empirically 2026-06-20 ([[2026-06-20-tiger-benchmark]]): haiku fails the un-guardbanded roadmap/discrepancy bar, opus is a premium-only ceiling. MVP gemini-3-flash still UNVERIFIED (predicted ≈ haiku — run live before trusting the public tier).
 grounding: 4/5 in-direction (P0-2 stack-fit + P0-3 priority-ranked files FIXED 2026-06-20 — up from 3.5; live-confirm pending); OUT-direction still gapped — provenance is lost into the durable audit CSV (P1-5 open). No cross-scan memory. Session [[2026-06-20-tiger-l1]]
-dials: { wrapping: 9/10, observability: 4/10, caching: 8/10 (was 4 — P0-1 prompt-caching landed 2026-06-20; -2 only for cache-unaware metering + no in-flight dedup) }
+dials: { wrapping: 9/10, observability: 7/10 (was 4 — P1-4 opt-in eval log captures prompt+assessment+provenance+metering 2026-06-20; -3 for off-by-default, no raw pre-parse text, no attached eval verdict), caching: 9/10 (was 4 — P0-1 prompt-caching + P1-6 cache-aware metering landed; -1 only for no in-flight dedup) }
 tags: [engine, llm-call-site, scan, the-only-llm-piece]
 last_reviewed: 2026-06-20 (session [[2026-06-20-tiger-l1]])
 ---
@@ -52,15 +52,14 @@ The one point off: no circuit-breaker / no provider health memory across scans (
 ### Observability — **4/10** (the biggest Lens-A gap)
 - ✓ **Token metering** `onUsage({inputTokens, outputTokens})`, committed to `report.usage` **only on a usable attempt** (a failed attempt's tokens are dropped — honest billing, a real strength). `bedrock.ts:100`, `scan.ts:206-219, 313`.
 - ✓ **Latency** `llmLatencyMs`. `scan.ts:298, 313`.
-- ✗ **No prompt/response capture** — the prompt and the raw model output are never logged or persisted. Only *failures* log (`console.error("[scan] LLM provider failed…")`, `scan.ts:281`). A *usable-but-wrong* assessment (the dangerous case — it renders under the provider's name) leaves no trace to debug or to build an eval set from. → [[#T-A2]]
-- ✗ **No request/trace id**, no per-attempt success log, no structured event. Three failover attempts produce at most one error line.
-- ✗ **No eval logging** — nothing accumulates (prompt, output, Character verdict) into a regression corpus, so Lens-C benchmarking starts from zero each time.
+- ✅ **Prompt + assessment capture — FIXED (P1-4, 2026-06-20).** Opt-in via `ASCENT_EVAL_LOG_DIR`: every assess() outcome appends a JSONL record (prompt + structured assessment + provider/model + degraded + coverage + usage + latency, secrets redacted) via `src/lib/llm/eval-log.ts`, hooked in `scan.ts`. A usable-but-wrong assessment is now debuggable + accumulates an eval corpus. Each record carries a uuid (the request/trace id). Was: only failures logged.
+- ✗ **Off by default + no raw pre-parse text** (remaining) — the eval log captures the *validated* assessment, not the provider's raw text (a parse-failure forensics gap), and attaches no Character/eval verdict yet. Per-attempt success still isn't logged.
 
 ### Caching — **4/10**
 - ✓ **Whole-scan result cache** `lookupCachedScan` keyed by head-SHA × useLLM × orgSlug — a re-scan of an *unchanged* commit skips the LLM entirely. `src/app/api/scan/stream/route.ts:132`, `src/lib/scan-cache.ts:65`. Good coarse cache.
 - ✅ **Provider prompt-caching — FIXED (P0-1, 2026-06-20).** The stable prefix (role + full rubric + task + JSON schema ≈ the bulk of input tokens) is now composed once into the `SYSTEM` prompt (byte-identical every scan) and Bedrock marks it with a `cachePoint` (`bedrock.ts`); OpenAI auto-caches the prefix, Gemini implicitly, claude-cli its own. Re-scans of distinct commits now read the prefix from cache instead of re-billing it. Was: 0 `cache_control`/`cachePoint` hits repo-wide.
-- ✗ **Metering not cache-aware** (remaining, P1-6) — `TokenUsage` has no `cacheRead`/`cacheWrite` class, so cache-read tokens (~10% rate) aren't separately priced.
-- ✗ **No in-flight dedup** — two concurrent scans of the same commit both call the model (the result cache only helps *after* one completes).
+- ✅ **Cache-aware metering — FIXED (P1-6, 2026-06-20).** `TokenUsage` carries `cacheReadTokens`/`cacheWriteTokens` (Bedrock populates them); `billableInputTokens()` folds them (read ~10%, write ~125%) into a cost-equivalent input count that `scans-persist.ts` persists — so `/usage` prices a cached scan correctly with no schema migration.
+- ✗ **No in-flight dedup** (remaining) — two concurrent scans of the same commit both call the model (the result cache only helps *after* one completes).
 
 ## Lens C — Model Optimization (predicted frontier; benchmark plan in [[models]])
 Because scoring is guardbanded (above), the hypothesis: **the score is nearly model-insensitive; the roadmap and discrepancy-audit are not.**

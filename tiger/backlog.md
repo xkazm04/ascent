@@ -15,11 +15,7 @@ The living, impact-ranked list of changes to [[scan-assess]] (the app's one LLM 
 
 ## P1 — high value, confirmed
 
-### P1-4 · Capture (redacted) prompt + raw response + verdict → an eval log `[lens: observability]`
-Only failures log (`scan.ts:281`). A usable-but-wrong assessment leaves no trace. This one gap blocks **debugging** (Sam), **injection forensics** (Nadia), **auditor defense** (Mariam), and **Lens-C benchmarking** (no corpus). 
-- **Fix:** persist `{requestId, model, prompt-hash or redacted prompt, raw response, usage, latency, coverage, Character/eval verdict}` to an eval store; redact secrets/PII. Gate volume by sampling if needed.
-- **Win:** turns every scan into eval data; unblocks the `benchmark` pass and a regression corpus.
-- Convergent: Sam, Nadia, Mariam. `impact: {freq:high, reach:med, trust:high}`.
+*(P1-4 shipped 2026-06-20 — see the Closed/Fixed log below.)*
 
 ### P1-5 · Put engine/model provenance in the durable + signed artifact `[lens: trust/business-value]`
 Grounding is lossy on the way **out**: the live UI discloses mock-degrade, but the signed audit CSV (`history/route.ts`) has **no engine column**, so a mock-degraded quarter is byte-identical to a model-scored one in the filed evidence. Plus the keyless-default mock path keeps `llmFailed=false` (`scan.ts:118,279`), so its only disclosure is the chip — not the loud caveat the failure path emits.
@@ -27,9 +23,7 @@ Grounding is lossy on the way **out**: the live UI discloses mock-degrade, but t
 - **Win:** an auditor (Mariam/Diane) can see which quarters were really AI-scored; closes the disclosure-parity gap (Mei).
 - Evidence: `history/route.ts:31,115`, `scan.ts:118,274-293`, `index.ts:70-72`. `impact: {freq:med, reach:med, trust:high}`.
 
-### P1-6 · Make token metering cache-aware `[lens: observability/cost]`
-Follow-up to P0-1: now that prompt-caching is on, add a `cacheReadTokens`/`cacheWriteTokens` class to `TokenUsage`, capture `res.usage.cacheReadInputTokens`/`cacheWriteInputTokens` in the Bedrock (and other) providers, and price them at the cache rate in `db/usage.ts` so `/usage` neither under- nor over-states the cached bill.
-- Evidence: `provider.ts` AssessOptions.onUsage, `bedrock.ts:100`, `config.ts` MODEL_PRICES. `impact: {freq:med, reach:med, trust:low}` (accuracy, not a quality gate).
+*(P1-6 shipped 2026-06-20 — see the Closed/Fixed log below.)*
 
 ## P2 — model optimization (needs the live `benchmark` pass to land)
 
@@ -37,7 +31,7 @@ Follow-up to P0-1: now that prompt-caching is on, add a `cacheReadTokens`/`cache
 **Benchmarked 2026-06-20 ([[2026-06-20-tiger-benchmark]]) — Claude spine, real outputs, blind-judged.** Findings:
 - **(a) Keep `sonnet` as default — CONFIRMED, don't downgrade to haiku.** Empirically, the guardband protects the *score* (haiku's D2=75 clamps to 47) but the *roadmap + discrepancy audit* (the actual value) degrade below the senior bar on haiku; sonnet is the cheapest tier that clears. Status: **resolved-verified for the Claude spine** (n=1 fixture; re-run across 3-5 fixtures to fully close).
 - **(b) Two-model split — TESTED, NOT worth it.** Output tokens dominate the bill (not input), so splitting cheap-scoring/strong-roadmap saves little, and haiku's summaries were also weak. Single-model sonnet beats the split. **Closed (won't-do).**
-- **(c) Thinking-budget knob scoped to the discrepancy audit** — still open; not benchmarkable in this harness. `config.ts` has only temperature/maxTokens. Predicted to help only opus on complex repos. **Open.**
+- **(c) Thinking-budget knob — ✅ SHIPPED 2026-06-20** (see Closed/Fixed log). `LLM_THINKING_BUDGET` env, opt-in, Bedrock-wired. Predicted to help only opus's discrepancy audit on complex repos; live-confirm pending.
 - **(d) Premium `opus` toggle** for high-stakes audits (the 2nd-discrepancy catch) — offer as an enterprise option, not default. **Open (product decision).**
 - **Still UNVERIFIED:** `gemini-3-flash` (public/MVP default) — predicted ≈ haiku; **run a live gemini-flash vs sonnet pass before trusting the public tier** (Tomas's "buyer judges the product on the cheap scan" risk). `impact: {freq:high, reach:high, trust:med}`.
 
@@ -56,6 +50,24 @@ Once the 7-day SHA result-cache lapses, temperature 0.2 + the ±15-realized guar
 Honest billing (usage on usable-only, `scan.ts:206-219`) · the retry/budget/abort/validate/coverage **wrapping stack** · schema-as-single-source-of-truth · claude-cli secret hygiene · per-row HMAC + CSV content-hash tamper-evidence · GHES + OpenAI base-URL overrides (Diane's air-gap blocker now refuted). Any change above must preserve these.
 
 ## Closed / resolved log
+
+### ✅ P1-4 · Opt-in assessment eval log — `fixed` (2026-06-20, unit-verified)
+Only failures logged; a usable-but-wrong assessment left no trace — blocking debugging (Sam), injection forensics (Nadia), auditor defense (Mariam), and Lens-C benchmarking (no corpus).
+- **Shipped:** new `src/lib/llm/eval-log.ts` — when `ASCENT_EVAL_LOG_DIR` is set, every assess() outcome is appended as one JSONL record (prompt + structured assessment + provider/model + degraded flag + coverage + usage + latency), secrets redacted. Hooked in `scan.ts` after `report.usage` (prompt rebuilt only when logging is on). OFF by default → no prod overhead, no captured content; best-effort (a sink failure never fails a scan); local-dev/self-host (ephemeral serverless FS by design).
+- **Verified:** tsc 0 · eslint 0 · 4 new eval-log tests (no-op when off · JSONL shape when on · secret redaction). `2392` suite green.
+- **Ceiling:** captures the *validated* assessment (structured), not the provider's raw pre-parse text — a parse-failure forensics gap remains (would need a provider-level onTrace hook); and no Character/eval *verdict* is attached yet (that comes from a scoring pass over the corpus). File sink only (no DB/external sink).
+
+### ✅ P1-6 · Cache-aware token metering — `fixed` (2026-06-20, unit-verified)
+With P0-1 caching on, the cost basis missed the cache token classes (cache reads ~10%, writes ~125% of input).
+- **Shipped:** added `cacheReadTokens`/`cacheWriteTokens` to `TokenUsage` (`types.ts`); Bedrock captures `res.usage.cacheReadInputTokens`/`cacheWriteInputTokens` in `onUsage` (`bedrock.ts`); new `billableInputTokens()` (`config.ts`) folds the cache classes into a cost-equivalent input count; `scans-persist.ts` persists that so `/usage` prices a cached scan correctly off the single `inputTokens` column — **no migration**. The live `report.usage` keeps the raw breakdown.
+- **Verified:** tsc 0 · eslint 0 · 4 new `billableInputTokens` tests (non-cached unchanged · read@10% + write@125% folding · re-scan cheaper · null-tolerant). Existing cost tests still pass (no cache fields → identity).
+- **Ceiling:** Bedrock-only (the explicit cachePoint path); OpenAI/Gemini implicit-cache token classes aren't folded yet (their reported usage already reflects some discounts). The persisted `inputTokens` is now a *cost-equivalent* basis, not a literal count, when caching is active (documented at the persist site).
+
+### ✅ P2-6c · Opt-in extended-thinking budget — `fixed` (2026-06-20, unit-verified)
+No thinking knob existed (`config.ts` had only temperature/maxTokens); the benchmark predicts thinking helps only the discrepancy audit.
+- **Shipped:** `thinkingBudgetTokens()` reads `LLM_THINKING_BUDGET` (`config.ts`, default 0 = off). When > 0, Bedrock enables extended thinking (`additionalModelRequestFields.thinking`), bumps `maxTokens` above the budget, sets temperature 1 (required), and relaxes forced tool choice to `auto` (incompatible with thinking; the text-path safety net still parses the answer). Default off → byte-identical to current behavior.
+- **Verified:** tsc 0 · eslint 0 · 3 new `thinkingBudgetTokens` tests (off when unset · honors a positive budget · zero/negative/non-numeric = off). Bedrock tests still pass.
+- **Ceiling:** Bedrock-only for now (Converse has clean support); claude-cli/gemini/openai thinking knobs not wired. Predicted-only benefit (the harness couldn't benchmark thinking) — **l2_priority:** run a live opus+thinking vs opus pass on a complex repo; does the discrepancy audit catch more?
 
 ### ✅ P0-1 · Provider prompt-caching on the stable prefix — `fixed` (code landed 2026-06-20, unit-verified)
 The role + rubric + task + JSON-schema (~3-4K input tokens, the bulk of every prompt) was interleaved with per-repo data in the user message, so no cacheable contiguous prefix existed and `cache_control`/`cachePoint` were absent repo-wide.
