@@ -7,8 +7,16 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // The embedded PGlite is a LOCAL-DEV tool (pglite-boot.ts loads Postgres-in-WASM via dynamic
+  // requires). Gating its dynamic import on NODE_ENV !== "production" lets the production build's
+  // file tracer fold this whole branch to dead code (NODE_ENV is statically inlined) — so PGlite's
+  // unresolvable WASM requires never enter the Node File Trace, which is what was over-including
+  // next.config.ts ("Encountered unexpected file in NFT list"). On Vercel PGLITE_DATA_DIR is unset,
+  // so no deployed behavior changes; only a local `next start` with PGLITE_DATA_DIR set stops booting
+  // the embedded DB — use `npm run dev` for that (its documented entry point).
   const dataDir = process.env.PGLITE_DATA_DIR;
-  if (!dataDir) return;
-  const { bootPglite } = await import("@/lib/db/pglite-boot");
-  await bootPglite(dataDir);
+  if (process.env.NODE_ENV !== "production" && dataDir) {
+    const { bootPglite } = await import("@/lib/db/pglite-boot");
+    await bootPglite(dataDir);
+  }
 }
