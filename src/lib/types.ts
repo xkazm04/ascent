@@ -10,6 +10,12 @@ export type ProviderName = "gemini" | "bedrock" | "openai" | "mock" | "claude-cl
 export interface TokenUsage {
   inputTokens?: number;
   outputTokens?: number;
+  /** Prompt-cache breakdown, when the provider surfaces it (e.g. Bedrock with a cachePoint — Tiger
+   *  P0-1). `inputTokens` is the FRESH (non-cached) input only; cache reads bill at ~10% of the input
+   *  rate and cache writes at ~125%, so they're metered separately and folded into the cost basis by
+   *  billableInputTokens() (see src/lib/llm/config.ts). Absent for providers without explicit caching. */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 export type Axis = "adoption" | "rigor";
 /** How the repo is run, which selects a weighting lens. */

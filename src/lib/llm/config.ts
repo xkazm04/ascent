@@ -54,6 +54,44 @@ export const MODEL_PRICES: ModelPrice[] = [
   { prefix: "gpt-4o", inPerMTok: 2.5, outPerMTok: 10 },
 ];
 
+// ---------------------------------------------------------------------------
+// Cache-aware cost basis + extended-thinking knob (Tiger P1-6 / P2-6c)
+// ---------------------------------------------------------------------------
+
+const CACHE_READ_RATE = 0.1; // prompt-cache READS bill at ~10% of the model's input rate
+const CACHE_WRITE_RATE = 1.25; // prompt-cache WRITES bill at ~125% of the input rate
+
+/**
+ * Cache-aware input-token cost basis. Prompt caching (P0-1) splits input into three billed classes:
+ * fresh input (full rate), cache writes (~125%), and cache reads (~10%). Providers report `inputTokens`
+ * as the FRESH portion only, so pricing that alone under-counts a cached scan. The persisted Scan row
+ * has a single `inputTokens` column (no migration), so we fold the cache classes into a COST-EQUIVALENT
+ * input-token count: pricing THIS at inPerMTok reproduces the real input bill. Returns `inputTokens`
+ * unchanged when no cache fields are present (the common, non-Bedrock case). [Tiger P1-6]
+ */
+export function billableInputTokens(usage: {
+  inputTokens?: number | null;
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
+}): number {
+  const input = usage.inputTokens ?? 0;
+  const read = usage.cacheReadTokens ?? 0;
+  const write = usage.cacheWriteTokens ?? 0;
+  return Math.round(input + read * CACHE_READ_RATE + write * CACHE_WRITE_RATE);
+}
+
+/**
+ * Extended-thinking budget in tokens for providers that support it (Bedrock Claude today). 0 / unset =
+ * thinking OFF, the default (no behavior change). Set `LLM_THINKING_BUDGET` to enable: it helps the one
+ * reasoning-heavy sub-task of the assessment — the discrepancy audit — on complex repos, at higher cost
+ * and latency. The Tiger benchmark predicts it's wasted on scoring/summarizing, so leave it off unless
+ * you specifically want sharper discrepancy-catching. [Tiger P2-6c]
+ */
+export function thinkingBudgetTokens(): number {
+  const n = envNumber("LLM_THINKING_BUDGET", 0);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
 /** Bedrock cross-region inference geo prefixes — routing metadata, not part of the model id. */
 const GEO_PREFIX = /^(us|eu|apac|global)\./;
 

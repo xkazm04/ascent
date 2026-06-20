@@ -3,6 +3,7 @@
 
 import type { ScanReport } from "@/lib/types";
 import { Prisma } from "@prisma/client";
+import { billableInputTokens } from "@/lib/llm/config";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { matchRecommendations } from "@/lib/report/compare";
@@ -209,7 +210,11 @@ export async function persistScanReport(
             prStats: report.prStats ? JSON.stringify(report.prStats) : null,
             governance: report.governance ? JSON.stringify(report.governance) : null,
             commitActivity: report.commitActivity ? JSON.stringify(report.commitActivity) : null,
-            inputTokens: report.usage?.inputTokens ?? null,
+            // Persist a CACHE-AWARE cost basis: billableInputTokens folds prompt-cache reads (~10%) and
+            // writes (~125%) into a cost-equivalent input count, so /usage prices a cached scan correctly
+            // off the single inputTokens column (no schema migration). Null stays null for a mock/no-token
+            // scan. The live report.usage keeps the raw breakdown. [Tiger P1-6]
+            inputTokens: report.usage?.inputTokens != null ? billableInputTokens(report.usage) : null,
             outputTokens: report.usage?.outputTokens ?? null,
             llmLatencyMs: report.usage?.latencyMs ?? null,
             scannedAt: new Date(report.scannedAt),

@@ -18,6 +18,8 @@ import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governa
 import { getProvider, providerByName, MockProvider } from "@/lib/llm";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { isAssessmentUsable } from "@/lib/llm/provider";
+import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
+import { captureAssessment, evalLogEnabled } from "@/lib/llm/eval-log";
 import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { assembleReport } from "@/lib/scoring/engine";
 import { DIMENSIONS } from "@/lib/maturity/model";
@@ -318,6 +320,27 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...capturedUsage, latencyMs: llmLatencyMs };
+
+  // Eval-log capture (opt-in via ASCENT_EVAL_LOG_DIR — Tiger P1-4): record the prompt + structured
+  // assessment + provenance + metering so a usable-but-wrong answer is debuggable, an injection is
+  // traceable, and the model×tier benchmark has a corpus. Only build the prompt when logging is on;
+  // best-effort, never blocks the scan.
+  if (evalLogEnabled()) {
+    const { system, user } = buildAssessmentPrompt(scoreInput);
+    captureAssessment({
+      at: now,
+      repo: `${parsed.owner}/${parsed.repo}`,
+      provider: provider.name,
+      model: provider.model,
+      degraded: llmFailed,
+      coverage: { scored: assessment.dimensions.length, expected: signals.length },
+      latencyMs: llmLatencyMs,
+      usage: report.usage,
+      system,
+      user,
+      assessment,
+    });
+  }
 
   // Surface non-fatal reliability caveats so the score is interpreted in context.
   const warnings: string[] = [...detectorWarnings];

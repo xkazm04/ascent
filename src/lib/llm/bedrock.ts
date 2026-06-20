@@ -21,7 +21,7 @@ import {
   ASSESSMENT_TOOL_DESCRIPTION,
   ASSESSMENT_TOOL_NAME,
 } from "@/lib/llm/schema";
-import { envNumber } from "@/lib/llm/config";
+import { envNumber, thinkingBudgetTokens } from "@/lib/llm/config";
 
 export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
 export const DEFAULT_BEDROCK_REGION = "us-east-1";
@@ -63,6 +63,12 @@ export class BedrockProvider implements LLMProvider {
       ? AbortSignal.any([opts.signal, timeoutCtrl.signal])
       : timeoutCtrl.signal;
 
+    // Extended-thinking budget (opt-in via LLM_THINKING_BUDGET — Tiger P2-6c; default 0 = off, no change).
+    // When on, the model needs maxTokens ABOVE the reasoning budget to still have room for the answer.
+    const thinking = thinkingBudgetTokens();
+    const baseMaxTokens = Math.round(envNumber("BEDROCK_MAX_TOKENS", 4096));
+    const maxTokens = thinking > 0 ? Math.max(baseMaxTokens, thinking + 1024) : baseMaxTokens;
+
     let res;
     try {
       res = await client.send(
@@ -75,12 +81,18 @@ export class BedrockProvider implements LLMProvider {
           system: [{ text: system }, { cachePoint: { type: "default" } }],
           messages: [{ role: "user", content: [{ text: user }] }],
           inferenceConfig: {
-            temperature: envNumber("LLM_TEMPERATURE", 0.2),
-            maxTokens: Math.round(envNumber("BEDROCK_MAX_TOKENS", 4096)),
+            // Extended thinking requires temperature 1; otherwise honor the configured determinism knob.
+            temperature: thinking > 0 ? 1 : envNumber("LLM_TEMPERATURE", 0.2),
+            maxTokens,
           },
+          // Enable extended thinking when budgeted. It is INCOMPATIBLE with forced tool choice, so when
+          // on we let tool choice be auto (the text-path safety net below still parses a non-tool answer).
+          ...(thinking > 0
+            ? { additionalModelRequestFields: { thinking: { type: "enabled", budget_tokens: thinking } } }
+            : {}),
           // Force schema-constrained JSON via a single required tool (Converse
           // function-calling). The model must answer by calling this tool, whose
-          // input schema is the same source of truth Gemini uses.
+          // input schema is the same source of truth Gemini uses. (Relaxed to auto when thinking is on.)
           toolConfig: {
             tools: [
               {
@@ -91,7 +103,7 @@ export class BedrockProvider implements LLMProvider {
                 },
               },
             ],
-            toolChoice: { tool: { name: ASSESSMENT_TOOL_NAME } },
+            toolChoice: thinking > 0 ? { auto: {} } : { tool: { name: ASSESSMENT_TOOL_NAME } },
           },
         }),
         // Abort the in-flight Bedrock call on client disconnect OR our own timeout.
@@ -101,7 +113,14 @@ export class BedrockProvider implements LLMProvider {
       clearTimeout(timer);
     }
 
-    opts.onUsage?.({ inputTokens: res.usage?.inputTokens, outputTokens: res.usage?.outputTokens });
+    // Meter the full prompt-cache breakdown (Tiger P1-6): inputTokens is the FRESH input; cache reads
+    // (~10% rate) and writes (~125%) are separate classes billableInputTokens() folds into the cost basis.
+    opts.onUsage?.({
+      inputTokens: res.usage?.inputTokens,
+      outputTokens: res.usage?.outputTokens,
+      cacheReadTokens: res.usage?.cacheReadInputTokens,
+      cacheWriteTokens: res.usage?.cacheWriteInputTokens,
+    });
     const blocks = res.output?.message?.content ?? [];
 
     // Happy path: the assessment comes back as a structured toolUse.input object
