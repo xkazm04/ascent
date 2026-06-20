@@ -253,6 +253,7 @@ const hostileHistory = (cells: {
   level?: unknown;
   levelName?: unknown;
   engineProvider?: unknown;
+  engineModel?: unknown;
 }) =>
   ({
     repo: { owner: "acme", name: "repo", fullName: "acme/repo" },
@@ -264,6 +265,7 @@ const hostileHistory = (cells: {
         level: "L4",
         levelName: "Integrated",
         engineProvider: "openai",
+        engineModel: "gpt-4o",
         dimensions: [],
         ...cells,
       },
@@ -336,6 +338,22 @@ describe("GET /api/history — CSV export escaping (cell-shift / injection)", ()
     // The header-mimicking value is quoted (it has commas) and confined to the engine data column.
     expect(fields[4]).toBe('"scannedAt,overall,level"');
     expect(unquote(fields[4])).toBe("scannedAt,overall,level"); // engine column, not a new header row
+  });
+
+  it("carries engine PROVIDER and MODEL as distinct audit columns (Tiger P1-5)", async () => {
+    // A floor-scored quarter (engine="mock") must be distinguishable from a model-scored one, and the
+    // specific model (sonnet vs haiku) must be auditable quarter to quarter.
+    const csv = await csvBody(hostileHistory({ engineProvider: "bedrock", engineModel: "us.anthropic.claude-sonnet-4-6" }));
+    const rows = splitCsvRows(csv);
+    // Header gains a "model" column right after "engine".
+    expect(rows[0].startsWith("scannedAt,overall,level,levelName,engine,model,")).toBe(true);
+    const header = splitCsvFields(rows[0]);
+    expect(header[4]).toBe("engine");
+    expect(header[5]).toBe("model");
+    const fields = splitCsvFields(rows[1]);
+    expect(fields.length).toBe(header.length); // still aligned
+    expect(unquote(fields[4])).toBe("bedrock"); // provider
+    expect(unquote(fields[5])).toBe("us.anthropic.claude-sonnet-4-6"); // model
   });
 
   it("neutralizes a leading = + - @ so the cell cannot execute as a spreadsheet formula", async () => {

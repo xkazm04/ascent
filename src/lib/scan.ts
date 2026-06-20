@@ -353,6 +353,15 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     warnings.push(
       "AI analysis was unavailable, so scores reflect detected signals only (no qualitative nuance).",
     );
+  } else if (provider.name === "mock" && !opts.mock) {
+    // Keyless / unconfigured deploy: the engine fell back to the deterministic mock from the START —
+    // NOT a runtime failure (llmFailed is false, so the caveat above never fires) and NOT an explicit
+    // per-request demo (opts.mock). Without this, a keyless public deploy serves the floor as an "AI"
+    // scan disclosed only by a quiet engine chip. Say it plainly so a public-badge or audit reader
+    // knows the AI layer never ran, instead of inferring it. [Tiger P1-5 / MEI-B1]
+    warnings.push(
+      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance).",
+    );
   }
   if (snapshot.truncated) {
     warnings.push(

@@ -135,6 +135,7 @@ export function parseRepositoryHistory(data: unknown): RepositoryHistory {
         levelName: isStr(s.levelName) ? s.levelName : "",
         confidence: isNum(s.confidence) ? s.confidence : 0,
         engineProvider: isStr(s.engineProvider) ? s.engineProvider : "",
+        engineModel: isStr(s.engineModel) ? s.engineModel : "",
         scannedAt: isStr(s.scannedAt) ? s.scannedAt : "",
         dimensions: dims.flatMap((d) =>
           isObj(d) && isStr(d.dimId) && isNum(d.score) ? [{ dimId: d.dimId, score: d.score }] : [],

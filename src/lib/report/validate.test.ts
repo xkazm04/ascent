@@ -204,6 +204,7 @@ function validHistoryPoint(): Record<string, unknown> {
     levelName: "Practicing",
     confidence: 0.8,
     engineProvider: "anthropic",
+    engineModel: "claude-3-7",
     scannedAt: "2026-06-18T00:00:00.000Z",
     dimensions: [{ dimId: "D1", score: 70 }],
   };
@@ -251,6 +252,7 @@ describe("parseRepositoryHistory — junk input is coerced, never throws", () =>
       levelName: "Practicing",
       confidence: 0.8,
       engineProvider: "anthropic",
+      engineModel: "claude-3-7",
       scannedAt: "2026-06-18T00:00:00.000Z",
       dimensions: [{ dimId: "D1", score: 70 }],
     });
@@ -319,6 +321,7 @@ describe("parseRepositoryHistory — junk input is coerced, never throws", () =>
       levelName: "",
       confidence: 0,
       engineProvider: "",
+      engineModel: "",
       scannedAt: "2026-06-18T00:00:00.000Z",
       dimensions: [],
     });

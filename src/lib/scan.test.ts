@@ -307,6 +307,28 @@ describe("scanRepository — LLM usage metering + degradation honesty (#2/#3)", 
     expect(report.warnings ?? []).not.toContain(
       "AI analysis was unavailable, so scores reflect detected signals only (no qualitative nuance).",
     );
+    // ...nor the keyless caveat: an EXPLICIT demo (opts.mock) is framed as a demo by the UI, not flagged.
+    expect(report.warnings ?? []).not.toContain(
+      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance).",
+    );
+  });
+
+  it("a keyless/unconfigured deploy (mock from the start, NOT opts.mock) gets the loud 'no AI configured' caveat", async () => {
+    const { source } = mockSource("treesha-aaa");
+    // primary stays null (beforeEach) and no opts.mock → getProvider returns the MockProvider:
+    // intendedProvider === "mock" and llmFailed stays false. This is the keyless-default path (MEI-B1).
+    const report = await scanRepository("o/r", { source, now: NOW });
+
+    expect(report.engine.provider).toBe("mock");
+    // Nothing FAILED, so the failure-path caveat must not fire...
+    expect(report.warnings ?? []).not.toContain(
+      "AI analysis was unavailable, so scores reflect detected signals only (no qualitative nuance).",
+    );
+    // ...but the floor must be disclosed loudly, not just via a quiet engine chip, so a public-badge or
+    // audit reader knows the AI layer never ran.
+    expect(report.warnings ?? []).toContain(
+      "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance).",
+    );
   });
 });
 

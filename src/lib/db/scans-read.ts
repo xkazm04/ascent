@@ -107,6 +107,10 @@ export interface HistoryPoint {
   levelName: string;
   confidence: number;
   engineProvider: string;
+  /** The specific model that scored this snapshot (e.g. "sonnet"/"us.anthropic.claude-sonnet-4-6"), or
+   *  "mock" for a deterministic-floor scan. Surfaced so the audit CSV is model-level, not just
+   *  provider-level — an auditor can tell which model graded which quarter. [Tiger P1-5] */
+  engineModel: string;
   scannedAt: string;
   dimensions: { dimId: string; score: number }[];
 }
@@ -158,6 +162,7 @@ export async function getRepositoryHistory(
     levelName: true,
     confidence: true,
     engineProvider: true,
+    engineModel: true,
     scannedAt: true,
   } as const;
   const args = { where: { repoId: repo.id }, orderBy: { scannedAt: "desc" }, take: limit } as const;
@@ -170,6 +175,7 @@ export async function getRepositoryHistory(
     levelName: string;
     confidence: number;
     engineProvider: string;
+    engineModel: string;
     scannedAt: Date;
     dimensions?: { dimId: string; score: number }[];
   }): HistoryPoint => ({
@@ -180,6 +186,7 @@ export async function getRepositoryHistory(
     levelName: s.levelName,
     confidence: s.confidence,
     engineProvider: s.engineProvider,
+    engineModel: s.engineModel,
     scannedAt: s.scannedAt.toISOString(),
     dimensions: s.dimensions ?? [],
   });
@@ -350,6 +357,7 @@ export async function getScanComparison(
       levelName: true,
       confidence: true,
       engineProvider: true,
+      engineModel: true,
       scannedAt: true,
       dimensions: { select: { dimId: true, score: true } },
     },
@@ -363,6 +371,7 @@ export async function getScanComparison(
     levelName: s.levelName,
     confidence: s.confidence,
     engineProvider: s.engineProvider,
+    engineModel: s.engineModel,
     scannedAt: s.scannedAt.toISOString(),
     dimensions: s.dimensions,
   }));
