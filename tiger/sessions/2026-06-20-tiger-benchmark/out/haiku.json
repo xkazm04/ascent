@@ -1,0 +1,233 @@
+{
+  "dimensions": [
+    {
+      "id": "D1",
+      "score": 32,
+      "summary": "AGENTS.md exists but is minimal (102 chars) with only basic warnings about money math, test discipline, and webhook verification. No architecture map, no build/test/run command documentation, no prompt libraries or advanced techniques. Agents have little structured guidance to follow.",
+      "strengths": [
+        "AGENTS.md acknowledges critical domain concerns (money math, signatures)",
+        "Brief guidance is focused on high-risk areas"
+      ],
+      "gaps": [
+        "No architecture overview or team conventions documented",
+        "No build/test/run workflows explained for agents",
+        "No MCP config, copilot-instructions, or prompt libraries",
+        "No advanced techniques (subagents, hooks, skills, tool-permission policy)"
+      ]
+    },
+    {
+      "id": "D2",
+      "score": 75,
+      "summary": "Vitest test suite is active and behavioral. tests/checkout.test.ts contains 3 meaningful test cases covering edge cases (float drift in money math, refund overflow validation, partial refund logic). Test script is configured in package.json and CI includes build/lint. Suite is small but demonstrates solid test discipline for core money-handling logic.",
+      "strengths": [
+        "Behavioral tests for critical domain logic (refund validation, money math)",
+        "Edge-case coverage (float drift, refund overflow)",
+        "Vitest framework properly configured and runnable via pnpm test",
+        "Test-to-source ratio is reasonable for a focused service"
+      ],
+      "gaps": [
+        "No e2e or integration tests visible (API/webhook flows untested)",
+        "No coverage reporting or coverage thresholds configured",
+        "Test suite is small relative to codebase size",
+        "No accessibility, performance, or contract-testing signals"
+      ]
+    },
+    {
+      "id": "D3",
+      "score": 50,
+      "summary": "GitHub Actions ci.yml present with build and lint steps, but test execution is absent from the sampled workflow and no deploy/release automation exists. README notes deployment is manual (build container, push ECR, update ECS). Pipeline gates on linting/building but not on tests, and no semantic-release, preview deploys, or progressive delivery patterns.",
+      "strengths": [
+        "CI config present and committed (.github/workflows/ci.yml)",
+        "Build and lint steps are automated",
+        "Branch protection requires PR approval before merge",
+        "pnpm dependency lock is enforced (--frozen-lockfile)"
+      ],
+      "gaps": [
+        "Test step missing from ci.yml despite vitest being configured",
+        "No deploy or release workflow (manual ECS updates)",
+        "No semantic-release, changesets, or release automation",
+        "No preview deploys, IaC, or progressive delivery (Argo/Flagger)"
+      ]
+    },
+    {
+      "id": "D4",
+      "score": 18,
+      "summary": "No agentic workflows are evident. No AI code-review bots (CodeRabbit, Claude review), no auto-fix or auto-PR tooling, no Renovate auto-merge. AI-involved PRs (30% rate) lack systematic governance. This is a manual, keyboard-assist-only environment.",
+      "strengths": [
+        "Structured PR review discipline (1 approval required)"
+      ],
+      "gaps": [
+        "No AI code-review automation (CodeRabbit, Greptile, etc.)",
+        "No auto-fix or auto-PR tooling",
+        "No dependency auto-merge (Renovate/Dependabot auto-merge)",
+        "AI-involved PRs have 50% review rate — inconsistent governance"
+      ]
+    },
+    {
+      "id": "D5",
+      "score": 62,
+      "summary": "README is substantial (4.2k chars) and covers setup, testing, and deployment in plain language. docs/ contains 3 markdown files. Architecture is clear from code (Express, Zod, Stripe-backed). Missing: ADRs, CONTRIBUTING.md, detailed API documentation, and inline doc density is not visible.",
+      "strengths": [
+        "README covers all essential workflows (setup, test, deploy)",
+        "Architecture is clearly stated and understandable",
+        "docs/ directory signals commitment to documentation",
+        "Clear language suitable for new developers"
+      ],
+      "gaps": [
+        "No ADRs or decision-log docs (docs/adr/)",
+        "No CONTRIBUTING.md or developer onboarding guide",
+        "No OpenAPI/Swagger or API documentation",
+        "No inline code density visible (methods lack JSDoc comments)"
+      ]
+    },
+    {
+      "id": "D6",
+      "score": 48,
+      "summary": "ESLint and TypeScript strict mode are configured and enforced. tsconfig has strict=true. No pre-commit hooks (husky/lint-staged) to shift checks left. No commitlint for conventional-commit enforcement, no CODEOWNERS file. Guardrails are present but incomplete and not enforced at commit time.",
+      "strengths": [
+        "ESLint configured (signal confirms present)",
+        "TypeScript strict mode enabled (tsconfig strict=true)",
+        "Type checking is enforced in build step",
+        "70% conventional-commit adoption shows discipline"
+      ],
+      "gaps": [
+        "No pre-commit hooks (.pre-commit-config, husky) to catch issues before push",
+        "No commitlint configuration to enforce conventional commits universally",
+        "No CODEOWNERS file for domain-based review assignment",
+        "Guardrails are tooling-only, not CI-enforced"
+      ]
+    },
+    {
+      "id": "D7",
+      "score": 48,
+      "summary": "42 commits in 30 days shows healthy velocity. Conventional-commit rate is ~70%, indicating developer discipline. Small-PR rate is 52% (≤200 lines), signaling good batching. However, no AI co-author trailers (Co-Authored-By: Claude/Copilot) are visible in the recent sample, suggesting minimal AI-native workflow in commit history.",
+      "strengths": [
+        "42 commits in 30 days indicates active, sustained development",
+        "~70% conventional-commit rate shows team discipline",
+        "52% small-PR rate (≤200 lines) demonstrates thoughtful batching",
+        "Median time-to-merge of 26h suggests healthy review velocity"
+      ],
+      "gaps": [
+        "No AI co-author trailers in commit history (no evidence of AI-generated code workflows)",
+        "30% of PRs lack conventional-commit prefixes",
+        "No bot-authored commits visible (no automation driving changes)",
+        "Commit message depth not visible (signals quality of narrative)"
+      ]
+    },
+    {
+      "id": "D8",
+      "score": 38,
+      "summary": "main branch is protected with PR requirement and 1 mandatory approval. 65% of PRs are reviewed, and merge rate is healthy (78%). However, AI-involved PRs (30%) have only 50% review rate, signaling weak AI governance. No code-owner review, no signatures, no evals/golden tests, and no agent-readable operational docs or issue/PR templates.",
+      "strengths": [
+        "main branch protection is enforced (requires PR + 1 approval)",
+        "65% of merged PRs have approving review",
+        "Median time-to-first-review of 5h shows responsive review culture",
+        "38 of 96 PRs analyzed provides good signal sample"
+      ],
+      "gaps": [
+        "AI-involved PRs (30%) have only 50% review rate — inconsistent governance",
+        "No code-owner review rules to assign domain expertise",
+        "No commit signatures or artifact signing",
+        "No evals, golden tests, or structured AI verification harness"
+      ]
+    },
+    {
+      "id": "D9",
+      "score": 44,
+      "summary": "dependabot.yml is configured for dependency scanning. However, 3 of 5 GitHub Actions are unpinned (use @v4 tag, not commit SHAs), creating supply-chain risk. No SAST (CodeQL, Semgrep), no secret scanning (gitleaks), no SBOM generation, no artifact signing, and no SECURITY.md policy. Supply-chain security is minimal.",
+      "strengths": [
+        "dependabot.yml present for dependency updates",
+        "GitHub Actions are mostly pinned to @v4 (partial compliance)"
+      ],
+      "gaps": [
+        "3 of 5 GitHub Actions unpinned (use @v4, not SHAs) — supply-chain risk",
+        "No SAST tooling (CodeQL, Semgrep, SonarQube)",
+        "No secret scanning (gitleaks, trufflehog, detect-secrets)",
+        "No SBOM, artifact signing, or SECURITY.md policy"
+      ]
+    }
+  ],
+  "headline": "Solid test discipline and CI fundamentals on a small payment service team, but agent guidance is minimal and autonomous workflows are absent—limiting trust in AI-driven development.",
+  "strengths": [
+    "Behavioral test coverage for critical money-math logic demonstrates domain-aware testing discipline",
+    "Healthy PR velocity (26h median time-to-merge) and small-batch cadence (52% of PRs ≤200 lines) show sustainable development practices",
+    "70% conventional-commit adoption and 1.1 reviews/PR indicate team process maturity",
+    "TypeScript strict mode and ESLint enforced provide guardrails for type safety and code consistency",
+    "Clear README and architecture make the service easy to understand for new developers"
+  ],
+  "risks": [
+    "AI-governed PRs (30% AI-involved, but only 50% reviewed) lack consistent oversight—risky for a payment service",
+    "Test execution is missing from the CI workflow despite vitest being configured, creating a gap between local discipline and automated gates",
+    "Agent guidance (AGENTS.md) is too thin to reliably steer autonomous AI workflows; agents lack architecture map and build/test/run playbooks",
+    "Manual deployment (no release automation) and unpinned GitHub Actions (3 of 5) create supply-chain friction and risk",
+    "No pre-commit hooks mean code-quality checks are not shifted left, reducing developer feedback speed"
+  ],
+  "roadmap": [
+    {
+      "title": "Integrate test execution into the CI pipeline to gate merges on passing tests",
+      "dimension": "D3",
+      "impact": "high",
+      "effort": "low",
+      "rationale": "Tests exist and are behavioral, but ci.yml doesn't run them—defeating the point of CI. Adding `pnpm test` to the build step closes a critical verification gap and gates merges on test health.",
+      "explore": [
+        "Is there a reason the test step was omitted from ci.yml, or was it overlooked?",
+        "Would adding `pnpm test` to the build job (after lint, before deploy) give you confidence to gate releases?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "Enrich AGENTS.md with architecture, build/test/run workflows, and constraints so agents have a shared playbook",
+      "dimension": "D1",
+      "impact": "high",
+      "effort": "medium",
+      "rationale": "AGENTS.md is a stub—only 3 sentences. Agents driving PRs (30% AI-involved rate) need documented architecture, explicit test-after-change discipline, build/dev/test commands, and domain constraints (money math, Stripe webhooks). This is the difference between ad hoc and systemic AI adoption.",
+      "explore": [
+        "What patterns or pitfalls do your best developers know about this service that agents should too?",
+        "If you wrote a runbook for 'onboarding a new agent to this codebase,' what would it cover?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "Establish a code-owner review rule and consistent AI-PR governance to raise the bar for AI-involved changes",
+      "dimension": "D8",
+      "impact": "high",
+      "effort": "medium",
+      "rationale": "30% of PRs involve AI, but only 50% are reviewed—below your overall 65% review rate. For a payment service, AI-generated code is high-stakes. Code-owner rules (via CODEOWNERS) and a Definition-of-Done for AI-PRs (e.g., always require a second review, always test) would make governance explicit and trustworthy.",
+      "explore": [
+        "Which domains (money math, webhooks, API endpoints) deserve extra review rigor from AI-generated changes?",
+        "Would a checklist (tests pass, [domain owner approves], no secrets) for AI-PRs help raise confidence?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "Add pre-commit hooks to shift linting and type checks left, reducing friction in the review loop",
+      "dimension": "D6",
+      "impact": "medium",
+      "effort": "low",
+      "rationale": "ESLint and TypeScript are configured but run only in CI. Pre-commit hooks (husky + lint-staged) catch issues before push, speeding up local feedback and reducing back-and-forth reviews. This is especially valuable for AI-assisted PRs, which benefit from tight feedback loops.",
+      "explore": [
+        "Do developers currently run lint/type-check locally before pushing, or do they rely on CI feedback?",
+        "Would a husky setup that runs `pnpm lint` and `tsc` on commit improve your review velocity?"
+      ],
+      "levelUnlock": "L2->L3"
+    },
+    {
+      "title": "Add SAST (CodeQL) and secret scanning (gitleaks) to the CI pipeline to shift supply-chain checks into automation",
+      "dimension": "D9",
+      "impact": "medium",
+      "effort": "low",
+      "rationale": "dependabot covers dependencies, but SAST (CodeQL) and secret scanning are free GitHub Actions that detect code vulnerabilities and leaked credentials before merge. For a payment service handling Stripe keys, this is a low-effort, high-value addition.",
+      "explore": [
+        "Have you had any incidents with leaked secrets or code vulnerabilities that escaped CI?",
+        "Would adding GitHub's CodeQL (SAST) + gitleaks workflows give you more confidence in merges?"
+      ],
+      "levelUnlock": "L2->L3"
+    }
+  ],
+  "discrepancies": [
+    {
+      "dimension": "D2",
+      "claim": "Signal reported no test files (signalScore=22), but tests/checkout.test.ts is sampled in the evidence with 3 vitest test cases covering behavioral and edge-case logic (float drift, refund overflow, partial refund). Test script is also in package.json."
+    }
+  ]
+}
