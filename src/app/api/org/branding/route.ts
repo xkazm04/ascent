@@ -1,10 +1,11 @@
-// POST /api/org/branding { org, brandName?, brandColor?, logoUrl? } -> { ok }   (owner · enterprise)
+// POST /api/org/branding { org, brandName?, brandColor?, logoUrl? } -> { ok }   (owner · Team+)
 // Set white-label branding for the executive-briefing PDF (EXEC-5). Owner-gated + same-origin, and
-// gated to the enterprise/unlimited entitlement tier. Values are validated/normalized in setOrgBranding
+// gated to the Team-and-up entitlement tier. Values are validated/normalized in setOrgBranding
 // (hex colour + https logo, else stored null) so a bad input can't break PDF rendering.
 
 import { NextResponse } from "next/server";
 import { getCreditState, isDbConfigured, setOrgBranding } from "@/lib/db";
+import { planAllowsWhiteLabel } from "@/lib/plans";
 import { requireOrgRole } from "@/lib/authz";
 import { isSameOrigin } from "@/lib/auth";
 
@@ -19,10 +20,11 @@ export async function POST(request: Request) {
   const denied = await requireOrgRole(body.org, "owner");
   if (denied) return denied;
 
-  // Entitlement: briefing white-label is an enterprise (unlimited-plan) feature.
+  // Entitlement: briefing white-label is a Team-and-up feature (so a reseller on Team can brand the
+  // reports they hand to clients), not Enterprise-only.
   const credit = await getCreditState(body.org).catch(() => null);
-  if (!credit?.unlimited) {
-    return NextResponse.json({ error: "Briefing branding is an enterprise feature." }, { status: 403 });
+  if (!planAllowsWhiteLabel(credit?.plan)) {
+    return NextResponse.json({ error: "Briefing branding is a Team-plan feature." }, { status: 403 });
   }
 
   const ok = await setOrgBranding(body.org, {

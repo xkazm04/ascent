@@ -177,7 +177,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         )}
 
         <View style={styles.footer} fixed>
-          <Text>Scored by Ascent · AI-native engineering maturity</Text>
+          <Text>Scored by {brandLabel} · AI-native engineering maturity</Text>
           <Text render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
         </View>
       </Page>

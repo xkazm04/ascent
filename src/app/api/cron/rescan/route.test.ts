@@ -119,7 +119,7 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     mockInstallId.mockResolvedValue(null); // no install → tokenless public path, never "broken"
     mockToken.mockResolvedValue(undefined);
     mockClaim.mockResolvedValue(true);
-    mockConsume.mockResolvedValue({ ok: true, unlimited: false, balance: 4 } as never);
+    mockConsume.mockResolvedValue({ ok: true, unlimited: false, balance: 4, charged: true } as never);
     mockScan.mockResolvedValue(realReport());
     mockPersist.mockResolvedValue({ scanId: "s1", deduped: false, failures: { audit: false, contributors: 0 } } as never);
     mockPrevReport.mockResolvedValue(null as never);

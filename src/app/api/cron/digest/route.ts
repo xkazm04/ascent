@@ -20,8 +20,9 @@ import {
   isDbConfigured,
   listOrgsWithWatchedRepos,
 } from "@/lib/db";
-import { buildFleetDigestMessage, creditsAlertThreshold, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
 import { PUBLIC_ORG } from "@/lib/auth";
+import { isWithinNoise } from "@/lib/maturity/noise";
 import { levelForScore } from "@/lib/maturity/model";
 import { forecastHeadline } from "@/lib/maturity/forecast";
 
@@ -50,6 +51,7 @@ export async function GET(request: Request) {
 
   let sent = 0;
   let skippedNoSink = 0;
+  let skippedFlat = 0;
   const errors: string[] = [];
   for (const org of orgs) {
     try {
@@ -70,6 +72,21 @@ export async function GET(request: Request) {
         // Credit runway for the digest's "top up" line — public org is free/unmetered, skip it.
         org === PUBLIC_ORG ? Promise.resolve(null) : getCreditState(org).catch(() => null),
       ]);
+      // Movement-gate: a leader relies on this push instead of opening the app, so a flat week stays
+      // silent rather than training the inbox filter. Skip unless something material moved (or credits
+      // are running low — always worth the heads-up).
+      const creditLow = !!(credit && !credit.unlimited && credit.balance <= creditsAlertThreshold() * 2);
+      const hasSignal = digestHasSignal({
+        overallDelta: rollup.deltas?.overall ?? null,
+        levelChanges: movers?.levelChanges?.filter((m) => m.levelDelta !== 0).length ?? 0,
+        regressions: movers?.regressers?.length ?? 0,
+        gainersBeyondNoise: (movers?.gainers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
+        creditLow,
+      });
+      if (!hasSignal) {
+        skippedFlat += 1;
+        continue;
+      }
       const level = levelForScore(rollup.avgOverall);
       const top = recs?.[0];
       const msg = buildFleetDigestMessage({
@@ -86,11 +103,10 @@ export async function GET(request: Request) {
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
         percentile: benchmark?.overallPercentile ?? null,
         trajectory: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
-        // Carry the balance only when the org is metered (prepaid, non-unlimited) AND running low
-        // (within 2× the alert threshold) — the weekly digest is the one push a leader reliably
+        // Carry the balance only when the org is metered and running low (the same condition the
+        // movement-gate treats as always-worth-sending) — the digest is the one push a leader reliably
         // reads, so a depleting balance gets a standing line there, not just the crossing alert.
-        creditsRemaining:
-          credit && !credit.unlimited && credit.balance <= creditsAlertThreshold() * 2 ? credit.balance : null,
+        creditsRemaining: creditLow && credit ? credit.balance : null,
       });
       if (await dispatchAlert(msg, { webhookUrl })) sent += 1;
     } catch (err) {
@@ -98,5 +114,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ orgs: orgs.length, sent, skippedNoSink, errors });
+  return NextResponse.json({ orgs: orgs.length, sent, skippedNoSink, skippedFlat, errors });
 }

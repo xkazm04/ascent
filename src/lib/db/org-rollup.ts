@@ -4,6 +4,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { segmentScope } from "@/lib/db/org-shared";
+import { retentionCutoff } from "@/lib/plans";
 
 /** Resolve an org slug to its id (the tenant scope), or null when it doesn't exist. */
 export async function getOrgId(slug: string): Promise<string | null> {
@@ -216,11 +217,16 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       return { dimId, avg: Math.round(entry.sum / entry.n) };
     });
 
-  // Org maturity trend: avg overall per day across scans within the window.
+  // Org maturity trend: avg overall per day across scans within the window. The lower bound is also
+  // clamped to the plan's retention window — a NON-DESTRUCTIVE read floor — so the trajectory looks back
+  // only as far as the tier buys (Free 30d · Pro 180d · Team 365d · Enterprise unlimited). The current
+  // fleet snapshot above is untouched: retention caps HISTORY depth, not today's number. (CRED retention.)
+  const retentionStart = retentionCutoff(org.plan, Date.now());
+  const trendStart = retentionStart && (!start || retentionStart > start) ? retentionStart : start;
   const allScans = await prisma.scan.findMany({
     where: {
       repo: { orgId: org.id, ...seg },
-      ...(start || end ? { scannedAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
+      ...(trendStart || end ? { scannedAt: { ...(trendStart ? { gte: trendStart } : {}), ...(end ? { lte: end } : {}) } } : {}),
     },
     select: { scannedAt: true, overallScore: true },
     orderBy: { scannedAt: "asc" },
@@ -307,4 +313,63 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     baseline,
     deltas,
   };
+}
+
+/** One inference engine's share of an org's scans over a window. */
+export interface EngineMixEntry {
+  provider: string;
+  count: number;
+}
+
+/**
+ * Count the org's scans by inference engine over the window — the provenance behind the period's
+ * scores. Surfacing it on the durable briefing makes a mock-degraded quarter (a live model that fell
+ * back to the deterministic mock) auditable, not just visible in the transient scan stream (DIANE).
+ * Sorted by count desc; empty when the DB is off or the org has no scans.
+ */
+export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null): Promise<EngineMixEntry[]> {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  if (!org) return [];
+  const start = window?.start ?? null;
+  const end = window?.end ?? null;
+  const groups = await prisma.scan.groupBy({
+    by: ["engineProvider"],
+    where: {
+      repo: { orgId: org.id, ...segmentScope(segmentId) },
+      ...(start || end ? { scannedAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
+    },
+    _count: true,
+  });
+  return groups
+    .map((g) => ({ provider: g.engineProvider, count: g._count as number }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/** How many recommendations the org ACTIONED in the window — engagement (any status change) and
+ *  completion (→ done). With the rollup's points-moved + level promotions this answers the renewal
+ *  question "did anyone act on this, and did it move the number?" (TANIA). Counts RecommendationEvent
+ *  status changes joined org → repo → scan → recommendation; segment-scoped like the rest. */
+export async function getOrgRecsActioned(
+  orgSlug: string,
+  window?: OrgWindow,
+  segmentId?: string | null,
+): Promise<{ engaged: number; actioned: number }> {
+  if (!isDbConfigured()) return { engaged: 0, actioned: 0 };
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  if (!org) return { engaged: 0, actioned: 0 };
+  const start = window?.start ?? null;
+  const end = window?.end ?? null;
+  const scope = {
+    kind: "status",
+    ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
+    recommendation: { scan: { repo: { orgId: org.id, ...segmentScope(segmentId) } } },
+  };
+  const [engaged, actioned] = await Promise.all([
+    prisma.recommendationEvent.count({ where: scope }),
+    prisma.recommendationEvent.count({ where: { ...scope, toValue: "done" } }),
+  ]);
+  return { engaged, actioned };
 }

@@ -2,13 +2,14 @@
 // movement and goals into one board-ready narrative, with a "Copy briefing for LLM" action that emits
 // a markdown brief to paste into Claude Code (Direction #5 + the #6 LLM-consumption baseline).
 
-import { buildExecBriefing, briefingMarkdown } from "@/lib/org/briefing";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, valueRealizedLine } from "@/lib/org/briefing";
+import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { BriefingShareButton } from "@/components/org/BriefingShareButton";
 import { BrandingSettings } from "@/components/org/BrandingSettings";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding } from "@/lib/db";
+import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
@@ -25,7 +26,9 @@ export default async function OrgExecutive({
   const { slug } = await params;
   const sp = await searchParams;
   const period = await resolveOrgWindow(sp);
-  const briefing = await buildExecBriefing(slug, { start: period.start, end: period.end }, period.title);
+  // ?segment=<id> scopes the whole briefing to one segment (a reseller's per-client view).
+  const segmentId = typeof sp.segment === "string" ? sp.segment : null;
+  const briefing = await buildExecBriefing(slug, { start: period.start, end: period.end }, period.title, segmentId);
 
   if (!briefing) {
     return (
@@ -43,7 +46,7 @@ export default async function OrgExecutive({
   const [branding, credit] = isOwner
     ? await Promise.all([getOrgBranding(slug).catch(() => null), getCreditState(slug).catch(() => null)])
     : [null, null];
-  const canBrand = isOwner && !!credit?.unlimited;
+  const canBrand = isOwner && planAllowsWhiteLabel(credit?.plan);
 
   return (
     <div className="space-y-6">
@@ -85,6 +88,30 @@ export default async function OrgExecutive({
         />
       </div>
 
+      {valueRealizedLine(briefing.valueRealized) && (
+        <div className="rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
+          <span className="font-mono text-sm uppercase tracking-widest text-accent">Value this period</span>{" "}
+          <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized)}</span>
+        </div>
+      )}
+
+      {(briefing.adoptionRate != null || briefing.movement.compared > 0) && (
+        <p className="font-mono text-sm text-slate-500">
+          {briefing.adoptionRate != null && (
+            <>
+              Fleet adoption <span className="text-slate-300">{briefing.adoptionRate}%</span> at high-adoption posture
+            </>
+          )}
+          {briefing.movement.compared > 0 && (
+            <>
+              {briefing.adoptionRate != null ? " · " : ""}
+              <span className="text-slate-300">{briefing.movement.up + briefing.movement.down}</span> of{" "}
+              {briefing.movement.compared} repos moved ({briefing.movement.up}▲ / {briefing.movement.down}▼)
+            </>
+          )}
+        </p>
+      )}
+
       {benchmark?.cohort?.overallPercentile != null && (
         <p className="-mt-2 font-mono text-sm text-slate-500">
           Peer cohort:{" "}
@@ -94,12 +121,28 @@ export default async function OrgExecutive({
         </p>
       )}
 
+      {briefing.engineMix.length > 0 && (
+        <p className="font-mono text-sm text-slate-500">
+          Scored by {engineMixLabel(briefing.engineMix)}
+          {engineMixDegraded(briefing.engineMix) && (
+            <span className="text-warn">
+              {" "}· ⚠ some scores this period used the deterministic mock engine, not the live model
+            </span>
+          )}
+        </p>
+      )}
+
       {(briefing.forecastHeadline || briefing.regressionCount > 0) && (
         <Card>
           <SectionHeader size="sm" title="Trajectory" />
           <p className="mt-2 text-base text-slate-300">
             {briefing.forecastHeadline ?? "Not enough history yet to project a trajectory."}
           </p>
+          {briefing.forecastHeadline && briefing.forecastConfidence != null && (
+            <p className="mt-1 font-mono text-sm text-slate-500">
+              trend confidence {briefing.forecastConfidence}%{briefing.forecastConfidence < 50 ? " · noisy" : ""}
+            </p>
+          )}
           {briefing.regressionCount > 0 && (
             <p className="mt-1 font-mono text-sm text-orange-300">
               ⚠ {briefing.regressionCount} repo{briefing.regressionCount > 1 ? "s" : ""} regressed{" "}
@@ -123,9 +166,7 @@ export default async function OrgExecutive({
                 <div className="mt-1 flex items-baseline gap-2">
                   <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(now) }}>{now}</span>
                   <span className="font-mono text-sm text-slate-500">from {prior}</span>
-                  <span className={`font-mono text-sm ${delta > 0 ? "text-emerald-300" : delta < 0 ? "text-orange-300" : "text-slate-600"}`}>
-                    {delta > 0 ? "+" : ""}{delta}
-                  </span>
+                  <span className="font-mono text-sm" style={{ color: deltaHex(delta) }}>{fmtDelta(delta)}</span>
                 </div>
               </div>
             ))}
@@ -140,9 +181,7 @@ export default async function OrgExecutive({
                     <span>
                       <span className="text-slate-500">{d.prior} → </span>
                       <span style={{ color: scoreHex(d.now) }}>{d.now}</span>{" "}
-                      <span className={d.delta > 0 ? "text-emerald-300" : "text-orange-300"}>
-                        {d.delta > 0 ? "+" : ""}{d.delta}
-                      </span>
+                      <span style={{ color: deltaHex(d.delta) }}>{fmtDelta(d.delta)}</span>
                     </span>
                   </div>
                 ))}

@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { getAuditLog, isDbConfigured } from "@/lib/db";
+import { sha256Hex } from "@/lib/db/audit-integrity";
 import { requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
@@ -62,11 +63,15 @@ async function exportCsv(
   } while (cursor && total < CSV_MAX_ROWS);
 
   const stamp = new Date().toISOString().slice(0, 10);
-  return new Response(lines.join("\n") + "\n", {
+  const body = lines.join("\n") + "\n";
+  return new Response(body, {
     headers: {
       "content-type": "text/csv; charset=utf-8",
       "content-disposition": `attachment; filename="ascent-audit-${org}-${stamp}.csv"`,
       "cache-control": "no-store",
+      // File-level integrity for the filed evidence (recompute SHA-256 over the bytes to verify). Each
+      // row also carries its own HMAC `_sig` in the meta cell, so individual rows are tamper-evident too.
+      "x-ascent-content-sha256": sha256Hex(body),
     },
   });
 }

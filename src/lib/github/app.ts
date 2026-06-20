@@ -6,8 +6,9 @@
 // Setup: see docs/GITHUB_APP.md.
 
 import { createHmac, createSign, timingSafeEqual } from "crypto";
+import { githubApiBase } from "@/lib/github/host";
 
-const API = "https://api.github.com";
+const API = githubApiBase();
 
 export interface AppRepo {
   fullName: string;

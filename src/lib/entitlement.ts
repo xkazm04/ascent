@@ -9,7 +9,8 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isDbConfigured } from "@/lib/db/client";
-import { getCreditState } from "@/lib/db/credits";
+import { getCreditState, countMeteredScansThisMonth } from "@/lib/db/credits";
+import { decideScanCharge, scanAllowance } from "@/lib/plans";
 
 /** True when this scan should draw on the org's prepaid credits. */
 export function isMeteredScan(orgSlug: string, mock: boolean): boolean {
@@ -20,15 +21,29 @@ export interface ScanEntitlement {
   allowed: boolean;
   unlimited: boolean;
   balance: number;
+  /** True when the next metered scan is covered by the monthly allowance (free, no credit debit). */
+  withinAllowance: boolean;
 }
 
-/** Whether `orgSlug` may run a metered scan right now (unlimited plan, or a positive balance). */
+/**
+ * Whether `orgSlug` may run a metered scan right now — under the hybrid model that's: unlimited, OR
+ * under the monthly allowance, OR a positive credit balance. `withinAllowance` tells the caller the
+ * scan will be free; only `!allowed` (allowance spent + no credits) is the 402.
+ */
 export async function checkScanEntitlement(orgSlug: string): Promise<ScanEntitlement> {
   const state = await getCreditState(orgSlug);
+  const usage = state.unlimited ? 0 : await countMeteredScansThisMonth(orgSlug);
+  const charge = decideScanCharge({
+    unlimited: state.unlimited,
+    allowance: scanAllowance(state.plan),
+    usageThisMonth: usage,
+    balance: state.balance,
+  });
   return {
-    allowed: state.unlimited || state.balance > 0,
+    allowed: charge !== "denied",
     unlimited: state.unlimited,
     balance: state.balance,
+    withinAllowance: charge === "allowance",
   };
 }
 

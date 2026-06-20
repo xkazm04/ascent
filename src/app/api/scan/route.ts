@@ -150,7 +150,9 @@ async function runScan(
         repoFullName: parsed ? `${parsed.owner}/${parsed.repo}` : undefined,
       }).catch(() => null);
       if (!res || (!res.unlimited && !res.ok)) return paymentRequired(res?.balance ?? ent.balance);
-      creditReserved = res.ok && !res.unlimited;
+      // `charged` is true ONLY on an overflow credit debit — within-allowance scans are free and must
+      // NOT be refunded later (that would mint a credit), so the reservation flag tracks charged, not ok.
+      creditReserved = res.charged;
       creditsRemaining = res.balance;
       if (creditReserved) await maybeAlertLowCredits(orgSlug, res.balance);
     }

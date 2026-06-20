@@ -125,7 +125,7 @@ export async function POST(request: Request) {
               send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
               return;
             }
-            reserved = res.ok && !res.unlimited;
+            reserved = res.charged; // true only on an overflow credit debit (within-allowance is free)
             // Proactive lifecycle push when this debit landed on the low-water mark (or zero) —
             // the SSE notice above only reaches whoever happens to be watching this stream.
             if (reserved) await maybeAlertLowCredits(org, res.balance);

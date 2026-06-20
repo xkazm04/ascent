@@ -29,7 +29,9 @@ export async function GET(request: Request) {
     from: sp.get("from") ?? undefined,
     to: sp.get("to") ?? undefined,
   });
-  const briefing = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title).catch(
+  // A reseller can scope the briefing to one client via ?segment=<id> — a per-client deliverable.
+  const segmentId = sp.get("segment");
+  const briefing = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title, segmentId).catch(
     () => null,
   );
   if (!briefing) {
@@ -52,7 +54,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to render the briefing PDF." }, { status: 500 });
   }
   const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
-  const filename = `ascent-briefing-${safe(org)}-${safe(briefing.generatedOn)}.pdf`;
+  // White-label the download name too: a branded org's export shouldn't reveal "ascent" in the filename.
+  const brandSlug = branding?.brandName ? safe(branding.brandName).toLowerCase().slice(0, 40) : "ascent";
+  const filename = `${brandSlug}-briefing-${safe(org)}-${safe(briefing.generatedOn)}.pdf`;
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "content-type": "application/pdf",

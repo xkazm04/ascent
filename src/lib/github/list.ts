@@ -2,6 +2,8 @@
 // bulk import (/api/org/import). Lists a public org's (falling back to a user's) repos,
 // most-recently-pushed first, filtering out forks and archived repos.
 
+import { githubApiBase } from "@/lib/github/host";
+
 export interface OrgRepoListItem {
   owner: string;
   name: string;
@@ -97,7 +99,8 @@ export async function listOrgRepos(org: string, count: number, token?: string): 
   // Link header's rel="next" until we have `count` post-filter results or pages are exhausted. The old
   // single `per_page=count*2` fetch returned far fewer than `count` (sometimes zero) for fork-heavy /
   // archived-heavy orgs once count ≥ 50, and reported that short list as complete.
-  for (const base of [`https://api.github.com/orgs/${org}/repos`, `https://api.github.com/users/${org}/repos`]) {
+  const api = githubApiBase();
+  for (const base of [`${api}/orgs/${org}/repos`, `${api}/users/${org}/repos`]) {
     const collected: OrgRepoListItem[] = [];
     let url: string | null = `${base}?sort=pushed&direction=desc&type=public&per_page=100`;
     let probed = false; // have we gotten a successful first page from this base?

@@ -2,7 +2,7 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { briefingMarkdown, type ExecBriefing } from "./briefing";
+import { briefingMarkdown, engineMixDegraded, valueRealizedLine, type ExecBriefing } from "./briefing";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
 // a prior-window rollup it derives itself). Mock the db boundary so we can drive the assembly math
@@ -13,6 +13,13 @@ vi.mock("@/lib/db", () => ({
   getOrgBenchmark: vi.fn(),
   getOrgMovers: vi.fn(),
   listGoals: vi.fn(),
+}));
+
+// buildExecBriefing reads the engine mix straight from org-rollup (not the @/lib/db barrel), so stub it
+// here too — otherwise the real query reaches for a database and the assembly hangs.
+vi.mock("@/lib/db/org-rollup", () => ({
+  getOrgEngineMix: vi.fn(async () => []),
+  getOrgRecsActioned: vi.fn(async () => ({ engaged: 0, actioned: 0 })),
 }));
 
 const fixture: ExecBriefing = {
@@ -32,6 +39,14 @@ const fixture: ExecBriefing = {
     dims: [{ dimId: "D2", label: "Test Discipline", now: 60, prior: 52, delta: 8 }],
   },
   forecastHeadline: "On track to reach L4 in 6 weeks.",
+  forecastConfidence: 80,
+  engineMix: [
+    { provider: "claude-cli", count: 7 },
+    { provider: "mock", count: 1 },
+  ],
+  valueRealized: { recsEngaged: 5, recsActioned: 3, pointsMoved: 4, reposPromoted: 2 },
+  adoptionRate: 58,
+  movement: { up: 5, down: 2, compared: 8 },
   benchmark: {
     percentile: 71,
     corpusRepos: 240,
@@ -47,6 +62,32 @@ const fixture: ExecBriefing = {
   regressionCount: 1,
 };
 
+describe("valueRealizedLine — the renewal-justification, only when there's value to show", () => {
+  it("prefers completed over engaged, and joins points + promotions", () => {
+    expect(valueRealizedLine({ recsEngaged: 5, recsActioned: 3, pointsMoved: 4, reposPromoted: 2 })).toBe(
+      "3 recommendations completed · fleet +4 pts · 2 repos leveled up",
+    );
+  });
+  it("falls back to 'actioned' when nothing was completed, and singularizes", () => {
+    expect(valueRealizedLine({ recsEngaged: 1, recsActioned: 0, pointsMoved: null, reposPromoted: 1 })).toBe(
+      "1 recommendation actioned · 1 repo leveled up",
+    );
+  });
+  it("is null when nothing measurable happened (no empty 0·0·0 line)", () => {
+    expect(valueRealizedLine({ recsEngaged: 0, recsActioned: 0, pointsMoved: 0, reposPromoted: 0 })).toBeNull();
+    expect(valueRealizedLine({ recsEngaged: 0, recsActioned: 0, pointsMoved: null, reposPromoted: 0 })).toBeNull();
+  });
+});
+
+describe("engineMixDegraded — flags a PARTIAL mock fallback, not a clean single-engine period", () => {
+  it("is true only when mock AND a real engine both scored in the period", () => {
+    expect(engineMixDegraded([{ provider: "claude-cli", count: 7 }, { provider: "mock", count: 1 }])).toBe(true);
+    expect(engineMixDegraded([{ provider: "claude-cli", count: 8 }])).toBe(false); // all live
+    expect(engineMixDegraded([{ provider: "mock", count: 8 }])).toBe(false); // all mock (a demo/mock deployment, not a fallback)
+    expect(engineMixDegraded([])).toBe(false);
+  });
+});
+
 describe("briefingMarkdown", () => {
   const md = briefingMarkdown(fixture);
 
@@ -58,7 +99,7 @@ describe("briefingMarkdown", () => {
   it("includes benchmark, strengths, weakest dims, trajectory and movement", () => {
     expect(md).toContain("71th percentile vs 240 repos");
     expect(md).toContain("Peer cohort (TypeScript): 68th percentile overall vs 60 TypeScript repos; 55th on AI adoption");
-    expect(md).toContain("Trajectory: On track to reach L4 in 6 weeks.");
+    expect(md).toContain("Trajectory: On track to reach L4 in 6 weeks. (trend confidence 80%)");
     expect(md).toContain("D2 Testing: 80/100");
     expect(md).toContain("D9 Security: 41/100");
     expect(md).toMatch(/▲ api: \+9 \(L2→L3\)/);
@@ -67,6 +108,21 @@ describe("briefingMarkdown", () => {
 
   it("renders goals with progress + ETA", () => {
     expect(md).toContain("Lift security: 41/70 (22%, behind, ETA ~120d)");
+  });
+
+  it("records the scoring provenance and flags a mock-degraded period (engine mix in the durable artifact)", () => {
+    expect(md).toContain("Scored by: Claude CLI ×7, Mock (deterministic) ×1");
+    expect(md).toContain("some scores used the deterministic mock engine");
+  });
+
+  it("surfaces the value realized this period (the renewal-justification line)", () => {
+    expect(md).toContain("Value this period: 3 recommendations completed · fleet +4 pts · 2 repos leveled up");
+  });
+
+  it("surfaces the fleet adoption rate and the FULL movement scale (not just the top-3 listed)", () => {
+    expect(md).toContain("Fleet adoption: 58% of scanned repos at a high AI-adoption posture");
+    // 5 up + 2 down full counts, even though only 1 gainer + 1 regression are listed below.
+    expect(md).toContain("7 of 8 compared repos moved (5 ▲ / 2 ▼)");
   });
 
   it("NAMES the recommended next move (weakest dim) instead of offloading the decision to the LLM", () => {
@@ -471,6 +527,11 @@ const emptyBriefing: ExecBriefing = {
   periodDelta: null,
   priorPeriod: null,
   forecastHeadline: null,
+  forecastConfidence: null,
+  engineMix: [],
+  valueRealized: { recsEngaged: 0, recsActioned: 0, pointsMoved: null, reposPromoted: 0 },
+  adoptionRate: null,
+  movement: { up: 0, down: 0, compared: 0 },
   benchmark: null,
   strengths: [],
   risks: [],

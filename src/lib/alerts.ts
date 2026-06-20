@@ -10,6 +10,7 @@
 // configuration. Per-org routing keeps one tenant's fleet intelligence out of another's channel.
 
 import type { ScanDiff } from "@/lib/report/compare";
+import { isWithinNoise } from "@/lib/maturity/noise";
 
 /** How loud the regression is — drives whether/how prominently it's surfaced. */
 export type AlertSeverity = "critical" | "warning";
@@ -35,7 +36,31 @@ export interface RegressionThresholds {
   dimensionDrop: number;
 }
 
+// The overall-drop threshold (5) sits comfortably ABOVE the scan-to-scan noise band (±2 — two identical-
+// commit re-scans moved 0/±1; see @/lib/maturity/noise), so a regression alert never fires on model
+// jitter. The dimension threshold (15) is well clear of the ±25 LLM guardband on a single dimension.
 export const DEFAULT_THRESHOLDS: RegressionThresholds = { overallDrop: 5, dimensionDrop: 15 };
+
+/**
+ * Movement-gate for the weekly fleet digest — whether this period is worth a push at all. A leader who
+ * relies on the digest *instead of* opening the app filters it out fast if it cries "no change this
+ * week" every Monday, so a flat period should stay silent. Sends only on real signal: a level change, a
+ * regression, an overall move beyond the scan-to-scan noise band, a genuine gainer, or a depleting
+ * credit balance (always worth the heads-up). Pure — the cron passes the period's already-computed
+ * aggregates. This is an adaptive cadence (notify on news); a fixed per-org cadence would need a stored
+ * preference + last-sent timestamp.
+ */
+export function digestHasSignal(s: {
+  overallDelta: number | null;
+  levelChanges: number;
+  regressions: number;
+  gainersBeyondNoise: number;
+  creditLow: boolean;
+}): boolean {
+  if (s.creditLow) return true;
+  if (s.levelChanges > 0 || s.regressions > 0 || s.gainersBeyondNoise > 0) return true;
+  return s.overallDelta != null && !isWithinNoise(s.overallDelta);
+}
 
 /**
  * Decide whether a scan-to-scan diff is a regression worth alerting on. `diff` reads as
@@ -168,8 +193,10 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const delta =
     d.overallDelta == null
       ? ""
-      : d.overallDelta === 0
-        ? " (no change this week)"
+      : isWithinNoise(d.overallDelta)
+        ? d.overallDelta === 0
+          ? " (no change this week)"
+          : ` (${d.overallDelta > 0 ? "+" : ""}${d.overallDelta} — within noise this week)`
         : ` (${d.overallDelta > 0 ? "+" : ""}${d.overallDelta} this week)`;
   const headline = `📊 Ascent weekly digest: ${d.org}`;
   const pctile = d.percentile != null ? ` · ${d.percentile}th pctile` : "";

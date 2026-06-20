@@ -173,7 +173,7 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     // Metered path = real inference into a private org. Default each reserve to a successful debit;
     // the unaffordable tail never reaches consumeScanCredit because the up-front slice drops it.
     mockScan.mockResolvedValue(realReport);
-    mockConsume.mockResolvedValue({ ok: true, balance: 1, unlimited: false });
+    mockConsume.mockResolvedValue({ ok: true, balance: 1, unlimited: false, charged: true });
     mockGrant.mockResolvedValue(0);
   });
 

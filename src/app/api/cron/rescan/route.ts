@@ -107,7 +107,7 @@ export async function GET(request: Request) {
       skippedForCredits += 1;
       return;
     }
-    const charged = reservation.ok && !reservation.unlimited;
+    const charged = reservation.charged; // true only on an overflow credit debit (within-allowance is free)
     // Proactive lifecycle push when this debit landed on the low-water mark (or zero): the cron
     // drains credits with nobody watching, which is exactly when depletion must reach a human.
     if (charged) await maybeAlertLowCredits(r.orgSlug, reservation.balance);

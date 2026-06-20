@@ -2,6 +2,7 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { EmptyState } from "@/components/EmptyState";
 import { SignInNotice } from "@/components/SignInNotice";
 import { UsageTrend } from "@/components/usage/UsageTrend";
+import { AllotmentPanel } from "./AllotmentPanel";
 import { getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
 import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { timeAgo } from "@/lib/ui";
@@ -241,6 +242,11 @@ export default async function UsagePage({
           <Stat label="Input tokens" value={usage.inputTokens} sub={`last ${usage.periodDays}d`} />
           <Stat label="Output tokens" value={usage.outputTokens} sub={`last ${usage.periodDays}d`} />
         </div>
+
+        {/* Burn-vs-allotment: is this org over- or under-provisioned for its tier? Renders only for a
+            metered plan with a monthly allotment (not Free/Enterprise). The 90% line is the top-up nudge
+            BEFORE the hard 402 — the right-sizing signal /usage was missing. */}
+        {credit && <AllotmentPanel plan={credit.plan} billableInPeriod={billable} periodDays={usage.periodDays} />}
 
         {/* Reconciliation (USE-4): metered private scans vs the credit ledger for the same period —
             does what was billed line up with what was debited? Refunds (failed/deduped scans) net it back. */}

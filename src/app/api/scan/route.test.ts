@@ -170,8 +170,8 @@ describe("POST /api/scan — credit reserve / 402 / refund flow (money-path)", (
     mockIsDbConfigured.mockReturnValue(true);
     // Default happy entitlement: a positive balance, not unlimited.
     mockCheckEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5 });
-    // Default reserve: atomic decrement succeeds (one credit reserved), balance now 4.
-    mockConsumeCredit.mockResolvedValue({ ok: true, unlimited: false, balance: 4 } as never);
+    // Default reserve: atomic decrement succeeds (one credit reserved + charged), balance now 4.
+    mockConsumeCredit.mockResolvedValue({ ok: true, unlimited: false, balance: 4, charged: true } as never);
     // Default grant (the refund) echoes a post-refund balance.
     mockGrantCredits.mockResolvedValue(5 as never);
     // Default persist: a NEW row (not a dedup).

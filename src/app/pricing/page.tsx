@@ -8,14 +8,15 @@
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
+import { CreditEstimator } from "./CreditEstimator";
 
 // Display-only price labels. Free is genuinely $0; Pro/Team run on prepaid credits (no fixed
 // subscription price is asserted in code); Enterprise is bespoke. Kept here, not in plans.ts, so the
 // feature/allotment source of truth stays free of pricing claims.
 const PRICE: Record<PlanId, { amount: string; note: string }> = {
   free: { amount: "$0", note: "free forever" },
-  pro: { amount: "Prepaid", note: "credits — 1 per private scan" },
-  team: { amount: "Prepaid", note: "credits — 1 per private scan" },
+  pro: { amount: "Prepaid", note: "credits — 1 per scan over your allowance" },
+  team: { amount: "Prepaid", note: "credits — 1 per scan over your allowance" },
   enterprise: { amount: "Custom", note: "contact us" },
 };
 
@@ -35,10 +36,13 @@ export default function PricingPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white sm:text-4xl">Plans &amp; credits</h1>
           <p className="mx-auto mt-3 max-w-2xl text-lg text-slate-400">
-            Public-repo scans are free forever. Private repos and the org fleet dashboard run on prepaid
-            scan credits — pick the tier that fits your fleet.
+            Every plan includes a <span className="text-slate-200">monthly scan allowance</span>; scans beyond it run
+            on prepaid credits (1 per scan). Public-repo scans also have a free weekly allowance — pick the tier that
+            fits your fleet.
           </p>
         </div>
+
+        <CreditEstimator />
 
         <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {PLAN_ORDER.map((id) => {
@@ -58,11 +62,7 @@ export default function PricingPage() {
                 </p>
                 <p className="mt-2 text-sm text-slate-400">{p.blurb}</p>
                 <p className="mt-3 font-mono text-sm text-accent">
-                  {p.unlimited
-                    ? "Unlimited private scans"
-                    : p.includedCredits === 0
-                      ? "Public scans only"
-                      : `${p.includedCredits} private scans / month`}
+                  {p.unlimited ? "Unlimited scans" : `${p.includedCredits} scans / mo included`}
                 </p>
                 <ul className="mt-3 flex-1 space-y-1.5 text-sm text-slate-300">
                   {p.features.map((f) => (
@@ -83,9 +83,12 @@ export default function PricingPage() {
           })}
         </div>
 
-        <p className="mt-8 text-center text-sm text-slate-500">
-          Credits power private (installation) scans; public scans never use them. Manage credits and
-          your plan from the org dashboard.
+        <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500">
+          Each plan includes a monthly scan allowance that{" "}
+          <span className="text-slate-300">resets every month</span>. Scans beyond it run on prepaid credits (1 per
+          scan), which <span className="text-slate-300">roll over and never expire</span> — so you pay only for the
+          overflow you actually use. Cached re-scans of unchanged repos are always free. Manage credits and your plan
+          from the org dashboard.
         </p>
       </main>
       <SiteFooter />

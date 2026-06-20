@@ -9,7 +9,8 @@ export type PlanId = "free" | "pro" | "team" | "enterprise";
 export interface PlanFeature {
   id: PlanId;
   label: string;
-  /** Monthly included private-scan credits; null = unlimited (no debit). */
+  /** Monthly metered-scan allowance — free scans/month before overflow draws on prepaid credits.
+   *  null = unlimited (Enterprise). This is the "included" volume; see scanAllowance(). */
   includedCredits: number | null;
   /** True when private scans never consume a credit (the `enterprise` behaviour, now data-driven). */
   unlimited: boolean;
@@ -25,12 +26,12 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
   free: {
     id: "free",
     label: "Free",
-    includedCredits: 0,
+    includedCredits: 10,
     unlimited: false,
     seats: 1,
     retentionDays: 30,
-    blurb: "Public-repo scans, badge, and the full report — free forever.",
-    features: ["Unlimited public-repo scans", "Maturity report + roadmap", "README badge", "1 member"],
+    blurb: "Free public-repo scans, badge, and the full report — plus 10 org scans a month.",
+    features: ["10 scans / month included", "Free public-repo scans (fair-use)", "Maturity report + roadmap", "README badge", "1 member"],
   },
   pro: {
     id: "pro",
@@ -40,7 +41,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 3,
     retentionDays: 180,
     blurb: "Private repos + the org fleet dashboard for a small team.",
-    features: ["100 private scans / month", "Org fleet dashboard", "Scheduled autoscans + alerts", "3 members", "180-day history"],
+    features: ["100 scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "3 members", "180-day history"],
   },
   team: {
     id: "team",
@@ -50,7 +51,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 10,
     retentionDays: 365,
     blurb: "More volume, more seats, and segment-scoped intelligence.",
-    features: ["500 private scans / month", "Segments + comparisons", "Playbooks + planning", "10 members", "1-year history"],
+    features: ["500 scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "10 members", "1-year history"],
   },
   enterprise: {
     id: "enterprise",
@@ -79,4 +80,50 @@ export function planFeatures(plan: string | null | undefined): PlanFeature {
 /** Plans whose private scans are included (never consume credits) — now data-driven. */
 export function isUnlimitedPlan(plan: string | null | undefined): boolean {
   return planFeatures(plan).unlimited;
+}
+
+/** The plan's monthly metered-scan allowance (free scans before overflow draws on credits), or null
+ *  for unlimited (Enterprise). A metered scan is free while the org is under this; beyond it, 1 credit. */
+export function scanAllowance(plan: string | null | undefined): number | null {
+  const p = planFeatures(plan);
+  return p.unlimited ? null : (p.includedCredits ?? 0);
+}
+
+/** How a metered scan is billed under the hybrid model. */
+export type ScanCharge = "unlimited" | "allowance" | "credit" | "denied";
+
+/**
+ * Decide how the NEXT metered scan is billed: free on the unlimited plan, free while under the monthly
+ * allowance, then 1 prepaid credit, else denied (allowance spent + no credits → the 402/upgrade moment).
+ * Pure — the caller supplies the org's plan-derived allowance, its month-to-date metered usage, and its
+ * credit balance.
+ */
+export function decideScanCharge(opts: {
+  unlimited: boolean;
+  allowance: number | null;
+  usageThisMonth: number;
+  balance: number;
+}): ScanCharge {
+  if (opts.unlimited) return "unlimited";
+  if (opts.allowance != null && opts.usageThisMonth < opts.allowance) return "allowance";
+  return opts.balance > 0 ? "credit" : "denied";
+}
+
+/** Plans that include white-label briefing branding — Team and up (was Enterprise-only; opened up so a
+ *  Team-tier reseller can brand the reports they hand to clients). */
+export function planAllowsWhiteLabel(plan: string | null | undefined): boolean {
+  const id = plan && isPlanId(plan) ? plan : "free";
+  return id === "team" || id === "enterprise";
+}
+
+/**
+ * The earliest scan date a plan's retention window includes, given the current time (ms since epoch).
+ * `null` = unlimited retention (Enterprise / custom) — no lower bound. This is a NON-DESTRUCTIVE read
+ * floor: callers clamp history/trend/trajectory READ queries to it so a tier's advertised retention
+ * (Free 30d · Pro 180d · Team 365d) is real, without ever deleting data. `nowMs` is injected so the
+ * function stays pure and unit-testable.
+ */
+export function retentionCutoff(plan: string | null | undefined, nowMs: number): Date | null {
+  const days = planFeatures(plan).retentionDays;
+  return days == null ? null : new Date(nowMs - days * 86_400_000);
 }

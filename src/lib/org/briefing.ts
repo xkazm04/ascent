@@ -11,9 +11,48 @@ import {
   type OrgWindow,
   type RepoMove,
 } from "@/lib/db";
+import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org-rollup";
 import { forecastHeadline } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
+
+const ENGINE_LABEL: Record<string, string> = {
+  "claude-cli": "Claude CLI",
+  claude: "Claude",
+  gemini: "Gemini",
+  bedrock: "AWS Bedrock",
+  mock: "Mock (deterministic)",
+};
+
+/** Human label for an inference-engine provider id. */
+export function engineLabel(provider: string): string {
+  return ENGINE_LABEL[provider] ?? provider;
+}
+
+/** "Claude CLI ×18, Mock ×2" — the period's scoring provenance, busiest engine first. */
+export function engineMixLabel(mix: EngineMixEntry[]): string {
+  return mix.map((e) => `${engineLabel(e.provider)} ×${e.count}`).join(", ");
+}
+
+/** True when the deterministic mock engine produced SOME (but not all) of the period's scores — a
+ *  partial fallback that quietly weakens the read: the "mock-degraded quarter" an examiner must see. */
+export function engineMixDegraded(mix: EngineMixEntry[]): boolean {
+  const mock = mix.find((e) => e.provider === "mock")?.count ?? 0;
+  const real = mix.reduce((a, e) => a + (e.provider === "mock" ? 0 : e.count), 0);
+  return mock > 0 && real > 0;
+}
+
+/** One-line value-realization summary ("3 recommendations completed · fleet +6 pts · 2 repos leveled
+ *  up"), or null when nothing measurable happened this period — so the renewal line only appears when
+ *  there's value to show, never as an empty "0 · 0 · 0". Shared by the exec page and the markdown. */
+export function valueRealizedLine(vr: ExecBriefing["valueRealized"]): string | null {
+  const parts: string[] = [];
+  if (vr.recsActioned > 0) parts.push(`${vr.recsActioned} recommendation${vr.recsActioned === 1 ? "" : "s"} completed`);
+  else if (vr.recsEngaged > 0) parts.push(`${vr.recsEngaged} recommendation${vr.recsEngaged === 1 ? "" : "s"} actioned`);
+  if (vr.pointsMoved != null && vr.pointsMoved !== 0) parts.push(`fleet ${vr.pointsMoved > 0 ? "+" : ""}${vr.pointsMoved} pts`);
+  if (vr.reposPromoted > 0) parts.push(`${vr.reposPromoted} repo${vr.reposPromoted === 1 ? "" : "s"} leveled up`);
+  return parts.length ? parts.join(" · ") : null;
+}
 
 export interface BriefingDim {
   dimId: string;
@@ -57,6 +96,32 @@ export interface ExecBriefing {
     dims: { dimId: string; label: string; now: number; prior: number; delta: number }[];
   } | null;
   forecastHeadline: string | null;
+  /** Trend confidence (R² as 0–100) behind the forecast headline; null when there's too little history.
+   *  Carried so the executive read shows the same "· noisy" honesty the overview Trajectory card does. */
+  forecastConfidence: number | null;
+  /** Which inference engine(s) produced this period's scores — provenance so a mock-degraded quarter
+   *  is auditable in the durable briefing, not just the transient scan stream. */
+  engineMix: EngineMixEntry[];
+  /** Fleet adoption rate (0..100) — share of scanned repos at a HIGH-adoption posture (AI-Native or
+   *  Fast & Ungoverned). The "is the standardization landing across the fleet" number a platform lead
+   *  tracks cycle-over-cycle; null when nothing is scanned. */
+  adoptionRate: number | null;
+  /** Full-fleet movement scale this period (not just the top-3 listed) — how many comparable repos moved
+   *  up vs down, so a 200-repo fleet sees the spread, not a capped list. */
+  movement: { up: number; down: number; compared: number };
+  /** Value realized THIS period — the renewal-justification: recs acted on, points moved, repos
+   *  promoted. Answers "did anyone use it, and did it move the number?" rather than leaving a renewer
+   *  to reconstruct it. */
+  valueRealized: {
+    /** Recommendations with any status change in the window (engagement). */
+    recsEngaged: number;
+    /** Recommendations moved to "done" in the window (completion). */
+    recsActioned: number;
+    /** Overall fleet points moved vs the period baseline; null on the all-time window. */
+    pointsMoved: number | null;
+    /** Repos that crossed up a maturity level in the window. */
+    reposPromoted: number;
+  };
   benchmark: {
     percentile: number | null;
     corpusRepos: number;
@@ -90,6 +155,7 @@ export async function buildExecBriefing(
   orgSlug: string,
   window?: OrgWindow,
   periodTitle = "all time",
+  segmentId?: string | null,
 ): Promise<ExecBriefing | null> {
   // EXEC-4: the immediately-preceding equal-length window — its END state is the start of this one,
   // so current-minus-prior reads as movement across the period (per dimension + headline). Only when
@@ -101,12 +167,14 @@ export async function buildExecBriefing(
       }
     : undefined;
 
-  const [rollup, benchmark, movers, goals, priorRollup] = await Promise.all([
-    getOrgRollup(orgSlug, window),
+  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity] = await Promise.all([
+    getOrgRollup(orgSlug, window, segmentId),
     getOrgBenchmark(orgSlug),
-    getOrgMovers(orgSlug, window),
+    getOrgMovers(orgSlug, window, segmentId),
     listGoals(orgSlug),
-    priorWindow ? getOrgRollup(orgSlug, priorWindow) : Promise.resolve(null),
+    priorWindow ? getOrgRollup(orgSlug, priorWindow, segmentId) : Promise.resolve(null),
+    getOrgEngineMix(orgSlug, window, segmentId),
+    getOrgRecsActioned(orgSlug, window, segmentId),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 
@@ -165,6 +233,23 @@ export async function buildExecBriefing(
     periodDelta: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
     priorPeriod,
     forecastHeadline: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
+    forecastConfidence: rollup.forecast ? Math.round(rollup.forecast.fitQuality * 100) : null,
+    engineMix,
+    adoptionRate:
+      rollup.scannedCount > 0
+        ? Math.round((((rollup.postureCounts["ai-native"] ?? 0) + (rollup.postureCounts["ungoverned"] ?? 0)) / rollup.scannedCount) * 100)
+        : null,
+    movement: {
+      up: movers?.gainers.length ?? 0,
+      down: movers?.regressers.length ?? 0,
+      compared: movers?.comparedRepos ?? 0,
+    },
+    valueRealized: {
+      recsEngaged: recsActivity.engaged,
+      recsActioned: recsActivity.actioned,
+      pointsMoved: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
+      reposPromoted: movers?.levelChanges?.filter((m) => m.levelDelta > 0).length ?? 0,
+    },
     benchmark: benchmark
       ? {
           percentile: benchmark.overallPercentile,
@@ -215,6 +300,9 @@ export function briefingMarkdown(b: ExecBriefing): string {
   out.push(`- Overall maturity: **${b.maturity.overall}/100** (${b.maturity.levelId} ${b.maturity.levelName})${delta}`);
   out.push(`- AI Adoption: ${b.maturity.adoption}/100 · Engineering Rigor: ${b.maturity.rigor}/100`);
   out.push(`- Coverage: ${b.coverage.scanned}/${b.coverage.total} repositories scanned`);
+  const vline = valueRealizedLine(b.valueRealized);
+  if (vline) out.push(`- Value this period: ${vline}`);
+  if (b.adoptionRate != null) out.push(`- Fleet adoption: ${b.adoptionRate}% of scanned repos at a high AI-adoption posture`);
   if (b.benchmark?.percentile != null) {
     out.push(`- Benchmark: ${b.benchmark.percentile}th percentile vs ${b.benchmark.corpusRepos} repos (corpus avg ${b.benchmark.corpusAvgOverall})`);
   }
@@ -224,7 +312,14 @@ export function briefingMarkdown(b: ExecBriefing): string {
       `- Peer cohort (${c.language}): ${c.overallPercentile}th percentile overall vs ${c.repos} ${c.language} repos${c.adoptionPercentile != null ? `; ${c.adoptionPercentile}th on AI adoption` : ""}`,
     );
   }
-  if (b.forecastHeadline) out.push(`- Trajectory: ${b.forecastHeadline}`);
+  if (b.forecastHeadline)
+    out.push(
+      `- Trajectory: ${b.forecastHeadline}${b.forecastConfidence != null ? ` (trend confidence ${b.forecastConfidence}%${b.forecastConfidence < 50 ? ", noisy" : ""})` : ""}`,
+    );
+  if (b.engineMix.length)
+    out.push(
+      `- Scored by: ${engineMixLabel(b.engineMix)}${engineMixDegraded(b.engineMix) ? " — ⚠ some scores used the deterministic mock engine, not the live model" : ""}`,
+    );
   if (b.priorPeriod) {
     const p = b.priorPeriod;
     const d = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
@@ -245,6 +340,8 @@ export function briefingMarkdown(b: ExecBriefing): string {
   if (b.topGainers.length || b.topRegressions.length) {
     out.push("");
     out.push("## Movement this period");
+    if (b.movement.compared > 0)
+      out.push(`- ${b.movement.up + b.movement.down} of ${b.movement.compared} compared repos moved (${b.movement.up} ▲ / ${b.movement.down} ▼)`);
     for (const m of b.topGainers) out.push(moveLine("▲", m));
     for (const m of b.topRegressions) out.push(moveLine("▼", m));
   }

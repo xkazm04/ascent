@@ -46,6 +46,9 @@ vi.mock("@/lib/alerts", () => ({
     blocks: [],
   })),
   creditsAlertThreshold: vi.fn(() => 5),
+  // The movement-gate. Default to "has signal" so the routing/auth tests behave as before; one test
+  // flips it to false to assert the route SKIPS a flat org (skippedFlat++) without building/dispatching.
+  digestHasSignal: vi.fn(() => true),
 }));
 
 import { GET } from "./route";
@@ -59,7 +62,7 @@ import {
   getOrgBenchmark,
   getCreditState,
 } from "@/lib/db";
-import { dispatchAlert, buildFleetDigestMessage } from "@/lib/alerts";
+import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockListOrgs = vi.mocked(listOrgsWithWatchedRepos);
@@ -71,6 +74,7 @@ const mockBenchmark = vi.mocked(getOrgBenchmark);
 const mockCredit = vi.mocked(getCreditState);
 const mockDispatch = vi.mocked(dispatchAlert);
 const mockBuild = vi.mocked(buildFleetDigestMessage);
+const mockHasSignal = vi.mocked(digestHasSignal);
 
 const SECRET = "digest-secret-xyz";
 
@@ -114,6 +118,7 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     mockBenchmark.mockResolvedValue(null);
     mockCredit.mockResolvedValue(null);
     mockDispatch.mockResolvedValue(true);
+    mockHasSignal.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -275,6 +280,20 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     const [msg, opts] = mockDispatch.mock.calls[0];
     expect((msg as { text: string }).text).toBe("digest:orgGood");
     expect((opts as { webhookUrl?: string }).webhookUrl).toBe("https://hooks.example.com/GOOD");
+  });
+
+  it("movement-gates a flat org: a sink + scanned fleet but no signal → skippedFlat, nothing built/dispatched", async () => {
+    mockListOrgs.mockResolvedValue(["orgFlat"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/FLAT");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockHasSignal.mockReturnValue(false); // nothing material moved this period
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(body).toMatchObject({ orgs: 1, sent: 0, skippedNoSink: 0, skippedFlat: 1, errors: [] });
+    // The flat org must NOT train the inbox filter — no message built, nothing dispatched.
+    expect(mockBuild).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
   });
 
   it("does not dispatch when the org has a sink but nothing to report (scannedCount === 0)", async () => {

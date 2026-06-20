@@ -3,6 +3,7 @@
 // (level changes) and turns them into a sentence: did the org climb, and who leveled up/down.
 // Server-safe (no client hooks). Renders nothing without a baseline (e.g. the "All time" range).
 import { deltaHex, fmtDelta, signedDelta } from "@/components/org/ui";
+import { isWithinNoise } from "@/lib/maturity/noise";
 import type { OrgMovers, OrgRollup } from "@/lib/db";
 import type { ResolvedWindow } from "@/lib/window";
 
@@ -30,10 +31,13 @@ export function PeriodSummary({
   const cohortNow = baseline.avgOverall + deltas.overall;
   const onboarded = Math.max(0, rollup.scannedCount - baseline.repos);
 
-  const maturity =
-    deltas.overall === 0
+  // A within-noise overall delta (|Δ| <= the scan-to-scan band) is "held", not a move — say so, so a
+  // re-scan wobble isn't read as real fleet movement (the trajectory card already does this for the trend).
+  const maturity = isWithinNoise(deltas.overall)
+    ? deltas.overall === 0
       ? `Fleet maturity held at ${cohortNow}.`
-      : `Fleet maturity ${deltas.overall > 0 ? "climbed" : "slipped"} ${signedDelta(deltas.overall)} to ${cohortNow} (from ${baseline.avgOverall}).`;
+      : `Fleet maturity held around ${cohortNow} — the ${signedDelta(deltas.overall)} shift is within the scan-to-scan noise band.`
+    : `Fleet maturity ${deltas.overall > 0 ? "climbed" : "slipped"} ${signedDelta(deltas.overall)} to ${cohortNow} (from ${baseline.avgOverall}).`;
 
   const levels =
     promoted || demoted

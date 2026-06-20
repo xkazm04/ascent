@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
+import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
 import { DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
@@ -674,6 +675,10 @@ export async function getScanReportByCommit(
   const commitTotal = contributors.reduce((a, c) => a + c.commits, 0);
   const level = LEVEL_BY_ID[scan.level as LevelId] ?? levelForScore(scan.overallScore);
 
+  // Warnings aren't persisted, so recompute the durable stack-fit caveat from the stored primary
+  // language — keeps a partial-fit reload (ML notebook / mobile repo) honest, not just the fresh scan.
+  const stackFit = stackFitFromLanguage(repo.primaryLanguage);
+
   return {
     repo: {
       owner: repo.owner,
@@ -708,6 +713,7 @@ export async function getScanReportByCommit(
     roadmap,
     discrepancies: parseDiscrepancies(scan.discrepancies),
     confidence: scan.confidence,
+    ...(stackFit ? { warnings: [stackFit.caveat] } : {}),
     scannedAt: scan.scannedAt.toISOString(),
     engine: { provider: scan.engineProvider as ProviderName, model: scan.engineModel },
   };

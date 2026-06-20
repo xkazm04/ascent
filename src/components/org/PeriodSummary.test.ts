@@ -23,6 +23,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db/client", () => ({ getPrisma: vi.fn(), isDbConfigured: () => false }));
 
 import { computeWindowDeltas, type RepoScoreSnap } from "@/lib/db/org-rollup";
+import { isWithinNoise } from "@/lib/maturity/noise";
 import type { OrgMovers, OrgRollup, RepoMove } from "@/lib/db";
 
 // ── Mirror of PeriodSummary.tsx's inline derivation (lines 22-41). ─────────────────────────────────
@@ -51,10 +52,11 @@ function derivePeriodSummary(rollup: OrgRollup, movers: OrgMovers | null): Deriv
   const cohortNow = baseline.avgOverall + deltas.overall;
   const onboarded = Math.max(0, rollup.scannedCount - baseline.repos);
 
-  const maturity =
-    deltas.overall === 0
+  const maturity = isWithinNoise(deltas.overall)
+    ? deltas.overall === 0
       ? `Fleet maturity held at ${cohortNow}.`
-      : `Fleet maturity ${deltas.overall > 0 ? "climbed" : "slipped"} ${signedDelta(deltas.overall)} to ${cohortNow} (from ${baseline.avgOverall}).`;
+      : `Fleet maturity held around ${cohortNow} — the ${signedDelta(deltas.overall)} shift is within the scan-to-scan noise band.`
+    : `Fleet maturity ${deltas.overall > 0 ? "climbed" : "slipped"} ${signedDelta(deltas.overall)} to ${cohortNow} (from ${baseline.avgOverall}).`;
 
   const levels =
     promoted || demoted
@@ -176,6 +178,17 @@ describe("PeriodSummary derivation — cohort-now is the cohort's current avg, N
     const d = derivePeriodSummary(r, movers())!;
     expect(d.cohortNow).toBe(75);
     expect(d.maturity).toBe("Fleet maturity held at 75.");
+  });
+
+  it("a within-noise non-zero delta reads 'held around …' and names the noise band (no false climb)", () => {
+    // +1 is inside the scan-to-scan band (two identical-commit claude-cli re-scans moved 0/±1) — the
+    // banner must NOT say "climbed +1", which would present a re-scan wobble as real fleet movement.
+    const r = rollup({ scannedCount: 2, avgOverall: 76, baseline: baseline(2, 75), deltas: { overall: 1, adoption: 1, rigor: 0 } });
+    const d = derivePeriodSummary(r, movers())!;
+    expect(isWithinNoise(1)).toBe(true);
+    expect(d.cohortNow).toBe(76);
+    expect(d.maturity).toBe("Fleet maturity held around 76 — the +1 shift is within the scan-to-scan noise band.");
+    expect(d.maturity).not.toContain("climbed");
   });
 });
 

@@ -12,6 +12,7 @@ import {
   type RepoSource,
 } from "@/lib/github/source";
 import { analyzeSignals, classifyArchetype } from "@/lib/analyze";
+import { detectStackFit } from "@/lib/analyze/stack-fit";
 import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
 import { getProvider, providerByName, MockProvider } from "@/lib/llm";
@@ -332,6 +333,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
       `Only part of the repository could be inspected (~${Math.round(snapshot.coverage * 100)}% coverage); treat scores as indicative.`,
     );
   }
+  // Partial-fit caveat: name a stack the web/service-tuned rubric is known to under-read (ML/notebooks,
+  // mobile delivery, embedded/firmware) so the score is read honestly rather than taken at face value.
+  const stackFit = detectStackFit(snapshot);
+  if (stackFit) warnings.push(stackFit.caveat);
   if (warnings.length) report.warnings = [...(report.warnings ?? []), ...warnings];
 
   emit({ stage: "done", message: "Done", pct: 100 });

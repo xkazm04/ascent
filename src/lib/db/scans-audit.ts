@@ -3,6 +3,7 @@
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { resolveOrgId } from "@/lib/db/scans-shared";
+import { withAuditSignature } from "@/lib/db/audit-integrity";
 
 /**
  * Append an entry to the audit trail. Returns `true` when the entry was durably
@@ -18,12 +19,19 @@ export async function recordAudit(
 ): Promise<boolean> {
   if (!isDbConfigured()) return true;
   try {
+    // Stamp the time explicitly so the value we SIGN matches the value we STORE, then fold a per-row
+    // HMAC signature into meta (migration-free tamper-evidence; inert without a signing secret).
+    const at = new Date();
+    const orgId = opts.orgId ?? null;
+    const actorId = opts.actorId ?? null;
+    const signedMeta = withAuditSignature({ action, orgId, actorId, createdAt: at.toISOString(), meta });
     await getPrisma().auditLog.create({
       data: {
         action,
-        meta: JSON.stringify(meta),
-        orgId: opts.orgId ?? null,
-        actorId: opts.actorId ?? null,
+        meta: JSON.stringify(signedMeta),
+        orgId,
+        actorId,
+        at,
       },
     });
     return true;

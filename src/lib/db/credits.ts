@@ -7,7 +7,7 @@
 // flow (Polar checkout + webhook) is src/app/api/billing/* and docs/BILLING.md.
 
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
-import { isUnlimitedPlan } from "@/lib/plans";
+import { isUnlimitedPlan, decideScanCharge, scanAllowance } from "@/lib/plans";
 
 // Re-export so existing importers (entitlement, scan paths) keep their `@/lib/db/credits` import.
 // The definition now lives in @/lib/plans (data-driven from PLAN_FEATURES) so `pro`/`team`/`enterprise`
@@ -139,31 +139,64 @@ export async function grantCredits(
 }
 
 /**
- * Consume exactly one credit for a private scan — atomically, and only if the balance is positive.
- * Returns { ok, balance, unlimited }: ok=false means insufficient credits (nothing debited). Unlimited
- * plans are a no-op (ok=true). The conditional decrement (WHERE scanCredits > 0) means two concurrent
- * scans can't drive the balance negative; under DSQL serialization the loser retries via withRetry.
+ * Count the org's metered scans so far this calendar month — the allowance-usage basis. Cached/dedup
+ * re-scans persist NO new Scan row (so they're naturally free), and degraded-to-mock runs are excluded
+ * (engineProvider "mock"), so this counts only the real-inference scans that draw on the allowance.
+ */
+export async function countMeteredScansThisMonth(orgSlug: string): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
+  if (!org) return 0;
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  return prisma.scan.count({
+    where: { repo: { orgId: org.id }, scannedAt: { gte: monthStart }, engineProvider: { not: "mock" } },
+  });
+}
+
+/**
+ * Consume the budget for one metered scan under the hybrid model: FREE on the unlimited plan, FREE
+ * while the org is under its monthly allowance, then ONE prepaid credit (atomic, balance-clamped), else
+ * denied. Returns { ok, balance, unlimited, charged } — `charged` is true ONLY when a credit was
+ * actually debited, so the caller refunds (on dedup/degrade) exactly that and nothing else. The
+ * allowance pre-check is a soft read (a boundary race can free one extra scan — fine for an allowance);
+ * the credit decrement remains the concurrency-safe hard gate.
  */
 export async function consumeScanCredit(
   orgSlug: string,
   ctx: { repoFullName?: string; scanId?: string; actor?: string } = {},
-): Promise<{ ok: boolean; balance: number; unlimited: boolean }> {
-  if (!isDbConfigured()) return { ok: true, balance: 0, unlimited: false };
+): Promise<{ ok: boolean; balance: number; unlimited: boolean; charged: boolean }> {
+  if (!isDbConfigured()) return { ok: true, balance: 0, unlimited: false, charged: false };
   const prisma = getPrisma();
   const slug = orgSlug.toLowerCase(); // canonical-casing contract (see getCreditState)
+
+  // Allowance gate (reads): unlimited or under the monthly allowance → free, no debit.
+  const org0 = await prisma.organization.findUnique({ where: { slug }, select: { plan: true, scanCredits: true } });
+  if (!org0) return { ok: false, balance: 0, unlimited: false, charged: false };
+  if (isUnlimitedPlan(org0.plan)) return { ok: true, balance: org0.scanCredits, unlimited: true, charged: false };
+  const charge = decideScanCharge({
+    unlimited: false,
+    allowance: scanAllowance(org0.plan),
+    usageThisMonth: await countMeteredScansThisMonth(slug),
+    balance: org0.scanCredits,
+  });
+  if (charge === "allowance") return { ok: true, balance: org0.scanCredits, unlimited: false, charged: false };
+  if (charge === "denied") return { ok: false, balance: org0.scanCredits, unlimited: false, charged: false };
+
+  // Overflow → debit one credit, atomically and balance-clamped.
   return withRetry(() =>
     prisma.$transaction(async (tx) => {
       const org = await tx.organization.findUnique({
         where: { slug },
-        select: { id: true, scanCredits: true, plan: true },
+        select: { id: true, scanCredits: true },
       });
-      if (!org) return { ok: false, balance: 0, unlimited: false };
-      if (isUnlimitedPlan(org.plan)) return { ok: true, balance: org.scanCredits, unlimited: true };
+      if (!org) return { ok: false, balance: 0, unlimited: false, charged: false };
       const dec = await tx.organization.updateMany({
         where: { slug, scanCredits: { gt: 0 } },
         data: { scanCredits: { decrement: 1 } },
       });
-      if (dec.count === 0) return { ok: false, balance: org.scanCredits, unlimited: false };
+      if (dec.count === 0) return { ok: false, balance: org.scanCredits, unlimited: false, charged: false };
       // Re-read AFTER the decrement (same tx) so the ledger stamps the real post-debit balance.
       // Deriving it from the initial read races with concurrent debits: under READ COMMITTED each
       // tx's stale snapshot would stamp the same balanceAfter, corrupting the reconciliation trail.
@@ -183,7 +216,7 @@ export async function consumeScanCredit(
           actor: ctx.actor ?? null,
         },
       });
-      return { ok: true, balance: balanceAfter, unlimited: false };
+      return { ok: true, balance: balanceAfter, unlimited: false, charged: true };
     }),
   );
 }

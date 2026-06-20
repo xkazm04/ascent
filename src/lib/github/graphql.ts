@@ -5,7 +5,9 @@
 // anonymous access, so this requires a token; callers skip PR ingestion gracefully when none
 // is available (public tokenless scans).
 
-const GRAPHQL = "https://api.github.com/graphql";
+import { githubGraphqlUrl } from "@/lib/github/host";
+
+const GRAPHQL = githubGraphqlUrl();
 const TIMEOUT_MS = 15_000;
 
 export interface PrReview {

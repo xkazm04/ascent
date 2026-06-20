@@ -24,8 +24,11 @@ import { isUnlimitedPlan, PLAN_ORDER } from "@/lib/plans";
  * READ COMMITTED whose initial reads all see the same pre-decrement value. The conditional
  * updateMany and the post-decrement re-read operate on the live row.
  */
-function fakePrisma(initialBalance: number, opts: { plan?: string } = {}) {
+function fakePrisma(initialBalance: number, opts: { plan?: string; usage?: number } = {}) {
   const row = { id: "org_1", scanCredits: initialBalance, plan: opts.plan ?? "free" };
+  // The hybrid allowance gate counts the month's metered scans first; default it well OVER any tier
+  // allowance so these credit-debit integrity tests exercise the overflow path (where credits are spent).
+  const usage = opts.usage ?? 9999;
   const staleBalance = initialBalance;
   const ledger: Array<{ delta: number; balanceAfter: number; reason: string }> = [];
   const tx = {
@@ -46,7 +49,13 @@ function fakePrisma(initialBalance: number, opts: { plan?: string } = {}) {
     },
   };
   return {
-    prisma: { $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) },
+    prisma: {
+      // Top-level reads the allowance gate adds before the tx: the org row (plan + balance) and the
+      // month's metered-scan count.
+      organization: { findUnique: vi.fn(async () => ({ id: row.id, scanCredits: row.scanCredits, plan: row.plan })) },
+      scan: { count: vi.fn(async () => usage) },
+      $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
+    },
     row,
     ledger,
   };
@@ -66,8 +75,8 @@ describe("consumeScanCredit balanceAfter integrity", () => {
     const first = await consumeScanCredit("acme");
     const second = await consumeScanCredit("acme");
 
-    expect(first).toEqual({ ok: true, balance: 9, unlimited: false });
-    expect(second).toEqual({ ok: true, balance: 8, unlimited: false });
+    expect(first).toEqual({ ok: true, balance: 9, unlimited: false, charged: true });
+    expect(second).toEqual({ ok: true, balance: 8, unlimited: false, charged: true });
     expect(ledger.map((e) => e.balanceAfter)).toEqual([9, 8]);
     expect(row.scanCredits).toBe(8);
   });
@@ -88,7 +97,7 @@ describe("consumeScanCredit balanceAfter integrity", () => {
 
     const res = await consumeScanCredit("acme");
 
-    expect(res).toEqual({ ok: true, balance: 5, unlimited: true });
+    expect(res).toEqual({ ok: true, balance: 5, unlimited: true, charged: false });
     expect(ledger).toHaveLength(0);
     expect(row.scanCredits).toBe(5);
   });
@@ -335,10 +344,17 @@ import { getCreditReconciliation } from "./credits";
  *    deny path (`{ ok:false }`, no debit, no ledger row) is exercised — not a silent free scan.
  * The live row is mutated by `updateMany`/re-read so the metered debit-by-one is real.
  */
-function fakePrismaForPlanResolution(org: { scanCredits: number; plan: string } | null) {
+function fakePrismaForPlanResolution(org: { scanCredits: number; plan: string } | null, opts: { usage?: number } = {}) {
   const row = org ? { id: "org_1", scanCredits: org.scanCredits, plan: org.plan } : null;
+  const usage = opts.usage ?? 9999; // default over any allowance → the credit-debit overflow path
   const ledger: Array<{ delta: number; balanceAfter: number; reason: string }> = [];
   const slugs: { findUnique: string[]; updateMany: string[] } = { findUnique: [], updateMany: [] };
+  // Top-level reads the allowance gate adds before the tx (org0 + the month's metered-scan count); both
+  // record the slug so the casing contract can assert every read is lowercased.
+  const topFindUnique = vi.fn(async ({ where }: { where: { slug: string } }) => {
+    slugs.findUnique.push(where.slug);
+    return row ? { id: row.id, scanCredits: row.scanCredits, plan: row.plan } : null;
+  });
   const tx = {
     organization: {
       findUnique: vi.fn(async ({ where }: { where: { slug: string } }) => {
@@ -364,7 +380,11 @@ function fakePrismaForPlanResolution(org: { scanCredits: number; plan: string } 
     },
   };
   return {
-    prisma: { $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) },
+    prisma: {
+      organization: { findUnique: topFindUnique },
+      scan: { count: vi.fn(async () => usage) },
+      $transaction: (fn: (t: typeof tx) => unknown) => fn(tx),
+    },
     row,
     ledger,
     slugs,
@@ -390,20 +410,31 @@ describe("consumeScanCredit plan-resolution + casing contract", () => {
     const res = await consumeScanCredit("acme");
 
     // Keyed on the plan's `unlimited` flag (data-driven from PLAN_FEATURES), never on a hardcoded string.
-    expect(res).toEqual({ ok: true, balance: 5, unlimited: true });
+    expect(res).toEqual({ ok: true, balance: 5, unlimited: true, charged: false });
     expect(ledger).toHaveLength(0);
     expect(row!.scanCredits).toBe(5);
   });
 
-  it.each(meteredPlans)("plan %s (isUnlimitedPlan=false) decrements by exactly 1 and stamps the ledger", async (plan) => {
-    const { prisma, ledger, row } = fakePrismaForPlanResolution({ scanCredits: 5, plan });
+  it.each(meteredPlans)("plan %s (isUnlimitedPlan=false), once OVER its allowance, decrements by exactly 1 and stamps the ledger", async (plan) => {
+    const { prisma, ledger, row } = fakePrismaForPlanResolution({ scanCredits: 5, plan }); // usage default 9999 → overflow
     mockGetPrisma.mockReturnValue(prisma);
 
     const res = await consumeScanCredit("acme");
 
-    expect(res).toEqual({ ok: true, balance: 4, unlimited: false });
+    expect(res).toEqual({ ok: true, balance: 4, unlimited: false, charged: true });
     expect(row!.scanCredits).toBe(4);
     expect(ledger).toEqual([{ delta: -1, balanceAfter: 4, reason: "scan" }]);
+  });
+
+  it("a metered scan UNDER the monthly allowance is free — no debit, no ledger row", async () => {
+    const { prisma, ledger, row } = fakePrismaForPlanResolution({ scanCredits: 5, plan: "pro" }, { usage: 0 }); // 0 of 100
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await consumeScanCredit("acme");
+
+    expect(res).toEqual({ ok: true, balance: 5, unlimited: false, charged: false });
+    expect(row!.scanCredits).toBe(5); // untouched — covered by the allowance
+    expect(ledger).toHaveLength(0);
   });
 
   it("canonicalizes a mixed-case slug to lowercase on BOTH the read and the conditional decrement (no double-account)", async () => {
@@ -413,9 +444,11 @@ describe("consumeScanCredit plan-resolution + casing contract", () => {
     const res = await consumeScanCredit("ACME");
 
     // "ACME" must resolve the SAME org/plan as "acme" — the slug is lowercased before it hits Prisma,
-    // so a mixed-case caller can't fork into a $0/free phantom org and get wrongly paywalled.
+    // so a mixed-case caller can't fork into a $0/free phantom org and get wrongly paywalled. Every read
+    // (the allowance-gate org0 + usage count, and the tx) uses the lowercased slug.
     expect(res.ok).toBe(true);
-    expect(slugs.findUnique).toEqual(["acme"]);
+    expect(slugs.findUnique.length).toBeGreaterThan(0);
+    expect(slugs.findUnique.every((s) => s === "acme")).toBe(true);
     expect(slugs.updateMany).toEqual(["acme"]);
     expect(slugs.findUnique).not.toContain("ACME");
     expect(slugs.updateMany).not.toContain("ACME");
@@ -428,7 +461,7 @@ describe("consumeScanCredit plan-resolution + casing contract", () => {
     const res = await consumeScanCredit("ghost");
 
     // Per the real code: org === null short-circuits to a denial; no decrement attempt, no ledger row.
-    expect(res).toEqual({ ok: false, balance: 0, unlimited: false });
+    expect(res).toEqual({ ok: false, balance: 0, unlimited: false, charged: false });
     expect(updateMany).not.toHaveBeenCalled();
     expect(ledger).toHaveLength(0);
   });

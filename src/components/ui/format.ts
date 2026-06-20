@@ -1,14 +1,23 @@
 // Brand presentational formatters — shared across every branded surface (landing, report, org).
 // Kept dependency-free and server-safe.
 
-/** Color a positive / negative / flat delta on the dark canvas (lime up · orange down · slate flat). */
-export const deltaHex = (d: number): string => (d > 0 ? "#84cc16" : d < 0 ? "#f97316" : "#94a3b8");
+import { isWithinNoise } from "@/lib/maturity/noise";
+
+/**
+ * Color a score delta on the dark canvas: lime up · orange down · slate for flat OR within-noise.
+ * A within-noise delta (|d| <= SCORE_NOISE_BAND) is muted to slate so a re-scan wobble never wears
+ * the confident green/orange of a real move — see @/lib/maturity/noise.
+ */
+export const deltaHex = (d: number): string => (isWithinNoise(d) ? "#94a3b8" : d > 0 ? "#84cc16" : "#f97316");
 
 /** "+8" / "-5" / "0" — signed delta for inline text. */
 export const signedDelta = (d: number): string => `${d > 0 ? "+" : ""}${d}`;
 
-/** "▲+8" / "▼-5" / "→0" — signed, arrowed delta badge. */
+/**
+ * "▲+8" / "▼-5" / "≈+1" / "→0" — arrowed delta badge. Within-noise non-zero deltas use "≈" (held,
+ * within the scan-to-scan noise band) instead of ▲/▼, so a small wobble is not shown as real movement.
+ */
 export function fmtDelta(d: number): string {
-  const arrow = d > 0 ? "▲" : d < 0 ? "▼" : "→";
+  const arrow = d === 0 ? "→" : isWithinNoise(d) ? "≈" : d > 0 ? "▲" : "▼";
   return `${arrow}${signedDelta(d)}`;
 }

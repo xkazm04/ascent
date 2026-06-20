@@ -6,6 +6,7 @@ import {
   buildLowCreditsMessage,
   creditsAlertThreshold,
   dispatchAlert,
+  digestHasSignal,
   isAlertConfigured,
   isLowCreditsCrossing,
   resolveAlertWebhook,
@@ -311,5 +312,27 @@ describe("dispatchAlert (the one real side-effect: 2xx/non-2xx/throw outcome map
     expect(ok).toBe(true);
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe("https://hooks.example/global");
+  });
+});
+
+describe("digestHasSignal — the weekly-digest movement-gate", () => {
+  const flat = { overallDelta: 1, levelChanges: 0, regressions: 0, gainersBeyondNoise: 0, creditLow: false };
+
+  it("stays silent on a flat period (within-noise delta, no level/regression/gainer, credits fine)", () => {
+    expect(digestHasSignal(flat)).toBe(false);
+    expect(digestHasSignal({ ...flat, overallDelta: -2 })).toBe(false); // still within the noise band
+    expect(digestHasSignal({ ...flat, overallDelta: null })).toBe(false);
+  });
+
+  it("fires on real movement: an overall move beyond the noise band, a level change, a regression, or a gainer", () => {
+    expect(digestHasSignal({ ...flat, overallDelta: 6 })).toBe(true);
+    expect(digestHasSignal({ ...flat, overallDelta: -6 })).toBe(true);
+    expect(digestHasSignal({ ...flat, levelChanges: 1 })).toBe(true);
+    expect(digestHasSignal({ ...flat, regressions: 1 })).toBe(true);
+    expect(digestHasSignal({ ...flat, gainersBeyondNoise: 1 })).toBe(true);
+  });
+
+  it("always fires when credits are low — a depleting balance is worth the push even on a flat week", () => {
+    expect(digestHasSignal({ ...flat, creditLow: true })).toBe(true);
   });
 });

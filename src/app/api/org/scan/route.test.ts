@@ -78,7 +78,7 @@ beforeEach(() => {
       ReturnType<typeof listWatchedRepos>
     >[number],
   ]);
-  mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false });
+  mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: true });
 });
 
 describe("POST /api/org/scan — dedupe/degrade refund policy", () => {

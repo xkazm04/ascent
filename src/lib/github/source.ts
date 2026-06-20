@@ -12,6 +12,7 @@ import type {
   RepoSnapshot,
   ScanProgress,
 } from "@/lib/types";
+import { githubApiBase, githubRawBase } from "@/lib/github/host";
 
 export type ProgressFn = (p: ScanProgress) => void;
 export interface FetchOptions {
@@ -28,8 +29,8 @@ export interface FetchOptions {
   ref?: string;
 }
 
-const API = "https://api.github.com";
-const RAW = "https://raw.githubusercontent.com";
+const API = githubApiBase();
+const RAW = githubRawBase();
 
 // Ingestion budgets — keep prompts small and avoid hammering hosts.
 const MAX_FILES = 32;

@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured, type RepositoryHistory } from "@/lib/db";
+import { sha256Hex } from "@/lib/db/audit-integrity";
 import { getSession, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
 import { DIMENSIONS } from "@/lib/maturity/model";
 
@@ -103,11 +104,15 @@ export async function GET(request: Request) {
 
     if (wantCsv) {
       const file = `ascent-trends-${safeFilenameSlug(payload.repo.fullName)}-${payload.scans[0]?.scannedAt?.slice(0, 10) ?? "history"}.csv`;
-      return new NextResponse(historyToCsv(payload), {
+      const body = historyToCsv(payload);
+      return new NextResponse(body, {
         headers: {
           "content-type": "text/csv; charset=utf-8",
           "content-disposition": `attachment; filename="${file}"`,
           "cache-control": "private, no-store",
+          // Self-verifying integrity for the filed artifact: recompute SHA-256 over the bytes to confirm
+          // the export wasn't altered after download.
+          "x-ascent-content-sha256": sha256Hex(body),
         },
       });
     }
