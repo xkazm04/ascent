@@ -450,8 +450,18 @@ export class GitHubPublicSource implements RepoSource {
         releaseClaim();
       }
     });
-    // Keep deterministic order for stable prompts/caching.
-    files.sort((a, b) => a.path.localeCompare(b.path));
+    // Order by FETCH PRIORITY (pickFilesToFetch rank), not alphabetically. The assessment prompt
+    // truncates file excerpts to a byte window (buildAssessmentPrompt's OUTER cap), so whatever sorts
+    // FIRST is what the model actually sees — alphabetical order buried high-signal files (README,
+    // manifests, AI config, the sampled tests/source) behind the letter 'a' and let the window cut them
+    // before the model ever read them. `picks` is deterministic, so ranking by it stays stable for
+    // prompt/cache keying while front-loading signal. [Tiger P0-3]
+    const fetchRank = new Map(picks.map((p, i) => [p, i]));
+    files.sort(
+      (a, b) =>
+        (fetchRank.get(a.path) ?? Number.MAX_SAFE_INTEGER) -
+        (fetchRank.get(b.path) ?? Number.MAX_SAFE_INTEGER),
+    );
 
     const coverage = estimateCoverage(blobs.length, files.length, picks.length, treeRes.truncated);
 

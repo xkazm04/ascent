@@ -43,7 +43,7 @@ function processBlock(prStats?: PrStats | null, governance?: Governance | null):
   return lines.join("\n");
 }
 
-const SYSTEM = `You are Ascent, an expert assessor of how "AI-native" a software engineering organization is, based on evidence read from a GitHub repository. You apply a fixed, published rubric and you are rigorous and evidence-driven. You never invent facts: every judgment must be supported by the signals and file excerpts provided. Calibrate dimension scores to the deterministic signal scores you are given (nuance within a small band). However, the deterministic detectors are imperfect — in the "discrepancies" field you SHOULD actively flag any signal you believe is wrong given the file excerpts (e.g. tests or config clearly present but the signal missed them). Catching detector misses is part of your job; don't be shy. Respond with JSON only, matching the requested schema exactly.`;
+const SYSTEM_ROLE = `You are Ascent, an expert assessor of how "AI-native" a software engineering organization is, based on evidence read from a GitHub repository. You apply a fixed, published rubric and you are rigorous and evidence-driven. You never invent facts: every judgment must be supported by the signals and file excerpts provided. Calibrate dimension scores to the deterministic signal scores you are given (nuance within a small band). However, the deterministic detectors are imperfect — in the "discrepancies" field you SHOULD actively flag any signal you believe is wrong given the file excerpts (e.g. tests or config clearly present but the signal missed them). Catching detector misses is part of your job; don't be shy. Respond with JSON only, matching the requested schema exactly.`;
 
 function rubric(): string {
   const levels = LEVELS.map(
@@ -60,11 +60,58 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + "\n…[truncated]" : s;
 }
 
+// TASK + output contract — stable instructions with NO per-repo data. Lives in the SYSTEM prompt (not
+// the user message) so it forms part of the cacheable prefix every provider can reuse across scans. The
+// evidence it judges arrives separately in the user message, so it says "the provided evidence", not
+// "the evidence above". [Tiger P0-1]
+const TASK = `TASK
+For each of the ${DIMENSIONS.length} dimensions (D1..D${DIMENSIONS.length}) return a score 0-100 (calibrated to its signalScore),
+a one-paragraph summary, up to 4 concrete strengths, and up to 4 concrete gaps — all grounded
+in the provided evidence. Then give an overall headline sentence, 3-5 org-level strengths, 3-5
+risks, and a prioritized roadmap of 3-5 entries.
+
+IMPORTANT — Ascent is a transition COMPANION, not a boss. The roadmap surfaces *gaps in the
+level of trust* (how much the team can trust AI in its workflow) as things to EXPLORE, never as
+orders. For each entry: "title" names the gap as an observation (e.g. "Agent guidance is thin —
+agents have little to go on"), NOT an imperative ("Add a CLAUDE.md"). "rationale" explains why
+the gap matters for AI-driven development. "explore" is 2-3 invitational questions that help the
+team discover the gap themselves (open questions, not steps). Also include dimension, impact
+high|medium|low, effort high|medium|low, and a levelUnlock like "L3->L4". Phrasing must be
+invitational throughout — provide inputs to explore, not directives to follow.
+The "title" must state the gap ACCURATELY and must not contradict its own "rationale" (e.g. do not
+title an item "tests run in CI but don't gate" when the rationale notes CI never runs the tests at all).
+
+Finally, act as an AUDITOR: list any "discrepancies" — dimensions where you believe the
+deterministic signalScore is WRONG based on the sampled file evidence (e.g. tests clearly
+exist but the signal reported none, or a config was missed). Each is a one-sentence claim
+citing the evidence. Return an empty array if the signals look correct.
+
+Respond with JSON only in exactly this shape:
+{
+  "dimensions": [{"id":"D1","score":0,"summary":"","strengths":[""],"gaps":[""]}],
+  "headline": "",
+  "strengths": [""],
+  "risks": [""],
+  "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","explore":["",""],"levelUnlock":"L2->L3"}],
+  "discrepancies": [{"dimension":"D2","claim":"A test.js file is present but D2 detected 0 tests."}]
+}`;
+
+// The full stable system prefix, composed ONCE at module load so every scan sends byte-identical
+// instructions — exactly the contiguous prefix providers cache (Bedrock cachePoint, OpenAI automatic
+// prefix cache, Gemini implicit caching, claude-cli's own). Only the per-repo USER message varies, so
+// the bulk of the input tokens (role + rubric + task + schema) is billed once and read from cache after.
+// [Tiger P0-1]
+const SYSTEM = `${SYSTEM_ROLE}
+
+${rubric()}
+
+${TASK}`;
+
 export function buildAssessmentPrompt(input: LlmScoreInput): {
   system: string;
   user: string;
 } {
-  const { repo, signals, files, commitSample, archetype, prStats, governance } = input;
+  const { repo, signals, files, commitSample, archetype, prStats, governance, stackFit } = input;
 
   const signalBlock = signals
     .map((s) => {
@@ -98,16 +145,14 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
     ? commitSample.map((m) => `- ${m.replace(/\n/g, " ").slice(0, 120)}`).join("\n")
     : "(no commit history available)";
 
-  const user = `Assess this repository's AI-native engineering maturity.
+  const user = `Assess this repository's AI-native engineering maturity, applying the rubric and producing the exact JSON shape from the system instructions. Ground every judgment in the evidence below.
 
 REPOSITORY
 - ${repo.owner}/${repo.name}
 - Language: ${repo.primaryLanguage ?? "unknown"} | Stars: ${repo.stars} | Last push: ${repo.pushedAt ?? "?"}
 - Description: ${repo.description ?? "(none)"}
 - Inferred run-style: ${archetype} (solo/early, team/product, or org/platform) — judge maturity in this context.
-
-${rubric()}
-
+${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}
 DETERMINISTIC SIGNALS (computed from the repo; treat as ground truth and calibrate to these):
 ${signalBlock}
 
@@ -118,37 +163,7 @@ RECENT COMMIT MESSAGES (sample):
 ${commitBlock}
 
 SAMPLED FILES:
-${fileBlock}
-
-TASK
-For each of the ${DIMENSIONS.length} dimensions (D1..D${DIMENSIONS.length}) return a score 0-100 (calibrated to its signalScore),
-a one-paragraph summary, up to 4 concrete strengths, and up to 4 concrete gaps — all grounded
-in the evidence above. Then give an overall headline sentence, 3-5 org-level strengths, 3-5
-risks, and a prioritized roadmap of 3-5 entries.
-
-IMPORTANT — Ascent is a transition COMPANION, not a boss. The roadmap surfaces *gaps in the
-level of trust* (how much the team can trust AI in its workflow) as things to EXPLORE, never as
-orders. For each entry: "title" names the gap as an observation (e.g. "Agent guidance is thin —
-agents have little to go on"), NOT an imperative ("Add a CLAUDE.md"). "rationale" explains why
-the gap matters for AI-driven development. "explore" is 2-3 invitational questions that help the
-team discover the gap themselves (open questions, not steps). Also include dimension, impact
-high|medium|low, effort high|medium|low, and a levelUnlock like "L3->L4". Phrasing must be
-invitational throughout — provide inputs to explore, not directives to follow.
-
-Finally, act as an AUDITOR: list any "discrepancies" — dimensions where you believe the
-deterministic signalScore is WRONG based on the sampled file evidence (e.g. tests clearly
-exist but the signal reported none, or a config was missed). Each is a one-sentence claim
-citing the evidence. Return an empty array if the signals look correct.
-
-Respond with JSON only in exactly this shape:
-{
-  "dimensions": [{"id":"D1","score":0,"summary":"","strengths":[""],"gaps":[""]}],
-  "headline": "",
-  "strengths": [""],
-  "risks": [""],
-  "roadmap": [{"title":"","dimension":"D3","impact":"high","effort":"low","rationale":"","explore":["",""],"levelUnlock":"L2->L3"}],
-  "discrepancies": [{"dimension":"D2","claim":"A test.js file is present but D2 detected 0 tests."}]
-}`;
+${fileBlock}`;
 
   return { system: SYSTEM, user };
 }

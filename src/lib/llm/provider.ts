@@ -20,6 +20,7 @@ import type {
   TokenUsage,
 } from "@/lib/types";
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
+import type { StackFit } from "@/lib/analyze/stack-fit";
 
 export interface LlmScoreInput {
   repo: RepoMeta;
@@ -33,6 +34,11 @@ export interface LlmScoreInput {
   prStats?: PrStats | null;
   /** Default-branch protection — likewise already in hand from the scan. Null without a token. */
   governance?: Governance | null;
+  /** Stack-fit caveat (ML/notebook · mobile · embedded) when the repo's stack is one the web/service-
+   *  tuned rubric under-reads. Threaded into the prompt so the model calibrates the affected dimensions
+   *  and the roadmap/discrepancy audit to the stack instead of penalizing absent web conventions. Null
+   *  for a full-fit (web/service) repo — the common case. */
+  stackFit?: StackFit | null;
 }
 
 /** Per-call options. `signal` aborts the (often long) provider call when the client disconnects. */

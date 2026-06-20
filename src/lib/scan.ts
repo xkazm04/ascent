@@ -172,6 +172,11 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     governance,
   );
   const archetype = classifyArchetype(snapshot);
+  // Stack-fit (ML/notebook · mobile · embedded) is a known blind spot of the web/service-tuned rubric.
+  // Detect it HERE — before the assessment — and thread it into the prompt so the model's roadmap +
+  // discrepancy audit calibrate to the stack instead of judging notebooks on web conventions. Detected
+  // once and reused for the user-facing warning below. [Tiger P0-2]
+  const stackFit = detectStackFit(snapshot);
 
   const scoreInput: LlmScoreInput = {
     repo: snapshot.meta,
@@ -183,6 +188,8 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     // the LLM auditor so it reasons about review/governance with the real evidence (MAT-1).
     prStats,
     governance,
+    // Name the stack the rubric under-reads so the model weights the affected dimensions accordingly.
+    stackFit,
   };
 
   let llmFailed = false;
@@ -335,7 +342,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   }
   // Partial-fit caveat: name a stack the web/service-tuned rubric is known to under-read (ML/notebooks,
   // mobile delivery, embedded/firmware) so the score is read honestly rather than taken at face value.
-  const stackFit = detectStackFit(snapshot);
+  // Detected once above and also threaded into the LLM prompt (Tiger P0-2) — reuse it here.
   if (stackFit) warnings.push(stackFit.caveat);
   if (warnings.length) report.warnings = [...(report.warnings ?? []), ...warnings];
 

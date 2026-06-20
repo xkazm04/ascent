@@ -86,3 +86,44 @@ describe("buildAssessmentPrompt — PROCESS SIGNALS rate rendering (#1)", () => 
     expect(user).toContain("scanned without a token");
   });
 });
+
+describe("buildAssessmentPrompt — cacheable stable prefix (Tiger P0-1)", () => {
+  it("puts the stable rubric + task + output schema in SYSTEM, not the per-repo user message", () => {
+    const { system, user } = buildAssessmentPrompt(input());
+    expect(system).toContain("MATURITY LEVELS");
+    expect(system).toContain("SCORING DIMENSIONS");
+    expect(system).toContain("Respond with JSON only");
+    // The rubric/task in the user message would sit AFTER per-repo data, defeating prefix caching.
+    expect(user).not.toContain("MATURITY LEVELS");
+    expect(user).not.toContain("SCORING DIMENSIONS");
+  });
+
+  it("emits a byte-identical SYSTEM prefix regardless of the repo — the cache invariant", () => {
+    const a = buildAssessmentPrompt(
+      input({
+        repo: { owner: "a", name: "x", url: "", stars: 1, forks: 0, defaultBranch: "main" },
+        files: [{ path: "README.md", content: "hello", bytes: 5 }],
+      }),
+    );
+    const b = buildAssessmentPrompt(
+      input({
+        repo: { owner: "b", name: "y", url: "", stars: 999, forks: 9, defaultBranch: "trunk" },
+        signals: [{ id: "D2", signalScore: 10, signals: [] }],
+      }),
+    );
+    expect(a.system).toBe(b.system); // stable prefix → cacheable across scans
+    expect(a.user).not.toBe(b.user); // per-repo data varies, so the user message differs
+  });
+
+  it("keeps per-repo evidence (signals, files, commits) in the user message", () => {
+    const { user } = buildAssessmentPrompt(
+      input({
+        files: [{ path: "src/app.ts", content: "export const x = 1;", bytes: 19 }],
+        commitSample: ["feat: add widget"],
+      }),
+    );
+    expect(user).toContain("DETERMINISTIC SIGNALS");
+    expect(user).toContain("src/app.ts");
+    expect(user).toContain("feat: add widget");
+  });
+});

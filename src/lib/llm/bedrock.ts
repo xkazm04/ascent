@@ -68,7 +68,11 @@ export class BedrockProvider implements LLMProvider {
       res = await client.send(
         new ConverseCommand({
           modelId: this.model,
-          system: [{ text: system }],
+          // Cache the stable system prefix (role + rubric + task + schema — identical every scan; the
+          // bulk of the input tokens). The cachePoint marks the breakpoint; re-scans with the same
+          // prefix get a cache READ at a fraction of the input price, while the per-repo user message
+          // is always fresh. Supported on the Claude-on-Bedrock models this app defaults to. [Tiger P0-1]
+          system: [{ text: system }, { cachePoint: { type: "default" } }],
           messages: [{ role: "user", content: [{ text: user }] }],
           inferenceConfig: {
             temperature: envNumber("LLM_TEMPERATURE", 0.2),
