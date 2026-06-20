@@ -17,11 +17,7 @@ The living, impact-ranked list of changes to [[scan-assess]] (the app's one LLM 
 
 *(P1-4 shipped 2026-06-20 — see the Closed/Fixed log below.)*
 
-### P1-5 · Put engine/model provenance in the durable + signed artifact `[lens: trust/business-value]`
-Grounding is lossy on the way **out**: the live UI discloses mock-degrade, but the signed audit CSV (`history/route.ts`) has **no engine column**, so a mock-degraded quarter is byte-identical to a model-scored one in the filed evidence. Plus the keyless-default mock path keeps `llmFailed=false` (`scan.ts:118,279`), so its only disclosure is the chip — not the loud caveat the failure path emits.
-- **Fix:** add `engine`/`model`/`degraded` columns to the export + persist them on the Scan row; emit the deterministic-floor caveat on the **keyless-default** mock route too (not just the failure route).
-- **Win:** an auditor (Mariam/Diane) can see which quarters were really AI-scored; closes the disclosure-parity gap (Mei).
-- Evidence: `history/route.ts:31,115`, `scan.ts:118,274-293`, `index.ts:70-72`. `impact: {freq:med, reach:med, trust:high}`.
+*(P1-5 shipped 2026-06-20, with a partial finding refutation — see the Closed/Fixed log below.)*
 
 *(P1-6 shipped 2026-06-20 — see the Closed/Fixed log below.)*
 
@@ -50,6 +46,13 @@ Once the 7-day SHA result-cache lapses, temperature 0.2 + the ±15-realized guar
 Honest billing (usage on usable-only, `scan.ts:206-219`) · the retry/budget/abort/validate/coverage **wrapping stack** · schema-as-single-source-of-truth · claude-cli secret hygiene · per-row HMAC + CSV content-hash tamper-evidence · GHES + OpenAI base-URL overrides (Diane's air-gap blocker now refuted). Any change above must preserve these.
 
 ## Closed / resolved log
+
+### ⚠️✅ P1-5 · Engine/model provenance in the signed audit CSV + keyless-default caveat — `fixed` (2026-06-20), finding PARTLY REFUTED
+**Adversarial-verify caught a plausible-but-wrong L1 claim.** Diane's finding said the signed audit CSV "has **no engine column**." It does — `engineProvider` has been a CSV column since commit `a1025c2` (pre-dating this run), so a mock-degraded quarter was already distinguishable as `engine="mock"`. The L1 agent missed the existing column; the orchestrator verified via `git log -L` before "fixing" nothing. The genuine residual gaps were narrower, and both shipped:
+- **engineModel column (real gap):** the CSV exposed provider but not the specific *model*, so an auditor couldn't tell a sonnet quarter from a haiku one. Added an `engineModel` field through the history read (`scans-read.ts` — both builders + the `HistoryPoint` type + `validate.ts` coercion) and a `model` CSV column right after `engine` (`history/route.ts`).
+- **Keyless-default caveat (MEI-B1, verified real):** a keyless deploy serves the mock floor with `llmFailed=false`, so the loud failure-path caveat never fired — only a quiet chip. Added a distinct warning in `scan.ts` (`provider.name==="mock" && !opts.mock && !llmFailed`): *"No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance)."* An explicit demo (`opts.mock`) stays silent (the UI already frames it as a demo).
+- **Verified:** tsc 0 · eslint 0 · `2394` suite green. New tests: keyless-default gets the caveat (and `opts.mock` does NOT); the CSV carries distinct `engine`+`model` audit columns. Updated `validate.test.ts` expectations for the new field.
+- **Lesson (→ skill):** an L1 "X is missing" claim about a durable artifact must be code-verified before it's actioned — the existence of the column was a one-`grep` check the L1 agent didn't run. The skill's adversarial-verify rule already covers this; the run is the proof it matters.
 
 ### ✅ P1-4 · Opt-in assessment eval log — `fixed` (2026-06-20, unit-verified)
 Only failures logged; a usable-but-wrong assessment left no trace — blocking debugging (Sam), injection forensics (Nadia), auditor defense (Mariam), and Lens-C benchmarking (no corpus).
