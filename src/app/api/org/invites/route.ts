@@ -28,7 +28,16 @@ export async function POST(request: Request) {
   if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
   const body = (await request.json().catch(() => ({}))) as { org?: string; role?: string; email?: string; githubLogin?: string };
   if (!body.org || !body.role || !isOrgRole(body.role)) {
-    return NextResponse.json({ error: "Provide { org, role: owner|admin|member|viewer }." }, { status: 400 });
+    return NextResponse.json({ error: "Provide { org, role: admin|member|viewer }." }, { status: 400 });
+  }
+  // Owner must be conferred by an explicit owner-to-owner promotion via the audited member route, not
+  // minted as a shareable invite link: combined with an unpinned link (consumable by whoever opens it
+  // first), an owner-role invite could silently seed a second org owner. Cap invites at admin.
+  if (body.role === "owner") {
+    return NextResponse.json(
+      { error: "Owner can't be granted by invite — promote an existing member to owner instead." },
+      { status: 400 },
+    );
   }
   if (!body.email?.trim() && !body.githubLogin?.trim()) {
     return NextResponse.json({ error: "Provide an email or a GitHub login to invite." }, { status: 400 });
