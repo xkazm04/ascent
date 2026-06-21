@@ -70,7 +70,7 @@ export async function updateRecommendation(
 
   const actor = opts.actor?.trim() || null;
   const note = opts.note?.trim() || null;
-  const data: Prisma.RecommendationUpdateInput = {};
+  const data: Prisma.RecommendationUpdateManyMutationInput = {};
   const events: Prisma.RecommendationEventCreateManyInput[] = [];
   const event = (kind: RecEventKind, from: string | null, to: string | null) =>
     events.push({ recommendationId: id, actor, kind, fromValue: from, toValue: to, note });
@@ -100,7 +100,28 @@ export async function updateRecommendation(
   if (events.length === 0) return toPersistedRec(current);
 
   const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.recommendation.update({ where: { id }, data });
+    // Optimistic-concurrency guard: apply the update ONLY if the row still matches the pre-image we
+    // read. Two members editing the same row each read e.g. status="open" and both pass the change
+    // checks above; a plain update({where:{id}}) then commits last-write-wins, leaving the timeline +
+    // audit with BOTH transitions while the row reflects only one (lost update + a self-contradicting
+    // compliance trail — the exact divergence the in-tx audit was meant to prevent). Key the
+    // conditional update on the captured pre-image of every editable field; count===0 means a
+    // concurrent write landed first → throw a tagged conflict the route surfaces as 409 (the whole
+    // tx, incl. events + audit, rolls back) so the client refetches and retries, not silently overwrites.
+    const res = await tx.recommendation.updateMany({
+      where: {
+        id,
+        status: current.status,
+        assigneeLogin: current.assigneeLogin,
+        targetDate: current.targetDate,
+      },
+      data,
+    });
+    if (res.count === 0) {
+      throw Object.assign(new Error("Recommendation changed concurrently — refresh and retry."), {
+        code: "REC_CONFLICT",
+      });
+    }
     await tx.recommendationEvent.createMany({ data: events });
     // Audit IN the same transaction (was a best-effort post-tx recordAudit that could leave a
     // committed status change with NO audit row — a compliance gap for the audit product). Mirrors
@@ -117,7 +138,7 @@ export async function updateRecommendation(
         actorId: null,
       },
     });
-    return row;
+    return tx.recommendation.findUniqueOrThrow({ where: { id } });
   });
 
   return toPersistedRec(updated);

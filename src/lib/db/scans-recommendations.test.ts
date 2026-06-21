@@ -51,15 +51,26 @@ function recRow(overrides: Partial<Record<string, unknown>> = {}) {
  *
  * `orgId` controls the resolved rec->scan->repo->org chain (null models a missing chain).
  */
-function fakePrisma(current: ReturnType<typeof recRow> | null, opts: { orgId?: string | null } = {}) {
+function fakePrisma(
+  current: ReturnType<typeof recRow> | null,
+  opts: { orgId?: string | null; conflict?: boolean } = {},
+) {
   const orgId = opts.orgId === undefined ? "org_1" : opts.orgId;
 
+  // The optimistic-lock update is now a conditional updateMany (keyed on the pre-image) followed by a
+  // findUniqueOrThrow re-read. updateMany returns count:0 when `conflict` is set (a concurrent write
+  // landed first → updateRecommendation throws REC_CONFLICT and the tx rolls back).
+  let appliedData: Record<string, unknown> = {};
   const tx = {
     recommendation: {
-      // The in-tx update returns the patched row so toPersistedRec maps the post-update state.
-      update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({
+      updateMany: vi.fn(async ({ data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        appliedData = data;
+        return { count: opts.conflict ? 0 : 1 };
+      }),
+      // Re-read returns the post-update row so toPersistedRec maps the committed state.
+      findUniqueOrThrow: vi.fn(async ({ where }: { where: { id: string } }) => ({
         ...current,
-        ...data,
+        ...appliedData,
         id: where.id,
       })),
     },
@@ -101,16 +112,17 @@ describe("updateRecommendation — atomic mutation + audit", () => {
 
     // Atomicity: the field change AND its audit row are both invoked on the tx object handed to the
     // transaction callback — never on the top-level client. No committed change without its audit row.
-    expect(tx.recommendation.update).toHaveBeenCalledTimes(1);
+    expect(tx.recommendation.updateMany).toHaveBeenCalledTimes(1);
     expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
     expect(tx.recommendationEvent.createMany).toHaveBeenCalledTimes(1);
 
     // The bare client must NOT carry the audit write (that would be a non-atomic post-tx regression).
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
 
-    // The update applied only the changed field.
-    expect(tx.recommendation.update).toHaveBeenCalledWith({
-      where: { id: "rec_1" },
+    // The conditional update applies only the changed field AND keys on the read pre-image of every
+    // editable field (optimistic lock) so a concurrent edit invalidates this write.
+    expect(tx.recommendation.updateMany).toHaveBeenCalledWith({
+      where: { id: "rec_1", status: "open", assigneeLogin: null, targetDate: null },
       data: { status: "in_progress" },
     });
   });
@@ -175,7 +187,7 @@ describe("updateRecommendation — atomic mutation + audit", () => {
     const result = await updateRecommendation("rec_1", { status: "open", assigneeLogin: "  alice  " });
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.recommendation.update).not.toHaveBeenCalled();
+    expect(tx.recommendation.updateMany).not.toHaveBeenCalled();
     expect(tx.recommendationEvent.createMany).not.toHaveBeenCalled();
     expect(tx.auditLog.create).not.toHaveBeenCalled();
 
@@ -203,7 +215,21 @@ describe("updateRecommendation — atomic mutation + audit", () => {
       Prisma.PrismaClientKnownRequestError,
     );
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.recommendation.update).not.toHaveBeenCalled();
+    expect(tx.recommendation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("throws REC_CONFLICT and writes NO event/audit when the pre-image no longer matches (lost-update guard)", async () => {
+    // updateMany matches 0 rows = a concurrent edit changed the row since we read it. The whole tx must
+    // roll back (no event, no audit) and the error must be tagged so the route returns 409, not 500.
+    const { prisma, tx } = fakePrisma(recRow({ status: "open" }), { conflict: true });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(updateRecommendation("rec_1", { status: "done" }, { actor: "alice" })).rejects.toMatchObject({
+      code: "REC_CONFLICT",
+    });
+    expect(tx.recommendation.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.recommendationEvent.createMany).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 });
 

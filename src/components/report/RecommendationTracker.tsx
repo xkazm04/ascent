@@ -99,12 +99,19 @@ export function RecommendationTracker({
         const message =
           kind === "config"
             ? "Progress tracking isn’t available here — it needs a connected database, so this change can’t be saved."
-            : "Couldn’t save that change. Check your connection and retry.";
+            : res.status === 409
+              ? "This recommendation changed elsewhere. Reload to see the latest, then retry."
+              : "Couldn’t save that change. Check your connection and retry.";
         rollback(); // revert ONLY this row
         setErrors((e) => ({ ...e, [id]: { status, kind, message } }));
         setAnnouncement(`Couldn’t update “${title}”: ${message}`);
         return;
       }
+      // Reconcile from the authoritative server row so the displayed status + the done/total count
+      // track what was actually stored (a server normalization or a concurrent change), not just what
+      // we optimistically sent. Was: keep the optimistic value + discard the response.
+      const saved = (await res.json().catch(() => null)) as PersistedRecommendation | null;
+      if (saved?.status) setItems((cur) => applyOptimisticStatus(cur, id, saved.status));
       setAnnouncement(`“${title}” marked ${STATUS_LABEL[status]}.`);
     } catch {
       rollback();

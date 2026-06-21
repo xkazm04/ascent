@@ -110,6 +110,14 @@ export async function PATCH(
     if ((err as { code?: string }).code === "P2025") {
       return NextResponse.json({ error: "Recommendation not found." }, { status: 404 });
     }
+    // Optimistic-lock conflict: a concurrent edit changed the row since it was read. Return 409 so the
+    // client refetches the current state and retries, rather than the server silently overwriting it.
+    if ((err as { code?: string }).code === "REC_CONFLICT") {
+      return NextResponse.json(
+        { error: "This recommendation changed since you loaded it. Refresh and try again." },
+        { status: 409 },
+      );
+    }
     console.error("[recommendations] update failed", err);
     return NextResponse.json({ error: "Failed to update recommendation." }, { status: 500 });
   }
