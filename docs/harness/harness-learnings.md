@@ -1243,3 +1243,34 @@ This completes ALL eight medium waves (A–H).
 
 ### Open follow-ups
 - All medium waves A–H done. The 4 lows + the Stripe/email-dependent mediums remain (excluded). See INDEX.
+
+## Combined bug+ui scan (Pipeline B, 2026-06-20) — waves 1-3
+
+### Structural facts
+- **2026-06-20** — `/api/org/import` now calls `requireOrgAccess(org)` (was the lone ungated mutating
+  org route). The long-standing "ungated /api/org/* mutations" follow-up is otherwise CLOSED — re-scan
+  confirmed simulate is read-only/`requireOrgRead`, goals/initiatives/backlog mutations gate via
+  `requireOrgAccess` (backlog's real mutation is `/api/recommendations/[id]`).
+- **2026-06-20** — Invite acceptance is now a same-origin POST `/api/org/invites/accept` (gesture-only);
+  the `/invite/[token]` page only `peekInvite`s (read-only). `listPendingInvites` returns NO token
+  (`PendingInviteSummary`); the token is shown once in the POST create response. Owner-role invites are
+  refused at creation.
+- **2026-06-20** — `grantCredits` synthesizes a per-invocation `auto:<uuid>` externalId when the caller
+  passes none, so EVERY grant/refund is idempotent under `withRetry`. Any new grant caller is retry-safe
+  by default; a P2002 is now always treated as already-applied.
+- **2026-06-20** — Scan persistence is now guarded like the cache: `persistScanReport` is SKIPPED for
+  degraded-to-mock / low-coverage runs in both scan routes (else the DB tier re-serves the mock floor
+  cross-instance for ~7d). `fetchSnapshot` stamps the COMMIT sha (`commitsRes[0].sha`), not `treeRes.sha`.
+
+### Open follow-ups (from the 2026-06-20 combined scan — waves 1-3 done, deferred items)
+- **checkout #2** (Med): paid credit pack never calls `setOrgPlan` → Pro/Team feature tiers stay locked.
+  Needs a product→plan map + subscription events, or make /pricing honest. Billing-model decision.
+- **credits #3** (Med): allowance-vs-credit boundary is a non-transactional pre-check (race). Needs an
+  atomic per-month allowance counter (schema).
+- **credits #4** (Med): reconciliation classifies refund-vs-grant by `/refund/i` over free-text reason.
+  Needs an enumerated ledger `kind` column (migration).
+- **scan-persist #4/#5** (Low): sha-less dedup on exact `scannedAt`; head-pointer tear on equal ts.
+- **retention #3** (Low): no internal deadline vs maxDuration=300 → large fleet run killed with no partial summary.
+- **Waves 4-8** of the 233-finding scan remain open per `bug-ui-scan-2026-06-20/INDEX.md`: silent-failure/
+  success-theater (~30, largest reliability cluster), scoring/aggregation, reliability/resilience,
+  accessibility+reduced-motion (~34, largest UI cluster), UX/SEO/observability tail.
