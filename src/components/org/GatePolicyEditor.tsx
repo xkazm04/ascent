@@ -17,6 +17,13 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
   const [minOverall, setMinOverall] = useState<string>(initial?.minOverall != null ? String(initial.minOverall) : "");
   const [minDimension, setMinDimension] = useState<string>(initial?.minDimension != null ? String(initial.minDimension) : "");
   const [security, setSecurity] = useState<boolean>(initial?.minDimensionFor?.D9 != null);
+  // Bug-fix (ci-gate-status-checks #2): seed the floor from the persisted value so a custom D9 bar
+  // (e.g. 70, set via the gate API / ciWith snippet) round-trips. The checkbox is only a lossy
+  // boolean projection — emitting a hardcoded 50 on save silently DOWNGRADED a stricter configured
+  // floor on any unrelated edit. Default to 50 when newly enabled.
+  const [securityFloor, setSecurityFloor] = useState<string>(
+    initial?.minDimensionFor?.D9 != null ? String(initial.minDimensionFor.D9) : "50",
+  );
   const [noUngoverned, setNoUngoverned] = useState<boolean>(Boolean(initial?.forbidPostures?.includes("ungoverned")));
   const [requireProtection, setRequireProtection] = useState<boolean>(Boolean(initial?.requireProtectedBranch));
   const [busy, setBusy] = useState<"save" | "reset" | null>(null);
@@ -27,7 +34,11 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
     if (minLevel) p.minLevel = minLevel as LevelId;
     if (minOverall.trim()) p.minOverall = Number(minOverall);
     if (minDimension.trim()) p.minDimension = Number(minDimension);
-    if (security) p.minDimensionFor = { D9: 50 };
+    if (security) {
+      // Preserve the configured floor (clamped 0..100) instead of overwriting it with a fixed 50.
+      const floor = Math.max(0, Math.min(100, Number(securityFloor) || 0));
+      p.minDimensionFor = { D9: floor };
+    }
     if (noUngoverned || security) p.forbidPostures = ["ungoverned"];
     if (requireProtection) p.requireProtectedBranch = true;
     return p;
@@ -58,6 +69,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
     setMinOverall("");
     setMinDimension("");
     setSecurity(false);
+    setSecurityFloor("50");
     setNoUngoverned(false);
     setRequireProtection(false);
     void post(null, "reset");
@@ -106,9 +118,20 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
             className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
           />
         </label>
-        <label className="flex items-center gap-2 text-sm text-slate-400">
-          <input type="checkbox" checked={security} onChange={(e) => setSecurity(e.target.checked)} className="accent-accent" />
-          Security floor (D9 ≥ 50)
+        <label className="flex items-center justify-between gap-2 text-sm text-slate-400">
+          <span className="flex items-center gap-2">
+            <input type="checkbox" checked={security} onChange={(e) => setSecurity(e.target.checked)} className="accent-accent" />
+            Security floor (D9 ≥)
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={securityFloor}
+            disabled={!security}
+            onChange={(e) => setSecurityFloor(e.target.value)}
+            className="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+          />
         </label>
         <label className="flex items-center gap-2 text-sm text-slate-400">
           <input type="checkbox" checked={noUngoverned} onChange={(e) => setNoUngoverned(e.target.checked)} className="accent-accent" />
