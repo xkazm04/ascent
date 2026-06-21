@@ -56,6 +56,21 @@ export async function syncTechStackGroups(
   }
 }
 
+/** Resolve a tech-group KEY (the stable `?stack=` value) → its group id within an org, or null. For
+ *  consumers that carry the key rather than the id (the briefing PDF route + the shared-briefing page,
+ *  which mirror the page's `?stack=<key>` semantics). Org-scoped, so a key never crosses tenants. */
+export async function getTechGroupIdByKey(orgSlug: string, key: string | null | undefined): Promise<string | null> {
+  if (!isDbConfigured() || !key) return null;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  if (!org) return null;
+  const g = await prisma.techStackGroup.findUnique({
+    where: { orgId_key: { orgId: org.id, key } },
+    select: { id: true },
+  });
+  return g?.id ?? null;
+}
+
 // Display order: frontend → backend(s) → mobile → data/ML → infra → library → (anything else).
 const ROLE_ORDER = ["frontend", "backend", "mobile", "data_ml", "infra", "library"];
 function groupSortRank(key: string): number {

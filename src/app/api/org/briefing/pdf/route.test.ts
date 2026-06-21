@@ -23,7 +23,7 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
 vi.mock("@/lib/org/briefing", () => ({ buildExecBriefing: vi.fn() }));
-vi.mock("@/lib/db", () => ({ getOrgBranding: vi.fn(), isDbConfigured: vi.fn(() => true) }));
+vi.mock("@/lib/db", () => ({ getOrgBranding: vi.fn(), getTechGroupIdByKey: vi.fn(async () => null), isDbConfigured: vi.fn(() => true) }));
 vi.mock("@react-pdf/renderer", () => ({ renderToBuffer: vi.fn() }));
 // BriefingDocument is irrelevant here — the route passes it to the (mocked) renderToBuffer.
 vi.mock("@/lib/pdf/briefing-document", () => ({ BriefingDocument: () => null }));

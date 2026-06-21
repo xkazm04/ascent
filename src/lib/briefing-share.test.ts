@@ -59,3 +59,17 @@ describe("briefing share token carries the segment scope (EXEC #1)", () => {
     expect(verified!.segment).toBe("valid");
   });
 });
+
+describe("briefing share token carries the tech-stack scope (Feature 3b)", () => {
+  it("round-trips the stack key through sign → verify, composing with segment", () => {
+    const minted = signBriefingShareToken({ org: "acme", range: "30d", segment: "seg_A", stack: "backend:python" });
+    const verified = verifyBriefingShareToken(minted!.token);
+    expect(verified!.stack).toBe("backend:python");
+    expect(verified!.segment).toBe("seg_A");
+  });
+
+  it("leaves stack undefined when none was shared (whole-fleet default preserved)", () => {
+    const verified = verifyBriefingShareToken(signBriefingShareToken({ org: "acme", range: "90d" })!.token);
+    expect(verified!.stack).toBeUndefined();
+  });
+});

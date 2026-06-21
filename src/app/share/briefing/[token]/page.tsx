@@ -8,7 +8,7 @@ import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/comp
 import { buildExecBriefing } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
-import { isDbConfigured } from "@/lib/db";
+import { getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +37,10 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
 
   const period = resolveWindow({ range: verified.range, from: verified.from, to: verified.to });
   // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's
-  // per-client read-only link shows that client's data — not the whole org.
-  const briefing = await buildExecBriefing(verified.org, { start: period.start, end: period.end }, period.title, verified.segment ?? null).catch(() => null);
+  // per-client read-only link shows that client's data — not the whole org. Feature 3b: the same for the
+  // tech-stack scope (resolve the carried KEY → group id within the org).
+  const techGroupId = await getTechGroupIdByKey(verified.org, verified.stack ?? null).catch(() => null);
+  const briefing = await buildExecBriefing(verified.org, { start: period.start, end: period.end }, period.title, verified.segment ?? null, techGroupId).catch(() => null);
   if (!briefing) {
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }

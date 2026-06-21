@@ -248,6 +248,7 @@ export {
 export {
   syncTechStackGroups,
   listTechStackGroups,
+  getTechGroupIdByKey,
   type TechGroupSummary,
 } from "@/lib/db/tech-groups";
 export {

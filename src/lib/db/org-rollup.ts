@@ -361,7 +361,7 @@ export interface EngineMixEntry {
  * back to the deterministic mock) auditable, not just visible in the transient scan stream (DIANE).
  * Sorted by count desc; empty when the DB is off or the org has no scans.
  */
-export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null): Promise<EngineMixEntry[]> {
+export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<EngineMixEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
@@ -371,7 +371,7 @@ export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segme
   const groups = await prisma.scan.groupBy({
     by: ["engineProvider"],
     where: {
-      repo: { orgId: org.id, ...segmentScope(segmentId) },
+      repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
       ...(start || end ? { scannedAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
     },
     _count: true,
@@ -389,6 +389,7 @@ export async function getOrgRecsActioned(
   orgSlug: string,
   window?: OrgWindow,
   segmentId?: string | null,
+  techGroupId?: string | null,
 ): Promise<{ engaged: number; actioned: number }> {
   if (!isDbConfigured()) return { engaged: 0, actioned: 0 };
   const prisma = getPrisma();
@@ -399,7 +400,7 @@ export async function getOrgRecsActioned(
   const scope = {
     kind: "status",
     ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
-    recommendation: { scan: { repo: { orgId: org.id, ...segmentScope(segmentId) } } },
+    recommendation: { scan: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } } },
   };
   const [engaged, actioned] = await Promise.all([
     prisma.recommendationEvent.count({ where: scope }),
