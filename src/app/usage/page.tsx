@@ -93,6 +93,24 @@ export default async function UsagePage({
     );
   }
 
+  // Cross-tenant IDOR guard — mirror the sibling /api/usage route (route.ts:67-76). The route
+  // membership-checks the requested slug; this page (which "computes the same summary directly")
+  // previously split only on auth-on vs auth-off and never verified membership, so any signed-in
+  // user could open /usage?org=<competitor> and read that tenant's scan volume, repo names,
+  // token/cost spend and credit balance. With auth configured, a non-public org requires a session
+  // whose installations include it.
+  if (isAuthConfigured() && org.toLowerCase() !== PUBLIC_ORG) {
+    const orgLc = org.toLowerCase();
+    if (!session || !session.installations.some((i) => i.login.toLowerCase() === orgLc)) {
+      return (
+        <Notice title="You don't have access to this organization">
+          Usage for this organization is visible only to its members. Choose an organization you
+          belong to from the switcher, or view the shared public usage.
+        </Notice>
+      );
+    }
+  }
+
   if (!isDbConfigured()) {
     return (
       <Notice title="Usage metering needs a database">
