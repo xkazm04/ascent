@@ -7,7 +7,7 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { isDbConfigured, persistScanReport } from "@/lib/db";
+import { isDbConfigured, persistScanReport, recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { authGateEnabled, getViewer } from "@/lib/access";
@@ -34,7 +34,10 @@ export async function POST(request: Request) {
   // Rate-limit the live scan funnel (shares the per-IP/global budget with /api/scan). The /report
   // flow peeks the cache first (cheap, unthrottled); reaching the stream means a real scan.
   const rl = rateLimitRequest(request, SCAN_RATE_LIMIT);
-  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  if (!rl.ok) {
+    void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // QUOTA #2: observability on the costly scan path
+    return tooManyRequests(rl.retryAfterSec);
+  }
 
   const url = body.url;
   const mock = Boolean(body.mock);

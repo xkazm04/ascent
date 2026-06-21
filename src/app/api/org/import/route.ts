@@ -22,6 +22,7 @@ import {
   grantCredits,
   isDbConfigured,
   persistScanReport,
+  recordQuotaEvent,
   recordScanOutcome,
   setRepoSchedule,
   setRepoWatch,
@@ -48,7 +49,10 @@ export async function POST(request: Request) {
   }
   // Bulk scan = up to 100 GitHub ingests + (optionally) LLM completions per call. Rate-limit hard.
   const rl = rateLimitRequest(request, ORG_IMPORT_RATE_LIMIT);
-  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  if (!rl.ok) {
+    void recordQuotaEvent("rate_limit", "org-import").catch(() => {}); // QUOTA #2: observability on the bulk-import path
+    return tooManyRequests(rl.retryAfterSec);
+  }
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     count?: number;

@@ -10,7 +10,7 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { cacheSet, coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { consumeScanCredit, getScanReportByCommit, grantCredits, isDbConfigured, persistScanReport } from "@/lib/db";
+import { consumeScanCredit, getScanReportByCommit, grantCredits, isDbConfigured, persistScanReport, recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
@@ -105,7 +105,10 @@ async function runScan(
   let quotaCharged: { viewerId: string | null; chargedAt: number | null } | null = null;
   if (opts.req) {
     const rl = rateLimitRequest(opts.req, SCAN_RATE_LIMIT);
-    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+    if (!rl.ok) {
+      void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // QUOTA #2: observability on the costly scan path
+      return tooManyRequests(rl.retryAfterSec);
+    }
 
     // Weekly SOFT gate: public scans get a free per-window allowance (persistent — see
     // src/lib/public-scan-quota.ts). A SIGNED-IN viewer gets an elevated, per-user allowance; an
