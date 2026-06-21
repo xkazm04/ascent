@@ -36,8 +36,12 @@ export function ScoringTab({
 }) {
   const { repo, level } = report;
 
+  // REPORT #1: ReportView migrated the tab switcher to SideNav (aria-current nav buttons), so the
+  // old tabpanel ARIA here was orphaned — `aria-labelledby` pointed at a `report-tab-scoring` tab
+  // element that no longer renders. Treat this as a labelled section (matching the sibling panels,
+  // which carry no tabpanel role) instead of a broken half of a tabs widget.
   return (
-    <div role="tabpanel" id="report-panel-scoring" aria-labelledby="report-tab-scoring" tabIndex={0} className="space-y-8 focus:outline-none" data-testid="report-tab-scoring">
+    <section aria-label="Scoring" className="space-y-8" data-testid="report-tab-scoring">
       {/* Score + headline + ladder */}
       <Surface radius="2xl" className="relative grid gap-6 overflow-hidden p-6 lg:grid-cols-[auto_1fr]">
         <div aria-hidden className="strata pointer-events-none absolute inset-0" />
@@ -121,6 +125,6 @@ export function ScoringTab({
           ))}
         </div>
       </div>
-    </div>
+    </section>
   );
 }
