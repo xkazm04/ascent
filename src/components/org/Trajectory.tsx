@@ -89,12 +89,24 @@ export function Trajectory({ forecast }: { forecast: Forecast }) {
             no level change projected within the year
           </span>
         )}
-        <span
-          className="font-mono text-sm text-slate-500"
-          title="R² of the linear fit — how closely the trend follows a straight line"
-        >
-          trend confidence {confidence}%{confidence < 50 ? " · noisy" : ""}
-        </span>
+        {/* On < 3 distinct scan days the R² is mathematically 1 regardless of noise, so a raw
+            "100% confidence" overstates a 2-point blip. Surface a low-data caveat instead of the
+            inflated percentage (forecast-overconfidence #1). */}
+        {forecast.lowData ? (
+          <span
+            className="font-mono text-sm text-slate-500"
+            title="Too few distinct scan days to gauge a trend — a straight line through ≤ 2 points always fits perfectly"
+          >
+            trend confidence — low data (n={forecast.points})
+          </span>
+        ) : (
+          <span
+            className="font-mono text-sm text-slate-500"
+            title="R² of the linear fit — how closely the trend follows a straight line"
+          >
+            trend confidence {confidence}%{confidence < 50 ? " · noisy" : ""}
+          </span>
+        )}
       </div>
     </Card>
   );

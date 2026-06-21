@@ -46,6 +46,25 @@ describe("forecastTrajectory", () => {
     expect(f.eta!.boundary).toBe(65);
     expect(f.eta!.days).toBe(5); // (65 − 60) / 1
     expect(f.eta!.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(f.lowData).toBe(false); // 11 distinct days → trustworthy fit
+  });
+
+  it("flags a < 3-distinct-day fit as low data (forecast-overconfidence #1)", () => {
+    // Two distinct days: OLS fits a perfect line by construction (R²=1), so fitQuality reads 1.0 —
+    // but with no degrees of freedom that "100% confidence" is meaningless. lowData must catch it so
+    // the UI doesn't render a 2-point blip as a rock-solid trajectory.
+    const f = forecastTrajectory([
+      { date: "2026-01-01", value: 50 },
+      { date: "2026-01-08", value: 60 },
+    ])!;
+    expect(f.points).toBe(2);
+    expect(f.fitQuality).toBe(1); // perfect by construction, NOT by trend
+    expect(f.lowData).toBe(true);
+
+    // Three distinct days clear the low-data bar.
+    const f3 = forecastTrajectory(series(50, 1, 3))!;
+    expect(f3.points).toBe(3);
+    expect(f3.lowData).toBe(false);
   });
 
   it("fits a falling trend and projects a demotion ETA", () => {

@@ -53,6 +53,12 @@ export interface Forecast {
   projectedLevel: LevelId;
   /** Goodness of fit (R²), 0..1 — how trustworthy the straight-line read is. */
   fitQuality: number;
+  /** True when the fit rests on too few distinct days (< 3) to trust the R² as "confidence":
+   *  OLS through 1–2 points fits perfectly by construction (ssRes=0 → fitQuality=1, degrees of
+   *  freedom n−2 ≤ 0), so the LEAST trustworthy fit reports the HIGHEST confidence. Consumers must
+   *  not render `fitQuality` as a hard confidence % when this is set — surface a "low data" caveat
+   *  instead. (forecast-overconfidence: investment-simulator-forecast #1 / org-overview-standing #2.) */
+  lowData: boolean;
   trajectory: Trajectory;
   /** Next promotion/demotion ETA, or null when flat, at a ceiling/floor, or beyond the horizon cap. */
   eta: LevelEta | null;
@@ -143,6 +149,9 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90): For
     projected,
     projectedLevel: levelForScore(projected).id,
     fitQuality: round2(fitQuality),
+    // < 3 distinct days → R² is 1 by construction, not by trend (no degrees of freedom). Flag it so
+    // the UI doesn't read a 2-point blip as rock-solid "100% confidence".
+    lowData: n < 3,
     trajectory,
     eta: trajectory === "flat" ? null : etaToNextLevel(current, perDay, lastT),
   };
