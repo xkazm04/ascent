@@ -229,6 +229,23 @@ export {
   type PlaybookAdoption,
 } from "@/lib/db/playbooks";
 export {
+  listOrgSkills,
+  getOrgSkill,
+  getOrgSkillOrgSlug,
+  createOrgSkill,
+  updateOrgSkill,
+  archiveOrgSkill,
+  getOrgSkillAdoption,
+  adoptOrgSkill,
+  unadoptOrgSkill,
+  recordSkillDownload,
+  type SkillRow,
+  type SkillInput,
+  type SkillSort,
+  type SkillListOpts,
+  type SkillAdoption,
+} from "@/lib/db/org-skills";
+export {
   forecastTrajectory,
   forecastHeadline,
   humanizeDays,

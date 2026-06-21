@@ -34,6 +34,9 @@ export function OrgNav({ slug }: { slug: string }) {
       { href: `${base}/plan`, label: "Plan" },
       { href: `${base}/backlog`, label: "Backlog" },
     ] },
+    { label: "Library", tabs: [
+      { href: `${base}/skills`, label: "Skills" },
+    ] },
     { label: "Govern", tabs: [
       { href: `${base}/members`, label: "Members" },
       { href: `${base}/governance`, label: "Governance" },

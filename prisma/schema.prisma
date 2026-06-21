@@ -67,6 +67,7 @@ model Organization {
   segments      Segment[]
   playbooks     Playbook[]
   invites       Invite[]
+  orgSkills     OrgSkill[]
 }
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
@@ -491,6 +492,66 @@ model PlaybookApplication {
   @@unique([playbookId, repoFullName])
   @@index([playbookId])
   @@index([orgId])
+}
+
+// Org Skills Library (Feature 2) — a scalable, categorized catalog of reusable Claude/LLM "skills"
+// (SKILL.md-like prompt/workflow assets) authored in-app, so members discover and reuse the org's own
+// best assets. Mirrors the Playbook stack (org-authored library item + adoption tracking) but adds a
+// `category` (indexed) for filtering at scale and a denormalized `downloadCount` for DB-side
+// sort-by-most-used. DISTINCT from SkillGeneration (the per-repo onboarding SKILL.md generator) — no
+// coupling. `tags` and the body are JSON/TEXT (no jsonb). See src/lib/db/org-skills.ts.
+model OrgSkill {
+  id            String   @id @default(uuid())
+  orgId         String
+  name          String // <= 200 chars; unique within the org
+  description   String   @default("") // <= 1000
+  content       String // the skill body (SKILL.md-like markdown); <= 50KB
+  category      String // one of src/lib/org/skill-categories.ts (validated on write)
+  tags          String   @default("[]") // JSON string[] — secondary, optional refinement
+  version       Int      @default(1) // bumped on a content edit (mirror Playbook), the change-history anchor
+  archived      Boolean  @default(false) // soft archive, not hard delete
+  downloadCount Int      @default(0) // denormalized rolling tally for DB-side sort-by-downloads (§8.8)
+  createdBy     String? // GitHub login of the author
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  adoptions OrgSkillAdoption[]
+
+  @@unique([orgId, name])
+  @@index([orgId, archived])
+  @@index([orgId, category])
+}
+
+// Records that a repo adopted a skill — the explicit reuse signal (mirror PlaybookApplication). One row
+// per (skill, repo). `orgId` is denormalized for org-level rollups. No DB FKs (relationMode="prisma").
+model OrgSkillAdoption {
+  id           String   @id @default(uuid())
+  skillId      String
+  orgId        String // denormalized for org-scoped aggregation
+  repoFullName String
+  adoptedBy    String? // GitHub login who marked it adopted
+  adoptedAt    DateTime @default(now())
+
+  skill OrgSkill @relation(fields: [skillId], references: [id])
+
+  @@unique([skillId, repoFullName])
+  @@index([skillId])
+  @@index([orgId])
+}
+
+// One rolling download/use tally row per skill (mirror BadgeImpression/QuotaEvent) — org-internal usage
+// counter, bumped fire-and-forget on download or "copy for LLM". `OrgSkill.downloadCount` is the
+// denormalized mirror used for sorting; this row additionally carries `lastSeen` (and is the seam for a
+// future per-day trend). Standalone — keyed by skillId. Block-level @@unique keeps the inline-@unique
+// parity list in init-sql.test.ts intact (same generated index name as an inline @unique).
+model OrgSkillDownload {
+  id       String   @id @default(uuid())
+  skillId  String
+  count    Int      @default(0)
+  lastSeen DateTime @updatedAt
+
+  @@unique([skillId])
 }
 
 // Server-side session revocation. The signed session cookie embeds the `sv` (session

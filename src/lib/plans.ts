@@ -116,6 +116,13 @@ export function planAllowsWhiteLabel(plan: string | null | undefined): boolean {
   return id === "team" || id === "enterprise";
 }
 
+/** Plans that may author + manage the Org Skills Library (Feature 2) — Team and up, for parity with
+ *  Playbooks/Segments (§8.6). Reads stay open to all members; only create/edit/archive is gated. */
+export function planAllowsSkillsLibrary(plan: string | null | undefined): boolean {
+  const id = plan && isPlanId(plan) ? plan : "free";
+  return id === "team" || id === "enterprise";
+}
+
 /**
  * The earliest scan date a plan's retention window includes, given the current time (ms since epoch).
  * `null` = unlimited retention (Enterprise / custom) — no lower bound. This is a NON-DESTRUCTIVE read
