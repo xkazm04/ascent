@@ -11,6 +11,7 @@
 
 import { NextResponse } from "next/server";
 import { creditsForProduct, getPolar, polarEnabled } from "@/lib/polar";
+import { getOrgId, isDbConfigured } from "@/lib/db";
 import { publicBaseUrl } from "@/lib/site";
 
 export const runtime = "nodejs";
@@ -27,6 +28,14 @@ export async function GET(request: Request) {
   if (!org) return NextResponse.json({ error: "Missing org." }, { status: 400 });
   if (!pack || creditsForProduct(pack) <= 0) {
     return NextResponse.json({ error: "Unknown credit pack." }, { status: 400 });
+  }
+  // Fail fast on a target that can never receive the credits — a typo'd/nonexistent slug would create
+  // a real paid checkout whose fulfilment then can't bind to an org (pay-into-a-void). Cheap DB read,
+  // no auth needed (the grant amount is still webhook-authoritative). Skipped when there's no DB to
+  // check against (the org can't exist either, but we can't verify — don't block the documented
+  // gift/seed path).
+  if (isDbConfigured() && !(await getOrgId(org).catch(() => null))) {
+    return NextResponse.json({ error: `Unknown organization "${org}". Create it before purchasing credits.` }, { status: 404 });
   }
 
   const polar = getPolar();
