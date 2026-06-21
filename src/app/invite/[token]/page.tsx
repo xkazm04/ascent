@@ -1,12 +1,15 @@
-// /invite/[token] — accept an org invitation. The signed-in GitHub login is granted the invite's
-// role (acceptInvite → setMembershipRole) on load; a pinned-login invite refuses anyone else.
-// Signed-out visitors get the sign-in wall with this URL as the post-login destination.
+// /invite/[token] — review and accept an org invitation. The page only PEEKS the invite (read-only)
+// and renders an explicit "Accept" button; the grant happens via a same-origin POST to
+// /api/org/invites/accept on that click — never as a GET render side-effect (which prefetchers /
+// link unfurlers / URL scanners would trigger, burning the invite or capturing an unpinned one for
+// the first opener). Signed-out visitors get the sign-in wall with this URL as the post-login dest.
 
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
-import { acceptInvite, isDbConfigured } from "@/lib/db";
+import { peekInvite, isDbConfigured } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
+import { AcceptInviteForm } from "./AcceptInviteForm";
 
 export const dynamic = "force-dynamic";
 
@@ -72,22 +75,22 @@ export default async function AcceptInvitePage({ params }: { params: Promise<{ t
     );
   }
 
-  const result = await acceptInvite(token, session.login);
-  if (result.ok) {
+  // Read-only validation — does NOT consume the invite. The actual grant is the explicit POST below.
+  const peek = await peekInvite(token);
+  if (!peek.ok) {
+    const r = REASON[peek.reason] ?? REASON.db!;
     return (
       <Frame>
-        <Card
-          title={`You've joined ${result.org}`}
-          body={`You now have the ${result.role} role in ${result.org}.`}
-          cta={{ href: `/org/${encodeURIComponent(result.org)}`, label: "Open the org dashboard →" }}
-        />
+        <Card title={r.title} body={r.body} cta={{ href: "/", label: "Back to Ascent" }} />
       </Frame>
     );
   }
-  const r = REASON[result.reason] ?? REASON.db!;
+  // Surface a pinned-login mismatch up front (acceptInvite still enforces it server-side).
+  const mismatch =
+    peek.pinnedLogin && peek.pinnedLogin !== session.login.trim().toLowerCase() ? peek.pinnedLogin : null;
   return (
     <Frame>
-      <Card title={r.title} body={r.body} cta={{ href: "/", label: "Back to Ascent" }} />
+      <AcceptInviteForm token={token} org={peek.org} role={peek.role} mismatch={mismatch} />
     </Frame>
   );
 }

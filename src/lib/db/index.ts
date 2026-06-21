@@ -85,7 +85,10 @@ export {
   listPendingInvites,
   revokeInvite,
   acceptInvite,
+  peekInvite,
   type PendingInvite,
+  type PendingInviteSummary,
+  type InvitePeek,
   type AcceptResult,
 } from "@/lib/db/invites";
 export {

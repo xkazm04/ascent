@@ -51,8 +51,16 @@ export async function createInvite(
   return toPending(row);
 }
 
-/** Pending (un-accepted, un-revoked, un-expired) invites for an org — owner view. */
-export async function listPendingInvites(orgSlug: string): Promise<PendingInvite[]> {
+/** A pending invite WITHOUT its token — the safe shape for listings (the token is the capability). */
+export type PendingInviteSummary = Omit<PendingInvite, "token">;
+
+/**
+ * Pending (un-accepted, un-revoked, un-expired) invites for an org — owner view. The raw `token` is
+ * deliberately OMITTED: it is the capability that protects the accept flow, so it must be shown once
+ * (the POST create response) and never re-broadcast on every owner page load / RSC payload / proxy
+ * log. Owners copy the link at creation; to re-share, revoke and re-issue.
+ */
+export async function listPendingInvites(orgSlug: string): Promise<PendingInviteSummary[]> {
   if (!isDbConfigured()) return [];
   const orgId = await orgIdForSlug(orgSlug);
   if (!orgId) return [];
@@ -60,7 +68,37 @@ export async function listPendingInvites(orgSlug: string): Promise<PendingInvite
     where: { orgId, status: "pending", expiresAt: { gt: new Date() } },
     orderBy: { createdAt: "desc" },
   });
-  return rows.map(toPending);
+  return rows.map((r) => {
+    const { token: _token, ...summary } = toPending(r);
+    return summary;
+  });
+}
+
+export type InvitePeek =
+  | { ok: true; org: string; role: OrgRole; pinnedLogin: string | null }
+  | { ok: false; reason: "not_found" | "expired" | "used" };
+
+/**
+ * READ-ONLY preview of an invite for the accept page — validates pending + unexpired and returns the
+ * org/role (and any pinned login) WITHOUT consuming it. The actual grant happens only via the
+ * same-origin POST accept route + acceptInvite, so rendering this page (a GET, which prefetchers /
+ * link unfurlers / URL scanners trigger) no longer mutates state or burns the invite.
+ */
+export async function peekInvite(token: string): Promise<InvitePeek> {
+  if (!isDbConfigured()) return { ok: false, reason: "not_found" };
+  const invite = await getPrisma().invite.findUnique({
+    where: { token },
+    select: { status: true, expiresAt: true, role: true, githubLogin: true, org: { select: { slug: true } } },
+  });
+  if (!invite) return { ok: false, reason: "not_found" };
+  if (invite.status !== "pending") return { ok: false, reason: "used" };
+  if (invite.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
+  return {
+    ok: true,
+    org: invite.org.slug,
+    role: isOrgRole(invite.role) ? invite.role : "member",
+    pinnedLogin: invite.githubLogin,
+  };
 }
 
 /** Revoke a pending invite (owner action). Scoped to the org so an id from another tenant can't be hit. */

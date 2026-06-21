@@ -33,12 +33,13 @@ export default async function OrgMembers({ params }: { params: Promise<{ slug: s
     role: m.role,
     createdAt: m.createdAt.toISOString(),
   }));
+  // NB: listPendingInvites no longer returns the raw token (it's the capability — shown once at
+  // creation), so the page bundle / RSC payload no longer carries live acceptance tokens.
   const initialInvites = invites.map((i) => ({
     id: i.id,
     email: i.email,
     githubLogin: i.githubLogin,
     role: i.role,
-    token: i.token,
     expiresAt: i.expiresAt,
   }));
   return <MembersPanel slug={slug} initial={initial} initialInvites={initialInvites} selfLogin={session?.login ?? null} />;

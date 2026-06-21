@@ -21,7 +21,10 @@ interface InviteRow {
   email: string | null;
   githubLogin: string | null;
   role: OrgRole;
-  token: string;
+  // Present only for invites created in THIS session (the POST create response). Pre-existing
+  // pending invites loaded from the server no longer carry the token (it's the capability, shown
+  // once), so the copy-link affordance appears only right after creation.
+  token?: string | null;
   expiresAt: string;
 }
 
@@ -264,9 +267,15 @@ export function MembersPanel({
               <li key={i.id} className="flex flex-wrap items-center gap-2 font-mono text-sm">
                 <span className="text-slate-300">{i.githubLogin ? `@${i.githubLogin}` : i.email}</span>
                 <span className="rounded border border-slate-700 px-1.5 py-0.5 text-slate-400">{i.role}</span>
-                <button onClick={() => copyLink(i.token)} className="text-accent transition hover:text-white">
-                  {copied === i.token ? "copied ✓" : "copy link"}
-                </button>
+                {i.token ? (
+                  <button onClick={() => copyLink(i.token!)} className="text-accent transition hover:text-white">
+                    {copied === i.token ? "copied ✓" : "copy link"}
+                  </button>
+                ) : (
+                  <span className="text-slate-600" title="The invite link is shown only when it's created. Revoke and re-issue to get a fresh link.">
+                    link shared at creation
+                  </span>
+                )}
                 <button onClick={() => revokeInvite(i.id)} className="text-slate-600 transition hover:text-orange-300">
                   revoke
                 </button>
