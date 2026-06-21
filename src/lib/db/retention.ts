@@ -78,12 +78,6 @@ export function resolveRetention(
   };
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
 /** True when an error is a DSQL/Postgres serialization conflict that's safe to retry. */
 function isSerializationConflict(err: unknown): boolean {
   // Prisma maps write conflicts / deadlocks (incl. DSQL OCC aborts) to P2034.
@@ -123,25 +117,30 @@ async function pruneRepoScans(
   max: number,
   batchSize: number,
 ): Promise<{ scans: number; dimensions: number; recommendations: number; events: number }> {
-  // Scans to drop = everything after the newest `max`. Rank by DB-authoritative `createdAt` (insertion
-  // order), NOT the report-supplied `scannedAt`: a backdated / clock-skewed `scannedAt` could otherwise
-  // rank a genuinely-newer scan below the cut and DELETE a live newer scan. id breaks any tie.
-  const stale = await prisma.scan.findMany({
-    where: { repoId },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    skip: max,
-    select: { id: true },
-  });
-
   let scans = 0;
   let dimensions = 0;
   let recommendations = 0;
   let events = 0;
-  for (const ids of chunk(stale.map((s) => s.id), batchSize)) {
+  // Page the SELECTION too, not just the deletes. The prior code did one UNBOUNDED findMany(skip:max)
+  // pulling every stale id into memory before the batched delete loop — on a long-watched repo with a
+  // huge per-commit scan history that single read can hit a DSQL statement timeout / memory pressure
+  // and abort the whole prune, so the table the job exists to bound keeps growing. Re-`skip: max` each
+  // page (always keep the newest `max`); the prior page's rows are now deleted, so `skip:max` advances
+  // to the next stale window. Stop when a page is short. Rank by DB-authoritative `createdAt` (insertion
+  // order), NOT report `scannedAt`: a backdated/skewed scannedAt could otherwise drop a live newer scan.
+  for (;;) {
+    const stale = await prisma.scan.findMany({
+      where: { repoId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: max,
+      take: batchSize,
+      select: { id: true },
+    });
+    if (stale.length === 0) break;
+    const ids = stale.map((s) => s.id);
     // Delete the whole scan sub-graph for this batch in ONE transaction so a mid-batch timeout can't
     // leave a half-deleted graph. relationMode = "prisma" emits no FK cascade, so the grandchildren
-    // (RecommendationEvent) must be deleted BEFORE their parent Recommendation or they orphan forever —
-    // the bug the prior per-statement loop left open (events were never deleted at all).
+    // (RecommendationEvent) must be deleted BEFORE their parent Recommendation or they orphan forever.
     // Order: grandchildren (events) → children (dimensions, recommendations) → parent (scan).
     const counts = await withRetry(() =>
       prisma.$transaction(async (tx) => {
@@ -161,6 +160,8 @@ async function pruneRepoScans(
     dimensions += counts.dim;
     recommendations += counts.rec;
     scans += counts.sc;
+    // Safety: if the delete removed no scan rows the next query would re-return the same ids forever.
+    if (counts.sc === 0 || stale.length < batchSize) break;
   }
   return { scans, dimensions, recommendations, events };
 }
@@ -255,7 +256,10 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
 
       // The purge job records its own audit entry (compliance trace of what was removed).
       // Written after the deletes so the entry is recent and survives this run's audit cutoff.
-      await recordAudit(
+      // recordAudit swallows its own error and returns false — for an audit/compliance product, a
+      // destructive purge that loses its "what was deleted and when" trace must surface as a degraded
+      // run, not a green 200, so check the boolean and push to errors.
+      const audited = await recordAudit(
         PURGE_ACTION,
         {
           scansDeleted,
@@ -267,6 +271,9 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
         },
         { orgId: org.id, actorId: opts.actorId },
       );
+      if (!audited) {
+        errors.push(`${org.slug}: retention audit write failed (deletes applied, compliance trace missing)`);
+      }
 
       results.push({
         orgSlug: org.slug,
@@ -289,7 +296,10 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
       const cutoff = new Date(Date.now() - defaults.auditDays * DAY_MS);
       const auditDeleted = await pruneAudit(prisma, { orgId: null, at: { lt: cutoff } }, defaults.batchSize);
       if (auditDeleted > 0) {
-        await recordAudit(PURGE_ACTION, { auditDeleted, scope: "orphan" }, { actorId: opts.actorId });
+        const audited = await recordAudit(PURGE_ACTION, { auditDeleted, scope: "orphan" }, { actorId: opts.actorId });
+        if (!audited) {
+          errors.push(`(orphan): retention audit write failed (deletes applied, compliance trace missing)`);
+        }
         results.push({
           orgSlug: "(orphan)",
           policy: defaults,
