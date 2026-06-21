@@ -386,7 +386,14 @@ export class GitHubPublicSource implements RepoSource {
     // branch. `repoMeta.defaultBranch` still reports the true default for the report.
     const ref = opts.ref || repoMeta.defaultBranch;
 
-    repoMeta.headSha = treeRes.sha;
+    // The canonical head identity is the COMMIT sha (cache key, /report@sha permalinks, the
+    // @@unique([repoId, headSha]) dedup), NOT treeRes.sha — that is the TREE OBJECT's sha. The commit
+    // list is scoped to the read ref (the `&sha=ref` query on a pinned/PR-head scan, else the default
+    // branch), so commitsRes[0] is this ref's head commit. Previously only scan.ts's default-branch
+    // path corrected this; PR-gate and sha-less scans persisted the tree sha, 404-ing commit links and
+    // defeating dedup. Fall back to the tree sha only when the commit list came back empty (the
+    // commitsReq error path returns []), so a transient blip still yields some identity.
+    repoMeta.headSha = commitsRes[0]?.sha ?? treeRes.sha;
 
     const tree: RepoFile[] = treeRes.tree.map((t) => ({
       path: t.path,
