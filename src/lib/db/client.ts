@@ -64,6 +64,31 @@ export function readDsqlConfig(env: NodeJS.ProcessEnv = process.env): DsqlConfig
 }
 
 /**
+ * Apply the OPTIONAL, env-gated serverless connection budget to a Postgres connection URL.
+ *
+ * BUG (database-client-schema #2): each serverless instance builds a PrismaClient with Prisma's
+ * default internal pool (num_physical_cpus*2+1). Under fan-out (a fleet scan's mapPool, a cron
+ * rescan batch, many concurrent viewers) N instances × that default can exceed DSQL's per-cluster
+ * connection ceiling and start refusing connections. A correct cap depends on the pooler +
+ * max_connections + SCAN_CONCURRENCY (a deployment decision), so this is a SAFE, env-gated knob that
+ * is a NO-OP unless DB_CONNECTION_LIMIT is set — default behavior is byte-for-byte unchanged, and the
+ * cron is never accidentally serialized by a hardcoded limit. Set DB_CONNECTION_LIMIT (and optionally
+ * DB_POOL_TIMEOUT seconds) per the cluster ceiling / expected concurrency. Existing params are not
+ * overwritten (a URL that already carries connection_limit wins).
+ */
+function applyConnectionBudget(url: URL): URL {
+  const limit = process.env.DB_CONNECTION_LIMIT?.trim();
+  if (limit && /^\d+$/.test(limit) && Number(limit) > 0 && !url.searchParams.has("connection_limit")) {
+    url.searchParams.set("connection_limit", limit);
+    const poolTimeout = process.env.DB_POOL_TIMEOUT?.trim();
+    if (poolTimeout && /^\d+$/.test(poolTimeout) && !url.searchParams.has("pool_timeout")) {
+      url.searchParams.set("pool_timeout", poolTimeout);
+    }
+  }
+  return url;
+}
+
+/**
  * Build a Postgres connection URL for DSQL, injecting the IAM token as the password. The WHATWG
  * URL setter percent-encodes the token (DSQL tokens contain `&`, `=`, `/`, `+`, …), so the URL
  * is always well-formed. Pure + exported for unit testing.
@@ -73,7 +98,7 @@ export function buildDsqlUrl(cfg: DsqlConfig, token: string): string {
   url.username = cfg.user;
   url.password = token;
   url.searchParams.set("sslmode", cfg.sslmode);
-  return url.toString();
+  return applyConnectionBudget(url).toString();
 }
 
 // ── Error classification ─────────────────────────────────────────────────────────────────
@@ -304,6 +329,20 @@ const g = globalThis as unknown as {
   __ascentPgliteAdapter?: unknown;
 };
 
+/**
+ * Apply the env-gated connection budget (database-client-schema #2) to a static DATABASE_URL string.
+ * No-op unless DB_CONNECTION_LIMIT is set, and silently passes a non-URL through unchanged (Prisma
+ * accepts forms WHATWG URL can't parse — don't let the budget knob break an otherwise-valid URL).
+ */
+function withConnectionBudget(url: string): string {
+  if (!process.env.DB_CONNECTION_LIMIT?.trim()) return url; // common path: byte-for-byte unchanged
+  try {
+    return applyConnectionBudget(new URL(url)).toString();
+  } catch {
+    return url; // unparseable by WHATWG URL — leave it to Prisma untouched
+  }
+}
+
 function newClient(url?: string): PrismaClient {
   const log = process.env.NODE_ENV === "development" ? (["warn", "error"] as const) : (["error"] as const);
   // Local dev: an embedded in-process PGlite (src/instrumentation.ts) provides the connection via a
@@ -312,7 +351,7 @@ function newClient(url?: string): PrismaClient {
     return new PrismaClient({ adapter: g.__ascentPgliteAdapter as never, log: [...log] });
   }
   return new PrismaClient({
-    ...(url ? { datasourceUrl: url } : {}),
+    ...(url ? { datasourceUrl: withConnectionBudget(url) } : {}),
     log: [...log],
   });
 }

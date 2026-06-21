@@ -156,6 +156,36 @@ describe("buildDsqlUrl", () => {
     // ...and a downstream parser (pg/Prisma) recovers the exact token via decodeURIComponent.
     expect(decodeURIComponent(url.password)).toBe(token);
   });
+
+  // database-client-schema #2: the serverless connection budget is an OPTIONAL, env-gated knob —
+  // a NO-OP by default (so the cron is never accidentally serialized) and applied only when set.
+  describe("DB_CONNECTION_LIMIT budget knob", () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it("adds no connection_limit when DB_CONNECTION_LIMIT is unset (unchanged default)", () => {
+      vi.stubEnv("DB_CONNECTION_LIMIT", "");
+      const url = new URL(buildDsqlUrl(cfg, "tok"));
+      expect(url.searchParams.has("connection_limit")).toBe(false);
+      expect(url.searchParams.has("pool_timeout")).toBe(false);
+    });
+
+    it("applies connection_limit (and pool_timeout) when configured", () => {
+      vi.stubEnv("DB_CONNECTION_LIMIT", "2");
+      vi.stubEnv("DB_POOL_TIMEOUT", "10");
+      const url = new URL(buildDsqlUrl(cfg, "tok"));
+      expect(url.searchParams.get("connection_limit")).toBe("2");
+      expect(url.searchParams.get("pool_timeout")).toBe("10");
+      // sslmode is still present — the budget params are additive.
+      expect(url.searchParams.get("sslmode")).toBe("require");
+    });
+
+    it("ignores a non-numeric / non-positive limit (no param added)", () => {
+      vi.stubEnv("DB_CONNECTION_LIMIT", "lots");
+      expect(new URL(buildDsqlUrl(cfg, "tok")).searchParams.has("connection_limit")).toBe(false);
+      vi.stubEnv("DB_CONNECTION_LIMIT", "0");
+      expect(new URL(buildDsqlUrl(cfg, "tok")).searchParams.has("connection_limit")).toBe(false);
+    });
+  });
 });
 
 describe("isAuthExpiryError", () => {
