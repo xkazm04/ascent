@@ -37,9 +37,14 @@ export const POST = secret
         // checkout metadata. Both carry the org slug; either being present is enough.
         const metaOrg = order.metadata && typeof order.metadata.org === "string" ? order.metadata.org : null;
         const org = order.customer?.externalId ?? metaOrg;
+        // A real, paid credit pack that can't be fulfilled YET must be RETRIED, not silently dropped:
+        // the @polar-sh adapter responds 200 on a normal return (telling Polar "delivered"), so any
+        // `return` here permanently loses the purchase. Throw instead — the adapter surfaces a non-2xx
+        // and Polar redelivers under its at-least-once guarantee. The grant is idempotent on
+        // `polar:${order.id}`, so a later successful retry can't double-credit. Causes: the order.paid
+        // webhook racing ahead of org-row creation, or a transient DB blip resolving the org.
         if (!org) {
-          console.error(`[billing/webhook] order ${order.id}: no org on the order — cannot credit ${credits}`);
-          return;
+          throw new Error(`[billing/webhook] order ${order.id}: no org bound — ${credits} credits unfulfilled, will retry`);
         }
         const balance = await grantCredits(org, credits, {
           reason: "polar",
@@ -47,8 +52,7 @@ export const POST = secret
           externalId: `polar:${order.id}`,
         });
         if (balance === null) {
-          console.error(`[billing/webhook] order ${order.id}: org "${org}" not found — ${credits} credits unfulfilled`);
-          return;
+          throw new Error(`[billing/webhook] order ${order.id}: org "${org}" not found — ${credits} credits unfulfilled, will retry`);
         }
         console.info(`[billing/webhook] order ${order.id}: +${credits} credits to "${org}" (balance ${balance})`);
       },
