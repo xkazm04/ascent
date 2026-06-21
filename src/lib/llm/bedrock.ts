@@ -27,25 +27,41 @@ export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
 export const DEFAULT_BEDROCK_REGION = "us-east-1";
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60_000;
 
+/** Static AWS credentials for the BYOM path (Feature 1). Omitted = the default AWS credential chain
+ *  (env / role / metadata), i.e. the platform's own Bedrock account. */
+export interface BedrockCredentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+}
+
 export class BedrockProvider implements LLMProvider {
   readonly name = "bedrock" as const;
   readonly model: string;
   readonly region: string;
+  /** BYOM: when set, the SDK client authenticates with THESE org-supplied creds instead of the default
+   *  chain — so inference runs in the org's AWS account. Never logged. */
+  private readonly credentials?: BedrockCredentials;
 
-  constructor(opts: { model?: string; region?: string } = {}) {
+  constructor(opts: { model?: string; region?: string; credentials?: BedrockCredentials } = {}) {
     this.model = opts.model || process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL;
     this.region =
       opts.region ||
       process.env.BEDROCK_REGION ||
       process.env.AWS_REGION ||
       DEFAULT_BEDROCK_REGION;
+    this.credentials = opts.credentials;
   }
 
   async assess(input: LlmScoreInput, opts: AssessOptions = {}): Promise<LlmAssessment> {
     const { BedrockRuntimeClient, ConverseCommand } = await import(
       "@aws-sdk/client-bedrock-runtime"
     );
-    const client = new BedrockRuntimeClient({ region: this.region });
+    // Pass injected BYOM creds when present; otherwise the SDK uses the default chain (platform account).
+    const client = new BedrockRuntimeClient({
+      region: this.region,
+      ...(this.credentials ? { credentials: this.credentials } : {}),
+    });
     const { system, user } = buildAssessmentPrompt(input);
 
     // Per-call timeout via AbortController (the W6-2 pattern shared with gemini/openai): a hung
@@ -150,5 +166,44 @@ export class BedrockProvider implements LLMProvider {
     const text = blocks.map((part) => (part as { text?: string }).text ?? "").join("");
     if (!text) throw new Error("Empty response from Bedrock.");
     return validateAssessment(parseJsonLoose(text));
+  }
+}
+
+/**
+ * One cheap Bedrock call to validate a BYOM connection (Feature 1, the test-connection endpoint) —
+ * sends a 1-token Converse "ping" with the supplied model/region/credentials. Returns { ok } on a
+ * successful round trip, or { ok:false, error } with a sanitized message (never the credential). A
+ * short timeout keeps the settings UI responsive.
+ */
+export async function testBedrockConnection(opts: {
+  model?: string;
+  region?: string;
+  credentials?: BedrockCredentials;
+}): Promise<{ ok: boolean; error?: string }> {
+  const model = opts.model || process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL;
+  const region = opts.region || process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION;
+  try {
+    const { BedrockRuntimeClient, ConverseCommand } = await import("@aws-sdk/client-bedrock-runtime");
+    const client = new BedrockRuntimeClient({
+      region,
+      ...(opts.credentials ? { credentials: opts.credentials } : {}),
+    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new Error("Bedrock test timed out.")), 15_000);
+    try {
+      await client.send(
+        new ConverseCommand({
+          modelId: model,
+          messages: [{ role: "user", content: [{ text: "ping" }] }],
+          inferenceConfig: { maxTokens: 1, temperature: 0 },
+        }),
+        { abortSignal: ctrl.signal },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err instanceof Error ? err.message : "Bedrock connection failed.").slice(0, 300) };
   }
 }

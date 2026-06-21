@@ -16,7 +16,7 @@ import { detectStackFit } from "@/lib/analyze/stack-fit";
 import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
-import { getProvider, providerByName, MockProvider } from "@/lib/llm";
+import { getProvider, getProviderForOrg, providerByName, MockProvider } from "@/lib/llm";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { isAssessmentUsable } from "@/lib/llm/provider";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
@@ -42,6 +42,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export interface ScanOptions {
   token?: string;
   mock?: boolean;
+  /**
+   * Owning org slug (BYOM — Feature 1). When set to a real org with an ACTIVE Bedrock config, the scan
+   * runs on the org's own Bedrock (its AWS account/bill) and the platform fallback is suppressed (fail
+   * to mock, §8.2). Omitted / "public" uses the env-driven platform provider, unchanged.
+   */
+  orgSlug?: string;
   /**
    * When true, do NOT fall back to the ambient `process.env.GITHUB_TOKEN` if no explicit `token`
    * is given. Public, unauthenticated surfaces (the README badge) set this so a private repo can't
@@ -117,7 +123,12 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // the loading UI renders "Asking Gemini…" / "Querying Bedrock in us-east-1…" from these
   // fields, starting with the very first frame. Construction is side-effect-free: no network
   // call or SDK load happens until assess() runs.
-  let provider: LLMProvider = getProvider({ forceMock: opts.mock });
+  // Org-aware provider selection (BYOM — Feature 1): a real org with an active Bedrock config scans on
+  // its own Bedrock; otherwise the env-driven platform provider. `byomScan` suppresses the platform
+  // fallback below so a BYOM failure degrades to mock only (privacy-strict, §8.2) — never the platform.
+  const providerSelection = await getProviderForOrg(opts.orgSlug, { forceMock: opts.mock });
+  let provider: LLMProvider = providerSelection.provider;
+  const byomScan = providerSelection.byom;
   const intendedProvider = provider.name;
   const providerRegion = provider instanceof BedrockProvider ? provider.region : undefined;
 
@@ -251,8 +262,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   );
   const llmSignal = signal ? AbortSignal.any([signal, llmDeadline.signal]) : llmDeadline.signal;
   try {
+    // BYOM scans never fall over to the PLATFORM provider (that would send the org's data to Ascent's
+    // account, defeating the privacy guarantee) — they retry the org's Bedrock, then degrade to mock.
     const fallback =
-      intendedProvider === "mock" ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
+      intendedProvider === "mock" || byomScan ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
     const plan: { p: LLMProvider; note?: string }[] = [{ p: provider }];
     if (intendedProvider !== "mock") plan.push({ p: provider, note: `Retrying ${intendedProvider}…` });
     if (fallback && fallback.name !== intendedProvider)

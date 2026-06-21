@@ -637,6 +637,29 @@ CREATE INDEX "TechStackGroupMember_repoId_idx" ON "TechStackGroupMember"("repoId
 CREATE UNIQUE INDEX "TechStackGroupMember_groupId_repoId_key" ON "TechStackGroupMember"("groupId", "repoId");
 
 
+-- CreateTable: per-org connected LLM (BYOM — Feature 1). The credential lives ONLY in the encrypted blob.
+CREATE TABLE "OrgLlmConfig" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "provider" TEXT NOT NULL DEFAULT 'bedrock',
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    "modelId" TEXT NOT NULL,
+    "region" TEXT,
+    "authMode" TEXT NOT NULL DEFAULT 'static',
+    "credentialsEncrypted" TEXT,
+    "lastValidatedAt" TIMESTAMP(3),
+    "lastValidationError" TEXT,
+    "createdBy" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgLlmConfig_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgLlmConfig_orgId_key" ON "OrgLlmConfig"("orgId");
+
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

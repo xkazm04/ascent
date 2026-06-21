@@ -69,6 +69,7 @@ model Organization {
   invites       Invite[]
   orgSkills     OrgSkill[]
   techGroups    TechStackGroup[]
+  llmConfig     OrgLlmConfig?
 }
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
@@ -594,6 +595,33 @@ model TechStackGroupMember {
   @@unique([groupId, repoId])
   @@index([groupId])
   @@index([repoId])
+}
+
+// Per-org connected LLM (BYOM — Feature 1). One row per org: the org's own Amazon Bedrock provider so
+// inference runs in THEIR AWS account/region/bill (the enterprise privacy unlock). The credential is
+// stored ONLY in `credentialsEncrypted` (AES-256-GCM via src/lib/crypto/secret-box.ts) — never a plain
+// column, never returned by the API, decrypted only at provider-construction time. `enabled=false`
+// lets an org save+test before going live (or support pause a misconfig). Enterprise-plan gated +
+// fail-closed without ENCRYPTION_KEY. See src/lib/db/org-llm.ts.
+model OrgLlmConfig {
+  id                   String    @id @default(uuid())
+  orgId                String
+  provider             String    @default("bedrock") // "bedrock" (v1); future: openai | vertex | self_hosted
+  enabled              Boolean   @default(false) // configured-but-paused vs active
+  modelId              String // e.g. "us.anthropic.claude-sonnet-4-6"
+  region               String? // bedrock region
+  authMode             String    @default("static") // "static" | (future) "assume_role"
+  // Encrypted JSON blob (secret-box v1): { accessKeyId, secretAccessKey }. Null = no creds stored yet.
+  credentialsEncrypted String?
+  lastValidatedAt      DateTime? // set by the test-connection endpoint
+  lastValidationError  String?
+  createdBy            String? // GitHub login
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId])
 }
 
 // Server-side session revocation. The signed session cookie embeds the `sv` (session

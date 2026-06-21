@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
   consumeScanCredit: vi.fn(),
   getInstallationIdForOwner: vi.fn(async () => "inst1"),
   grantCredits: vi.fn(async () => 5),
+  isByomActive: vi.fn(async () => false),
   isDbConfigured: () => true,
   listWatchedRepos: vi.fn(),
   persistScanReport: vi.fn(),

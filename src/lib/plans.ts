@@ -123,6 +123,14 @@ export function planAllowsSkillsLibrary(plan: string | null | undefined): boolea
   return id === "team" || id === "enterprise";
 }
 
+/** Plans that may connect their own LLM (BYOM / Bedrock — Feature 1) — Enterprise-only (§8.4): it's the
+ *  marquee enterprise unlock (inference in the org's own AWS account/bill). A downgrade dormants any
+ *  saved config (the provider resolver + settings route both gate on this). */
+export function planAllowsByom(plan: string | null | undefined): boolean {
+  const id = plan && isPlanId(plan) ? plan : "free";
+  return id === "enterprise";
+}
+
 /**
  * The earliest scan date a plan's retention window includes, given the current time (ms since epoch).
  * `null` = unlimited retention (Enterprise / custom) — no lower bound. This is a NON-DESTRUCTIVE read

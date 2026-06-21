@@ -251,6 +251,17 @@ export {
   type TechGroupSummary,
 } from "@/lib/db/tech-groups";
 export {
+  getOrgLlmConfig,
+  setOrgLlmConfig,
+  disableOrgLlmConfig,
+  recordOrgLlmValidation,
+  isByomActive,
+  resolveByomProvider,
+  type OrgLlmConfigPublic,
+  type OrgLlmConfigInput,
+  type ByomProviderParams,
+} from "@/lib/db/org-llm";
+export {
   forecastTrajectory,
   forecastHeadline,
   humanizeDays,

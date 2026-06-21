@@ -79,6 +79,13 @@ vi.mock("@/lib/llm", async (importActual) => {
     // test-installed primary provider.
     getProvider: (opts: { forceMock?: boolean } = {}) =>
       opts.forceMock ? new actual.MockProvider() : (llmControl.primary ?? new actual.MockProvider()),
+    // Org-aware selection (BYOM): scanRepository routes provider selection through this now. For these
+    // (non-BYOM) tests it must honor the test-installed primary, exactly like getProvider above, and
+    // report byom:false so the existing failover/fail-to-mock behavior is unchanged.
+    getProviderForOrg: async (_orgSlug: string | undefined | null, opts: { forceMock?: boolean } = {}) => ({
+      provider: opts.forceMock ? new actual.MockProvider() : (llmControl.primary ?? new actual.MockProvider()),
+      byom: false,
+    }),
     // Failover lookup — return the test-installed fallback (or null = "no real fallback",
     // which makes scan.ts degrade straight to its own MockProvider).
     providerByName: () => llmControl.fallback,
