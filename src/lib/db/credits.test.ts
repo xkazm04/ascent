@@ -291,12 +291,19 @@ describe("grantCredits idempotency (webhook redelivery anti-double-grant)", () =
     expect(ledger).toHaveLength(1);
   });
 
-  it("a P2002 WITHOUT an externalId is NOT swallowed — it propagates (only redelivery dedup is silent)", async () => {
-    const { prisma, state } = fakePrismaForGrantIdempotent(0);
+  it("a P2002 is swallowed even WITHOUT a caller externalId — every grant now carries a synthesized key (retry-idempotent)", async () => {
+    const { prisma, row, ledger, state } = fakePrismaForGrantIdempotent(0);
     mockGetPrisma.mockReturnValue(prisma);
 
+    // No caller externalId (the per-scan refund case): grantCredits now synthesizes an `auto:<uuid>`
+    // idempotency key, so a commit-ambiguity retry whose insert loses to the unique constraint is
+    // treated as already-applied — it returns the current balance rather than appending a second
+    // delta. This closes the non-idempotent refund leak (a refund under withRetry used to double).
     state.failNextCreate = true;
-    await expect(grantCredits("acme", 100, { reason: "grant" })).rejects.toMatchObject({ code: "P2002" });
+    const balance = await grantCredits("acme", 100, { reason: "grant" });
+    expect(balance).toBe(0); // rolled back, current balance returned — no double-apply
+    expect(row.scanCredits).toBe(0);
+    expect(ledger).toHaveLength(0);
   });
 });
 
@@ -316,8 +323,12 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
     creditLedger: {
       findMany: vi.fn(async (args: unknown) => {
         lastFindManyArgs = args;
-        // Mirror the columns getCreditLedger selects; the reconciler only reads delta/reason/createdAt.
-        return rows.map((r, i) => ({
+        // Model the DB doing the windowing: getCreditReconciliation now passes
+        // `where: { createdAt: { gte: cutoff } }` (full-window aggregate, no 200-row cap), so honor
+        // that filter here instead of returning every row and relying on JS-side trimming.
+        const gte = (args as { where?: { createdAt?: { gte?: Date } } } | undefined)?.where?.createdAt?.gte;
+        const windowed = gte ? rows.filter((r) => r.createdAt.getTime() >= gte.getTime()) : rows;
+        return windowed.map((r, i) => ({
           id: `cl_${i}`,
           delta: r.delta,
           balanceAfter: 0,

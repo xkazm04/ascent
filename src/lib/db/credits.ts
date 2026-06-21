@@ -6,6 +6,7 @@
 // and reconcilable against Polar top-ups. The route-level gate is src/lib/entitlement.ts; the purchase
 // flow (Polar checkout + webhook) is src/app/api/billing/* and docs/BILLING.md.
 
+import { randomUUID } from "node:crypto";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { isUnlimitedPlan, decideScanCharge, scanAllowance } from "@/lib/plans";
 
@@ -86,7 +87,17 @@ export async function grantCredits(
   const delta = Math.trunc(amount);
   if (!delta) return (await getCreditState(slug)).balance;
   const prisma = getPrisma();
-  // Fast path for the common redelivery: this exact grant already landed, so don't even try again.
+  // Idempotency key for the withRetry wrapper below. A caller-supplied externalId (a Polar order id)
+  // dedups cross-delivery. Callers that pass NONE — the per-scan refunds fired from concurrent
+  // mapPool lanes against DSQL (where OCC/serialization retries are expected), and owner grants —
+  // were non-idempotent: withRetry re-runs the whole closure on a retryable error / commit-ambiguity
+  // blip, appending a second +1 (over-refund → free private scans). Synthesize a per-INVOCATION id so
+  // a RETRY of THIS call collapses (the unique-constraint catch below), while a genuinely separate
+  // grant/refund still gets its own id and is never suppressed.
+  const externalId = opts.externalId ?? `auto:${randomUUID()}`;
+  // Fast path for a caller-supplied redelivery: this exact grant already landed, so don't even try
+  // again. (Only the caller-supplied case can pre-exist; a freshly synthesized id never will, so it
+  // relies on the unique-constraint catch instead — no extra read on the hot refund path.)
   if (opts.externalId) {
     const existing = await prisma.creditLedger
       .findUnique({ where: { externalId: opts.externalId }, select: { id: true } })
@@ -122,16 +133,18 @@ export async function grantCredits(
             balanceAfter,
             reason: opts.reason ?? (delta > 0 ? "grant" : "adjustment"),
             actor: opts.actor ?? null,
-            externalId: opts.externalId ?? null,
+            externalId,
           },
         });
         return balanceAfter;
       }),
     );
   } catch (err) {
-    // A concurrent duplicate delivery lost the race to the unique externalId; its insert rolled the
-    // whole grant back (the increment too). Treat it as already-applied rather than surfacing an error.
-    if (opts.externalId && isDuplicateExternalId(err)) {
+    // A retry/redelivery lost the race to the unique externalId; its insert rolled the whole grant
+    // back (the increment too). Treat it as already-applied rather than surfacing an error. Covers
+    // both a caller-supplied externalId (webhook redelivery) and the synthesized per-invocation id
+    // (commit-ambiguity retry of a refund/grant), so neither can double-apply.
+    if (isDuplicateExternalId(err)) {
       return (await getCreditState(orgSlug)).balance;
     }
     throw err;
@@ -259,16 +272,26 @@ export async function getCreditLedger(orgSlug: string, limit = 50): Promise<Cred
  */
 export async function getCreditReconciliation(orgSlug: string, days: number): Promise<CreditReconciliation | null> {
   if (!isDbConfigured()) return null;
-  const entries = await getCreditLedger(orgSlug, 200);
-  const cutoff = Date.now() - Math.max(1, days) * 86_400_000;
-  const win = entries.filter((e) => e.createdAt.getTime() >= cutoff);
-  const sum = (pred: (e: CreditLedgerEntry) => boolean, abs = false) =>
-    win.filter(pred).reduce((a, e) => a + (abs ? Math.abs(e.delta) : e.delta), 0);
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
+  if (!org) return null;
+  // Aggregate over the FULL window, NOT the recent-200 list. The old code reused
+  // getCreditLedger(orgSlug, 200) — capped at the newest 200 rows — as its source, so a busy fleet
+  // (daily autoscans write 20-40 ledger rows/day) silently lost every row beyond the most-recent 200
+  // in a 30-day window, understating debited/refunded/granted/net on the money-facing /usage page.
+  // Select only the two fields the reconciliation needs, for all rows inside the window.
+  const cutoff = new Date(Date.now() - Math.max(1, days) * 86_400_000);
+  const rows = await prisma.creditLedger.findMany({
+    where: { orgId: org.id, createdAt: { gte: cutoff } },
+    select: { delta: true, reason: true },
+  });
+  const sum = (pred: (e: { delta: number; reason: string }) => boolean, abs = false) =>
+    rows.filter(pred).reduce((a, e) => a + (abs ? Math.abs(e.delta) : e.delta), 0);
   return {
     debited: sum((e) => e.delta < 0, true),
     refunded: sum((e) => e.delta > 0 && /refund/i.test(e.reason)),
     granted: sum((e) => e.delta > 0 && !/refund/i.test(e.reason)),
-    net: win.reduce((a, e) => a + e.delta, 0),
-    entries: win.length,
+    net: rows.reduce((a, e) => a + e.delta, 0),
+    entries: rows.length,
   };
 }
