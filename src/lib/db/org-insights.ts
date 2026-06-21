@@ -522,13 +522,13 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
 
 export interface OrgBenchmark {
   corpusRepos: number; // repos in the comparison corpus (other orgs)
-  overallPercentile: number | null; // org avg overall vs corpus (null below CORPUS_MIN repos — a 1-repo corpus would rank everyone 0th or 100th)
+  overallPercentile: number | null; // org mean overall vs OTHER ORGS' means (null below CORPUS_MIN peer orgs — a 1-org corpus would rank everyone 0th or 100th)
   corpusAvgOverall: number;
   corpusAvgAdoption: number;
   corpusAvgRigor: number;
   /** Peer cohort — corpus repos sharing this org's dominant primary language, for a "vs your peers"
    *  read (more meaningful than the whole corpus). Null when the org has no dominant language or no
-   *  same-language peers exist; the percentiles are null below COHORT_MIN peers (too few to rank). */
+   *  same-language peers exist; the percentiles are null below COHORT_MIN peer ORGS (too few to rank). */
   cohort: {
     language: string;
     repos: number;
@@ -538,10 +538,11 @@ export interface OrgBenchmark {
   } | null;
 }
 
-/** Minimum same-language peers before a cohort percentile is statistically worth showing. */
+/** Minimum same-language peer ORGS before a cohort percentile is statistically worth showing. */
 const COHORT_MIN = 5;
-/** Minimum corpus size before the headline percentile is worth showing — same discipline as
- *  COHORT_MIN: a 1–4 repo corpus yields a confidently-wrong "you beat 100% of orgs". */
+/** Minimum peer-org count before the headline percentile is worth showing — same discipline as
+ *  COHORT_MIN: a 1–4 org corpus yields a confidently-wrong "you beat 100% of orgs". (Percentiles
+ *  now rank org-mean vs other-org-means, so the floor counts ORGS, not repos.) */
 const CORPUS_MIN = 5;
 
 /** Share of `xs` at-or-below `v`, as 0..100 — null below `min` samples, because a 1-repo corpus
@@ -559,18 +560,20 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
-  // Latest scan + primary language per repo, for every repo NOT in this org.
+  // Latest scan + primary language per repo, for every repo NOT in this org. `orgId` is carried so the
+  // percentile comparison can be done org-vs-org (like-for-like), not org-mean-vs-repo-distribution.
   const repos = await prisma.repository.findMany({
     where: { orgId: { not: org.id } },
     select: {
+      orgId: true,
       primaryLanguage: true,
       scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true, adoptionScore: true, rigorScore: true } },
     },
   });
-  const corpus: { lang: string | null; overall: number; adoption: number; rigor: number }[] = [];
+  const corpus: { orgId: string; lang: string | null; overall: number; adoption: number; rigor: number }[] = [];
   for (const r of repos) {
     const s = r.scans[0];
-    if (s) corpus.push({ lang: r.primaryLanguage, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore });
+    if (s) corpus.push({ orgId: r.orgId, lang: r.primaryLanguage, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore });
   }
   if (corpus.length === 0) {
     return { corpusRepos: 0, overallPercentile: null, corpusAvgOverall: 0, corpusAvgAdoption: 0, corpusAvgRigor: 0, cohort: null };
@@ -600,17 +603,36 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   const myAvgOverall = mean(myOverall);
   const myAvgAdoption = mean(myAdoption);
 
+  // Per-ORG means over a corpus slice — so the org's mean is ranked against OTHER ORGS' means
+  // (population-vs-population), not against a per-repo distribution. Bug-fix (fleet-rollups-insights
+  // #2): a mean of N repos is far less variable than individual repos, so percentile-ing one
+  // aggregated number inside an un-aggregated repo distribution biased every org toward the middle
+  // (a unit mismatch: scalar-vs-population). Now both the org and its peers are summarized the same way.
+  const orgMeans = (rows: typeof corpus, pick: (c: (typeof corpus)[number]) => number): number[] => {
+    const byOrg = new Map<string, { sum: number; n: number }>();
+    for (const c of rows) {
+      const e = byOrg.get(c.orgId) ?? { sum: 0, n: 0 };
+      e.sum += pick(c);
+      e.n += 1;
+      byOrg.set(c.orgId, e);
+    }
+    return [...byOrg.values()].map((e) => e.sum / e.n);
+  };
+
   // Peer cohort = corpus repos in the org's dominant language.
   const domLang = [...langCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   let cohort: OrgBenchmark["cohort"] = null;
   if (domLang) {
     const peers = corpus.filter((c) => c.lang === domLang);
     if (peers.length > 0) {
+      // Rank this org's mean against peer ORG means within the language (not peer repos).
+      const peerOrgOverall = orgMeans(peers, (p) => p.overall);
+      const peerOrgAdoption = orgMeans(peers, (p) => p.adoption);
       cohort = {
         language: domLang,
         repos: peers.length,
-        overallPercentile: percentileOf(peers.map((p) => p.overall), myAvgOverall, COHORT_MIN),
-        adoptionPercentile: percentileOf(peers.map((p) => p.adoption), myAvgAdoption, COHORT_MIN),
+        overallPercentile: percentileOf(peerOrgOverall, myAvgOverall, COHORT_MIN),
+        adoptionPercentile: percentileOf(peerOrgAdoption, myAvgAdoption, COHORT_MIN),
         avgOverall: avg(peers.map((p) => p.overall)),
       };
     }
@@ -618,7 +640,8 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   return {
     corpusRepos: corpus.length,
-    overallPercentile: percentileOf(corpus.map((c) => c.overall), myAvgOverall, CORPUS_MIN),
+    // Org mean vs other orgs' means (CORPUS_MIN is now a floor on the number of peer ORGS, not repos).
+    overallPercentile: percentileOf(orgMeans(corpus, (c) => c.overall), myAvgOverall, CORPUS_MIN),
     corpusAvgOverall: avg(corpus.map((c) => c.overall)),
     corpusAvgAdoption: avg(corpus.map((c) => c.adoption)),
     corpusAvgRigor: avg(corpus.map((c) => c.rigor)),
