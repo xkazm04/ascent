@@ -348,14 +348,14 @@ export interface OrgBacklog extends BacklogCounts {
  * per-item history. Segment-aware (scopes to a tagged slice when `segmentId` is given). Returns null
  * when persistence is off or the org doesn't exist.
  */
-export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, now: Date = new Date()): Promise<OrgBacklog | null> {
+export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, now: Date = new Date(), techGroupId?: string | null): Promise<OrgBacklog | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       fullName: true,
       name: true,
@@ -389,7 +389,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
 
   // Distinct human logins across the fleet's contributor snapshots — the assignee picker options.
   const contributorRows = await prisma.repoContributor.findMany({
-    where: { repo: { orgId: org.id, ...segmentScope(segmentId) } },
+    where: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
     select: { login: true },
     distinct: ["login"],
   });
@@ -668,14 +668,14 @@ const STRONG = 70;
 const GAP = 40;
 
 /** The org's playbook: for each practice, who exemplifies it and who could adopt it next. */
-export async function getOrgPractices(orgSlug: string): Promise<OrgPractice[] | null> {
+export async function getOrgPractices(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPractice[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
       fullName: true,

@@ -1,7 +1,8 @@
 import { SegmentSelector } from "@/components/org/SegmentSelector";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { Meter, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
-import { getContributorInsights, listSegments } from "@/lib/db";
+import { getContributorInsights, listSegments, listTechStackGroups } from "@/lib/db";
 import { scoreHex, timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -30,16 +31,25 @@ export default async function ContributorInsightsPage({
   const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
   const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
 
-  const insights = await getContributorInsights(slug, segmentId);
+  // Optional tech-stack scope (Feature 3b), composes with the segment filter.
+  const techGroups = await listTechStackGroups(slug);
+  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
+  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
+  const techGroupId = activeStack?.id ?? null;
+
+  const filterBar = (segments.length > 0 || techGroups.length > 0) && (
+    <div className="flex flex-wrap items-center gap-2">
+      {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
+    </div>
+  );
+
+  const insights = await getContributorInsights(slug, segmentId, techGroupId);
   if (!insights || insights.totalContributors === 0) {
     return (
       <div>
-        {segments.length > 0 && (
-          <div className="mb-4 flex justify-end">
-            <SegmentSelector segments={segments} active={segmentId} />
-          </div>
-        )}
-        <SectionEmpty>No contributor data {segmentId ? "for this segment" : "yet"} — scan some of this org&apos;s repositories (contributor data is captured at scan time).</SectionEmpty>
+        {filterBar && <div className="mb-4 flex justify-end">{filterBar}</div>}
+        <SectionEmpty>No contributor data {segmentId || activeStack ? "for this filter" : "yet"} — scan some of this org&apos;s repositories (contributor data is captured at scan time).</SectionEmpty>
       </div>
     );
   }
@@ -51,11 +61,7 @@ export default async function ContributorInsightsPage({
           Inputs to explore where trust in AI could grow across the team — who&apos;s leaning in, whose approach others could
           learn from, and where key-person risk sits. Not a ranking, and not a to-do list for anyone.
         </p>
-        {segments.length > 0 && (
-          <div className="flex shrink-0 items-center gap-2">
-            <SegmentSelector segments={segments} active={segmentId} />
-          </div>
-        )}
+        {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
       </div>
 
         {/* Summary tiles */}

@@ -17,6 +17,7 @@ import type {
   ProviderName,
   RepoArchetype,
   RepoMeta,
+  TechStack,
   TokenUsage,
 } from "@/lib/types";
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
@@ -39,6 +40,11 @@ export interface LlmScoreInput {
    *  and the roadmap/discrepancy audit to the stack instead of penalizing absent web conventions. Null
    *  for a full-fit (web/service) repo — the common case. */
   stackFit?: StackFit | null;
+  /** Detected tech stack (Feature 3a, Option B) — present ONLY when the gated prompt-enrichment flag is
+   *  on (TECH_STACK_PROMPT). Adds a short "DETECTED TECH STACK" block to the user message so the model
+   *  can flag stack-vs-evidence mismatches (e.g. "claims a Python backend, zero tests"). Undefined by
+   *  default → zero prompt change → calibration untouched. Gated rollout: bench < 2pt drift first. */
+  techStack?: TechStack | null;
 }
 
 /** Per-call options. `signal` aborts the (often long) provider call when the client disconnects. */

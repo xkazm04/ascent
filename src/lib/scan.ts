@@ -17,6 +17,7 @@ import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
 import { getProvider, getProviderForOrg, providerByName, MockProvider } from "@/lib/llm";
+import { techStackPromptEnabled } from "@/lib/llm/config";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { isAssessmentUsable } from "@/lib/llm/provider";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
@@ -191,6 +192,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // discrepancy audit calibrate to the stack instead of judging notebooks on web conventions. Detected
   // once and reused for the user-facing warning below. [Tiger P0-2]
   const stackFit = detectStackFit(snapshot);
+  // Tech-stack detection (Feature 3a): computed once here from the already-fetched manifests/tree.
+  // Always attached to the report (display/persist); fed into the PROMPT only when the gated
+  // TECH_STACK_PROMPT flag is on (Option B) — default off keeps scans byte-identical.
+  const techStack = extractTechStack(snapshot);
 
   const scoreInput: LlmScoreInput = {
     repo: snapshot.meta,
@@ -204,6 +209,8 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     governance,
     // Name the stack the rubric under-reads so the model weights the affected dimensions accordingly.
     stackFit,
+    // Option B (gated): include the detected stack in the prompt only when explicitly enabled.
+    ...(techStackPromptEnabled() ? { techStack } : {}),
   };
 
   let llmFailed = false;
@@ -331,9 +338,9 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Team attribution from CODEOWNERS (the file is already in the snapshot — no extra GitHub call).
   // Display + persist only; it doesn't move the score. Empty array = no CODEOWNERS teams found.
   report.teams = extractTeamOwnership(snapshot.files);
-  // Tech-stack detection (Feature 3a): pure over the already-fetched manifests/tree — no extra GitHub
-  // call, and DISPLAY/PERSIST ONLY (never the prompt or the score, so scans stay byte-identical).
-  report.techStack = extractTechStack(snapshot);
+  // Tech-stack detection (Feature 3a): computed once above. Always attached for display/persistence
+  // (the prompt enrichment is the separate, gated Option-B path).
+  report.techStack = techStack;
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...capturedUsage, latencyMs: llmLatencyMs };

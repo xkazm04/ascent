@@ -1,6 +1,7 @@
 import { Card, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { getOrgActivity, getOrgGovernance, getOrgPrSignals, listSegments } from "@/lib/db";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { getOrgActivity, getOrgGovernance, getOrgPrSignals, listSegments, listTechStackGroups } from "@/lib/db";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -43,15 +44,22 @@ export default async function OrgDelivery({
   const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
   const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
 
+  // Optional tech-stack scope (Feature 3b), composes with the segment filter.
+  const techGroups = await listTechStackGroups(slug);
+  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
+  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
+  const techGroupId = activeStack?.id ?? null;
+
   const [pr, gov, activity] = await Promise.all([
-    getOrgPrSignals(slug, segmentId),
-    getOrgGovernance(slug, segmentId),
-    getOrgActivity(slug, segmentId),
+    getOrgPrSignals(slug, segmentId, techGroupId),
+    getOrgGovernance(slug, segmentId, techGroupId),
+    getOrgActivity(slug, segmentId, techGroupId),
   ]);
 
   const segmentBar = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
       <a
         href={`/api/org/export?org=${encodeURIComponent(slug)}&kind=delivery&format=csv${segmentId ? `&segment=${segmentId}` : ""}`}
         className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"

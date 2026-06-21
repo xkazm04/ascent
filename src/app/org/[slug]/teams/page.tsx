@@ -1,7 +1,8 @@
 import { Card, Meter, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex, fmtDelta } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { getOrgTeamRollup, listSegments, type TeamRollup } from "@/lib/db";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { getOrgTeamRollup, listSegments, listTechStackGroups, type TeamRollup } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -129,11 +130,17 @@ export default async function TeamsPage({
   const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
   const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
 
-  const rollup = await getOrgTeamRollup(slug, segmentId);
+  // Optional tech-stack scope (Feature 3b), composes with the segment filter.
+  const techGroups = await listTechStackGroups(slug);
+  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
+  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
 
-  const segmentBar = segments.length > 0 && (
-    <div className="mb-4 flex justify-end">
-      <SegmentSelector segments={segments} active={segmentId} />
+  const rollup = await getOrgTeamRollup(slug, segmentId, activeStack?.id ?? null);
+
+  const segmentBar = (segments.length > 0 || techGroups.length > 0) && (
+    <div className="mb-4 flex flex-wrap justify-end gap-2">
+      {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
     </div>
   );
 

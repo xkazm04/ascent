@@ -18,14 +18,14 @@ export interface OrgPrSignals {
 }
 
 /** Fleet-level pull-request signals — aggregated from each repo's latest scan's prStats. */
-export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null): Promise<OrgPrSignals | null> {
+export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPrSignals | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { prStats: true } } },
   });
 
@@ -162,14 +162,14 @@ function weekIndex(ms: number): number {
 
 /** Fleet commit-activity trend — sum of each repo's latest weekly series, aligned by absolute
  *  calendar week. */
-export async function getOrgActivity(orgSlug: string, segmentId?: string | null): Promise<OrgActivity | null> {
+export async function getOrgActivity(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgActivity | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     // scannedAt anchors each trailing weekly series to a real calendar week (its last element is the
     // week of the scan), so different-cadence repos sum the SAME week, not the same array index.
     select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { commitActivity: true, scannedAt: true } } },

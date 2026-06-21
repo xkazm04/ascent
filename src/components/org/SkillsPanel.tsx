@@ -10,6 +10,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Card, OrgTable, SectionHeader } from "@/components/org/ui";
 import { SkillCard } from "@/components/org/SkillCard";
 import { SKILL_CATEGORY_LABEL, skillCategoryLabel, type SkillCategory } from "@/lib/org/skill-categories";
+import { SKILL_TEMPLATES } from "@/lib/org/skill-templates";
 import type { SkillAdoption, SkillRow, SkillSort } from "@/lib/db";
 
 const SORTS: { id: SkillSort; label: string }[] = [
@@ -112,6 +113,17 @@ export function SkillsPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  // Skills P3: prefill the author form from a curated starter template (the org edits before saving).
+  function applyTemplate(idx: number) {
+    const t = SKILL_TEMPLATES[idx];
+    if (!t) return;
+    setName(t.name);
+    setFormCategory(t.category);
+    setDescription(t.description);
+    setContent(t.content);
+    setTagsText(t.tags.join(", "));
   }
 
   async function archive(id: string) {
@@ -231,6 +243,22 @@ export function SkillsPanel({
       {/* Author form (members on a Team+ plan) — or an upsell when the plan doesn't include the library. */}
       {canAuthor ? (
         <div className="mt-5 space-y-2 border-t border-slate-800 pt-4">
+          {/* Skills P3: start from a curated template instead of a blank form. */}
+          <label className="flex flex-wrap items-center gap-2 font-mono text-sm text-slate-500">
+            Start from a template
+            <select
+              value=""
+              onChange={(e) => e.target.value !== "" && applyTemplate(Number(e.target.value))}
+              className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+            >
+              <option value="">choose a template…</option>
+              {SKILL_TEMPLATES.map((t, i) => (
+                <option key={t.name} value={i}>
+                  {SKILL_CATEGORY_LABEL[t.category]} · {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="flex flex-wrap items-center gap-2">
             <input
               value={name}

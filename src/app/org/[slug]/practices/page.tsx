@@ -2,19 +2,32 @@ import Link from "next/link";
 import { Card, Meter, SectionEmpty, SectionHeader } from "@/components/org/ui";
 import { PracticeApply } from "@/components/org/PracticeApply";
 import { PlaybooksPanel } from "@/components/org/PlaybooksPanel";
-import { getOrgPractices, getOrgRollup, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { getOrgPractices, getOrgRollup, getPlaybookAdoption, listPlaybooks, listTechStackGroups } from "@/lib/db";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrgPractices({ params }: { params: Promise<{ slug: string }> }) {
+export default async function OrgPractices({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { slug } = await params;
+  const sp = await searchParams;
+  // Optional tech-stack scope (Feature 3b): surface the practice library for the selected stack. Only
+  // the MINED library is scoped — the playbook repo picker (from the rollup) stays full-fleet.
+  const techGroups = await listTechStackGroups(slug);
+  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
+  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
   const [playbooks, adoption, rollup, practices] = await Promise.all([
     listPlaybooks(slug),
     getPlaybookAdoption(slug),
     getOrgRollup(slug),
-    getOrgPractices(slug),
+    getOrgPractices(slug, null, activeStack?.id ?? null),
   ]);
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
   const repoOptions = (rollup?.repos ?? []).map((r) => r.fullName).sort();
@@ -49,6 +62,7 @@ export default async function OrgPractices({ params }: { params: Promise<{ slug:
       <SectionHeader
         descriptionClassName="max-w-3xl"
         title="Practice Library"
+        right={techGroups.length > 0 ? <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} /> : undefined}
         description={
           <>
             Your org&apos;s playbook, mined from its own strongest repos. Each practice points to an internal{" "}
