@@ -87,13 +87,24 @@ export function RepoSegmentsPanel({
   }
 
   async function removeSegment(id: string) {
+    // Snapshot for rollback: DELETE is admin-gated (requireOrgRole "admin"), so a member's 403 (or any
+    // failure) must NOT leave the chip "deleted" only to resurrect on the next refresh / Overview read.
+    // Optimistically drop it, then restore + surface the reason if the server didn't actually delete it.
+    const prevSegments = segments;
+    const prevMembership = membership;
+    setError(null);
     setSegments((s) => s.filter((x) => x.id !== id));
     setMembership((m) => {
       const next: Record<string, string[]> = {};
       for (const [fn, ids] of Object.entries(m)) next[fn] = ids.filter((x) => x !== id);
       return next;
     });
-    await fetch(`/api/org/segments/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/org/segments/${id}`, { method: "DELETE" }).catch(() => null);
+    if (!res || !res.ok) {
+      setSegments(prevSegments);
+      setMembership(prevMembership);
+      setError((await res?.json().catch(() => ({})))?.error ?? "Couldn't delete the segment (admins only).");
+    }
   }
 
   async function toggle(fullName: string, segId: string) {
@@ -107,11 +118,26 @@ export function RepoSegmentsPanel({
       return { ...m, [fullName]: [...ids] };
     });
     setSegments((s) => s.map((x) => (x.id === segId ? { ...x, repoCount: Math.max(0, x.repoCount + (member ? 1 : -1)) } : x)));
-    await fetch(`/api/org/segments/${segId}/repos`, {
+    setError(null);
+    // Was fire-and-forget (.catch(()=>{})), so a 404/permission/network failure left the chip + repo-
+    // count showing a membership that doesn't exist server-side (and fed the Overview filter). Inspect
+    // the result and UNDO exactly this toggle (functional updaters, so a concurrent toggle of another
+    // repo isn't clobbered) when it didn't persist.
+    const res = await fetch(`/api/org/segments/${segId}/repos`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ org: slug, fullName, member }),
-    }).catch(() => {});
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      setMembership((m) => {
+        const ids = new Set(m[fullName] ?? []);
+        if (member) ids.delete(segId);
+        else ids.add(segId);
+        return { ...m, [fullName]: [...ids] };
+      });
+      setSegments((s) => s.map((x) => (x.id === segId ? { ...x, repoCount: Math.max(0, x.repoCount + (member ? -1 : 1)) } : x)));
+      setError((await res?.json().catch(() => ({})))?.error ?? "Couldn't update the tag.");
+    }
   }
 
   function startEdit(s: SegmentItem) {
