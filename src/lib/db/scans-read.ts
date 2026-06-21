@@ -672,13 +672,23 @@ export async function getScanReportByCommit(
     levelUnlock: r.levelUnlock ?? undefined,
   }));
 
-  const contributors: Contributor[] = repo.contributors.map((c) => ({
-    login: c.login,
-    name: c.name ?? undefined,
-    commits: c.commits,
-    aiCommits: c.aiCommits,
-    lastActiveAt: c.lastActiveAt ? c.lastActiveAt.toISOString() : undefined,
-  }));
+  // Contributors are stored as a per-repo LATEST-scan snapshot (persistScanReport replaces them
+  // wholesale on every scan), so they describe `scan` ONLY when `scan` is the latest. For an older
+  // pinned commit (a shared/permalinked @sha that isn't the current head) returning today's
+  // contributors — and the aiUsage headline derived from them — would make the snapshot silently
+  // assert wrong, time-shifted people. Surface them only when this scan is the latest; blank them for
+  // an older pin rather than claim stale data. (A faithful per-scan contributor history needs a
+  // ScanContributor join — tracked as a follow-up.)
+  const isLatestScan = !headSha || (repo.headSha != null && scan.headSha === repo.headSha);
+  const contributors: Contributor[] = isLatestScan
+    ? repo.contributors.map((c) => ({
+        login: c.login,
+        name: c.name ?? undefined,
+        commits: c.commits,
+        aiCommits: c.aiCommits,
+        lastActiveAt: c.lastActiveAt ? c.lastActiveAt.toISOString() : undefined,
+      }))
+    : [];
 
   const aiCommitTotal = contributors.reduce((a, c) => a + c.aiCommits, 0);
   const commitTotal = contributors.reduce((a, c) => a + c.commits, 0);
