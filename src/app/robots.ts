@@ -1,13 +1,13 @@
 import type { MetadataRoute } from "next";
+import { publicBaseUrl } from "@/lib/site";
 
-// Public base URL of the deployment (same env the alert/PR-link builders use). When unset we still
-// emit crawl rules but omit the absolute sitemap/host lines, which require an absolute origin.
-function baseUrl(): string {
-  return (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
-}
-
+// SEO #2: resolve the base URL through the SAME canonical resolver sitemap.ts uses (lib/site
+// publicBaseUrl) instead of a local copy. The old local baseUrl() read only ASCENT_PUBLIC_URL /
+// NEXT_PUBLIC_APP_URL and lacked the VERCEL_PROJECT_PRODUCTION_URL fallback — so on a zero-config
+// Vercel deploy sitemap.xml was emitted with absolute URLs but robots.txt dropped the Sitemap/host
+// lines, defeating sitemap auto-discovery. Sharing one resolver keeps the two contracts in lockstep.
 export default function robots(): MetadataRoute.Robots {
-  const base = baseUrl();
+  const base = publicBaseUrl();
   return {
     rules: [
       {

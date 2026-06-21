@@ -20,7 +20,7 @@ import robots from "./robots";
 import sitemap from "./sitemap";
 import { publicBaseUrl } from "@/lib/site";
 
-const ENV_KEYS = ["ASCENT_PUBLIC_URL", "NEXT_PUBLIC_APP_URL"] as const;
+const ENV_KEYS = ["ASCENT_PUBLIC_URL", "NEXT_PUBLIC_APP_URL", "VERCEL_PROJECT_PRODUCTION_URL"] as const;
 let savedEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
@@ -126,5 +126,55 @@ describe("base-URL resolution does not drift between robots and lib/site", () =>
     process.env.NEXT_PUBLIC_APP_URL = "https://app.ascent.dev/";
     expect(publicBaseUrl()).toBe("https://app.ascent.dev");
     expect(robots().host).toBe("https://app.ascent.dev");
+  });
+
+  // SEO #2: on a zero-config Vercel deploy (no explicit ASCENT/NEXT url) sitemap.xml is emitted from
+  // VERCEL_PROJECT_PRODUCTION_URL, so robots MUST point at it too — the old local baseUrl() lacked this
+  // fallback and silently dropped the Sitemap/host lines, defeating auto-discovery.
+  it("falls back to VERCEL_PROJECT_PRODUCTION_URL in BOTH resolvers (zero-config Vercel)", () => {
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "ascent.vercel.app";
+    expect(publicBaseUrl()).toBe("https://ascent.vercel.app");
+    const r = robots();
+    expect(r.host).toBe("https://ascent.vercel.app");
+    expect(r.sitemap).toBe("https://ascent.vercel.app/sitemap.xml");
+    // sitemap.xml itself resolves under the same base, so robots' Sitemap line is not a dangling pointer.
+    expect(sitemap().length).toBeGreaterThan(0);
+    expect(sitemap()[0]!.url.startsWith("https://ascent.vercel.app")).toBe(true);
+  });
+
+  it("explicit ASCENT_PUBLIC_URL still wins over the Vercel fallback in both resolvers", () => {
+    process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "ascent.vercel.app";
+    expect(publicBaseUrl()).toBe("https://ascent.dev");
+    expect(robots().host).toBe("https://ascent.dev");
+  });
+});
+
+describe("SEO #1: the sitemap and robots-disallow contracts are disjoint", () => {
+  // A crawler that finds a sitemap URL then gets blocked by robots.txt logs a "Submitted URL blocked
+  // by robots.txt" warning. Advertising a disallowed path is self-contradicting — pin that no sitemap
+  // entry's path is (or is under) any robots-disallowed prefix.
+  it("no sitemap entry path is covered by a robots disallow entry", () => {
+    process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
+    const rules = robots().rules;
+    const single = Array.isArray(rules) ? rules[0] : rules;
+    const disallow = single.disallow;
+    const blocked = (Array.isArray(disallow) ? disallow : [disallow]).filter((d): d is string => typeof d === "string");
+    const sitemapPaths = sitemap().map((e) => new URL(e.url).pathname);
+    for (const p of sitemapPaths) {
+      for (const d of blocked) {
+        // robots prefixes match a path if it equals the rule or starts with it (e.g. "/connect" blocks
+        // "/connect" and "/connect/x"). "/api/" (trailing slash) only matches under that prefix.
+        const matches = p === d || p.startsWith(d.endsWith("/") ? d : `${d}/`);
+        expect(matches, `sitemap path "${p}" must not be blocked by robots disallow "${d}"`).toBe(false);
+      }
+    }
+  });
+
+  it("the previously-advertised private funnels are no longer in the sitemap", () => {
+    process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
+    const paths = sitemap().map((e) => new URL(e.url).pathname);
+    expect(paths).not.toContain("/connect");
+    expect(paths).not.toContain("/onboarding");
   });
 });
