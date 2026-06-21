@@ -1274,3 +1274,18 @@ This completes ALL eight medium waves (A–H).
 - **Waves 4-8** of the 233-finding scan remain open per `bug-ui-scan-2026-06-20/INDEX.md`: silent-failure/
   success-theater (~30, largest reliability cluster), scoring/aggregation, reliability/resilience,
   accessibility+reduced-motion (~34, largest UI cluster), UX/SEO/observability tail.
+
+### Update — 2026-06-20 combined scan: ALL 8 waves complete
+- **53 findings closed across 8 themed waves** (W1 authz · W2 billing · W3 persistence · W4 silent-
+  failure · W5 scoring · W6 reliability · W7 a11y · W8 UX/SEO/observability), ~42 atomic fix commits +
+  8 wave-summary docs on `vibeman/bug-ui-scan-2026-06-20-fixes`. tsc 0 throughout; vitest 2394→2426
+  (+32 regression tests); `next build` green every wave; 0 regressions. ALL 4 criticals closed.
+- **Still deferred-with-cause** (need migration / billing-model / infra decision): database-client #1
+  (broad `withDb`-on-reads / async-getPrisma migration across ~140 sites), checkout #2 (product→plan
+  map + subscription events), credits #3 (atomic per-month allowance counter), credits #4 (ledger
+  `kind` column). Plus the Medium/Low per-context tail (see each FIXES-WAVE-*.md "Deferred" section).
+- New structural facts: org membership gate now on ALL mutating /api/org/* (import was the last hole);
+  invite accept is POST-gesture-only (no GET side-effect) + tokens omitted from listings; grantCredits
+  is retry-idempotent via a synthesized per-invocation externalId; scan persistence skips degraded-mock/
+  low-coverage; headSha is the COMMIT sha; recommendation PATCH is optimistic-locked (409 on conflict);
+  reduced-motion must gate non-transform animations explicitly; DB_CONNECTION_LIMIT is an env knob.
