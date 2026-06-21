@@ -42,7 +42,10 @@ export function SelectStep({
   const underAMonth = credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
   return (
     <div key="select" className="animate-phase-in">
-      <h1 className="text-2xl font-bold text-white">Choose repositories</h1>
+      {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change). */}
+      <h1 data-step-heading tabIndex={-1} className="text-2xl font-bold text-white focus:outline-none">
+        Choose repositories
+      </h1>
       <p className="mt-1 text-slate-400">
         Up to {maxSelect}. We preselected the {sourceInstallId ? "most recently active" : "most-starred"}.
         {sourceLabel && <> Source: {sourceLabel}</>}

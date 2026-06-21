@@ -91,7 +91,8 @@ export function ScanStep({
         {announce}
       </div>
 
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-white">
+      {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change). */}
+      <h1 data-step-heading tabIndex={-1} className="flex items-center gap-2 text-2xl font-bold text-white focus:outline-none">
         {phase === "done" && (
           <span
             aria-hidden

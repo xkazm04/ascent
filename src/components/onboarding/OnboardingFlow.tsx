@@ -82,6 +82,32 @@ export function OnboardingFlow({
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // ONB a11y #1: a multi-step wizard must move focus to the new step and announce it, or keyboard/SR
+  // users lose their place (focus falls to <body>) and get no feedback that a step advanced. We hold
+  // a flow-root polite live region and, on each phase change, focus the new step's heading and
+  // announce "Step N of 3: <title>". The mount-skip ref avoids announcing/stealing focus on first
+  // render (initial autofocus belongs to the pick form's input).
+  const flowRef = useRef<HTMLDivElement>(null);
+  const [stepAnnounce, setStepAnnounce] = useState("");
+  const firstPhaseRender = useRef(true);
+  useEffect(() => {
+    if (firstPhaseRender.current) {
+      firstPhaseRender.current = false;
+      return;
+    }
+    const titles: Record<Phase, string> = {
+      pick: "Choose a source",
+      select: "Choose repositories",
+      scanning: "Scanning repositories",
+      done: "Scan complete",
+    };
+    const step = phase === "pick" ? 1 : phase === "select" ? 2 : 3;
+    setStepAnnounce(`Step ${step} of 3: ${titles[phase]}`);
+    // Focus the new step's heading so keyboard/SR users land on the step that just rendered.
+    const heading = flowRef.current?.querySelector<HTMLElement>("[data-step-heading]");
+    heading?.focus();
+  }, [phase]);
+
   // ONB-2 — rehydrate once on mount (must run BEFORE the persist effect below so the snapshot is read
   // before that effect could overwrite it). Reads the saved source + selection and re-enters the
   // select step. Only the inputs are restored; the repo list is re-fetched live, so a stale scanning/
@@ -321,7 +347,7 @@ export function OnboardingFlow({
   // ---- pick phase: choose an installed org (private repos) or enter a handle ----------
   if (phase === "pick") {
     return (
-      <Shell>
+      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
         <PickStep
           seededOrg={seededOrg}
           installations={installations}
@@ -341,7 +367,7 @@ export function OnboardingFlow({
   // ---- select phase: choose up to MAX_SELECT repos -------------------------
   if (phase === "select") {
     return (
-      <Shell>
+      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
         <SelectStep
           repos={repos}
           selected={selected}
@@ -362,7 +388,7 @@ export function OnboardingFlow({
 
   // ---- scanning + done phases ---------------------------------------------
   return (
-    <Shell>
+    <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
       <ScanStep
         phase={phase}
         rows={rows}
@@ -387,7 +413,24 @@ export function OnboardingFlow({
   );
 }
 
-// The onboarding page provides the site chrome + width; the flow just renders its phase.
-function Shell({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+// The onboarding page provides the site chrome + width; the flow just renders its phase. The shared
+// flow-root polite live region announces step transitions (ONB a11y #1) for every phase change —
+// the prior per-step live region only covered scanning, leaving pick↔select moves silent.
+function Shell({
+  children,
+  flowRef,
+  stepAnnounce,
+}: {
+  children: React.ReactNode;
+  flowRef?: React.RefObject<HTMLDivElement | null>;
+  stepAnnounce?: string;
+}) {
+  return (
+    <div ref={flowRef}>
+      <div role="status" aria-live="polite" className="sr-only">
+        {stepAnnounce}
+      </div>
+      {children}
+    </div>
+  );
 }
