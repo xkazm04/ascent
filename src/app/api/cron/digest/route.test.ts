@@ -34,6 +34,13 @@ vi.mock("@/lib/db", () => ({
   getCreditState: vi.fn(async () => null),
 }));
 
+// ALERTS #1: the route noise-filters BOTH gainers and regressers before the movement-gate. Mock the
+// noise helper so a test can drive which moves count as jitter and assert the `regressions` value the
+// route passes to digestHasSignal excludes within-noise regressers (a pure-jitter week stays silent).
+vi.mock("@/lib/maturity/noise", () => ({
+  isWithinNoise: vi.fn((d: number) => Math.abs(d) <= 2),
+}));
+
 vi.mock("@/lib/alerts", () => ({
   // `isAlertConfigured(url)` must mirror the real "a non-null/usable sink resolves" semantics for
   // routing decisions: here, any truthy webhookUrl is a configured sink (env fallback not needed
@@ -63,6 +70,7 @@ import {
   getCreditState,
 } from "@/lib/db";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
+import { isWithinNoise } from "@/lib/maturity/noise";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockListOrgs = vi.mocked(listOrgsWithWatchedRepos);
@@ -294,6 +302,67 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     // The flat org must NOT train the inbox filter — no message built, nothing dispatched.
     expect(mockBuild).not.toHaveBeenCalled();
     expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  // ---- (7) ALERTS #1: regressers are noise-filtered symmetrically with gainers ----
+
+  it("excludes within-noise regressers from the movement-gate (a pure-jitter week stays silent)", async () => {
+    vi.mocked(isWithinNoise).mockImplementation((d: number) => Math.abs(d) <= 2);
+    mockListOrgs.mockResolvedValue(["orgJitter"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/J");
+    mockRollup.mockResolvedValue(rollupWith());
+    // A whole-fleet wobble: every move is within ±2 (jitter). Two land net-negative (regressers by
+    // sign) but BOTH are within noise; one gainer also within noise.
+    mockMovers.mockResolvedValue({
+      regressers: [
+        { name: "r1", dOverall: -1 },
+        { name: "r2", dOverall: -2 },
+      ],
+      gainers: [{ name: "g1", dOverall: 1 }],
+      levelChanges: [],
+    } as unknown as Awaited<ReturnType<typeof getOrgMovers>>);
+    // Use the real movement-gate so the route's filtered `regressions` count actually drives the skip.
+    mockHasSignal.mockImplementation(
+      (a: { overallDelta: number | null; levelChanges: number; regressions: number; gainersBeyondNoise: number; creditLow: boolean }) =>
+        a.regressions > 0 || a.gainersBeyondNoise > 0 || a.levelChanges > 0 || a.creditLow,
+    );
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+
+    // Both regressers (and the gainer) are within noise → no signal → skippedFlat, nothing dispatched.
+    const sig = mockHasSignal.mock.calls[0][0] as { regressions: number; gainersBeyondNoise: number };
+    expect(sig.regressions).toBe(0); // the fix: within-noise regressers are NOT counted
+    expect(sig.gainersBeyondNoise).toBe(0);
+    expect(body).toMatchObject({ orgs: 1, sent: 0, skippedFlat: 1 });
+    expect(mockBuild).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("still counts a beyond-noise regresser and renders only beyond-noise regressers in the message", async () => {
+    vi.mocked(isWithinNoise).mockImplementation((d: number) => Math.abs(d) <= 2);
+    mockListOrgs.mockResolvedValue(["orgReal"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/R");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockMovers.mockResolvedValue({
+      regressers: [
+        { name: "real", dOverall: -7 }, // beyond noise → real signal
+        { name: "jitter", dOverall: -1 }, // within noise → must be excluded from count + render
+      ],
+      gainers: [],
+      levelChanges: [],
+    } as unknown as Awaited<ReturnType<typeof getOrgMovers>>);
+    mockHasSignal.mockImplementation((a: { regressions: number }) => a.regressions > 0);
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+
+    const sig = mockHasSignal.mock.calls[0][0] as { regressions: number };
+    expect(sig.regressions).toBe(1); // only the beyond-noise regresser counts
+    expect(body).toMatchObject({ orgs: 1, sent: 1 });
+    // The message's regressers list excludes the within-noise repo, so it's never rendered.
+    const built = mockBuild.mock.calls[0][0] as { regressers: { name: string }[] };
+    expect(built.regressers.map((r) => r.name)).toEqual(["real"]);
   });
 
   it("does not dispatch when the org has a sink but nothing to report (scannedCount === 0)", async () => {
