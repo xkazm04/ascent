@@ -4,7 +4,7 @@
 // smooth flight-path TrajectoryChart, so the two pages don't share the same levels component). Each
 // rung is a ramp-tinted platform that draws in; a climber dot ascends the staircase on reveal.
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
 
@@ -20,6 +20,10 @@ const UNLOCK: Record<string, string> = {
 };
 
 export function AboutAscentSteps() {
+  // ABOUT #1: the climber travels via `cx`/`cy` keyframes (non-transform), and the rungs draw via
+  // `pathLength`/opacity — none of which reducedMotion="user" degrades. Gate them on reduced motion
+  // and render the final/static staircase + climber-at-summit state instead.
+  const reduced = useReducedMotion();
   const steps = LEVELS.map((l, i) => ({ id: l.id, name: l.name, x: X0 + i * STEP_W, y: YS[i]! }));
   // Climber keyframes: trace the staircase corners (platform, riser-up, platform, …).
   const cx: number[] = [];
@@ -47,26 +51,29 @@ export function AboutAscentSteps() {
               <motion.line
                 x1={s.x} y1={steps[i - 1]!.y} x2={s.x} y2={s.y}
                 stroke={color} strokeWidth={2} strokeDasharray="3 4"
-                initial={{ opacity: 0 }}
-                whileInView={{ opacity: 0.45 }}
+                initial={reduced ? false : { opacity: 0 }}
+                animate={reduced ? { opacity: 0.45 } : undefined}
+                whileInView={reduced ? undefined : { opacity: 0.45 }}
                 viewport={{ once: false, margin: "-80px" }}
-                transition={{ duration: 0.3, delay: 0.1 + i * 0.16 }}
+                transition={reduced ? { duration: 0 } : { duration: 0.3, delay: 0.1 + i * 0.16 }}
               />
             )}
             <motion.line
               x1={s.x} y1={s.y} x2={s.x + STEP_W} y2={s.y}
               stroke={color} strokeWidth={5} strokeLinecap="round"
-              initial={{ pathLength: 0, opacity: 0 }}
-              whileInView={{ pathLength: 1, opacity: 1 }}
+              initial={reduced ? false : { pathLength: 0, opacity: 0 }}
+              animate={reduced ? { pathLength: 1, opacity: 1 } : undefined}
+              whileInView={reduced ? undefined : { pathLength: 1, opacity: 1 }}
               viewport={{ once: false, margin: "-80px" }}
-              transition={{ duration: 0.45, ease: "easeOut", delay: 0.15 + i * 0.16 }}
+              transition={reduced ? { duration: 0 } : { duration: 0.45, ease: "easeOut", delay: 0.15 + i * 0.16 }}
             />
             <motion.circle
               cx={mid} cy={s.y} r={6} fill={color}
-              initial={{ scale: 0 }}
-              whileInView={{ scale: 1 }}
+              initial={reduced ? false : { scale: 0 }}
+              animate={reduced ? { scale: 1 } : undefined}
+              whileInView={reduced ? undefined : { scale: 1 }}
               viewport={{ once: false, margin: "-80px" }}
-              transition={{ type: "spring", stiffness: 280, damping: 16, delay: 0.25 + i * 0.16 }}
+              transition={reduced ? { duration: 0 } : { type: "spring", stiffness: 280, damping: 16, delay: 0.25 + i * 0.16 }}
               style={{ transformOrigin: `${mid}px ${s.y}px` }}
             />
             <text x={mid} y={s.y - 16} textAnchor="middle" className="fill-white font-mono" fontSize={17} fontWeight={700}>
@@ -81,12 +88,15 @@ export function AboutAscentSteps() {
           </g>
         );
       })}
+      {/* The climber traces the staircase via `cx`/`cy` keyframes — for reduced-motion users render
+          it parked at the summit (final keyframe) with no travel. */}
       <motion.circle
         r={7} fill="#fff" stroke="#3b9eff" strokeWidth={2.5}
-        initial={{ cx: cx[0], cy: cy[0] }}
-        whileInView={{ cx, cy }}
+        initial={reduced ? false : { cx: cx[0], cy: cy[0] }}
+        animate={reduced ? { cx: cx[cx.length - 1], cy: cy[cy.length - 1] } : undefined}
+        whileInView={reduced ? undefined : { cx, cy }}
         viewport={{ once: false, margin: "-80px" }}
-        transition={{ duration: 2.4, ease: "easeInOut", delay: 0.4 }}
+        transition={reduced ? { duration: 0 } : { duration: 2.4, ease: "easeInOut", delay: 0.4 }}
       />
     </svg>
   );

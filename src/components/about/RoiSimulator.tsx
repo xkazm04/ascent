@@ -6,7 +6,7 @@
 // gain / repos in scope. Mirrors the real /org what-if simulator across several dimensions at once.
 
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { scoreHex } from "@/lib/ui";
 import { levelForScore } from "@/lib/maturity/model";
 
@@ -30,6 +30,9 @@ const REPOS: { name: string; base: number; testing: number; cicd: number; conv: 
 const W = 0.16; // each dimension's contribution to the overall index (illustrative)
 
 export function RoiSimulator() {
+  // ABOUT #1: the bars animate `width` (non-transform), which reducedMotion="user" doesn't degrade —
+  // gate the growth animation so reduced-motion users get bars rendered at their final width.
+  const reduced = useReducedMotion();
   const [t, setT] = useState<Record<DimKey, number>>({ testing: 45, cicd: 30, conv: 30 });
   const rows = REPOS.map((r) => {
     const lift = DIMS.reduce((s, d) => s + Math.max(0, t[d.key] - r[d.key]) * W, 0);
@@ -73,15 +76,20 @@ export function RoiSimulator() {
                 className="h-full rounded-full"
                 style={{ backgroundColor: scoreHex(r.next) }}
                 animate={{ width: `${r.next}%` }}
-                transition={{ type: "spring", stiffness: 130, damping: 20 }}
+                // Reduced motion: snap to the target width (no spring) so the bar still reflects the
+                // current slider value without the growing sweep.
+                transition={reduced ? { duration: 0 } : { type: "spring", stiffness: 130, damping: 20 }}
               />
               <span aria-hidden className="absolute inset-y-0 w-px bg-white/40" style={{ left: `${r.base}%` }} />
             </div>
             <span className="w-7 text-right font-mono text-xs tabular-nums" style={{ color: scoreHex(r.next) }}>
               {r.next}
             </span>
-            <span className={`w-8 font-mono text-xs ${r.promoted ? "text-emerald-400" : "text-transparent"}`}>
-              ↑{r.after.id}
+            {/* ABOUT #2: only render the promotion badge when the repo actually crossed a level —
+                a transparent badge on every row was still read by screen readers as a phantom
+                promotion. The fixed-width wrapper preserves row alignment when absent. */}
+            <span className="w-8 font-mono text-xs text-emerald-400">
+              {r.promoted ? `↑${r.after.id}` : ""}
             </span>
           </div>
         ))}

@@ -6,7 +6,7 @@
 // the active slice. Deterministic data → SSR-stable.
 
 import { useRef, useState } from "react";
-import { motion, useInView } from "framer-motion";
+import { motion, useInView, useReducedMotion } from "framer-motion";
 import { scoreHex, LEVEL_HEX } from "@/lib/ui";
 import { LEVELS, levelForScore } from "@/lib/maturity/model";
 
@@ -26,6 +26,9 @@ const REPOS = Array.from({ length: 40 }, (_, i) => {
 export function FleetGrid() {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: "-60px" });
+  // ABOUT #1: reducedMotion="user" only suppresses transform/layout animation, not the scan line's
+  // `left` sweep or the strip's `flexGrow` — gate those non-transform animations on reduced motion.
+  const reduced = useReducedMotion();
   const [seg, setSeg] = useState<Seg | "All">("All");
   const [inspect, setInspect] = useState<(typeof REPOS)[number] | null>(null);
   const [pinned, setPinned] = useState(false);
@@ -82,15 +85,19 @@ export function FleetGrid() {
             );
           })}
         </div>
-        <motion.div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 w-px bg-accent"
-          style={{ boxShadow: "0 0 14px 2px rgba(59,158,255,0.65)" }}
-          initial={{ left: "-2%", opacity: 0 }}
-          whileInView={{ left: "102%", opacity: [0, 1, 1, 0] }}
-          viewport={{ once: true, margin: "-60px" }}
-          transition={{ duration: 1.4, ease: "easeInOut", delay: 0.2 }}
-        />
+        {/* The scan line sweeps via `left` (a non-transform value) — suppressed entirely for
+            reduced-motion users, who get the static heatmap as the final/rest state. */}
+        {!reduced && (
+          <motion.div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 w-px bg-accent"
+            style={{ boxShadow: "0 0 14px 2px rgba(59,158,255,0.65)" }}
+            initial={{ left: "-2%", opacity: 0 }}
+            whileInView={{ left: "102%", opacity: [0, 1, 1, 0] }}
+            viewport={{ once: true, margin: "-60px" }}
+            transition={{ duration: 1.4, ease: "easeInOut", delay: 0.2 }}
+          />
+        )}
       </div>
 
       <div className="mt-4 flex h-5 items-center justify-between gap-3 font-mono text-xs">
@@ -112,9 +119,11 @@ export function FleetGrid() {
         {dist.map((d) => (
           <motion.div
             key={d.id}
-            style={{ backgroundColor: LEVEL_HEX[d.id] }}
-            animate={{ flexGrow: d.n }}
-            transition={{ duration: 0.5, ease: "easeOut" }}
+            style={{ backgroundColor: LEVEL_HEX[d.id], ...(reduced ? { flexGrow: d.n } : null) }}
+            // `flexGrow` is non-transform, so reducedMotion="user" doesn't degrade it — render the
+            // final width with no transition for reduced-motion users.
+            animate={reduced ? undefined : { flexGrow: d.n }}
+            transition={reduced ? { duration: 0 } : { duration: 0.5, ease: "easeOut" }}
           />
         ))}
       </div>
