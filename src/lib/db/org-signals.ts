@@ -150,7 +150,18 @@ export interface OrgActivity {
   repos: number;
 }
 
-/** Fleet commit-activity trend — element-wise sum of each repo's latest weekly series. */
+const WEEK_MS = 7 * 86_400_000;
+
+/** Whole-week index (weeks since the Unix epoch) of an instant. GitHub's commit_activity buckets are
+ *  weekly, so two repos' series elements only belong in the same fleet bucket if they fall in the same
+ *  absolute week — this maps an instant to that integer week so series can be aligned by calendar week
+ *  rather than by array position. */
+function weekIndex(ms: number): number {
+  return Math.floor(ms / WEEK_MS);
+}
+
+/** Fleet commit-activity trend — sum of each repo's latest weekly series, aligned by absolute
+ *  calendar week. */
 export async function getOrgActivity(orgSlug: string, segmentId?: string | null): Promise<OrgActivity | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
@@ -159,28 +170,47 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null)
 
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, ...segmentScope(segmentId) },
-    select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { commitActivity: true } } },
+    // scannedAt anchors each trailing weekly series to a real calendar week (its last element is the
+    // week of the scan), so different-cadence repos sum the SAME week, not the same array index.
+    select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { commitActivity: true, scannedAt: true } } },
   });
 
-  const seriesList: number[][] = [];
+  // Bug-fix (fleet-rollups-insights #1): each repo's commitActivity is GitHub's trailing weekly series
+  // ending at its OWN scan week. The old "align by last element" sum assumed every repo was scanned in
+  // the same week, so a repo scanned 4 weeks ago had its month-old "this week" double-counted into the
+  // fleet's current week. Bucket each series element by its absolute calendar week (derived from the
+  // scan time) and sum per week. When all repos ARE scanned in the same week this reduces to the old
+  // right-aligned sum (identical output) — only heterogeneous-cadence fleets change.
+  const byWeek = new Map<number, number>();
+  let repoCount = 0;
   for (const r of repos) {
-    const raw = r.scans[0]?.commitActivity;
+    const scan = r.scans[0];
+    const raw = scan?.commitActivity;
     if (!raw) continue;
     try {
       const arr = JSON.parse(raw) as number[];
-      if (Array.isArray(arr) && arr.length) seriesList.push(arr);
+      if (!Array.isArray(arr) || !arr.length) continue;
+      // The last element is the scan's own week; element i counts back (arr.length - 1 - i) weeks.
+      const lastWeek = weekIndex(scan!.scannedAt.getTime());
+      for (let i = 0; i < arr.length; i++) {
+        const v = arr[i];
+        if (typeof v !== "number" || !Number.isFinite(v)) continue;
+        const wk = lastWeek - (arr.length - 1 - i);
+        byWeek.set(wk, (byWeek.get(wk) ?? 0) + v);
+      }
+      repoCount += 1;
     } catch {
       /* ignore */
     }
   }
-  if (!seriesList.length) return null;
+  if (!repoCount) return null;
 
-  // Align by most-recent week (last element) and sum.
-  const maxLen = Math.max(...seriesList.map((s) => s.length));
-  const series = new Array(maxLen).fill(0);
-  for (const s of seriesList) {
-    const offset = maxLen - s.length;
-    for (let i = 0; i < s.length; i++) series[offset + i] += s[i];
-  }
-  return { weeks: maxLen, series, total: series.reduce((a, b) => a + b, 0), repos: seriesList.length };
+  // Emit oldest→newest over a contiguous week grid (zero-filling any week no repo covered), so the
+  // sparkline stays an evenly-spaced weekly series.
+  const weeksPresent = [...byWeek.keys()];
+  const minWk = Math.min(...weeksPresent);
+  const maxWk = Math.max(...weeksPresent);
+  const series: number[] = [];
+  for (let wk = minWk; wk <= maxWk; wk++) series.push(byWeek.get(wk) ?? 0);
+  return { weeks: series.length, series, total: series.reduce((a, b) => a + b, 0), repos: repoCount };
 }

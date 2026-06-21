@@ -33,12 +33,16 @@ import { getOrgPrSignals, getOrgGovernance, getOrgActivity } from "./org-signals
 function fakePrisma(
   column: "prStats" | "governance" | "commitActivity",
   repoBlobs: Array<string | null>,
-  opts: { org?: boolean; extra?: (i: number) => Record<string, unknown> } = {},
+  opts: { org?: boolean; extra?: (i: number) => Record<string, unknown>; scannedAt?: (i: number) => Date } = {},
 ) {
   const orgRow = opts.org === false ? null : { id: "org_1", slug: "acme" };
+  // getOrgActivity reads scannedAt to anchor each commit series to a calendar week. Default every
+  // repo to the SAME fixed week so the legacy tests describe the same-cadence (right-aligned) case;
+  // a test can override per-repo via opts.scannedAt to exercise heterogeneous cadences.
+  const defaultScan = new Date("2026-06-17T00:00:00Z");
   const repos = repoBlobs.map((raw, i) => ({
     ...(opts.extra ? opts.extra(i) : {}),
-    scans: raw === null ? [] : [{ [column]: raw }],
+    scans: raw === null ? [] : [{ [column]: raw, scannedAt: opts.scannedAt ? opts.scannedAt(i) : defaultScan }],
   }));
   return {
     organization: { findUnique: vi.fn(async () => orgRow) },
@@ -345,14 +349,16 @@ describe("getOrgGovernance blob resilience", () => {
   });
 });
 
-// ── getOrgActivity (element-wise, right-aligned sum) ───────────────────────────
+// ── getOrgActivity (calendar-week alignment) ───────────────────────────────────
 
-describe("getOrgActivity blob resilience and right-alignment", () => {
-  it("element-wise sums mixed-length series RIGHT-aligned (most-recent week aligns, not week 0)", async () => {
+describe("getOrgActivity blob resilience and calendar-week alignment", () => {
+  it("sums same-cadence (same-week-scanned) mixed-length series RIGHT-aligned (most-recent week aligns, not week 0)", async () => {
+    // Both repos scanned in the same week (fakePrisma default) → the last element of each is the SAME
+    // calendar week, so this reduces to the legacy right-aligned sum.
     mockGetPrisma.mockReturnValue(
       fakePrisma("commitActivity", [
         JSON.stringify([1, 2, 3, 4]), // 4-week repo
-        JSON.stringify([10, 20]),     // 2-week repo: pads on the LEFT, aligns at the most-recent weeks
+        JSON.stringify([10, 20]),     // 2-week repo: aligns at the most-recent weeks
       ]),
     );
 
@@ -363,6 +369,34 @@ describe("getOrgActivity blob resilience and right-alignment", () => {
     // [1, 2, 3+10, 4+20] — the short series lands on weeks 2&3 (newest), not 0&1.
     expect(res!.series).toEqual([1, 2, 13, 24]);
     expect(res!.total).toBe(40);
+    expect(res!.repos).toBe(2);
+  });
+
+  it("aligns DIFFERENT-cadence repos by absolute calendar week, not array index (regression: fleet-rollups-insights #1)", async () => {
+    // Repo A scanned this week, repo B scanned 2 weeks earlier. Each series' LAST element is its own
+    // scan week. The old index-aligned sum would have stacked B's stale "last week" onto A's current
+    // week; calendar-week alignment keeps them in their true weeks.
+    const thisWeek = new Date("2026-06-17T00:00:00Z");   // week W
+    const twoWeeksAgo = new Date("2026-06-03T00:00:00Z"); // week W-2
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "commitActivity",
+        [
+          JSON.stringify([5, 6, 7]),  // repo A (scanned W): weeks W-2, W-1, W
+          JSON.stringify([100, 200]), // repo B (scanned W-2): weeks W-3, W-2
+        ],
+        { scannedAt: (i) => (i === 0 ? thisWeek : twoWeeksAgo) },
+      ),
+    );
+
+    const res = await getOrgActivity("acme");
+
+    expect(res).not.toBeNull();
+    // Grid spans W-3..W: B's [100,200] land on W-3,W-2; A's [5,6,7] land on W-2,W-1,W.
+    // W-3:100, W-2:200+5=205, W-1:6, W:7
+    expect(res!.series).toEqual([100, 205, 6, 7]);
+    expect(res!.weeks).toBe(4);
+    expect(res!.total).toBe(318);
     expect(res!.repos).toBe(2);
   });
 
