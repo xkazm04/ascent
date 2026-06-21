@@ -106,10 +106,11 @@ export async function POST(request: Request) {
     const stored = await setOrgAlertWebhook(body.org, url);
     if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
     result.webhookUrl = stored;
+    // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
     await recordAudit(
       "org.alerts.webhook",
-      { org: body.org, action: url ? "set" : "cleared", actor: session?.login ?? "system" },
-      { orgId },
+      { org: body.org, action: url ? "set" : "cleared" },
+      { orgId, actorId: session?.login },
     ).catch(() => {});
   }
 
@@ -124,10 +125,11 @@ export async function POST(request: Request) {
     if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
     result.overallDrop = stored.overallDrop;
     result.dimensionDrop = stored.dimensionDrop;
+    // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
     await recordAudit(
       "org.alerts.thresholds",
-      { org: body.org, overallDrop, dimensionDrop, actor: session?.login ?? "system" },
-      { orgId },
+      { org: body.org, overallDrop, dimensionDrop },
+      { orgId, actorId: session?.login },
     ).catch(() => {});
   }
 

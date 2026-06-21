@@ -38,6 +38,8 @@ export async function POST(request: Request) {
   if (!ok) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   const session = await getSession();
   const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
-  await recordAudit("org.plan", { org: body.org, plan: body.plan, actor: session?.login ?? "system" }, { orgId }).catch(() => {});
+  // SEC #1: record the actor in the dedicated `actorId` column (not just `meta.actor`) so the audit
+  // viewer's Actor column shows it and the actor filter can match — matching member/playbook writes.
+  await recordAudit("org.plan", { org: body.org, plan: body.plan }, { orgId, actorId: session?.login }).catch(() => {});
   return NextResponse.json({ ok: true, plan: body.plan });
 }

@@ -38,10 +38,11 @@ export async function POST(request: Request) {
   if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   const session = await getSession();
   const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
+  // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
   await recordAudit(
     "org.gate_policy",
-    { org: body.org, action: stored ? "set" : "cleared", actor: session?.login ?? "system" },
-    { orgId },
+    { org: body.org, action: stored ? "set" : "cleared" },
+    { orgId, actorId: session?.login },
   ).catch(() => {});
   return NextResponse.json({ ok: true, policy: stored });
 }
