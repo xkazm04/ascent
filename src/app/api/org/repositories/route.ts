@@ -38,7 +38,7 @@ export async function GET(request: Request) {
   const repos = rollup?.repos ?? [];
 
   if (searchParams.get("format") === "csv") {
-    const header = ["fullName", "name", "private", "watched", "language", "schedule", "lastScan", "level", "overall", "adoption", "rigor", "posture"];
+    const header = ["fullName", "name", "private", "watched", "language", "roles", "backendLanguage", "frameworks", "schedule", "lastScan", "level", "overall", "adoption", "rigor", "posture"];
     const rows = repos.map((r) =>
       [
         r.fullName,
@@ -46,6 +46,10 @@ export async function GET(request: Request) {
         r.isPrivate,
         r.watched,
         r.primaryLanguage ?? "",
+        // Tech stack (Feature 3a): multi-valued fields are `;`-joined so they stay one CSV cell.
+        (r.techStack?.roles ?? []).join(";"),
+        r.techStack?.backendLanguage ?? "",
+        (r.techStack?.frameworks ?? []).join(";"),
         r.scanSchedule,
         r.latest?.scannedAt?.slice(0, 10) ?? "",
         r.latest?.level ?? "",

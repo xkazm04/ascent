@@ -5,6 +5,8 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { segmentScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
+import { parseTechStackJson } from "@/lib/analyze/tech-extract";
+import type { TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
  *  JSON blob. Returns undefined for a null/missing/malformed blob (no-token scan, parse error) so the
@@ -68,6 +70,9 @@ export interface OrgRepoRow {
   watched: boolean;
   /** GitHub's detected primary language, or null — drives auto-segments by language. */
   primaryLanguage: string | null;
+  /** Detected tech stack (Feature 3a), cached from the latest scan — null until first scan / if absent.
+   *  Drives tech badges on the leaderboard + tech-based grouping. */
+  techStack: TechStack | null;
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -204,6 +209,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       isPrivate: r.isPrivate,
       watched: r.watched,
       primaryLanguage: r.primaryLanguage ?? null,
+      techStack: parseTechStackJson(r.techStackJson),
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,

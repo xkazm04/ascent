@@ -13,6 +13,7 @@ import {
 } from "@/lib/github/source";
 import { analyzeSignals, classifyArchetype } from "@/lib/analyze";
 import { detectStackFit } from "@/lib/analyze/stack-fit";
+import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
 import { getProvider, providerByName, MockProvider } from "@/lib/llm";
@@ -317,6 +318,9 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Team attribution from CODEOWNERS (the file is already in the snapshot — no extra GitHub call).
   // Display + persist only; it doesn't move the score. Empty array = no CODEOWNERS teams found.
   report.teams = extractTeamOwnership(snapshot.files);
+  // Tech-stack detection (Feature 3a): pure over the already-fetched manifests/tree — no extra GitHub
+  // call, and DISPLAY/PERSIST ONLY (never the prompt or the score, so scans stay byte-identical).
+  report.techStack = extractTechStack(snapshot);
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...capturedUsage, latencyMs: llmLatencyMs };

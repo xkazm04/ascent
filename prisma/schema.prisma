@@ -157,6 +157,9 @@ model Repository {
   url             String
   isPrivate       Boolean   @default(false)
   primaryLanguage String?
+  // Latest detected tech stack (Feature 3a), cached from the most recent scan for fleet-wide grouping
+  // without re-deriving. JSON TechStack (see src/lib/analyze/tech-extract.ts). Null until first scan.
+  techStackJson   String?
   stars           Int       @default(0)
   // Current default-branch head + the GitHub ETag from the last conditional HEAD lookup.
   // Together these back the cross-instance scan cache: a re-scan sends `If-None-Match: headEtag`
@@ -290,6 +293,9 @@ model Scan {
   prStats        String? // JSON PrStats (pull-request process signals); null if no token
   governance     String? // JSON Governance (branch protection / rulesets); null if no token
   commitActivity String? // JSON number[] — last ~12 weekly commit totals; null if no token
+  // Per-scan detected tech stack (Feature 3a) — JSON TechStack. Keeps history honest when a repo
+  // re-stacks; the latest is also cached on Repository.techStackJson. Display-only (never scored).
+  techStackJson  String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens    Int?

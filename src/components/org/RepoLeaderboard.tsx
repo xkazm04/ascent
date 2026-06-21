@@ -9,8 +9,9 @@ import Link from "next/link";
 import { OrgTable, postureLabel } from "@/components/org/ui";
 import { ScheduleSelect } from "@/components/org/ScheduleSelect";
 import { RepoRescanButton } from "@/components/org/RepoRescanButton";
+import { TechBadges } from "@/components/org/TechBadges";
 import { LEVEL_CLASSES, scoreHex } from "@/lib/ui";
-import type { LevelId } from "@/lib/types";
+import type { LevelId, TechStack } from "@/lib/types";
 
 interface LeaderRow {
   fullName: string;
@@ -20,6 +21,7 @@ interface LeaderRow {
   lastScanStatus: string | null;
   lastScanError: string | null;
   aiConformance: number | null;
+  techStack?: TechStack | null;
   latest: { level: string; overall: number; adoption: number; rigor: number; posture: string; scannedAt: string } | null;
 }
 
@@ -146,6 +148,7 @@ export function RepoLeaderboard({
                     .ai {r.aiConformance}%
                   </span>
                 )}
+                <TechBadges stack={r.techStack} />
               </td>
               <td className="px-3 py-2">
                 {l && rlc ? <span className={`font-mono text-sm ${rlc.text}`}>{l.level}</span> : <span className="text-slate-600">—</span>}
