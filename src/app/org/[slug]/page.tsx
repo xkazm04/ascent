@@ -6,12 +6,13 @@ import { GoalsOverview } from "@/components/org/GoalsOverview";
 import { PeriodSummary } from "@/components/org/PeriodSummary";
 import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { OrgStanding } from "@/components/org/OrgStanding";
 import { OrgGapsSection } from "@/components/org/OrgGapsSection";
 import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
 import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
 import { CollapsibleSection, OVERVIEW_COLLAPSE_COOKIE } from "@/components/org/CollapsibleSection";
-import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
+import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments, listTechStackGroups } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 import { cookies } from "next/headers";
 import { levelForScore } from "@/lib/maturity/model";
@@ -104,16 +105,24 @@ export default async function OrgOverview({
   const activeSegment = segments.find((s) => s.id === segParam) ?? null;
   const segmentId = activeSegment?.id ?? null;
 
+  // Optional tech-stack scope (Feature 3b): validate `?stack=<key>` against the org's auto-derived
+  // groups (a bogus key falls back to the whole fleet) and thread the resolved group id into every
+  // aggregate, composing with the segment filter.
+  const techGroups = await listTechStackGroups(slug);
+  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
+  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
+  const techGroupId = activeStack?.id ?? null;
+
   // The six section queries are independent of each other — only `segmentId` (validated from
   // `listSegments` above) feeds them — so fetch concurrently rather than as a ~6-stage await
   // waterfall (each helper is itself 2-3 DB round trips; serialized they dominated the landing
   // tab's TTFB). The sibling tabs (practices/plan/delivery) already use Promise.all.
   const [rollup, movers, orgRecs, benchmark, gaps, goals] = await Promise.all([
-    getOrgRollup(slug, win, segmentId),
-    getOrgMovers(slug, win, segmentId),
-    getOrgRecommendations(slug, 5, segmentId),
+    getOrgRollup(slug, win, segmentId, techGroupId),
+    getOrgMovers(slug, win, segmentId, techGroupId),
+    getOrgRecommendations(slug, 5, segmentId, techGroupId),
     getOrgBenchmark(slug),
-    getOrgGapAnalysis(slug, segmentId),
+    getOrgGapAnalysis(slug, segmentId, techGroupId),
     listGoals(slug),
   ]);
   // The layout decides whether to render the org shell at all (org exists + has data); reaching here
@@ -165,9 +174,16 @@ export default async function OrgOverview({
               <span className="text-accent">{activeSegment.name}</span> segment
             </>
           )}
+          {activeStack && (
+            <>
+              {" · "}
+              <span className="text-accent">{activeStack.label}</span> stack
+            </>
+          )}
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <SegmentSelector segments={segments} active={segmentId} />
+          <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
           <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
         </div>
       </div>

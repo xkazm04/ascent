@@ -15,6 +15,7 @@ import {
   withRepoLock,
 } from "@/lib/db/scans-shared";
 import { findScanByCommit, findScanByScannedAt } from "@/lib/db/scans-read";
+import { syncTechStackGroups } from "@/lib/db/tech-groups";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
 export interface PersistResult {
@@ -354,6 +355,11 @@ export async function persistScanReport(
       cacheDelete(makeCacheKey(owner, name, useLLM, headSha));
       cacheDelete(makeCacheKey(owner, name, useLLM));
     }
+
+    // Reconcile this repo's auto-derived tech-stack group memberships (Feature 3b) from the detected
+    // stack. Best-effort — grouping is display metadata and must never break a scan persist; a
+    // transient failure self-corrects on the next scan (sync is idempotent).
+    await syncTechStackGroups(orgId, repo.id, report.techStack).catch(() => {});
 
     return { scanId, deduped: dedupedByRace, headSha, failures: { audit: false, contributors: 0 } };
   }, { label: "persistScanReport:scan" }));

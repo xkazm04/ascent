@@ -246,6 +246,11 @@ export {
   type SkillAdoption,
 } from "@/lib/db/org-skills";
 export {
+  syncTechStackGroups,
+  listTechStackGroups,
+  type TechGroupSummary,
+} from "@/lib/db/tech-groups";
+export {
   forecastTrajectory,
   forecastHeadline,
   humanizeDays,

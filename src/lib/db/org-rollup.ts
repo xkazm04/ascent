@@ -3,7 +3,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
-import { segmentScope } from "@/lib/db/org-shared";
+import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import type { TechStack } from "@/lib/types";
@@ -170,7 +170,7 @@ export function computeWindowDeltas(
   };
 }
 
-export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null): Promise<OrgRollup | null> {
+export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
@@ -178,7 +178,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
 
   const start = window?.start ?? null;
   const end = window?.end ?? null;
-  const seg = segmentScope(segmentId);
+  // Segment AND tech-group filters compose — both narrow the same repo set (Feature 3b).
+  const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
 
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, ...seg, OR: [{ watched: true }, { scans: { some: {} } }] },

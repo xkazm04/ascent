@@ -68,6 +68,7 @@ model Organization {
   playbooks     Playbook[]
   invites       Invite[]
   orgSkills     OrgSkill[]
+  techGroups    TechStackGroup[]
 }
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
@@ -191,6 +192,7 @@ model Repository {
   contributors RepoContributor[]
   teams        RepoTeam[]
   segments     RepoSegment[]
+  techGroups   TechStackGroupMember[]
 
   @@unique([orgId, fullName])
   @@index([orgId])
@@ -558,6 +560,40 @@ model OrgSkillDownload {
   lastSeen DateTime @updatedAt
 
   @@unique([skillId])
+}
+
+// Auto-derived tech-stack group (Feature 3b) — a parallel, immutable grouping of an org's repos by
+// detected stack (frontend / backend:<lang> / mobile / data_ml / infra / library), maintained by
+// syncTechStackGroups on each scan. Distinct from the user-owned Segment (deliberately separate so
+// auto-groups don't clutter the Segments UI). Multi-membership: a fullstack repo is in several groups.
+// `key` is the stable identity (see techGroupsFor in src/lib/org/tech-stack.ts); `label` is display.
+model TechStackGroup {
+  id        String   @id @default(uuid())
+  orgId     String
+  key       String // "frontend" | "backend:node" | "backend:python" | "mobile" | "data_ml" | "infra" | "library"
+  label     String // "Frontend", "Backend · Python"
+  updatedAt DateTime @updatedAt
+
+  org     Organization           @relation(fields: [orgId], references: [id])
+  members TechStackGroupMember[]
+
+  @@unique([orgId, key])
+  @@index([orgId])
+}
+
+// Membership of a repo in a tech-stack group — the auto-maintained join (reconciled per scan). One row
+// per (group, repo). Standalone cascade at the Prisma layer (no DB FKs under relationMode="prisma").
+model TechStackGroupMember {
+  id      String @id @default(uuid())
+  groupId String
+  repoId  String
+
+  group TechStackGroup @relation(fields: [groupId], references: [id])
+  repo  Repository     @relation(fields: [repoId], references: [id])
+
+  @@unique([groupId, repoId])
+  @@index([groupId])
+  @@index([repoId])
 }
 
 // Server-side session revocation. The signed session cookie embeds the `sv` (session

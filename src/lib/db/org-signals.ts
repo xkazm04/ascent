@@ -2,7 +2,7 @@
 // governance, and commit-activity trend (Deepen-F3). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { segmentScope } from "@/lib/db/org-shared";
+import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import type { PrStats } from "@/lib/types";
 
 export interface OrgPrSignals {
@@ -85,14 +85,14 @@ export interface OrgGovernance {
 }
 
 /** Fleet default-branch governance — from each repo's latest scan's `governance` JSON. */
-export async function getOrgGovernance(orgSlug: string, segmentId?: string | null): Promise<OrgGovernance | null> {
+export async function getOrgGovernance(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgGovernance | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: { fullName: true, name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { governance: true } } },
   });
 

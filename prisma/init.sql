@@ -601,6 +601,42 @@ CREATE UNIQUE INDEX "OrgSkillAdoption_skillId_repoFullName_key" ON "OrgSkillAdop
 CREATE UNIQUE INDEX "OrgSkillDownload_skillId_key" ON "OrgSkillDownload"("skillId");
 
 
+-- CreateTable: auto-derived tech-stack groups (Feature 3b) — repos grouped by detected stack.
+CREATE TABLE "TechStackGroup" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "TechStackGroup_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TechStackGroupMember" (
+    "id" TEXT NOT NULL,
+    "groupId" TEXT NOT NULL,
+    "repoId" TEXT NOT NULL,
+
+    CONSTRAINT "TechStackGroupMember_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "TechStackGroup_orgId_idx" ON "TechStackGroup"("orgId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TechStackGroup_orgId_key_key" ON "TechStackGroup"("orgId", "key");
+
+-- CreateIndex
+CREATE INDEX "TechStackGroupMember_groupId_idx" ON "TechStackGroupMember"("groupId");
+
+-- CreateIndex
+CREATE INDEX "TechStackGroupMember_repoId_idx" ON "TechStackGroupMember"("repoId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TechStackGroupMember_groupId_repoId_key" ON "TechStackGroupMember"("groupId", "repoId");
+
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

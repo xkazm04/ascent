@@ -7,7 +7,7 @@ import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
-import { IMPACT_WEIGHT, LEVEL_RANK, isBot, segmentScope } from "@/lib/db/org-shared";
+import { IMPACT_WEIGHT, LEVEL_RANK, isBot, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ function buildMove(fullName: string, name: string, now: ScanLite, prev: ScanLite
  * getOrgRollup's half-open cohort), so movers reflect the selected period. Without a window, it
  * falls back to the two most recent scans ("since last scan").
  */
-export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentId?: string | null): Promise<OrgMovers | null> {
+export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgMovers | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
@@ -75,7 +75,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
 
   const start = window?.start ?? null;
   const end = window?.end ?? null;
-  const seg = segmentScope(segmentId);
+  const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
   const moves: RepoMove[] = [];
 
   if (start) {
@@ -160,14 +160,14 @@ export interface OrgRec {
 }
 
 /** Aggregate open recommendations across the fleet's latest scans → highest-leverage moves. */
-export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentId?: string | null): Promise<OrgRec[] | null> {
+export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRec[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
       scans: {
@@ -759,14 +759,14 @@ const HEALTHY_AVG = 50; // …while the org generally handles that dimension
  * **repo-specific gaps** (a repo lagging what the rest of the org already handles). The headline
  * cross-repo insight: is this an org problem or a repo problem?
  */
-export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | null): Promise<OrgGapAnalysis | null> {
+export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgGapAnalysis | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
       fullName: true,

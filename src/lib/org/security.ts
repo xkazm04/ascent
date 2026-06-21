@@ -35,8 +35,12 @@ export async function buildSecurityOverview(
   orgSlug: string,
   window?: OrgWindow,
   periodTitle = "all time",
+  techGroupId?: string | null,
 ): Promise<SecurityOverview | null> {
-  const [rollup, gov] = await Promise.all([getOrgRollup(orgSlug, window), getOrgGovernance(orgSlug)]);
+  const [rollup, gov] = await Promise.all([
+    getOrgRollup(orgSlug, window, null, techGroupId),
+    getOrgGovernance(orgSlug, null, techGroupId),
+  ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 
   const dimLabel = DIMENSION_BY_ID.D9?.name ?? "Security";
