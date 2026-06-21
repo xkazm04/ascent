@@ -32,9 +32,11 @@ export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
     <nav aria-label="Page sections" className="fixed right-4 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-3 lg:flex">
       {sections.map((s) => {
         const on = active === s.id;
+        // DECK #1: add the shared .focus-ring so keyboard focus is visible, and reveal the
+        // destination label on focus (not just hover) so a focused dot announces where it jumps.
         return (
-          <a key={s.id} href={`#${s.id}`} aria-label={s.label} aria-current={on ? "true" : undefined} className="group flex items-center justify-end gap-2">
-            <span className={`font-mono text-xs uppercase tracking-wider transition ${on ? "text-accent opacity-100" : "text-slate-500 opacity-0 group-hover:opacity-100"}`}>
+          <a key={s.id} href={`#${s.id}`} aria-label={s.label} aria-current={on ? "true" : undefined} className="focus-ring group flex items-center justify-end gap-2 rounded-full">
+            <span className={`font-mono text-xs uppercase tracking-wider transition ${on ? "text-accent opacity-100" : "text-slate-500 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"}`}>
               {s.label}
             </span>
             <span className={`h-2 w-2 rounded-full border transition ${on ? "border-accent bg-accent" : "border-slate-600 group-hover:border-slate-400"}`} />
