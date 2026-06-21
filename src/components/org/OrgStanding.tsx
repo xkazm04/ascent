@@ -8,10 +8,14 @@ import type { OrgBenchmark } from "@/lib/db";
 export function OrgStanding({
   benchmark,
   regressionCount,
+  comparedRepos,
   periodStart,
 }: {
   benchmark: OrgBenchmark | null;
   regressionCount: number;
+  /** How many repos actually had a period-over-period comparison. 0 → nothing was compared, so
+   *  neither "regressed" nor "no regressions" is a truthful read. */
+  comparedRepos: number;
   periodStart: boolean;
 }) {
   return (
@@ -37,7 +41,15 @@ export function OrgStanding({
           </div>
         )}
         <div className="flex items-center gap-2 pt-1">
-          {regressionCount > 0 ? (
+          {/* Bug-fix (org-overview-standing #1): only assert "no regressions" when a comparison
+              actually happened. comparedRepos === 0 (every repo scanned once in the window) means
+              nothing was compared — show a neutral state instead of a reassuring clean bill of
+              health (success-theater on no data). */}
+          {comparedRepos === 0 ? (
+            <span className="rounded-full border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-500">
+              not enough history to compare
+            </span>
+          ) : regressionCount > 0 ? (
             <span className="rounded-full border border-orange-500/40 bg-orange-500/10 px-2.5 py-1 font-mono text-sm text-orange-300">
               ⚠ {regressionCount} repo{regressionCount > 1 ? "s" : ""} regressed {periodStart ? "this period" : "since last scan"}
             </span>

@@ -219,7 +219,7 @@ export default async function OrgOverview({
       <CollapsibleSection id="goals" title="Goals & standing" defaultOpen={sectionOpen("goals")}>
         <div className="grid gap-6 lg:grid-cols-2">
           <GoalsOverview slug={slug} goals={goals ?? []} />
-          <OrgStanding benchmark={benchmark} regressionCount={regressionCount} periodStart={Boolean(period.start)} />
+          <OrgStanding benchmark={benchmark} regressionCount={regressionCount} comparedRepos={movers?.comparedRepos ?? 0} periodStart={Boolean(period.start)} />
         </div>
       </CollapsibleSection>
 
