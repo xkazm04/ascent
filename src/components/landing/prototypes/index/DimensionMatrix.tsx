@@ -8,21 +8,28 @@
 import { motion } from "framer-motion";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { SectionHeading } from "@/components/ui";
+import { usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { ARCHETYPE_COLUMNS, AXIS_LABEL, MAX_WEIGHT, buildMatrixRows, pct } from "../shared/matrixData";
 
 const ROWS = buildMatrixRows();
 
 function CellBar({ w }: { w: number }) {
+  // LAND #1: the page-wide reducedMotion="user" doesn't degrade direct `width` animation (a non-
+  // transform value), so gate it explicitly like the sibling ScoreGauge/TrajectoryChart — reduced
+  // motion renders the bar at its final width with no sweep.
+  const reduced = usePrefersReducedMotion();
   const frac = MAX_WEIGHT > 0 ? w / MAX_WEIGHT : 0;
+  const target = `${(frac * 100).toFixed(0)}%`;
   return (
     <div className="flex items-center gap-2">
       <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
         <motion.span
           className="absolute inset-y-0 left-0 block rounded-full bg-accent"
-          initial={{ width: 0 }}
-          whileInView={{ width: `${(frac * 100).toFixed(0)}%` }}
+          initial={reduced ? false : { width: 0 }}
+          animate={reduced ? { width: target } : undefined}
+          whileInView={reduced ? undefined : { width: target }}
           viewport={{ once: false, margin: "-8% 0px" }}
-          transition={{ duration: 0.7, ease: "easeOut" }}
+          transition={reduced ? { duration: 0 } : { duration: 0.7, ease: "easeOut" }}
         />
       </div>
       <span className="w-9 shrink-0 text-right font-mono text-xs font-bold tabular-nums text-slate-300">{pct(w)}</span>
