@@ -8,6 +8,7 @@ import {
   verifyWebhook,
   getInstallationToken,
   listInstallationRepos,
+  listInstallationReposResult,
   invalidateInstallationToken,
   AppApiError,
 } from "./app";
@@ -325,5 +326,66 @@ describe("listInstallationRepos — pagination, fork/archived filter, 401 self-h
     await expect(listInstallationRepos(INSTALL_ID)).rejects.toBeInstanceOf(AppApiError);
     // Only one list attempt — a 500 must not trigger the 401 self-heal path.
     expect(fetchMock.mock.calls.filter((c) => isRepoList(c))).toHaveLength(1);
+  });
+});
+
+// github-app-installation-webhooks #1: a page-capped listing is a SILENTLY truncated success.
+// listInstallationReposResult must report `truncated` so a destructive reconcile can fail-safe
+// instead of treating the partial list as the authoritative live set (and unwatching the overflow).
+describe("listInstallationReposResult — truncation signal", () => {
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_APP_ID", "123456");
+    vi.stubEnv("GITHUB_APP_PRIVATE_KEY", TEST_PRIVATE_KEY);
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    invalidateInstallationToken(INSTALL_ID);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    invalidateInstallationToken(INSTALL_ID);
+  });
+
+  it("flags truncated=true when the page cap (MAX_PAGES) is hit before total_count is exhausted", async () => {
+    // Every page returns a FULL page of 100 (never a short page), with total_count far above the
+    // MAX_PAGES×PER_PAGE ceiling (50×100=5000) → the walk stops at the cap with raw < total.
+    const fullPage = Array.from({ length: 100 }, (_, i) => repo(`r${i}`));
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (isTokenMint([url])) return Promise.resolve(tokenRes("tok", 3_600_000));
+      return Promise.resolve(ghRes({ total_count: 999_999, repositories: fullPage }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await listInstallationReposResult(INSTALL_ID);
+
+    expect(result.truncated).toBe(true);
+    // Capped at exactly MAX_PAGES (50) full pages.
+    expect(fetchMock.mock.calls.filter((c) => isRepoList(c))).toHaveLength(50);
+    expect(result.repos).toHaveLength(50 * 100);
+  });
+
+  it("flags truncated=false on a complete listing (short final page)", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (isTokenMint([url])) return Promise.resolve(tokenRes("tok", 3_600_000));
+      return Promise.resolve(ghRes({ total_count: 2, repositories: [repo("a"), repo("b")] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await listInstallationReposResult(INSTALL_ID);
+
+    expect(result.truncated).toBe(false);
+    expect(result.repos.map((r) => r.name)).toEqual(["a", "b"]);
+  });
+
+  it("listInstallationRepos stays a thin AppRepo[] wrapper (back-compat)", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (isTokenMint([url])) return Promise.resolve(tokenRes("tok", 3_600_000));
+      return Promise.resolve(ghRes({ total_count: 1, repositories: [repo("solo")] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await listInstallationRepos(INSTALL_ID);
+    expect(out.map((r) => r.name)).toEqual(["solo"]);
   });
 });

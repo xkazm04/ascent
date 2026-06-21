@@ -15,7 +15,7 @@ import {
   getInstallation,
   getInstallationToken,
   isAppConfigured,
-  listInstallationRepos,
+  listInstallationReposResult,
   verifyWebhook,
 } from "@/lib/github/app";
 import {
@@ -281,7 +281,18 @@ async function runPrGate(ref: PrGateRef) {
  */
 async function reconcileInstallationRepos(installationId: number, deliveryId?: string) {
   try {
-    const live = await listInstallationRepos(installationId);
+    const { repos: live, truncated } = await listInstallationReposResult(installationId);
+    // BUG (github-app-installation-webhooks #1): reconcileWatchedRepos' contract is "only pass a
+    // COMPLETE live set" — it unwatches anything NOT in the set. A page-capped (truncated) listing is
+    // a silently-incomplete success, so passing it would unwatch every watched repo beyond page 50 on
+    // a large installation. Apply the same "fail-safe, don't wipe" discipline as the throwing path:
+    // SKIP the destructive reconcile when the listing was incomplete; a later event re-reconciles.
+    if (truncated) {
+      console.warn(
+        `[webhook] installation ${installationId}: repo listing truncated (incomplete); skipping watch reconcile to avoid unwatching repos past the page cap`,
+      );
+      return;
+    }
     const dropped = await reconcileWatchedRepos(
       installationId,
       live.map((r) => r.fullName),
@@ -323,6 +334,64 @@ async function runPushRescan(installationId: number, owner: string, repo: string
   }
 }
 
+/**
+ * Apply an installation lifecycle event (created/unsuspend → confirm + upsert mapping;
+ * deleted/suspend → GitHub-confirm + cascading removeInstallation).
+ *
+ * BUG (github-app-installation-webhooks #2): this work does a GitHub round-trip (getInstallation /
+ * confirmRevocationWithGitHub) AND a multi-table cascade (removeInstallation → repos updateMany +
+ * orgs updateMany + per-org bumpSessionVersion). Running it SYNCHRONOUSLY before the 2xx risked
+ * GitHub's ~10s webhook timeout on a slow API/DB and let a timed-out original race its redelivery
+ * through the full cascade concurrently. Moved to after() like the scan/reconcile paths so the
+ * webhook acks fast; signature-verify + dedup still run BEFORE after() in POST. The same
+ * forget-on-failure net keeps a transient failure retryable via redelivery.
+ */
+async function runInstallationLifecycle(
+  id: number,
+  action: "created" | "unsuspend" | "deleted" | "suspend",
+  deliveryId?: string,
+) {
+  try {
+    if (action === "created" || action === "unsuspend") {
+      // Don't trust the payload's claimed account for a token-minting mapping: a forged-but-signed
+      // delivery could name a victim login for the attacker's installation id. Confirm the real
+      // account from GitHub (App-JWT authoritative) and store THAT, not the payload.
+      try {
+        const info = await getInstallation(id);
+        await upsertInstallation({ login: info.account, installationId: id });
+      } catch (err) {
+        console.warn(
+          `[webhook] could not confirm installation ${id}; skipping upsert`,
+          err instanceof Error ? err.message : err,
+        );
+        // The install was NOT persisted (transient GitHub/DB failure). The delivery was already marked
+        // seen, so without this release GitHub's redelivery — the only retry — would be deduped and the
+        // installation silently never recorded (broken /connect, every scan falling back to public).
+        if (deliveryId) forgetDelivery(deliveryId);
+      }
+    } else {
+      // Destructive + cascading (removeInstallation unwatches every repo, nulls the install id, and
+      // revokes live sessions), so confirm with GitHub before acting — symmetric with the create
+      // branch above. This blocks a forged/misrouted but signed delete/suspend naming a victim's
+      // still-active installation from silently disabling their scanning and signing them out.
+      if (await confirmRevocationWithGitHub(id, action)) {
+        await removeInstallation(id);
+      } else {
+        console.warn(`[webhook] ignoring unconfirmed installation ${action} for id ${id}`);
+        // "Unconfirmed" covers two cases confirmRevocationWithGitHub can't distinguish: a forged
+        // delivery (GitHub still has the installation — replaying re-runs only the confirm and refuses
+        // again, no state change) and a TRANSIENT confirm failure on a genuine uninstall. Release the
+        // delivery so the genuine case stays retryable; the security control is the GitHub confirm gate.
+        if (deliveryId) forgetDelivery(deliveryId);
+      }
+    }
+  } catch (err) {
+    console.error("[webhook] installation lifecycle failed", err instanceof Error ? err.message : err);
+    // The deferred lifecycle failed after we already 2xx'd — release the delivery so a redelivery retries.
+    if (deliveryId) forgetDelivery(deliveryId);
+  }
+}
+
 export async function POST(request: Request) {
   const raw = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
@@ -347,42 +416,16 @@ export async function POST(request: Request) {
   try {
     if (event === "installation") {
       const id = payload.installation?.id;
-      if (id != null) {
-        if (payload.action === "created" || payload.action === "unsuspend") {
-          // Don't trust the payload's claimed account for a token-minting mapping: a forged-but-
-          // signed delivery could name a victim login for the attacker's installation id. Confirm
-          // the real account from GitHub (App-JWT authoritative) and store THAT, not the payload.
-          try {
-            const info = await getInstallation(id);
-            await upsertInstallation({ login: info.account, installationId: id });
-          } catch (err) {
-            console.warn(
-              `[webhook] could not confirm installation ${id}; skipping upsert`,
-              err instanceof Error ? err.message : err,
-            );
-            // The install was NOT persisted (transient GitHub/DB failure). The delivery was already
-            // marked seen at the top, so without this release GitHub's redelivery — the only retry —
-            // would be deduped and the installation silently never recorded (broken /connect, every
-            // scan falling back to public). Same forget-on-failure net as the deferred after() paths.
-            if (delivery) forgetDelivery(delivery);
-          }
-        } else if (payload.action === "deleted" || payload.action === "suspend") {
-          // Destructive + cascading (removeInstallation unwatches every repo, nulls the install id, and
-          // revokes live sessions), so confirm with GitHub before acting — symmetric with the create
-          // branch above. This blocks a forged/misrouted but signed delete/suspend naming a victim's
-          // still-active installation from silently disabling their scanning and signing them out.
-          if (await confirmRevocationWithGitHub(id, payload.action)) {
-            await removeInstallation(id);
-          } else {
-            console.warn(`[webhook] ignoring unconfirmed installation ${payload.action} for id ${id}`);
-            // "Unconfirmed" covers two cases confirmRevocationWithGitHub can't distinguish: a forged
-            // delivery (GitHub still has the installation — replaying it re-runs only the confirm and
-            // refuses again, no state change) and a TRANSIENT confirm failure on a genuine uninstall.
-            // Release the delivery so the genuine case stays retryable via redelivery; the security
-            // control here is the GitHub confirmation gate, not the dedup map.
-            if (delivery) forgetDelivery(delivery);
-          }
-        }
+      const action = payload.action;
+      // Defer the heavy lifecycle work (GitHub confirm round-trip + cascading DB writes) to after()
+      // so the webhook acks fast (github-app-installation-webhooks #2) — signature-verify + dedup
+      // already ran above, before this point. Pass the delivery id so a transient failure releases the
+      // dedup slot for a redelivery retry.
+      if (
+        id != null &&
+        (action === "created" || action === "unsuspend" || action === "deleted" || action === "suspend")
+      ) {
+        after(() => runInstallationLifecycle(id, action, delivery ?? undefined));
       }
     } else if (event === "installation_repositories" && isDbConfigured()) {
       // The user changed WHICH repos an installation can see (Add/Remove on GitHub's Configure page).

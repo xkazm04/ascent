@@ -27,7 +27,7 @@ vi.mock("@/lib/github/app", () => ({
   getInstallation: vi.fn(),
   getInstallationToken: vi.fn(),
   isAppConfigured: () => true,
-  listInstallationRepos: vi.fn(),
+  listInstallationReposResult: vi.fn(),
   verifyWebhook: () => true,
 }));
 vi.mock("@/lib/db", () => ({
@@ -53,7 +53,7 @@ vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn() }));
 
 import { POST } from "./route";
 import { after } from "next/server";
-import { AppApiError, getInstallation, getInstallationToken, listInstallationRepos } from "@/lib/github/app";
+import { AppApiError, getInstallation, getInstallationToken, listInstallationReposResult } from "@/lib/github/app";
 import {
   getInstallationIdForOwner,
   getOrgGatePolicy,
@@ -78,7 +78,15 @@ const mockGetToken = vi.mocked(getInstallationToken);
 const mockUpsert = vi.mocked(upsertInstallation);
 const mockRemove = vi.mocked(removeInstallation);
 const mockAfter = vi.mocked(after);
-const mockListRepos = vi.mocked(listInstallationRepos);
+const mockListReposResult = vi.mocked(listInstallationReposResult);
+
+/** Helper: a successful (complete) installation-repos listing for the reconcile path. */
+function reposResult(fullNames: string[], truncated = false) {
+  return {
+    repos: fullNames.map((fullName) => ({ fullName }) as Awaited<ReturnType<typeof listInstallationReposResult>>["repos"][number]),
+    truncated,
+  };
+}
 const mockReconcile = vi.mocked(reconcileWatchedRepos);
 const mockUnwatch = vi.mocked(unwatchReposForInstallation);
 const mockIdForOwner = vi.mocked(getInstallationIdForOwner);
@@ -133,25 +141,32 @@ beforeEach(() => {
 });
 
 // The dedup map is module-level state shared across this file — every test uses its own delivery id.
-describe("POST /api/app/webhook — installation lifecycle redelivery net", () => {
+// github-app-installation-webhooks #2: the installation lifecycle (confirm round-trip + cascading DB
+// writes) now runs in after() so the webhook acks fast — so each case drives the deferred phase via
+// runDeferred() (signature-verify + dedup still happen synchronously in POST, before after()).
+describe("POST /api/app/webhook — installation lifecycle redelivery net (deferred via after())", () => {
   it("releases the delivery when the `created` confirm/upsert fails, so a redelivery retries", async () => {
     mockGetInstallation.mockRejectedValueOnce(new Error("GitHub 502"));
     const first = await post("installation", "del-created-retry", { action: "created", installation: { id: 42 } });
     expect(first.duplicate).toBeUndefined();
+    await runDeferred(); // the deferred lifecycle runs (and fails), releasing the delivery slot
     expect(mockUpsert).not.toHaveBeenCalled();
 
     // GitHub redelivers the SAME delivery id; the slot must have been released so this one processes.
     mockGetInstallation.mockResolvedValueOnce(installation());
     const second = await post("installation", "del-created-retry", { action: "created", installation: { id: 42 } });
     expect(second.duplicate).toBeUndefined();
+    await runDeferred();
     expect(mockUpsert).toHaveBeenCalledWith({ login: "acme", installationId: 42 });
   });
 
   it("keeps a successfully processed delivery deduped (replay defense intact)", async () => {
     mockGetInstallation.mockResolvedValue(installation());
     await post("installation", "del-created-ok", { action: "created", installation: { id: 42 } });
+    await runDeferred();
     const replay = await post("installation", "del-created-ok", { action: "created", installation: { id: 42 } });
-    expect(replay.duplicate).toBe(true);
+    expect(replay.duplicate).toBe(true); // deduped at the synchronous gate, before after()
+    await runDeferred();
     expect(mockUpsert).toHaveBeenCalledTimes(1);
   });
 
@@ -159,12 +174,14 @@ describe("POST /api/app/webhook — installation lifecycle redelivery net", () =
     // First delivery: GitHub confirm hiccups (5xx) — fail closed, do NOT remove, but stay retryable.
     mockGetInstallation.mockRejectedValueOnce(new AppApiError(502, "/app/installations/42"));
     await post("installation", "del-deleted-retry", { action: "deleted", installation: { id: 42 } });
+    await runDeferred();
     expect(mockRemove).not.toHaveBeenCalled();
 
     // Redelivery: GitHub now 404s — the authoritative confirmation that the installation is gone.
     mockGetInstallation.mockRejectedValueOnce(new AppApiError(404, "/app/installations/42"));
     const second = await post("installation", "del-deleted-retry", { action: "deleted", installation: { id: 42 } });
     expect(second.duplicate).toBeUndefined();
+    await runDeferred();
     expect(mockRemove).toHaveBeenCalledWith(42);
   });
 
@@ -172,6 +189,7 @@ describe("POST /api/app/webhook — installation lifecycle redelivery net", () =
     mockGetInstallation.mockResolvedValue(installation());
     const res = await post("installation", "del-deleted-forged", { action: "deleted", installation: { id: 42 } });
     expect(res.ok).toBe(true);
+    await expect(runDeferred()).resolves.toBeUndefined(); // deferred work never throws
     expect(mockRemove).not.toHaveBeenCalled();
   });
 
@@ -179,10 +197,12 @@ describe("POST /api/app/webhook — installation lifecycle redelivery net", () =
     mockGetInstallation.mockRejectedValue(new AppApiError(404, "/app/installations/42"));
     mockRemove.mockRejectedValueOnce(new Error("db blip"));
     await post("installation", "del-deleted-dbblip", { action: "deleted", installation: { id: 42 } });
+    await runDeferred();
 
     mockRemove.mockResolvedValueOnce(undefined);
     const second = await post("installation", "del-deleted-dbblip", { action: "deleted", installation: { id: 42 } });
     expect(second.duplicate).toBeUndefined();
+    await runDeferred();
     expect(mockRemove).toHaveBeenCalledTimes(2);
   });
 });
@@ -193,9 +213,7 @@ describe("POST /api/app/webhook — installation lifecycle redelivery net", () =
 // goes through the deferred reconcile, which unwatches only what GitHub confirms is gone.
 describe("POST /api/app/webhook — installation_repositories confirmation discipline", () => {
   it("never unwatches straight from the payload's repositories_removed", async () => {
-    mockListRepos.mockResolvedValueOnce([
-      { fullName: "acme/still-accessible" } as Awaited<ReturnType<typeof listInstallationRepos>>[number],
-    ]);
+    mockListReposResult.mockResolvedValueOnce(reposResult(["acme/still-accessible"]));
     await post("installation_repositories", "del-repos-forged", {
       action: "removed_repositories" as never,
       installation: { id: 42 },
@@ -211,7 +229,7 @@ describe("POST /api/app/webhook — installation_repositories confirmation disci
   });
 
   it("releases the delivery when the GitHub-confirmed reconcile fails transiently", async () => {
-    mockListRepos.mockRejectedValueOnce(new AppApiError(502, "/installation/repositories"));
+    mockListReposResult.mockRejectedValueOnce(new AppApiError(502, "/installation/repositories"));
     await post("installation_repositories", "del-repos-blip", {
       installation: { id: 42 },
       repositories_removed: [{ full_name: "acme/gone" }],
@@ -220,7 +238,7 @@ describe("POST /api/app/webhook — installation_repositories confirmation disci
     expect(mockReconcile).not.toHaveBeenCalled();
 
     // Redelivery is NOT deduped; this time GitHub answers and the repo is confirmed gone.
-    mockListRepos.mockResolvedValueOnce([]);
+    mockListReposResult.mockResolvedValueOnce(reposResult([]));
     const second = await post("installation_repositories", "del-repos-blip", {
       installation: { id: 42 },
       repositories_removed: [{ full_name: "acme/gone" }],
@@ -228,6 +246,20 @@ describe("POST /api/app/webhook — installation_repositories confirmation disci
     expect(second.duplicate).toBeUndefined();
     await runDeferred();
     expect(mockReconcile).toHaveBeenCalledWith(42, []);
+  });
+
+  it("SKIPS the destructive reconcile when the live listing was TRUNCATED (#1 fail-safe)", async () => {
+    // A >5000-repo installation: the listing is page-capped (truncated=true). Passing that partial set
+    // to reconcileWatchedRepos would unwatch every repo past the page cap — so the reconcile must be
+    // skipped entirely, leaving watch state intact until a later (complete) listing reconciles it.
+    mockListReposResult.mockResolvedValueOnce(reposResult(["acme/page1-repo"], true));
+    await post("installation_repositories", "del-repos-truncated", {
+      installation: { id: 42 },
+      repositories_removed: [{ full_name: "acme/whatever" }],
+    });
+    await runDeferred();
+    expect(mockReconcile).not.toHaveBeenCalled();
+    expect(mockUnwatch).not.toHaveBeenCalled();
   });
 });
 

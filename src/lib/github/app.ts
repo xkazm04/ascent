@@ -186,20 +186,34 @@ interface GhRepo {
   archived: boolean;
 }
 
+/** A listing plus whether it was page-capped (truncated). See {@link listInstallationReposResult}. */
+export interface InstallationReposResult {
+  repos: AppRepo[];
+  /** True when the listing hit MAX_PAGES before exhausting `total_count` — i.e. it is INCOMPLETE. */
+  truncated: boolean;
+}
+
 /**
- * List ALL repositories an installation can access. The endpoint pages at 100/req; the old
- * single-page fetch silently dropped everything past repo #100 — invisible to watch/schedule/
- * scan and wrong in the "X of N watched" counter. We walk every page using `total_count`
- * (and a short-page stop), bounded by MAX_PAGES so a pathological response can't loop forever.
+ * List an installation's accessible repos AND report whether the listing was page-capped. The
+ * endpoint pages at 100/req; we walk every page using `total_count` (and a short-page stop),
+ * bounded by MAX_PAGES so a pathological response can't loop forever.
+ *
+ * BUG (github-app-installation-webhooks #1): a >5000-repo installation overflows MAX_PAGES×PER_PAGE,
+ * and the old listInstallationRepos returned the *silently truncated* list with only a console.warn.
+ * Callers that reconcile destructively (reconcileWatchedRepos, whose contract is "only pass a COMPLETE
+ * live set") then unwatched every repo past page 50. This variant surfaces `truncated` so such callers
+ * can fail-safe (skip the destructive reconcile) instead of treating a partial list as authoritative.
  */
-export async function listInstallationRepos(installationId: number | string): Promise<AppRepo[]> {
+export async function listInstallationReposResult(
+  installationId: number | string,
+): Promise<InstallationReposResult> {
   const PER_PAGE = 100;
   const MAX_PAGES = 50; // safety bound — up to 5000 repos
 
   // Self-heal a stale token: a cached installation token can outlive the installation's access
   // (suspend/uninstall/permission change), so on a 401 we drop it and retry ONCE with a freshly
   // minted token instead of failing for up to an hour until the cache entry expires.
-  const collect = async (token: string): Promise<GhRepo[]> => {
+  const collect = async (token: string): Promise<{ raw: GhRepo[]; truncated: boolean }> => {
     const raw: GhRepo[] = [];
     let total = Infinity;
     for (let page = 1; page <= MAX_PAGES && raw.length < total; page++) {
@@ -211,24 +225,24 @@ export async function listInstallationRepos(installationId: number | string): Pr
       raw.push(...data.repositories);
       if (data.repositories.length < PER_PAGE) break; // last (short) page
     }
-    // Surface a silent truncation: an installation with more than MAX_PAGES×PER_PAGE repos would
-    // otherwise drop the overflow with no signal — invisible to watch/schedule/scan and wrong in
-    // the "X of N watched" counter.
-    if (Number.isFinite(total) && raw.length < total) {
+    // A silent truncation: an installation with more than MAX_PAGES×PER_PAGE repos drops the overflow.
+    // Signal it to callers (return value, not just a warn) so a destructive reconcile can fail-safe.
+    const truncated = Number.isFinite(total) && raw.length < total;
+    if (truncated) {
       console.warn(
         `[github/app] installation ${installationId}: listed ${raw.length} of ${total} repos (capped at MAX_PAGES=${MAX_PAGES}); the rest are not visible to watch/scan.`,
       );
     }
-    return raw;
+    return { raw, truncated };
   };
 
-  let raw: GhRepo[];
+  let result: { raw: GhRepo[]; truncated: boolean };
   try {
-    raw = await collect(await getInstallationToken(installationId));
+    result = await collect(await getInstallationToken(installationId));
   } catch (err) {
     if (err instanceof AppApiError && err.status === 401) {
       invalidateInstallationToken(installationId);
-      raw = await collect(await getInstallationToken(installationId, true));
+      result = await collect(await getInstallationToken(installationId, true));
     } else {
       throw err;
     }
@@ -237,7 +251,7 @@ export async function listInstallationRepos(installationId: number | string): Pr
   // Drop forks + archived repos, matching the public listing (listOrgRepos) and discovery
   // (fetchUserRepos): that isn't where active engineering happens, and otherwise they clutter the
   // connect watch-list and can burn a user's onboarding/watch budget on dead mirrors.
-  return raw
+  const repos = result.raw
     .filter((r) => !r.fork && !r.archived)
     .map((r) => ({
       fullName: r.full_name,
@@ -249,6 +263,17 @@ export async function listInstallationRepos(installationId: number | string): Pr
       stars: r.stargazers_count,
       pushedAt: r.pushed_at,
     }));
+  return { repos, truncated: result.truncated };
+}
+
+/**
+ * List ALL repositories an installation can access (the filtered AppRepo projection). Thin wrapper
+ * over {@link listInstallationReposResult} for the non-destructive callers (the connect/onboarding
+ * listing) that don't need the truncation flag. Reconcilers MUST use listInstallationReposResult and
+ * honor `truncated` — see github-app-installation-webhooks #1.
+ */
+export async function listInstallationRepos(installationId: number | string): Promise<AppRepo[]> {
+  return (await listInstallationReposResult(installationId)).repos;
 }
 
 /** Verify a webhook payload against the X-Hub-Signature-256 header. */
