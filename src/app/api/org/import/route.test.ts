@@ -44,6 +44,10 @@ vi.mock("@/lib/github/list", () => ({
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: vi.fn(() => true) }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, getViewer: vi.fn(async () => null) }));
 vi.mock("@/lib/authz", () => ({
+  // Default: the caller IS authorized for the org (gate passes) so these suites can focus on token
+  // discipline + the credit cap. The gate's own deny logic is unit-tested in authz.test.ts; the
+  // cross-tenant-block regression test below overrides this to return a denial Response.
+  requireOrgAccess: vi.fn(async () => null),
   sessionHasInstallation: vi.fn(async () => false),
   sessionOwnsOrg: vi.fn(async () => false),
 }));
@@ -60,12 +64,13 @@ vi.mock("@/lib/rate-limit", () => ({
 import { POST } from "./route";
 import { scanRepository } from "@/lib/scan";
 import { isAuthConfigured } from "@/lib/auth";
-import { sessionOwnsOrg } from "@/lib/authz";
+import { requireOrgAccess, sessionOwnsOrg } from "@/lib/authz";
 import { consumeScanCredit, getInstallationIdForOwner, grantCredits } from "@/lib/db";
 import { checkScanEntitlement } from "@/lib/entitlement";
 
 const mockScan = vi.mocked(scanRepository);
 const mockAuthOn = vi.mocked(isAuthConfigured);
+const mockGate = vi.mocked(requireOrgAccess);
 const mockOwnsOrg = vi.mocked(sessionOwnsOrg);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockConsume = vi.mocked(consumeScanCredit);
@@ -131,6 +136,21 @@ describe("POST /api/org/import — ambient-token discipline", () => {
     const opts = mockScan.mock.calls[0][1]!;
     expect(opts.token).toBe("operator-pat-with-repo-scope");
     expect(opts.noAmbientToken).toBeUndefined();
+  });
+
+  it("returns the requireOrgAccess denial and scans nothing when the caller isn't a member (cross-tenant block)", async () => {
+    // The fix: import is a tenant-scoped mutation (spends credits, writes the watchlist), so a
+    // non-member's request must be refused BEFORE any scan/credit work — like its sibling routes.
+    mockGate.mockResolvedValueOnce(Response.json({ error: "no access" }, { status: 403 }) as never);
+    const res = await POST(
+      new Request("http://localhost/api/org/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: "victim", repos: ["victim/secret"], mock: false, watch: true }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(mockScan).not.toHaveBeenCalled();
   });
 });
 
