@@ -30,7 +30,7 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
-import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
+import { requireOrgAccess, sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -60,6 +60,17 @@ export async function POST(request: Request) {
   };
   const org = body.org?.trim().toLowerCase();
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
+
+  // Bring this mutating, tenant-scoped route to parity with its siblings (/api/org/scan, /watch,
+  // /schedule), which all call requireOrgAccess at the top. Import spends prepaid credits
+  // (consumeScanCredit) and writes the watchlist/schedule/Repository rows of `org` — all tenant-
+  // scoped mutations — yet was the lone mutating org endpoint with no membership gate, so any
+  // signed-in viewer (or anyone, on an auth-off deploy) could drain a victim org's credits and
+  // inject repos/scores into its dashboard. requireOrgAccess leaves PUBLIC_ORG and auth-off
+  // deployments open, so the free funnel + local seeding are preserved; the finer sessionOwnsOrg
+  // token-mint gate below still governs PRIVATE-repo access.
+  const denied = await requireOrgAccess(org);
+  if (denied) return denied;
 
   const count = Math.min(100, Math.max(1, body.count ?? 20));
   const mock = body.mock ?? true;
