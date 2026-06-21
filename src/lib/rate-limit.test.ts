@@ -196,6 +196,28 @@ describe("rateLimitRequest — enforce-and-trip (critical #1)", () => {
     expect(rateLimitRequest(other, cfg).ok).toBe(true);
   });
 
+  it("QUOTA #1: a request over its per-IP cap does NOT consume the shared global budget (no DoS amplification)", () => {
+    // One abuser floods past its per-IP cap; the global ceiling is small. Before the fix, every
+    // rejected over-per-IP request still charged the global window, so the abuser drained the global
+    // pool and other IPs got 429'd. After the fix, over-per-IP requests are rejected WITHOUT charging
+    // global, so a fresh IP still passes (global was only charged for the abuser's ALLOWED requests).
+    const cfg = makeConfig({ perIp: 2, global: 5 });
+    const abuser = reqFromIp("203.0.113.50");
+
+    expect(rateLimitRequest(abuser, cfg).ok).toBe(true); // per-IP 1, global 1
+    expect(rateLimitRequest(abuser, cfg).ok).toBe(true); // per-IP 2, global 2 (per-IP now full)
+    // 20 further floods: all rejected on per-IP, and crucially none should charge global.
+    for (let i = 0; i < 20; i++) {
+      expect(rateLimitRequest(abuser, cfg).ok).toBe(false); // tripped on per-IP only
+    }
+    // global has only seen the abuser's 2 ALLOWED hits, so 3 more distinct IPs (global budget 5) pass.
+    expect(rateLimitRequest(reqFromIp("203.0.113.51"), cfg).ok).toBe(true); // global 3
+    expect(rateLimitRequest(reqFromIp("203.0.113.52"), cfg).ok).toBe(true); // global 4
+    expect(rateLimitRequest(reqFromIp("203.0.113.53"), cfg).ok).toBe(true); // global 5 (fills)
+    // Only NOW, with the global window genuinely full of distinct callers, does the next IP trip global.
+    expect(rateLimitRequest(reqFromIp("203.0.113.54"), cfg).ok).toBe(false);
+  });
+
   it("reports the larger retryAfter when both windows are tripped simultaneously", () => {
     const cfg = makeConfig({ perIp: 1, global: 1, windowMs: WINDOW_MS });
     const req = reqFromIp("203.0.113.9");

@@ -61,14 +61,23 @@ export interface RateLimitResult {
 
 /**
  * Check (and record) a request against both a per-IP and a global window. Trips when EITHER is
- * exceeded. Counts the request in both windows so the numbers stay honest.
+ * exceeded.
+ *
+ * QUOTA #1: a request that is over its PER-IP cap must NOT consume the shared global budget. The old
+ * code called hit() on the global window unconditionally (and hit() records before checking ok), so a
+ * single IP flooding past its per-IP allowance still filled the global window with its already-rejected
+ * requests — letting one abuser starve the global pool for every other legitimate caller (the per-IP
+ * cap, meant to contain one abuser, became the lever to DoS everyone). So: charge the per-IP window
+ * first; if it's over cap, reject WITHOUT touching the global window. Only when per-IP passes do we
+ * charge the global window — its overshoot is real shared load, not one IP's rejected flood.
  */
 export function rateLimitRequest(req: Request, cfg: RateLimitConfig): RateLimitResult {
   const ip = clientIp(req);
-  const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
   const p = hit(`${cfg.name}:ip:${ip}`, cfg.perIp, cfg.windowMs);
-  if (g.ok && p.ok) return { ok: true, retryAfterSec: 0 };
-  return { ok: false, retryAfterSec: Math.max(g.retryAfterSec, p.retryAfterSec) };
+  if (!p.ok) return { ok: false, retryAfterSec: p.retryAfterSec };
+  const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
+  if (g.ok) return { ok: true, retryAfterSec: 0 };
+  return { ok: false, retryAfterSec: g.retryAfterSec };
 }
 
 /** A ready-made 429 JSON Response with a Retry-After header. */
