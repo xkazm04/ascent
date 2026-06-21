@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { readSSE } from "@/lib/sse";
 import { scoreHex } from "@/lib/ui";
 import {
@@ -44,6 +45,7 @@ export function LiveWarRoom({
   /** The viewer may mint a read-only TV share link (owner on the authenticated view). */
   canShare?: boolean;
 }) {
+  const router = useRouter();
   const [repos, setRepos] = useState<Record<string, LiveRepo>>(() =>
     Object.fromEntries(seed.map((r) => [r.fullName, { ...r, updatedAt: 0 }])),
   );
@@ -57,6 +59,17 @@ export function LiveWarRoom({
   const [ticker, setTicker] = useState<Mover[]>([]);
   const [celebrations, setCelebrations] = useState<Celebration[]>([]);
   const [autoLoop, setAutoLoop] = useState(false);
+  // Page Visibility: true while the tab is foregrounded. Gates the auto-relaunch (war-room #2) and the
+  // read-only poll (war-room #1) so a backgrounded/idle wall neither burns scan credits nor hammers the
+  // refresh route. Default true for SSR; corrected on mount + every visibilitychange.
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const sync = () => setVisible(document.visibilityState !== "hidden");
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, []);
   // WARROOM-5: opt-in (default-off) celebration sound. Read via a ref in pushCelebration so the
   // (stable) callback always sees the latest value without re-creating.
   const [sound, setSound] = useState(false);
@@ -246,10 +259,36 @@ export function LiveWarRoom({
     if (persisted) setAutoLoop(true);
   }, []);
   useEffect(() => {
-    if (!autoLoop || phase === "running" || readOnly) return; // readOnly can't scan, so never loop
+    // WAR-2 (war-room #2): never auto-relaunch while the tab is hidden — an unattended/backgrounded
+    // wall would otherwise keep firing a full fleet scan every 15 min, silently burning prepaid
+    // credits with no one watching. Page Visibility gates the timer; visibilitychange re-arms it on
+    // focus (the effect re-runs because `visible` flips).
+    if (!autoLoop || phase === "running" || readOnly || !visible) return; // readOnly can't scan, so never loop
     const t = setTimeout(() => void launch(), LOOP_MS);
     return () => clearTimeout(t);
-  }, [autoLoop, phase, launch, LOOP_MS, readOnly]);
+  }, [autoLoop, phase, launch, LOOP_MS, readOnly, visible]);
+
+  // war-room #1: the read-only TV/shared wall has no SSE stream (readOnly suppresses launch()), so
+  // without this it's a frozen page-load snapshot. Poll the server component (force-dynamic → re-reads
+  // the org rollup) via router.refresh() so the kiosk view actually updates over time. Authenticated
+  // walls keep their live SSE path and don't poll. Skip while the tab is hidden so a backgrounded TV
+  // doesn't hammer the route, and resume on focus (the effect re-runs when `visible` flips).
+  const REFRESH_MS = 60 * 1000;
+  useEffect(() => {
+    if (!readOnly || !visible) return;
+    const t = setInterval(() => router.refresh(), REFRESH_MS);
+    return () => clearInterval(t);
+  }, [readOnly, visible, router, REFRESH_MS]);
+
+  // In readOnly mode, router.refresh() re-renders the server component with a fresh `seed`, but `repos`
+  // was seeded once at mount — reconcile new server seed into state so the refreshed rollup shows.
+  // Only in readOnly: on an authenticated wall the SSE fold owns `repos` and must not be clobbered.
+  useEffect(() => {
+    if (!readOnly) return;
+    const next = Object.fromEntries(seed.map((r) => [r.fullName, { ...r, updatedAt: 0 }]));
+    reposRef.current = next;
+    setRepos(next);
+  }, [readOnly, seed]);
   const toggleLoop = useCallback(() => {
     setAutoLoop((v) => {
       const nv = !v;
