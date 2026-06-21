@@ -66,8 +66,17 @@ export function PlaybooksPanel({
   }
 
   async function remove(id: string) {
+    // DELETE is admin-gated, but the remove control renders for every member — so a non-admin's 403
+    // (or any failure) was silently swallowed and the playbook vanished from the UI while surviving in
+    // the DB (a data-loss illusion, reappearing on refresh). Snapshot, then restore + surface on failure.
+    const prev = playbooks;
+    setError(null);
     setPlaybooks((p) => p.filter((x) => x.id !== id));
-    await fetch(`/api/org/playbooks/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/org/playbooks/${id}`, { method: "DELETE" }).catch(() => null);
+    if (!res || !res.ok) {
+      setPlaybooks(prev);
+      setError((await res?.json().catch(() => ({})))?.error ?? "Couldn't delete the playbook (admins only).");
+    }
   }
 
   // PLAY-4: prefill the author form from a starter template (the org edits before saving).
