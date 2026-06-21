@@ -21,7 +21,8 @@ export type ProviderChoice = "auto" | ProviderName;
 
 /**
  * Lazy proxy for the claude-cli provider. It shells out via child_process to a local `claude` binary
- * (LOCAL-DEV-ONLY — it can't run on Vercel, which providerAvailable already gates off process.env.VERCEL).
+ * (LOCAL-DEV-ONLY — assess() throws in any production build, which providerAvailable mirrors by gating
+ * on NODE_ENV !== "production" so the failover skips it instead of selecting a guaranteed-throw provider).
  * Two things matter here:
  *  1. The dynamic import defers loading claude-cli.ts until a scan actually runs under it.
  *  2. The `NODE_ENV === "production"` guard is statically inlined and folded by the production build, so
@@ -105,10 +106,14 @@ export function providerAvailable(name: ProviderName): boolean {
           process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
       );
     case "claude-cli":
-      // Local-only by design; the `claude` binary can't be cheaply verified synchronously, but it
-      // definitely can't run on Vercel — guard that named misconfiguration. Elsewhere trust the
-      // operator's explicit LLM_PROVIDER=claude-cli (a missing binary still fails fast on spawn error).
-      return !process.env.VERCEL;
+      // BUG (llm-provider-abstraction #1): availability MUST use the SAME condition LazyClaudeCli
+      // .assess() enforces. assess() throws whenever NODE_ENV === "production" (the dynamic import is
+      // dead-code-pruned by the prod build), but this gate used to key on VERCEL — so a non-Vercel
+      // production host (Docker/ECS/plain `next start`) reported available=true yet ALWAYS threw,
+      // silently degrading every scan to mock and defeating the failover skip. Gate on the same
+      // NODE_ENV signal so an unavailable claude-cli is correctly false-negatived (picker degrades to
+      // mock cleanly, providerByName failover skips it) instead of selecting a guaranteed-throw provider.
+      return process.env.NODE_ENV !== "production";
     case "mock":
       return true;
     default:

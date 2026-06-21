@@ -89,6 +89,35 @@ describe("getProvider with LLM_PROVIDER=openai/claude-cli — trust the explicit
   });
 });
 
+describe("providerAvailable('claude-cli') — matches assess()'s throw gate (llm-provider-abstraction #1)", () => {
+  // assess() throws whenever NODE_ENV === "production" (the dynamic import is dead-code-pruned by the
+  // prod build), so availability MUST use the SAME signal — not VERCEL. Otherwise a non-Vercel prod
+  // host (Docker/ECS/plain `next start`) reports available yet always throws, silently mocking every
+  // scan and breaking the failover skip.
+  it("is available in non-production (dev/test) where assess() actually runs", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VERCEL", "");
+    expect(providerAvailable("claude-cli")).toBe(true);
+  });
+
+  it("is UNavailable in production even off Vercel (assess() would throw there)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", ""); // self-hosted prod: no VERCEL, but assess() still throws
+    expect(providerAvailable("claude-cli")).toBe(false);
+  });
+
+  it("failover skips claude-cli in production (providerByName returns null, no doomed attempt)", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL", "");
+    expect(providerByName("claude-cli")).toBeNull();
+  });
+
+  it("failover keeps claude-cli in non-production", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(providerByName("claude-cli")?.name).toBe("claude-cli");
+  });
+});
+
 describe("providerByName('bedrock') — failover skip stays env-gated (#1)", () => {
   it("returns null with no AWS signal (skip the doomed failover attempt)", () => {
     expect(providerByName("bedrock")).toBeNull();
