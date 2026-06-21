@@ -164,9 +164,15 @@ export function assembleReport(
   const level = levelForScore(overallScore);
 
   // Axis roll-ups: weighted mean of each axis's dimensions (lens weights renormalized).
+  // Bug-fix (maturity-model-scoring-engine #1): pass the SAME present-id predicate the overall path
+  // uses (overallScoreFor iterates only `dimensions`). Without it, a dropped/failed dimension is
+  // charged at 0 with full weight on the axis path only — deflating that axis and flipping the
+  // posture quadrant — while the headline overall it sits next to is computed correctly. When all
+  // dimensions are present this predicate always returns true, so a healthy full scan is unchanged.
+  const present = new Set(dimensions.map((d) => d.id));
   const scoreFor = (id: DimensionId) => scoreById.get(id) ?? 0;
-  const adoptionScore = axisScore("adoption", scoreFor, archetype);
-  const rigorScore = axisScore("rigor", scoreFor, archetype);
+  const adoptionScore = axisScore("adoption", scoreFor, archetype, (id) => present.has(id));
+  const rigorScore = axisScore("rigor", scoreFor, archetype, (id) => present.has(id));
 
   const roadmap = assessment.roadmap.length
     ? assessment.roadmap
