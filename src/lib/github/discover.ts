@@ -13,7 +13,12 @@
 //   • rankDiscoveredOrgs / selectSuggestedOrgLogins / selectSeedTarget — pure transforms over the
 //     fetched data, with no I/O.
 
-const API = "https://api.github.com";
+import { githubApiBase } from "@/lib/github/host";
+
+// BUG (github-repo-data-access #1): this module was the only github layer hardcoding api.github.com,
+// so org auto-discovery ignored the GHES `GITHUB_API_URL` override and broke (firewalled/401) on
+// enterprise deployments. Route through githubApiBase() like source.ts/list.ts/governance.ts/app.ts.
+// Resolved per-call so a test/env that sets GITHUB_API_URL after import is honored.
 
 /** A repo from the signed-in user's listing (GET /user/repos), normalized. */
 export interface UserRepo {
@@ -59,7 +64,7 @@ interface GhRepo {
 }
 
 async function ghUser<T>(path: string, token: string): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await fetch(`${githubApiBase()}${path}`, {
     headers: {
       Accept: "application/vnd.github+json",
       Authorization: `Bearer ${token}`,

@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchUserOrgs,
+  fetchUserRepos,
   rankDiscoveredOrgs,
   selectSeedTarget,
   selectSuggestedOrgLogins,
@@ -144,5 +146,42 @@ describe("selectSeedTarget", () => {
       viewerLogin: "octocat",
     });
     expect(selectSeedTarget(ranked)).toBeNull();
+  });
+});
+
+// github-repo-data-access #1: the fetchers must honor the GHES `GITHUB_API_URL` host override, not
+// hardcode api.github.com — otherwise org auto-discovery 401s/firewalls on enterprise deployments.
+describe("fetchUserOrgs / fetchUserRepos — GHES host override", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  function stubFetch(body: unknown) {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("hits the GHES base when GITHUB_API_URL is set", async () => {
+    vi.stubEnv("GITHUB_API_URL", "https://ghe.acme.com/api/v3");
+    const fetchMock = stubFetch([{ login: "Acme" }]);
+    await fetchUserOrgs("tok");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("https://ghe.acme.com/api/v3/user/orgs?per_page=100");
+  });
+
+  it("trims a trailing slash on the GHES base for repos", async () => {
+    vi.stubEnv("GITHUB_API_URL", "https://ghe.acme.com/api/v3/");
+    const fetchMock = stubFetch([]);
+    await fetchUserRepos("tok");
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^https:\/\/ghe\.acme\.com\/api\/v3\/user\/repos\?/);
+  });
+
+  it("defaults to api.github.com when GITHUB_API_URL is unset", async () => {
+    vi.stubEnv("GITHUB_API_URL", "");
+    const fetchMock = stubFetch([{ login: "Acme" }]);
+    await fetchUserOrgs("tok");
+    expect(String(fetchMock.mock.calls[0][0])).toBe("https://api.github.com/user/orgs?per_page=100");
   });
 });
