@@ -451,6 +451,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
               rowError={errors[r.fullName]}
               onToggleWatch={toggleWatch}
               onChangeSchedule={changeSchedule}
+              bulkBusy={bulkBusy}
               segments={segments}
               segmentIds={segMembership[r.fullName] ?? []}
               onToggleSegment={toggleSegment}

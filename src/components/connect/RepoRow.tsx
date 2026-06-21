@@ -10,6 +10,7 @@ export function RepoRow({
   rowError,
   onToggleWatch,
   onChangeSchedule,
+  bulkBusy = false,
   segments = [],
   segmentIds = [],
   onToggleSegment,
@@ -18,6 +19,9 @@ export function RepoRow({
   rowError: string | undefined;
   onToggleWatch: (r: AppRepo, watched: boolean) => void;
   onChangeSchedule: (r: AppRepo, schedule: string) => void;
+  /** A bulk watch/schedule op is in flight — disable per-row controls so a concurrent single-row
+   *  change can't be clobbered by the bulk path's partial-failure revert. */
+  bulkBusy?: boolean;
   /** The org's segments + this repo's current membership, for tag-as-you-select (watched repos only). */
   segments?: { id: string; name: string; color: string }[];
   segmentIds?: string[];
@@ -56,7 +60,8 @@ export function RepoRow({
             type="checkbox"
             checked={Boolean(st?.watched)}
             onChange={(e) => onToggleWatch(r, e.target.checked)}
-            className="h-4 w-4 accent-accent"
+            disabled={bulkBusy}
+            className="h-4 w-4 accent-accent disabled:opacity-40"
           />
           watch
         </label>
@@ -64,7 +69,7 @@ export function RepoRow({
         <select
           value={st?.scanSchedule ?? "off"}
           onChange={(e) => onChangeSchedule(r, e.target.value)}
-          disabled={!st?.watched}
+          disabled={!st?.watched || bulkBusy}
           aria-label="Autoscan schedule"
           className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-40"
         >
