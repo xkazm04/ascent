@@ -18,6 +18,9 @@ const REASONS = [
   { key: "dimension", label: "A dimension below floor" },
   { key: "posture", label: "Ungoverned posture" },
   { key: "overall", label: "Below overall score" },
+  // Surface the protected-branch condition now that the fleet view actually evaluates it
+  // (ci-gate-status-checks #1) — previously this bar was advertised but never enforced here.
+  { key: "governance", label: "Unprotected default branch" },
 ] as const;
 
 function ciSnippet(g: GovernanceOverview): string {

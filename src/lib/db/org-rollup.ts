@@ -6,6 +6,20 @@ import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { segmentScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 
+/** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
+ *  JSON blob. Returns undefined for a null/missing/malformed blob (no-token scan, parse error) so the
+ *  gate leaves `requireProtectedBranch` unevaluated rather than false-failing. */
+function parseGovernanceLite(raw: string | null | undefined): { readable: boolean; protected: boolean } | undefined {
+  if (!raw) return undefined;
+  try {
+    const g = JSON.parse(raw) as { readable?: unknown; protected?: unknown };
+    if (typeof g.readable !== "boolean") return undefined;
+    return { readable: g.readable, protected: g.protected === true };
+  } catch {
+    return undefined;
+  }
+}
+
 /** Resolve an org slug to its id (the tenant scope), or null when it doesn't exist. */
 export async function getOrgId(slug: string): Promise<string | null> {
   if (!isDbConfigured()) return null;
@@ -70,6 +84,12 @@ export interface OrgRepoRow {
     posture: string;
     scannedAt: string;
     dims: { dimId: string; score: number }[];
+    /** Whether a token saw the default branch's protection rules (governance.readable). Undefined
+     *  when no governance blob was persisted. Lets the fleet gate enforce `requireProtectedBranch`
+     *  with the SAME readable-gated semantics as the CI gate (evaluateGate). */
+    govReadable?: boolean;
+    /** Whether the default branch is protected (governance.protected), when readable. */
+    protected?: boolean;
   } | null;
 }
 
@@ -172,6 +192,11 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
 
   const rows: OrgRepoRow[] = repos.map((r) => {
     const s = r.scans[0];
+    // Parse the persisted default-branch governance blob so the fleet gate can enforce
+    // `requireProtectedBranch` (governance fleet view) with the same readable-gated semantics as the
+    // CI gate — previously the rollup carried no protection data, so that bar was silently dead in
+    // the dashboard while the copyable CI snippet enforced it (dashboard↔CI drift).
+    const gov = parseGovernanceLite(s?.governance);
     return {
       fullName: r.fullName,
       owner: r.owner,
@@ -193,6 +218,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
             posture: s.posture,
             scannedAt: s.scannedAt.toISOString(),
             dims: s.dimensions,
+            govReadable: gov?.readable,
+            protected: gov?.protected,
           }
         : null,
     };

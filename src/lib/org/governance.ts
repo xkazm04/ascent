@@ -124,7 +124,15 @@ export async function buildGovernanceOverview(orgSlug: string): Promise<Governan
 
   for (const r of scannedRepos) {
     const s = r.latest!; // safe: filtered to r.latest above
-    const result = evaluateGateLite({ level: s.level, overall: s.overall, posture: s.posture, dims: s.dims }, policy);
+    // Bug-fix (ci-gate-status-checks #1 / practices-governance-adoption #1): pass the per-repo
+    // branch-protection fields the rollup now carries so `requireProtectedBranch` actually runs in
+    // the fleet view — the dashboard's pass-rate must match the CI gate it advertises (the gate URL /
+    // ciWith snippet enforce protection). Absent governance leaves them undefined → the rule is
+    // skipped (readable-gated parity with evaluateGate), never a false-fail.
+    const result = evaluateGateLite(
+      { level: s.level, overall: s.overall, posture: s.posture, dims: s.dims, protected: s.protected, govReadable: s.govReadable },
+      policy,
+    );
     if (result.pass) {
       passing += 1;
       continue;
@@ -152,7 +160,11 @@ export async function buildGovernanceOverview(orgSlug: string): Promise<Governan
       }))
       .sort((a, b) => a.gap - b.gap);
     const overallGap = typeof policy.minOverall === "number" && s.overall < policy.minOverall ? policy.minOverall - s.overall : 0;
-    const blockers = result.failures.filter((f) => f.code === "level" || f.code === "posture").map((f) => f.message);
+    // Non-numeric blockers a repo must address (no point-gap to quantify): level, posture, and the
+    // protected-branch governance condition (now that the fleet view actually evaluates it).
+    const blockers = result.failures
+      .filter((f) => f.code === "level" || f.code === "posture" || f.code === "governance")
+      .map((f) => f.message);
     greenPath.push({
       name: r.name,
       fullName: r.fullName,
@@ -197,7 +209,7 @@ export function governanceMarkdown(o: GovernanceOverview): string {
   out.push("## Fleet status");
   out.push(`- ${o.passing}/${o.scanned} repos PASS the gate (${o.passRate}%)`);
   out.push(
-    `- Failing on: ${o.byReason.level} below level · ${o.byReason.dimension} dimension floor · ${o.byReason.posture} posture${o.byReason.overall ? ` · ${o.byReason.overall} overall` : ""}`,
+    `- Failing on: ${o.byReason.level} below level · ${o.byReason.dimension} dimension floor · ${o.byReason.posture} posture${o.byReason.overall ? ` · ${o.byReason.overall} overall` : ""}${o.byReason.governance ? ` · ${o.byReason.governance} unprotected branch` : ""}`,
   );
   if (o.failures.length) {
     out.push("");
