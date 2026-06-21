@@ -5,7 +5,21 @@
 
 import { useState } from "react";
 
-export function BriefingShareButton({ org, range, from, to }: { org: string; range: string; from?: string; to?: string }) {
+export function BriefingShareButton({
+  org,
+  range,
+  from,
+  to,
+  segment,
+}: {
+  org: string;
+  range: string;
+  from?: string;
+  to?: string;
+  // EXEC #1: the active per-client segment scope, carried into the signed token so the shared
+  // read-only board page re-runs the briefing scoped to the same client, not the whole org.
+  segment?: string | null;
+}) {
   const [state, setState] = useState<"idle" | "working" | "copied" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -16,7 +30,7 @@ export function BriefingShareButton({ org, range, from, to }: { org: string; ran
       const res = await fetch("/api/org/briefing/share", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org, range, from, to }),
+        body: JSON.stringify({ org, range, from, to, segment: segment ?? undefined }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error ?? "Couldn't create a share link.");

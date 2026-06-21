@@ -36,7 +36,9 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   if (!isDbConfigured()) return <Notice title="No data" body="This deployment has no database configured." />;
 
   const period = resolveWindow({ range: verified.range, from: verified.from, to: verified.to });
-  const briefing = await buildExecBriefing(verified.org, { start: period.start, end: period.end }, period.title).catch(() => null);
+  // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's
+  // per-client read-only link shows that client's data — not the whole org.
+  const briefing = await buildExecBriefing(verified.org, { start: period.start, end: period.end }, period.title, verified.segment ?? null).catch(() => null);
   if (!briefing) {
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }

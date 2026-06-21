@@ -58,13 +58,18 @@ export default async function OrgExecutive({
         />
         <div className="flex flex-wrap items-center gap-2">
           <a
-            href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}`}
+            // EXEC #1: carry the active ?segment= into the export so a reseller's per-client briefing
+            // downloads the SAME scope they're viewing, not the whole org. Without it the PDF route
+            // runs buildExecBriefing with segmentId=null → wrong/over-broad deliverable handed out.
+            href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}`}
             className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
             title="Download the briefing as a board-ready PDF"
           >
             <span aria-hidden>↓</span> Download PDF
           </a>
-          {canShare && <BriefingShareButton org={slug} range={period.key} from={period.from} to={period.to} />}
+          {/* EXEC #1: carry the active segment into the share link too, so the read-only board link
+              re-runs scoped to the same client segment the owner is viewing. */}
+          {canShare && <BriefingShareButton org={slug} range={period.key} from={period.from} to={period.to} segment={segmentId} />}
           <CopyForLlm text={md} label="Copy briefing for LLM" />
         </div>
       </div>

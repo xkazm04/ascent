@@ -23,6 +23,9 @@ export interface BriefingShareParams {
   range?: string;
   from?: string;
   to?: string;
+  // EXEC #1: the per-client segment scope travels in the signed token so the shared read-only page
+  // re-runs buildExecBriefing scoped to the SAME client the owner shared, not the whole org.
+  segment?: string;
 }
 
 function sign(payload: string, secret: string): string {
@@ -35,7 +38,7 @@ export function signBriefingShareToken(p: BriefingShareParams, ttlMs: number = D
   if (!secret) return null;
   const expiresAt = Date.now() + ttlMs;
   const payload = Buffer.from(
-    JSON.stringify({ org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, exp: expiresAt }),
+    JSON.stringify({ org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, segment: p.segment, exp: expiresAt }),
   ).toString("base64url");
   return { token: `${payload}.${sign(payload, secret)}`, expiresAt };
 }
@@ -57,6 +60,7 @@ export function verifyBriefingShareToken(token: string): BriefingShareParams | n
       range?: unknown;
       from?: unknown;
       to?: unknown;
+      segment?: unknown;
       exp?: unknown;
     };
     if (typeof p.org !== "string" || typeof p.exp !== "number" || p.exp < Date.now()) return null;
@@ -65,6 +69,7 @@ export function verifyBriefingShareToken(token: string): BriefingShareParams | n
       range: typeof p.range === "string" ? p.range : undefined,
       from: typeof p.from === "string" ? p.from : undefined,
       to: typeof p.to === "string" ? p.to : undefined,
+      segment: typeof p.segment === "string" ? p.segment : undefined,
     };
   } catch {
     return null;
