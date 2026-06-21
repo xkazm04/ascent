@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Card } from "@/components/org/ui";
 import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
 import { OwnerHeader, SummaryStrip } from "@/components/org/BacklogSummary";
@@ -17,6 +17,10 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
   const [view, setView] = useState<"owner" | "due" | "points">("owner");
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Monotonic token so only the LATEST refresh's response is applied. Each edit triggers a full
+  // server re-read that wholesale-replaces the backlog; without sequencing, a slower-arriving OLDER
+  // snapshot can clobber a newer one when two items are edited in quick succession (lost edit).
+  const refreshSeq = useRef(0);
 
   const setSaving = (id: string, on: boolean) =>
     setSavingIds((cur) => {
@@ -27,11 +31,14 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
     });
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     const res = await fetch(`/api/org/backlog?org=${encodeURIComponent(slug)}`);
-    if (res.ok) {
-      const data = (await res.json()) as { backlog: OrgBacklog | null };
-      if (data.backlog) setBacklog(data.backlog);
-    }
+    if (!res.ok) return;
+    const data = (await res.json()) as { backlog: OrgBacklog | null };
+    // Drop a stale response: a later edit's refresh has already superseded this one, so applying this
+    // older snapshot would revert the newer edit. Only the most-recent refresh wins.
+    if (seq !== refreshSeq.current) return;
+    if (data.backlog) setBacklog(data.backlog);
   }, [slug]);
 
   const patch = useCallback(
@@ -52,6 +59,9 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
         if (!res.ok) {
           const msg = (await res.json().catch(() => ({})))?.error ?? "Couldn’t save that change.";
           setErrors((e) => ({ ...e, [id]: msg }));
+          // On a 409 optimistic-lock conflict, pull the authoritative current state so the user sees
+          // what actually persisted (and the reverted control reflects it) before retrying.
+          if (res.status === 409) await refresh();
           return;
         }
         await refresh();
