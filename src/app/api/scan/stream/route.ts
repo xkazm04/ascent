@@ -177,7 +177,11 @@ export async function POST(request: Request) {
         // commit key for the full TTL. Skip like the mock-degrade case; the next scan re-resolves.
         const lowCoverage = report.confidence < 0.5;
         if (lookup && !degradedToMock && !lowCoverage) cacheSet(lookup.cacheKey, report);
-        if (isDbConfigured()) {
+        // Mirror the cacheSet guard on the DURABLE store too: persisting a degraded-to-mock or
+        // low-coverage report lets getScanReportByCommit's DB tier re-serve the deterministic floor
+        // cross-instance for ~7 days under the ::llm identity — the same poisoning the cacheSet skip
+        // prevents, via the database. Skip persistence for these; the next fresh scan persists a real one.
+        if (isDbConfigured() && !degradedToMock && !lowCoverage) {
           try {
             // Persist the ETag so the next re-scan can issue a free conditional request.
             const persisted = await persistScanReport(report, { orgSlug, headEtag: lookup?.etag ?? undefined });

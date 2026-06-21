@@ -227,7 +227,12 @@ async function runScan(
 
   let deduped = false;
   let persistedOk = true;
-  if (isDbConfigured()) {
+  // Mirror the cacheSet guard above on the DURABLE store. A degraded-to-mock or low-coverage report
+  // must not be written as a Scan row either: lookupCachedScan's DB tier (getScanReportByCommit)
+  // re-serves any persisted scan for ~7 days to EVERY instance under the ::llm identity — exactly the
+  // cross-instance poisoning the cacheSet skip prevents, just via the database. Skip persistence for
+  // these the same way; the next fresh scan re-resolves and persists a real report.
+  if (isDbConfigured() && !degradedToMock && !lowCoverage) {
     try {
       // Persist the conditional-request ETag alongside the scan so the next re-scan stays cheap.
       const persisted = await persistScanReport(report, { orgSlug, headEtag: lookup?.etag ?? undefined });
