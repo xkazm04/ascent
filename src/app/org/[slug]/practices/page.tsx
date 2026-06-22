@@ -3,7 +3,8 @@ import { Card, Meter, SectionEmpty, SectionHeader } from "@/components/org/ui";
 import { PracticeApply } from "@/components/org/PracticeApply";
 import { PlaybooksPanel } from "@/components/org/PlaybooksPanel";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { getOrgPractices, getOrgRollup, getPlaybookAdoption, listPlaybooks, listTechStackGroups } from "@/lib/db";
+import { getOrgPractices, getOrgRollup, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
+import { resolveStackScope } from "@/lib/org/scope";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -20,14 +21,12 @@ export default async function OrgPractices({
   const sp = await searchParams;
   // Optional tech-stack scope (Feature 3b): surface the practice library for the selected stack. Only
   // the MINED library is scoped — the playbook repo picker (from the rollup) stays full-fleet.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
+  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const [playbooks, adoption, rollup, practices] = await Promise.all([
     listPlaybooks(slug),
     getPlaybookAdoption(slug),
     getOrgRollup(slug),
-    getOrgPractices(slug, null, activeStack?.id ?? null),
+    getOrgPractices(slug, null, techGroupId),
   ]);
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
   const repoOptions = (rollup?.repos ?? []).map((r) => r.fullName).sort();

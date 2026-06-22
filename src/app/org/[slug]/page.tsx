@@ -12,7 +12,8 @@ import { OrgGapsSection } from "@/components/org/OrgGapsSection";
 import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
 import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
 import { CollapsibleSection, OVERVIEW_COLLAPSE_COOKIE } from "@/components/org/CollapsibleSection";
-import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments, listTechStackGroups } from "@/lib/db";
+import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals } from "@/lib/db";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { canReadOrg } from "@/lib/authz";
 import { cookies } from "next/headers";
 import { levelForScore } from "@/lib/maturity/model";
@@ -98,20 +99,9 @@ export default async function OrgOverview({
   const collapsed = new Set((cookieStore.get(OVERVIEW_COLLAPSE_COOKIE)?.value ?? "").split(",").filter(Boolean));
   const sectionOpen = (id: string) => !collapsed.has(id);
 
-  // Optional segment scope: validate the `?segment=` id against the org's segments (a bogus id
-  // falls back to the whole fleet) so every aggregate below is scoped to the same tagged repos.
-  const segments = (await listSegments(slug)) ?? [];
-  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
-  const activeSegment = segments.find((s) => s.id === segParam) ?? null;
-  const segmentId = activeSegment?.id ?? null;
-
-  // Optional tech-stack scope (Feature 3b): validate `?stack=<key>` against the org's auto-derived
-  // groups (a bogus key falls back to the whole fleet) and thread the resolved group id into every
-  // aggregate, composing with the segment filter.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
-  const techGroupId = activeStack?.id ?? null;
+  // Optional segment + tech-stack scope (a bogus id/key falls back to the whole fleet): every aggregate
+  // below is scoped to the same repos, and the two filters compose.
+  const { segments, activeSegment, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
   // The six section queries are independent of each other — only `segmentId` (validated from
   // `listSegments` above) feeds them — so fetch concurrently rather than as a ~6-stage await

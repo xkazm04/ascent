@@ -1,7 +1,8 @@
 import { Card, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { getOrgActivity, getOrgGovernance, getOrgPrSignals, listSegments, listTechStackGroups } from "@/lib/db";
+import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -38,17 +39,9 @@ export default async function OrgDelivery({
   const { slug } = await params;
   const sp = await searchParams;
 
-  // Optional segment scope, validated against the org's segments (bogus id → whole fleet) — parity
-  // with the Contributors tab so a leader can read delivery/governance for one business unit.
-  const segments = (await listSegments(slug)) ?? [];
-  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
-  const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
-
-  // Optional tech-stack scope (Feature 3b), composes with the segment filter.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
-  const techGroupId = activeStack?.id ?? null;
+  // Optional segment + tech-stack scope (bogus id/key → whole fleet) so a leader can read
+  // delivery/governance for one business unit or stack; the two filters compose.
+  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
   const [pr, gov, activity] = await Promise.all([
     getOrgPrSignals(slug, segmentId, techGroupId),

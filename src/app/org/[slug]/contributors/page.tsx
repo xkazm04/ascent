@@ -2,7 +2,8 @@ import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { Meter, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
-import { getContributorInsights, listSegments, listTechStackGroups } from "@/lib/db";
+import { getContributorInsights } from "@/lib/db";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex, timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -26,16 +27,8 @@ export default async function ContributorInsightsPage({
   const { slug } = await params;
   const sp = await searchParams;
 
-  // Optional segment scope, validated against the org's segments (bogus id → whole fleet).
-  const segments = (await listSegments(slug)) ?? [];
-  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
-  const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
-
-  // Optional tech-stack scope (Feature 3b), composes with the segment filter.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
-  const techGroupId = activeStack?.id ?? null;
+  // Optional segment + tech-stack scope (bogus id/key → whole fleet); the two filters compose.
+  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
   const filterBar = (segments.length > 0 || techGroups.length > 0) && (
     <div className="flex flex-wrap items-center gap-2">

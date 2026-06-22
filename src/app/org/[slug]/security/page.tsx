@@ -4,10 +4,10 @@
 
 import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
-import { listTechStackGroups } from "@/lib/db";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { resolveStackScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
 
@@ -25,13 +25,10 @@ export default async function OrgSecurity({
   const { slug } = await params;
   const sp = await searchParams;
   const period = await resolveOrgWindow(sp);
-  // Optional tech-stack scope (Feature 3b): "Frontend security vs Backend" — validate `?stack=<key>`
-  // and scope the whole security overview to that group's repos.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
+  // Optional tech-stack scope (Feature 3b): "Frontend security vs Backend" — scope the whole overview.
+  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const [sec, supply] = await Promise.all([
-    buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title, activeStack?.id ?? null),
+    buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title, techGroupId),
     getOrgSupplyChain(slug),
   ]);
 

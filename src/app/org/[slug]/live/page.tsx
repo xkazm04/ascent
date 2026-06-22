@@ -5,7 +5,8 @@
 
 import { LiveWarRoom, type LiveRepoSeed } from "@/components/org/LiveWarRoom";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { getOrgRollup, listGoals, listTechStackGroups } from "@/lib/db";
+import { getOrgRollup, listGoals } from "@/lib/db";
+import { resolveStackScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
 import { liveShareEnabled } from "@/lib/live-share";
 import type { GoalProgressView } from "@/components/org/plan/goalView";
@@ -23,16 +24,14 @@ export default async function OrgLivePage({
   const sp = await searchParams;
   // Optional tech-stack scope (Feature 3b): a stack toggle on the live wall — scopes the seeded
   // standing AND the launched scan to that stack's repos, so "Frontend war room" runs only those.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
+  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
 
   // The goal the wall rallies around — the first not-yet-achieved goal, else the most recent. Its
   // createdAt doubles as the campaign-start baseline for the "since kickoff" delta (WAR-2).
   const goals = await listGoals(slug).catch(() => null);
   const goal = goals?.find((g) => !g.achieved) ?? goals?.[0] ?? null;
   const [rollup, isOwner] = await Promise.all([
-    getOrgRollup(slug, goal ? { start: new Date(goal.createdAt) } : undefined, null, activeStack?.id ?? null),
+    getOrgRollup(slug, goal ? { start: new Date(goal.createdAt) } : undefined, null, techGroupId),
     hasOrgRole(slug, "owner"),
   ]);
   if (!rollup) return null;

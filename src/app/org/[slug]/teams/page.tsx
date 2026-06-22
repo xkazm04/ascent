@@ -2,7 +2,8 @@ import { Card, Meter, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { getOrgTeamRollup, listSegments, listTechStackGroups, type TeamRollup } from "@/lib/db";
+import { getOrgTeamRollup, type TeamRollup } from "@/lib/db";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -125,17 +126,10 @@ export default async function TeamsPage({
   const { slug } = await params;
   const sp = await searchParams;
 
-  // Optional segment scope (parity with Contributors/Delivery): a bogus id falls back to the fleet.
-  const segments = (await listSegments(slug)) ?? [];
-  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
-  const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
+  // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
+  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
-  // Optional tech-stack scope (Feature 3b), composes with the segment filter.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
-
-  const rollup = await getOrgTeamRollup(slug, segmentId, activeStack?.id ?? null);
+  const rollup = await getOrgTeamRollup(slug, segmentId, techGroupId);
 
   const segmentBar = (segments.length > 0 || techGroups.length > 0) && (
     <div className="mb-4 flex flex-wrap justify-end gap-2">

@@ -2,7 +2,8 @@ import { DIMS, OrgEmpty, SectionHeader } from "@/components/org/ui";
 import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
 import { RepoLeaderboard } from "@/components/org/RepoLeaderboard";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { getOrgRollup, getRepoSegmentMap, listSegments, listTechStackGroups } from "@/lib/db";
+import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
+import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { DIMENSION_SHORT, heatCell } from "@/lib/ui";
 
@@ -17,12 +18,9 @@ export default async function OrgRepositories({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  // Optional tech-stack scope (Feature 3b): validate `?stack=<key>` against the org's groups, then
-  // scope the leaderboard/heatmap to that group's repos.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
-  const rollup = await getOrgRollup(slug, undefined, null, activeStack?.id ?? null);
+  // Optional tech-stack scope (Feature 3b): scope the leaderboard/heatmap to the selected group's repos.
+  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
+  const rollup = await getOrgRollup(slug, undefined, null, techGroupId);
   // Same empty-state contract as the overview: don't render a blank panel inside the org shell when
   // there's no fleet data to table — point the user at how to populate it.
   if (!rollup) {

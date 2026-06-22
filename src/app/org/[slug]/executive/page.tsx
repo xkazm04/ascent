@@ -9,7 +9,8 @@ import { BriefingShareButton } from "@/components/org/BriefingShareButton";
 import { BrandingSettings } from "@/components/org/BrandingSettings";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { briefingShareEnabled } from "@/lib/briefing-share";
-import { getCreditState, getOrgBranding, listTechStackGroups } from "@/lib/db";
+import { getCreditState, getOrgBranding } from "@/lib/db";
+import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveOrgWindow } from "@/lib/org/period";
@@ -30,10 +31,8 @@ export default async function OrgExecutive({
   // ?segment=<id> scopes the whole briefing to one segment (a reseller's per-client view).
   const segmentId = typeof sp.segment === "string" ? sp.segment : null;
   // ?stack=<key> scopes the whole briefing to one tech-stack group (Feature 3b) — a per-stack briefing.
-  const techGroups = await listTechStackGroups(slug);
-  const stackParam = Array.isArray(sp.stack) ? sp.stack[0] : sp.stack;
-  const activeStack = techGroups.find((g) => g.key === stackParam) ?? null;
-  const briefing = await buildExecBriefing(slug, { start: period.start, end: period.end }, period.title, segmentId, activeStack?.id ?? null);
+  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
+  const briefing = await buildExecBriefing(slug, { start: period.start, end: period.end }, period.title, segmentId, techGroupId);
 
   if (!briefing) {
     return (
