@@ -2,7 +2,7 @@
 // intelligence (F5). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { isBot, segmentScope } from "@/lib/db/org-shared";
+import { isBot, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 
 export interface OrgContributor {
   login: string;
@@ -13,13 +13,13 @@ export interface OrgContributor {
 }
 
 /** Contributors aggregated across the org's repos — for the 'who is AI-native' view. */
-export async function getOrgContributors(orgSlug: string, segmentId?: string | null): Promise<OrgContributor[]> {
+export async function getOrgContributors(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgContributor[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return [];
   const rows = await prisma.repoContributor.findMany({
-    where: { repo: { orgId: org.id, ...segmentScope(segmentId) } },
+    where: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
     select: { login: true, name: true, commits: true, aiCommits: true },
   });
   const map = new Map<string, OrgContributor>();
@@ -75,14 +75,14 @@ export interface ContributorInsights {
 }
 
 /** Contributor involvement, AI-native profiles, champions, and bus-factor across an org. */
-export async function getContributorInsights(orgSlug: string, segmentId?: string | null): Promise<ContributorInsights | null> {
+export async function getContributorInsights(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<ContributorInsights | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
   const rows = await prisma.repoContributor.findMany({
-    where: { repo: { orgId: org.id, ...segmentScope(segmentId) } },
+    where: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
     select: {
       login: true,
       name: true,

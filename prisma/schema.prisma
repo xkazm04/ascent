@@ -67,6 +67,9 @@ model Organization {
   segments      Segment[]
   playbooks     Playbook[]
   invites       Invite[]
+  orgSkills     OrgSkill[]
+  techGroups    TechStackGroup[]
+  llmConfig     OrgLlmConfig?
 }
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
@@ -156,6 +159,9 @@ model Repository {
   url             String
   isPrivate       Boolean   @default(false)
   primaryLanguage String?
+  // Latest detected tech stack (Feature 3a), cached from the most recent scan for fleet-wide grouping
+  // without re-deriving. JSON TechStack (see src/lib/analyze/tech-extract.ts). Null until first scan.
+  techStackJson   String?
   stars           Int       @default(0)
   // Current default-branch head + the GitHub ETag from the last conditional HEAD lookup.
   // Together these back the cross-instance scan cache: a re-scan sends `If-None-Match: headEtag`
@@ -187,6 +193,7 @@ model Repository {
   contributors RepoContributor[]
   teams        RepoTeam[]
   segments     RepoSegment[]
+  techGroups   TechStackGroupMember[]
 
   @@unique([orgId, fullName])
   @@index([orgId])
@@ -289,6 +296,9 @@ model Scan {
   prStats        String? // JSON PrStats (pull-request process signals); null if no token
   governance     String? // JSON Governance (branch protection / rulesets); null if no token
   commitActivity String? // JSON number[] — last ~12 weekly commit totals; null if no token
+  // Per-scan detected tech stack (Feature 3a) — JSON TechStack. Keeps history honest when a repo
+  // re-stacks; the latest is also cached on Repository.techStackJson. Display-only (never scored).
+  techStackJson  String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens    Int?
@@ -491,6 +501,127 @@ model PlaybookApplication {
   @@unique([playbookId, repoFullName])
   @@index([playbookId])
   @@index([orgId])
+}
+
+// Org Skills Library (Feature 2) — a scalable, categorized catalog of reusable Claude/LLM "skills"
+// (SKILL.md-like prompt/workflow assets) authored in-app, so members discover and reuse the org's own
+// best assets. Mirrors the Playbook stack (org-authored library item + adoption tracking) but adds a
+// `category` (indexed) for filtering at scale and a denormalized `downloadCount` for DB-side
+// sort-by-most-used. DISTINCT from SkillGeneration (the per-repo onboarding SKILL.md generator) — no
+// coupling. `tags` and the body are JSON/TEXT (no jsonb). See src/lib/db/org-skills.ts.
+model OrgSkill {
+  id            String   @id @default(uuid())
+  orgId         String
+  name          String // <= 200 chars; unique within the org
+  description   String   @default("") // <= 1000
+  content       String // the skill body (SKILL.md-like markdown); <= 50KB
+  category      String // one of src/lib/org/skill-categories.ts (validated on write)
+  tags          String   @default("[]") // JSON string[] — secondary, optional refinement
+  version       Int      @default(1) // bumped on a content edit (mirror Playbook), the change-history anchor
+  archived      Boolean  @default(false) // soft archive, not hard delete
+  downloadCount Int      @default(0) // denormalized rolling tally for DB-side sort-by-downloads (§8.8)
+  createdBy     String? // GitHub login of the author
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org       Organization       @relation(fields: [orgId], references: [id])
+  adoptions OrgSkillAdoption[]
+
+  @@unique([orgId, name])
+  @@index([orgId, archived])
+  @@index([orgId, category])
+}
+
+// Records that a repo adopted a skill — the explicit reuse signal (mirror PlaybookApplication). One row
+// per (skill, repo). `orgId` is denormalized for org-level rollups. No DB FKs (relationMode="prisma").
+model OrgSkillAdoption {
+  id           String   @id @default(uuid())
+  skillId      String
+  orgId        String // denormalized for org-scoped aggregation
+  repoFullName String
+  adoptedBy    String? // GitHub login who marked it adopted
+  adoptedAt    DateTime @default(now())
+
+  skill OrgSkill @relation(fields: [skillId], references: [id])
+
+  @@unique([skillId, repoFullName])
+  @@index([skillId])
+  @@index([orgId])
+}
+
+// One rolling download/use tally row per skill (mirror BadgeImpression/QuotaEvent) — org-internal usage
+// counter, bumped fire-and-forget on download or "copy for LLM". `OrgSkill.downloadCount` is the
+// denormalized mirror used for sorting; this row additionally carries `lastSeen` (and is the seam for a
+// future per-day trend). Standalone — keyed by skillId. Block-level @@unique keeps the inline-@unique
+// parity list in init-sql.test.ts intact (same generated index name as an inline @unique).
+model OrgSkillDownload {
+  id       String   @id @default(uuid())
+  skillId  String
+  count    Int      @default(0)
+  lastSeen DateTime @updatedAt
+
+  @@unique([skillId])
+}
+
+// Auto-derived tech-stack group (Feature 3b) — a parallel, immutable grouping of an org's repos by
+// detected stack (frontend / backend:<lang> / mobile / data_ml / infra / library), maintained by
+// syncTechStackGroups on each scan. Distinct from the user-owned Segment (deliberately separate so
+// auto-groups don't clutter the Segments UI). Multi-membership: a fullstack repo is in several groups.
+// `key` is the stable identity (see techGroupsFor in src/lib/org/tech-stack.ts); `label` is display.
+model TechStackGroup {
+  id        String   @id @default(uuid())
+  orgId     String
+  key       String // "frontend" | "backend:node" | "backend:python" | "mobile" | "data_ml" | "infra" | "library"
+  label     String // "Frontend", "Backend · Python"
+  updatedAt DateTime @updatedAt
+
+  org     Organization           @relation(fields: [orgId], references: [id])
+  members TechStackGroupMember[]
+
+  @@unique([orgId, key])
+  @@index([orgId])
+}
+
+// Membership of a repo in a tech-stack group — the auto-maintained join (reconciled per scan). One row
+// per (group, repo). Standalone cascade at the Prisma layer (no DB FKs under relationMode="prisma").
+model TechStackGroupMember {
+  id      String @id @default(uuid())
+  groupId String
+  repoId  String
+
+  group TechStackGroup @relation(fields: [groupId], references: [id])
+  repo  Repository     @relation(fields: [repoId], references: [id])
+
+  @@unique([groupId, repoId])
+  @@index([groupId])
+  @@index([repoId])
+}
+
+// Per-org connected LLM (BYOM — Feature 1). One row per org: the org's own Amazon Bedrock provider so
+// inference runs in THEIR AWS account/region/bill (the enterprise privacy unlock). The credential is
+// stored ONLY in `credentialsEncrypted` (AES-256-GCM via src/lib/crypto/secret-box.ts) — never a plain
+// column, never returned by the API, decrypted only at provider-construction time. `enabled=false`
+// lets an org save+test before going live (or support pause a misconfig). Enterprise-plan gated +
+// fail-closed without ENCRYPTION_KEY. See src/lib/db/org-llm.ts.
+model OrgLlmConfig {
+  id                   String    @id @default(uuid())
+  orgId                String
+  provider             String    @default("bedrock") // "bedrock" (v1); future: openai | vertex | self_hosted
+  enabled              Boolean   @default(false) // configured-but-paused vs active
+  modelId              String // e.g. "us.anthropic.claude-sonnet-4-6"
+  region               String? // bedrock region
+  authMode             String    @default("static") // "static" | (future) "assume_role"
+  // Encrypted JSON blob (secret-box v1): { accessKeyId, secretAccessKey }. Null = no creds stored yet.
+  credentialsEncrypted String?
+  lastValidatedAt      DateTime? // set by the test-connection endpoint
+  lastValidationError  String?
+  createdBy            String? // GitHub login
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId])
 }
 
 // Server-side session revocation. The signed session cookie embeds the `sv` (session

@@ -156,6 +156,7 @@ export async function buildExecBriefing(
   window?: OrgWindow,
   periodTitle = "all time",
   segmentId?: string | null,
+  techGroupId?: string | null,
 ): Promise<ExecBriefing | null> {
   // EXEC-4: the immediately-preceding equal-length window — its END state is the start of this one,
   // so current-minus-prior reads as movement across the period (per dimension + headline). Only when
@@ -168,13 +169,13 @@ export async function buildExecBriefing(
     : undefined;
 
   const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity] = await Promise.all([
-    getOrgRollup(orgSlug, window, segmentId),
+    getOrgRollup(orgSlug, window, segmentId, techGroupId),
     getOrgBenchmark(orgSlug),
-    getOrgMovers(orgSlug, window, segmentId),
+    getOrgMovers(orgSlug, window, segmentId, techGroupId),
     listGoals(orgSlug),
-    priorWindow ? getOrgRollup(orgSlug, priorWindow, segmentId) : Promise.resolve(null),
-    getOrgEngineMix(orgSlug, window, segmentId),
-    getOrgRecsActioned(orgSlug, window, segmentId),
+    priorWindow ? getOrgRollup(orgSlug, priorWindow, segmentId, techGroupId) : Promise.resolve(null),
+    getOrgEngineMix(orgSlug, window, segmentId, techGroupId),
+    getOrgRecsActioned(orgSlug, window, segmentId, techGroupId),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 

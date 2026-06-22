@@ -1,6 +1,8 @@
 import { Card, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { getOrgActivity, getOrgGovernance, getOrgPrSignals, listSegments } from "@/lib/db";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -37,21 +39,20 @@ export default async function OrgDelivery({
   const { slug } = await params;
   const sp = await searchParams;
 
-  // Optional segment scope, validated against the org's segments (bogus id → whole fleet) — parity
-  // with the Contributors tab so a leader can read delivery/governance for one business unit.
-  const segments = (await listSegments(slug)) ?? [];
-  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
-  const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
+  // Optional segment + tech-stack scope (bogus id/key → whole fleet) so a leader can read
+  // delivery/governance for one business unit or stack; the two filters compose.
+  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
   const [pr, gov, activity] = await Promise.all([
-    getOrgPrSignals(slug, segmentId),
-    getOrgGovernance(slug, segmentId),
-    getOrgActivity(slug, segmentId),
+    getOrgPrSignals(slug, segmentId, techGroupId),
+    getOrgGovernance(slug, segmentId, techGroupId),
+    getOrgActivity(slug, segmentId, techGroupId),
   ]);
 
   const segmentBar = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
       <a
         href={`/api/org/export?org=${encodeURIComponent(slug)}&kind=delivery&format=csv${segmentId ? `&segment=${segmentId}` : ""}`}
         className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"

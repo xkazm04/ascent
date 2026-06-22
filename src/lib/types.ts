@@ -152,6 +152,28 @@ export interface TeamOwnership {
   isDefaultOwner: boolean; // the team owns the "*" catch-all rule (the repo's primary owner)
 }
 
+/** A repo's role in the fleet (Feature 3). MULTI-valued — a fullstack repo is both frontend AND
+ *  backend; an app repo with Terraform is also infra. `unknown` is the empty/undetectable fallback. */
+export type StackRole = "frontend" | "backend" | "mobile" | "data_ml" | "infra" | "library" | "unknown";
+
+/** Detected tech stack for a repo (Feature 3a) — derived deterministically from the snapshot's
+ *  manifests + tree + primary language by extractTechStack(). Persisted per scan and cached on the repo;
+ *  surfaced for display (badges) and tech-based grouping. Does NOT feed scoring (Option A, display-only)
+ *  so scans stay byte-identical. */
+export interface TechStack {
+  /** Languages, most-prominent first (e.g. ["TypeScript", "Python"]). */
+  languages: string[];
+  /** App frameworks / notable tools (e.g. ["React", "Next.js", "FastAPI"]). */
+  frameworks: string[];
+  /** Roles this repo fills (multi). */
+  roles: StackRole[];
+  /** Primary backend language for "Backend·<lang>" grouping (e.g. "Node", "Python"); absent if not a
+   *  backend repo. */
+  backendLanguage?: string;
+  /** 0..1 — confidence in the detection, from coverage + how many manifests were found. */
+  confidence: number;
+}
+
 export interface RepoSnapshot {
   meta: RepoMeta;
   /** Full recursive tree of file/dir paths (may be truncated by GitHub). */
@@ -342,6 +364,9 @@ export interface ScanReport {
   discrepancies: Discrepancy[];
   /** 0..1 — how much of the repo we could inspect. */
   confidence: number;
+  /** Detected tech stack (languages / frameworks / roles), for display + tech grouping (Feature 3a).
+   *  Display-only — never feeds scoring. Undefined on reconstructed snapshots that predate extraction. */
+  techStack?: TechStack;
   /** Non-fatal caveats about this scan's reliability (low coverage, LLM fallback, …). */
   warnings?: string[];
   scannedAt: string;

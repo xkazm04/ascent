@@ -175,5 +175,30 @@ export function providerByName(name: string | undefined | null): LLMProvider | n
   }
 }
 
+/**
+ * Org-aware provider selection (BYOM — Feature 1). When the org has an ACTIVE Bedrock config (enabled
+ * + creds + Enterprise plan + ENCRYPTION_KEY — see resolveByomProvider), build a Bedrock provider with
+ * the org's DECRYPTED credentials so inference runs in their AWS account; `byom:true` tells the scan
+ * pipeline to skip platform credits + the platform fallback (fail to mock, §8.2). Otherwise fall back
+ * to the env-driven getProvider() (the anonymous/public + non-BYOM path is unchanged). forceMock wins.
+ */
+export async function getProviderForOrg(
+  orgSlug: string | undefined | null,
+  opts: { forceMock?: boolean } = {},
+): Promise<{ provider: LLMProvider; byom: boolean }> {
+  if (opts.forceMock) return { provider: new MockProvider(), byom: false };
+  if (orgSlug && orgSlug !== "public") {
+    const { resolveByomProvider } = await import("@/lib/db/org-llm");
+    const byom = await resolveByomProvider(orgSlug).catch(() => null);
+    if (byom) {
+      return {
+        provider: new BedrockProvider({ model: byom.model, region: byom.region, credentials: byom.credentials }),
+        byom: true,
+      };
+    }
+  }
+  return { provider: getProvider(opts), byom: false };
+}
+
 export { MockProvider };
 export type { LLMProvider };

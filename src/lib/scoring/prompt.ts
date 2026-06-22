@@ -111,7 +111,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   system: string;
   user: string;
 } {
-  const { repo, signals, files, commitSample, archetype, prStats, governance, stackFit } = input;
+  const { repo, signals, files, commitSample, archetype, prStats, governance, stackFit, techStack } = input;
 
   const signalBlock = signals
     .map((s) => {
@@ -152,7 +152,7 @@ REPOSITORY
 - Language: ${repo.primaryLanguage ?? "unknown"} | Stars: ${repo.stars} | Last push: ${repo.pushedAt ?? "?"}
 - Description: ${repo.description ?? "(none)"}
 - Inferred run-style: ${archetype} (solo/early, team/product, or org/platform) — judge maturity in this context.
-${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}
+${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}${techStack ? `\nDETECTED TECH STACK (parsed from manifests — sanity-check the evidence against it; flag in discrepancies any stack-vs-evidence mismatch, e.g. a claimed backend with no tests/CI, or a frontend with no build pipeline):\n- Languages: ${techStack.languages.join(", ") || "unknown"}\n- Frameworks: ${techStack.frameworks.join(", ") || "none detected"}\n- Roles: ${techStack.roles.join(", ")}${techStack.backendLanguage ? ` (backend: ${techStack.backendLanguage})` : ""}\n` : ""}
 DETERMINISTIC SIGNALS (computed from the repo; treat as ground truth and calibrate to these):
 ${signalBlock}
 

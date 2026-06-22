@@ -6,6 +6,8 @@ import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { resolveStackScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
 
@@ -23,8 +25,10 @@ export default async function OrgSecurity({
   const { slug } = await params;
   const sp = await searchParams;
   const period = await resolveOrgWindow(sp);
+  // Optional tech-stack scope (Feature 3b): "Frontend security vs Backend" — scope the whole overview.
+  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const [sec, supply] = await Promise.all([
-    buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title),
+    buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title, techGroupId),
     getOrgSupplyChain(slug),
   ]);
 
@@ -45,6 +49,7 @@ export default async function OrgSecurity({
           description={`Where the fleet stands on Security (${sec.dimLabel}, D9) and default-branch governance — the weakest repos and the protection gaps. Copy the remediation brief into Claude Code to act on it.`}
         />
         <div className="flex flex-wrap items-center gap-2">
+          <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
           <a
             href={`/api/org/security/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}`}
             className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"

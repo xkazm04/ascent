@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { BriefingDocument } from "@/lib/pdf/briefing-document";
 import { buildExecBriefing } from "@/lib/org/briefing";
-import { getOrgBranding, isDbConfigured } from "@/lib/db";
+import { getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveWindow } from "@/lib/window";
 
@@ -31,7 +31,9 @@ export async function GET(request: Request) {
   });
   // A reseller can scope the briefing to one client via ?segment=<id> — a per-client deliverable.
   const segmentId = sp.get("segment");
-  const briefing = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title, segmentId).catch(
+  // ?stack=<key> scopes the deliverable to one tech-stack group (Feature 3b) — carried from the page.
+  const techGroupId = await getTechGroupIdByKey(org, sp.get("stack")).catch(() => null);
+  const briefing = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title, segmentId, techGroupId).catch(
     () => null,
   );
   if (!briefing) {

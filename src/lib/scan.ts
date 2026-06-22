@@ -13,9 +13,11 @@ import {
 } from "@/lib/github/source";
 import { analyzeSignals, classifyArchetype } from "@/lib/analyze";
 import { detectStackFit } from "@/lib/analyze/stack-fit";
+import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
-import { getProvider, providerByName, MockProvider } from "@/lib/llm";
+import { getProvider, getProviderForOrg, providerByName, MockProvider } from "@/lib/llm";
+import { techStackPromptEnabled } from "@/lib/llm/config";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { isAssessmentUsable } from "@/lib/llm/provider";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
@@ -41,6 +43,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export interface ScanOptions {
   token?: string;
   mock?: boolean;
+  /**
+   * Owning org slug (BYOM — Feature 1). When set to a real org with an ACTIVE Bedrock config, the scan
+   * runs on the org's own Bedrock (its AWS account/bill) and the platform fallback is suppressed (fail
+   * to mock, §8.2). Omitted / "public" uses the env-driven platform provider, unchanged.
+   */
+  orgSlug?: string;
   /**
    * When true, do NOT fall back to the ambient `process.env.GITHUB_TOKEN` if no explicit `token`
    * is given. Public, unauthenticated surfaces (the README badge) set this so a private repo can't
@@ -116,7 +124,12 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // the loading UI renders "Asking Gemini…" / "Querying Bedrock in us-east-1…" from these
   // fields, starting with the very first frame. Construction is side-effect-free: no network
   // call or SDK load happens until assess() runs.
-  let provider: LLMProvider = getProvider({ forceMock: opts.mock });
+  // Org-aware provider selection (BYOM — Feature 1): a real org with an active Bedrock config scans on
+  // its own Bedrock; otherwise the env-driven platform provider. `byomScan` suppresses the platform
+  // fallback below so a BYOM failure degrades to mock only (privacy-strict, §8.2) — never the platform.
+  const providerSelection = await getProviderForOrg(opts.orgSlug, { forceMock: opts.mock });
+  let provider: LLMProvider = providerSelection.provider;
+  const byomScan = providerSelection.byom;
   const intendedProvider = provider.name;
   const providerRegion = provider instanceof BedrockProvider ? provider.region : undefined;
 
@@ -179,6 +192,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // discrepancy audit calibrate to the stack instead of judging notebooks on web conventions. Detected
   // once and reused for the user-facing warning below. [Tiger P0-2]
   const stackFit = detectStackFit(snapshot);
+  // Tech-stack detection (Feature 3a): computed once here from the already-fetched manifests/tree.
+  // Always attached to the report (display/persist); fed into the PROMPT only when the gated
+  // TECH_STACK_PROMPT flag is on (Option B) — default off keeps scans byte-identical.
+  const techStack = extractTechStack(snapshot);
 
   const scoreInput: LlmScoreInput = {
     repo: snapshot.meta,
@@ -192,6 +209,8 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     governance,
     // Name the stack the rubric under-reads so the model weights the affected dimensions accordingly.
     stackFit,
+    // Option B (gated): include the detected stack in the prompt only when explicitly enabled.
+    ...(techStackPromptEnabled() ? { techStack } : {}),
   };
 
   let llmFailed = false;
@@ -250,8 +269,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   );
   const llmSignal = signal ? AbortSignal.any([signal, llmDeadline.signal]) : llmDeadline.signal;
   try {
+    // BYOM scans never fall over to the PLATFORM provider (that would send the org's data to Ascent's
+    // account, defeating the privacy guarantee) — they retry the org's Bedrock, then degrade to mock.
     const fallback =
-      intendedProvider === "mock" ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
+      intendedProvider === "mock" || byomScan ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
     const plan: { p: LLMProvider; note?: string }[] = [{ p: provider }];
     if (intendedProvider !== "mock") plan.push({ p: provider, note: `Retrying ${intendedProvider}…` });
     if (fallback && fallback.name !== intendedProvider)
@@ -317,6 +338,9 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Team attribution from CODEOWNERS (the file is already in the snapshot — no extra GitHub call).
   // Display + persist only; it doesn't move the score. Empty array = no CODEOWNERS teams found.
   report.teams = extractTeamOwnership(snapshot.files);
+  // Tech-stack detection (Feature 3a): computed once above. Always attached for display/persistence
+  // (the prompt enrichment is the separate, gated Option-B path).
+  report.techStack = techStack;
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...capturedUsage, latencyMs: llmLatencyMs };

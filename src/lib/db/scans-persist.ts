@@ -15,6 +15,7 @@ import {
   withRepoLock,
 } from "@/lib/db/scans-shared";
 import { findScanByCommit, findScanByScannedAt } from "@/lib/db/scans-read";
+import { syncTechStackGroups } from "@/lib/db/tech-groups";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
 export interface PersistResult {
@@ -91,6 +92,9 @@ export async function persistScanReport(
     stars: report.repo.stars,
     isPrivate: report.repo.isPrivate ?? false,
   };
+  // Cache the latest detected tech stack (Feature 3a) ONLY when this report carries one — a
+  // reconstructed snapshot (no techStack) must leave the existing cache untouched, mirroring `teams`.
+  if (report.techStack) repoUpdate.techStackJson = JSON.stringify(report.techStack);
   const repo = await withRetry(
     () =>
       upsertRacing(
@@ -107,6 +111,7 @@ export async function persistScanReport(
               url: report.repo.url,
               isPrivate: report.repo.isPrivate ?? false,
               primaryLanguage: report.repo.primaryLanguage ?? null,
+              techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
               stars: report.repo.stars,
               lastScanAt: scannedAtDate,
               headSha,
@@ -210,6 +215,7 @@ export async function persistScanReport(
             prStats: report.prStats ? JSON.stringify(report.prStats) : null,
             governance: report.governance ? JSON.stringify(report.governance) : null,
             commitActivity: report.commitActivity ? JSON.stringify(report.commitActivity) : null,
+            techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
             // Persist a CACHE-AWARE cost basis: billableInputTokens folds prompt-cache reads (~10%) and
             // writes (~125%) into a cost-equivalent input count, so /usage prices a cached scan correctly
             // off the single inputTokens column (no schema migration). Null stays null for a mock/no-token
@@ -349,6 +355,11 @@ export async function persistScanReport(
       cacheDelete(makeCacheKey(owner, name, useLLM, headSha));
       cacheDelete(makeCacheKey(owner, name, useLLM));
     }
+
+    // Reconcile this repo's auto-derived tech-stack group memberships (Feature 3b) from the detected
+    // stack. Best-effort — grouping is display metadata and must never break a scan persist; a
+    // transient failure self-corrects on the next scan (sync is idempotent).
+    await syncTechStackGroups(orgId, repo.id, report.techStack).catch(() => {});
 
     return { scanId, deduped: dedupedByRace, headSha, failures: { audit: false, contributors: 0 } };
   }, { label: "persistScanReport:scan" }));

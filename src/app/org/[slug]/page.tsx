@@ -6,12 +6,14 @@ import { GoalsOverview } from "@/components/org/GoalsOverview";
 import { PeriodSummary } from "@/components/org/PeriodSummary";
 import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { OrgStanding } from "@/components/org/OrgStanding";
 import { OrgGapsSection } from "@/components/org/OrgGapsSection";
 import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
 import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
 import { CollapsibleSection, OVERVIEW_COLLAPSE_COOKIE } from "@/components/org/CollapsibleSection";
-import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals, listSegments } from "@/lib/db";
+import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals } from "@/lib/db";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { canReadOrg } from "@/lib/authz";
 import { cookies } from "next/headers";
 import { levelForScore } from "@/lib/maturity/model";
@@ -97,23 +99,20 @@ export default async function OrgOverview({
   const collapsed = new Set((cookieStore.get(OVERVIEW_COLLAPSE_COOKIE)?.value ?? "").split(",").filter(Boolean));
   const sectionOpen = (id: string) => !collapsed.has(id);
 
-  // Optional segment scope: validate the `?segment=` id against the org's segments (a bogus id
-  // falls back to the whole fleet) so every aggregate below is scoped to the same tagged repos.
-  const segments = (await listSegments(slug)) ?? [];
-  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
-  const activeSegment = segments.find((s) => s.id === segParam) ?? null;
-  const segmentId = activeSegment?.id ?? null;
+  // Optional segment + tech-stack scope (a bogus id/key falls back to the whole fleet): every aggregate
+  // below is scoped to the same repos, and the two filters compose.
+  const { segments, activeSegment, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
   // The six section queries are independent of each other — only `segmentId` (validated from
   // `listSegments` above) feeds them — so fetch concurrently rather than as a ~6-stage await
   // waterfall (each helper is itself 2-3 DB round trips; serialized they dominated the landing
   // tab's TTFB). The sibling tabs (practices/plan/delivery) already use Promise.all.
   const [rollup, movers, orgRecs, benchmark, gaps, goals] = await Promise.all([
-    getOrgRollup(slug, win, segmentId),
-    getOrgMovers(slug, win, segmentId),
-    getOrgRecommendations(slug, 5, segmentId),
+    getOrgRollup(slug, win, segmentId, techGroupId),
+    getOrgMovers(slug, win, segmentId, techGroupId),
+    getOrgRecommendations(slug, 5, segmentId, techGroupId),
     getOrgBenchmark(slug),
-    getOrgGapAnalysis(slug, segmentId),
+    getOrgGapAnalysis(slug, segmentId, techGroupId),
     listGoals(slug),
   ]);
   // The layout decides whether to render the org shell at all (org exists + has data); reaching here
@@ -165,9 +164,16 @@ export default async function OrgOverview({
               <span className="text-accent">{activeSegment.name}</span> segment
             </>
           )}
+          {activeStack && (
+            <>
+              {" · "}
+              <span className="text-accent">{activeStack.label}</span> stack
+            </>
+          )}
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <SegmentSelector segments={segments} active={segmentId} />
+          <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
           <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
         </div>
       </div>

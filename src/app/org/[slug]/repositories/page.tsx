@@ -1,15 +1,26 @@
 import { DIMS, OrgEmpty, SectionHeader } from "@/components/org/ui";
 import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
 import { RepoLeaderboard } from "@/components/org/RepoLeaderboard";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
+import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { DIMENSION_SHORT, heatCell } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function OrgRepositories({ params }: { params: Promise<{ slug: string }> }) {
+export default async function OrgRepositories({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { slug } = await params;
-  const rollup = await getOrgRollup(slug);
+  const sp = await searchParams;
+  // Optional tech-stack scope (Feature 3b): scope the leaderboard/heatmap to the selected group's repos.
+  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
+  const rollup = await getOrgRollup(slug, undefined, null, techGroupId);
   // Same empty-state contract as the overview: don't render a blank panel inside the org shell when
   // there's no fleet data to table — point the user at how to populate it.
   if (!rollup) {
@@ -50,12 +61,15 @@ export default async function OrgRepositories({ params }: { params: Promise<{ sl
           title="Repositories"
           description={`${rollup.scannedCount}/${rollup.repoCount} scanned — sorted by overall maturity.`}
           right={
-            <a
-              href={`/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv`}
-              className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
-            >
-              Export CSV
-            </a>
+            <div className="flex flex-wrap items-center gap-2">
+              <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
+              <a
+                href={`/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv`}
+                className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+              >
+                Export CSV
+              </a>
+            </div>
           }
         />
         <RepoLeaderboard slug={slug} rows={leaderboard} segments={segments} schedulable={schedulable} />

@@ -11,6 +11,7 @@ export function BriefingShareButton({
   from,
   to,
   segment,
+  stack,
 }: {
   org: string;
   range: string;
@@ -19,6 +20,8 @@ export function BriefingShareButton({
   // EXEC #1: the active per-client segment scope, carried into the signed token so the shared
   // read-only board page re-runs the briefing scoped to the same client, not the whole org.
   segment?: string | null;
+  // Feature 3b: the active tech-stack group key, carried so a "Frontend briefing" share stays scoped.
+  stack?: string | null;
 }) {
   const [state, setState] = useState<"idle" | "working" | "copied" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
@@ -30,7 +33,7 @@ export function BriefingShareButton({
       const res = await fetch("/api/org/briefing/share", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org, range, from, to, segment: segment ?? undefined }),
+        body: JSON.stringify({ org, range, from, to, segment: segment ?? undefined, stack: stack ?? undefined }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error ?? "Couldn't create a share link.");

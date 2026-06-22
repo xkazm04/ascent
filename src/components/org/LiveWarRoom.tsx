@@ -28,6 +28,7 @@ export function LiveWarRoom({
   slug,
   watchedCount,
   seed,
+  scanRepos,
   goal = null,
   campaignDelta = null,
   readOnly = false,
@@ -36,6 +37,9 @@ export function LiveWarRoom({
   slug: string;
   watchedCount: number;
   seed: LiveRepoSeed[];
+  /** When set (a tech-stack scope is active), launch scans ONLY these repos via /api/org/scan's
+   *  `repos` filter, so the wall stays scoped to the stack. Undefined = the whole watched fleet. */
+  scanRepos?: string[];
   /** The active goal the wall rallies around (target meter + pace + deadline countdown). */
   goal?: GoalProgressView | null;
   /** Overall-score movement since the campaign (goal) started, for the "since kickoff" line. */
@@ -189,7 +193,8 @@ export function LiveWarRoom({
       const res = await fetch("/api/org/scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug }),
+        // Scope the scan to the active stack's repos when set (else the whole watched fleet).
+        body: JSON.stringify(scanRepos && scanRepos.length > 0 ? { org: slug, repos: scanRepos } : { org: slug }),
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {
@@ -235,7 +240,7 @@ export function LiveWarRoom({
     } finally {
       abortRef.current = null;
     }
-  }, [onRepo, slug, watchedCount]);
+  }, [onRepo, slug, watchedCount, scanRepos]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();

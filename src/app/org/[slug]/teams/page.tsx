@@ -1,7 +1,9 @@
 import { Card, Meter, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex, fmtDelta } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { getOrgTeamRollup, listSegments, type TeamRollup } from "@/lib/db";
+import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { getOrgTeamRollup, type TeamRollup } from "@/lib/db";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -124,16 +126,15 @@ export default async function TeamsPage({
   const { slug } = await params;
   const sp = await searchParams;
 
-  // Optional segment scope (parity with Contributors/Delivery): a bogus id falls back to the fleet.
-  const segments = (await listSegments(slug)) ?? [];
-  const segParam = Array.isArray(sp.segment) ? sp.segment[0] : sp.segment;
-  const segmentId = segments.find((s) => s.id === segParam)?.id ?? null;
+  // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
+  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
-  const rollup = await getOrgTeamRollup(slug, segmentId);
+  const rollup = await getOrgTeamRollup(slug, segmentId, techGroupId);
 
-  const segmentBar = segments.length > 0 && (
-    <div className="mb-4 flex justify-end">
-      <SegmentSelector segments={segments} active={segmentId} />
+  const segmentBar = (segments.length > 0 || techGroups.length > 0) && (
+    <div className="mb-4 flex flex-wrap justify-end gap-2">
+      {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
     </div>
   );
 

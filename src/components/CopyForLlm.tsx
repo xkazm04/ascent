@@ -12,10 +12,13 @@ export function CopyForLlm({
   text,
   label = "Copy for LLM",
   className = "",
+  onCopied,
 }: {
   text: string;
   label?: string;
   className?: string;
+  /** Fired once when a copy succeeds — e.g. to count a "use" (Org Skills Library, §8.7). Best-effort. */
+  onCopied?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -26,6 +29,7 @@ export function CopyForLlm({
     const { next, resetMs } = nextCopyState(ok);
     if (next === "copied") {
       setCopied(true);
+      onCopied?.();
       setTimeout(() => setCopied(false), resetMs);
     } else {
       setFailed(true);

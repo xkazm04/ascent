@@ -229,6 +229,42 @@ export {
   type PlaybookAdoption,
 } from "@/lib/db/playbooks";
 export {
+  listOrgSkills,
+  getOrgSkill,
+  getOrgSkillOrgSlug,
+  createOrgSkill,
+  updateOrgSkill,
+  archiveOrgSkill,
+  getOrgSkillAdoption,
+  adoptOrgSkill,
+  unadoptOrgSkill,
+  recordSkillDownload,
+  type SkillRow,
+  type SkillInput,
+  type SkillSort,
+  type SkillListOpts,
+  type SkillAdoption,
+} from "@/lib/db/org-skills";
+export {
+  syncTechStackGroups,
+  listTechStackGroups,
+  getTechGroupIdByKey,
+  listTechStackSummaries,
+  compareTechStacks,
+  type TechGroupSummary,
+} from "@/lib/db/tech-groups";
+export {
+  getOrgLlmConfig,
+  setOrgLlmConfig,
+  disableOrgLlmConfig,
+  recordOrgLlmValidation,
+  isByomActive,
+  resolveByomProvider,
+  type OrgLlmConfigPublic,
+  type OrgLlmConfigInput,
+  type ByomProviderParams,
+} from "@/lib/db/org-llm";
+export {
   forecastTrajectory,
   forecastHeadline,
   humanizeDays,

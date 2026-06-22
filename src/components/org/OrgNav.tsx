@@ -20,6 +20,7 @@ export function OrgNav({ slug }: { slug: string }) {
     { label: "Fleet", tabs: [
       { href: `${base}/repositories`, label: "Repositories" },
       { href: `${base}/segments`, label: "Segments" },
+      { href: `${base}/tech-stacks`, label: "Tech Stacks" },
       { href: `${base}/live`, label: "Live" },
     ] },
     { label: "Intelligence", tabs: [
@@ -34,10 +35,14 @@ export function OrgNav({ slug }: { slug: string }) {
       { href: `${base}/plan`, label: "Plan" },
       { href: `${base}/backlog`, label: "Backlog" },
     ] },
+    { label: "Library", tabs: [
+      { href: `${base}/skills`, label: "Skills" },
+    ] },
     { label: "Govern", tabs: [
       { href: `${base}/members`, label: "Members" },
       { href: `${base}/governance`, label: "Governance" },
       { href: `${base}/audit`, label: "Audit" },
+      { href: `${base}/settings`, label: "Settings" },
     ] },
   ];
 

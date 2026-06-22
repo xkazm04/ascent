@@ -12,6 +12,17 @@ export function envNumber(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Tech-stack prompt enrichment (Feature 3a, Option B) — OFF by default. When TECH_STACK_PROMPT=1|true,
+ * the detected stack is added as a short block to the assessment user message. Gated because adding to
+ * the prompt can move calibrated scores; roll out only after the bench shows median drift < 2 points
+ * (docs/CALIBRATION.md). Unset = zero prompt change = calibration untouched (the display-only path).
+ */
+export function techStackPromptEnabled(): boolean {
+  const v = (process.env.TECH_STACK_PROMPT ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
 // ---------------------------------------------------------------------------
 // Built-in per-model price table
 // ---------------------------------------------------------------------------

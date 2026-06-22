@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isDbConfigured, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, isDbConfigured, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
@@ -49,7 +49,11 @@ export async function POST(request: Request) {
   // Credit gate for the batch: each watched-repo scan draws one prepaid credit (unless the org is on
   // an unlimited plan). Refuse up front if there are none; if the balance can't cover every repo, scan
   // as many as it allows and report the rest as skipped-for-credits rather than failing the whole run.
-  const metered = org.toLowerCase() !== "public";
+  // BYOM (Feature 1): when the org scans on its OWN Bedrock, inference is billed to its AWS account, so
+  // the platform never charges a scan credit (enterprise is already unlimited; this is explicit + future-
+  // proof). Resolved once for the batch.
+  const byom = await isByomActive(org).catch(() => false);
+  const metered = org.toLowerCase() !== "public" && !byom;
   let unlimited = true;
   let scanList = repos;
   let skippedForCredits = 0;
@@ -135,7 +139,7 @@ export async function POST(request: Request) {
           };
           send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
           try {
-            const report = await scanRepository(repo.fullName, { token });
+            const report = await scanRepository(repo.fullName, { token, orgSlug: org });
             const persisted = await persistScanReport(report, { orgSlug: org });
             if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
               console.warn("[org/scan] persisted with partial write failures", {

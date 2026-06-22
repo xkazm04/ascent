@@ -3,8 +3,10 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
-import { segmentScope } from "@/lib/db/org-shared";
+import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
+import { parseTechStackJson } from "@/lib/analyze/tech-extract";
+import type { TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
  *  JSON blob. Returns undefined for a null/missing/malformed blob (no-token scan, parse error) so the
@@ -68,6 +70,9 @@ export interface OrgRepoRow {
   watched: boolean;
   /** GitHub's detected primary language, or null — drives auto-segments by language. */
   primaryLanguage: string | null;
+  /** Detected tech stack (Feature 3a), cached from the latest scan — null until first scan / if absent.
+   *  Drives tech badges on the leaderboard + tech-based grouping. */
+  techStack: TechStack | null;
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -165,7 +170,7 @@ export function computeWindowDeltas(
   };
 }
 
-export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null): Promise<OrgRollup | null> {
+export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
@@ -173,7 +178,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
 
   const start = window?.start ?? null;
   const end = window?.end ?? null;
-  const seg = segmentScope(segmentId);
+  // Segment AND tech-group filters compose — both narrow the same repo set (Feature 3b).
+  const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
 
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, ...seg, OR: [{ watched: true }, { scans: { some: {} } }] },
@@ -204,6 +210,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       isPrivate: r.isPrivate,
       watched: r.watched,
       primaryLanguage: r.primaryLanguage ?? null,
+      techStack: parseTechStackJson(r.techStackJson),
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,
@@ -354,7 +361,7 @@ export interface EngineMixEntry {
  * back to the deterministic mock) auditable, not just visible in the transient scan stream (DIANE).
  * Sorted by count desc; empty when the DB is off or the org has no scans.
  */
-export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null): Promise<EngineMixEntry[]> {
+export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<EngineMixEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
@@ -364,7 +371,7 @@ export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segme
   const groups = await prisma.scan.groupBy({
     by: ["engineProvider"],
     where: {
-      repo: { orgId: org.id, ...segmentScope(segmentId) },
+      repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
       ...(start || end ? { scannedAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
     },
     _count: true,
@@ -382,6 +389,7 @@ export async function getOrgRecsActioned(
   orgSlug: string,
   window?: OrgWindow,
   segmentId?: string | null,
+  techGroupId?: string | null,
 ): Promise<{ engaged: number; actioned: number }> {
   if (!isDbConfigured()) return { engaged: 0, actioned: 0 };
   const prisma = getPrisma();
@@ -392,7 +400,7 @@ export async function getOrgRecsActioned(
   const scope = {
     kind: "status",
     ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
-    recommendation: { scan: { repo: { orgId: org.id, ...segmentScope(segmentId) } } },
+    recommendation: { scan: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } } },
   };
   const [engaged, actioned] = await Promise.all([
     prisma.recommendationEvent.count({ where: scope }),
