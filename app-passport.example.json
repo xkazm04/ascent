@@ -1,0 +1,124 @@
+{
+  "$schema": "./app-passport.schema.json",
+  "passport": "app-passport",
+  "passportVersion": "0.1.0",
+  "generatedAt": "2026-06-17",
+  "generatedBy": "manual (hand-authored from a repo read; replace with a scanner export)",
+
+  "identity": {
+    "name": "ascent",
+    "slug": "ascent",
+    "purpose": "Scores how AI-native a codebase is (L1-L5) and installs the .ai/ standard that makes it agent-ready.",
+    "repo": "https://github.com/<owner>/ascent",
+    "owner": "<owner>",
+    "version": "0.1.0",
+    "archetype": "team",
+    "lifecycle": "beta",
+    "visibility": "private",
+    "license": "BUSL-1.1",
+    "criticality": "business"
+  },
+
+  "stack": {
+    "languages": [
+      { "name": "TypeScript", "primary": true },
+      { "name": "JavaScript", "primary": false }
+    ],
+    "runtime": "node>=20",
+    "frameworks": ["next@16.2.6", "react@19.2.4", "tailwind@4", "@react-pdf/renderer@4"],
+    "packageManager": "npm",
+    "persistence": [
+      {
+        "kind": "relational",
+        "engine": "postgres (dev) / aurora-dsql (prod, IAM-token auth)",
+        "orm": "prisma",
+        "migrations": "versioned",
+        "required": false
+      }
+    ],
+    "monitoring": {
+      "errorTracking": null,
+      "logs": "console",
+      "metrics": null,
+      "tracing": null,
+      "uptime": "/api/health (liveness endpoint)"
+    },
+    "hosting": "vercel",
+    "integrations": [
+      { "name": "GitHub", "kind": "vcs", "direction": "bidirectional", "auth": "github-app + oauth" },
+      { "name": "Google Gemini", "kind": "llm", "direction": "outbound", "auth": "api-key" },
+      { "name": "AWS Bedrock", "kind": "llm", "direction": "outbound", "auth": "iam" },
+      { "name": "OpenAI", "kind": "llm", "direction": "outbound", "auth": "api-key" },
+      { "name": "Claude CLI", "kind": "llm", "direction": "outbound", "auth": "local-cli" },
+      { "name": "Supabase", "kind": "auth", "direction": "outbound", "auth": "oauth (github)" },
+      { "name": "Polar", "kind": "payments", "direction": "bidirectional", "auth": "api-key + webhook-secret" }
+    ],
+    "secretsFrom": "env vars (.env / Vercel project env); AWS IAM for DSQL tokens; GitHub App private key"
+  },
+
+  "automationReadiness": {
+    "level": "L4",
+    "score": 76,
+    "artifacts": {
+      "agentInstructions": ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md"],
+      "contextGraph": "full",
+      "memory": false,
+      "manifest": false,
+      "evals": "partial",
+      "skills": true
+    },
+    "selfVerify": { "build": true, "test": true, "lint": true, "typecheck": true },
+    "aiInWorkflow": true,
+    "blockers": [
+      "No in-repo .ai/manifest.yaml or .ai/memory — Ascent generates the standard for other repos but does not yet carry it itself (dogfood gap).",
+      "Evals are calibration unit tests, not a golden-set harness for the app's own LLM output.",
+      "No AI review bot / LLM step gating its own PRs (would lift L4 -> L5)."
+    ]
+  },
+
+  "productionReadiness": {
+    "band": "beta",
+    "score": 64,
+    "ci": {
+      "level": "gated",
+      "provider": "github-actions",
+      "gates": ["lint", "typecheck", "test", "build"]
+    },
+    "tests": {
+      "level": "substantial",
+      "coveragePct": null,
+      "frameworks": ["vitest", "playwright"],
+      "criticalPathCovered": true
+    },
+    "security": {
+      "level": "policy",
+      "tools": ["SECURITY.md"]
+    },
+    "observability": {
+      "level": "none"
+    },
+    "delivery": {
+      "migrations": "versioned",
+      "iac": false,
+      "rollback": false
+    },
+    "blockers": [
+      "Zero observability: no error tracking, no structured logs, no alerting on the LLM->mock and audit-loss silent-degrade paths.",
+      "CI gates merges but does not deploy and runs no e2e job; deploy is via Vercel git integration (no migrate-deploy step).",
+      "Ironic gap for a security-scoring tool: no SAST/secret/dep scanning wired into its own CI."
+    ]
+  },
+
+  "links": {
+    "manifest": ".ai/manifest.yaml (generated for scanned repos; see docs/AI_MANIFEST_SPEC.md)",
+    "contextMap": "context-map.json",
+    "docs": "docs/",
+    "report": "docs/PRODUCTION_READINESS.md"
+  },
+
+  "evidence": {
+    "confidence": 0.7,
+    "source": "manual-audit (repo read on 2026-06-17; readiness scores are estimates, not a calibrated scan)",
+    "files": ["package.json", ".github/workflows/ci.yml", "prisma/migrations/", "docs/PRODUCTION_READINESS.md", "context-map.json", "CLAUDE.md", "AGENTS.md"]
+  }
+}

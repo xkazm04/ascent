@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ascent.dev/schemas/app-passport-0.1.json",
+  "title": "App Readiness Passport",
+  "description": "A small, descriptive, tool-naming fingerprint for cross-comparing many apps at a glance: what an app is, what it is built on, how ready it is for LLM-automated development, and how ready it is for production. Sibling to the vendor-neutral .ai/manifest.yaml (which is the agent-facing CONTRACT); the passport is the human/portfolio-facing SCORECARD. Readers MUST ignore fields they do not recognize.",
+  "type": "object",
+  "required": ["passport", "passportVersion", "identity", "stack", "automationReadiness", "productionReadiness"],
+  "additionalProperties": true,
+  "properties": {
+    "passport": { "const": "app-passport", "description": "Stable schema id (not a URL, so it can't rot)." },
+    "passportVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Semver of THIS schema. Additive within a major; readers ignore unknown fields." },
+    "generatedAt": { "type": "string", "format": "date", "description": "YYYY-MM-DD this passport was produced." },
+    "generatedBy": { "type": "string", "description": "Who/what produced it: 'manual', a scanner name, a CI job, etc." },
+
+    "identity": {
+      "type": "object",
+      "required": ["name", "purpose"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string", "description": "Stable, sortable key for portfolio tables." },
+        "purpose": { "type": "string", "description": "One line on what this app is for." },
+        "repo": { "type": "string", "description": "Canonical repo URL." },
+        "owner": { "type": "string", "description": "Org/user that owns it." },
+        "version": { "type": "string" },
+        "archetype": { "enum": ["solo", "team", "org"], "description": "How the repo is run — selects the readiness lens." },
+        "lifecycle": { "enum": ["prototype", "alpha", "beta", "ga", "maintenance", "deprecated"] },
+        "visibility": { "enum": ["public", "private", "internal"] },
+        "license": { "type": ["string", "null"], "description": "SPDX id or 'none' (legal blocker) or null if unknown." },
+        "criticality": { "enum": ["experimental", "internal", "business", "mission-critical"], "description": "How much a failure costs — frames how to read the readiness scores." }
+      }
+    },
+
+    "stack": {
+      "type": "object",
+      "description": "The tool-NAMING block. Unlike .ai/manifest.yaml this DELIBERATELY names concrete tools — that is the whole point of a first-sight comparison.",
+      "additionalProperties": true,
+      "properties": {
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "primary": { "type": "boolean" },
+              "share": { "type": "number", "minimum": 0, "maximum": 1, "description": "Optional 0..1 share of the codebase." }
+            }
+          }
+        },
+        "runtime": { "type": "string", "description": "e.g. 'node>=20', 'python3.12', 'go1.22'." },
+        "frameworks": { "type": "array", "items": { "type": "string" }, "description": "Named, with version: e.g. ['next@16', 'react@19', 'tailwind@4']." },
+        "packageManager": { "type": "string" },
+        "persistence": {
+          "type": "array",
+          "description": "Each datastore the app relies on. Empty array = stateless.",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["relational", "document", "key-value", "graph", "blob", "search", "vector", "queue", "cache", "none"] },
+              "engine": { "type": "string", "description": "Named: 'postgres', 'aurora-dsql', 'redis', 'dynamodb', 's3', ..." },
+              "orm": { "type": ["string", "null"], "description": "Named: 'prisma', 'drizzle', 'sqlalchemy', or null." },
+              "migrations": { "enum": ["none", "scripted", "versioned"], "description": "Versioned + committed = safe deploys." },
+              "required": { "type": "boolean", "description": "false if the app degrades gracefully without it." }
+            }
+          }
+        },
+        "monitoring": {
+          "type": "object",
+          "description": "Named observability vendors/tools. nulls are meaningful — they say 'this is absent'.",
+          "additionalProperties": true,
+          "properties": {
+            "errorTracking": { "type": ["string", "null"], "description": "e.g. 'sentry', 'rollbar', or null." },
+            "logs": { "type": ["string", "null"], "description": "e.g. 'structured/pino', 'console', 'logtail', or null." },
+            "metrics": { "type": ["string", "null"], "description": "e.g. 'prometheus', 'datadog', or null." },
+            "tracing": { "type": ["string", "null"], "description": "e.g. 'otel', 'datadog-apm', or null." },
+            "uptime": { "type": ["string", "null"], "description": "Health/liveness endpoint or external monitor." }
+          }
+        },
+        "hosting": { "type": ["string", "null"], "description": "Named: 'vercel', 'aws-ecs', 'fly', 'self-hosted'." },
+        "integrations": {
+          "type": "array",
+          "description": "Every external service the app talks to. The 'kind' is the comparable axis; 'name' is the vendor.",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "enum": ["llm", "vcs", "auth", "payments", "email", "storage", "queue", "analytics", "search", "comms", "ci-cd", "infra", "other"] },
+              "direction": { "enum": ["inbound", "outbound", "bidirectional"] },
+              "auth": { "type": "string", "description": "How the app authenticates to it: 'oauth', 'api-key', 'iam', 'webhook-secret', ..." }
+            }
+          }
+        },
+        "secretsFrom": { "type": "string", "description": "Where secrets legitimately come from (vault/keyring/env), never the secrets themselves." }
+      }
+    },
+
+    "automationReadiness": {
+      "type": "object",
+      "description": "Readiness for FULL LLM-automated development: can an agent understand the repo, act in it, and verify its own change before a human looks? Reuses Ascent's L1..L5 ladder.",
+      "required": ["level", "score"],
+      "additionalProperties": true,
+      "properties": {
+        "level": { "enum": ["L1", "L2", "L3", "L4", "L5"], "description": "L1 Manual, L2 Assisted, L3 Augmented, L4 Integrated, L5 Autonomous." },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "artifacts": {
+          "type": "object",
+          "description": "The agent-facing inputs an autonomous agent needs to be effective.",
+          "additionalProperties": true,
+          "properties": {
+            "agentInstructions": { "type": "array", "items": { "type": "string" }, "description": "Files present: CLAUDE.md, AGENTS.md, .cursorrules, copilot-instructions.md, ..." },
+            "contextGraph": { "enum": ["none", "partial", "full"], "description": "Machine-readable map of modules->features (context-map.json, CONTEXT.md coverage)." },
+            "memory": { "type": "boolean", "description": "Structured agent-written memory (decisions, gotchas)." },
+            "manifest": { "type": "boolean", "description": "Carries an agent-facing capability manifest (.ai/manifest.yaml or equivalent)." },
+            "evals": { "enum": ["none", "partial", "full"], "description": "Golden/eval tests for any LLM-produced output." },
+            "skills": { "type": "boolean", "description": "Reusable agent skills / subagents / prompt library." }
+          }
+        },
+        "selfVerify": {
+          "type": "object",
+          "description": "Which capabilities an agent can run LOCALLY to prove a change before push. The more true, the safer autonomy.",
+          "additionalProperties": { "type": "boolean" },
+          "properties": {
+            "build": { "type": "boolean" },
+            "test": { "type": "boolean" },
+            "lint": { "type": "boolean" },
+            "typecheck": { "type": "boolean" }
+          }
+        },
+        "aiInWorkflow": { "type": "boolean", "description": "Evidence AI is actually used (AI co-author trailers, agent-authored PRs), not just configured." },
+        "blockers": { "type": "array", "items": { "type": "string" }, "description": "What caps the level — the highest-leverage things to fix next." }
+      }
+    },
+
+    "productionReadiness": {
+      "type": "object",
+      "description": "Readiness to be TRUSTED in production. Each component is an ordinal enum so a portfolio sorts trivially; 'score' and 'band' are the headline.",
+      "required": ["band", "score"],
+      "additionalProperties": true,
+      "properties": {
+        "band": { "enum": ["prototype", "internal", "beta", "production", "hardened"], "description": "prototype 0-24, internal 25-44, beta 45-64, production 65-84, hardened 85-100." },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "ci": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["none", "build", "checks", "gated", "delivery", "progressive"], "description": "none -> build-only -> runs checks (non-blocking) -> checks GATE merge -> automated deploy -> progressive/canary+reversible." },
+            "provider": { "type": ["string", "null"], "description": "Named: 'github-actions', 'gitlab-ci', 'circleci'." },
+            "gates": { "type": "array", "items": { "type": "string" }, "description": "What blocks merge: ['lint','typecheck','test','build']." }
+          }
+        },
+        "tests": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["none", "smoke", "partial", "substantial", "comprehensive"], "description": "none -> a few -> meaningful but gaps -> critical paths covered -> broad unit+integration+e2e with coverage tracked." },
+            "coveragePct": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Measured line/branch coverage, or null if not tracked." },
+            "frameworks": { "type": "array", "items": { "type": "string" }, "description": "Named: 'vitest', 'playwright', 'pytest'." },
+            "criticalPathCovered": { "type": "boolean" }
+          }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["none", "policy", "scanning", "gated", "supply-chain"], "description": "none -> SECURITY.md only -> secret/dep scanning present -> SAST/SCA GATES merges -> + SBOM/signing/provenance." },
+            "tools": { "type": "array", "items": { "type": "string" }, "description": "Named: 'codeql', 'dependabot', 'gitleaks', 'trivy', 'cosign'." }
+          }
+        },
+        "observability": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "level": { "enum": ["none", "logs", "errors", "metrics", "tracing"], "description": "none -> structured logs -> error tracking -> + metrics/dashboards -> + distributed tracing/alerting." }
+          }
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "migrations": { "enum": ["none", "scripted", "versioned"] },
+            "iac": { "type": "boolean", "description": "Infrastructure declared as code (Terraform/CDK/Pulumi)." },
+            "rollback": { "type": "boolean", "description": "A defined, tested way back (versioned deploys, feature flags)." }
+          }
+        },
+        "blockers": { "type": "array", "items": { "type": "string" }, "description": "Release-gating issues, highest severity first." }
+      }
+    },
+
+    "links": {
+      "type": "object",
+      "description": "Pointers to richer artifacts so the passport stays thin.",
+      "additionalProperties": true,
+      "properties": {
+        "manifest": { "type": "string", "description": "Path to the agent-facing contract (.ai/manifest.yaml)." },
+        "contextMap": { "type": "string" },
+        "docs": { "type": "string" },
+        "report": { "type": "string", "description": "Latest full maturity/readiness report this was summarized from." }
+      }
+    },
+
+    "evidence": {
+      "type": "object",
+      "description": "Provenance, so a reader knows how much to trust the scores.",
+      "additionalProperties": true,
+      "properties": {
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "0..1 — how much of the app could be inspected." },
+        "source": { "type": "string", "description": "How it was produced: 'static-scan', 'manual-audit', 'ci-export'." },
+        "files": { "type": "array", "items": { "type": "string" }, "description": "Files the assessment was synthesized from — drift-check these." }
+      }
+    }
+  }
+}
