@@ -249,6 +249,8 @@ export {
   syncTechStackGroups,
   listTechStackGroups,
   getTechGroupIdByKey,
+  listTechStackSummaries,
+  compareTechStacks,
   type TechGroupSummary,
 } from "@/lib/db/tech-groups";
 export {

@@ -5,7 +5,10 @@
 // (techGroupsFor, src/lib/org/tech-stack.ts) so the badge a user sees and the group they filter match.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgRollup } from "@/lib/db/org-rollup";
+import { buildSegmentComparison, type SegmentComparison, type SegmentSummary } from "@/lib/db/segments";
 import { techGroupsFor } from "@/lib/org/tech-stack";
+import { postureFor } from "@/lib/maturity/model";
 import type { TechStack } from "@/lib/types";
 
 export interface TechGroupSummary {
@@ -97,4 +100,63 @@ export async function listTechStackGroups(orgSlug: string): Promise<TechGroupSum
     .map((g) => ({ id: g.id, key: g.key, label: g.label, repoCount: g._count.members }))
     .filter((g) => g.repoCount > 0)
     .sort((a, b) => groupSortRank(a.key) - groupSortRank(b.key) || a.label.localeCompare(b.label));
+}
+
+// ── Side-by-side stack comparison (3b-P2 — the optional /tech-stacks page) ─────────────────────────
+// Mirrors compareSegments: reuses getOrgRollup's scoped averages + the pure buildSegmentComparison, so
+// the stack comparison stays a single source of truth with every other scoped view. SegmentSummary.id
+// here carries the stack KEY (or null = whole fleet); name carries the display label.
+
+/** Reduce a tech-stack group (or the whole fleet, when `group` is null) to its headline summary. */
+async function summarizeTechStack(
+  orgSlug: string,
+  group: { id: string; key: string; label: string } | null,
+): Promise<SegmentSummary | null> {
+  const rollup = await getOrgRollup(orgSlug, undefined, null, group?.id ?? null);
+  if (!rollup) return null;
+  return {
+    id: group?.key ?? null,
+    name: group?.label ?? "Whole fleet",
+    repoCount: rollup.repoCount,
+    scannedCount: rollup.scannedCount,
+    avgOverall: rollup.avgOverall,
+    avgAdoption: rollup.avgAdoption,
+    avgRigor: rollup.avgRigor,
+    posture: postureFor(rollup.avgAdoption, rollup.avgRigor).id,
+    dimAverages: rollup.dimAverages,
+  };
+}
+
+/** Headline summary for every non-empty tech group of an org — the per-stack rollup strip on the
+ *  comparison page. Sequential since N is small. */
+export async function listTechStackSummaries(orgSlug: string): Promise<SegmentSummary[] | null> {
+  if (!isDbConfigured()) return null;
+  const groups = await listTechStackGroups(orgSlug);
+  const out: SegmentSummary[] = [];
+  for (const g of groups) {
+    const sum = await summarizeTechStack(orgSlug, g);
+    if (sum) out.push(sum);
+  }
+  return out;
+}
+
+/**
+ * Compare two tech-stack groups side by side (e.g. Frontend vs Backend·Python). `keyB` may be null to
+ * compare a stack against the whole fleet. Reuses getOrgRollup's scoped averages + buildSegmentComparison.
+ * Null when off, the org is unknown, or `keyA` isn't a (non-empty) group of the org. A bogus `keyB`
+ * falls back to the whole-fleet baseline (mirrors compareSegments).
+ */
+export async function compareTechStacks(
+  orgSlug: string,
+  keyA: string,
+  keyB: string | null,
+): Promise<SegmentComparison | null> {
+  if (!isDbConfigured()) return null;
+  const groups = await listTechStackGroups(orgSlug);
+  const a = groups.find((g) => g.key === keyA);
+  if (!a) return null;
+  const b = keyB ? groups.find((g) => g.key === keyB) ?? null : null;
+  const [sumA, sumB] = await Promise.all([summarizeTechStack(orgSlug, a), summarizeTechStack(orgSlug, b)]);
+  if (!sumA || !sumB) return null;
+  return buildSegmentComparison(sumA, sumB);
 }
