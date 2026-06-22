@@ -162,6 +162,9 @@ model Repository {
   // Latest detected tech stack (Feature 3a), cached from the most recent scan for fleet-wide grouping
   // without re-deriving. JSON TechStack (see src/lib/analyze/tech-extract.ts). Null until first scan.
   techStackJson   String?
+  // Latest App Readiness Passport (JSON AppPassport) cached from the most recent scan — the portfolio
+  // scorecard surfaced/compared without re-deriving. Display-only. Null until first scan.
+  passportJson    String?
   stars           Int       @default(0)
   // Current default-branch head + the GitHub ETag from the last conditional HEAD lookup.
   // Together these back the cross-instance scan cache: a re-scan sends `If-None-Match: headEtag`
@@ -299,6 +302,9 @@ model Scan {
   // Per-scan detected tech stack (Feature 3a) — JSON TechStack. Keeps history honest when a repo
   // re-stacks; the latest is also cached on Repository.techStackJson. Display-only (never scored).
   techStackJson  String?
+  // Per-scan App Readiness Passport — JSON AppPassport. Per-scan history; latest cached on
+  // Repository.passportJson. Display-only (never scored). See src/lib/analyze/passport.ts.
+  passportJson   String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens    Int?

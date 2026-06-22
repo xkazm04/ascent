@@ -21,6 +21,7 @@ import type {
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
 import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
+import { parsePassportJson, type AppPassport } from "@/lib/analyze/passport";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
 import { DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
@@ -94,6 +95,36 @@ export async function getHeadHint(
     });
     if (!repo?.headSha) return null;
     return { headSha: repo.headSha, etag: repo.headEtag ?? null };
+  }, null);
+}
+
+/**
+ * The stored App Readiness Passport for a repo's latest scan (or a specific commit). Reads the persisted
+ * JSON — the passport is derived from a snapshot the read path doesn't have, so it can only be served
+ * from storage. Null when off / unknown repo / no scan / no passport. Gating is the CALLER's job (the
+ * passport is as sensitive as the report for a private repo) — pass the owning org slug.
+ */
+export async function getRepoPassport(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string; headSha?: string } = {},
+): Promise<AppPassport | null> {
+  if (!isDbConfigured()) return null;
+  return dbReadSafe(async () => {
+    const prisma = getPrisma();
+    const orgId = await resolveOrgId(opts.orgSlug ?? DEFAULT_ORG_SLUG);
+    if (!orgId) return null;
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId, fullName: `${owner}/${name}` } },
+      select: { id: true },
+    });
+    if (!repo) return null;
+    const scan = await prisma.scan.findFirst({
+      where: { repoId: repo.id, ...(opts.headSha ? { headSha: opts.headSha } : {}) },
+      orderBy: { scannedAt: "desc" },
+      select: { passportJson: true },
+    });
+    return parsePassportJson(scan?.passportJson);
   }, null);
 }
 

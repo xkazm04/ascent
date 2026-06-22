@@ -18,6 +18,7 @@ export {
   getRepositoryHistory,
   getScanComparison,
   getScanReportByCommit,
+  getRepoPassport,
   getLatestRecommendations,
   updateRecommendation,
   updateRecommendationStatus,

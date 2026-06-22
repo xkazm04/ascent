@@ -95,6 +95,8 @@ export async function persistScanReport(
   // Cache the latest detected tech stack (Feature 3a) ONLY when this report carries one — a
   // reconstructed snapshot (no techStack) must leave the existing cache untouched, mirroring `teams`.
   if (report.techStack) repoUpdate.techStackJson = JSON.stringify(report.techStack);
+  // Same for the App Readiness Passport (P1) — cache the latest only when this report carries one.
+  if (report.passport) repoUpdate.passportJson = JSON.stringify(report.passport);
   const repo = await withRetry(
     () =>
       upsertRacing(
@@ -112,6 +114,7 @@ export async function persistScanReport(
               isPrivate: report.repo.isPrivate ?? false,
               primaryLanguage: report.repo.primaryLanguage ?? null,
               techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
+              passportJson: report.passport ? JSON.stringify(report.passport) : null,
               stars: report.repo.stars,
               lastScanAt: scannedAtDate,
               headSha,
@@ -216,6 +219,7 @@ export async function persistScanReport(
             governance: report.governance ? JSON.stringify(report.governance) : null,
             commitActivity: report.commitActivity ? JSON.stringify(report.commitActivity) : null,
             techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
+            passportJson: report.passport ? JSON.stringify(report.passport) : null,
             // Persist a CACHE-AWARE cost basis: billableInputTokens folds prompt-cache reads (~10%) and
             // writes (~125%) into a cost-equivalent input count, so /usage prices a cached scan correctly
             // off the single inputTokens column (no schema migration). Null stays null for a mock/no-token

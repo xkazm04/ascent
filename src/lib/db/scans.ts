@@ -19,6 +19,7 @@ export {
   getRepositoryHistory,
   getScanComparison,
   getScanReportByCommit,
+  getRepoPassport,
   getPublicScanGallery,
   getLatestRecommendations,
   reportPermalink,

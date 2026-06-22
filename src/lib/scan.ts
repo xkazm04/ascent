@@ -14,6 +14,7 @@ import {
 import { analyzeSignals, classifyArchetype } from "@/lib/analyze";
 import { detectStackFit } from "@/lib/analyze/stack-fit";
 import { extractTechStack } from "@/lib/analyze/tech-extract";
+import { buildPassport } from "@/lib/analyze/passport";
 import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
 import { getProvider, getProviderForOrg, providerByName, MockProvider } from "@/lib/llm";
@@ -341,6 +342,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Tech-stack detection (Feature 3a): computed once above. Always attached for display/persistence
   // (the prompt enrichment is the separate, gated Option-B path).
   report.techStack = techStack;
+  // App Readiness Passport: a pure projection of the finished report + snapshot — display/persist-only
+  // (never scored, like techStack). report.governance/prStats are already set above; a tokenless scan
+  // leaves them null, which makes buildPassport honestly cap the enforced "gated" rungs. See passport.ts.
+  report.passport = buildPassport(report, snapshot);
   // Token usage (from the provider that scored) + LLM-stage latency — the cost/usage metering basis,
   // persisted on the Scan row. A mock/keyless scan carries no tokens (cost 0), just the latency.
   report.usage = { ...capturedUsage, latencyMs: llmLatencyMs };

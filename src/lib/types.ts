@@ -174,6 +174,68 @@ export interface TechStack {
   confidence: number;
 }
 
+// ── App Readiness Passport (see APP_READINESS_PASSPORT.md + app-passport.schema.json) ──────────────
+// The descriptive, tool-NAMING portfolio scorecard derived from a scan (sibling to the agent-facing
+// .ai/manifest). Built by src/lib/analyze/passport.ts — display/persist-only, never scored.
+export type AutomationLevel = "L1" | "L2" | "L3" | "L4" | "L5";
+export type ProductionBand = "prototype" | "internal" | "beta" | "production" | "hardened";
+
+export interface AppPassport {
+  passport: "app-passport";
+  passportVersion: string;
+  generatedAt: string;
+  generatedBy: string;
+  identity: {
+    name: string;
+    slug: string;
+    purpose: string;
+    repo?: string;
+    owner?: string;
+    version?: string;
+    archetype: "solo" | "team" | "org";
+    visibility: "public" | "private" | "internal";
+    license: string | null;
+  };
+  stack: {
+    languages: { name: string; primary?: boolean }[];
+    runtime?: string;
+    frameworks: string[];
+    packageManager?: string;
+    persistence: { kind: string; engine?: string; orm?: string | null; migrations?: string; required?: boolean }[];
+    monitoring: { errorTracking: string | null; logs: string | null; metrics: string | null; tracing: string | null; uptime: string | null };
+    hosting: string | null;
+    integrations: { name: string; kind: string; direction?: string }[];
+    secretsFrom?: string;
+  };
+  automationReadiness: {
+    level: AutomationLevel;
+    score: number;
+    artifacts: {
+      agentInstructions: string[];
+      contextGraph: "none" | "partial" | "full";
+      memory: boolean;
+      manifest: boolean;
+      evals: "none" | "partial" | "full";
+      skills: boolean;
+    };
+    selfVerify: { build: boolean; test: boolean; lint: boolean; typecheck: boolean };
+    aiInWorkflow: boolean;
+    blockers: string[];
+  };
+  productionReadiness: {
+    band: ProductionBand;
+    score: number;
+    ci: { level: "none" | "build" | "checks" | "gated" | "delivery" | "progressive"; provider: string | null; gates: string[] };
+    tests: { level: "none" | "smoke" | "partial" | "substantial" | "comprehensive"; coveragePct: number | null; frameworks: string[]; criticalPathCovered: boolean };
+    security: { level: "none" | "policy" | "scanning" | "gated" | "supply-chain"; tools: string[] };
+    observability: { level: "none" | "logs" | "errors" | "metrics" | "tracing" };
+    delivery: { migrations: "none" | "scripted" | "versioned"; iac: boolean; rollback: boolean };
+    blockers: string[];
+  };
+  links: { report?: string; contextMap?: string; manifest?: string };
+  evidence: { confidence: number; source: string; files: string[] };
+}
+
 export interface RepoSnapshot {
   meta: RepoMeta;
   /** Full recursive tree of file/dir paths (may be truncated by GitHub). */
@@ -367,6 +429,9 @@ export interface ScanReport {
   /** Detected tech stack (languages / frameworks / roles), for display + tech grouping (Feature 3a).
    *  Display-only — never feeds scoring. Undefined on reconstructed snapshots that predate extraction. */
   techStack?: TechStack;
+  /** App Readiness Passport — the descriptive, tool-naming portfolio scorecard derived from this scan.
+   *  Display/persist-only (never scored); undefined on reconstructed snapshots. See lib/analyze/passport. */
+  passport?: AppPassport;
   /** Non-fatal caveats about this scan's reliability (low coverage, LLM fallback, …). */
   warnings?: string[];
   scannedAt: string;
