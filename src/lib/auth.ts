@@ -10,6 +10,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { cookies, headers } from "next/headers";
 import { isDbConfigured } from "@/lib/db/client";
 import { bumpSessionVersion, getSessionVersion } from "@/lib/db/sessions";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export const SESSION_COOKIE = "ascent_session";
 export const STATE_COOKIE = "ascent_oauth_state";
@@ -22,8 +23,9 @@ export const RESYNC_COOKIE = "ascent_oauth_resync";
  *  security-sensitive: it only selects a default tenant context and is always re-validated
  *  against the session's installations before use, so a stale/tampered value can't widen access. */
 export const ACTIVE_ORG_COOKIE = "ascent_active_org";
-/** The shared, non-org context for public scans. */
-export const PUBLIC_ORG = "public";
+/** The shared, non-org context for public scans. Re-exported from the dependency-free
+ *  @/lib/org-constants leaf so the literal has one source across server/client/db boundaries. */
+export { PUBLIC_ORG };
 /** Inactivity horizon (`rexp`): the hard cap on how long a session survives without
  *  activity. Silent refresh slides it forward on each active request, so an active user is
  *  never abruptly logged out, while an idle session lapses after this window. */

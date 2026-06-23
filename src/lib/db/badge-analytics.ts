@@ -9,8 +9,7 @@
 // labels it as such. No-op / null when persistence is off, like the rest of src/lib/db.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-
-const PUBLIC_ORG = "public"; // mirrors @/lib/auth PUBLIC_ORG without coupling a db leaf to auth
+import { PUBLIC_ORG } from "@/lib/org-constants";
 
 /** Best-effort: bump the (repo, host) tally. Swallows every error — analytics must never break a badge. */
 export async function recordBadgeImpression(repoFullName: string, refererHost: string): Promise<void> {

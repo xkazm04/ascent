@@ -2,10 +2,8 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 
-// Kept in sync with PUBLIC_ORG in lib/auth — duplicated as a literal because lib/auth is a
-// server-only module (imports next/headers) and must not be pulled into the client bundle.
-const PUBLIC_ORG = "public";
 const labelFor = (org: string) => (org === PUBLIC_ORG ? "Public" : org);
 
 /**
