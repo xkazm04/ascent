@@ -8,8 +8,10 @@ import {
   CENTER,
   type Constellation,
   FAINT,
+  FALLER,
   MAX_STARS,
   type RepoStar,
+  RISER,
   SKELETON_STARS,
   starLook,
   starPosition,
@@ -152,7 +154,7 @@ export function ConstellationField({
                       cy={cy}
                       r={look.r + 1}
                       fill="none"
-                      stroke={moved > 0 ? "#34d399" : "#f97316"}
+                      stroke={moved > 0 ? RISER : FALLER}
                       strokeWidth={0.5}
                       opacity={0.85}
                     />

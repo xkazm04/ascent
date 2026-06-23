@@ -8,7 +8,7 @@ import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet, Stat } from "./FleetMapChrome";
 import { applyScanEvent } from "./applyScanEvent";
 import { type SortKey, fleetStats, makeMatcher, orderConstellations } from "./fleetMapDerive";
-import { type Constellation, mapRepos } from "./fleetMapStars";
+import { type Constellation, FALLER, mapRepos, RISER } from "./fleetMapStars";
 import { mergeStars } from "./mergeStars";
 
 const LEVEL_BANDS = ["L1", "L2", "L3", "L4", "L5", "unscanned"] as const;
@@ -192,7 +192,7 @@ export function FleetMap({
               color={stats.avg == null ? undefined : scoreHex(stats.avg)}
             />
             {(stats.risers > 0 || stats.fallers > 0) && (
-              <Stat label="movers · 30d" value={`▲${stats.risers} ▼${stats.fallers}`} color={stats.risers >= stats.fallers ? "#34d399" : "#f97316"} />
+              <Stat label="movers · 30d" value={`▲${stats.risers} ▼${stats.fallers}`} color={stats.risers >= stats.fallers ? RISER : FALLER} />
             )}
             <span
               className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 font-mono uppercase tracking-widest text-slate-400"

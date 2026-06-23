@@ -31,6 +31,12 @@ const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 export const CENTER = 60;
 export const ACCENT = "#3b9eff";
 export const FAINT = "#64748b";
+// The launch map's mover-direction palette (riser = emerald, faller = orange). Shared by the
+// per-star directional ring and the header "movers · 30d" stat so the up/down semantic stays in
+// one place. NOTE: deliberately distinct from the org DIRECTION_TONE palette — this is the
+// launch constellation's own brighter pair, not that token.
+export const RISER = "#34d399";
+export const FALLER = "#f97316";
 
 /** Stable 0..1 hash so star positions are deterministic (no SSR/CSR drift, no jitter on re-render). */
 function hash01(s: string): number {
