@@ -15,3 +15,19 @@ export function envBool(name: string): boolean {
   const v = process.env[name];
   return v === "1" || v === "true";
 }
+
+// ── Auth-gate env predicates ─────────────────────────────────────────────────
+// Pure (process.env only) so BOTH the server-only access gate (src/lib/access.ts, which can't run in
+// the proxy) and the next/headers-free proxy (src/proxy.ts) read one definition instead of two copies.
+
+/** Whether Supabase auth is wired up (public URL + anon key present). */
+export function supabaseAuthConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+}
+
+/** Dev/local escape hatch: when set, the login wall is dropped — HARD-DISABLED in production so a
+ *  single stray `ASCENT_AUTH_BYPASS` env var can never drop the wall on a real deployment. */
+export function authBypassEnabled(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  return envBool("ASCENT_AUTH_BYPASS");
+}

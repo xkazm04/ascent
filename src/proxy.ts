@@ -4,21 +4,17 @@
 // lapsed mid-session would be silently signed out on the next navigation.
 //
 // This must use the request/response cookie adapter (NOT next/headers), so it can't reuse
-// src/lib/access.ts (server-only). The env checks are inlined to match authGateEnabled():
-// when Supabase isn't configured, or the dev bypass is on, there is nothing to refresh — pass through.
+// src/lib/access.ts (server-only). It shares access.ts's PURE env predicates via @/lib/env (which is
+// next/headers-free), so the bypass/configured rules have one definition: when Supabase isn't
+// configured, or the dev bypass is on, there is nothing to refresh — pass through. gateInactive is
+// exactly !authGateEnabled().
 
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { envBool } from "@/lib/env";
+import { authBypassEnabled, supabaseAuthConfigured } from "@/lib/env";
 
 function gateInactive(): boolean {
-  const configured = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  );
-  // Mirror authBypassEnabled(): the dev bypass is hard-disabled in production so a stray env var can't
-  // turn the wall off. (Here it only governs cookie refresh, but keep the two checks consistent.)
-  const bypass = process.env.NODE_ENV !== "production" && envBool("ASCENT_AUTH_BYPASS");
-  return !configured || bypass;
+  return !(supabaseAuthConfigured() && !authBypassEnabled());
 }
 
 export async function proxy(request: NextRequest) {

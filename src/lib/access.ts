@@ -10,7 +10,12 @@
 import { cache } from "react";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { envBool } from "@/lib/env";
+// The two pure env predicates live in @/lib/env so the next/headers-free proxy (src/proxy.ts) can share
+// the SAME definition instead of re-implementing the bypass/configured logic. Re-exported here so the
+// gate's public surface (authBypassEnabled/supabaseAuthConfigured) is unchanged for existing importers.
+import { authBypassEnabled, supabaseAuthConfigured } from "@/lib/env";
+
+export { authBypassEnabled, supabaseAuthConfigured };
 
 /** Non-sensitive identity of the signed-in viewer (GitHub login + profile bits for the header). */
 export interface Viewer {
@@ -19,20 +24,6 @@ export interface Viewer {
   email?: string;
   avatar?: string;
   name?: string;
-}
-
-/** Dev/local escape hatch: when set, every gate passes as this synthetic viewer, so a developer
- *  can exercise all functionality without signing in. Default OFF, and HARD-DISABLED in production:
- *  a single stray `ASCENT_AUTH_BYPASS` env var must never be able to drop the entire login wall on a
- *  real deployment. Demo/e2e boxes that want it open run with NODE_ENV != "production". */
-export function authBypassEnabled(): boolean {
-  if (process.env.NODE_ENV === "production") return false;
-  return envBool("ASCENT_AUTH_BYPASS");
-}
-
-/** Whether Supabase auth is wired up (public URL + anon key present). */
-export function supabaseAuthConfigured(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 }
 
 /**
