@@ -6,11 +6,10 @@ import { NextResponse } from "next/server";
 import { createPlaybook, isDbConfigured, listPlaybooks } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 import { getSession } from "@/lib/auth";
+import { isDimensionId } from "@/lib/maturity/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const isDimId = (v: string): boolean => /^D[1-9]$/.test(v);
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Playbooks require a database." }, { status: 503 });
@@ -36,7 +35,7 @@ export async function POST(request: Request) {
   }
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
-  if (!isDimId(body.dimId)) return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
+  if (!isDimensionId(body.dimId)) return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
   const session = await getSession();
   const created = await createPlaybook(
     body.org,

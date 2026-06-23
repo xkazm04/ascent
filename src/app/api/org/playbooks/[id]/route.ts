@@ -7,12 +7,11 @@ import { NextResponse } from "next/server";
 import { deletePlaybook, getOrgId, getPlaybookOrgSlug, isDbConfigured, recordAudit, updatePlaybook } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { getSession } from "@/lib/auth";
+import { isDimensionId } from "@/lib/maturity/model";
 import type { OrgRole } from "@/lib/db/members";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const isDimId = (v: string): boolean => /^D[1-9]$/.test(v);
 
 async function gate(id: string, min: OrgRole = "member"): Promise<NextResponse | null> {
   if (!isDbConfigured()) return NextResponse.json({ error: "Playbooks require a database." }, { status: 503 });
@@ -32,7 +31,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     steps?: string[];
     archived?: boolean;
   };
-  if (body.dimId !== undefined && !isDimId(body.dimId)) {
+  if (body.dimId !== undefined && !isDimensionId(body.dimId)) {
     return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
   }
   try {

@@ -162,6 +162,14 @@ export const DIMENSION_BY_ID: Record<DimensionId, DimensionDef> = Object.fromEnt
   DIMENSIONS.map((d) => [d.id, d]),
 ) as Record<DimensionId, DimensionDef>;
 
+/**
+ * Canonical dimension-id guard (D1..D9) — the single source of truth for "is this a valid
+ * DimensionId?", narrowing the input so callers can pass it straight to the DB. Replaces the
+ * `/^D[1-9]$/` literal that was copy-pasted across the org route handlers; if the rubric ever
+ * grows/shrinks a dimension this is the one place to update.
+ */
+export const isDimensionId = (v: string): v is DimensionId => /^D[1-9]$/.test(v);
+
 export const LEVEL_BY_ID: Record<LevelId, MaturityLevel> = Object.fromEntries(
   LEVELS.map((l) => [l.id, l]),
 ) as Record<LevelId, MaturityLevel>;

@@ -8,13 +8,11 @@
 import { NextResponse } from "next/server";
 import { goalImpactsForScenario, isDbConfigured, rankOrgInvestments, simulateOrgFixes } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
-import type { DimensionId } from "@/lib/types";
+import { isDimensionId } from "@/lib/maturity/model";
 import type { SimFix } from "@/lib/scoring/orgsim";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const isDimId = (v: string): v is DimensionId => /^D[1-9]$/.test(v);
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "The simulator requires a database." }, { status: 503 });
@@ -51,7 +49,7 @@ export async function POST(request: Request) {
     // `typeof NaN === "number"` is true, so the old check let `target: NaN` through — then
     // clamp(Math.round(NaN)) = NaN made `cur < NaN` false for every repo and the API returned a
     // silent 200 with before === after (a "nothing changes" no-op). Require a finite, in-range target.
-    if (typeof f.dimId !== "string" || !isDimId(f.dimId) || typeof t !== "number" || !Number.isFinite(t) || t < 0 || t > 100) {
+    if (typeof f.dimId !== "string" || !isDimensionId(f.dimId) || typeof t !== "number" || !Number.isFinite(t) || t < 0 || t > 100) {
       return NextResponse.json({ error: "Each fix needs { dimId: D1..D9, target: a number in 0..100 }." }, { status: 400 });
     }
     fixes.push({ dimId: f.dimId, target: t });
