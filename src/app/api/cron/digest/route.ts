@@ -19,6 +19,7 @@ import {
   getOrgRollup,
   isDbConfigured,
   listOrgsWithWatchedRepos,
+  type OrgWindow,
 } from "@/lib/db";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
 import { PUBLIC_ORG } from "@/lib/auth";
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
 
   const base = (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
   const orgs = await listOrgsWithWatchedRepos();
-  const win = { start: new Date(Date.now() - 7 * 86_400_000), end: null };
+  const win: OrgWindow = { start: new Date(Date.now() - 7 * 86_400_000), end: null };
 
   let sent = 0;
   let skippedNoSink = 0;
