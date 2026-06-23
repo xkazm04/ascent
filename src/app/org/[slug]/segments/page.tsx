@@ -11,6 +11,11 @@ export const dynamic = "force-dynamic";
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
+// Human posture label with a raw-id fallback. Deliberately the lookup-then-`?? raw` form (NOT the
+// shared postureLabel(), which title-cases an unknown id) so the existing rendering is preserved
+// exactly — the data layer only ever yields known posture ids, so the branches agree in practice.
+const postureText = (posture: string) => POSTURE_LABEL[posture] ?? posture;
+
 /** One segment's headline standing — the per-segment rollup card in the overview strip. Real
  *  segments (with an id) also get scan + cadence controls scoped to their tagged repos. */
 function SegmentCard({ s, org, repos }: { s: SegmentSummary; org: string; repos: string[] }) {
@@ -19,7 +24,7 @@ function SegmentCard({ s, org, repos }: { s: SegmentSummary; org: string; repos:
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-medium text-white">{s.name}</span>
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{POSTURE_LABEL[s.posture] ?? s.posture}</span>
+        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{postureText(s.posture)}</span>
       </div>
       <div className="mt-2 flex items-baseline gap-2">
         <span className="font-mono text-3xl font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
@@ -120,8 +125,8 @@ export default async function OrgSegments({
         {comparison ? (
           <>
             <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Tile label={comparison.a.name} value={comparison.a.avgOverall} sub={`${POSTURE_LABEL[comparison.a.posture] ?? comparison.a.posture} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`} color={scoreHex(comparison.a.avgOverall)} />
-              <Tile label={comparison.b.name} value={comparison.b.avgOverall} sub={`${POSTURE_LABEL[comparison.b.posture] ?? comparison.b.posture} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`} color={scoreHex(comparison.b.avgOverall)} />
+              <Tile label={comparison.a.name} value={comparison.a.avgOverall} sub={`${postureText(comparison.a.posture)} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`} color={scoreHex(comparison.a.avgOverall)} />
+              <Tile label={comparison.b.name} value={comparison.b.avgOverall} sub={`${postureText(comparison.b.posture)} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`} color={scoreHex(comparison.b.avgOverall)} />
               <Tile label="Overall Δ" value={fmtDelta(comparison.deltas.overall)} color={deltaHex(comparison.deltas.overall)} sub={`${comparison.a.name} vs ${comparison.b.name}`} />
               <Tile label="Adopt / Rigor Δ" value={`${fmtDelta(comparison.deltas.adoption)} / ${fmtDelta(comparison.deltas.rigor)}`} sub="adoption · rigor" />
             </div>
