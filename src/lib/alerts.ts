@@ -289,6 +289,20 @@ export function buildLowCreditsMessage(d: LowCreditsInput): AlertMessage {
 }
 
 /**
+ * Build the "test alert" message an admin sends to confirm their sink is wired up. Pure — the same
+ * shape as the other builders (plain-text fallback + a single Block-Kit section), so the test send
+ * stops hand-assembling Block Kit inside the API route and joins the unit-tested builder family.
+ */
+export function buildTestAlertMessage(org: string): AlertMessage {
+  const headline = `✅ Ascent test alert for ${org}`;
+  const body = "If you can read this in your channel, alert routing works. Regression, low-credit and weekly-digest alerts will arrive here.";
+  return {
+    text: `${headline}\n${body}`,
+    blocks: [{ type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${body}` } }],
+  };
+}
+
+/**
  * Resolve the sink an alert should POST to: the org's own webhook when set (multi-tenant routing —
  * each tenant gets its own fleet intelligence), else the global ALERT_WEBHOOK_URL (single-tenant /
  * operator deployments), else null (no-op). Pure given its argument — the env read is the only

@@ -21,7 +21,7 @@ import {
 } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { getSession, isSameOrigin } from "@/lib/auth";
-import { dispatchAlert, validateAlertWebhookUrl, type AlertMessage } from "@/lib/alerts";
+import { buildTestAlertMessage, dispatchAlert, validateAlertWebhookUrl } from "@/lib/alerts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,19 +63,7 @@ export async function POST(request: Request) {
   // delivery now instead of waiting for a real regression days later.
   if (body.test === true) {
     const orgUrl = await getOrgAlertWebhook(body.org);
-    const sample: AlertMessage = {
-      text: `✅ Ascent test alert for ${body.org}\nIf you can read this in your channel, alert routing works. Regression, low-credit and weekly-digest alerts will arrive here.`,
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `*✅ Ascent test alert for ${body.org}*\nIf you can read this in your channel, alert routing works. Regression, low-credit and weekly-digest alerts will arrive here.`,
-          },
-        },
-      ],
-    };
-    const delivered = await dispatchAlert(sample, { webhookUrl: orgUrl });
+    const delivered = await dispatchAlert(buildTestAlertMessage(body.org), { webhookUrl: orgUrl });
     return NextResponse.json({
       ok: true,
       delivered,
