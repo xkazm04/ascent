@@ -9,9 +9,7 @@ interface RepoRef {
 
 interface Artifact {
   path: string;
-  title: string;
   body: string;
-  prTitle: string;
 }
 
 interface BatchResult {
