@@ -86,7 +86,7 @@ export function foldRepoEvent(
   const ticker = [{ id, fullName, name, overall, level, posture, delta, failed: false }, ...prevTicker].slice(0, TICKER_MAX);
 
   const celebration: Celebration | null =
-    posture === "ai-native" && prev?.posture !== "ai-native" ? { id, name, level, overall } : null;
+    posture === "ai-native" && prev?.posture !== "ai-native" ? { id, name, overall } : null;
 
   return { repos: updated, ticker, skippedDelta: 0, celebration };
 }

@@ -66,7 +66,7 @@ describe("foldRepoEvent — celebration on crossing into AI-Native", () => {
   it("fires a celebration when a repo crosses INTO ai-native from another posture", () => {
     const prev = repoMap(seedRepo({ fullName: "acme/api", overall: 80, posture: "manual" }));
     const r = foldRepoEvent(prev, [], { repo: "acme/api", overall: 90, posture: "ai-native", level: "L5" }, 9);
-    expect(r.celebration).toEqual({ id: 9, name: "api", level: "L5", overall: 90 });
+    expect(r.celebration).toEqual({ id: 9, name: "api", overall: 90 });
   });
 
   it("fires once on the crossing, NOT again on a subsequent ai-native event (no repeat)", () => {

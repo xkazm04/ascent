@@ -61,7 +61,6 @@ export interface Mover {
 export interface Celebration {
   id: number;
   name: string;
-  level: string | null;
   overall: number | null;
 }
 
