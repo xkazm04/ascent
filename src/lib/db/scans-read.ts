@@ -21,7 +21,7 @@ import type {
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
 import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
-import { parsePassportJson, type AppPassport } from "@/lib/analyze/passport";
+import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
 import { DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
@@ -116,7 +116,7 @@ export async function getRepoPassport(
     if (!orgId) return null;
     const repo = await prisma.repository.findUnique({
       where: { orgId_fullName: { orgId, fullName: `${owner}/${name}` } },
-      select: { id: true },
+      select: { id: true, passportOverridesJson: true },
     });
     if (!repo) return null;
     const scan = await prisma.scan.findFirst({
@@ -124,7 +124,9 @@ export async function getRepoPassport(
       orderBy: { scannedAt: "desc" },
       select: { passportJson: true },
     });
-    return parsePassportJson(scan?.passportJson);
+    const pp = parsePassportJson(scan?.passportJson);
+    // Apply owner overrides (P4) as a read-time overlay over the scan-derived passport.
+    return pp ? applyPassportOverrides(pp, parsePassportOverrides(repo.passportOverridesJson)) : null;
   }, null);
 }
 

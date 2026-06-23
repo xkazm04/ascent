@@ -4,6 +4,7 @@
 // replacement: the report explains the maturity score; the passport names the stack + the prod posture.
 
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
+import { PassportOwnerControls } from "@/components/org/PassportOwnerControls";
 import { bandColor, bandLabel, passportStackChips } from "@/lib/org/passport-display";
 import { scoreHex } from "@/lib/ui";
 import type { AppPassport } from "@/lib/types";
@@ -17,7 +18,7 @@ function Rung({ label, value, tone }: { label: string; value: string; tone?: "wa
   );
 }
 
-export function PassportCard({ passport: pp, repo }: { passport: AppPassport; repo: string }) {
+export function PassportCard({ passport: pp, repo, canEdit = false }: { passport: AppPassport; repo: string; canEdit?: boolean }) {
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
   const chips = passportStackChips(pp);
@@ -104,9 +105,26 @@ export function PassportCard({ passport: pp, repo }: { passport: AppPassport; re
         </div>
       )}
 
+      {(pp.identity.criticality || pp.identity.lifecycle) && (
+        <p className="mt-3 font-mono text-sm text-slate-500">
+          {pp.identity.criticality && <>criticality: <span className="text-slate-300">{pp.identity.criticality}</span></>}
+          {pp.identity.criticality && pp.identity.lifecycle ? " · " : ""}
+          {pp.identity.lifecycle && <>lifecycle: <span className="text-slate-300">{pp.identity.lifecycle}</span></>}
+        </p>
+      )}
+
       <p className="mt-3 font-mono text-xs text-slate-600">
         {pp.evidence.source} · confidence {Math.round(pp.evidence.confidence * 100)}% · as of {pp.generatedAt}
       </p>
+
+      {canEdit && (
+        <PassportOwnerControls
+          repo={repo}
+          criticality={pp.identity.criticality}
+          lifecycle={pp.identity.lifecycle}
+          rollback={pp.productionReadiness.delivery.rollback}
+        />
+      )}
     </Card>
   );
 }

@@ -84,6 +84,7 @@ CREATE TABLE "Repository" (
     "primaryLanguage" TEXT,
     "techStackJson" TEXT,
     "passportJson" TEXT,
+    "passportOverridesJson" TEXT,
     "stars" INTEGER NOT NULL DEFAULT 0,
     "headSha" TEXT,
     "headEtag" TEXT,

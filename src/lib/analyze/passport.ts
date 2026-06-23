@@ -9,9 +9,17 @@
 // governance is absent we HONESTLY CAP ci/security at the present rung and say so in evidence/blockers —
 // never claim an enforcement we couldn't observe. See docs/concepts/2026-06-22-app-passport-scan-integration.md.
 
-import type { AppPassport, AutomationLevel, Governance, PrStats, ProductionBand, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
+import type { AppPassport, AutomationLevel, Criticality, Governance, Lifecycle, PrStats, ProductionBand, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
 
 export type { AppPassport, AutomationLevel, ProductionBand } from "@/lib/types";
+
+/** Owner-set overrides for the fields a scan can't observe (P4). Applied as a read-time overlay over the
+ *  scan-derived passport; `rollback` re-derives the production score/band (it feeds the delivery axis). */
+export interface PassportOverrides {
+  criticality?: Criticality;
+  lifecycle?: Lifecycle;
+  rollback?: boolean;
+}
 
 export const PASSPORT_VERSION = "0.1.0";
 
@@ -257,7 +265,9 @@ const TEST_PTS: Record<string, number> = { none: 0, smoke: 25, partial: 50, subs
 const SEC_PTS: Record<string, number> = { none: 0, policy: 25, scanning: 50, gated: 75, "supply-chain": 100 };
 const OBS_PTS: Record<string, number> = { none: 0, logs: 40, errors: 60, metrics: 80, tracing: 100 };
 
-function productionScore(pr: Omit<AppPassport["productionReadiness"], "band" | "score" | "blockers">): { score: number; band: ProductionBand } {
+/** Derive the production score + band from the sub-scales (single source for both buildPassport and the
+ *  owner-override re-derivation in applyPassportOverrides). */
+export function deriveProductionScore(pr: Omit<AppPassport["productionReadiness"], "band" | "score" | "blockers">): { score: number; band: ProductionBand } {
   const deliv = (pr.delivery.migrations === "versioned" ? 50 : pr.delivery.migrations === "scripted" ? 25 : 0) + (pr.delivery.iac ? 25 : 0) + (pr.delivery.rollback ? 25 : 0);
   const score = Math.round(
     0.25 * (CI_PTS[pr.ci.level] ?? 0) +
@@ -296,7 +306,7 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   const security = detectSecurity(p, gov);
   const observability = detectObservability(stack.monitoring);
   const delivery = detectDelivery(p, stack.persistence);
-  const { score: prodScore, band } = productionScore({ ci, tests, security, observability, delivery });
+  const { score: prodScore, band } = deriveProductionScore({ ci, tests, security, observability, delivery });
 
   const prodBlockers: string[] = [];
   if (observability.level === "none") prodBlockers.push("Zero observability: no error tracking, structured logs, metrics, or tracing.");
@@ -343,6 +353,41 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
       ),
     },
   };
+}
+
+const CRITICALITY = new Set<Criticality>(["experimental", "internal", "business", "mission-critical"]);
+const LIFECYCLE = new Set<Lifecycle>(["prototype", "alpha", "beta", "ga", "maintenance", "deprecated"]);
+
+/** Apply owner overrides as an overlay over a scan-derived passport (P4). Returns the passport unchanged
+ *  when there are none. criticality/lifecycle are identity-only; a `rollback` change re-derives the
+ *  production score + band (rollback feeds the delivery sub-scale). Pure — clones, never mutates input. */
+export function applyPassportOverrides(pp: AppPassport, ov: PassportOverrides | null | undefined): AppPassport {
+  if (!ov || (ov.criticality === undefined && ov.lifecycle === undefined && ov.rollback === undefined)) return pp;
+  const next: AppPassport = JSON.parse(JSON.stringify(pp));
+  if (ov.criticality) next.identity.criticality = ov.criticality;
+  if (ov.lifecycle) next.identity.lifecycle = ov.lifecycle;
+  if (ov.rollback !== undefined && ov.rollback !== next.productionReadiness.delivery.rollback) {
+    next.productionReadiness.delivery.rollback = ov.rollback;
+    const { score, band } = deriveProductionScore(next.productionReadiness);
+    next.productionReadiness.score = score;
+    next.productionReadiness.band = band;
+  }
+  return next;
+}
+
+/** Tolerant parse + validate of stored overrides JSON — drops unknown enum values. Null when empty. */
+export function parsePassportOverrides(raw: string | null | undefined): PassportOverrides | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<PassportOverrides>;
+    const out: PassportOverrides = {};
+    if (v.criticality && CRITICALITY.has(v.criticality)) out.criticality = v.criticality;
+    if (v.lifecycle && LIFECYCLE.has(v.lifecycle)) out.lifecycle = v.lifecycle;
+    if (typeof v.rollback === "boolean") out.rollback = v.rollback;
+    return Object.keys(out).length ? out : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Tolerant parse of a persisted passport JSON blob — null on missing/malformed (read-path degrade). */

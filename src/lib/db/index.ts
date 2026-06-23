@@ -254,6 +254,7 @@ export {
   compareTechStacks,
   type TechGroupSummary,
 } from "@/lib/db/tech-groups";
+export { getPassportOverrides, setPassportOverrides } from "@/lib/db/passport-overrides";
 export {
   getOrgLlmConfig,
   setOrgLlmConfig,

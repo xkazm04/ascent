@@ -6,7 +6,7 @@ import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
-import { parsePassportJson } from "@/lib/analyze/passport";
+import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import type { AppPassport, TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
@@ -215,7 +215,10 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       watched: r.watched,
       primaryLanguage: r.primaryLanguage ?? null,
       techStack: parseTechStackJson(r.techStackJson),
-      passport: parsePassportJson(r.passportJson),
+      passport: (() => {
+        const pp = parsePassportJson(r.passportJson);
+        return pp ? applyPassportOverrides(pp, parsePassportOverrides(r.passportOverridesJson)) : null;
+      })(),
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,

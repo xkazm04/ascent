@@ -5,7 +5,7 @@
 // CI/security rung it couldn't observe, and must say so in evidence/blockers.
 
 import { describe, it, expect } from "vitest";
-import { buildPassport, parsePassportJson } from "@/lib/analyze/passport";
+import { applyPassportOverrides, buildPassport, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import type { Governance, RepoMeta, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
 
 function meta(over: Partial<RepoMeta> = {}): RepoMeta {
@@ -135,5 +135,37 @@ describe("buildPassport — determinism + parse", () => {
     expect(pp.productionReadiness.ci.level).toBe("none");
     expect(pp.productionReadiness.observability.level).toBe("none");
     expect(pp.automationReadiness.selfVerify).toEqual({ build: false, test: false, lint: false, typecheck: false });
+  });
+});
+
+describe("applyPassportOverrides — owner overlay (P4)", () => {
+  const base = buildPassport(report(), fullSnap());
+
+  it("is a no-op (same reference semantics) when there are no overrides", () => {
+    expect(applyPassportOverrides(base, null)).toBe(base);
+    expect(applyPassportOverrides(base, {})).toBe(base);
+  });
+
+  it("sets criticality + lifecycle on identity without touching the scores", () => {
+    const pp = applyPassportOverrides(base, { criticality: "mission-critical", lifecycle: "ga" });
+    expect(pp.identity.criticality).toBe("mission-critical");
+    expect(pp.identity.lifecycle).toBe("ga");
+    expect(pp.productionReadiness.score).toBe(base.productionReadiness.score); // unchanged
+    expect(base.identity.criticality).toBeUndefined(); // input not mutated
+  });
+
+  it("a rollback override flips delivery AND re-derives the production score/band (lifts it)", () => {
+    const pp = applyPassportOverrides(base, { rollback: true });
+    expect(pp.productionReadiness.delivery.rollback).toBe(true);
+    expect(pp.productionReadiness.score).toBeGreaterThan(base.productionReadiness.score);
+  });
+});
+
+describe("parsePassportOverrides — validation", () => {
+  it("keeps valid enum/boolean values, drops unknowns, null when empty", () => {
+    expect(parsePassportOverrides(JSON.stringify({ criticality: "business", lifecycle: "beta", rollback: true }))).toEqual({ criticality: "business", lifecycle: "beta", rollback: true });
+    expect(parsePassportOverrides(JSON.stringify({ criticality: "bogus", lifecycle: "nope" }))).toBeNull();
+    expect(parsePassportOverrides(null)).toBeNull();
+    expect(parsePassportOverrides("{}")).toBeNull();
   });
 });

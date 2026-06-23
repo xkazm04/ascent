@@ -12,7 +12,8 @@ import { PassportCard } from "@/components/org/PassportCard";
 import { ReportSkeleton } from "@/components/report/ReportSkeleton";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { getScanReportByCommit, getRepoPassport, getSkillHistory, diffTrackSets } from "@/lib/db";
-import { readableOrgForOwner } from "@/lib/auth";
+import { PUBLIC_ORG, readableOrgForOwner } from "@/lib/auth";
+import { hasOrgRole } from "@/lib/authz";
 import { PRACTICES } from "@/lib/practices";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +66,8 @@ export default async function ReportPermalink({
   // App Readiness Passport (P2): the persisted scorecard for this repo's pinned scan. Gated identically
   // to the report (getScanReportByCommit above used the same orgSlug), so a private passport never leaks.
   const passport = pinned ? await getRepoPassport(owner, name, { orgSlug, headSha: sha }).catch(() => null) : null;
+  // Owner-only passport controls (P4): editable only for a non-public org-owned repo by an owner.
+  const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
 
   return (
     <>
@@ -75,7 +78,7 @@ export default async function ReportPermalink({
             <ReportView report={pinned} />
             {passport && (
               <div className="mt-8">
-                <PassportCard passport={passport} repo={ref} />
+                <PassportCard passport={passport} repo={ref} canEdit={canEditPassport} />
               </div>
             )}
           </ReportErrorBoundary>

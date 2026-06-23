@@ -179,6 +179,9 @@ export interface TechStack {
 // .ai/manifest). Built by src/lib/analyze/passport.ts — display/persist-only, never scored.
 export type AutomationLevel = "L1" | "L2" | "L3" | "L4" | "L5";
 export type ProductionBand = "prototype" | "internal" | "beta" | "production" | "hardened";
+// Non-observable identity fields — a scan can't infer these, so an org owner sets them (P4 overrides).
+export type Criticality = "experimental" | "internal" | "business" | "mission-critical";
+export type Lifecycle = "prototype" | "alpha" | "beta" | "ga" | "maintenance" | "deprecated";
 
 export interface AppPassport {
   passport: "app-passport";
@@ -195,6 +198,10 @@ export interface AppPassport {
     archetype: "solo" | "team" | "org";
     visibility: "public" | "private" | "internal";
     license: string | null;
+    /** Owner-set (P4): how much a failure costs, and where it is in its life — frame how to read the
+     *  readiness scores. Absent until an owner sets them (a scan can't observe them). */
+    criticality?: Criticality;
+    lifecycle?: Lifecycle;
   };
   stack: {
     languages: { name: string; primary?: boolean }[];

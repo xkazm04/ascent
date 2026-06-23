@@ -165,6 +165,10 @@ model Repository {
   // Latest App Readiness Passport (JSON AppPassport) cached from the most recent scan — the portfolio
   // scorecard surfaced/compared without re-deriving. Display-only. Null until first scan.
   passportJson    String?
+  // Owner-set passport overrides (P4) for the fields a scan can't observe — JSON
+  // { criticality?, lifecycle?, rollback? }. Applied as a read-time overlay over the scan-derived
+  // passport (never mutates the stored scan). Null = none set. See src/lib/db/passport-overrides.ts.
+  passportOverridesJson String?
   stars           Int       @default(0)
   // Current default-branch head + the GitHub ETag from the last conditional HEAD lookup.
   // Together these back the cross-instance scan cache: a re-scan sends `If-None-Match: headEtag`
