@@ -66,7 +66,6 @@ export {
   getCreditLedger,
   getCreditReconciliation,
   setOrgPlan,
-  isUnlimitedPlan,
   type CreditState,
   type CreditLedgerEntry,
   type CreditReconciliation,

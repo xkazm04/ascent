@@ -10,11 +10,6 @@ import { randomUUID } from "node:crypto";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { isUnlimitedPlan, decideScanCharge, scanAllowance } from "@/lib/plans";
 
-// Re-export so existing importers (entitlement, scan paths) keep their `@/lib/db/credits` import.
-// The definition now lives in @/lib/plans (data-driven from PLAN_FEATURES) so `pro`/`team`/`enterprise`
-// are no longer hardcoded here — see CRED-2.
-export { isUnlimitedPlan };
-
 export interface CreditState {
   balance: number;
   plan: string;
