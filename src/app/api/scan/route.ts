@@ -157,7 +157,7 @@ async function runScan(
 
   // Pass the head sha resolved for the cache key so the scored commit matches the key (no SHA
   // drift if a push lands mid-scan). Null/SHA-less lookups pass undefined → default behavior.
-  const runScan = (signal?: AbortSignal) =>
+  const doScan = (signal?: AbortSignal) =>
     scanRepository(url, {
       token,
       mock: opts.mock,
@@ -170,8 +170,8 @@ async function runScan(
   let report: Awaited<ReturnType<typeof scanRepository>>;
   try {
     report = lookup
-      ? await coalesceScan(lookup.cacheKey, (signal) => runScan(signal), opts.signal)
-      : await runScan(opts.signal);
+      ? await coalesceScan(lookup.cacheKey, (signal) => doScan(signal), opts.signal)
+      : await doScan(opts.signal);
   } catch (err) {
     // The scan delivered nothing — invalid URL / 404 / upstream failure / rate limit / client
     // abort. Refund both the weekly slot AND any reserved credit before handleError maps the failure:
