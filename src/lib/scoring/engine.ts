@@ -23,12 +23,13 @@ import type { LLMProvider } from "@/lib/llm/provider";
 import type { ComparableScan } from "@/lib/db/scans";
 import {
   DIMENSION_BY_ID,
-  LEVELS,
   LLM_GUARDBAND,
   SCORE_BLEND,
   axisScore,
   clamp,
   levelForScore,
+  levelIndex,
+  nextLevel as nextLevelOf,
   overallScoreFor,
   postureFor,
   weightsFor,
@@ -226,12 +227,12 @@ export function projectScore(
   const scored = report.dimensions.map((d) => ({ id: d.id, score: overrides[d.id] ?? d.score }));
   const overall = overallScoreFor(scored, report.archetype);
   const lvl = levelForScore(overall);
-  // An unrecognized current-level id (rubric schema drift, a legacy or hand-edited persisted
-  // scan) makes findIndex return -1; clamp to L1 so an unknown level can't read as "above
-  // everything" and falsely mark every projection a level-up. `toIdx` comes from levelForScore
-  // so it is always a valid band.
-  const fromIdx = Math.max(0, LEVELS.findIndex((l) => l.id === report.level.id));
-  const toIdx = LEVELS.findIndex((l) => l.id === lvl.id);
+  // levelIndex clamps an unrecognized current-level id (rubric schema drift, a legacy or
+  // hand-edited persisted scan) to L1 so an unknown level can't read as "above everything" and
+  // falsely mark every projection a level-up. `toIdx` comes from levelForScore so it is always a
+  // valid band (the clamp is a no-op there).
+  const fromIdx = levelIndex(report.level.id);
+  const toIdx = levelIndex(lvl.id);
   return {
     overallScore: overall,
     level: lvl.id,
@@ -274,10 +275,11 @@ export function projectedGain(
   const current = overallScoreFor(scored, lens);
   const raised = scored.map((d) => (d.id === dimId ? { ...d, score: 100 } : d));
   const projected = overallScoreFor(raised, lens);
-  // Same -1 clamp as projectScore: an unrecognized current band must not read as "above everything".
-  const fromIdx = Math.max(0, LEVELS.findIndex((l) => l.id === levelForScore(current).id));
+  // Same clamp as projectScore (via levelIndex): an unrecognized current band must not read as
+  // "above everything".
+  const fromIdx = levelIndex(levelForScore(current).id);
   const to = levelForScore(projected);
-  const toIdx = LEVELS.findIndex((l) => l.id === to.id);
+  const toIdx = levelIndex(to.id);
   return { points: Math.max(0, projected - current), unlocks: toIdx > fromIdx ? to.id : null };
 }
 
@@ -324,13 +326,10 @@ export function projectSandbox(
  * dimension changed) and stops as soon as the projection crosses the next band floor.
  */
 export function cheapestPathToNextLevel(report: ScanReport): LevelPath {
-  // findIndex returns -1 for an unrecognized level id (schema drift / a legacy persisted scan).
-  // Treat it as the lowest band rather than conflating "not found" with "already at the top" —
-  // the latter returned reachable:true/target:null and rendered the repo as maxed out at L5 with
-  // no path to climb.
-  const rawIdx = LEVELS.findIndex((l) => l.id === report.level.id);
-  const fromIdx = rawIdx >= 0 ? rawIdx : 0;
-  const nextLevel = fromIdx < LEVELS.length - 1 ? LEVELS[fromIdx + 1] : null;
+  // nextLevelOf treats an unrecognized level id (schema drift / a legacy persisted scan) as the
+  // lowest band rather than conflating "not found" with "already at the top" — the latter returned
+  // reachable:true/target:null and rendered the repo as maxed out at L5 with no path to climb.
+  const nextLevel = nextLevelOf(report.level.id);
   if (!nextLevel) {
     return { reachable: true, target: null, steps: [], projected: projectScore(report, {}) };
   }

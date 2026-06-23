@@ -178,6 +178,27 @@ export function levelForScore(score: number): MaturityLevel {
 }
 
 /**
+ * Index of a level id in the canonical ladder, clamped to 0 (L1) for an unrecognized id
+ * (rubric schema drift / a legacy or hand-edited persisted scan). An unknown level must NOT
+ * read as "above everything" / maxed out at L5 — the same clamp the projection, ROI, and
+ * fallback-roadmap surfaces relied on inline.
+ */
+export function levelIndex(id: string): number {
+  return Math.max(0, LEVELS.findIndex((l) => l.id === id));
+}
+
+/**
+ * The next level up the ladder from `id`, or null at the top band. An unrecognized id is treated
+ * as the lowest band (L1) — same semantics as {@link levelIndex} — so it climbs from L1 rather
+ * than conflating "not found" with "already at the top".
+ */
+export function nextLevel(id: string): MaturityLevel | null {
+  const i = LEVELS.findIndex((l) => l.id === id);
+  const idx = i >= 0 ? i : 0;
+  return idx < LEVELS.length - 1 ? LEVELS[idx + 1]! : null;
+}
+
+/**
  * Sanity check that EVERY weight set sums to 1 (within float tolerance): the base
  * DIMENSIONS weights and each ARCHETYPE_WEIGHTS lens — the lenses are what scoring actually
  * uses, so validating only the base weights left the real ones unchecked.
