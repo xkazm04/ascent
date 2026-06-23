@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable */
-
 /**
  * Presentational chrome for {@link DevInspector} — highlight boxes, the
  * cursor-anchored source label, the breadcrumb HUD, and the nav-mode hint.
@@ -151,7 +149,9 @@ export function InspectorHud({
   onCopy: (loc: string) => void;
 }) {
   return (
-    <div data-devinspector style={PANEL}>
+    // No data-devinspector here: the armed-mode portal wrapper (DevInspector.tsx) already carries it
+    // and is an ancestor of this panel, so the insideHud closest() hit-test resolves through it.
+    <div style={PANEL}>
       <div
         style={{
           color: copied ? (copyOk ? OK : "#fca5a5") : ACCENT,
