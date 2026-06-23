@@ -6,29 +6,17 @@
 import { NextResponse } from "next/server";
 import { getContributorInsights, getOrgGovernance, isDbConfigured, listSegments } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
+import { csvField } from "@/lib/export/csv";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Quote a CSV field (RFC 4180) and neutralize spreadsheet formula injection; total — never throws. */
-function csvField(v: unknown): string {
-  let s: string;
-  try {
-    s = v == null ? "" : String(v);
-  } catch {
-    s = "";
-  }
-  // A cell starting with = + - @ can execute as a formula in Excel/Sheets — prefix with ' to force literal text.
-  if (/^[=+\-@]/.test(s)) return `"'${s.replace(/"/g, '""')}"`;
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
 
 function safeFilenameSlug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "org";
 }
 
 function toCsv(header: string[], rows: unknown[][]): string {
-  return [header.join(","), ...rows.map((r) => r.map(csvField).join(","))].join("\n") + "\n";
+  return [header.join(","), ...rows.map((r) => r.map((v) => csvField(v)).join(","))].join("\n") + "\n";
 }
 
 export async function GET(request: Request) {

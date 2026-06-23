@@ -11,22 +11,10 @@ import { NextResponse } from "next/server";
 import { getAuditLog, isDbConfigured } from "@/lib/db";
 import { sha256Hex } from "@/lib/db/audit-integrity";
 import { requireOrgRead } from "@/lib/authz";
+import { csvField } from "@/lib/export/csv";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/**
- * RFC-4180 CSV cell: wrap in quotes and double any embedded quotes; null/undefined → empty.
- * Also neutralizes spreadsheet formula injection — a cell whose first char is = + - @ can
- * execute as a formula in Excel/Sheets, so it is prefixed with ' to force literal text. Since
- * `action`/`actorId`/`meta` are caller- and attacker-influencable, this guard keeps the
- * compliance-evidence export from turning a crafted audit row into a live formula.
- */
-function csvCell(v: unknown): string {
-  const s = v == null ? "" : String(v);
-  const escaped = s.replace(/"/g, '""');
-  return /^[=+\-@]/.test(s) ? `"'${escaped}"` : `"${escaped}"`;
-}
 
 const CSV_COLUMNS = ["at", "action", "actorId", "repo", "level", "overall", "headSha", "meta"] as const;
 const CSV_MAX_ROWS = 10000; // safety cap so one export can't loop the whole table unbounded
@@ -54,7 +42,7 @@ async function exportCsv(
           e.scan?.headSha,
           JSON.stringify(e.meta),
         ]
-          .map(csvCell)
+          .map((v) => csvField(v, true)) // audit trail quotes every field uniformly
           .join(","),
       );
       total += 1;

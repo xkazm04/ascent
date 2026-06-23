@@ -6,20 +6,10 @@
 import { NextResponse } from "next/server";
 import { getOrgRollup, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
+import { csvField } from "@/lib/export/csv";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Quote a CSV field iff it contains a comma, quote, or newline (RFC 4180); total — never throws. */
-function csvField(v: unknown): string {
-  let s: string;
-  try {
-    s = v == null ? "" : String(v);
-  } catch {
-    s = "";
-  }
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
 
 /** Safe ASCII token for a Content-Disposition filename (no CRLF / quote injection from a slug). */
 function safeFilenameSlug(s: string): string {
@@ -57,7 +47,7 @@ export async function GET(request: Request) {
         r.latest?.adoption ?? "",
         r.latest?.rigor ?? "",
         r.latest?.posture ?? "",
-      ].map(csvField).join(","),
+      ].map((v) => csvField(v)).join(","),
     );
     const csv = [header.join(","), ...rows].join("\n") + "\n";
     return new NextResponse(csv, {
