@@ -19,4 +19,7 @@ export interface AppRepo {
 
 export type Visibility = "all" | "public" | "private";
 
-export const SCHEDULES = ["off", "daily", "weekly", "monthly"];
+/** The autoscan cadence vocabulary — the single source for route validation, the UI options, and the
+ *  cadence→days map. Pure constants (no client deps), so server routes / the DB layer import it too. */
+export const SCHEDULES = ["off", "daily", "weekly", "monthly"] as const;
+export type Schedule = (typeof SCHEDULES)[number];

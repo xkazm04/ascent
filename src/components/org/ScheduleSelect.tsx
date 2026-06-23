@@ -8,9 +8,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-
-const OPTIONS = ["off", "daily", "weekly", "monthly"] as const;
-type Schedule = (typeof OPTIONS)[number];
+import { SCHEDULES as OPTIONS, type Schedule } from "@/components/connect/installationRepoTypes";
 
 function normalize(s: string): Schedule {
   return (OPTIONS as readonly string[]).includes(s) ? (s as Schedule) : "off";

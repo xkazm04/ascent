@@ -2,11 +2,15 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { segmentScope } from "@/lib/db/org-shared";
+import type { Schedule } from "@/components/connect/installationRepoTypes";
 
-const SCHEDULE_DAYS: Record<string, number> = { off: 0, daily: 1, weekly: 7, monthly: 30 };
+// Keyed on the canonical Schedule vocabulary (installationRepoTypes) so the cadence set can't drift
+// from the route validators / UI options — a missing or extra key is a compile error here.
+const SCHEDULE_DAYS: Record<Schedule, number> = { off: 0, daily: 1, weekly: 7, monthly: 30 };
 
 function nextScanFor(schedule: string): Date | null {
-  const d = SCHEDULE_DAYS[schedule] ?? 0;
+  // schedule arrives as a free string from the API; an unknown value falls through to 0 ("off").
+  const d = SCHEDULE_DAYS[schedule as Schedule] ?? 0;
   return d > 0 ? new Date(Date.now() + d * 86_400_000) : null;
 }
 

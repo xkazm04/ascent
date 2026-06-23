@@ -6,11 +6,12 @@ import { NextResponse } from "next/server";
 import { isDbConfigured, setRepoSchedule, setWatchedSchedule } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
+import { SCHEDULES } from "@/components/connect/installationRepoTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VALID = new Set(["off", "daily", "weekly", "monthly"]);
+const VALID = new Set<string>(SCHEDULES);
 
 export async function POST(request: Request) {
   if (!isAppConfigured() || !isDbConfigured()) {

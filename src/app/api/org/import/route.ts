@@ -35,12 +35,13 @@ import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequest, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
+import { SCHEDULES as SCAN_SCHEDULES } from "@/components/connect/installationRepoTypes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // bulk runs are long
 
-const SCHEDULES = new Set(["off", "daily", "weekly", "monthly"]);
+const SCHEDULES = new Set<string>(SCAN_SCHEDULES);
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) {
