@@ -6,6 +6,5 @@ export {
   selectTracks,
   WEAK_THRESHOLD,
   type OnboardingTrack,
-  type ControlLayer,
   type SelectOpts,
 } from "./tracks";

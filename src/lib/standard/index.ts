@@ -17,8 +17,7 @@ export { buildConformanceWiring } from "./wiring";
 export { buildMaintain } from "./maintain";
 export { buildMemorySeed } from "./memory";
 export { buildContextScaffold } from "./context";
-export { MANIFEST_SCHEMA_VERSION } from "./types";
-export type { GeneratedFile, ManifestData, Capability } from "./types";
+export type { GeneratedFile } from "./types";
 
 /**
  * All foundation artifacts for a repo, in scaffold order: the manifest spine first, then the doctor
