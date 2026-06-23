@@ -4,19 +4,13 @@
 // a low-confidence (few-points) trend is flagged "noisy" so a quarterly-cadence book isn't over-read.
 
 import Link from "next/link";
-import { Tile, OrgTable, TILE_GRID, postureLabel } from "@/components/org/ui";
+import { Tile, OrgTable, TILE_GRID, postureLabel, DIRECTION_TONE } from "@/components/org/ui";
 import { scoreHex } from "@/lib/ui";
 import type { Portfolio, PortfolioCompany } from "@/lib/org/portfolio";
 
-const TRAJ = {
-  rising: { arrow: "▲", color: "#84cc16" },
-  falling: { arrow: "▼", color: "#f97316" },
-  flat: { arrow: "→", color: "#94a3b8" },
-} as const;
-
 function Trajectory({ c }: { c: PortfolioCompany }) {
   if (!c.trajectory || c.perWeek == null) return <span className="text-slate-600">—</span>;
-  const t = TRAJ[c.trajectory];
+  const t = DIRECTION_TONE[c.trajectory];
   const noisy = c.confidence != null && c.confidence < 50;
   return (
     <span className="inline-flex flex-col">

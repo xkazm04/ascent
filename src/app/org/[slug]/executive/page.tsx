@@ -3,7 +3,7 @@
 // a markdown brief to paste into Claude Code (Direction #5 + the #6 LLM-consumption baseline).
 
 import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, valueRealizedLine } from "@/lib/org/briefing";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta, DIRECTION_TONE } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { BriefingShareButton } from "@/components/org/BriefingShareButton";
 import { BrandingSettings } from "@/components/org/BrandingSettings";
@@ -291,14 +291,14 @@ function DimRow({ dimId, label, avg }: { dimId: string; label: string; avg: numb
 }
 
 function MoveRow({ tone, name, d, from, to }: { tone: "up" | "down"; name: string; d: number; from: string; to: string }) {
-  const color = tone === "up" ? "#84cc16" : "#f97316";
+  const { arrow, color } = DIRECTION_TONE[tone === "up" ? "rising" : "falling"];
   return (
     <div className="flex items-center justify-between gap-3 text-base">
       <span className="min-w-0 truncate font-mono text-sm text-slate-200">{name}</span>
       <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
         {from !== to && <span className="text-slate-500">{from}→{to}</span>}
         <span style={{ color }}>
-          {tone === "up" ? "▲" : "▼"} {Math.abs(d)}
+          {arrow} {Math.abs(d)}
         </span>
       </span>
     </div>

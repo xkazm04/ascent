@@ -8,7 +8,7 @@ import { DIMENSION_SHORT } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
 
 // Re-exported from the brand kit so existing `@/components/org/ui` importers keep resolving them.
-export { deltaHex, signedDelta, fmtDelta } from "@/components/ui";
+export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE, toneFor } from "@/components/ui";
 
 export const POSTURE_LABEL: Record<string, string> = {
   "ai-native": "AI-Native",

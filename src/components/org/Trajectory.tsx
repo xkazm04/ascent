@@ -2,16 +2,10 @@
 // forecast computed on the rollup (forecastTrajectory) and renders where the fleet is now,
 // where it is heading by the horizon, the weekly rate, the promotion/demotion ETA, and how
 // trustworthy the straight-line read is. Server-safe (no client hooks).
-import { Card, Meter, SectionHeader } from "@/components/org/ui";
+import { Card, Meter, SectionHeader, DIRECTION_TONE } from "@/components/org/ui";
 import { forecastHeadline, humanizeDays, type Forecast } from "@/lib/maturity/forecast";
 import { LEVEL_BY_ID } from "@/lib/maturity/model";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
-
-const DIR = {
-  rising: { arrow: "▲", color: "#84cc16", label: "rising" },
-  falling: { arrow: "▼", color: "#f97316", label: "falling" },
-  flat: { arrow: "→", color: "#94a3b8", label: "holding" },
-} as const;
 
 function LevelStamp({ score, levelId }: { score: number; levelId: keyof typeof LEVEL_GLYPH }) {
   return (
@@ -30,7 +24,7 @@ function LevelStamp({ score, levelId }: { score: number; levelId: keyof typeof L
 }
 
 export function Trajectory({ forecast }: { forecast: Forecast }) {
-  const dir = DIR[forecast.trajectory];
+  const dir = DIRECTION_TONE[forecast.trajectory];
   const confidence = Math.round(forecast.fitQuality * 100);
   const rate = `${forecast.perWeek > 0 ? "+" : ""}${forecast.perWeek}/wk`;
 

@@ -10,7 +10,7 @@ import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { OrgStanding } from "@/components/org/OrgStanding";
 import { OrgGapsSection } from "@/components/org/OrgGapsSection";
 import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
-import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER, DIRECTION_TONE } from "@/components/org/ui";
 import { CollapsibleSection, OVERVIEW_COLLAPSE_COOKIE } from "@/components/org/CollapsibleSection";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
@@ -45,8 +45,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "up" | "down"; moves: RepoMove[]; emptyText: string }) {
-  const color = tone === "up" ? "#84cc16" : "#f97316";
-  const arrow = tone === "up" ? "▲" : "▼";
+  const { arrow, color } = DIRECTION_TONE[tone === "up" ? "rising" : "falling"];
   return (
     <Card>
       <SectionHeader size="sm" title={title} />
