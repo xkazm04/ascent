@@ -65,7 +65,7 @@ export async function persistScanReport(
   // before the op and reconnects + retries once on an auth-expiry error — instead of 500ing with the
   // scan unsaved. On reconnect the singleton is swapped, so the inner getPrisma()/withRetry/tx pick
   // up the fresh client on the retried run. Inert in static/local-Postgres mode (no DSQL config →
-  // the op simply runs once, unchanged). (Body indentation kept as-is to keep the diff reviewable.)
+  // the op simply runs once, unchanged).
   return withDb(async () => {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
