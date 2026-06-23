@@ -24,6 +24,7 @@ export {
   getRecommendationEvents,
   getRecommendationOrgSlug,
   recordAudit,
+  recordOrgAudit,
   getAuditLog,
   getPublicScanGallery,
   reportPermalink,

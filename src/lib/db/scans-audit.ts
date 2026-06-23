@@ -3,6 +3,7 @@
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { resolveOrgId } from "@/lib/db/scans-shared";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
 
 /**
@@ -45,6 +46,22 @@ export async function recordAudit(
     });
     return false;
   }
+}
+
+/**
+ * Audit an org-scoped action: resolve the org's id from its slug (best-effort — a failed/absent lookup
+ * leaves `orgId` undefined so the entry still records, just without the FK) and forward to
+ * {@link recordAudit}. The single home for the "resolve orgId, then audit on success" tail that every
+ * owner-gated org mutation repeats, so the audit envelope stays uniform across those routes.
+ */
+export async function recordOrgAudit(
+  action: string,
+  slug: string,
+  meta: Record<string, unknown>,
+  actorId?: string,
+): Promise<boolean> {
+  const orgId = (await getOrgId(slug).catch(() => null)) ?? undefined;
+  return recordAudit(action, meta, { orgId, actorId });
 }
 
 // ---- Audit log query (org dashboard viewer) ---------------------------------

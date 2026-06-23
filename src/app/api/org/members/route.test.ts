@@ -30,9 +30,10 @@ vi.mock("@/lib/db/members", async (orig) => {
 vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   getMembershipRole: vi.fn(async () => "member"),
-  getOrgId: vi.fn(async () => "org-id-1"),
   listOrgMembers: vi.fn(async () => [{ login: "a", role: "owner" }]),
-  recordAudit: vi.fn(async () => {}),
+  // The route now audits via the consolidated recordOrgAudit (resolve-orgId-then-record), not the
+  // raw recordAudit + getOrgId pair — so the audit assertions key on this mock.
+  recordOrgAudit: vi.fn(async () => true),
   setMembershipRole: vi.fn(async () => "ok"),
   removeMembership: vi.fn(async () => "ok"),
 }));
@@ -43,7 +44,7 @@ import { isSameOrigin, getSession } from "@/lib/auth";
 import {
   setMembershipRole,
   removeMembership,
-  recordAudit,
+  recordOrgAudit,
   listOrgMembers,
 } from "@/lib/db";
 
@@ -52,7 +53,7 @@ const mockSameOrigin = vi.mocked(isSameOrigin);
 const mockSession = vi.mocked(getSession);
 const mockSet = vi.mocked(setMembershipRole);
 const mockRemove = vi.mocked(removeMembership);
-const mockAudit = vi.mocked(recordAudit);
+const mockAudit = vi.mocked(recordOrgAudit);
 const mockList = vi.mocked(listOrgMembers);
 
 // A denied gate returns a NextResponse the route returns verbatim. Mirror requireOrgRole's real

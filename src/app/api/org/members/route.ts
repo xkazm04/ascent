@@ -9,7 +9,7 @@
 // trail). Resolution still treats an installation-owner as owner by default.
 
 import { NextResponse } from "next/server";
-import { getMembershipRole, getOrgId, isDbConfigured, listOrgMembers, recordAudit, removeMembership, setMembershipRole } from "@/lib/db";
+import { getMembershipRole, isDbConfigured, listOrgMembers, recordOrgAudit, removeMembership, setMembershipRole } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
 import { getSession, isSameOrigin } from "@/lib/auth";
@@ -57,11 +57,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Can't demote the last owner — assign another owner first." }, { status: 409 });
   }
   const session = await getSession();
-  const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
-  await recordAudit(
+  await recordOrgAudit(
     "org.member.role",
+    org,
     { org, login: login.toLowerCase(), newRole: body.role, prevRole: prevRole ?? null },
-    { orgId, actorId: session?.login },
+    session?.login,
   );
   return NextResponse.json({ ok: true, login: login.toLowerCase(), role: body.role });
 }
@@ -81,7 +81,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Can't remove the last owner — assign another owner first." }, { status: 409 });
   }
   const session = await getSession();
-  const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
-  await recordAudit("org.member.removed", { org, login: login.toLowerCase() }, { orgId, actorId: session?.login });
+  await recordOrgAudit("org.member.removed", org, { org, login: login.toLowerCase() }, session?.login);
   return NextResponse.json({ ok: true });
 }

@@ -43,6 +43,7 @@ export {
 
 export {
   recordAudit,
+  recordOrgAudit,
   getAuditLog,
   type AuditScanRef,
   type AuditLogEntry,
