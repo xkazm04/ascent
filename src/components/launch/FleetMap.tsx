@@ -147,8 +147,11 @@ export function FleetMap({
   // A star matches when it passes every active filter. When no filter is active the matcher is
   // undefined, so ConstellationField renders at full brightness (no dimming).
   const q = query.trim().toLowerCase();
-  const filterActive = q !== "" || levels.size > 0 || watchedOnly;
   const matcher = useMemo(() => makeMatcher({ q, levels, watchedOnly }), [q, levels, watchedOnly]);
+  // Single source of truth for "is any filter active": `makeMatcher` returns undefined precisely when
+  // no filter is active, so the "clear" affordance derives from the matcher rather than re-deriving
+  // the three-term predicate here.
+  const filterActive = matcher !== undefined;
 
   // Order the org cards by the chosen key; loaded constellations rank ahead of loading/error ones.
   const ordered = useMemo(() => orderConstellations(constellations, sortKey), [constellations, sortKey]);
