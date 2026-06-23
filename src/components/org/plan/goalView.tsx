@@ -6,13 +6,7 @@ import Link from "next/link";
 import { Meter } from "@/components/org/ui";
 import { humanizeDays, type GoalPace, type Trajectory } from "@/lib/maturity/forecast";
 import { scoreHex } from "@/lib/ui";
-
-export interface GoalLaggard {
-  fullName: string;
-  name: string;
-  value: number;
-  gap: number;
-}
+import type { GoalLaggard } from "@/lib/db/plan";
 
 /** The serializable shape the goal UI renders — mirrors GoalProgress from src/lib/db/plan.ts. */
 export interface GoalProgressView {
