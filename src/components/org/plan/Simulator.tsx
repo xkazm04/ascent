@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
 import { scoreHex } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
+import { humanizeDays } from "@/lib/maturity/forecast";
 import type { FleetProjection, InvestmentRank } from "@/lib/scoring/orgsim";
 
 interface DimOption {
@@ -42,14 +43,6 @@ interface SavedScenario {
 }
 
 const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
-
-/** Coarse, friendly duration ("~3 days", "~8 weeks", "~5 months") — matches forecast.humanizeDays. */
-function humanizeDays(days: number): string {
-  if (days <= 1) return "~1 day";
-  if (days < 14) return `~${days} days`;
-  if (days < 60) return `~${Math.round(days / 7)} weeks`;
-  return `~${Math.round(days / 30)} months`;
-}
 
 /** What-if: project the fleet impact of raising a dimension to a target across a repo set. */
 export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption[]; repos: RepoOption[] }) {
