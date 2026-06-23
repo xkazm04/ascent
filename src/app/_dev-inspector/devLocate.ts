@@ -8,8 +8,6 @@
 export interface LocEntry {
   /** The DOM element carrying this `data-loc`. */
   el: Element;
-  /** Raw attribute value: `src/.../File.tsx:88:7`. */
-  raw: string;
   /** Copied reference (Claude-Code clickable): `src/.../File.tsx:88`. */
   loc: string;
   /** Repo-relative path: `src/.../File.tsx`. */
@@ -44,7 +42,7 @@ export function parseLoc(raw: string): Omit<LocEntry, "el"> | null {
   if (!m) return null;
   const [, path, lineStr] = m;
   if (!path || !lineStr) return null;
-  return { raw, path, line: Number(lineStr), loc: `${path}:${lineStr}` };
+  return { path, line: Number(lineStr), loc: `${path}:${lineStr}` };
 }
 
 /** DOM ancestor chain of `[data-loc]` elements, innermost → outermost. */
