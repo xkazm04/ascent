@@ -204,6 +204,11 @@ const SOURCE_PATH =
   /\.(ts|tsx|js|jsx|py|go|rs|java|rb|kt|cs|php|swift|scala)$/i;
 const VENDOR =
   /(^|\/)(node_modules|dist|build|vendor|\.next|out|target|\.venv)\//i;
+// ADR / architecture-decision-record detection. ADRs count toward both D5 (Documentation) and D8
+// (AI Process — agent-readable runbooks/ADRs), so single-source the path convention here rather than
+// copy it into each detector (where one could be broadened and the other silently left behind).
+const ADR_PATH = /(adr|decisions?)\/.*\.(md|mdx)$/;
+const ADR_HINT = /architecture-decision/;
 
 const d2: Detector = (idx) => {
   const s = new Scorer();
@@ -400,7 +405,7 @@ const d5: Detector = (idx) => {
   }
 
   if (idx.count(/^docs?\/.*\.(md|mdx|rst)$/) >= 2) s.add(20, "Dedicated /docs with multiple pages");
-  if (idx.has(/(adr|decisions?)\/.*\.(md|mdx)$/) || idx.has(/architecture-decision/))
+  if (idx.has(ADR_PATH) || idx.has(ADR_HINT))
     s.add(15, "Architecture Decision Records");
   if (idx.has(/(^|\/)contributing\.md$/)) s.add(10, "CONTRIBUTING.md");
   if (idx.has(/(^|\/)changelog\.md$/) || idx.has(/^\.changeset\//)) s.add(10, "Changelog");
@@ -561,8 +566,8 @@ const d8: Detector = (idx) => {
   // Agent-readable operational docs / runbooks / ADRs.
   if (
     idx.has(/(^|\/)(runbooks?|docs\/agents?|docs\/runbooks?)\//) ||
-    idx.has(/(adr|decisions?)\/.*\.(md|mdx)$/) ||
-    idx.has(/architecture-decision/)
+    idx.has(ADR_PATH) ||
+    idx.has(ADR_HINT)
   )
     s.add(20, "Agent-readable runbooks / ADRs");
 
