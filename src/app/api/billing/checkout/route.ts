@@ -45,16 +45,18 @@ export async function GET(request: Request) {
 
   // Absolute base for the post-payment return (publicBaseUrl in prod; the request origin in local dev).
   const base = publicBaseUrl() || origin;
+  // Single source for the org return URL so the success and error redirects can't drift on path/encoding.
+  const orgUrl = (status: string) => `${base}/org/${encodeURIComponent(org)}?credits=${status}`;
   try {
     const checkout = await polar.checkouts.create({
       products: [pack],
-      successUrl: `${base}/org/${encodeURIComponent(org)}?credits=pending`,
+      successUrl: orgUrl("pending"),
       externalCustomerId: org,
       metadata: { org },
     });
     return NextResponse.redirect(checkout.url, 303);
   } catch (err) {
     console.error("[billing/checkout] failed to create Polar checkout", err instanceof Error ? err.message : err);
-    return NextResponse.redirect(`${base}/org/${encodeURIComponent(org)}?credits=error`, 303);
+    return NextResponse.redirect(orgUrl("error"), 303);
   }
 }
