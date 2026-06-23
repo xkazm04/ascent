@@ -155,7 +155,9 @@ export interface SessionState {
   needsRefresh?: boolean;
 }
 
-function sessionCookieAttrs(secure: boolean) {
+/** The session cookie's defining attribute set — the single source the silent-refresh re-mint, the
+ *  OAuth callback's initial mint, and revokeOtherSessions all share so they can't drift. */
+export function sessionCookieAttrs(secure: boolean) {
   return {
     httpOnly: true as const,
     sameSite: "lax" as const,

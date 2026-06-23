@@ -16,7 +16,7 @@ import {
   RESYNC_COOKIE,
   safeNext,
   secureCookieForRequest,
-  sessionMaxAgeSeconds,
+  sessionCookieAttrs,
   SESSION_COOKIE,
   STATE_COOKIE,
   type SessionDiscovery,
@@ -133,17 +133,13 @@ export async function GET(request: Request) {
       dest = `/launch?next=${encodeURIComponent(next)}`;
     }
     const res = NextResponse.redirect(new URL(dest, request.url));
-    res.cookies.set(SESSION_COOKIE, encodeSession(session), {
-      httpOnly: true,
-      sameSite: "lax",
-      // Derive Secure from the forwarded proto (matches the silent-refresh path), not the internal
-      // request origin: behind a TLS-terminating proxy `url.origin` is the internal http origin, so
-      // origin.startsWith("https") was false and the INITIAL session cookie was minted WITHOUT
-      // Secure — letting it leak over plaintext. secureCookieForRequest reads x-forwarded-proto.
-      secure: await secureCookieForRequest(),
-      path: "/",
-      maxAge: sessionMaxAgeSeconds,
-    });
+    // Derive Secure from the forwarded proto (matches the silent-refresh path), not the internal
+    // request origin: behind a TLS-terminating proxy `url.origin` is the internal http origin, so
+    // origin.startsWith("https") was false and the INITIAL session cookie was minted WITHOUT
+    // Secure — letting it leak over plaintext. secureCookieForRequest reads x-forwarded-proto.
+    // sessionCookieAttrs is the shared attribute set (httpOnly/sameSite/path/maxAge) — same shape
+    // the silent-refresh re-mint and revokeOtherSessions use, so the initial cookie can't drift.
+    res.cookies.set(SESSION_COOKIE, encodeSession(session), sessionCookieAttrs(await secureCookieForRequest()));
     res.cookies.delete(STATE_COOKIE);
     res.cookies.delete(NEXT_COOKIE);
     res.cookies.delete(RESYNC_COOKIE);
