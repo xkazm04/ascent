@@ -6,6 +6,7 @@
 // inactive (DB-less / disabled), so it's invisible on deployments without the weekly quota.
 
 import { useEffect, useState } from "react";
+import { formatResetAt } from "@/components/report/QuotaNotice";
 
 interface Quota {
   enforced: boolean;
@@ -33,7 +34,9 @@ export function QuotaMeter() {
 
   if (!q || !q.enforced) return null;
   const low = q.remaining <= 1;
-  const reset = q.resetAt ? new Date(q.resetAt).toLocaleDateString() : null;
+  // Only show the reset clause when we actually have a reset time (mirrors the prior guard); reuse
+  // the shared formatResetAt so the meter and the report banners render the date the same way.
+  const reset = q.resetAt ? formatResetAt(q.resetAt) : null;
 
   return (
     <p className={`mt-2 font-mono text-sm ${low ? "text-amber-300" : "text-slate-500"}`}>
