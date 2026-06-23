@@ -1,0 +1,41 @@
+# Code Refactor — LLM Provider Abstraction
+> Context group: Repository Scanning & Scoring
+> Total: 4 findings (Critical: 0, High: 2, Medium: 1, Low: 1)
+
+This context is well-maintained: no dead exports (every public symbol — `hasLlmKey`, `resolveProviderChoice`, `getProviderForOrg`, `providerByName`, the `DEFAULT_*` model consts, `techStackPromptEnabled` — is referenced by app code or tests), no stray `console.log`, no commented-out code, and no stale TODOs in the scoped files. The findings below are all duplication that has begun (or is positioned) to drift, plus one trivial twin-constant.
+
+## 1. `LLM_TIMEOUT_MS` env read triple-duplicated across the real providers
+- **Severity**: High
+- **Category**: duplication
+- **File**: src/lib/llm/gemini.ts:16, src/lib/llm/bedrock.ts:28, src/lib/llm/openai.ts:19
+- **Scenario**: Each real provider declares its own module-level `const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60_000;`. Three byte-identical copies of the same env-knob read live in three sibling files — even though `src/lib/llm/config.ts` is explicitly the "env-driven LLM tuning knobs shared by the real providers" home and already exports `envNumber(name, fallback)` for exactly this.
+- **Root cause**: The per-call timeout was added provider-by-provider (the "W6-2 AbortController pattern shared with gemini/openai", per the bedrock comments). Each provider got its own copy of the literal instead of routing through the shared `config.ts` helper that was introduced for `LLM_TEMPERATURE` / `BEDROCK_MAX_TOKENS`.
+- **Impact**: Three places to change the default or the env name; they can silently diverge. There is also a latent correctness wrinkle: `Number(process.env.X) || 60_000` is *not* equivalent to `envNumber("LLM_TIMEOUT_MS", 60_000)` — the `|| 60_000` form coerces a deliberately-configured `0` (and a blank string) back to the default and accepts `NaN`-ish junk inconsistently, whereas `envNumber` treats blank as fallback and guards `Number.isFinite`. Consolidating both removes the dup *and* makes the timeout obey the same parsing rules as every other knob.
+- **Fix sketch**: Add `export const llmTimeoutMs = () => envNumber("LLM_TIMEOUT_MS", 60_000);` (or a `LLM_TIMEOUT_MS` getter) to `config.ts`. Delete the three module-level literals and call the helper where each `setTimeout` is armed inside `assess()` (reading at call-time also lets a test stub the env without module-load ordering games — `provider.test.ts:140` already stubs `LLM_TIMEOUT_MS`). `bedrock.test.ts:29` mirrors the same literal for its assertion; it can keep its own copy or import the helper.
+
+## 2. Per-call timeout / abort-signal wiring duplicated across gemini, bedrock, and openai
+- **Severity**: High
+- **Category**: duplication
+- **File**: src/lib/llm/gemini.ts:35-42, src/lib/llm/bedrock.ts:73-80, src/lib/llm/openai.ts:38-41 (+72)
+- **Scenario**: All three real providers hand-roll the same "create a timeout AbortController, arm a `setTimeout` that aborts it, combine it with the caller's `opts.signal`, and `clearTimeout` in `finally`" dance. gemini.ts and bedrock.ts are nearly character-identical (`new AbortController()` → `setTimeout(() => timeoutCtrl.abort(new Error("<X> request timed out.")), LLM_TIMEOUT_MS)` → `opts.signal ? AbortSignal.any([opts.signal, timeoutCtrl.signal]) : timeoutCtrl.signal`), differing only in the error-message string. openai.ts implements the *same intent* with a third, subtly different idiom (manual `addEventListener("abort", onAbort)` + `removeEventListener` in `finally` instead of `AbortSignal.any`).
+- **Root cause**: The timeout was retrofitted onto each provider in turn; the shared "pattern" was copy-pasted rather than extracted into a helper, and openai.ts predates / diverged from the `AbortSignal.any` form the other two settled on.
+- **Impact**: ~3 copies of fiddly cancellation logic where the bug-prone part (clearing the timer, not leaking listeners) must be kept correct independently. The openai variant manually manages a listener that the `AbortSignal.any` form handles for free — a maintenance asymmetry that invites a leak if edited. Any future change (e.g. distinguishing "timeout" vs "client-disconnect" in the thrown error) must be made three times.
+- **Fix sketch**: Add a small helper to `config.ts` (or a new `src/lib/llm/abort.ts`), e.g. `function withTimeout(signal: AbortSignal | undefined, ms: number, message: string): { signal: AbortSignal; clear: () => void }` that builds the timeout controller, composes via `AbortSignal.any`, and returns a `clear()` for the `finally`. Each `assess()` then becomes `const { signal, clear } = withTimeout(opts.signal, llmTimeoutMs(), "Gemini request timed out."); try { … } finally { clear(); }`. Migrate openai.ts to the same helper so all three share one cancellation path. Behavior-preserving (same abort semantics, same error messages). Note `claude-cli.ts` uses a process-kill timeout, not an AbortSignal race, so it stays as-is.
+
+## 3. Bedrock model/region resolution duplicated between the provider and `testBedrockConnection`
+- **Severity**: Medium
+- **Category**: duplication
+- **File**: src/lib/llm/bedrock.ts:47-52 and 183-184
+- **Scenario**: The `BedrockProvider` constructor resolves `model` and `region` via `opts.x || process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL` and `opts.region || process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION`. `testBedrockConnection()` repeats both fallback chains verbatim (just formatted on single lines). Both also rebuild the same `new BedrockRuntimeClient({ region, ...(creds ? { credentials } : {}) })` shape.
+- **Root cause**: `testBedrockConnection` (the BYOM test-connection endpoint) was added alongside the provider and copied the resolution logic rather than reusing it, since the provider's resolution lives in the constructor (not a standalone function).
+- **Impact**: The model/region precedence rules now exist twice in one file and are already drifting cosmetically (multi-line vs one-line). A change to the fallback order (e.g. honoring `AWS_DEFAULT_REGION`, which `providerAvailable` in index.ts already treats as a region signal but neither resolution chain here reads) must be made in two spots or they silently disagree.
+- **Fix sketch**: Extract two tiny pure helpers in bedrock.ts — `resolveBedrockModel(opt?: string)` and `resolveBedrockRegion(opt?: string)` — and call them from both the constructor and `testBedrockConnection`. Optionally factor the client construction into `makeBedrockClient(region, creds?)`. Pure string/object assembly; behavior-preserving.
+
+## 4. Impact/effort level values defined twice (`LEVELS` vs `IMPACTS`)
+- **Severity**: Low
+- **Category**: duplication
+- **File**: src/lib/llm/schema.ts:17 and src/lib/llm/provider.ts:65
+- **Scenario**: `schema.ts` declares `const LEVELS = ["high", "medium", "low"]` (used as the `enum` for roadmap `impact`/`effort` in the JSON Schema). `provider.ts` independently declares `const IMPACTS = new Set(["high", "medium", "low"])` (used by `asLevel()` to validate the same two fields at runtime). These are the same three impact/effort tokens — the request-schema constraint and the acceptance-check — defined as two separate literals in the same folder. (Distinct from the maturity `LEVELS` in `@/lib/maturity/model`, which is the L1–L5 ladder — not the same thing.)
+- **Root cause**: schema.ts (constrain up front) and provider.ts (defensively coerce after) were written as the two layers of the same contract, each inlining the level vocabulary locally instead of sharing one source.
+- **Impact**: Minor. If the impact vocabulary ever changes (e.g. add `"critical"`), the schema's `enum` and the runtime `asLevel` allow-list can drift — the model could be told one set is valid while validation accepts another. Low likelihood, low blast radius, but it's a one-line dedup.
+- **Fix sketch**: Export a single `export const IMPACT_LEVELS = ["high", "medium", "low"] as const;` (e.g. from schema.ts, the contract source), use it for the schema `enum`, and build `provider.ts`'s `IMPACTS` from it (`new Set(IMPACT_LEVELS)`). Keep the `"high" | "medium" | "low"` literal type on `asLevel` (or derive it `typeof IMPACT_LEVELS[number]`). Behavior-preserving.

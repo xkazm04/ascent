@@ -1,0 +1,41 @@
+# Code Refactor — Checkout & Plans (Polar)
+> Context group: Billing, Credits & Metering
+> Total: 4 findings (Critical: 0, High: 0, Medium: 1, Low: 3)
+
+The Checkout & Plans context is in good shape. `plans.ts` and `polar.ts` are both lean single-source-of-truth modules and **every** one of their exports has a real consumer — verified by grep across `src/`: each `planAllows*`/`scanAllowance`/`decideScanCharge`/`retentionCutoff`/`isUnlimitedPlan`/`isPlanId`/`PLAN_FEATURES`/`PLAN_ORDER` is imported by the entitlement layer, route gates, or the pricing UI, and each `polar.ts` export (`creditPacks`/`creditsForProduct`/`polarEnabled`/`getPolar`/`polarServer`) is used by the checkout route, the webhook, or the org layout. No dead exports, no `debugger`, no commented-out blocks, no stale TODOs, no unused imports in the six files. The `console.*` calls present are deliberate operational logging on the billing path, not debug cruft, so they are left alone. The findings below are the only worthwhile cleanups, and all are minor.
+
+## 1. `planChangesAllowed()` re-implements the repo-wide env-boolean pattern that has no shared helper
+- **Severity**: Medium
+- **Category**: duplication
+- **File**: src/app/api/org/plan/route.ts:17-20
+- **Scenario**: `planChangesAllowed()` is the textbook `const v = process.env.X; return v === "1" || v === "true";` env-flag reader. The exact same `v === "1" || v === "true"` truthiness test is hand-rolled in at least nine places across the codebase with no shared helper: `src/lib/access.ts:30` (`authBypassEnabled`), `src/lib/authz.ts:107`, `src/lib/public-scan-quota.ts:63`, `src/lib/llm/config.ts:23`, `src/app/api/org/credits/grant/route.ts:18` (`grantsEnabled` — the direct billing sibling of this very file), plus inline copies in `src/proxy.ts:21`, `src/app/org/[slug]/layout.tsx:150` (the credit-grant flag that pairs with this page), `src/lib/scoring/gate.ts:285-287`, and `src/app/api/scan/route.ts:336-342`. The in-scope `org/plan/route.ts` is one instance of that pattern; its closest neighbour, the credit-grant route, is byte-identical.
+- **Root cause**: There has never been a canonical `envBool(name)` / `flagEnabled(name)` helper (confirmed: no such export exists anywhere in `src/`), so every new boolean env gate copies the four-character idiom from the nearest example. Billing gates (`ASCENT_ALLOW_PLAN_CHANGES`, `ASCENT_ALLOW_CREDIT_GRANTS`) accreted independently.
+- **Impact**: Low individually but cumulative: ten copies of the same parsing rule mean the accepted truthy set (`"1"`/`"true"`, case-sensitive, no `"yes"`/`"on"`/whitespace-trim) is defined in ten places. Anyone who decides to accept `"TRUE"` or trim whitespace must find and edit all of them, and a divergent copy would silently gate billing differently from auth. It is also needless surface area to read.
+- **Fix sketch**: Add a single `export function envBool(name: string): boolean { const v = process.env[name]; return v === "1" || v === "true"; }` (natural home: `src/lib/env.ts` or alongside the existing flag readers in `src/lib/access.ts`), then replace `planChangesAllowed()`'s body with `return envBool("ASCENT_ALLOW_PLAN_CHANGES");` — or drop the wrapper entirely and inline `envBool("ASCENT_ALLOW_PLAN_CHANGES")` at the single call site (route.ts:31). Behaviour-preserving (identical truthy set). The other eight sites are out of this context's scope but are the obvious follow-up consolidation; doing just the in-scope file already removes one copy and gives the rest a target to migrate to.
+
+## 2. Redundant ternary branch in the pricing CTA — `enterprise` and the default both resolve to `/connect`
+- **Severity**: Low
+- **Category**: cleanup
+- **File**: src/app/pricing/page.tsx:76
+- **Scenario**: The plan-card CTA link computes its href as `href={id === "enterprise" ? "/connect" : id === "free" ? "/" : "/connect"}`. The first arm (`enterprise → "/connect"`) and the final fallback arm (`pro`/`team → "/connect"`) produce the identical destination, so the `id === "enterprise"` test changes nothing about the resulting URL — only `free` differs. (The visible *label* on line 79 genuinely differs for all three — `"Scan a repo free"` / `"Contact us"` / `"Get started"` — but the *href* does not.)
+- **Root cause**: Likely a leftover from when Enterprise once pointed somewhere other than `/connect` (e.g. a contact/sales path), or written defensively in parallel with the three-way label ternary on the next line and never collapsed once the targets converged.
+- **Impact**: Cosmetic. A reader has to evaluate a three-way ternary to discover two of its three arms are the same string, which invites the false impression that Enterprise routes somewhere special. No functional cost.
+- **Fix sketch**: Collapse the href to `href={id === "free" ? "/" : "/connect"}`. Behaviour-preserving — every plan resolves to exactly the same URL it does today. Leave the label ternary on line 79 untouched (its three arms are genuinely distinct).
+
+## 3. The post-payment return URL is built twice inline in the checkout route
+- **Severity**: Low
+- **Category**: duplication
+- **File**: src/app/api/billing/checkout/route.ts:51,58
+- **Scenario**: The success path builds `` `${base}/org/${encodeURIComponent(org)}?credits=pending` `` (passed as `successUrl`) and the catch path builds the near-identical `` `${base}/org/${encodeURIComponent(org)}?credits=error` ``. The two strings share the whole `` `${base}/org/${encodeURIComponent(org)}?credits=` `` prefix and differ only in the trailing status token (`pending` vs `error`).
+- **Root cause**: The error redirect was added (per the file header, so a failed Polar call still lands the user back on their org page) by copying the success template and swapping the query value.
+- **Impact**: Trivial, fully local to one short function. If the return location ever changes (path shape, an added query param, a different encoding), both literals must change together or they drift. Currently harmless.
+- **Fix sketch**: Extract one local, e.g. `const orgUrl = (status: string) => `${base}/org/${encodeURIComponent(org)}?credits=${status}`;` after `base` is computed, then `successUrl: orgUrl("pending")` and `NextResponse.redirect(orgUrl("error"), 303)`. Behaviour-preserving. Optional given how small the function is — list it as a tidy-up, not a must-fix.
+
+## 4. `body.org` is lower-cased for `getOrgId` only, not for the role check or the write
+- **Severity**: Low
+- **Category**: cleanup
+- **File**: src/app/api/org/plan/route.ts:29,37,40
+- **Scenario**: In the plan-override handler the raw `body.org` is passed to `requireOrgRole(body.org, "owner")` (line 29) and `setOrgPlan(body.org, ...)` (line 37), but the same value is explicitly `.toLowerCase()`-normalised only for `getOrgId(body.org.toLowerCase())` (line 40) when resolving the audit `orgId`. By contrast the checkout route normalises the slug once up front (`route.ts:22`, `.trim().toLowerCase()`) and uses that single value everywhere. The org-slug casing convention is inconsistent within this one file.
+- **Root cause**: The `getOrgId` lookup was added later (the SEC #1 audit-actor fix referenced in the line-41 comment) and its author defensively lower-cased the slug at that call site, without aligning the two pre-existing calls (which presumably normalise internally in the db/authz layer, so it "works").
+- **Impact**: Cosmetic / readability. It reads as if casing matters for the audit lookup but not for the auth gate or the write, which is confusing and relies on `requireOrgRole`/`setOrgPlan` normalising internally. No behaviour bug observed. Mild future-trap if a caller ever assumes the handler passes a canonical slug downstream.
+- **Fix sketch**: Normalise once at the top, mirroring the checkout route: `const org = (body.org ?? "").trim().toLowerCase();` after the body parse, then use `org` for the validity check, `requireOrgRole(org, "owner")`, `setOrgPlan(org, ...)`, `getOrgId(org)`, and the audit `meta.org`. Confirm `requireOrgRole`/`setOrgPlan` accept the lower-cased slug (they already receive lower-cased slugs from the checkout path, so this is consistent). Behaviour-preserving for any correctly-cased slug; only normalises previously-inconsistent mixed-case input. Lowest priority — leave it if the downstream helpers' normalisation is considered the contract.
