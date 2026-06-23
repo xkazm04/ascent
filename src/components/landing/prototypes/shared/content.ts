@@ -1,6 +1,5 @@
-// Shared marketing copy + pricing data for all landing variants. Each variant restyles these, but the
-// CONTENT (the honest pricing ladder, the method steps) is defined once here so the prototypes can't
-// drift from each other or from the rubric. Lifted verbatim from the original src/app/page.tsx.
+// Shared marketing copy + pricing data for the landing page. The CONTENT (the honest pricing ladder,
+// the method steps) is defined once here so the sections can't drift from each other or from the rubric.
 
 import { DIMENSIONS } from "@/lib/maturity/model";
 

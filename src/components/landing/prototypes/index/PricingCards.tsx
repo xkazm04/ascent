@@ -1,8 +1,7 @@
 "use client";
 
-// Pricing (#pricing) for The Index — the migrated Flight Deck card layout (the preferred treatment):
-// individual bordered cards, the featured Private tier emphasised with an accent ring + badge, arrow
-// bullets. HUD brackets and mission codes dropped to fit The Index. Content from shared buildPricing.
+// Pricing (#pricing) for The Index — bordered tier cards with the featured Private tier emphasised via
+// an accent ring + badge and arrow bullets. Content from shared buildPricing.
 
 import { Kicker } from "@/components/ui";
 import { buildPricing } from "../shared/content";

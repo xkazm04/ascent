@@ -1,9 +1,8 @@
 "use client";
 
-// The flight-path chart (migrated from the Flight Deck prototype — the strongest levels chart). A
-// Recharts line of the climb (level band-midpoint as altitude): angular path, ramp-gradient stroke,
-// square waypoint markers, and a dashed AI-Native threshold line. Mounted-gated; animation off under
-// reduced-motion.
+// The flight-path levels chart. A Recharts line of the climb (level band-midpoint as altitude):
+// angular path, ramp-gradient stroke, square waypoint markers, and a dashed AI-Native threshold line.
+// Mounted-gated; animation off under reduced-motion.
 
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { LEVELS, LEVEL_BY_ID, POSTURE_THRESHOLD } from "@/lib/maturity/model";

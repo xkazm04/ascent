@@ -1,9 +1,8 @@
 "use client";
 
-// Dimensions section for The Index — the migrated bar-gauge matrix (the superior treatment from the
-// Flight Deck prototype): the 9 dimensions × the 3 archetype lenses, each cell a horizontal bar of the
-// REAL archetype weight (normalized to the heaviest cell) plus its percentage. Editorial chrome
-// (hairline rules, no HUD brackets) to fit The Index.
+// Dimensions section for The Index — a bar-gauge matrix of the 9 dimensions × the 3 archetype lenses,
+// each cell a horizontal bar of the REAL archetype weight (normalized to the heaviest cell) plus its
+// percentage. Editorial chrome (hairline rules, no HUD brackets).
 
 import { motion } from "framer-motion";
 import { DIMENSIONS } from "@/lib/maturity/model";
