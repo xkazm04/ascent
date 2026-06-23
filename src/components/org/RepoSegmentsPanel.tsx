@@ -52,8 +52,6 @@ export function RepoSegmentsPanel({
   const [autoSeg, setAutoSeg] = useState("");
   const [autoBusy, setAutoBusy] = useState(false);
 
-  const segById = useMemo(() => new Map(segments.map((s) => [s.id, s])), [segments]);
-
   // Distinct primary languages present in the fleet, with repo counts — the auto-add picker options.
   const languages = useMemo(() => {
     const counts = new Map<string, number>();
@@ -379,7 +377,7 @@ export function RepoSegmentsPanel({
             })}
             {visibleRepos.length === 0 && <p className="text-sm text-slate-500">No repos match “{filter}”.</p>}
           </div>
-          <p className="mt-2 font-mono text-sm text-slate-600">{segById.size} segment{segById.size === 1 ? "" : "s"} · {repos.length} repos</p>
+          <p className="mt-2 font-mono text-sm text-slate-600">{segments.length} segment{segments.length === 1 ? "" : "s"} · {repos.length} repos</p>
         </div>
       )}
     </Card>
