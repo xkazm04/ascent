@@ -11,7 +11,7 @@ import {
   type OrgWindow,
   type RepoMove,
 } from "@/lib/db";
-import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org-rollup";
+import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org";
 import { forecastHeadline } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";

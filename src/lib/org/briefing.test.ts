@@ -15,9 +15,10 @@ vi.mock("@/lib/db", () => ({
   listGoals: vi.fn(),
 }));
 
-// buildExecBriefing reads the engine mix straight from org-rollup (not the @/lib/db barrel), so stub it
-// here too — otherwise the real query reaches for a database and the assembly hangs.
-vi.mock("@/lib/db/org-rollup", () => ({
+// buildExecBriefing reads the engine mix through the @/lib/db/org barrel (the same barrel every
+// sibling rollup goes through), so stub it here too — otherwise the real query reaches for a
+// database and the assembly hangs.
+vi.mock("@/lib/db/org", () => ({
   getOrgEngineMix: vi.fn(async () => []),
   getOrgRecsActioned: vi.fn(async () => ({ engaged: 0, actioned: 0 })),
 }));

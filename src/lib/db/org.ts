@@ -24,10 +24,13 @@ export {
   getOrgId,
   getRepoStates,
   getOrgRollup,
+  getOrgEngineMix,
+  getOrgRecsActioned,
   type RepoState,
   type OrgRepoRow,
   type OrgWindow,
   type OrgRollup,
+  type EngineMixEntry,
 } from "@/lib/db/org-rollup";
 
 export {
