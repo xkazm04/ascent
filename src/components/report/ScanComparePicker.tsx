@@ -8,12 +8,8 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import type { HistoryPoint } from "@/lib/db/scans";
-import { timeAgo } from "@/lib/ui";
 import { Kicker, Surface } from "@/components/ui";
-
-function optionLabel(s: HistoryPoint, isLatest: boolean): string {
-  return `${s.overallScore} · ${s.level} · ${timeAgo(s.scannedAt)} · ${s.engineProvider}${isLatest ? " · latest" : ""}`;
-}
+import { scanCaption } from "@/components/report/WhatChangedParts";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -60,7 +56,7 @@ export function ScanComparePicker({
           >
             {scans.map((s) => (
               <option key={s.id} value={s.id} disabled={s.id === afterId}>
-                {optionLabel(s, s.id === latestId)}
+                {scanCaption(s, { latest: s.id === latestId })}
               </option>
             ))}
           </select>
@@ -87,7 +83,7 @@ export function ScanComparePicker({
           >
             {scans.map((s) => (
               <option key={s.id} value={s.id} disabled={s.id === beforeId}>
-                {optionLabel(s, s.id === latestId)}
+                {scanCaption(s, { latest: s.id === latestId })}
               </option>
             ))}
           </select>

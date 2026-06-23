@@ -8,9 +8,17 @@ import { LEVEL_CLASSES, LEVEL_GLYPH, scoreGlyph, scoreHex, timeAgo } from "@/lib
 import { DeltaTag } from "@/components/report/deltas";
 import { Kicker, Surface } from "@/components/ui";
 
-/** A short, human label for one side of the comparison (score · level · when · engine). */
-export function scanCaption(scan: ComparableScan): string {
-  return `${scan.overallScore} · ${scan.level} · ${timeAgo(scan.scannedAt)} · ${scan.engineProvider}`;
+/**
+ * A short, human label for one side of the comparison (score · level · when · engine), shared by the
+ * "What changed" headline captions and the compare-page scan picker so the dropdown and the diff
+ * headline can't drift. `latest` appends `· latest` (the picker flags the most recent scan). Typed
+ * structurally so it serves both ComparableScan and HistoryPoint.
+ */
+export function scanCaption(
+  scan: Pick<ComparableScan, "overallScore" | "level" | "scannedAt" | "engineProvider">,
+  opts?: { latest?: boolean },
+): string {
+  return `${scan.overallScore} · ${scan.level} · ${timeAgo(scan.scannedAt)} · ${scan.engineProvider}${opts?.latest ? " · latest" : ""}`;
 }
 
 /** A level pill (glyph + id · name), colored by the level's brand class. */
