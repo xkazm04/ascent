@@ -8,7 +8,7 @@ import { appConfigureUrl } from "@/lib/ui";
 import { RepoFilterBar } from "./RepoFilterBar";
 import { RepoListSkeleton } from "./RepoListSkeleton";
 import { RepoRow } from "./RepoRow";
-import { type AppRepo, type RepoState, type Visibility } from "./installationRepoTypes";
+import { SCHEDULES, type AppRepo, type RepoState, type Visibility } from "./installationRepoTypes";
 import { applyWatchOptimistic, filterRepos, patchRepoState, rollbackWatch, summarizeBulkWatch } from "./watchState";
 
 type View =
@@ -413,7 +413,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
             className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-300 outline-none focus:border-accent disabled:opacity-50"
           >
             <option value="">cadence…</option>
-            {["off", "daily", "weekly", "monthly"].map((c) => (
+            {SCHEDULES.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
