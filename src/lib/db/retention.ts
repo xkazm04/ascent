@@ -14,13 +14,15 @@
 // so existing deployments keep their current behavior until they ask for retention.
 //
 // DSQL-safe by design: DSQL uses optimistic concurrency control (no row locks), so large
-// `deleteMany`s can hit serialization conflicts. We delete in small batches and retry the
-// individual batch on a write-conflict (P2034 / SQLSTATE 40001). relationMode = "prisma"
-// emits no FK cascades, so child rows (dimensions, recommendations) are deleted explicitly
-// before their parent Scan.
+// `deleteMany`s can hit serialization conflicts. We delete in small batches and retry each
+// batch through the SHARED withRetry / isSerializationConflictError from db/client — which
+// recognizes DSQL's native OC### conflict codes, the 40P01 deadlock SQLSTATE, and P2034, and
+// backs off with full jitter (the local copy this module used to carry missed the OC### codes
+// and re-collided in lockstep). relationMode = "prisma" emits no FK cascades, so child rows
+// (dimensions, recommendations) are deleted explicitly before their parent Scan.
 
-import { Prisma } from "@prisma/client";
-import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import type { Prisma } from "@prisma/client";
+import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans";
 import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 
@@ -78,36 +80,6 @@ export function resolveRetention(
   };
 }
 
-/** True when an error is a DSQL/Postgres serialization conflict that's safe to retry. */
-function isSerializationConflict(err: unknown): boolean {
-  // Prisma maps write conflicts / deadlocks (incl. DSQL OCC aborts) to P2034.
-  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2034") return true;
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return (
-    msg.includes("40001") ||
-    msg.includes("serializ") ||
-    msg.includes("write conflict") ||
-    msg.includes("deadlock")
-  );
-}
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/** Run a single batch delete, retrying only on serialization conflicts (DSQL OCC). */
-async function withRetry<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
-  let lastErr: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      if (!isSerializationConflict(err) || i === attempts - 1) throw err;
-      await sleep(50 * (i + 1)); // linear backoff; conflicts clear quickly under OCC
-    }
-  }
-  throw lastErr;
-}
-
 type PrismaLike = ReturnType<typeof getPrisma>;
 
 /** Per-repo: delete every scan beyond the newest `max`, with its dimensions + recommendations. */
@@ -142,19 +114,21 @@ async function pruneRepoScans(
     // leave a half-deleted graph. relationMode = "prisma" emits no FK cascade, so the grandchildren
     // (RecommendationEvent) must be deleted BEFORE their parent Recommendation or they orphan forever.
     // Order: grandchildren (events) → children (dimensions, recommendations) → parent (scan).
-    const counts = await withRetry(() =>
-      prisma.$transaction(async (tx) => {
-        const recIds = (
-          await tx.recommendation.findMany({ where: { scanId: { in: ids } }, select: { id: true } })
-        ).map((r) => r.id);
-        const ev = recIds.length
-          ? (await tx.recommendationEvent.deleteMany({ where: { recommendationId: { in: recIds } } })).count
-          : 0;
-        const dim = (await tx.scanDimension.deleteMany({ where: { scanId: { in: ids } } })).count;
-        const rec = (await tx.recommendation.deleteMany({ where: { scanId: { in: ids } } })).count;
-        const sc = (await tx.scan.deleteMany({ where: { id: { in: ids } } })).count;
-        return { ev, dim, rec, sc };
-      }),
+    const counts = await withRetry(
+      () =>
+        prisma.$transaction(async (tx) => {
+          const recIds = (
+            await tx.recommendation.findMany({ where: { scanId: { in: ids } }, select: { id: true } })
+          ).map((r) => r.id);
+          const ev = recIds.length
+            ? (await tx.recommendationEvent.deleteMany({ where: { recommendationId: { in: recIds } } })).count
+            : 0;
+          const dim = (await tx.scanDimension.deleteMany({ where: { scanId: { in: ids } } })).count;
+          const rec = (await tx.recommendation.deleteMany({ where: { scanId: { in: ids } } })).count;
+          const sc = (await tx.scan.deleteMany({ where: { id: { in: ids } } })).count;
+          return { ev, dim, rec, sc };
+        }),
+      { label: "retention.prune-scans" },
     );
     events += counts.ev;
     dimensions += counts.dim;
@@ -178,7 +152,11 @@ async function pruneAudit(
       await prisma.auditLog.findMany({ where, orderBy: { at: "asc" }, take: batchSize, select: { id: true } })
     ).map((r) => r.id);
     if (ids.length === 0) break;
-    total += (await withRetry(() => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }))).count;
+    total += (
+      await withRetry(() => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }), {
+        label: "retention.prune-audit",
+      })
+    ).count;
     if (ids.length < batchSize) break;
   }
   return total;

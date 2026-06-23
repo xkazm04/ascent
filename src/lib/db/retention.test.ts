@@ -12,7 +12,18 @@ const { mockGetPrisma, mockIsDbConfigured } = vi.hoisted(() => ({
   mockGetPrisma: vi.fn(),
   mockIsDbConfigured: vi.fn(),
 }));
-vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
+// retention.ts now routes its batch deletes through the SHARED withRetry / isSerializationConflictError
+// from db/client (finding #4 — the local copies missed DSQL's native OC### codes). Mock only the two
+// connection primitives; keep the REAL retry + classifier so the conflict-retry path is genuinely exercised.
+vi.mock("@/lib/db/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/db/client")>("@/lib/db/client");
+  return {
+    getPrisma: mockGetPrisma,
+    isDbConfigured: mockIsDbConfigured,
+    withRetry: actual.withRetry,
+    isSerializationConflictError: actual.isSerializationConflictError,
+  };
+});
 vi.mock("@/lib/db/scans", () => ({ recordAudit: vi.fn(async () => true) }));
 vi.mock("@/lib/public-scan-quota", () => ({ purgeStalePublicScanQuota: vi.fn(async () => 0) }));
 
@@ -162,6 +173,65 @@ describe("purgeExpiredData — RecommendationEvent orphans (critical)", () => {
     expect(evOrder).toBeLessThan(recOrder);
     expect(recOrder).toBeLessThan(scanOrder);
     expect(summary!.recommendationEventsDeleted).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withRetry drift (finding #4) — the purge job now uses the SHARED retry, which
+// recognizes DSQL's native OC### conflict CODE even with no matching message. The
+// old private isSerializationConflict only matched P2034 + a handful of message
+// substrings, so a routine DSQL OCC abort surfaced purely as an `OC000` code would
+// have aborted a destructive batch delete instead of being retried.
+// ---------------------------------------------------------------------------
+
+describe("purgeExpiredData — DSQL OC### conflict is retried (shared withRetry, finding #4)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("retries a scan-prune $transaction that throws a bare OC000-coded conflict, then succeeds", async () => {
+    // The conflict the old local classifier missed: a DSQL OCC abort whose only signal is the
+    // SQLSTATE-style code OC000 (no '40001'/'serializ'/'write conflict' text). The shared
+    // isSerializationConflictError matches /^OC\d{3}$/, so the shared withRetry re-runs the batch.
+    const deletedIds: string[] = [];
+    let attempts = 0;
+    const tx = {
+      recommendation: { findMany: vi.fn(async () => []), deleteMany: vi.fn(async () => ({ count: 0 })) },
+      recommendationEvent: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+      scanDimension: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+      scan: {
+        deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+          for (const id of where.id.in) deletedIds.push(id);
+          return { count: where.id.in.length };
+        }),
+      },
+    };
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "acme", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => [{ id: "repo_1" }]) },
+      scan: { findMany: vi.fn(async () => [{ id: "stale_1" }]) },
+      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => {
+        attempts += 1;
+        if (attempts === 1) throw Object.assign(new Error("conflict"), { code: "OC000" });
+        return fn(tx);
+      }),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(attempts).toBe(2); // first OC000 → retried → second succeeds
+    expect(deletedIds).toEqual(["stale_1"]);
+    expect(summary!.scansDeleted).toBe(1);
+    expect(summary!.errors).toEqual([]);
   });
 });
 
