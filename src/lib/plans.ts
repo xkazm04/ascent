@@ -109,6 +109,22 @@ export function decideScanCharge(opts: {
   return opts.balance > 0 ? "credit" : "denied";
 }
 
+/**
+ * Resolve a metered scan's charge from an org's raw plan/usage/balance — the single source for the
+ * `plan → {unlimited, allowance}` wiring around the pure `decideScanCharge` math. Used by BOTH the
+ * read gate (`checkScanEntitlement`) and the write gate (`consumeScanCredit`) so the input assembly
+ * can't drift between the two billing-sensitive paths. Pure — caller supplies the org's stored plan
+ * string, its month-to-date metered usage, and its credit balance.
+ */
+export function resolveScanCharge(opts: { plan: string | null | undefined; usageThisMonth: number; balance: number }): ScanCharge {
+  return decideScanCharge({
+    unlimited: isUnlimitedPlan(opts.plan),
+    allowance: scanAllowance(opts.plan),
+    usageThisMonth: opts.usageThisMonth,
+    balance: opts.balance,
+  });
+}
+
 /** Plans that include white-label briefing branding — Team and up (was Enterprise-only; opened up so a
  *  Team-tier reseller can brand the reports they hand to clients). */
 export function planAllowsWhiteLabel(plan: string | null | undefined): boolean {

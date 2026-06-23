@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isDbConfigured } from "@/lib/db/client";
 import { getCreditState, countMeteredScansThisMonth } from "@/lib/db/credits";
-import { decideScanCharge, scanAllowance } from "@/lib/plans";
+import { resolveScanCharge } from "@/lib/plans";
 
 /** True when this scan should draw on the org's prepaid credits. */
 export function isMeteredScan(orgSlug: string, mock: boolean): boolean {
@@ -33,12 +33,7 @@ export interface ScanEntitlement {
 export async function checkScanEntitlement(orgSlug: string): Promise<ScanEntitlement> {
   const state = await getCreditState(orgSlug);
   const usage = state.unlimited ? 0 : await countMeteredScansThisMonth(orgSlug);
-  const charge = decideScanCharge({
-    unlimited: state.unlimited,
-    allowance: scanAllowance(state.plan),
-    usageThisMonth: usage,
-    balance: state.balance,
-  });
+  const charge = resolveScanCharge({ plan: state.plan, usageThisMonth: usage, balance: state.balance });
   return {
     allowed: charge !== "denied",
     unlimited: state.unlimited,

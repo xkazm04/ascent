@@ -8,7 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
-import { isUnlimitedPlan, decideScanCharge, scanAllowance } from "@/lib/plans";
+import { isUnlimitedPlan, resolveScanCharge } from "@/lib/plans";
 
 export interface CreditState {
   balance: number;
@@ -183,9 +183,8 @@ export async function consumeScanCredit(
   const org0 = await prisma.organization.findUnique({ where: { slug }, select: { plan: true, scanCredits: true } });
   if (!org0) return { ok: false, balance: 0, unlimited: false, charged: false };
   if (isUnlimitedPlan(org0.plan)) return { ok: true, balance: org0.scanCredits, unlimited: true, charged: false };
-  const charge = decideScanCharge({
-    unlimited: false,
-    allowance: scanAllowance(org0.plan),
+  const charge = resolveScanCharge({
+    plan: org0.plan,
     usageThisMonth: await countMeteredScansThisMonth(slug),
     balance: org0.scanCredits,
   });
