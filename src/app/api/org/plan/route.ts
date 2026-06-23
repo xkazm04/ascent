@@ -26,7 +26,10 @@ export async function POST(request: Request) {
   if (!body.org || !body.plan || !isPlanId(body.plan)) {
     return NextResponse.json({ error: "Provide { org, plan: free|pro|team|enterprise }." }, { status: 400 });
   }
-  const denied = await requireOrgRole(body.org, "owner");
+  // Normalize the slug once up front (mirrors the checkout route) so the auth gate, the write, and the
+  // audit lookup all resolve the same canonical org rather than mixing raw and lower-cased forms.
+  const org = body.org.trim().toLowerCase();
+  const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
   if (body.plan !== "free" && !planChangesAllowed()) {
     return NextResponse.json(
@@ -34,12 +37,12 @@ export async function POST(request: Request) {
       { status: 403 },
     );
   }
-  const ok = await setOrgPlan(body.org, body.plan);
+  const ok = await setOrgPlan(org, body.plan);
   if (!ok) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   const session = await getSession();
-  const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
+  const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
   // SEC #1: record the actor in the dedicated `actorId` column (not just `meta.actor`) so the audit
   // viewer's Actor column shows it and the actor filter can match — matching member/playbook writes.
-  await recordAudit("org.plan", { org: body.org, plan: body.plan }, { orgId, actorId: session?.login }).catch(() => {});
+  await recordAudit("org.plan", { org, plan: body.plan }, { orgId, actorId: session?.login }).catch(() => {});
   return NextResponse.json({ ok: true, plan: body.plan });
 }
