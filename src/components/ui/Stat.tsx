@@ -3,6 +3,7 @@
 // org dashboard Tiles, the landing stat ledger, and any headline metric.
 
 import { deltaHex, fmtDelta } from "./format";
+import { Kicker } from "./Kicker";
 
 export interface StatProps {
   label: React.ReactNode;
@@ -20,7 +21,7 @@ export interface StatProps {
 export function Stat({ label, value, sub, color = "#fff", delta, deltaLabel, goal, className = "" }: StatProps) {
   return (
     <div className={className}>
-      <div className="font-mono text-xs uppercase tracking-[0.2em] text-slate-500">{label}</div>
+      <Kicker tone="muted">{label}</Kicker>
       <div className="mt-1 font-mono text-3xl font-bold tabular-nums" style={{ color }}>
         {value}
       </div>
