@@ -4,6 +4,7 @@ import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { LEVEL_HEX, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
+import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
 
 // SHELL-2: fleet social card for the org dashboard. Mirrors the per-repo report OG. Real numbers are
 // drawn ONLY when the org is publicly readable (canReadOrg — true for the shared public org, and for a
@@ -12,8 +13,8 @@ import type { LevelId } from "@/lib/types";
 
 export const runtime = "nodejs"; // the rollup lookup uses the Prisma client
 export const alt = "Ascent fleet maturity";
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+export const size = OG_SIZE;
+export const contentType = OG_CONTENT_TYPE;
 
 const POSTURES: { id: string; label: string }[] = [
   { id: "ai-native", label: "AI-Native" },
@@ -21,42 +22,6 @@ const POSTURES: { id: string; label: string }[] = [
   { id: "manual", label: "Solid but Manual" },
   { id: "early", label: "Getting Started" },
 ];
-
-const SHELL = {
-  width: "100%" as const,
-  height: "100%" as const,
-  display: "flex" as const,
-  flexDirection: "column" as const,
-  justifyContent: "space-between" as const,
-  padding: 80,
-  background: "linear-gradient(160deg, #0b1322 0%, #080d1a 62%)",
-  color: "#e2e8f0",
-  fontFamily: "sans-serif",
-};
-
-function Brand() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-      <div
-        style={{
-          display: "flex",
-          width: 44,
-          height: 44,
-          borderRadius: 11,
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#3b9eff",
-          color: "#04070e",
-          fontSize: 30,
-          fontWeight: 700,
-        }}
-      >
-        ↑
-      </div>
-      <div style={{ display: "flex", fontSize: 28, fontWeight: 700, letterSpacing: 9, color: "#ffffff" }}>ASCENT</div>
-    </div>
-  );
-}
 
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

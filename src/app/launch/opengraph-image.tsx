@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { starPosition } from "@/components/launch/fleetMapStars";
+import { Brand, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
 
 // MAP-5: a shareable social card for /launch — the "mission control" constellation as the product's
 // most screenshot-worthy surface. The fleet map is per-viewer and an unfurl carries no session, so this
@@ -9,8 +10,8 @@ import { starPosition } from "@/components/launch/fleetMapStars";
 
 export const runtime = "nodejs";
 export const alt = "Ascent — your engineering fleet, mapped";
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+export const size = OG_SIZE;
+export const contentType = OG_CONTENT_TYPE;
 
 // A decorative star field laid out with the same phyllotaxis placement the live map uses.
 const BOX = 560;
@@ -61,25 +62,7 @@ export default function Image() {
         <div style={{ position: "absolute", left: ORIGIN_X + BOX / 2 - 6, top: ORIGIN_Y + BOX / 2 - 6, width: 12, height: 12, borderRadius: 9999, background: "#e2e8f0" }} />
 
         <div style={{ position: "absolute", left: 80, top: 210, display: "flex", flexDirection: "column", gap: 16, width: 540 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <div
-              style={{
-                display: "flex",
-                width: 44,
-                height: 44,
-                borderRadius: 11,
-                alignItems: "center",
-                justifyContent: "center",
-                background: "#3b9eff",
-                color: "#04070e",
-                fontSize: 30,
-                fontWeight: 700,
-              }}
-            >
-              ↑
-            </div>
-            <div style={{ display: "flex", fontSize: 26, fontWeight: 700, letterSpacing: 8, color: "#ffffff" }}>ASCENT</div>
-          </div>
+          <Brand />
           <div style={{ display: "flex", fontSize: 26, letterSpacing: 4, textTransform: "uppercase", color: "#3b9eff", fontFamily: "monospace" }}>
             Mission Control
           </div>

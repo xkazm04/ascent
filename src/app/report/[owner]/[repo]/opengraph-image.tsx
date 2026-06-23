@@ -3,6 +3,7 @@ import { getScanReportByCommit } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { LEVEL_HEX, LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
+import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
 
 // Per-repo social card for the report permalink — the image the page's generateMetadata advertises
 // via twitter:summary_large_image. SHELL-1: when the repo has a persisted scan we draw its real
@@ -12,50 +13,14 @@ import type { LevelId } from "@/lib/types";
 
 export const runtime = "nodejs"; // the scan lookup uses the Prisma client
 export const alt = "Ascent maturity report";
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+export const size = OG_SIZE;
+export const contentType = OG_CONTENT_TYPE;
 
 /** Split a `repo` path segment that may carry a pinned commit: `name` or `name@sha`. */
 function parseRepoParam(repoParam: string): { name: string; sha?: string } {
   const at = repoParam.indexOf("@");
   if (at < 0) return { name: repoParam };
   return { name: repoParam.slice(0, at), sha: repoParam.slice(at + 1) || undefined };
-}
-
-const SHELL = {
-  width: "100%" as const,
-  height: "100%" as const,
-  display: "flex" as const,
-  flexDirection: "column" as const,
-  justifyContent: "space-between" as const,
-  padding: 80,
-  background: "linear-gradient(160deg, #0b1322 0%, #080d1a 62%)",
-  color: "#e2e8f0",
-  fontFamily: "sans-serif",
-};
-
-function Brand() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-      <div
-        style={{
-          display: "flex",
-          width: 44,
-          height: 44,
-          borderRadius: 11,
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#3b9eff",
-          color: "#04070e",
-          fontSize: 30,
-          fontWeight: 700,
-        }}
-      >
-        ↑
-      </div>
-      <div style={{ display: "flex", fontSize: 28, fontWeight: 700, letterSpacing: 9, color: "#ffffff" }}>ASCENT</div>
-    </div>
-  );
 }
 
 export default async function Image({ params }: { params: Promise<{ owner: string; repo: string }> }) {
