@@ -4,11 +4,27 @@ import { cheapestPathToNextLevel, projectDimensionClose } from "@/lib/scoring/en
 import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
 import { Kicker, Surface } from "@/components/ui";
 
-export function RoadmapMeta({ item }: { item: Pick<LlmRoadmapItem, "impact" | "effort"> }) {
+/**
+ * The canonical "impact / effort" chip pair. The default (roadmap list) variant renders
+ * `rounded-md border px-2 py-0.5` chips labelled `impact: X` / `effort: Y`; `compact` (the sandbox
+ * simulators) tightens to `rounded border px-1.5 py-0.5` and drops the colon. `className` overrides the
+ * wrapper (e.g. the simulators' `mt-1 … gap-1.5`) so each call site keeps its surrounding spacing.
+ */
+export function RoadmapMeta({
+  item,
+  compact = false,
+  className,
+}: {
+  item: Pick<LlmRoadmapItem, "impact" | "effort">;
+  compact?: boolean;
+  className?: string;
+}) {
+  const chip = compact ? "rounded border px-1.5 py-0.5" : "rounded-md border px-2 py-0.5";
+  const sep = compact ? " " : ": ";
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <span className={`rounded-md border px-2 py-0.5 ${IMPACT_CLASS[item.impact]}`}>impact: {item.impact}</span>
-      <span className={`rounded-md border px-2 py-0.5 ${EFFORT_CLASS[item.effort]}`}>effort: {item.effort}</span>
+    <div className={className ?? "flex items-center gap-2 text-sm"}>
+      <span className={`${chip} ${IMPACT_CLASS[item.impact]}`}>impact{sep}{item.impact}</span>
+      <span className={`${chip} ${EFFORT_CLASS[item.effort]}`}>effort{sep}{item.effort}</span>
     </div>
   );
 }
@@ -137,12 +153,7 @@ export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; repor
                 )}
                 <ExploreList items={item.explore} />
                 <div className="mt-2.5 flex flex-wrap items-center gap-2 text-sm">
-                  <span className={`rounded-md border px-2 py-0.5 ${IMPACT_CLASS[item.impact]}`}>
-                    impact: {item.impact}
-                  </span>
-                  <span className={`rounded-md border px-2 py-0.5 ${EFFORT_CLASS[item.effort]}`}>
-                    effort: {item.effort}
-                  </span>
+                  <RoadmapMeta item={item} className="contents" />
                   {axis && (
                     <span className="rounded-md border border-slate-700 px-2 py-0.5 text-slate-400">
                       lifts {axis === "adoption" ? "AI Adoption" : "Engineering Rigor"}

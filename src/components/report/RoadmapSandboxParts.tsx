@@ -9,14 +9,13 @@ import { DIMENSION_BY_ID, LEVEL_BY_ID, LEVELS } from "@/lib/maturity/model";
 import type { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
 import {
   DIMENSION_SHORT,
-  EFFORT_CLASS,
-  IMPACT_CLASS,
   LEVEL_CLASSES,
   LEVEL_GLYPH,
   scoreGlyph,
   scoreHex,
 } from "@/lib/ui";
 import { DeltaTag } from "@/components/report/deltas";
+import { RoadmapMeta } from "@/components/report/roadmapPieces";
 import { Kicker } from "@/components/ui";
 
 export type Overrides = Partial<Record<DimensionId, number>>;
@@ -268,14 +267,7 @@ export function RoadmapSimulators({
                     </span>
                   )}
                 </div>
-                <div className="mt-1 flex items-center gap-1.5 text-sm">
-                  <span className={`rounded border px-1.5 py-0.5 ${IMPACT_CLASS[item.impact]}`}>
-                    impact {item.impact}
-                  </span>
-                  <span className={`rounded border px-1.5 py-0.5 ${EFFORT_CLASS[item.effort]}`}>
-                    effort {item.effort}
-                  </span>
-                </div>
+                <RoadmapMeta item={item} compact className="mt-1 flex items-center gap-1.5 text-sm" />
               </div>
               <button
                 type="button"
