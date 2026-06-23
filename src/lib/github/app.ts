@@ -92,10 +92,6 @@ export class AppApiError extends Error {
  * AppApiError handling. Throws AppApiError on a non-2xx so callers can branch on `.status`.
  */
 export async function githubAppFetch<T>(path: string, auth: string, init: RequestInit = {}): Promise<T> {
-  return ghApp<T>(path, auth, init);
-}
-
-async function ghApp<T>(path: string, auth: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: {
@@ -116,7 +112,7 @@ async function ghApp<T>(path: string, auth: string, init: RequestInit = {}): Pro
 
 export async function getInstallation(installationId: number | string): Promise<InstallationInfo> {
   const jwt = createAppJwt();
-  const data = await ghApp<{
+  const data = await githubAppFetch<{
     id: number;
     account: { login: string; type: string };
     suspended_at?: string | null;
@@ -163,7 +159,7 @@ export async function getInstallationToken(
   }
 
   const jwt = createAppJwt();
-  const data = await ghApp<{ token: string; expires_at: string }>(
+  const data = await githubAppFetch<{ token: string; expires_at: string }>(
     `/app/installations/${installationId}/access_tokens`,
     jwt,
     { method: "POST" },
@@ -217,7 +213,7 @@ export async function listInstallationReposResult(
     const raw: GhRepo[] = [];
     let total = Infinity;
     for (let page = 1; page <= MAX_PAGES && raw.length < total; page++) {
-      const data = await ghApp<{ total_count: number; repositories: GhRepo[] }>(
+      const data = await githubAppFetch<{ total_count: number; repositories: GhRepo[] }>(
         `/installation/repositories?per_page=${PER_PAGE}&page=${page}`,
         token,
       );

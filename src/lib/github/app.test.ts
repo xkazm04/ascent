@@ -69,7 +69,7 @@ const INSTALL_ID = 4242;
 const SKEW_MS = 180_000; // TOKEN_EXPIRY_SKEW_MS in app.ts
 const NOW = 1_750_000_000_000; // fixed wall-clock for deterministic skew math
 
-/** Mock Response compatible with ghApp(): supports .ok, .status, .json(), .text(). */
+/** Mock Response compatible with githubAppFetch(): supports .ok, .status, .json(), .text(). */
 function ghRes(body: unknown, init: { status?: number } = {}): Response {
   const status = init.status ?? 200;
   return {
