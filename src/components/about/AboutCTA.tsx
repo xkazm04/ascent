@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Surface } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
+import { GlowBackdrop } from "./GlowBackdrop";
 
 /** Closing deck section — the call to action centered in the viewport, with a compact footer riding
  *  at the bottom of the same screen. The footer is inline (not the server SiteFooter, which can't be
@@ -14,13 +15,10 @@ export function AboutCTA() {
         <div className="mx-auto w-full max-w-6xl px-5">
           <Reveal>
             <Surface tone="strong" radius="2xl" className="relative overflow-hidden p-10 text-center">
-              <div aria-hidden className="strata absolute inset-0 opacity-50" />
-              <div
-                aria-hidden
-                className="absolute inset-0"
-                style={{ background: "radial-gradient(50% 60% at 50% 0%, rgba(59,158,255,0.14), transparent 70%)" }}
-              />
-              <div className="relative">
+              <GlowBackdrop
+                strataOpacity="opacity-50"
+                glow="radial-gradient(50% 60% at 50% 0%, rgba(59,158,255,0.14), transparent 70%)"
+              >
                 <h2 className="text-2xl font-bold text-white sm:text-3xl">{"See your organization's index"}</h2>
                 <p className="mx-auto mt-3 max-w-xl text-base text-slate-300">
                   Connect your GitHub org and Ascent scores the fleet in minutes — or explore the live demo first.
@@ -33,7 +31,7 @@ export function AboutCTA() {
                     Explore the demo →
                   </Link>
                 </div>
-              </div>
+              </GlowBackdrop>
             </Surface>
           </Reveal>
         </div>

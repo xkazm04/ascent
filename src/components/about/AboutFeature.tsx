@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Kicker } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
+import { GlowBackdrop } from "./GlowBackdrop";
 
 /** One heavy-hitter capability as a full-viewport deck section: editorial copy on one side, a live
  *  animated diagram on the other, sides alternating down the deck (`reverse`). */
@@ -45,13 +46,13 @@ export function AboutFeature({
 
         <Reveal delay={0.1}>
           <div className="relative overflow-hidden rounded-2xl border border-divider bg-surface-strong/40 p-5 sm:p-6">
-            <div aria-hidden className="strata pointer-events-none absolute inset-0 opacity-40" />
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0"
-              style={{ background: "radial-gradient(70% 60% at 50% 0%, rgba(59,158,255,0.10), transparent 70%)" }}
-            />
-            <div className="relative">{children}</div>
+            <GlowBackdrop
+              strataOpacity="opacity-40"
+              pointerEventsNone
+              glow="radial-gradient(70% 60% at 50% 0%, rgba(59,158,255,0.10), transparent 70%)"
+            >
+              {children}
+            </GlowBackdrop>
           </div>
         </Reveal>
       </div>
