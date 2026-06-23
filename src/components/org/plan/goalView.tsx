@@ -34,7 +34,9 @@ export interface GoalProgressView {
   belowCount: number;
 }
 
-const PACE: Record<GoalPace, { label: string; color: string }> = {
+/** The canonical pace-verdict palette + labels, keyed on GoalPace. Exported as the single source for
+ *  the pace colors so other surfaces (the org overview headline tile) don't re-state the hex values. */
+export const GOAL_PACE_TONE: Record<GoalPace, { label: string; color: string }> = {
   reached: { label: "Reached", color: "#34d399" },
   "on-pace": { label: "On pace", color: "#84cc16" },
   behind: { label: "Behind", color: "#f97316" },
@@ -42,7 +44,7 @@ const PACE: Record<GoalPace, { label: string; color: string }> = {
 };
 
 export function PaceChip({ pace }: { pace: GoalPace }) {
-  const p = PACE[pace];
+  const p = GOAL_PACE_TONE[pace];
   return (
     <span
       className="shrink-0 rounded-full border px-2 py-0.5 font-mono text-sm uppercase tracking-widest"
@@ -112,7 +114,7 @@ export function GoalCard({
   action?: React.ReactNode;
   initiatives?: LinkedInitiative[];
 }) {
-  const pace = PACE[goal.pace];
+  const pace = GOAL_PACE_TONE[goal.pace];
   const shown = goal.laggards.slice(0, compact ? 3 : 8);
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-4">

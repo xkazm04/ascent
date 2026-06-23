@@ -20,6 +20,8 @@ import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { resolveOrgWindow } from "@/lib/org/period";
 import type { RepoMove } from "@/lib/db";
+import { GOAL_PACE_TONE } from "@/components/org/plan/goalView";
+import type { GoalPace } from "@/lib/maturity/forecast";
 
 export const dynamic = "force-dynamic";
 
@@ -132,18 +134,19 @@ export default async function OrgOverview({
   const level = levelForScore(rollup.avgOverall);
 
   // OVR-6: connect the org's stated goals to its most-glanced numbers. Match an active goal by metric
-  // (already fetched via listGoals) and surface its target + pace verdict on the headline tile.
-  const PACE_NOTE: Record<string, { label: string; color: string }> = {
-    reached: { label: "reached", color: "#34d399" },
-    "on-pace": { label: "on track", color: "#84cc16" },
-    behind: { label: "behind", color: "#f97316" },
-    tracking: { label: "tracking", color: "#94a3b8" },
+  // (already fetched via listGoals) and surface its target + pace verdict on the headline tile. The
+  // tile wants short, lowercase labels ("on track"/"behind"), but the COLOR comes from the canonical
+  // GOAL_PACE_TONE so the pace palette stays single-sourced with the Plan tab's PaceChip.
+  const PACE_LABEL: Record<GoalPace, string> = {
+    reached: "reached",
+    "on-pace": "on track",
+    behind: "behind",
+    tracking: "tracking",
   };
   const goalNote = (metric: string) => {
     const g = (goals ?? []).find((x) => x.status === "active" && x.metric === metric);
     if (!g) return undefined;
-    const p = PACE_NOTE[g.pace] ?? PACE_NOTE.tracking!;
-    return { target: g.target, label: p.label, color: p.color };
+    return { target: g.target, label: PACE_LABEL[g.pace] ?? PACE_LABEL.tracking, color: GOAL_PACE_TONE[g.pace].color };
   };
 
   const trend: TrendPoint[] = rollup.trend.map((t) => ({ score: t.avg, at: t.date }));
