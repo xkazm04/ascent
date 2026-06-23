@@ -73,7 +73,7 @@ export default function PricingPage() {
                   ))}
                 </ul>
                 <Link
-                  href={id === "enterprise" ? "/connect" : id === "free" ? "/" : "/connect"}
+                  href={id === "free" ? "/" : "/connect"}
                   className="mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20"
                 >
                   {id === "free" ? "Scan a repo free" : id === "enterprise" ? "Contact us" : "Get started"}
