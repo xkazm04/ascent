@@ -7,6 +7,9 @@ import { scoreHex } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
 import { humanizeDays } from "@/lib/maturity/forecast";
 import type { FleetProjection, InvestmentRank } from "@/lib/scoring/orgsim";
+// type-only (erased at compile — no server/Prisma code reaches the client bundle); the single source
+// for the /api/org/simulate response shape, so the client can't drift from the server (it had dropped `metric`).
+import type { GoalImpact } from "@/lib/db/plan";
 
 interface DimOption {
   id: string;
@@ -16,20 +19,6 @@ interface DimOption {
 interface RepoOption {
   fullName: string;
   name: string;
-}
-
-/** How the scenario pulls forward one active goal (mirrors GoalImpact in src/lib/db/plan.ts). */
-interface GoalImpact {
-  id: string;
-  label: string;
-  metricLabel: string;
-  target: number;
-  currentValue: number;
-  simulatedValue: number;
-  currentEtaDate: string | null;
-  simulatedEtaDate: string | null;
-  reachedNow: boolean;
-  daysSooner: number | null;
 }
 
 /** A saved what-if snapshot for the client-side compare scratchpad (SIM-5). */
