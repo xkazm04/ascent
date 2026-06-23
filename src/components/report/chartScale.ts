@@ -32,6 +32,28 @@ export function vScale(height: number, top: number, bottom: number): (v: number)
 }
 
 /**
+ * Clamp a value into 0..100 with the same NaN-guard `vScale` uses: a NaN/out-of-range score collapses
+ * to 0 rather than propagating a NaN downstream. The single guard the radial charts (ScoreRing) reuse.
+ */
+export function clamp01to100(v: number): number {
+  return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 0;
+}
+
+/**
+ * A generic `0..domainMax → pixel` linear scale: `rangeStart + (clamped / domainMax) * rangeLen`, with
+ * the same clamp + NaN-guard as `vScale` (value clamped to `[0, domainMax]`; a NaN → 0). The radial/
+ * track charts (PostureQuadrant, ProvenanceTrack) previously hand-rolled this closure inline and DROPPED
+ * the guard; routing through `linScale` restores it. Pass a negative `rangeLen` (with `rangeStart` at the
+ * far edge) for an inverted axis, e.g. a y-axis where a higher value sits higher.
+ */
+export function linScale(domainMax: number, rangeStart: number, rangeLen: number): (v: number) => number {
+  return (v) => {
+    const c = Number.isFinite(v) ? Math.max(0, Math.min(domainMax, v)) : 0;
+    return rangeStart + (c / domainMax) * rangeLen;
+  };
+}
+
+/**
  * An index → x-pixel scale across `count` points within `[left, left + width]`. A single point (or
  * none) is centered so a one-scan chart renders a dot in the middle rather than at the left edge.
  */

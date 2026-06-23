@@ -5,6 +5,7 @@
 import type { Posture } from "@/lib/types";
 import { POSTURE_THRESHOLD } from "@/lib/maturity/model";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
+import { linScale } from "@/components/report/chartScale";
 
 const QUAD_TINT: Record<Posture["id"], string> = {
   "ai-native": "#22c55e",
@@ -52,8 +53,10 @@ export function PostureQuadrant({
   const y0 = padT;
   const w = size - padL - padR;
   const h = size - padT - padB;
-  const toX = (v: number) => x0 + (Math.max(0, Math.min(100, v)) / 100) * w;
-  const toY = (v: number) => y0 + (1 - Math.max(0, Math.min(100, v)) / 100) * h;
+  // 0..100 → pixel via the shared guarded scale. toY is inverted (higher score sits higher): start at
+  // the bottom edge (y0 + h) and run a negative length up.
+  const toX = linScale(100, x0, w);
+  const toY = linScale(100, y0 + h, -h);
   const thX = toX(POSTURE_THRESHOLD);
   const thY = toY(POSTURE_THRESHOLD);
   // posture.id comes from the (untrusted) report; an unexpected/drifted id would yield undefined

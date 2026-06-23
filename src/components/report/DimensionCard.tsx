@@ -5,6 +5,7 @@ import type { ScanReport } from "@/lib/types";
 import { LLM_GUARDBAND } from "@/lib/maturity/model";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
+import { linScale } from "@/components/report/chartScale";
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
 import { Surface } from "@/components/ui";
 
@@ -119,7 +120,7 @@ function ProvenanceTrack({ signal, llm, blended }: { signal: number; llm: number
   const H = 22;
   const padX = 2;
   const trackY = 14;
-  const x = (v: number) => padX + (Math.max(0, Math.min(100, v)) / 100) * (W - padX * 2);
+  const x = linScale(100, padX, W - padX * 2);
   const bandLo = Math.max(0, signal - LLM_GUARDBAND);
   const bandHi = Math.min(100, signal + LLM_GUARDBAND);
   const color = scoreHex(blended);

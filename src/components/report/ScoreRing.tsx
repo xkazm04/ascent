@@ -5,6 +5,7 @@
 import { useId } from "react";
 import type { MaturityLevel } from "@/lib/types";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
+import { clamp01to100 } from "@/components/report/chartScale";
 
 export function ScoreRing({
   score,
@@ -21,7 +22,7 @@ export function ScoreRing({
   // Clamp + NaN-guard: a NaN/out-of-range score would make strokeDashoffset NaN and render the
   // ring as a full circle (reads as a perfect 100). scoreHex already clamps the colour; clamp the
   // geometry too so the arc length can't lie.
-  const safeScore = Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0;
+  const safeScore = clamp01to100(score);
   const offset = c * (1 - safeScore / 100);
   const color = scoreHex(score);
   const cx = size / 2;
