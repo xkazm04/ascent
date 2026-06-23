@@ -5,6 +5,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { isSafePublicHttpsUrl } from "@/lib/net/ssrf";
+import { HEX_COLOR_RE } from "@/lib/branding/color";
 
 export interface OrgBranding {
   brandName: string | null;
@@ -42,7 +43,7 @@ export async function setOrgBranding(orgSlug: string, input: OrgBranding): Promi
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
   if (!org) return false;
   const brandName = input.brandName?.trim().slice(0, 80) || null;
-  const brandColor = input.brandColor && /^#[0-9a-fA-F]{6}$/.test(input.brandColor.trim()) ? input.brandColor.trim().toLowerCase() : null;
+  const brandColor = input.brandColor && HEX_COLOR_RE.test(input.brandColor.trim()) ? input.brandColor.trim().toLowerCase() : null;
   const logoUrl = input.logoUrl && isSafeLogoUrl(input.logoUrl.trim()) ? input.logoUrl.trim().slice(0, 500) : null;
   await prisma.organization.update({ where: { id: org.id }, data: { brandName, brandColor, logoUrl } });
   return true;

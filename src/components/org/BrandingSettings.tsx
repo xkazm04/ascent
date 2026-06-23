@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import type { OrgBranding } from "@/lib/db/branding";
+import { HEX_COLOR_RE } from "@/lib/branding/color";
 
 export function BrandingSettings({ slug, initial }: { slug: string; initial: OrgBranding }) {
   const [brandName, setBrandName] = useState(initial.brandName ?? "");
@@ -50,7 +51,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         </label>
         <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
           Accent
-          <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(brandColor) ? brandColor : "#2563eb"} onChange={(e) => setBrandColor(e.target.value)} className="h-9 w-14 rounded-lg border border-slate-700 bg-slate-900" />
+          <input type="color" value={HEX_COLOR_RE.test(brandColor) ? brandColor : "#2563eb"} onChange={(e) => setBrandColor(e.target.value)} className="h-9 w-14 rounded-lg border border-slate-700 bg-slate-900" />
         </label>
         <label className="flex flex-1 flex-col gap-1 font-mono text-sm text-slate-500">
           Logo URL (https)
