@@ -11,6 +11,7 @@ import { isDbConfigured, persistScanReport, recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
 import { authGateEnabled, getViewer } from "@/lib/access";
+import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,13 +98,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const enc = new TextEncoder();
-      const send = (event: string, data: unknown) => {
-        try {
-          controller.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-        } catch {
-          /* controller closed */
-        }
-      };
+      const send = makeSseSend(controller);
 
       // Keepalive: the longest silent window is provider.assess() (between the score and
       // compose stages), which can run many seconds. Proxies/load balancers (and Vercel
@@ -243,9 +238,7 @@ export async function POST(request: Request) {
 
   return new Response(stream, {
     headers: {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      "x-accel-buffering": "no",
+      ...SSE_HEADERS,
       connection: "keep-alive",
       // Free public scans left in this IP's rolling weekly window (after this scan), plus when the
       // window resets; only set when the weekly gate enforced (anonymous public). Lets the client

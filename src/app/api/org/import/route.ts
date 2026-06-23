@@ -36,6 +36,7 @@ import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequest, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
+import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -142,14 +143,7 @@ export async function POST(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const enc = new TextEncoder();
-      const send = (event: string, data: unknown) => {
-        try {
-          controller.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-        } catch {
-          /* closed */
-        }
-      };
+      const send = makeSseSend(controller);
       try {
         // 1. Resolve the repo list.
         let fullNames: { owner: string; name: string; fullName: string; url: string }[];
@@ -266,11 +260,5 @@ export async function POST(request: Request) {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      "x-accel-buffering": "no",
-    },
-  });
+  return new Response(stream, { headers: SSE_HEADERS });
 }
