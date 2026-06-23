@@ -20,6 +20,7 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { clientIp } from "@/lib/rate-limit";
+import { envBool } from "@/lib/env";
 import { isDbConfigured, withDb, withRetry } from "@/lib/db";
 import { readDsqlConfig } from "@/lib/db/client";
 import { recordQuotaEvent } from "@/lib/db/quota-events";
@@ -59,8 +60,7 @@ export function signedInScanWeeklyLimit(): number {
 
 /** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the weekly gate off (dev / incident). */
 export function publicScanQuotaDisabled(): boolean {
-  const v = process.env.PUBLIC_SCAN_QUOTA_DISABLED;
-  return v === "1" || v === "true";
+  return envBool("PUBLIC_SCAN_QUOTA_DISABLED");
 }
 
 /**

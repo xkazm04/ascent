@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { getSession, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { authGateEnabled, getViewer, requireViewer } from "@/lib/access";
+import { envBool } from "@/lib/env";
 import { ensureOwnerMembership, getMembershipRole, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
 
 /** True when the current session's installations include `org` (case-insensitive). */
@@ -103,8 +104,7 @@ export async function requireOrgRead(org: string): Promise<NextResponse | null> 
  * write path (requireOrgAccess) is already open when auth is off, so this only closes the read gap.
  */
 export function openOrgDashboardsEnabled(): boolean {
-  const v = process.env.ASCENT_OPEN_ORG_DASHBOARDS;
-  return v === "1" || v === "true";
+  return envBool("ASCENT_OPEN_ORG_DASHBOARDS");
 }
 
 /**

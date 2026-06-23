@@ -10,6 +10,7 @@
 import { cache } from "react";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { envBool } from "@/lib/env";
 
 /** Non-sensitive identity of the signed-in viewer (GitHub login + profile bits for the header). */
 export interface Viewer {
@@ -26,8 +27,7 @@ export interface Viewer {
  *  real deployment. Demo/e2e boxes that want it open run with NODE_ENV != "production". */
 export function authBypassEnabled(): boolean {
   if (process.env.NODE_ENV === "production") return false;
-  const v = process.env.ASCENT_AUTH_BYPASS;
-  return v === "1" || v === "true";
+  return envBool("ASCENT_AUTH_BYPASS");
 }
 
 /** Whether Supabase auth is wired up (public URL + anon key present). */

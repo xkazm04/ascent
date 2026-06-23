@@ -10,13 +10,13 @@ import { getOrgId, isDbConfigured, recordAudit, setOrgPlan } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { getSession, isSameOrigin } from "@/lib/auth";
 import { isPlanId } from "@/lib/plans";
+import { envBool } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function planChangesAllowed(): boolean {
-  const v = process.env.ASCENT_ALLOW_PLAN_CHANGES;
-  return v === "1" || v === "true";
+  return envBool("ASCENT_ALLOW_PLAN_CHANGES");
 }
 
 export async function POST(request: Request) {

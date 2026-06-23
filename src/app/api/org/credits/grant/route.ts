@@ -9,13 +9,13 @@ import { NextResponse } from "next/server";
 import { grantCredits, isDbConfigured } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { getSession, isSameOrigin } from "@/lib/auth";
+import { envBool } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function grantsEnabled(): boolean {
-  const v = process.env.ASCENT_ALLOW_CREDIT_GRANTS;
-  return v === "1" || v === "true";
+  return envBool("ASCENT_ALLOW_CREDIT_GRANTS");
 }
 
 export async function POST(request: Request) {
