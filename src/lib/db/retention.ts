@@ -82,6 +82,26 @@ export function resolveRetention(
 
 type PrismaLike = ReturnType<typeof getPrisma>;
 
+/**
+ * Shared DSQL-friendly paging-delete skeleton used by both prune loops: select up to `batchSize` ids,
+ * stop on an empty page, delete them (the caller's `deleteByIds` closure wraps its own withRetry +
+ * accumulation), then stop when the page was short OR when a delete made no progress (the `deleted === 0`
+ * guard prevents an infinite loop if a delete removes nothing — harmless for the always-progressing
+ * audit path). `deleteByIds` returns the count of progress-rows removed for that termination check.
+ */
+async function deleteInPages(
+  selectIds: () => Promise<string[]>,
+  deleteByIds: (ids: string[]) => Promise<number>,
+  batchSize: number,
+): Promise<void> {
+  for (;;) {
+    const ids = await selectIds();
+    if (ids.length === 0) break;
+    const deleted = await deleteByIds(ids);
+    if (deleted === 0 || ids.length < batchSize) break;
+  }
+}
+
 /** Per-repo: delete every scan beyond the newest `max`, with its dimensions + recommendations. */
 async function pruneRepoScans(
   prisma: PrismaLike,
@@ -100,43 +120,47 @@ async function pruneRepoScans(
   // page (always keep the newest `max`); the prior page's rows are now deleted, so `skip:max` advances
   // to the next stale window. Stop when a page is short. Rank by DB-authoritative `createdAt` (insertion
   // order), NOT report `scannedAt`: a backdated/skewed scannedAt could otherwise drop a live newer scan.
-  for (;;) {
-    const stale = await prisma.scan.findMany({
-      where: { repoId },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      skip: max,
-      take: batchSize,
-      select: { id: true },
-    });
-    if (stale.length === 0) break;
-    const ids = stale.map((s) => s.id);
-    // Delete the whole scan sub-graph for this batch in ONE transaction so a mid-batch timeout can't
-    // leave a half-deleted graph. relationMode = "prisma" emits no FK cascade, so the grandchildren
-    // (RecommendationEvent) must be deleted BEFORE their parent Recommendation or they orphan forever.
-    // Order: grandchildren (events) → children (dimensions, recommendations) → parent (scan).
-    const counts = await withRetry(
-      () =>
-        prisma.$transaction(async (tx) => {
-          const recIds = (
-            await tx.recommendation.findMany({ where: { scanId: { in: ids } }, select: { id: true } })
-          ).map((r) => r.id);
-          const ev = recIds.length
-            ? (await tx.recommendationEvent.deleteMany({ where: { recommendationId: { in: recIds } } })).count
-            : 0;
-          const dim = (await tx.scanDimension.deleteMany({ where: { scanId: { in: ids } } })).count;
-          const rec = (await tx.recommendation.deleteMany({ where: { scanId: { in: ids } } })).count;
-          const sc = (await tx.scan.deleteMany({ where: { id: { in: ids } } })).count;
-          return { ev, dim, rec, sc };
-        }),
-      { label: "retention.prune-scans" },
-    );
-    events += counts.ev;
-    dimensions += counts.dim;
-    recommendations += counts.rec;
-    scans += counts.sc;
-    // Safety: if the delete removed no scan rows the next query would re-return the same ids forever.
-    if (counts.sc === 0 || stale.length < batchSize) break;
-  }
+  // deleteInPages owns the short-page/empty-page/zero-progress termination (the `counts.sc === 0` guard).
+  await deleteInPages(
+    async () =>
+      (
+        await prisma.scan.findMany({
+          where: { repoId },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          skip: max,
+          take: batchSize,
+          select: { id: true },
+        })
+      ).map((s) => s.id),
+    async (ids) => {
+      // Delete the whole scan sub-graph for this batch in ONE transaction so a mid-batch timeout can't
+      // leave a half-deleted graph. relationMode = "prisma" emits no FK cascade, so the grandchildren
+      // (RecommendationEvent) must be deleted BEFORE their parent Recommendation or they orphan forever.
+      // Order: grandchildren (events) → children (dimensions, recommendations) → parent (scan).
+      const counts = await withRetry(
+        () =>
+          prisma.$transaction(async (tx) => {
+            const recIds = (
+              await tx.recommendation.findMany({ where: { scanId: { in: ids } }, select: { id: true } })
+            ).map((r) => r.id);
+            const ev = recIds.length
+              ? (await tx.recommendationEvent.deleteMany({ where: { recommendationId: { in: recIds } } })).count
+              : 0;
+            const dim = (await tx.scanDimension.deleteMany({ where: { scanId: { in: ids } } })).count;
+            const rec = (await tx.recommendation.deleteMany({ where: { scanId: { in: ids } } })).count;
+            const sc = (await tx.scan.deleteMany({ where: { id: { in: ids } } })).count;
+            return { ev, dim, rec, sc };
+          }),
+        { label: "retention.prune-scans" },
+      );
+      events += counts.ev;
+      dimensions += counts.dim;
+      recommendations += counts.rec;
+      scans += counts.sc;
+      return counts.sc; // progress count → zero stops the loop (a delete that removed no scan rows)
+    },
+    batchSize,
+  );
   return { scans, dimensions, recommendations, events };
 }
 
@@ -147,18 +171,22 @@ async function pruneAudit(
   batchSize: number,
 ): Promise<number> {
   let total = 0;
-  for (;;) {
-    const ids = (
-      await prisma.auditLog.findMany({ where, orderBy: { at: "asc" }, take: batchSize, select: { id: true } })
-    ).map((r) => r.id);
-    if (ids.length === 0) break;
-    total += (
-      await withRetry(() => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }), {
-        label: "retention.prune-audit",
-      })
-    ).count;
-    if (ids.length < batchSize) break;
-  }
+  await deleteInPages(
+    async () =>
+      (
+        await prisma.auditLog.findMany({ where, orderBy: { at: "asc" }, take: batchSize, select: { id: true } })
+      ).map((r) => r.id),
+    async (ids) => {
+      const count = (
+        await withRetry(() => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }), {
+          label: "retention.prune-audit",
+        })
+      ).count;
+      total += count;
+      return count;
+    },
+    batchSize,
+  );
   return total;
 }
 
