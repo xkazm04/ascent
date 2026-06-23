@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { BADGE_STYLES, type BadgeStyle, badgeReportHref } from "@/lib/badge";
 
 /** Minimal owner/repo parser (kept local so this client component doesn't pull the
  *  server-side ingestion module). Accepts `owner/repo` or a github.com URL. */
@@ -20,11 +21,11 @@ function parseRepo(input: string): { owner: string; repo: string } | null {
   return { owner, repo };
 }
 
-type Style = "flat" | "flat-square" | "for-the-badge";
+type Style = BadgeStyle; // single-sourced from @/lib/badge so the UI + the /api/badge route agree
 type Kind = "level" | "score" | "gate";
 type Format = "markdown" | "html" | "asciidoc";
 
-const STYLES: Style[] = ["flat", "flat-square", "for-the-badge"];
+const STYLES: readonly Style[] = BADGE_STYLES;
 const FORMATS: { id: Format; label: string }[] = [
   { id: "markdown", label: "Markdown" },
   { id: "html", label: "HTML" },
@@ -53,7 +54,7 @@ export function BadgeGenerator() {
   }, [parsed, style, kind, origin]);
 
   // ?ref=badge tags the click-through so README → report visits are attributable (USE-1).
-  const reportUrl = parsed ? `${origin}/report/${parsed.owner}/${parsed.repo}?ref=badge` : "";
+  const reportUrl = parsed ? badgeReportHref(origin, parsed.owner, parsed.repo) : "";
   const alt = kind === "gate" ? "Ascent maturity gate" : kind === "score" ? "Ascent maturity score" : "Ascent maturity";
 
   const snippet = useMemo(() => {

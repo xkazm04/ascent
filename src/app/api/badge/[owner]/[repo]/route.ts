@@ -25,6 +25,7 @@ import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
 import { rateLimitRequest, BADGE_RATE_LIMIT } from "@/lib/rate-limit";
 import { recordBadgeImpression, recordQuotaEvent } from "@/lib/db";
 import { LEVEL_GLYPH, LEVEL_HEX } from "@/lib/ui";
+import { BADGE_STYLES, type BadgeStyle, badgeReportHref } from "@/lib/badge";
 import type { LevelId } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -91,8 +92,6 @@ function readableOn(bg: string): string {
   const contrastInk = (L + 0.05) / 0.05;
   return contrastInk > contrastWhite ? "#04070e" : "#fff";
 }
-
-type BadgeStyle = "flat" | "flat-square" | "for-the-badge";
 
 /** Named colors map to brand hex; a #rrggbb / rrggbb value is accepted verbatim. */
 function resolveColor(input: string | null, fallback: string): string {
@@ -196,7 +195,7 @@ function respond(svg: string, init?: { status?: number; retryAfter?: number; cac
 }
 
 function parseStyle(s: string | null): BadgeStyle {
-  return s === "flat-square" || s === "for-the-badge" ? s : "flat";
+  return BADGE_STYLES.includes(s as BadgeStyle) ? (s as BadgeStyle) : "flat";
 }
 
 /** The embedding page's host (lowercased) for badge-reach attribution, or "direct" when absent/unparseable. */
@@ -264,7 +263,7 @@ export async function GET(
   // Click-through to the live report (shareable permalink). `?ref=badge` tags the visit so a report
   // hit from a README badge is attributable in analytics / server logs (USE-1, the acquisition loop).
   const origin = new URL(req.url).origin;
-  const href = `${origin}/report/${ownerN}/${repoN}?ref=badge`;
+  const href = badgeReportHref(origin, ownerN, repoN);
 
   try {
     // Resolve the current head commit so the badge reads (and writes) the SAME per-commit entry
