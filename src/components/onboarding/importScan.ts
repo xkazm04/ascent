@@ -1,4 +1,5 @@
 import type { LevelId } from "@/lib/types";
+import { parseSSE } from "@/lib/sse";
 
 // Abort an import if no SSE event arrives within this window — turns a server stall into a
 // recoverable error instead of an indefinite "Scanning…" hang.
@@ -88,21 +89,12 @@ export async function runImportScan(
       while ((nl = buffer.indexOf("\n\n")) >= 0) {
         const block = buffer.slice(0, nl);
         buffer = buffer.slice(nl + 2);
-        const lines = block.split("\n");
-        let event = "message";
-        let dataStr = "";
-        for (const raw of lines) {
-          const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-          if (line.startsWith("event:")) event = line.slice(6).trim();
-          else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
-        }
-        if (!dataStr) continue;
-        let data: Record<string, unknown>;
-        try {
-          data = JSON.parse(dataStr);
-        } catch {
-          continue;
-        }
+        // Parse the frame through the shared client SSE parser (src/lib/sse.ts) rather than a
+        // third hand-rolled copy of the event:/data: line scan. The outer read loop stays here so
+        // the stall watchdog (armStall on every chunk) is preserved. A frame whose data is absent
+        // or unparseable yields data:null — skip it, matching the old `continue` behavior.
+        const { event, data } = parseSSE(block);
+        if (!data) continue;
         if (event === "repo") {
           cb.onRepo({
             repo: String(data.repo),
