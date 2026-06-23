@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { ReportShell } from "@/components/report/ReportShell";
 import { ReportClient } from "@/components/report/ReportClient";
-import { ReportSkeleton } from "@/components/report/ReportSkeleton";
+import { ReportSkeletonFallback } from "@/components/report/ReportSkeleton";
 
 export const metadata = {
   title: "Scan a repository — Ascent",
@@ -16,7 +16,7 @@ export default function ReportPage() {
     <ReportShell>
       {/* Show the report's silhouette on first paint / slow hydration rather than a bare
           "Loading…" line that then snaps to the polished checklist. */}
-      <Suspense fallback={<div className="mx-auto w-full max-w-md py-12"><ReportSkeleton /></div>}>
+      <Suspense fallback={<ReportSkeletonFallback />}>
         <ReportClient />
       </Suspense>
     </ReportShell>

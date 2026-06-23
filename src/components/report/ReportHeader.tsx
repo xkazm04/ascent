@@ -3,6 +3,7 @@ import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { timeAgo } from "@/lib/ui";
 import { Kicker } from "@/components/ui";
 import { FreshnessControl } from "@/components/report/FreshnessControl";
+import { pillClass } from "@/components/report/pill";
 
 /** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row.
  *  `isMock` (keyless deterministic demo, no LLM) is derived once by ReportView and threaded down so
@@ -56,14 +57,14 @@ export function ReportHeader({ report, isMock, onRetest }: { report: ScanReport;
           <FreshnessControl report={report} onRetest={onRetest} />
           <a
             href={`/api/report/pdf?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
-            className="focus-ring inline-flex items-center gap-1 rounded-full border border-slate-700 px-2.5 py-1 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+            className={pillClass({ focusRing: true, textSm: true })}
             title="Download this report as a PDF"
           >
             <span aria-hidden>↓</span> Export PDF
           </a>
           <a
             href={`/api/report/skill?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
-            className="focus-ring inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-sm font-medium text-accent transition hover:border-accent hover:text-white"
+            className={pillClass({ accent: true, focusRing: true, textSm: true })}
             title="Download a personalized Claude Code onboarding skill (drop it in .claude/skills/ and run it to act on this report)"
           >
             <span aria-hidden>✦</span> Onboarding skill

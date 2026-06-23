@@ -24,3 +24,13 @@ export function ReportSkeleton() {
     </div>
   );
 }
+
+/** The skeleton in its centered Suspense-fallback wrapper, shared by the report search + permalink
+ *  routes so the fallback layout lives in one place. */
+export function ReportSkeletonFallback() {
+  return (
+    <div className="mx-auto w-full max-w-md py-12">
+      <ReportSkeleton />
+    </div>
+  );
+}

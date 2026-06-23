@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ScanReport } from "@/lib/types";
 import { freshness } from "@/lib/ui";
+import { pillClass } from "./pill";
 
 /**
  * Scan-freshness control: "Scanned 4m ago · Re-test". The relative time advances on a 30s
@@ -20,8 +21,7 @@ export function FreshnessControl({ report, onRetest }: { report: ScanReport; onR
   }, []);
 
   const retestHref = `/report?repo=${encodeURIComponent(report.repo.url)}&fresh=1`;
-  const retestClass =
-    "inline-flex items-center gap-1 rounded-full border border-slate-700 px-2.5 py-1 font-medium text-slate-300 transition hover:border-accent hover:text-white";
+  const retestClass = pillClass();
   const refreshIcon = (
     <svg aria-hidden viewBox="0 0 16 16" className="h-3 w-3 shrink-0" fill="none">
       <path
