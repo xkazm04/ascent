@@ -261,12 +261,3 @@ export {
   type OrgLlmConfigInput,
   type ByomProviderParams,
 } from "@/lib/db/org-llm";
-export {
-  forecastTrajectory,
-  forecastHeadline,
-  humanizeDays,
-  type Forecast,
-  type LevelEta,
-  type Trajectory,
-  type SeriesPoint,
-} from "@/lib/maturity/forecast";
