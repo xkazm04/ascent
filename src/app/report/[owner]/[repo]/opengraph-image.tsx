@@ -4,6 +4,7 @@ import { readableOrgForOwner } from "@/lib/auth";
 import { LEVEL_HEX, LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
+import { parseRepoParam } from "./repoParam";
 
 // Per-repo social card for the report permalink — the image the page's generateMetadata advertises
 // via twitter:summary_large_image. SHELL-1: when the repo has a persisted scan we draw its real
@@ -15,13 +16,6 @@ export const runtime = "nodejs"; // the scan lookup uses the Prisma client
 export const alt = "Ascent maturity report";
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-
-/** Split a `repo` path segment that may carry a pinned commit: `name` or `name@sha`. */
-function parseRepoParam(repoParam: string): { name: string; sha?: string } {
-  const at = repoParam.indexOf("@");
-  if (at < 0) return { name: repoParam };
-  return { name: repoParam.slice(0, at), sha: repoParam.slice(at + 1) || undefined };
-}
 
 export default async function Image({ params }: { params: Promise<{ owner: string; repo: string }> }) {
   const { owner, repo } = await params;

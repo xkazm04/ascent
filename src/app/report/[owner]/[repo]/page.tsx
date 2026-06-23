@@ -15,15 +15,9 @@ import { getScanReportByCommit, getRepoPassport, getSkillHistory, diffTrackSets 
 import { PUBLIC_ORG, readableOrgForOwner } from "@/lib/auth";
 import { hasOrgRole } from "@/lib/authz";
 import { PRACTICES } from "@/lib/practices";
+import { parseRepoParam } from "./repoParam";
 
 export const dynamic = "force-dynamic";
-
-/** Split a `repo` path segment that may carry a pinned commit: `name` or `name@sha`. */
-function parseRepoParam(repoParam: string): { name: string; sha?: string } {
-  const at = repoParam.indexOf("@");
-  if (at < 0) return { name: repoParam };
-  return { name: repoParam.slice(0, at), sha: repoParam.slice(at + 1) || undefined };
-}
 
 export async function generateMetadata({
   params,
