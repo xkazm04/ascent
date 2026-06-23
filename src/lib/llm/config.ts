@@ -13,6 +13,17 @@ export function envNumber(name: string, fallback: number): number {
 }
 
 /**
+ * Per-call LLM request timeout (ms), the single source the real providers (gemini/bedrock/openai)
+ * read. Read at CALL time via envNumber so a test can stub LLM_TIMEOUT_MS without module-load
+ * ordering games, and so it obeys the same parsing rules as every other knob — `envNumber` treats
+ * blank as the fallback and guards Number.isFinite (unlike the old `Number(env) || 60_000`, which
+ * coerced a deliberately-configured 0 back to the default). Default 60s.
+ */
+export function llmTimeoutMs(): number {
+  return envNumber("LLM_TIMEOUT_MS", 60_000);
+}
+
+/**
  * Tech-stack prompt enrichment (Feature 3a, Option B) — OFF by default. When TECH_STACK_PROMPT=1|true,
  * the detected stack is added as a short block to the assessment user message. Gated because adding to
  * the prompt can move calibrated scores; roll out only after the bench shows median drift < 2 points

@@ -12,11 +12,10 @@ import { validateAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
-import { envNumber } from "@/lib/llm/config";
+import { envNumber, llmTimeoutMs } from "@/lib/llm/config";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60_000;
 
 export class OpenAiProvider implements LLMProvider {
   readonly name = "openai" as const;
@@ -38,7 +37,7 @@ export class OpenAiProvider implements LLMProvider {
     const ctrl = new AbortController();
     const onAbort = () => ctrl.abort();
     opts.signal?.addEventListener("abort", onAbort, { once: true });
-    const timer = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);
+    const timer = setTimeout(() => ctrl.abort(), llmTimeoutMs());
     try {
       const res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",

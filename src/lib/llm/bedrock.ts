@@ -21,11 +21,10 @@ import {
   ASSESSMENT_TOOL_DESCRIPTION,
   ASSESSMENT_TOOL_NAME,
 } from "@/lib/llm/schema";
-import { envNumber, thinkingBudgetTokens } from "@/lib/llm/config";
+import { envNumber, llmTimeoutMs, thinkingBudgetTokens } from "@/lib/llm/config";
 
 export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
 export const DEFAULT_BEDROCK_REGION = "us-east-1";
-const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 60_000;
 
 /** Static AWS credentials for the BYOM path (Feature 1). Omitted = the default AWS credential chain
  *  (env / role / metadata), i.e. the platform's own Bedrock account. */
@@ -73,7 +72,7 @@ export class BedrockProvider implements LLMProvider {
     const timeoutCtrl = new AbortController();
     const timer = setTimeout(
       () => timeoutCtrl.abort(new Error("Bedrock request timed out.")),
-      LLM_TIMEOUT_MS,
+      llmTimeoutMs(),
     );
     const abortSignal = opts.signal
       ? AbortSignal.any([opts.signal, timeoutCtrl.signal])
