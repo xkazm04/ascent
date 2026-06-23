@@ -2,9 +2,8 @@
 
 import type { ScanReport } from "@/lib/types";
 import { contributions } from "@/lib/scoring/engine";
-import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
-import { useMounted, usePrefersReducedMotion } from "@/components/report/Charts";
-import { fmtPts } from "@/components/report/PosturePanel";
+import { DIMENSION_SHORT, fmtPts, scoreHex } from "@/lib/ui";
+import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { Kicker, Surface } from "@/components/ui";
 
 /**

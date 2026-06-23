@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { ScanReport } from "@/lib/types";
 import { LLM_GUARDBAND } from "@/lib/maturity/model";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
-import { useMounted, usePrefersReducedMotion } from "@/components/report/Charts";
+import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
 import { Surface } from "@/components/ui";
 

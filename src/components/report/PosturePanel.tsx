@@ -51,9 +51,3 @@ function AxisBar({ label, value, hint }: { label: string; value: number; hint: s
     </div>
   );
 }
-
-/** Format a point contribution to one decimal, dropping a trailing `.0` (8.0 → "8", 8.25 → "8.3"). */
-export function fmtPts(n: number): string {
-  const r = Math.round(n * 10) / 10;
-  return Number.isInteger(r) ? String(r) : r.toFixed(1);
-}
