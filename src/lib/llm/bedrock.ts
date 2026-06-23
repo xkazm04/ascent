@@ -34,6 +34,23 @@ export interface BedrockCredentials {
   sessionToken?: string;
 }
 
+/** Bedrock model id: explicit opt → BEDROCK_MODEL_ID → default. The single precedence used by both
+ *  the provider constructor and the BYOM test-connection endpoint. */
+function resolveBedrockModel(opt?: string): string {
+  return opt || process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL;
+}
+
+/** Bedrock region: explicit opt → BEDROCK_REGION → AWS_REGION → default. The single precedence used by
+ *  both the provider constructor and the BYOM test-connection endpoint. */
+function resolveBedrockRegion(opt?: string): string {
+  return opt || process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION;
+}
+
+/** SDK client config: region + BYOM creds when present (else the default credential chain). */
+function bedrockClientConfig(region: string, credentials?: BedrockCredentials) {
+  return { region, ...(credentials ? { credentials } : {}) };
+}
+
 export class BedrockProvider implements LLMProvider {
   readonly name = "bedrock" as const;
   readonly model: string;
@@ -43,12 +60,8 @@ export class BedrockProvider implements LLMProvider {
   private readonly credentials?: BedrockCredentials;
 
   constructor(opts: { model?: string; region?: string; credentials?: BedrockCredentials } = {}) {
-    this.model = opts.model || process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL;
-    this.region =
-      opts.region ||
-      process.env.BEDROCK_REGION ||
-      process.env.AWS_REGION ||
-      DEFAULT_BEDROCK_REGION;
+    this.model = resolveBedrockModel(opts.model);
+    this.region = resolveBedrockRegion(opts.region);
     this.credentials = opts.credentials;
   }
 
@@ -57,10 +70,7 @@ export class BedrockProvider implements LLMProvider {
       "@aws-sdk/client-bedrock-runtime"
     );
     // Pass injected BYOM creds when present; otherwise the SDK uses the default chain (platform account).
-    const client = new BedrockRuntimeClient({
-      region: this.region,
-      ...(this.credentials ? { credentials: this.credentials } : {}),
-    });
+    const client = new BedrockRuntimeClient(bedrockClientConfig(this.region, this.credentials));
     const { system, user } = buildAssessmentPrompt(input);
 
     // Per-call timeout via AbortController (the shared withLlmTimeout helper, also used by
@@ -176,14 +186,11 @@ export async function testBedrockConnection(opts: {
   region?: string;
   credentials?: BedrockCredentials;
 }): Promise<{ ok: boolean; error?: string }> {
-  const model = opts.model || process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL;
-  const region = opts.region || process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION;
+  const model = resolveBedrockModel(opts.model);
+  const region = resolveBedrockRegion(opts.region);
   try {
     const { BedrockRuntimeClient, ConverseCommand } = await import("@aws-sdk/client-bedrock-runtime");
-    const client = new BedrockRuntimeClient({
-      region,
-      ...(opts.credentials ? { credentials: opts.credentials } : {}),
-    });
+    const client = new BedrockRuntimeClient(bedrockClientConfig(region, opts.credentials));
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error("Bedrock test timed out.")), 15_000);
     try {
