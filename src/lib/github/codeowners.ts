@@ -74,12 +74,8 @@ export function extractTeamOwnership(files: { path: string; content: string }[])
   return content ? parseCodeowners(content) : [];
 }
 
-/** Display helpers for a `@org/team` slug. */
+/** Display helper for a `@org/team` slug. */
 export function teamDisplayName(slug: string): string {
   const seg = slug.split("/")[1];
   return seg && seg.length ? seg : slug.replace(/^@/, "");
-}
-
-export function teamOrgName(slug: string): string {
-  return slug.replace(/^@/, "").split("/")[0] ?? "";
 }

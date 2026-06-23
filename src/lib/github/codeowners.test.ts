@@ -4,7 +4,6 @@ import {
   findCodeownersContent,
   parseCodeowners,
   teamDisplayName,
-  teamOrgName,
 } from "@/lib/github/codeowners";
 
 // These cover the pure CODEOWNERS → team parsing that feeds the org team rollups — no network, no DB.
@@ -94,9 +93,8 @@ describe("findCodeownersContent / extractTeamOwnership", () => {
   });
 });
 
-describe("teamDisplayName / teamOrgName", () => {
-  it("splits the @org/team slug into its parts", () => {
+describe("teamDisplayName", () => {
+  it("extracts the team segment of an @org/team slug", () => {
     expect(teamDisplayName("@acme/payments")).toBe("payments");
-    expect(teamOrgName("@acme/payments")).toBe("acme");
   });
 });
