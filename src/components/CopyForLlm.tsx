@@ -24,7 +24,6 @@ export function CopyForLlm({
   const [failed, setFailed] = useState(false);
 
   async function copy() {
-    setFailed(false);
     const ok = await attemptCopy(text, navigator.clipboard, legacyCopy);
     const { next, resetMs } = nextCopyState(ok);
     if (next === "copied") {

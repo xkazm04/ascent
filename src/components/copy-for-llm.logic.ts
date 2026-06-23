@@ -37,7 +37,7 @@ export async function attemptCopy(
 }
 
 /** The three visual states of the button. */
-export type CopyState = "idle" | "copied" | "failed";
+type CopyState = "idle" | "copied" | "failed";
 
 /** How long each terminal state shows before auto-resetting to idle (ms). */
 export const COPIED_RESET_MS = 2000;
