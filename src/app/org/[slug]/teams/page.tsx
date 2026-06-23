@@ -1,7 +1,6 @@
 import { Card, Meter, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex, fmtDelta } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
-import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { getOrgTeamRollup, type TeamRollup } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { levelForScore } from "@/lib/maturity/model";
@@ -131,11 +130,14 @@ export default async function TeamsPage({
 
   const rollup = await getOrgTeamRollup(slug, segmentId, techGroupId);
 
-  const segmentBar = (segments.length > 0 || techGroups.length > 0) && (
-    <div className="mb-4 flex flex-wrap justify-end gap-2">
-      {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
-      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
-    </div>
+  const segmentBar = (
+    <ScopeFilterBar
+      segments={segments}
+      segmentId={segmentId}
+      techGroups={techGroups}
+      activeStack={activeStack}
+      className="mb-4 flex flex-wrap justify-end gap-2"
+    />
   );
 
   if (!rollup || rollup.teams.length === 0) {

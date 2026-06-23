@@ -1,5 +1,4 @@
-import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { Meter, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { getContributorInsights } from "@/lib/db";
@@ -30,12 +29,8 @@ export default async function ContributorInsightsPage({
   // Optional segment + tech-stack scope (bogus id/key → whole fleet); the two filters compose.
   const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
-  const filterBar = (segments.length > 0 || techGroups.length > 0) && (
-    <div className="flex flex-wrap items-center gap-2">
-      {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
-      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
-    </div>
-  );
+  const hasFilters = segments.length > 0 || techGroups.length > 0;
+  const filterBar = hasFilters && <ScopeFilterBar segments={segments} segmentId={segmentId} techGroups={techGroups} activeStack={activeStack} />;
 
   const insights = await getContributorInsights(slug, segmentId, techGroupId);
   if (!insights || insights.totalContributors === 0) {

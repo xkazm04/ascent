@@ -1,6 +1,5 @@
 import { Card, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
-import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
@@ -50,16 +49,21 @@ export default async function OrgDelivery({
   ]);
 
   const segmentBar = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
-      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
+    <ScopeFilterBar
+      segments={segments}
+      segmentId={segmentId}
+      techGroups={techGroups}
+      activeStack={activeStack}
+      className="flex flex-wrap items-center justify-end gap-2"
+      gate={false}
+    >
       <a
         href={`/api/org/export?org=${encodeURIComponent(slug)}&kind=delivery&format=csv${segmentId ? `&segment=${segmentId}` : ""}`}
         className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
       >
         Export CSV
       </a>
-    </div>
+    </ScopeFilterBar>
   );
 
   if (!pr && !gov && !activity) {
