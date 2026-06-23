@@ -5,6 +5,7 @@
 
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { DimRow, PriorPeriodGrid } from "@/components/org/briefingShared";
 import { buildExecBriefing } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
@@ -76,22 +77,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         {priorPeriod && (
           <Card className="mt-6">
             <SectionHeader size="sm" title="vs previous period" />
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              {([
-                ["Overall", priorPeriod.overall, maturity.overall, priorPeriod.dOverall],
-                ["Adoption", priorPeriod.adoption, maturity.adoption, priorPeriod.dAdoption],
-                ["Rigor", priorPeriod.rigor, maturity.rigor, priorPeriod.dRigor],
-              ] as const).map(([label, prior, now, delta]) => (
-                <div key={label} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-                  <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
-                  <div className="mt-1 flex items-baseline gap-2">
-                    <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(now) }}>{now}</span>
-                    <span className="font-mono text-sm text-slate-500">from {prior}</span>
-                    <span className={`font-mono text-sm ${delta > 0 ? "text-emerald-300" : delta < 0 ? "text-orange-300" : "text-slate-600"}`}>{delta > 0 ? "+" : ""}{delta}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <PriorPeriodGrid prior={priorPeriod} now={maturity} />
           </Card>
         )}
 
@@ -100,11 +86,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             <SectionHeader size="sm" title="Strengths" />
             <div className="mt-3 space-y-1.5">
               {briefing.strengths.map((d) => (
-                <div key={d.dimId} className="flex items-center gap-3 text-sm">
-                  <span className="w-24 shrink-0 text-slate-400">{d.dimId} · {d.label}</span>
-                  <Meter className="flex-1" value={d.avg} color={scoreHex(d.avg)} />
-                  <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.avg) }}>{d.avg}</span>
-                </div>
+                <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} />
               ))}
             </div>
           </Card>
@@ -112,11 +94,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             <SectionHeader size="sm" title="Weakest dimensions" />
             <div className="mt-3 space-y-1.5">
               {briefing.risks.map((d) => (
-                <div key={d.dimId} className="flex items-center gap-3 text-sm">
-                  <span className="w-24 shrink-0 text-slate-400">{d.dimId} · {d.label}</span>
-                  <Meter className="flex-1" value={d.avg} color={scoreHex(d.avg)} />
-                  <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.avg) }}>{d.avg}</span>
-                </div>
+                <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} />
               ))}
             </div>
           </Card>

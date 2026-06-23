@@ -3,7 +3,8 @@
 // a markdown brief to paste into Claude Code (Direction #5 + the #6 LLM-consumption baseline).
 
 import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, valueRealizedLine } from "@/lib/org/briefing";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta, DIRECTION_TONE } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID, DIRECTION_TONE } from "@/components/org/ui";
+import { DimRow, PriorPeriodGrid } from "@/components/org/briefingShared";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { BriefingShareButton } from "@/components/org/BriefingShareButton";
 import { BrandingSettings } from "@/components/org/BrandingSettings";
@@ -164,38 +165,7 @@ export default async function OrgExecutive({
       {briefing.priorPeriod && (
         <Card>
           <SectionHeader size="sm" title="vs previous period" description="This period's end state against the equal-length window before it." />
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            {([
-              ["Overall", briefing.priorPeriod.overall, maturity.overall, briefing.priorPeriod.dOverall],
-              ["Adoption", briefing.priorPeriod.adoption, maturity.adoption, briefing.priorPeriod.dAdoption],
-              ["Rigor", briefing.priorPeriod.rigor, maturity.rigor, briefing.priorPeriod.dRigor],
-            ] as const).map(([label, prior, now, delta]) => (
-              <div key={label} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
-                <div className="mt-1 flex items-baseline gap-2">
-                  <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(now) }}>{now}</span>
-                  <span className="font-mono text-sm text-slate-500">from {prior}</span>
-                  <span className="font-mono text-sm" style={{ color: deltaHex(delta) }}>{fmtDelta(delta)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          {briefing.priorPeriod.dims.some((d) => d.delta !== 0) && (
-            <div className="mt-3 space-y-1.5 border-t border-slate-800/70 pt-3">
-              {briefing.priorPeriod.dims
-                .filter((d) => d.delta !== 0)
-                .map((d) => (
-                  <div key={d.dimId} className="flex items-center justify-between gap-3 font-mono text-sm">
-                    <span className="text-slate-400">{d.dimId} · {d.label}</span>
-                    <span>
-                      <span className="text-slate-500">{d.prior} → </span>
-                      <span style={{ color: scoreHex(d.now) }}>{d.now}</span>{" "}
-                      <span style={{ color: deltaHex(d.delta) }}>{fmtDelta(d.delta)}</span>
-                    </span>
-                  </div>
-                ))}
-            </div>
-          )}
+          <PriorPeriodGrid prior={briefing.priorPeriod} now={maturity} showDimensions />
         </Card>
       )}
 
@@ -276,16 +246,6 @@ export default async function OrgExecutive({
       </Card>
 
       {canBrand && <BrandingSettings slug={slug} initial={branding ?? { brandName: null, brandColor: null, logoUrl: null }} />}
-    </div>
-  );
-}
-
-function DimRow({ dimId, label, avg }: { dimId: string; label: string; avg: number }) {
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="w-24 shrink-0 text-slate-400">{dimId} · {label}</span>
-      <Meter className="flex-1" value={avg} color={scoreHex(avg)} />
-      <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(avg) }}>{avg}</span>
     </div>
   );
 }
