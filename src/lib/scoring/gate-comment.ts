@@ -5,6 +5,7 @@
 
 import type { ScanReport } from "@/lib/types";
 import type { GateResult } from "@/lib/scoring/gate";
+import { effectiveFloor, failsFloor } from "@/lib/scoring/gate";
 import type { ScanDiff } from "@/lib/report/compare";
 import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
 
@@ -85,12 +86,11 @@ export function buildGateComment(
     // CIGATE-4: a per-failing-dimension signal table so the check carries actionable detail, not just
     // the headline. Re-derive which dims miss their floor (the stricter of the global min + any per-dim
     // floor) from report.dimensions, and surface each one's top gap.
-    const floorFor = (dimId: string) =>
-      Math.max(gate.policy.minDimension ?? 0, gate.policy.minDimensionFor?.[dimId as keyof typeof gate.policy.minDimensionFor] ?? 0);
     const failingDims = report.dimensions
       // Include an UNSCORED (non-finite) dimension: it fails the gate closed (see gate.ts), so the
-      // table must show it too rather than silently sorting it as a 0 or dropping it.
-      .filter((d) => !Number.isFinite(d.score) || d.score < floorFor(d.id))
+      // table must show it too rather than silently sorting it as a 0 or dropping it. failsFloor()
+      // is the shared effective-floor + fail-closed check the gate verdict itself uses.
+      .filter((d) => failsFloor(gate.policy, d.id, d.score))
       .sort((a, b) => (Number.isFinite(a.score) ? a.score : -1) - (Number.isFinite(b.score) ? b.score : -1))
       .slice(0, 5);
     if (failingDims.length) {
@@ -104,7 +104,7 @@ export function buildGateComment(
         // exactly when it matters most. Escape the cell so a gap with a `|` can't break the table.
         const gap = mdCell(d.gaps?.[0] ?? d.summary ?? "").slice(0, 120);
         const score = Number.isFinite(d.score) ? d.score : "n/a";
-        lines.push(`| ${mdCell(`${d.id} ${d.name}`)} | ${score} → ${floorFor(d.id)} | ${gap || "—"} |`);
+        lines.push(`| ${mdCell(`${d.id} ${d.name}`)} | ${score} → ${effectiveFloor(gate.policy, d.id)} | ${gap || "—"} |`);
       }
     }
   }

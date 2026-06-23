@@ -52,6 +52,21 @@ function belowFloor(score: number, min: number): boolean {
   return !Number.isFinite(score) || score < min;
 }
 
+/**
+ * The EFFECTIVE floor a dimension is held to: the stricter of the global `minDimension` and any
+ * per-dimension `minDimensionFor` override. The single source for this precedence — the gate verdict
+ * (the two floor sweeps in {@link evaluateNormalized}), the PR-comment "where the score falls short"
+ * table, and the fleet green-path math all derive a dim's floor from here.
+ */
+export function effectiveFloor(policy: GatePolicy, dimId: string): number {
+  return Math.max(policy.minDimension ?? 0, policy.minDimensionFor?.[dimId as DimensionId] ?? 0);
+}
+
+/** Whether `score` misses its effective floor, fail-closed on a non-finite (unscored) score. */
+export function failsFloor(policy: GatePolicy, dimId: string, score: number): boolean {
+  return belowFloor(score, effectiveFloor(policy, dimId));
+}
+
 function isLevelId(v: string | null | undefined): v is LevelId {
   return v != null && LEVELS.some((l) => l.id === v);
 }

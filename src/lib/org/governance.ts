@@ -5,7 +5,7 @@
 // @/lib/scoring/gate (no re-scan). Powers /org/[slug]/governance + its Copy-for-LLM brief.
 
 import { getOrgGatePolicy, getOrgRollup } from "@/lib/db";
-import { defaultGatePolicy, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
+import { defaultGatePolicy, effectiveFloor, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
 import type { DimensionId } from "@/lib/types";
@@ -118,9 +118,13 @@ export async function buildGovernanceOverview(orgSlug: string): Promise<Governan
   const greenPath: GreenPathItem[] = [];
   let passing = 0;
 
-  // The effective floor for a dimension = the stricter of the global minimum and any per-dim floor.
+  // The effective floor for a dimension = the stricter of the global minimum and any per-dim floor
+  // (shared with the gate verdict + PR-comment table via effectiveFloor). Note the green-path filter
+  // below deliberately keeps the plain `<` (NOT the fail-closed failsFloor): an UNSCORED dim already
+  // fails the gate via evaluateGateLite, but it has no quantifiable point-gap, so it is intentionally
+  // excluded from this "closeness" math (a NaN gap would poison the per-repo total).
   const practiceForDim = new Map(PRACTICES.map((p) => [p.dimId as string, p.id]));
-  const floorFor = (dimId: string) => Math.max(policy.minDimension ?? 0, policy.minDimensionFor?.[dimId as DimensionId] ?? 0);
+  const floorFor = (dimId: string) => effectiveFloor(policy, dimId);
 
   for (const r of scannedRepos) {
     const s = r.latest!; // safe: filtered to r.latest above
