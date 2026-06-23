@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Meter, SectionHeader } from "@/components/org/ui";
+import { Card, Meter, SectionHeader, signedDelta as signed } from "@/components/org/ui";
 import { scoreHex } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
 import { humanizeDays } from "@/lib/maturity/forecast";
@@ -41,8 +41,6 @@ interface SavedScenario {
   promotions: number;
   affected: number;
 }
-
-const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 /** What-if: project the fleet impact of raising a dimension to a target across a repo set. */
 export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption[]; repos: RepoOption[] }) {
