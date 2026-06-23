@@ -214,8 +214,6 @@ export function OnboardingFlow({
       const list = ((data.repos ?? []) as Partial<OrgRepo>[])
         .map((r) => ({
           fullName: String(r.fullName),
-          owner: String(r.owner),
-          name: String(r.name),
           private: Boolean(r.private),
           language: r.language ?? null,
           stars: r.stars ?? 0,
