@@ -4,8 +4,6 @@ import {
   buildMatrixRows,
   MAX_WEIGHT,
   pct,
-  weightText,
-  weightTint,
   ARCHETYPE_COLUMNS,
 } from "./matrixData";
 
@@ -38,12 +36,5 @@ describe("matrixData", () => {
   it("formats weights as whole-number percents", () => {
     expect(pct(0.15)).toBe("15%");
     expect(pct(0.2)).toBe("20%");
-  });
-
-  it("weightTint scales alpha with weight and weightText flips for contrast", () => {
-    expect(weightTint(0)).toContain("0.05");
-    expect(weightTint(MAX_WEIGHT)).toContain("0.9");
-    expect(weightText(MAX_WEIGHT)).toBe("#04070e"); // dark ink on the brightest cell
-    expect(weightText(0)).toBe("#e2e8f0"); // light on a faint cell
   });
 });

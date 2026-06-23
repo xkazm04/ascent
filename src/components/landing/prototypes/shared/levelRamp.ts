@@ -3,7 +3,6 @@
 
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
-import type { LevelId } from "@/lib/types";
 
 /** Ordered gradient stops (0→1) across the 5 levels, red (L1) → green (L5). */
 export const RAMP_STOPS = LEVELS.map((l, i) => ({
@@ -11,10 +10,6 @@ export const RAMP_STOPS = LEVELS.map((l, i) => ({
   color: LEVEL_HEX[l.id],
   id: l.id,
 }));
-
-export function levelHex(id: LevelId | string): string {
-  return LEVEL_HEX[id as LevelId] ?? LEVEL_HEX.L1;
-}
 
 /** The midpoint of a level's band — the natural y-position for that level on an ascent profile. */
 export function bandMid(band: readonly [number, number]): number {
