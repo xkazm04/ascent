@@ -33,7 +33,7 @@ export function resolveInstallView({
   installationId?: string;
   authConfigured: boolean;
 }): InstallView {
-  const installs: { login: string; id?: string }[] = (session?.installations ?? []).map((i) => ({
+  const installs: InstallEntry[] = (session?.installations ?? []).map((i) => ({
     login: i.login,
     id: String(i.id),
   }));
