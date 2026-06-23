@@ -4,20 +4,8 @@ import { useState } from "react";
 import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
 import { ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/RoadmapPanel";
 import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
+import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/backlogShared";
 import { Surface } from "@/components/ui";
-
-const STATUS_LABEL: Record<RecStatus, string> = {
-  open: "Open",
-  in_progress: "In progress",
-  done: "Done",
-  dismissed: "Dismissed",
-};
-const STATUS_ACCENT: Record<RecStatus, string> = {
-  open: "#64748b",
-  in_progress: "#eab308",
-  done: "#22c55e",
-  dismissed: "#475569",
-};
 
 /** A per-row save failure: the change the user attempted, and whether it's recoverable. */
 interface RowError {

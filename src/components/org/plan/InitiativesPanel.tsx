@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import type { RecStatus } from "@/lib/types";
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
+import { STATUS_LABEL } from "@/components/org/backlogShared";
 
 export interface InitiativeView {
   id: string;
@@ -36,8 +38,7 @@ export interface GoalOption {
   label: string;
 }
 
-const STATUSES = ["open", "in_progress", "done", "dismissed"];
-const STATUS_LABEL: Record<string, string> = { open: "Open", in_progress: "In progress", done: "Done", dismissed: "Dismissed" };
+const STATUSES: RecStatus[] = ["open", "in_progress", "done", "dismissed"];
 
 /** Tracked, scoped programs of work — created from the fleet's highest-leverage moves. */
 export function InitiativesPanel({
