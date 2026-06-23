@@ -13,6 +13,7 @@ import {
   getOrgRollup,
   listGoals,
   listInitiatives,
+  metricLabel,
 } from "@/lib/db";
 import { DIMENSIONS, DIMENSION_BY_ID, LEVELS, levelForScore } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
@@ -38,9 +39,7 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name, avg: dimAvg.get(d.id) ?? 0 }));
 
   const metricOptions = [
-    { value: "overall", label: "Overall maturity" },
-    { value: "adoption", label: "AI Adoption" },
-    { value: "rigor", label: "Engineering Rigor" },
+    ...(["overall", "adoption", "rigor"] as const).map((m) => ({ value: m, label: metricLabel(m) })),
     ...DIMENSIONS.map((d) => ({ value: d.id, label: `${d.id} · ${d.name}` })),
   ];
 
