@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { requireOrgRead } from "@/lib/authz";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
@@ -35,33 +35,13 @@ export async function GET(request: Request) {
     );
   }
 
-  // Authorize the requested org. The /usage page gates on the session and scopes to the
-  // caller's installation org, but this API must enforce the same — otherwise it's an IDOR:
-  // anyone could enumerate org slugs and read another tenant's usage volume/timeline. The
-  // shared "public" org is readable by anyone; a private org requires a session whose
-  // installations include it.
-  if (orgLc !== "public") {
-    if (!isAuthConfigured()) {
-      // DB-on + auth-off must NOT become an open multi-tenant usage API: with DATABASE_URL set
-      // but OAuth unconfigured (a realistic partial prod config, or a dropped AUTH_SECRET), an
-      // anonymous caller could enumerate org slugs and read each tenant's volume/timeline/repo
-      // names. Only the shared "public" org is metered without auth; a real org needs it on.
-      return NextResponse.json(
-        { error: "Per-organization usage requires authentication to be configured." },
-        { status: 403 },
-      );
-    }
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "Sign in to view usage." }, { status: 401 });
-    }
-    if (!session.installations.some((i) => i.login.toLowerCase() === orgLc)) {
-      return NextResponse.json(
-        { error: "You don't have access to this org's usage." },
-        { status: 403 },
-      );
-    }
-  }
+  // Authorize the requested org with the canonical read-side tenant gate (closes the cross-tenant
+  // read IDOR — anyone could otherwise enumerate org slugs and read another tenant's usage). This
+  // replaces a hand-rolled copy of the same decision: requireOrgRead opens PUBLIC_ORG to everyone,
+  // refuses a private org without a session, requires installation membership, AND additionally
+  // honors the Supabase login wall + the ASCENT_OPEN_ORG_DASHBOARDS opt-in the inline copy missed.
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
 
   try {
     const summary = await getUsageSummary(org, days);

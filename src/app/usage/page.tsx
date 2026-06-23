@@ -5,6 +5,7 @@ import { UsageTrend } from "@/components/usage/UsageTrend";
 import { AllotmentPanel } from "./AllotmentPanel";
 import { getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
 import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
+import { canReadOrg } from "@/lib/authz";
 import { timeAgo } from "@/lib/ui";
 
 export const metadata = {
@@ -81,34 +82,18 @@ export default async function UsagePage({
   // the API path refuses (this page computes the same summary directly). Non-numeric input → 30.
   const days = Math.min(org.toLowerCase() === PUBLIC_ORG ? 90 : 365, Math.max(1, Number(daysParam) || 30));
 
-  // Mirror /api/usage: a DB-on + auth-off deployment must not serve per-tenant usage. Without
-  // auth configured there's no session to scope by, so only the shared public org is available;
-  // an explicit ?org=<slug> for anything else is refused rather than silently served.
-  if (!isAuthConfigured() && org.toLowerCase() !== PUBLIC_ORG) {
+  // Cross-tenant IDOR guard — the canonical read-side tenant gate (the same canReadOrg the sibling
+  // /api/usage route and the other org-scoped pages use). It opens PUBLIC_ORG to everyone, requires
+  // installation membership for a private org under custom OAuth, and additionally honors the
+  // Supabase login wall + the ASCENT_OPEN_ORG_DASHBOARDS opt-in — which the two hand-rolled branches
+  // this replaces (a bare auth-off refusal + an inline membership check) silently missed.
+  if (!(await canReadOrg(org))) {
     return (
-      <Notice title="Per-organization usage needs authentication">
-        Configure GitHub OAuth (and the GitHub App) to view usage for a specific organization.
-        The shared public usage view is available without signing in.
+      <Notice title="You don't have access to this organization">
+        Usage for this organization is visible only to its members. Choose an organization you
+        belong to from the switcher, or view the shared public usage.
       </Notice>
     );
-  }
-
-  // Cross-tenant IDOR guard — mirror the sibling /api/usage route (route.ts:67-76). The route
-  // membership-checks the requested slug; this page (which "computes the same summary directly")
-  // previously split only on auth-on vs auth-off and never verified membership, so any signed-in
-  // user could open /usage?org=<competitor> and read that tenant's scan volume, repo names,
-  // token/cost spend and credit balance. With auth configured, a non-public org requires a session
-  // whose installations include it.
-  if (isAuthConfigured() && org.toLowerCase() !== PUBLIC_ORG) {
-    const orgLc = org.toLowerCase();
-    if (!session || !session.installations.some((i) => i.login.toLowerCase() === orgLc)) {
-      return (
-        <Notice title="You don't have access to this organization">
-          Usage for this organization is visible only to its members. Choose an organization you
-          belong to from the switcher, or view the shared public usage.
-        </Notice>
-      );
-    }
   }
 
   if (!isDbConfigured()) {

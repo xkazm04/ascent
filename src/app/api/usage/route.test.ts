@@ -1,11 +1,11 @@
-// Integration test for the /api/usage cross-tenant authorization gate (IDOR).
-// usage/route.ts:56-77 must enforce the same org scoping the /usage page does: a caller may
-// only read the "public" org or an org their session installations include. The INVARIANT we
-// pin is behavioral, not implementational — every denial path returns the right status AND the
-// usage reader (getUsageSummary) is never invoked, so no tenant's volume/timeline/repo names are
-// ever computed on a rejected request; an authorized own-org caller gets the data. The gate must
-// run BEFORE the read. The auth/db boundaries are mocked so we can assert exactly when the reader
-// fires. Mirrors the in-house route-integration pattern in src/app/api/scan/route.test.ts.
+// Integration test for the /api/usage cross-tenant authorization gate (IDOR) + the two download-path
+// transforms. The route now delegates the org-read decision to the canonical requireOrgRead gate
+// (src/lib/authz, whose own test pins the auth-off / no-session / non-member / Supabase-wall /
+// open-dashboards branches). Here we pin the WIRING: when requireOrgRead returns a denial Response the
+// handler returns EXACTLY that and getUsageSummary is NEVER called (no tenant's volume/timeline/repo
+// names computed on a rejected request); when it allows, an authorized read returns the data. The
+// gate must run BEFORE the read. Then we pin the two security-motivated download transforms
+// (safeFilenameSlug header-injection guard + the public-org day cap) on the allowed path.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -19,51 +19,46 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/auth", () => ({ getSession: vi.fn(), isAuthConfigured: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getUsageSummary: vi.fn(), isDbConfigured: vi.fn() }));
+vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
 
 import { GET } from "./route";
-import { getSession, isAuthConfigured } from "@/lib/auth";
 import { getUsageSummary, isDbConfigured } from "@/lib/db";
+import { requireOrgRead } from "@/lib/authz";
 
-const mockGetSession = vi.mocked(getSession);
-const mockIsAuthConfigured = vi.mocked(isAuthConfigured);
 const mockGetUsageSummary = vi.mocked(getUsageSummary);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
+const mockRequireOrgRead = vi.mocked(requireOrgRead);
 
 function get(query: string) {
   return GET(new Request(`http://localhost/api/usage${query}`));
 }
 
+const deny = (status: number) => new Response(JSON.stringify({ error: "denied" }), { status });
+
 // A minimal UsageSummary-shaped object; the gate doesn't inspect its contents.
 const SUMMARY = { daily: [] } as unknown as Awaited<ReturnType<typeof getUsageSummary>>;
-
-// A session whose installations include `logins` (case is normalized in the route).
-const sessionWith = (...logins: string[]) =>
-  ({ installations: logins.map((login) => ({ login })) }) as unknown as Awaited<
-    ReturnType<typeof getSession>
-  >;
 
 describe("GET /api/usage — cross-tenant authorization gate (IDOR) (#2)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsDbConfigured.mockReturnValue(true); // DB on, so we reach the authz gate (not the 503)
+    mockRequireOrgRead.mockResolvedValue(null); // default: authorized
     mockGetUsageSummary.mockResolvedValue(SUMMARY);
   });
 
-  it("DENIES a private org when auth is not configured (403) and never reads usage", async () => {
-    mockIsAuthConfigured.mockReturnValue(false);
+  it("returns the gate's verbatim denial Response and never reads usage when access is refused", async () => {
+    mockRequireOrgRead.mockResolvedValue(deny(403));
 
     const res = await get("?org=acme");
 
     expect(res.status).toBe(403);
-    expect(mockGetUsageSummary).not.toHaveBeenCalled();
-    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockRequireOrgRead).toHaveBeenCalledWith("acme");
+    expect(mockGetUsageSummary).not.toHaveBeenCalled(); // the read is short-circuited by the gate
   });
 
-  it("DENIES an unauthenticated caller of a private org (401) and never reads usage", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(null);
+  it("propagates a 401 denial (unauthenticated) verbatim and never reads usage", async () => {
+    mockRequireOrgRead.mockResolvedValue(deny(401));
 
     const res = await get("?org=acme");
 
@@ -71,55 +66,38 @@ describe("GET /api/usage — cross-tenant authorization gate (IDOR) (#2)", () =>
     expect(mockGetUsageSummary).not.toHaveBeenCalled();
   });
 
-  it("DENIES a non-member requesting another org's usage (403) and never reads usage", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(sessionWith("my-own-org"));
-
-    const res = await get("?org=acme"); // caller is NOT a member of acme
-
-    expect(res.status).toBe(403);
-    expect(mockGetUsageSummary).not.toHaveBeenCalled();
-  });
-
-  it("ALLOWS a member requesting their own org's usage (200) and reads the data once", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(sessionWith("Acme")); // membership is case-insensitive
-
+  it("ALLOWS an authorized org (gate returns null) and reads the data once", async () => {
     const res = await get("?org=acme");
 
     expect(res.status).toBe(200);
+    expect(mockRequireOrgRead).toHaveBeenCalledWith("acme");
     expect(mockGetUsageSummary).toHaveBeenCalledTimes(1);
     expect(mockGetUsageSummary).toHaveBeenCalledWith("acme", expect.any(Number));
   });
 
-  it("ALLOWS the shared public org without a session (200)", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(null);
-
-    const res = await get("?org=public");
-
-    expect(res.status).toBe(200);
-    expect(mockGetSession).not.toHaveBeenCalled(); // public org short-circuits before the session check
-    expect(mockGetUsageSummary).toHaveBeenCalledTimes(1);
-  });
-
-  it("defaults to the public org (no ?org) and serves it without auth (200)", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(null);
-
+  it("defaults to the public org (no ?org) and gates on 'public'", async () => {
     const res = await get("");
 
     expect(res.status).toBe(200);
+    expect(mockRequireOrgRead).toHaveBeenCalledWith("public");
     expect(mockGetUsageSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 503 BEFORE consulting the gate when the DB is off", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+
+    const res = await get("?org=acme");
+
+    expect(res.status).toBe(503);
+    expect(mockRequireOrgRead).not.toHaveBeenCalled();
+    expect(mockGetUsageSummary).not.toHaveBeenCalled();
   });
 });
 
 // ===========================================================================
-// MEDIUM finding #5 (docs/harness/test-mastery-2026-06-18/usage-metering-public-badge.md):
-// "Test `safeFilenameSlug` header-injection guard and the public-org day cap".
-// Two security-motivated transforms on UNAUTHENTICATED input (route.ts:25 safeFilenameSlug,
-// route.ts:41 the day cap) had no test. Both are pinned BEHAVIORALLY through the route.
-// A non-empty `daily` series gives toCsv real rows on the export path.
+// safeFilenameSlug header-injection guard + the public-org day cap — two security-motivated
+// transforms on the ALLOWED download path. The gate is forced open (requireOrgRead → null) so the
+// request reaches the export path; the route still must sanitize the slug it interpolates.
 const EXPORT_SUMMARY = {
   org: "public",
   periodDays: 30,
@@ -129,26 +107,18 @@ const EXPORT_SUMMARY = {
 // ---------------------------------------------------------------------------
 // (a) safeFilenameSlug — Content-Disposition header-injection / response-splitting guard.
 // The slug is interpolated into the download filename; a `"`, CR/LF, `;`, or `/` must NOT
-// survive into the header — else it spoofs the filename or splits the response. To reach the
-// export path with an arbitrary (hostile) slug we authorize the caller FOR that exact org
-// (a session whose installation login matches it, case-insensitively) — the route still must
-// sanitize the slug it trusts. This is strictly stronger than the public path: even an
-// authorized org name can't poison the header.
+// survive into the header — else it spoofs the filename or splits the response.
 describe("GET /api/usage — safeFilenameSlug Content-Disposition header-injection guard (#5a)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsDbConfigured.mockReturnValue(true);
-    mockIsAuthConfigured.mockReturnValue(true);
+    mockRequireOrgRead.mockResolvedValue(null); // authorized → reaches the export path
     mockGetUsageSummary.mockResolvedValue(EXPORT_SUMMARY);
   });
 
-  // CR/LF can NEVER be legitimate in this single-line header — their presence is response
-  // splitting, full stop. (The structural `filename="…"` quotes are legitimate, so `"`/`;`/`/`
-  // are instead pinned inside the extracted slug via the safe-charset regex below.)
+  // CR/LF can NEVER be legitimate in this single-line header — their presence is response splitting.
   const SPLIT_BYTES = ["\r", "\n"];
 
-  // Each hostile slug is authorized as the caller's own org below, so it flows to the export
-  // path and through safeFilenameSlug — the exact transform under test.
   const HOSTILE: ReadonlyArray<[string, string]> = [
     ['a"b', "embedded double-quote (closes the filename attr)"],
     ["a\r\nSet-Cookie: x=1", "CRLF response-splitting / injected header"],
@@ -164,9 +134,6 @@ describe("GET /api/usage — safeFilenameSlug Content-Disposition header-injecti
   for (const format of ["csv", "json"] as const) {
     for (const [slug, why] of HOSTILE) {
       it(`sanitizes ?org=${JSON.stringify(slug)} (${why}) in the ${format} download filename`, async () => {
-        // Authorize the caller for this exact org so the request reaches the export path; the
-        // route lowercases both sides of the membership check.
-        mockGetSession.mockResolvedValue(sessionWith(slug.toLowerCase()));
         const res = await get(`?org=${encodeURIComponent(slug)}&format=${format}`);
 
         expect(res.status).toBe(200);
@@ -178,36 +145,28 @@ describe("GET /api/usage — safeFilenameSlug Content-Disposition header-injecti
           expect(cd).not.toContain(ch);
         }
 
-        // The header is exactly one well-formed Content-Disposition with a single quoted
-        // filename: nothing the attacker supplied opened a second `filename=`/param or closed
-        // the quote early. The interpolated slug is a single non-empty safe ascii token, which
-        // by construction excludes the breakout bytes `"`, `;`, and `/`.
+        // Exactly one well-formed Content-Disposition with a single quoted filename.
         const m = cd.match(
           /^attachment; filename="ascent-usage-(.*?)-\d{4}-\d{2}-\d{2}\.(?:csv|json)"$/,
         );
         expect(m, `filename did not match the expected safe shape: ${cd}`).not.toBeNull();
         const fileSlug = m![1];
         expect(fileSlug).toMatch(/^[a-z0-9-]{1,64}$/); // ONLY safe chars, capped length
-        expect(fileSlug).not.toBe(""); // never empty (falls back to "org")
+        expect(fileSlug).not.toBe("");
         for (const ch of ['"', ";", "/"]) {
-          expect(fileSlug).not.toContain(ch); // attacker-controlled portion is byte-clean
+          expect(fileSlug).not.toContain(ch);
         }
       });
     }
   }
 
   it("falls back to the literal 'org' token when the slug reduces to nothing", async () => {
-    // '日本' cleans to "" → the route must substitute "org", never an empty token (an empty slug
-    // would yield `ascent-usage--<date>` and is the easiest regression).
-    mockGetSession.mockResolvedValue(sessionWith("日本"));
     const res = await get(`?org=${encodeURIComponent("日本")}&format=csv`);
     const cd = res.headers.get("content-disposition") ?? "";
     expect(cd).toContain('filename="ascent-usage-org-');
   });
 
   it("preserves a benign slug verbatim (the guard does not mangle legitimate names)", async () => {
-    // public org needs no session; it reaches the export path unauthenticated.
-    mockGetSession.mockResolvedValue(null);
     const res = await get(`?org=public&format=json`);
     const cd = res.headers.get("content-disposition") ?? "";
     expect(cd).toMatch(/filename="ascent-usage-public-\d{4}-\d{2}-\d{2}\.json"/);
@@ -217,14 +176,11 @@ describe("GET /api/usage — safeFilenameSlug Content-Disposition header-injecti
 // ---------------------------------------------------------------------------
 // (b) public-org day cap — anonymous-DoS amplification guard.
 // days = Math.min(orgLc === "public" ? 90 : 365, Math.max(1, Number(days) || 30)).
-// We capture the EXACT `days` the route hands getUsageSummary; the public/unauthenticated window
-// can NEVER exceed 90, no matter the requested value.
 describe("GET /api/usage — public-org day-window cap (#5b)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsDbConfigured.mockReturnValue(true);
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(null);
+    mockRequireOrgRead.mockResolvedValue(null);
     mockGetUsageSummary.mockResolvedValue(SUMMARY);
   });
 
@@ -255,8 +211,6 @@ describe("GET /api/usage — public-org day-window cap (#5b)", () => {
   });
 
   it("treats ?days=0 as the 30-day default (0 is falsy → `|| 30`), never a 0-day window", async () => {
-    // Number("0") is 0, which is falsy, so `Number(...) || 30` yields 30 — the route never
-    // computes a zero-length window. (Negatives, which ARE truthy, floor to 1 below.)
     await get("?org=public&days=0");
     expect(daysPassed()).toBe(30);
   });
@@ -271,17 +225,13 @@ describe("GET /api/usage — public-org day-window cap (#5b)", () => {
     expect(daysPassed()).toBe(45);
   });
 
-  it("lets a MEMBER org reach the wider 365-day window (the cap is public-only)", async () => {
-    // A real org with a session that includes it is authorized AND uncapped to 365 — proving the
-    // 90-day clamp is scoped to the unauthenticated public org, not applied to everyone.
-    mockGetSession.mockResolvedValue(sessionWith("acme"));
+  it("lets an authorized non-public org reach the wider 365-day window (the cap is public-only)", async () => {
     const res = await get("?org=acme&days=365");
     expect(res.status).toBe(200);
     expect(daysPassed()).toBe(365);
   });
 
-  it("still caps a member org's over-365 request at 365", async () => {
-    mockGetSession.mockResolvedValue(sessionWith("acme"));
+  it("still caps a non-public org's over-365 request at 365", async () => {
     await get("?org=acme&days=99999");
     expect(daysPassed()).toBe(365);
   });
