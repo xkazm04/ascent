@@ -174,6 +174,22 @@ export async function resolveOrgId(orgSlug: string): Promise<string | null> {
 }
 
 /**
+ * Parse a persisted string-array JSON column (`explore`, `evidence`, `gaps`, …): malformed JSON,
+ * null/empty, or a non-array all yield `[]`, and non-string entries are dropped. The single canonical
+ * parser for stored `string[]` columns — lives here (the dependency sink) so both scans-shared and
+ * scans-read use one implementation instead of two that drift in edge handling.
+ */
+export function parseStringArray(s: string | null | undefined): string[] {
+  if (!s) return [];
+  try {
+    const p = JSON.parse(s);
+    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Map a persisted Recommendation row to the API-facing PersistedRecommendation shape — parsing the
  * stored `explore` JSON (dropping non-string entries) and normalizing nullable fields. Shared by the
  * read path (getLatestRecommendations) and the mutation path (updateRecommendation).
@@ -191,13 +207,6 @@ export function toPersistedRec(r: {
   assigneeLogin?: string | null;
   targetDate?: Date | null;
 }): PersistedRecommendation {
-  let explore: string[] = [];
-  try {
-    const parsed = JSON.parse(r.explore ?? "[]");
-    if (Array.isArray(parsed)) explore = parsed.filter((x): x is string => typeof x === "string");
-  } catch {
-    /* ignore */
-  }
   return {
     id: r.id,
     title: r.title,
@@ -205,7 +214,7 @@ export function toPersistedRec(r: {
     impact: r.impact as Impact,
     effort: r.effort as Effort,
     rationale: r.rationale,
-    explore,
+    explore: parseStringArray(r.explore),
     levelUnlock: r.levelUnlock ?? undefined,
     status: r.status as RecStatus,
     assigneeLogin: r.assigneeLogin ?? null,

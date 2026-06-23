@@ -24,7 +24,7 @@ import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
-import { DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
+import { DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 
 // reportPermalink now lives in @/lib/ui (a client-safe module, so the trend charts can build the
 // same link); re-exported here for the existing @/lib/db barrel + server callers.
@@ -578,16 +578,7 @@ export async function getLatestRecommendations(
 }
 
 // ---- Pinned snapshot reconstruction (shareable permalinks) -------------------
-
-function parseStringArray(s: string | null | undefined): string[] {
-  if (!s) return [];
-  try {
-    const p = JSON.parse(s);
-    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
+// parseStringArray now lives in scans-shared (the dependency sink) — imported above.
 
 function parseJson<T>(s: string | null | undefined): T | null {
   if (!s) return null;

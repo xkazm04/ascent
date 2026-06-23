@@ -42,6 +42,17 @@ vi.mock("@/lib/db/scans-shared", () => ({
   DEFAULT_ORG_SLUG: "public",
   resolveOrgId: vi.fn(async () => "org_1"),
   toPersistedRec: vi.fn(),
+  // parseStringArray now lives in scans-shared (the dependency sink) and scans-read imports it from
+  // here; provide the REAL implementation so the resilience assertions below exercise it unchanged.
+  parseStringArray: (s: string | null | undefined): string[] => {
+    if (!s) return [];
+    try {
+      const p = JSON.parse(s);
+      return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  },
 }));
 
 import { getScanReportByCommit } from "./scans-read";
