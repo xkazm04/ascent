@@ -4,7 +4,7 @@
 // accent colour, logo URL. POSTs to /api/org/branding; values are validated server-side. Collapsed by default.
 
 import { useState } from "react";
-import type { OrgBranding } from "@/lib/db";
+import type { OrgBranding } from "@/lib/db/branding";
 
 export function BrandingSettings({ slug, initial }: { slug: string; initial: OrgBranding }) {
   const [brandName, setBrandName] = useState(initial.brandName ?? "");
