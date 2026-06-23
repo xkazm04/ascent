@@ -11,7 +11,7 @@ import { type TrendPoint } from "@/components/report/TrendChart";
 import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
 import { ReportHeader } from "@/components/report/ReportHeader";
 import { ScoringTab } from "@/components/report/ScoringTab";
-import { NextLevelPath, RoadmapSteps, TrustLadder } from "@/components/report/RoadmapPanel";
+import { NextLevelPath, RoadmapSteps, TrustLadder } from "@/components/report/roadmapPieces";
 import { RecommendationTracker } from "@/components/report/RecommendationTracker";
 import { ContributorsPanel } from "@/components/report/ContributorsPanel";
 import { SideNav, type SideNavGroup } from "@/components/ui";
