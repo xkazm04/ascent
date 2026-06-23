@@ -41,6 +41,13 @@ const MAX_LIST = 50;
 
 const MAX_SELECT = 10;
 
+// The single "default selection" rule: sort by prominence, take the top MAX_SELECT, seed the selection
+// from their fullNames. Re-sorting an already-sorted/sliced list through `byProminence` is idempotent,
+// so every phase entry point can route through this without changing its result.
+function topSelection(list: OrgRepo[]): Set<string> {
+  return new Set([...list].sort(byProminence).slice(0, MAX_SELECT).map((r) => r.fullName));
+}
+
 export function OnboardingFlow({
   hasInstallation = false,
   installations = [],
@@ -172,8 +179,7 @@ export function OnboardingFlow({
       const list = (data.repos ?? []) as OrgRepo[];
       if (list.length === 0) throw new Error("No public repositories found for that account.");
       setRepos(list);
-      const top = [...list].sort(byProminence).slice(0, MAX_SELECT);
-      setSelected(new Set(top.map((r) => r.fullName)));
+      setSelected(topSelection(list));
       setSourceLabel(handle);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -223,7 +229,7 @@ export function OnboardingFlow({
         .slice(0, MAX_LIST);
       if (list.length === 0) throw new Error("No repositories accessible to this installation.");
       setRepos(list);
-      setSelected(new Set(list.slice(0, MAX_SELECT).map((r) => r.fullName)));
+      setSelected(topSelection(list));
       // Lowercase the source label: private scans persist under the lowercased owner slug, and
       // the org dashboard resolves the slug exactly — so a mixed-case login (e.g. "Netflix")
       // must be normalized here or the "View dashboard" link would 404.
@@ -246,8 +252,7 @@ export function OnboardingFlow({
   }
 
   function selectTop() {
-    const top = [...repos].sort(byProminence).slice(0, MAX_SELECT);
-    setSelected(new Set(top.map((r) => r.fullName)));
+    setSelected(topSelection(repos));
   }
 
   function clearSelection() {
