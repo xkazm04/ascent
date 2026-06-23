@@ -77,14 +77,16 @@ export async function GET(request: Request) {
       // silent rather than training the inbox filter. Skip unless something material moved (or credits
       // are running low — always worth the heads-up).
       const creditLow = !!(credit && !credit.unlimited && credit.balance <= creditsAlertThreshold() * 2);
+      // ALERTS #1: noise-filter regressers SYMMETRICALLY with gainers below. `regressers` partitions
+      // purely on sign, so a pure-jitter week (every repo within ±noise, a couple landing net-negative)
+      // would count as "regressions > 0" and fire a misleading digest — defeating the silence-on-noise
+      // contract. Compute the beyond-noise set ONCE so the signal gate and the rendered list (below)
+      // can't drift out of lockstep.
+      const regressersBeyondNoise = (movers?.regressers ?? []).filter((m) => !isWithinNoise(m.dOverall));
       const hasSignal = digestHasSignal({
         overallDelta: rollup.deltas?.overall ?? null,
         levelChanges: movers?.levelChanges?.filter((m) => m.levelDelta !== 0).length ?? 0,
-        // ALERTS #1: noise-filter regressers SYMMETRICALLY with gainers below. `regressers` partitions
-        // purely on sign, so a pure-jitter week (every repo within ±noise, a couple landing net-negative)
-        // would count as "regressions > 0" and fire a misleading digest — defeating the silence-on-noise
-        // contract. Only count regressers whose move is beyond model jitter.
-        regressions: (movers?.regressers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
+        regressions: regressersBeyondNoise.length,
         gainersBeyondNoise: (movers?.gainers ?? []).filter((m) => !isWithinNoise(m.dOverall)).length,
         creditLow,
       });
@@ -104,10 +106,10 @@ export async function GET(request: Request) {
         level: `${level.id} · ${level.name}`,
         overallDelta: rollup.deltas?.overall ?? null,
         gainers: (movers?.gainers ?? []).slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
-        // ALERTS #1: render only regressers beyond noise, mirroring the signal gate above, so a
-        // within-noise −1/−2 repo is never listed under "Regressions:" (which would train the inbox
+        // ALERTS #1: render only regressers beyond noise (the same set the signal gate counted above),
+        // so a within-noise −1/−2 repo is never listed under "Regressions:" (which would train the inbox
         // filter the gate exists to avoid).
-        regressers: (movers?.regressers ?? []).filter((m) => !isWithinNoise(m.dOverall)).slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
+        regressers: regressersBeyondNoise.slice(0, 3).map((m) => ({ name: m.name, delta: m.dOverall })),
         topRecommendation: top ? { title: top.title, repoCount: top.repoCount } : null,
         percentile: benchmark?.overallPercentile ?? null,
         trajectory: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
