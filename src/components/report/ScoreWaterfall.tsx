@@ -3,7 +3,7 @@
 import type { ScanReport } from "@/lib/types";
 import { contributions } from "@/lib/scoring/engine";
 import { DIMENSION_SHORT, fmtPts, scoreHex } from "@/lib/ui";
-import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
+import { fillBarStyle, useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { Kicker, Surface } from "@/components/ui";
 
 /**
@@ -48,8 +48,7 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
         aria-label={`Overall score ${overallScore} of 100, composed of ${ranked.length} weighted dimension contributions`}
       >
         {ranked.map((c, i) => {
-          const width = mounted || reduced ? `${c.points}%` : "0%";
-          const transition = reduced ? undefined : `width 0.7s ease-out ${Math.min(i * 50, 400)}ms`;
+          const { width, transition } = fillBarStyle({ pct: c.points, index: i, mounted, reduced, stagger: 50, cap: 400 });
           return (
             <div
               key={c.dimension}

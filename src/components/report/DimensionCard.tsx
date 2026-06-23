@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { ScanReport } from "@/lib/types";
 import { LLM_GUARDBAND } from "@/lib/maturity/model";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
-import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
+import { fillBarStyle, useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { linScale } from "@/components/report/chartScale";
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
 import { Surface } from "@/components/ui";
@@ -29,8 +29,7 @@ export function DimensionCard({
   // One motion language (reuses animate-fade-up's ease-out): the score-fill grows from 0 on
   // mount with a small per-row stagger; the detail panel is a height+opacity accordion; the
   // chevron rotates 90°. prefers-reduced-motion snaps everything to its final state instead.
-  const fillWidth = reduced || mounted ? `${d.score}%` : "0%";
-  const fillTransition = reduced ? undefined : `width 0.7s ease-out ${Math.min(index * 60, 480)}ms`;
+  const { width: fillWidth, transition: fillTransition } = fillBarStyle({ pct: d.score, index, mounted, reduced });
   const detailTransition = reduced ? undefined : "grid-template-rows 0.3s ease-out, opacity 0.3s ease-out";
   const chevronTransition = reduced ? undefined : "transform 0.3s ease-out";
 

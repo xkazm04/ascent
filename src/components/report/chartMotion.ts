@@ -36,6 +36,35 @@ export function useMounted(): boolean {
 }
 
 /**
+ * The mount-driven staggered fill-bar style — the `{ width, transition }` pair that the report's bar
+ * visuals (DimensionCard's score fill, ScoreWaterfall's contribution segments) each expressed by hand
+ * with slightly different stagger constants. The bar grows from 0% to `pct%` one frame after mount with
+ * a per-row ease-out delay (`index * stagger`, capped at `cap`), and snaps straight to final under
+ * reduced motion. The canonical stagger is 60ms / 480ms cap (the dimension list); ScoreWaterfall passes
+ * its tighter 50/400 to stay byte-identical to its prior inline values.
+ */
+export function fillBarStyle({
+  pct,
+  index = 0,
+  mounted,
+  reduced,
+  stagger = 60,
+  cap = 480,
+}: {
+  pct: number;
+  index?: number;
+  mounted: boolean;
+  reduced: boolean;
+  stagger?: number;
+  cap?: number;
+}): { width: string; transition?: string } {
+  return {
+    width: mounted || reduced ? `${pct}%` : "0%",
+    transition: reduced ? undefined : `width 0.7s ease-out ${Math.min(index * stagger, cap)}ms`,
+  };
+}
+
+/**
  * Replays an animation each time the element scrolls into view (for the snap deck — land on a
  * section, the chart re-draws). Attach `ref` to a STABLE container; `replayKey` increments on every
  * entry — remount the animated subtree with it (e.g. `key={replayKey}` on a Recharts chart) to
