@@ -7,28 +7,16 @@
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
 import { NODES, GLINKS, NODE_ADOPT, W, H, HEAL } from "./graph";
+import { MONO, clamp01, Metric } from "../compositionShared";
 
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const WEAK = [248, 113, 113] as const; // #f87171
 const STRONG = [59, 158, 255] as const; // #3b9eff
-const mono = "var(--font-mono), ui-monospace, monospace";
 
 function mix(t: number): string {
   const r = Math.round(WEAK[0] + (STRONG[0] - WEAK[0]) * t);
   const g = Math.round(WEAK[1] + (STRONG[1] - WEAK[1]) * t);
   const b = Math.round(WEAK[2] + (STRONG[2] - WEAK[2]) * t);
   return `rgb(${r},${g},${b})`;
-}
-
-function Metric({ label, value, color }: { label: string; value: React.ReactNode; color: string }) {
-  // Sizes are in the 960×540 composition space; the Player scales it to ~half that, so these render
-  // at roughly text-base+ — keep everything large enough to stay legible after the downscale.
-  return (
-    <div>
-      <div style={{ color, fontSize: 60, fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{value}</div>
-      <div style={{ color: "#94a3b8", fontSize: 30, letterSpacing: 2, textTransform: "uppercase", marginTop: 8 }}>{label}</div>
-    </div>
-  );
 }
 
 export const ChampionComposition: React.FC = () => {
@@ -94,10 +82,10 @@ export const ChampionComposition: React.FC = () => {
         })}
       </svg>
 
-      <div style={{ position: "absolute", left: 36, top: 32, fontFamily: mono }}>
+      <div style={{ position: "absolute", left: 36, top: 32, fontFamily: MONO }}>
         <div style={{ color: "#3b9eff", fontSize: 32, letterSpacing: 3, textTransform: "uppercase" }}>Practices spreading</div>
       </div>
-      <div style={{ position: "absolute", right: 36, top: 28, display: "flex", gap: 44, textAlign: "right", fontFamily: mono }}>
+      <div style={{ position: "absolute", right: 36, top: 28, display: "flex", gap: 44, textAlign: "right", fontFamily: MONO }}>
         <Metric label="weak links" value={weakRemaining} color="#f87171" />
         <Metric label="adoption" value={`${adoptionPct}%`} color="#3b9eff" />
       </div>

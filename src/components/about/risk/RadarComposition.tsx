@@ -8,9 +8,8 @@
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
 import { W, H, CX, CY, R, BLIPS, WAVE_START, WAVE_END, WAVE_MAX, BEAM_END } from "./radar";
+import { MONO, clamp01, Metric } from "../compositionShared";
 
-const mono = "var(--font-mono), ui-monospace, monospace";
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const GREEN = "#22c55e";
 
 function hexToRgb(h: string): [number, number, number] {
@@ -21,15 +20,6 @@ function lerpHex(a: string, b: string, t: number): string {
   const A = hexToRgb(a);
   const B = hexToRgb(b);
   return `rgb(${Math.round(A[0] + (B[0] - A[0]) * t)},${Math.round(A[1] + (B[1] - A[1]) * t)},${Math.round(A[2] + (B[2] - A[2]) * t)})`;
-}
-
-function Metric({ label, value, color }: { label: string; value: React.ReactNode; color: string }) {
-  return (
-    <div>
-      <div style={{ color, fontSize: 60, fontWeight: 700, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{value}</div>
-      <div style={{ color: "#94a3b8", fontSize: 30, letterSpacing: 2, textTransform: "uppercase", marginTop: 8 }}>{label}</div>
-    </div>
-  );
 }
 
 export const RadarComposition: React.FC = () => {
@@ -130,14 +120,14 @@ export const RadarComposition: React.FC = () => {
         <circle cx={CX} cy={CY} r={3} fill="#7bbcff" />
       </svg>
 
-      <div style={{ position: "absolute", left: 36, top: 32, fontFamily: mono }}>
+      <div style={{ position: "absolute", left: 36, top: 32, fontFamily: MONO }}>
         <div style={{ color: "#3b9eff", fontSize: 32, letterSpacing: 3, textTransform: "uppercase" }}>Risk radar</div>
       </div>
-      <div style={{ position: "absolute", right: 36, top: 28, display: "flex", gap: 44, textAlign: "right", fontFamily: mono }}>
+      <div style={{ position: "absolute", right: 36, top: 28, display: "flex", gap: 44, textAlign: "right", fontFamily: MONO }}>
         <Metric label="open risks" value={openRisks} color="#f97316" />
         <Metric label="mitigated" value={mitigated} color={GREEN} />
       </div>
-      <div style={{ position: "absolute", left: 36, bottom: 30, fontFamily: mono }}>
+      <div style={{ position: "absolute", left: 36, bottom: 30, fontFamily: MONO }}>
         <span
           style={{
             display: "inline-flex",
