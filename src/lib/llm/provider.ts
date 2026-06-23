@@ -21,6 +21,7 @@ import type {
   TokenUsage,
 } from "@/lib/types";
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
+import { IMPACT_LEVELS } from "@/lib/llm/schema";
 import type { StackFit } from "@/lib/analyze/stack-fit";
 
 export interface LlmScoreInput {
@@ -62,7 +63,7 @@ export interface LLMProvider {
 }
 
 const VALID_DIM_IDS = new Set(DIMENSIONS.map((d) => d.id));
-const IMPACTS = new Set(["high", "medium", "low"]);
+const IMPACTS: Set<string> = new Set(IMPACT_LEVELS);
 
 // Cap each model-supplied string. validateAssessment bounds array COUNT but not string LENGTH, so a
 // model emitting a multi-megabyte summary/headline/rationale (verbose, hallucinated repetition, or a

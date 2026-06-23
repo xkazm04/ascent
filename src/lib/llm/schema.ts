@@ -14,7 +14,10 @@
 import { DIMENSIONS } from "@/lib/maturity/model";
 
 const DIMENSION_IDS = DIMENSIONS.map((d) => d.id);
-const LEVELS = ["high", "medium", "low"];
+/** The impact/effort vocabulary — the single source for both the schema enum (constrain the model
+ * up front) and provider.ts's runtime accept-list (defensively coerce after). Kept a mutable
+ * `string[]` so the JSON Schema `enum` type matches what the Bedrock Converse tool spec expects. */
+export const IMPACT_LEVELS: string[] = ["high", "medium", "low"];
 const stringArray = { type: "array", items: { type: "string" } };
 
 /**
@@ -53,8 +56,8 @@ export const ASSESSMENT_JSON_SCHEMA = {
         properties: {
           title: { type: "string" },
           dimension: { type: "string", enum: DIMENSION_IDS },
-          impact: { type: "string", enum: LEVELS },
-          effort: { type: "string", enum: LEVELS },
+          impact: { type: "string", enum: IMPACT_LEVELS },
+          effort: { type: "string", enum: IMPACT_LEVELS },
           rationale: { type: "string" },
           explore: { ...stringArray, description: "2-3 invitational questions." },
           levelUnlock: { type: "string" },
