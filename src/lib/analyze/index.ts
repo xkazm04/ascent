@@ -153,6 +153,21 @@ function aiStandard(idx: RepoIndex): {
   return { d1, d8 };
 }
 
+// The `.ai/` standard splits across D1 and D8, so both detectors call aiStandard(). The full body
+// (manifest scan + doctor/hook wiring + memory count) is identical work for either half, and the two
+// detectors run independently — so without memoization it runs twice per scan, each call discarding
+// the half it doesn't need. Memo on the per-scan RepoIndex (immutable for the scan; matches the
+// aiCommitFlags / loweredTreePaths pattern) so the second detector reads the cached result.
+const aiStandardByIdx = new WeakMap<RepoIndex, ReturnType<typeof aiStandard>>();
+function aiStandardCached(idx: RepoIndex): ReturnType<typeof aiStandard> {
+  let r = aiStandardByIdx.get(idx);
+  if (!r) {
+    r = aiStandard(idx);
+    aiStandardByIdx.set(idx, r);
+  }
+  return r;
+}
+
 const d1: Detector = (idx) => {
   const s = new Scorer();
   // Presence (reduced caps so guidance *quality* can contribute meaningfully).
@@ -173,7 +188,7 @@ const d1: Detector = (idx) => {
   if (guidance) for (const g of guidanceQuality(guidance)) s.add(g.points, g.label);
 
   // The `.ai/` standard's agent-facing contract is high-signal machine-readable guidance.
-  for (const g of aiStandard(idx).d1) s.add(g.points, g.label);
+  for (const g of aiStandardCached(idx).d1) s.add(g.points, g.label);
 
   if (s.signals.length === 0)
     s.note("No machine-readable AI/agent guidance detected", "e.g. CLAUDE.md, AGENTS.md, .cursorrules");
@@ -565,7 +580,7 @@ const d8: Detector = (idx) => {
     s.add(10, "Structured issue templates");
 
   // The `.ai/` standard's executable conformance + structured memory — scored by evidence of use.
-  for (const g of aiStandard(idx).d8) s.add(g.points, g.label);
+  for (const g of aiStandardCached(idx).d8) s.add(g.points, g.label);
 
   if (s.signals.length === 0)
     s.note("No dedicated AI process/harness detected", "e.g. evals, prompt library, agent runbooks");
