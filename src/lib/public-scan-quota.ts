@@ -79,6 +79,22 @@ export function hashIp(ip: string): string {
   return hashKey(`ip:${ip}`);
 }
 
+/**
+ * Resolve the quota bucket for this request+identity — the SINGLE place that derives the bucket key.
+ * Consume, peek, and refund must all compute the IDENTICAL `ipHash` (a refund against a different key
+ * than the consume would leak a slot), so they all route through here: signed-in viewers bucket
+ * per-USER (`u:` namespace, IP-independent) at the elevated limit, anonymous callers bucket per-IP
+ * (`ip:` namespace). The two namespaces keep the key spaces disjoint.
+ */
+function bucketContext(
+  req: Request,
+  identity: QuotaIdentity,
+): { signedIn: boolean; ipHash: string; scope: "anon" | "user" } {
+  const signedIn = Boolean(identity.viewerId);
+  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
+  return { signedIn, ipHash, scope: signedIn ? "user" : "anon" };
+}
+
 /** Parse the stored JSON number[] of hit timestamps, tolerating null/garbage as an empty window. */
 export function parseHits(raw: string | null | undefined): number[] {
   if (!raw) return [];
@@ -176,15 +192,12 @@ export async function consumePublicScanQuota(
   req: Request,
   identity: QuotaIdentity = {},
 ): Promise<QuotaResult> {
-  const signedIn = Boolean(identity.viewerId);
+  const { signedIn, ipHash } = bucketContext(req, identity);
   const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
   if (!isDbConfigured() || publicScanQuotaDisabled()) {
     return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
 
-  // Signed-in viewers bucket per-USER (their own elevated allowance, IP-independent); anonymous
-  // callers bucket per-IP. The namespace prefix keeps the two key spaces disjoint.
-  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
   const now = Date.now();
   try {
     const result = await withDb((db) =>
@@ -252,13 +265,11 @@ export interface QuotaPeek {
  * unconfigured / disabled / errors, exactly like consume.
  */
 export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<QuotaPeek> {
-  const signedIn = Boolean(identity.viewerId);
+  const { signedIn, ipHash, scope } = bucketContext(req, identity);
   const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
-  const scope: "anon" | "user" = signedIn ? "user" : "anon";
   if (!isDbConfigured() || publicScanQuotaDisabled()) {
     return { enforced: false, remaining: limit, limit, resetAt: null, scope };
   }
-  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
   const now = Date.now();
   try {
     return await withDb(async (db) => {
@@ -317,8 +328,7 @@ export async function refundPublicScanQuota(
   chargedAt?: number | null,
 ): Promise<void> {
   if (!isDbConfigured() || publicScanQuotaDisabled()) return;
-  const signedIn = Boolean(identity.viewerId);
-  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
+  const { ipHash } = bucketContext(req, identity);
   try {
     await withDb((db) =>
       withRetry(
