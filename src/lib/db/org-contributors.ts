@@ -2,7 +2,7 @@
 // intelligence (F5). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { isBot, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { aiShareOf, isBot, pickChampions, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 
 // ── Contributor intelligence (F5) ────────────────────────────────────────────
 // All derived from the stored RepoContributor snapshots (latest scan per repo) — no extra
@@ -90,7 +90,7 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
 
   const contributors: ContributorInsight[] = [...people.values()]
     .map((p) => {
-      const aiShare = p.commits ? Math.round((p.aiCommits / p.commits) * 100) : 0;
+      const aiShare = aiShareOf(p.commits, p.aiCommits);
       const repoCount = p.repos.size;
       const repoNames = [...p.repos.entries()].sort((a, b) => b[1] - a[1]).map(([fn]) => fn);
       // Reward AI adoption × breadth × (log) volume — culture carriers spread AI across repos.
@@ -137,10 +137,11 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
   const totalCommits = contributors.reduce((s, c) => s + c.commits, 0);
   const aiCommitsTotal = contributors.reduce((s, c) => s + c.aiCommits, 0);
   const aiActive = contributors.filter((c) => c.aiCommits > 0).length;
-  const champions = [...contributors]
-    .filter((c) => c.commits >= 3 && c.aiCommits > 0)
-    .sort((a, b) => b.championScore - a.championScore)
-    .slice(0, 6);
+  const champions = pickChampions(contributors, {
+    filter: (c) => c.commits >= 3 && c.aiCommits > 0,
+    by: (c) => c.championScore,
+    limit: 6,
+  });
 
   return {
     org: orgSlug,

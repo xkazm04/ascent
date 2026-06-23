@@ -41,3 +41,23 @@ export function mean(xs: number[]): number {
 export function roundedMean(xs: number[]): number {
   return Math.round(mean(xs));
 }
+
+/** Share (0..100) of a person's commits that are AI-attributed; 0 when they have no commits.
+ *  Single source for the "AI champion" share formula used by both contributor and team rollups. */
+export function aiShareOf(commits: number, aiCommits: number): number {
+  return commits ? Math.round((aiCommits / commits) * 100) : 0;
+}
+
+/**
+ * Select the top-N "champions" from a human-only contributor list: keep those passing `filter`, sort by
+ * the `by` metric descending, and take the first `limit`. The shared select-shape behind both
+ * `getContributorInsights` (ranked by championScore, sliced 6, requires ≥3 commits) and `rollupTeams`
+ * (ranked by aiCommits, sliced 3); each caller supplies its own filter/metric/limit. Does not mutate
+ * the input (sorts a copy).
+ */
+export function pickChampions<T>(people: T[], opts: { filter: (p: T) => boolean; by: (p: T) => number; limit: number }): T[] {
+  return people
+    .filter(opts.filter)
+    .sort((a, b) => opts.by(b) - opts.by(a))
+    .slice(0, opts.limit);
+}

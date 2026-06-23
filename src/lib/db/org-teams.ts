@@ -11,7 +11,7 @@ import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
-import { isBot, roundedMean } from "@/lib/db/org-shared";
+import { aiShareOf, isBot, pickChampions, roundedMean } from "@/lib/db/org-shared";
 
 const TEAM_STRONG = 65; // a team "exemplifies" a dimension at/above this (a mentor candidate)
 const TEAM_WEAK = 50; // a team could grow a dimension below this (a learner candidate)
@@ -210,16 +210,16 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
       const totAi = people.reduce((s, p) => s + p.aiCommits, 0);
       const aiContributors = people.filter((p) => p.aiCommits > 0).length;
       const aiCommitShare = totCommits ? Math.round((totAi / totCommits) * 100) : 0;
-      const champions: TeamChampion[] = people
-        .filter((p) => p.aiCommits > 0)
-        .sort((x, y) => y.aiCommits - x.aiCommits)
-        .slice(0, 3)
-        .map((p) => ({
-          login: p.login,
-          name: p.name,
-          aiCommits: p.aiCommits,
-          aiShare: p.commits ? Math.round((p.aiCommits / p.commits) * 100) : 0,
-        }));
+      const champions: TeamChampion[] = pickChampions(people, {
+        filter: (p) => p.aiCommits > 0,
+        by: (p) => p.aiCommits,
+        limit: 3,
+      }).map((p) => ({
+        login: p.login,
+        name: p.name,
+        aiCommits: p.aiCommits,
+        aiShare: aiShareOf(p.commits, p.aiCommits),
+      }));
       // Blend "how much of the team's recent work is AI-attributed" with "how AI-native its repos'
       // tooling is" — two equal, explainable inputs, not an opaque score.
       const knowledgeScore = Math.round(aiCommitShare * 0.5 + avgAdoption * 0.5);
