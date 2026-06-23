@@ -12,7 +12,7 @@ import type {
   RepoSnapshot,
   ScanProgress,
 } from "@/lib/types";
-import { ghHeaders, githubApiBase, githubRawBase } from "@/lib/github/host";
+import { fetchWithTimeout, ghHeaders, githubApiBase, githubRawBase } from "@/lib/github/host";
 
 export type ProgressFn = (p: ScanProgress) => void;
 export interface FetchOptions {
@@ -118,27 +118,6 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
  */
 function encodeRef(ref: string): string {
   return ref.split("/").map(encodeURIComponent).join("/");
-}
-
-/**
- * fetch() with an AbortController timeout so no upstream call can hang the function.
- * An optional caller `signal` (the request's signal) is merged in, so the fetch is
- * aborted by whichever fires first — the per-call timeout OR a client disconnect.
- */
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  ms: number,
-  signal?: AbortSignal,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
-  try {
-    return await fetch(url, { ...init, signal: combined });
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /**

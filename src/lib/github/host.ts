@@ -59,3 +59,26 @@ export function ghHeaders(
   if (token) h.Authorization = `Bearer ${token}`;
   return h;
 }
+
+/**
+ * `fetch()` with a per-call AbortController timeout so no upstream GitHub call can hang the function,
+ * merged with an optional caller `signal` (the request's signal) — the fetch aborts on whichever fires
+ * first, the timeout OR a client disconnect. The single source for this controller/timeout/merge
+ * plumbing (REST source/governance + GraphQL each previously hand-rolled an identical copy); callers
+ * keep their own per-module timeout value and layer their own response-shaping on top of the `Response`.
+ */
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  ms: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
+  try {
+    return await fetch(url, { ...init, signal: combined });
+  } finally {
+    clearTimeout(timer);
+  }
+}

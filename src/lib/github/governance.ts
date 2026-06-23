@@ -6,7 +6,7 @@
 //   - `/stats/commit_activity` — 52 weeks of commit volume (may 202 on first call → one retry).
 
 import type { Governance } from "@/lib/types";
-import { ghHeaders, githubApiBase } from "@/lib/github/host";
+import { fetchWithTimeout, ghHeaders, githubApiBase } from "@/lib/github/host";
 
 const API = githubApiBase();
 const TIMEOUT_MS = 10_000;
@@ -16,18 +16,9 @@ async function getJson(
   token: string,
   signal?: AbortSignal,
 ): Promise<{ status: number; body: unknown }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  // Merge the per-call timeout with the caller's signal (client disconnect) so the fetch is
-  // aborted by whichever fires first.
-  const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
-  try {
-    const res = await fetch(url, { headers: ghHeaders(token), signal: combined });
-    const body = res.status === 204 ? null : await res.json().catch(() => null);
-    return { status: res.status, body };
-  } finally {
-    clearTimeout(timer);
-  }
+  const res = await fetchWithTimeout(url, { headers: ghHeaders(token) }, TIMEOUT_MS, signal);
+  const body = res.status === 204 ? null : await res.json().catch(() => null);
+  return { status: res.status, body };
 }
 
 interface Rule {

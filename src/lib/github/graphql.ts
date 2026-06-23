@@ -5,7 +5,7 @@
 // anonymous access, so this requires a token; callers skip PR ingestion gracefully when none
 // is available (public tokenless scans).
 
-import { githubGraphqlUrl } from "@/lib/github/host";
+import { fetchWithTimeout, githubGraphqlUrl } from "@/lib/github/host";
 
 const GRAPHQL = githubGraphqlUrl();
 const TIMEOUT_MS = 15_000;
@@ -44,13 +44,9 @@ async function githubGraphql<T>(
   variables: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  // Merge the per-call timeout with the caller's signal (client disconnect) so the request is
-  // aborted by whichever fires first.
-  const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
-  try {
-    const res = await fetch(GRAPHQL, {
+  const res = await fetchWithTimeout(
+    GRAPHQL,
+    {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -58,26 +54,25 @@ async function githubGraphql<T>(
         "User-Agent": "ascent-maturity-scanner",
       },
       body: JSON.stringify({ query, variables }),
-      signal: combined,
-    });
-    if (!res.ok) throw new Error(`GitHub GraphQL ${res.status}`);
-    const json = (await res.json()) as { data?: T; errors?: { message: string }[] };
-    // GitHub GraphQL can return BOTH partial `data` AND `errors` (e.g. one PR node failed to
-    // resolve). Discarding the whole response on any error throws away usable PR signals and fails
-    // the scan over one bad node. Prefer partial data: throw only when there is NO data at all;
-    // otherwise log the errors and return what resolved.
-    if (!json.data) {
-      throw new Error(
-        json.errors?.length ? json.errors.map((e) => e.message).join("; ") : "GraphQL returned no data",
-      );
-    }
-    if (json.errors?.length) {
-      console.warn(`[graphql] partial result with errors: ${json.errors.map((e) => e.message).join("; ")}`);
-    }
-    return json.data;
-  } finally {
-    clearTimeout(timer);
+    },
+    TIMEOUT_MS,
+    signal,
+  );
+  if (!res.ok) throw new Error(`GitHub GraphQL ${res.status}`);
+  const json = (await res.json()) as { data?: T; errors?: { message: string }[] };
+  // GitHub GraphQL can return BOTH partial `data` AND `errors` (e.g. one PR node failed to
+  // resolve). Discarding the whole response on any error throws away usable PR signals and fails
+  // the scan over one bad node. Prefer partial data: throw only when there is NO data at all;
+  // otherwise log the errors and return what resolved.
+  if (!json.data) {
+    throw new Error(
+      json.errors?.length ? json.errors.map((e) => e.message).join("; ") : "GraphQL returned no data",
+    );
   }
+  if (json.errors?.length) {
+    console.warn(`[graphql] partial result with errors: ${json.errors.map((e) => e.message).join("; ")}`);
+  }
+  return json.data;
 }
 
 const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!,$after:String){
