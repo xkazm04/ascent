@@ -174,12 +174,6 @@ export async function listDueRescans(limit = 100): Promise<DueRescan[]> {
   return out;
 }
 
-/** After a SUCCESSFUL autoscan, advance the repo's next due time by its full cadence. */
-export async function advanceSchedule(repoId: string, schedule: string): Promise<void> {
-  if (!isDbConfigured()) return;
-  await getPrisma().repository.update({ where: { id: repoId }, data: { nextScanAt: nextScanFor(schedule) } });
-}
-
 /**
  * Atomically CLAIM a due repo BEFORE scanning it, so two overlapping cron runs (a long batch near the
  * 300s ceiling, a manual `?key=` retry, or a re-fired schedule) can't both pick up the same repo and

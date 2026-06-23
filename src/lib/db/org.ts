@@ -10,7 +10,6 @@ export {
   setWatchedSchedule,
   seedWatchlist,
   listDueRescans,
-  advanceSchedule,
   advanceScheduleAfterFailure,
   claimRescan,
   recordScanOutcome,

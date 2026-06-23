@@ -121,7 +121,6 @@ export {
   getOrgTeamRollup,
   rollupTeams,
   listDueRescans,
-  advanceSchedule,
   advanceScheduleAfterFailure,
   claimRescan,
   recordScanOutcome,
