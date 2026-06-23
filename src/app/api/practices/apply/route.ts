@@ -5,11 +5,10 @@
 // gated on a session when auth is configured and every apply is audit-logged.
 
 import { NextResponse } from "next/server";
-import { fetchRepoContext, GitHubError, parseRepoUrl } from "@/lib/github/source";
-import { buildArtifact } from "@/lib/practice-artifact";
-import { openDraftPr } from "@/lib/github/write";
+import { GitHubError, parseRepoUrl } from "@/lib/github/source";
+import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { getInstallationIdForOwner, getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
+import { getInstallationIdForOwner, getOrgId, isDbConfigured } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
 
@@ -52,31 +51,16 @@ export async function POST(request: Request) {
 
   try {
     const token = await getInstallationToken(installId);
-    const ctx = await fetchRepoContext(parsed, token);
-    const artifact = buildArtifact(body.practiceId, ctx);
-    if (!artifact) return NextResponse.json({ error: `Unknown practice "${body.practiceId}".` }, { status: 404 });
-
-    const pr = await openDraftPr({
-      token,
-      owner: parsed.owner,
-      repo: parsed.repo,
-      branch: artifact.branch,
-      base: body.base,
-      path: artifact.path,
-      content: artifact.body,
-      commitMessage: artifact.commitMessage,
-      prTitle: artifact.prTitle,
-      prBody: artifact.prBody,
-    });
-
     const orgId = (await getOrgId(parsed.owner.toLowerCase()).catch(() => null)) ?? undefined;
-    await recordAudit(
-      "practice.pr_opened",
-      { repo: ctx.fullName, practiceId: body.practiceId, path: artifact.path, pr: pr.number, reused: pr.reused },
-      { orgId, actorId: session?.login },
-    );
+    const result = await applyPracticeToRepo(token, parsed, body.practiceId, body.base, {
+      orgId,
+      actorId: session?.login,
+    });
+    if (result.kind === "unknown-practice") {
+      return NextResponse.json({ error: `Unknown practice "${body.practiceId}".` }, { status: 404 });
+    }
 
-    return NextResponse.json({ ...pr, path: artifact.path });
+    return NextResponse.json({ ...result.pr, path: result.artifact.path });
   } catch (err) {
     if (err instanceof AppApiError) {
       // 403 → installation lacks write scope; 404 → repo/branch gone; 409 → the target file already

@@ -7,11 +7,10 @@
 // hammer GitHub or trip the function timeout. One bad repo never aborts the rest.
 
 import { NextResponse } from "next/server";
-import { fetchRepoContext, GitHubError, parseRepoUrl } from "@/lib/github/source";
-import { buildArtifact } from "@/lib/practice-artifact";
-import { openDraftPr } from "@/lib/github/write";
+import { GitHubError, parseRepoUrl } from "@/lib/github/source";
+import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { getInstallationIdForOwner, getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
+import { getInstallationIdForOwner, getOrgId, isDbConfigured } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -84,26 +83,15 @@ export async function POST(request: Request) {
     // Bounded fan-out; the per-repo worker owns its errors so one failure can't abort the pool.
     const results = await mapPool<typeof batch[number], RepoResult>(batch, SCAN_CONCURRENCY, async ({ raw, ref }) => {
       try {
-        const ctx = await fetchRepoContext(ref, token);
-        const artifact = buildArtifact(body.practiceId!, ctx);
-        if (!artifact) return { repo: ctx.fullName, ok: false, error: `Unknown practice "${body.practiceId}".` };
-        const pr = await openDraftPr({
-          token,
-          owner: ref.owner,
-          repo: ref.repo,
-          branch: artifact.branch,
-          base: body.base,
-          path: artifact.path,
-          content: artifact.body,
-          commitMessage: artifact.commitMessage,
-          prTitle: artifact.prTitle,
-          prBody: artifact.prBody,
+        const result = await applyPracticeToRepo(token, ref, body.practiceId!, body.base, {
+          orgId,
+          actorId: session?.login,
+          batch: true,
         });
-        await recordAudit(
-          "practice.pr_opened",
-          { repo: ctx.fullName, practiceId: body.practiceId, path: artifact.path, pr: pr.number, reused: pr.reused, batch: true },
-          { orgId, actorId: session?.login },
-        );
+        if (result.kind === "unknown-practice") {
+          return { repo: result.ctx.fullName, ok: false, error: `Unknown practice "${body.practiceId}".` };
+        }
+        const { pr, ctx } = result;
         return { repo: ctx.fullName, ok: true, url: pr.url, number: pr.number, reused: pr.reused };
       } catch (err) {
         let msg = "Failed to open the starter PR.";
