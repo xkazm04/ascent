@@ -115,26 +115,45 @@ export function sanitizeGatePolicy(raw: unknown): GatePolicy | null {
   return Object.keys(pol).length ? pol : null;
 }
 
-/** Evaluate a report against a policy (defaults to the archetype policy), listing every failure. */
-export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResult {
-  const pol = policy ?? defaultGatePolicy(report.archetype);
+/**
+ * The shape-neutral view of a scan the gate rules actually need. Both `evaluateGate` (full
+ * `ScanReport`) and `evaluateGateLite` (the cheap org-rollup `GateSnapshot`) adapt their input
+ * into this and run {@link evaluateNormalized}, so the five gate rules — minLevel, minOverall,
+ * the minDimension floor sweep, the per-dim minDimensionFor sweep (incl. the "already failed by
+ * the global min" de-dup and the fail-closed unscored split), forbidPostures, and the
+ * readable-gated requireProtectedBranch — live in ONE place. The dashboard's fleet status and the
+ * CI gate can no longer drift because they evaluate the same code, not hand-synced copies.
+ *
+ * Per-shape display strings (the level wording and the governance message differ between the two
+ * public paths) are passed in as `levelLabel` and `governanceMessage` so each wrapper preserves
+ * its exact message text.
+ */
+interface NormalizedGate {
+  /** Numeric level (e.g. 3 for "L3"), already parsed from the shape's level field. */
+  level: number;
+  /** Display string for the level-failure message (report: "Overall level L2"; lite: "Level L2"). */
+  levelLabel: string;
+  overall: number;
+  posture: { id: string; label: string };
+  dims: { id: string; name: string; score: number }[];
+  /** Whether the protected-branch rule should be enforced for this shape (readable-gated). */
+  governanceEnforce: boolean;
+  /** The exact governance-failure message for this shape (report names the branch; lite is generic). */
+  governanceMessage: string;
+}
+
+function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
   const failures: GateFailure[] = [];
 
-  if (pol.minLevel && levelNum(report.level.id) < levelNum(pol.minLevel)) {
-    failures.push({
-      code: "level",
-      message: `Overall level ${report.level.id} is below the required ${pol.minLevel}.`,
-    });
+  if (pol.minLevel && g.level < levelNum(pol.minLevel)) {
+    failures.push({ code: "level", message: `${g.levelLabel} is below the required ${pol.minLevel}.` });
   }
-  if (typeof pol.minOverall === "number" && report.overallScore < pol.minOverall) {
-    failures.push({
-      code: "overall",
-      message: `Overall score ${report.overallScore} is below the required ${pol.minOverall}.`,
-    });
+  if (typeof pol.minOverall === "number" && g.overall < pol.minOverall) {
+    failures.push({ code: "overall", message: `Overall score ${g.overall} is below the required ${pol.minOverall}.` });
   }
   if (typeof pol.minDimension === "number") {
     const min = pol.minDimension;
-    for (const d of report.dimensions.filter((x) => belowFloor(x.score, min))) {
+    for (const d of g.dims.filter((x) => belowFloor(x.score, min))) {
       failures.push({
         code: "dimension",
         message: Number.isFinite(d.score)
@@ -145,8 +164,8 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
   }
   if (pol.minDimensionFor) {
     const floors = pol.minDimensionFor;
-    for (const d of report.dimensions) {
-      const floor = floors[d.id];
+    for (const d of g.dims) {
+      const floor = floors[d.id as DimensionId];
       if (typeof floor !== "number") continue;
       // Skip dims already failed by the global minDimension to avoid a duplicate failure for the same dim.
       const alreadyFailed = typeof pol.minDimension === "number" && belowFloor(d.score, pol.minDimension);
@@ -160,20 +179,32 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
       }
     }
   }
-  if (pol.forbidPostures?.includes(report.posture.id)) {
-    failures.push({
-      code: "posture",
-      message: `Posture "${report.posture.label}" is not permitted by the gate.`,
-    });
+  if (pol.forbidPostures?.some((p) => p === g.posture.id)) {
+    failures.push({ code: "posture", message: `Posture "${g.posture.label}" is not permitted by the gate.` });
   }
   // Governance: only enforce when readable (a token saw the rules) so a no-token scan never false-fails.
-  if (pol.requireProtectedBranch && report.governance?.readable && !report.governance.protected) {
-    failures.push({
-      code: "governance",
-      message: `Default branch "${report.governance.defaultBranch}" has no branch-protection rules — the gate requires a protected default branch.`,
-    });
+  if (pol.requireProtectedBranch && g.governanceEnforce) {
+    failures.push({ code: "governance", message: g.governanceMessage });
   }
 
+  return failures;
+}
+
+/** Evaluate a report against a policy (defaults to the archetype policy), listing every failure. */
+export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResult {
+  const pol = policy ?? defaultGatePolicy(report.archetype);
+  const failures = evaluateNormalized(
+    {
+      level: levelNum(report.level.id),
+      levelLabel: `Overall level ${report.level.id}`,
+      overall: report.overallScore,
+      posture: { id: report.posture.id, label: report.posture.label },
+      dims: report.dimensions.map((d) => ({ id: d.id, name: d.name, score: d.score })),
+      governanceEnforce: !!(report.governance?.readable && !report.governance.protected),
+      governanceMessage: `Default branch "${report.governance?.defaultBranch}" has no branch-protection rules — the gate requires a protected default branch.`,
+    },
+    pol,
+  );
   return { pass: failures.length === 0, policy: pol, failures };
 }
 
@@ -197,51 +228,23 @@ export interface GateSnapshot {
  * dashboard's fleet status and the CI gate agree. Used to compute org-wide gate analytics cheaply.
  */
 export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateResult {
-  const failures: GateFailure[] = [];
   const dimName = (id: string) => DIMENSION_BY_ID[id as DimensionId]?.name ?? id;
-
-  if (policy.minLevel && (Number(snap.level.replace(/^L/i, "")) || 0) < levelNum(policy.minLevel)) {
-    failures.push({ code: "level", message: `Level ${snap.level} is below the required ${policy.minLevel}.` });
-  }
-  if (typeof policy.minOverall === "number" && snap.overall < policy.minOverall) {
-    failures.push({ code: "overall", message: `Overall score ${snap.overall} is below the required ${policy.minOverall}.` });
-  }
-  if (typeof policy.minDimension === "number") {
-    const min = policy.minDimension;
-    for (const d of snap.dims.filter((x) => belowFloor(x.score, min))) {
-      failures.push({
-        code: "dimension",
-        message: Number.isFinite(d.score)
-          ? `${d.dimId} ${dimName(d.dimId)} scored ${d.score}, below the required ${min}.`
-          : `${d.dimId} ${dimName(d.dimId)} is unscored — failing the ${min} floor (fail-closed).`,
-      });
-    }
-  }
-  if (policy.minDimensionFor) {
-    const floors = policy.minDimensionFor;
-    for (const d of snap.dims) {
-      const floor = floors[d.dimId as DimensionId];
-      if (typeof floor !== "number") continue;
-      // Skip dims already failed by the global minDimension to avoid a duplicate failure for the same dim.
-      const alreadyFailed = typeof policy.minDimension === "number" && belowFloor(d.score, policy.minDimension);
-      if (belowFloor(d.score, floor) && !alreadyFailed) {
-        failures.push({
-          code: "dimension",
-          message: Number.isFinite(d.score)
-            ? `${d.dimId} ${dimName(d.dimId)} scored ${d.score}, below the required ${floor}.`
-            : `${d.dimId} ${dimName(d.dimId)} is unscored — failing the ${floor} floor (fail-closed).`,
-        });
-      }
-    }
-  }
-  if (policy.forbidPostures?.some((p) => p === snap.posture)) {
-    failures.push({ code: "posture", message: `Posture "${snap.posture}" is not permitted by the gate.` });
-  }
-  // Parity with evaluateGate: enforce only when the snapshot carries readable governance. Rollups that
-  // don't yet carry per-repo protection simply leave it unset → skipped (no false-fail on the fleet view).
-  if (policy.requireProtectedBranch && snap.govReadable && snap.protected === false) {
-    failures.push({ code: "governance", message: "Default branch has no branch-protection rules — the gate requires a protected default branch." });
-  }
+  const failures = evaluateNormalized(
+    {
+      level: Number(snap.level.replace(/^L/i, "")) || 0,
+      levelLabel: `Level ${snap.level}`,
+      overall: snap.overall,
+      // The lite snapshot carries only the posture id; it doubles as the label (parity with the
+      // original lite message, which interpolated the id directly).
+      posture: { id: snap.posture, label: snap.posture },
+      dims: snap.dims.map((d) => ({ id: d.dimId, name: dimName(d.dimId), score: d.score })),
+      // Parity with evaluateGate: enforce only when the snapshot carries readable governance. Rollups
+      // that don't yet carry per-repo protection leave it unset → skipped (no false-fail on the fleet view).
+      governanceEnforce: !!(snap.govReadable && snap.protected === false),
+      governanceMessage: "Default branch has no branch-protection rules — the gate requires a protected default branch.",
+    },
+    policy,
+  );
   return { pass: failures.length === 0, policy, failures };
 }
 
