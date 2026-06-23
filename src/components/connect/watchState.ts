@@ -23,19 +23,17 @@ export function patchRepoState(repos: AppRepo[], fullName: string, next: Partial
 
 /**
  * Optimistic update: flip the repo's watch/schedule fields to the requested value before the server
- * confirms. Identical transform to `patchRepoState` — named for the call site in `toggleWatch`/`changeSchedule`.
+ * confirms. Explicit alias of `patchRepoState` — named for the call site in `toggleWatch`/`changeSchedule`
+ * so there is visibly ONE transform, not a second body to keep in sync.
  */
-export function applyWatchOptimistic(repos: AppRepo[], fullName: string, next: Partial<RepoState>): AppRepo[] {
-  return patchRepoState(repos, fullName, next);
-}
+export const applyWatchOptimistic = patchRepoState;
 
 /**
  * Rollback: restore the EXACT prior watch/schedule value after a non-2xx (or network-error) response,
- * so a failed save can't masquerade as success. Same transform, fed the captured previous value.
+ * so a failed save can't masquerade as success. Explicit alias of `patchRepoState`, fed the captured
+ * previous value.
  */
-export function rollbackWatch(repos: AppRepo[], fullName: string, prev: Partial<RepoState>): AppRepo[] {
-  return patchRepoState(repos, fullName, prev);
-}
+export const rollbackWatch = patchRepoState;
 
 /**
  * The repo filter predicate, extracted VERBATIM from InstallationRepos.tsx's `filtered` useMemo so it's
