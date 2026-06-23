@@ -9,6 +9,20 @@ export const MONO = "var(--font-mono), ui-monospace, monospace";
 
 export const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
+/** Parse a `#rrggbb` string into an [r,g,b] triple. */
+export function hexToRgb(h: string): [number, number, number] {
+  const n = parseInt(h.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** Channel-wise linear interpolation between two `#rrggbb` colors, returning an `rgb(r,g,b)` string.
+ *  Both /about compositions had their own copy of this (one pre-baked its endpoints as RGB arrays). */
+export function lerpHex(a: string, b: string, t: number): string {
+  const A = hexToRgb(a);
+  const B = hexToRgb(b);
+  return `rgb(${Math.round(A[0] + (B[0] - A[0]) * t)},${Math.round(A[1] + (B[1] - A[1]) * t)},${Math.round(A[2] + (B[2] - A[2]) * t)})`;
+}
+
 /** A metric overlay tile: a large tabular-nums value over a small uppercase label. */
 export function Metric({ label, value, color }: { label: string; value: React.ReactNode; color: string }) {
   // Sizes are in the 960×540 composition space; the Player scales it to ~half that, so these render

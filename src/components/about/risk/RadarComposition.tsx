@@ -8,19 +8,9 @@
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
 import { W, H, CX, CY, R, BLIPS, WAVE_START, WAVE_END, WAVE_MAX, BEAM_END } from "./radar";
-import { MONO, clamp01, Metric } from "../compositionShared";
+import { MONO, clamp01, Metric, lerpHex } from "../compositionShared";
 
 const GREEN = "#22c55e";
-
-function hexToRgb(h: string): [number, number, number] {
-  const n = parseInt(h.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-function lerpHex(a: string, b: string, t: number): string {
-  const A = hexToRgb(a);
-  const B = hexToRgb(b);
-  return `rgb(${Math.round(A[0] + (B[0] - A[0]) * t)},${Math.round(A[1] + (B[1] - A[1]) * t)},${Math.round(A[2] + (B[2] - A[2]) * t)})`;
-}
 
 export const RadarComposition: React.FC = () => {
   const frame = useCurrentFrame();

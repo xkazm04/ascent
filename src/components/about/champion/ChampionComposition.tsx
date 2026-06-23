@@ -7,17 +7,10 @@
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
 import { NODES, GLINKS, NODE_ADOPT, W, H, HEAL } from "./graph";
-import { MONO, clamp01, Metric } from "../compositionShared";
+import { MONO, clamp01, Metric, lerpHex } from "../compositionShared";
 
-const WEAK = [248, 113, 113] as const; // #f87171
-const STRONG = [59, 158, 255] as const; // #3b9eff
-
-function mix(t: number): string {
-  const r = Math.round(WEAK[0] + (STRONG[0] - WEAK[0]) * t);
-  const g = Math.round(WEAK[1] + (STRONG[1] - WEAK[1]) * t);
-  const b = Math.round(WEAK[2] + (STRONG[2] - WEAK[2]) * t);
-  return `rgb(${r},${g},${b})`;
-}
+// Weak (#f87171) → strong (#3b9eff) link color, via the shared channel-wise lerp.
+const mix = (t: number): string => lerpHex("#f87171", "#3b9eff", t);
 
 export const ChampionComposition: React.FC = () => {
   const frame = useCurrentFrame();
