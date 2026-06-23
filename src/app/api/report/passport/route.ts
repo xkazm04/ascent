@@ -11,18 +11,10 @@ import { NextResponse } from "next/server";
 import { getRepoPassport, isDbConfigured } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
+import { parseRepoParam } from "@/lib/report/repoParam";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function parseRepo(q: string): { owner: string; name: string; sha?: string } | null {
-  const at = q.indexOf("@");
-  const base = at < 0 ? q : q.slice(0, at);
-  const sha = at < 0 ? undefined : q.slice(at + 1) || undefined;
-  const slash = base.indexOf("/");
-  if (slash <= 0 || slash === base.length - 1) return null;
-  return { owner: base.slice(0, slash), name: base.slice(slash + 1), sha };
-}
 
 const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
 
@@ -31,7 +23,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get("repo");
   if (!q) return NextResponse.json({ error: "Missing ?repo=owner/name." }, { status: 400 });
-  const parsed = parseRepo(q);
+  const parsed = parseRepoParam(q);
   if (!parsed) return NextResponse.json({ error: "Invalid repo. Use owner/name." }, { status: 400 });
 
   // Resolve the owning org and gate the read — a private repo's passport is as sensitive as its report.
