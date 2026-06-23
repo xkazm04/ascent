@@ -10,7 +10,7 @@ import { resolve } from "node:path";
 import { readFileSync, mkdirSync } from "node:fs";
 
 export async function bootPglite(dataDir: string): Promise<void> {
-  const g = globalThis as unknown as { __ascentPgliteAdapter?: unknown; __ascentPglite?: unknown };
+  const g = globalThis as unknown as { __ascentPgliteAdapter?: unknown };
   if (g.__ascentPgliteAdapter) return; // already initialized (survives HMR)
 
   try {
@@ -32,7 +32,6 @@ export async function bootPglite(dataDir: string): Promise<void> {
     }
 
     g.__ascentPgliteAdapter = new PrismaPGlite(pglite);
-    g.__ascentPglite = pglite;
     console.log(`[pglite] embedded local DB ready (in-process) at ${dir}`);
   } catch (err) {
     console.error("[pglite] embedded DB init FAILED — falling back to no-DB:", err);
