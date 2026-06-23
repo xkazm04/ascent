@@ -107,7 +107,7 @@ describe("mapRepos — coerce untrusted /api/app/repos JSON into stars", () => {
       },
     ]);
     expect(stars).toEqual([
-      { fullName: "acme/web", name: "web", private: true, overall: 72, level: "L4", dOverall: 5, watched: true },
+      { fullName: "acme/web", overall: 72, level: "L4", dOverall: 5, watched: true },
     ]);
   });
 
@@ -122,16 +122,14 @@ describe("mapRepos — coerce untrusted /api/app/repos JSON into stars", () => {
 
   it("does not throw on a row missing state — yields null overall/level and watched:false", () => {
     const [s] = mapRepos([{ fullName: "o/x", name: "x", private: false, state: null }]);
-    expect(s).toEqual({ fullName: "o/x", name: "x", private: false, overall: null, level: null, dOverall: null, watched: false });
+    expect(s).toEqual({ fullName: "o/x", overall: null, level: null, dOverall: null, watched: false });
   });
 
-  it("coerces a non-number dOverall to null and falls back name → fullName", () => {
+  it("coerces a non-number dOverall to null", () => {
     const [s] = mapRepos([
-      { fullName: "o/y", private: false, state: { level: "L2", overall: 30 }, dOverall: "lots" },
+      { fullName: "o/y", state: { level: "L2", overall: 30 }, dOverall: "lots" },
     ]);
     expect(s.dOverall).toBeNull();
-    expect(s.name).toBe("o/y"); // name absent → String(fullName)
-    expect(s.private).toBe(false);
   });
 
   it("does not throw on a garbage row lacking state entirely", () => {

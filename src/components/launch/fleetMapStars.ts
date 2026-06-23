@@ -2,8 +2,6 @@ import { scoreHex } from "@/lib/ui";
 
 interface RepoStar {
   fullName: string;
-  name: string;
-  private: boolean;
   /** Persisted overall maturity score (0..100), or null when not yet scanned. */
   overall: number | null;
   level: string | null;
@@ -23,8 +21,6 @@ export type Constellation =
 /** Shape of the `/api/app/repos` rows we read (a subset of the route's AppRepo). */
 interface ApiRepo {
   fullName: string;
-  name: string;
-  private: boolean;
   state: { level: string | null; overall: number | null; watched?: boolean } | null;
   dOverall?: number | null;
 }
@@ -65,8 +61,6 @@ export function mapRepos(raw: unknown): RepoStar[] {
   if (!Array.isArray(raw)) return [];
   return (raw as ApiRepo[]).map((r) => ({
     fullName: String(r.fullName),
-    name: String(r.name ?? r.fullName),
-    private: Boolean(r.private),
     overall: r.state?.overall ?? null,
     level: r.state?.level ?? null,
     dOverall: typeof r.dOverall === "number" ? r.dOverall : null,
