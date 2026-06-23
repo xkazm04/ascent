@@ -12,6 +12,7 @@ import { buildExecBriefing } from "@/lib/org/briefing";
 import { getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveWindow } from "@/lib/window";
+import { safeFilenameSegment } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,10 +56,9 @@ export async function GET(request: Request) {
     console.error("[briefing/pdf] render failed", err);
     return NextResponse.json({ error: "Failed to render the briefing PDF." }, { status: 500 });
   }
-  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
   // White-label the download name too: a branded org's export shouldn't reveal "ascent" in the filename.
-  const brandSlug = branding?.brandName ? safe(branding.brandName).toLowerCase().slice(0, 40) : "ascent";
-  const filename = `${brandSlug}-briefing-${safe(org)}-${safe(briefing.generatedOn)}.pdf`;
+  const brandSlug = branding?.brandName ? safeFilenameSegment(branding.brandName).toLowerCase().slice(0, 40) : "ascent";
+  const filename = `${brandSlug}-briefing-${safeFilenameSegment(org)}-${safeFilenameSegment(briefing.generatedOn)}.pdf`;
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "content-type": "application/pdf",

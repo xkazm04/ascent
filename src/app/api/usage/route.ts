@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
+import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,20 +16,6 @@ function toCsv(summary: UsageSummary): string {
   const header = "date,billable,free,total";
   const rows = summary.daily.map((d) => `${d.date},${d.billable},${d.free},${d.billable + d.free}`);
   return [header, ...rows].join("\n") + "\n";
-}
-
-// The org slug reaches us straight from the query string (and for the shared "public" org / any
-// auth-off deployment it's never membership-checked), so it must never be interpolated raw into a
-// response header: a slug containing a quote, CR/LF, or non-ASCII byte would corrupt or spoof the
-// Content-Disposition filename (header injection / response-splitting). Reduce it to a safe ASCII
-// token for the download name; the real org identity already lives inside the payload.
-function safeFilenameSlug(org: string): string {
-  const cleaned = org
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  return cleaned || "org";
 }
 
 export async function GET(request: Request) {
@@ -83,7 +70,9 @@ export async function GET(request: Request) {
     }
 
     const stamp = new Date().toISOString().slice(0, 10);
-    const fileOrg = safeFilenameSlug(org);
+    // Sanitize the caller-supplied slug before it reaches the Content-Disposition header (the public
+    // org / auth-off path is never membership-checked). 64-char cap preserved from the prior inline copy.
+    const fileOrg = safeFilenameSlug(org, "org", 64);
     if (format === "csv") {
       return new NextResponse(toCsv(summary), {
         headers: {

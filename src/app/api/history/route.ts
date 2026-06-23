@@ -11,6 +11,7 @@ import { sha256Hex } from "@/lib/db/audit-integrity";
 import { getSession, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { csvField } from "@/lib/export/csv";
+import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,12 +32,6 @@ function historyToCsv(history: RepositoryHistory): string {
     return [csvField(s.scannedAt), csvField(s.overallScore), csvField(s.level), csvField(s.levelName), csvField(s.engineProvider), csvField(s.engineModel), ...dims].join(",");
   });
   return [header, ...rows].join("\n") + "\n";
-}
-
-/** Reduce a repo full-name to a safe ASCII token for a Content-Disposition filename (no CRLF / quote
- *  injection from a slug). The real identity lives in the payload. */
-function safeFilenameSlug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "repo";
 }
 
 export async function GET(request: Request) {
@@ -86,7 +81,7 @@ export async function GET(request: Request) {
       { repo: { owner: parsed.owner, name: parsed.repo, fullName: `${parsed.owner}/${parsed.repo}` }, scans: [] };
 
     if (wantCsv) {
-      const file = `ascent-trends-${safeFilenameSlug(payload.repo.fullName)}-${payload.scans[0]?.scannedAt?.slice(0, 10) ?? "history"}.csv`;
+      const file = `ascent-trends-${safeFilenameSlug(payload.repo.fullName, "repo")}-${payload.scans[0]?.scannedAt?.slice(0, 10) ?? "history"}.csv`;
       const body = historyToCsv(payload);
       return new NextResponse(body, {
         headers: {

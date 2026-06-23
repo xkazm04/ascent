@@ -12,6 +12,7 @@ import { getScanReportByCommit, isDbConfigured } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
 import { parseRepoParam } from "@/lib/report/repoParam";
+import { safeFilenameSegment } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,8 +54,7 @@ export async function GET(request: Request) {
   // Sanitize every interpolated segment before it reaches the Content-Disposition header: owner/name
   // come from a real persisted report (clean) but the sha is caller-supplied and unvalidated — keep
   // only filename-safe chars so nothing can inject a header or a path separator.
-  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
-  const filename = `ascent-${safe(parsed.owner)}-${safe(parsed.name)}${parsed.sha ? "-" + safe(parsed.sha.slice(0, 7)) : ""}.pdf`;
+  const filename = `ascent-${safeFilenameSegment(parsed.owner)}-${safeFilenameSegment(parsed.name)}${parsed.sha ? "-" + safeFilenameSegment(parsed.sha.slice(0, 7)) : ""}.pdf`;
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "content-type": "application/pdf",

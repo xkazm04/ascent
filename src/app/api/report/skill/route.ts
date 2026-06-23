@@ -11,6 +11,7 @@ import { getScanReportByCommit, isDbConfigured, recordSkillGeneration } from "@/
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
 import { parseRepoParam } from "@/lib/report/repoParam";
+import { safeFilenameSegment } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,9 +46,8 @@ export async function GET(request: Request) {
   void recordSkillGeneration(`${parsed.owner}/${parsed.name}`, parsed.sha ?? null, skill.trackIds).catch(() => {});
   // Sanitize every interpolated segment before the Content-Disposition header (the sha is
   // caller-supplied and unvalidated): keep only filename-safe chars so it can't inject a header.
-  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
-  const filename = `ascent-onboard-${safe(parsed.owner)}-${safe(parsed.name)}${
-    parsed.sha ? "-" + safe(parsed.sha.slice(0, 7)) : ""
+  const filename = `ascent-onboard-${safeFilenameSegment(parsed.owner)}-${safeFilenameSegment(parsed.name)}${
+    parsed.sha ? "-" + safeFilenameSegment(parsed.sha.slice(0, 7)) : ""
   }.SKILL.md`;
   return new NextResponse(skill.body, {
     headers: {

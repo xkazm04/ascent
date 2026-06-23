@@ -7,13 +7,10 @@ import { NextResponse } from "next/server";
 import { getContributorInsights, getOrgGovernance, isDbConfigured, listSegments } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { csvField } from "@/lib/export/csv";
+import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function safeFilenameSlug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "org";
-}
 
 function toCsv(header: string[], rows: unknown[][]): string {
   return [header.join(","), ...rows.map((r) => r.map((v) => csvField(v)).join(","))].join("\n") + "\n";
@@ -60,7 +57,7 @@ export async function GET(request: Request) {
     return new NextResponse(toCsv(header, rows), {
       headers: {
         "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org)}.csv"`,
+        "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}.csv"`,
       },
     });
   }

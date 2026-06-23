@@ -12,11 +12,10 @@ import { getRepoPassport, isDbConfigured } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
 import { parseRepoParam } from "@/lib/report/repoParam";
+import { safeFilenameSegment } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Passport export requires a database." }, { status: 503 });
@@ -41,7 +40,7 @@ export async function GET(request: Request) {
 
   const headers: Record<string, string> = { "content-type": "application/json; charset=utf-8" };
   if (url.searchParams.has("download")) {
-    const filename = `${safe(parsed.owner)}-${safe(parsed.name)}.passport.json`;
+    const filename = `${safeFilenameSegment(parsed.owner)}-${safeFilenameSegment(parsed.name)}.passport.json`;
     headers["content-disposition"] = `attachment; filename="${filename}"`;
   }
   return new NextResponse(JSON.stringify(passport, null, 2), { headers });

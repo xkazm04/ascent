@@ -7,14 +7,10 @@ import { NextResponse } from "next/server";
 import { getOrgRollup, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { csvField } from "@/lib/export/csv";
+import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Safe ASCII token for a Content-Disposition filename (no CRLF / quote injection from a slug). */
-function safeFilenameSlug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "org";
-}
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "The fleet view requires a database." }, { status: 503 });
@@ -53,7 +49,7 @@ export async function GET(request: Request) {
     return new NextResponse(csv, {
       headers: {
         "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="ascent-repositories-${safeFilenameSlug(org)}.csv"`,
+        "content-disposition": `attachment; filename="ascent-repositories-${safeFilenameSlug(org, "org")}.csv"`,
       },
     });
   }
