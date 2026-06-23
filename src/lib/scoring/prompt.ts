@@ -3,6 +3,7 @@
 
 import type { LlmScoreInput } from "@/lib/llm/provider";
 import type { Governance, PrStats } from "@/lib/types";
+import { formatSignal } from "@/lib/types";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 
 // PrStats rates are ALREADY 0..100 integers (pulls.ts `pct`; "All rates are 0..100", types.ts) —
@@ -116,7 +117,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   const signalBlock = signals
     .map((s) => {
       const ev = s.signals
-        .map((x) => `    - ${x.label}${x.detail ? ` (${x.detail})` : ""}`)
+        .map((x) => `    - ${formatSignal(x)}`)
         .join("\n");
       return `  ${s.id} signalScore=${s.signalScore}\n${ev || "    - (none)"}`;
     })

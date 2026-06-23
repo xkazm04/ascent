@@ -37,9 +37,10 @@ import {
 import { buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 import { diffScans, type ScanDiff } from "@/lib/report/compare";
 import { computeContributors, detectAiUsage } from "@/lib/analyze";
+import { formatSignal } from "@/lib/types";
 
 function evidenceStrings(s: DimensionSignals): string[] {
-  return s.signals.map((x) => (x.detail ? `${x.label} (${x.detail})` : x.label));
+  return s.signals.map(formatSignal);
 }
 
 export function assembleReport(

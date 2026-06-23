@@ -268,6 +268,12 @@ export interface Signal {
   detail?: string;
 }
 
+/** Render a signal as `label (detail)` (or just `label` when no detail) — the single source for the
+ * shape shared by the report-evidence list (engine) and the LLM signal block (prompt). */
+export function formatSignal(x: Signal): string {
+  return x.detail ? `${x.label} (${x.detail})` : x.label;
+}
+
 export interface DimensionSignals {
   id: DimensionId;
   /** Deterministic rubric score 0..100. */
