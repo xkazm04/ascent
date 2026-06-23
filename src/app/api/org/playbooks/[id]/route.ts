@@ -4,26 +4,18 @@
 // DELETE is destructive, so it requires admin.
 
 import { NextResponse } from "next/server";
-import { deletePlaybook, getOrgId, getPlaybookOrgSlug, isDbConfigured, recordAudit, updatePlaybook } from "@/lib/db";
-import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import { deletePlaybook, isDbConfigured, recordOrgAudit, updatePlaybook } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { isDimensionId } from "@/lib/maturity/model";
-import type { OrgRole } from "@/lib/db/members";
+import { resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function gate(id: string, min: OrgRole = "member"): Promise<NextResponse | null> {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Playbooks require a database." }, { status: 503 });
-  const org = await getPlaybookOrgSlug(id);
-  if (!org) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
-  return min === "member" ? requireOrgAccess(org) : requireOrgRole(org, min);
-}
-
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const blocked = await gate(id);
-  if (blocked) return blocked;
+  const gated = await resolvePlaybookOrg(id);
+  if (gated instanceof Response) return gated;
   const body = (await request.json().catch(() => ({}))) as {
     title?: string;
     dimId?: string;
@@ -43,11 +35,10 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       archived: body.archived,
     });
     // PLAY-6: audit the change so a playbook edit leaves a trail (the org's standards have history).
-    const org = await getPlaybookOrgSlug(id);
+    // Reuse the org the gate already resolved (no second getPlaybookOrgSlug round-trip).
     const session = await getSession();
-    const orgId = org ? (await getOrgId(org.toLowerCase()).catch(() => null)) ?? undefined : undefined;
     const changed = Object.keys(body).filter((k) => body[k as keyof typeof body] !== undefined);
-    await recordAudit("playbook.updated", { playbookId: id, changed }, { orgId, actorId: session?.login });
+    await recordOrgAudit("playbook.updated", gated.org, { playbookId: id, changed }, session?.login);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
@@ -57,8 +48,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
 
 export async function DELETE(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const blocked = await gate(id, "admin");
-  if (blocked) return blocked;
+  const gated = await resolvePlaybookOrg(id, "admin");
+  if (gated instanceof Response) return gated;
   try {
     await deletePlaybook(id);
     return NextResponse.json({ ok: true });

@@ -23,12 +23,12 @@ vi.mock("next/server", () => ({
 
 vi.mock("@/lib/db", () => ({
   applyPlaybook: vi.fn(async () => {}),
-  getOrgId: vi.fn(async () => "org_acme"),
   getPlaybook: vi.fn(async () => ({ id: "pb_1", title: "Tighten CI", dimId: "d5", summary: "s", steps: ["lint"] })),
   getPlaybookOrgSlug: vi.fn(async () => "acme"),
   getInstallationIdForOwner: vi.fn(async () => "inst1"),
   isDbConfigured: () => true,
-  recordAudit: vi.fn(async () => {}),
+  // The route audits via the consolidated recordOrgAudit (resolve-orgId-then-record).
+  recordOrgAudit: vi.fn(async () => true),
 }));
 vi.mock("@/lib/github/source", async () => {
   const actual = await vi.importActual<typeof import("@/lib/github/source")>("@/lib/github/source");
@@ -54,14 +54,14 @@ vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
 // playbook-brief is pure (no IO) — let the real implementation run.
 
 import { POST } from "./route";
-import { applyPlaybook, getPlaybookOrgSlug, recordAudit } from "@/lib/db";
+import { applyPlaybook, getPlaybookOrgSlug, recordOrgAudit } from "@/lib/db";
 import { getInstallationToken, AppApiError } from "@/lib/github/app";
 import { openDraftPr } from "@/lib/github/write";
 import { requireOrgAccess } from "@/lib/authz";
 
 const mockApply = vi.mocked(applyPlaybook);
 const mockOrgSlug = vi.mocked(getPlaybookOrgSlug);
-const mockAudit = vi.mocked(recordAudit);
+const mockAudit = vi.mocked(recordOrgAudit);
 const mockToken = vi.mocked(getInstallationToken);
 const mockDraftPr = vi.mocked(openDraftPr);
 const mockRequireOrgAccess = vi.mocked(requireOrgAccess);

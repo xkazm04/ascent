@@ -9,9 +9,9 @@ import { NextResponse } from "next/server";
 import { parseRepoUrl, fetchRepoContext, GitHubError } from "@/lib/github/source";
 import { openDraftPr } from "@/lib/github/write";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { applyPlaybook, getOrgId, getPlaybook, getPlaybookOrgSlug, getInstallationIdForOwner, isDbConfigured, recordAudit } from "@/lib/db";
+import { applyPlaybook, getPlaybook, getInstallationIdForOwner, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
-import { requireOrgAccess } from "@/lib/authz";
+import { resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
@@ -36,12 +36,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: "Sign in to open a playbook PR." }, { status: 401 });
   }
 
-  const org = await getPlaybookOrgSlug(id);
-  if (!org) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
-
-  // Tenant gate: opening a PR is a WRITE with the org's installation token — require org ownership.
-  const denied = await requireOrgAccess(org);
-  if (denied) return denied;
+  // Tenant gate: opening a PR is a WRITE with the org's installation token — resolve the org from the
+  // playbook and require org access (member-level, as for the other per-row routes).
+  const gated = await resolvePlaybookOrg(id);
+  if (gated instanceof Response) return gated;
+  const { org } = gated;
 
   const body = (await request.json().catch(() => ({}))) as { repo?: string; base?: string };
   const parsed = parseRepoUrl(body.repo ?? "");
@@ -84,11 +83,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 
     // Record the adoption mark (idempotent) so lift analytics include this repo, and audit the write.
     await applyPlaybook(org, id, ctxRepo.fullName, session?.login ?? null);
-    const orgId = (await getOrgId(org.toLowerCase()).catch(() => null)) ?? undefined;
-    await recordAudit(
+    await recordOrgAudit(
       "playbook.pr_opened",
+      org,
       { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused },
-      { orgId, actorId: session?.login },
+      session?.login,
     );
 
     return NextResponse.json(pr);

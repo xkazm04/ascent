@@ -36,7 +36,6 @@ const {
   mockGetPlaybookOrgSlug,
   mockUpdatePlaybook,
   mockDeletePlaybook,
-  mockGetOrgId,
   mockRecordAudit,
   mockRequireOrgAccess,
   mockRequireOrgRole,
@@ -46,7 +45,6 @@ const {
   mockGetPlaybookOrgSlug: vi.fn(),
   mockUpdatePlaybook: vi.fn(),
   mockDeletePlaybook: vi.fn(),
-  mockGetOrgId: vi.fn(),
   mockRecordAudit: vi.fn(),
   mockRequireOrgAccess: vi.fn(),
   mockRequireOrgRole: vi.fn(),
@@ -58,14 +56,18 @@ vi.mock("@/lib/db", () => ({
   getPlaybookOrgSlug: mockGetPlaybookOrgSlug,
   updatePlaybook: mockUpdatePlaybook,
   deletePlaybook: mockDeletePlaybook,
-  getOrgId: mockGetOrgId,
-  recordAudit: mockRecordAudit,
+  // The route now audits via the consolidated recordOrgAudit (resolve-orgId-then-record).
+  recordOrgAudit: mockRecordAudit,
 }));
 
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: mockRequireOrgAccess,
   requireOrgRole: mockRequireOrgRole,
 }));
+
+// The route's per-row gate is the shared resolvePlaybookOrg helper, which reads getPlaybookOrgSlug /
+// isDbConfigured / requireOrgAccess|Role from the mocked @/lib/db + @/lib/authz above — so it exercises
+// the real guard logic against these mocks. Mock @/lib/org/playbook-gate is therefore NOT stubbed.
 
 vi.mock("@/lib/auth", () => ({
   getSession: mockGetSession,
@@ -92,7 +94,6 @@ beforeEach(() => {
   mockRequireOrgRole.mockResolvedValue(null); // admin access granted
   mockUpdatePlaybook.mockResolvedValue(undefined);
   mockDeletePlaybook.mockResolvedValue(undefined);
-  mockGetOrgId.mockResolvedValue("org_acme");
   mockRecordAudit.mockResolvedValue(undefined);
   mockGetSession.mockResolvedValue({ login: "alice" });
 });
