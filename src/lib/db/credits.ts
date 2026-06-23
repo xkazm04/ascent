@@ -140,7 +140,7 @@ export async function grantCredits(
     // both a caller-supplied externalId (webhook redelivery) and the synthesized per-invocation id
     // (commit-ambiguity retry of a refund/grant), so neither can double-apply.
     if (isDuplicateExternalId(err)) {
-      return (await getCreditState(orgSlug)).balance;
+      return (await getCreditState(slug)).balance;
     }
     throw err;
   }
