@@ -23,8 +23,6 @@ export interface ArtifactSpec {
   practiceId: string;
   /** Repo-relative path the file should live at. */
   path: string;
-  /** A short human title for the artifact. */
-  title: string;
   /** The full file body to commit. */
   body: string;
   /** Conventional-commit message for the change. */
@@ -293,7 +291,6 @@ ${TODO} — link the CI workflows that enforce the above (SAST, dependency/secre
   return {
     practiceId: p.id,
     path,
-    title: p.label,
     body,
     commitMessage: `chore: add ${p.label.toLowerCase()} starter (via Ascent)`,
     branch,
