@@ -25,7 +25,7 @@ const ENGINE_LABEL: Record<string, string> = {
 };
 
 /** Human label for an inference-engine provider id. */
-export function engineLabel(provider: string): string {
+function engineLabel(provider: string): string {
   return ENGINE_LABEL[provider] ?? provider;
 }
 
