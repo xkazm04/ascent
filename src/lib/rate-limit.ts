@@ -6,8 +6,7 @@
 // global limit is (instances × limit). This is a cost-control BACKSTOP against a single abusive
 // client hammering an expensive LLM scan, not a precise distributed quota — for a hard
 // cross-instance limit, back it with Redis/Upstash (see docs/PRODUCTION_READINESS.md, Wave 2).
-// (The badge route ships its own copy of this pattern; this module generalizes it for the
-//  scan/import endpoints that previously had NO limiter at all.)
+// (The badge route also uses this shared limiter via BADGE_RATE_LIMIT.)
 
 /**
  * Best-effort client IP. The LEFT-most X-Forwarded-For entry is client-supplied (spoofable to a
