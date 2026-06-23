@@ -35,7 +35,6 @@ export {
 
 export {
   updateRecommendation,
-  updateRecommendationStatus,
   getRecommendationEvents,
   getRecommendationOrgSlug,
   type RecommendationPatch,

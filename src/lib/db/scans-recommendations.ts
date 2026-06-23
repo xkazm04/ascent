@@ -158,15 +158,6 @@ export async function getRecommendationOrgSlug(id: string): Promise<string | nul
   return rec?.scan.repo.org.slug ?? null;
 }
 
-/** Update only a recommendation's status (back-compat wrapper over updateRecommendation). */
-export async function updateRecommendationStatus(
-  id: string,
-  status: RecStatus,
-  opts: RecommendationActor = {},
-): Promise<PersistedRecommendation | null> {
-  return updateRecommendation(id, { status }, opts);
-}
-
 /**
  * A recommendation's activity timeline — every status / assignee / due-date change, newest first.
  * Returns null when persistence is disabled, or an empty array when the id has no recorded changes.

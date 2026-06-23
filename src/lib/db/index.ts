@@ -21,7 +21,6 @@ export {
   getRepoPassport,
   getLatestRecommendations,
   updateRecommendation,
-  updateRecommendationStatus,
   getRecommendationEvents,
   getRecommendationOrgSlug,
   recordAudit,
