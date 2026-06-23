@@ -196,6 +196,17 @@ export async function buildGovernanceOverview(orgSlug: string): Promise<Governan
   };
 }
 
+/**
+ * The GitHub-Action YAML preamble that enforces the gate in CI — the canonical source for the
+ * action ref, the `ascent-url` var line, and the `with:` indentation, returned as base-indent
+ * lines. The governance PAGE renders these directly in its <pre>; governanceMarkdown indents them
+ * for its fenced code block. Single-sourcing it means bumping the action version / renaming the
+ * input / changing the indent can't ship one stale config (the on-screen snippet vs the LLM brief).
+ */
+export function ciActionYaml(withLines: string[]): string[] {
+  return ["- uses: <owner>/ascent@v1", "  with:", "    ascent-url: ${{ vars.ASCENT_URL }}", ...withLines.map((w) => `    ${w}`)];
+}
+
 /** A governance markdown brief for the "Copy for LLM" action — policy, fleet status, failing repos,
  *  the CI enforcement snippet, and a "cheapest path to green" ASK. */
 export function governanceMarkdown(o: GovernanceOverview): string {
@@ -224,10 +235,8 @@ export function governanceMarkdown(o: GovernanceOverview): string {
   out.push(`- Gate API: GET <ASCENT_URL>/api/gate/<owner>/<repo>?${o.gateQuery}  (200 pass / 422 fail)`);
   out.push("- GitHub Action:");
   out.push("  ```yaml");
-  out.push("  - uses: <owner>/ascent@v1");
-  out.push("    with:");
-  out.push("      ascent-url: ${{ vars.ASCENT_URL }}");
-  for (const w of o.ciWith) out.push(`      ${w}`);
+  // Single-sourced action preamble (ciActionYaml), indented two spaces for the fenced code block.
+  for (const line of ciActionYaml(o.ciWith)) out.push(`  ${line}`);
   out.push("  ```");
   out.push("");
   out.push("## Ask");

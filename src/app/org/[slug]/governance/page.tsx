@@ -3,7 +3,7 @@
 // that enforces the SAME policy in pipelines. Assembled from the rollup + @/lib/scoring/gate (no re-scan).
 
 import Link from "next/link";
-import { buildGovernanceOverview, governanceMarkdown, type GovernanceOverview } from "@/lib/org/governance";
+import { buildGovernanceOverview, ciActionYaml, governanceMarkdown } from "@/lib/org/governance";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { GatePolicyEditor } from "@/components/org/GatePolicyEditor";
@@ -23,10 +23,6 @@ const REASONS = [
   { key: "governance", label: "Unprotected default branch" },
 ] as const;
 
-function ciSnippet(g: GovernanceOverview): string {
-  return ["- uses: <owner>/ascent@v1", "  with:", "    ascent-url: ${{ vars.ASCENT_URL }}", ...g.ciWith.map((w) => `    ${w}`)].join("\n");
-}
-
 export default async function OrgGovernance({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const g = await buildGovernanceOverview(slug);
@@ -40,7 +36,7 @@ export default async function OrgGovernance({ params }: { params: Promise<{ slug
   }
 
   const md = governanceMarkdown(g);
-  const snippet = ciSnippet(g);
+  const snippet = ciActionYaml(g.ciWith).join("\n");
   const passColor = scoreHex(g.passRate);
 
   // Owners can edit the persisted gate policy (GATE-1); everyone sees the active policy read-only.
