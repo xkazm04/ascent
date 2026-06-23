@@ -82,3 +82,28 @@ export async function fetchWithTimeout(
     clearTimeout(timer);
   }
 }
+
+/**
+ * The common fields of a GitHub `/…/repos` response row that BOTH repo-listing surfaces read (the
+ * public org/user listing in list.ts and the post-OAuth user-repo discovery in discover.ts). Each
+ * module extends this with the extra fields it happens to need (stars/description vs owner.type), but
+ * the listing identity + the "is this a scannable repo" rule live here so they can't drift.
+ */
+export interface GhRepoRow {
+  name: string;
+  full_name: string;
+  owner: { login: string };
+  html_url: string;
+  fork: boolean;
+  archived: boolean;
+  private: boolean;
+}
+
+/**
+ * The product-level definition of a "listable"/scannable repo: not a fork and not archived (forks
+ * aren't where active work happens; archived repos are frozen). The single source for this filter —
+ * both repo-listing surfaces gate on it so they can't silently diverge on what counts as listable.
+ */
+export function isListableRepo(r: { fork: boolean; archived: boolean }): boolean {
+  return !r.fork && !r.archived;
+}

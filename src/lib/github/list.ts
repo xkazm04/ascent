@@ -2,7 +2,7 @@
 // bulk import (/api/org/import). Lists a public org's (falling back to a user's) repos,
 // most-recently-pushed first, filtering out forks and archived repos.
 
-import { ghHeaders, githubApiBase } from "@/lib/github/host";
+import { ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
 
 export interface OrgRepoListItem {
   owner: string;
@@ -15,14 +15,7 @@ export interface OrgRepoListItem {
   description: string;
 }
 
-interface GhRepo {
-  name: string;
-  full_name: string;
-  owner: { login: string };
-  html_url: string;
-  fork: boolean;
-  archived: boolean;
-  private: boolean;
+interface GhRepo extends GhRepoRow {
   stargazers_count: number;
   pushed_at: string;
   description: string | null;
@@ -121,7 +114,7 @@ export async function listOrgRepos(org: string, count: number, token?: string): 
       probed = true;
       const all = (await res.json()) as GhRepo[];
       for (const r of all) {
-        if (r.fork || r.archived) continue;
+        if (!isListableRepo(r)) continue;
         collected.push(map(r));
         if (collected.length >= count) return collected.slice(0, count);
       }

@@ -13,7 +13,7 @@
 //   • rankDiscoveredOrgs / selectSuggestedOrgLogins / selectSeedTarget — pure transforms over the
 //     fetched data, with no I/O.
 
-import { ghHeaders, githubApiBase } from "@/lib/github/host";
+import { ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
 
 // BUG (github-repo-data-access #1): this module was the only github layer hardcoding api.github.com,
 // so org auto-discovery ignored the GHES `GITHUB_API_URL` override and broke (firewalled/401) on
@@ -52,14 +52,8 @@ export const MAX_SUGGESTED_ORGS = 6;
 /** How many repos to pre-seed into the watchlist for the most-active org. */
 export const MAX_SEED_REPOS = 5;
 
-interface GhRepo {
-  name: string;
-  full_name: string;
+interface GhRepo extends GhRepoRow {
   owner: { login: string; type: string };
-  html_url: string;
-  fork: boolean;
-  archived: boolean;
-  private: boolean;
   pushed_at: string | null;
 }
 
@@ -81,7 +75,8 @@ export async function fetchUserOrgs(token: string): Promise<string[]> {
 /**
  * The user's repos, most-recently-pushed first (GET /user/repos) — the activity signal behind
  * ranking. Forks/archived repos are dropped (they aren't where active work happens, and we don't
- * want to seed them), mirroring the public listing in github/list.ts.
+ * want to seed them) via the shared isListableRepo predicate (github/host.ts), the same rule the
+ * public listing in github/list.ts uses.
  */
 export async function fetchUserRepos(token: string, perPage = 100): Promise<UserRepo[]> {
   const data = await ghUser<GhRepo[]>(
@@ -89,7 +84,7 @@ export async function fetchUserRepos(token: string, perPage = 100): Promise<User
     token,
   );
   return data
-    .filter((r) => !r.fork && !r.archived)
+    .filter(isListableRepo)
     .map((r) => ({
       owner: r.owner.login,
       ownerType: r.owner.type,
