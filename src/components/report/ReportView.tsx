@@ -168,7 +168,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
   return (
     <div className="animate-fade-up space-y-8" data-testid="report">
       {/* Header */}
-      <ReportHeader report={report} onRetest={onRetest} />
+      <ReportHeader report={report} isMock={isMock} onRetest={onRetest} />
 
       {/* Reliability caveats */}
       {report.warnings && report.warnings.length > 0 && (

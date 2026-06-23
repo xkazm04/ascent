@@ -4,12 +4,11 @@ import { timeAgo } from "@/lib/ui";
 import { Kicker } from "@/components/ui";
 import { FreshnessControl } from "@/components/report/FreshnessControl";
 
-/** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row. */
-export function ReportHeader({ report, onRetest }: { report: ScanReport; onRetest?: () => void }) {
+/** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row.
+ *  `isMock` (keyless deterministic demo, no LLM) is derived once by ReportView and threaded down so
+ *  the demo signal stays consistent everywhere the engine is shown. */
+export function ReportHeader({ report, isMock, onRetest }: { report: ScanReport; isMock: boolean; onRetest?: () => void }) {
   const { repo } = report;
-  // Keyless deterministic demo (no LLM). Drive every engine-related treatment off this single
-  // flag so the demo signal stays consistent everywhere the engine is shown.
-  const isMock = report.engine.provider === "mock";
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
