@@ -1,7 +1,7 @@
 "use client";
 
-// EXEC-5: owner-only (enterprise) form to white-label the executive-briefing PDF — brand name, accent
-// colour, logo URL. POSTs to /api/org/branding; values are validated server-side. Collapsed by default.
+// EXEC-5: owner-only (Team plan and up) form to white-label the executive-briefing PDF — brand name,
+// accent colour, logo URL. POSTs to /api/org/branding; values are validated server-side. Collapsed by default.
 
 import { useState } from "react";
 import type { OrgBranding } from "@/lib/db";
@@ -40,7 +40,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
       <summary className="flex cursor-pointer list-none items-center gap-2 text-base font-semibold text-white [&::-webkit-details-marker]:hidden">
         <span aria-hidden className="text-slate-600 transition-transform group-open:rotate-90">›</span>
         Briefing branding
-        <span className="font-mono text-sm font-normal uppercase tracking-widest text-accent">enterprise</span>
+        <span className="font-mono text-sm font-normal uppercase tracking-widest text-accent">team+</span>
       </summary>
       <p className="mt-2 text-sm text-slate-500">White-label the downloaded briefing PDF — your name, accent, and logo replace Ascent&apos;s.</p>
       <div className="mt-4 flex flex-wrap items-end gap-3">

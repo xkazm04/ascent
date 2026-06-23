@@ -1,4 +1,4 @@
-// White-label briefing branding (EXEC-5, enterprise). An org owner sets a brand name, accent colour,
+// White-label briefing branding (EXEC-5, Team+). An org owner sets a brand name, accent colour,
 // and logo; the executive-briefing PDF renders them in place of the Ascent defaults. Stored on
 // Organization (additive columns). Validated on write (hex colour + https logo) so a bad value can't
 // break PDF rendering. No-op / null when persistence is off, like the rest of src/lib/db.
