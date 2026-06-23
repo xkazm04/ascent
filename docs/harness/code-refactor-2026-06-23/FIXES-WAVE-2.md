@@ -1,12 +1,25 @@
-# Code Refactor — Fix Wave 2: Security/safety primitives (in progress)
+# Code Refactor — Fix Wave 2: Security/safety primitives (COMPLETE)
 
-> 2 commits so far, 3 findings closed. Baseline preserved: tsc 0→0 · tests 2584
-> (no new regressions). **Paused mid-wave** for a decision on 3 behavior-affecting
-> items (below).
+> 6 commits, 7 findings closed. Baseline: tsc 0→0 · tests 2585→2606 (+22 new
+> regression/lock tests; 0 regressions).
+> The 3 behavior-affecting hardenings were applied per explicit user sign-off.
 
-This wave consolidates security/safety primitives that were copied across files and
-drifting. The two **clearly behavior-preserving** consolidations are done; the
-remaining ones change an actual security decision and need explicit direction.
+This wave consolidated security/safety primitives that were copied across files and
+drifting. Two were behavior-preserving; three changed an actual security decision
+(approved hardenings, each locked with a test).
+
+## Hardenings applied (commits 3–6)
+
+| # | Commit | Finding | Behavior change |
+|---|---|---|---|
+| 3 | `refactor(export): extract shared filename sanitizers …` (`5026008`) | pdf-llm #2 | None — both flavors (`safeFilenameSegment`, `safeFilenameSlug`) preserved per route; added a `maxLen` param so the usage route keeps its 64-char cap. |
+| 4 | `refactor(db): route members + invites through shared getOrgId …` (`b478352`) | members-access #1 | **Canonical = lowercase** (org rows are persisted lowercased by `upsertInstallation`). Folded trim+lowercase into `getOrgId`; deleted both private `orgIdForSlug` copies; fixed `orgHasOwner` to stop running the slug through `normalizeLogin`. Mixed-case slugs now resolve consistently. |
+| 5 | `refactor(net): extract shared SSRF guard …` (`ffc4254`) | org-branding #1 | The alert-webhook validator now ALSO rejects CGNAT 100.64/10, IPv6 ULA/link-local, multicast, and `*.local`/`*.internal`/metadata hosts (it previously missed these; branding already blocked them). Shared `src/lib/net/ssrf.ts`. |
+| 6 | `refactor(usage): route tenant-read gate through canReadOrg …` (`97dc103`) | usage-metering #1 | The usage page + API now honor the Supabase login-wall + `ASCENT_OPEN_ORG_DASHBOARDS` opt-in the hand-rolled copies missed (cross-tenant read IDOR hardening). |
+
+---
+
+(original mid-wave notes below, retained for provenance)
 
 ## Done
 
