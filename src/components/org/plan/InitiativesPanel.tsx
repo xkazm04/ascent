@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { RecStatus } from "@/lib/types";
+import { REC_STATUSES } from "@/lib/types";
 import { Card, Meter, SectionHeader } from "@/components/org/ui";
 import { STATUS_LABEL } from "@/components/org/backlogShared";
 
@@ -37,8 +37,6 @@ export interface GoalOption {
   id: string;
   label: string;
 }
-
-const STATUSES: RecStatus[] = ["open", "in_progress", "done", "dismissed"];
 
 /** Tracked, scoped programs of work — created from the fleet's highest-leverage moves. */
 export function InitiativesPanel({
@@ -127,7 +125,7 @@ export function InitiativesPanel({
                   onChange={(e) => patch(i.id, { status: e.target.value })}
                   className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
                 >
-                  {STATUSES.map((s) => (
+                  {REC_STATUSES.map((s) => (
                     <option key={s} value={s}>
                       {STATUS_LABEL[s]}
                     </option>

@@ -5,11 +5,13 @@
 import { NextResponse } from "next/server";
 import { getInitiativeOrgSlug, isDbConfigured, updateInitiative } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
+import { REC_STATUSES } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const STATUSES = new Set(["open", "in_progress", "done", "dismissed"]);
+// Initiatives reuse the recommendation status vocabulary — one source of truth (REC_STATUSES).
+const STATUSES = new Set<string>(REC_STATUSES);
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Initiatives require a database." }, { status: 503 });
