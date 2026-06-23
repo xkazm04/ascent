@@ -53,8 +53,10 @@ export const POSTURE_HEX: Record<string, string> = {
 
 export const shortName = (fullName: string) => fullName.split("/").pop() || fullName;
 
-/** Posture quadrants, leader-first, that the distribution bars are rendered over. */
-export const POSTURE_ORDER = ["ai-native", "ungoverned", "manual", "early"];
+// Posture quadrants, leader-first, that the distribution bars are rendered over.
+// Single source of truth is org/ui.tsx; re-exported here so war-room importers keep resolving.
+export { POSTURE_ORDER } from "@/components/org/ui";
+import { POSTURE_ORDER } from "@/components/org/ui";
 
 /**
  * Width (0–100) of one posture bar as its TRUE share of the whole scored fleet — NOT normalized to
