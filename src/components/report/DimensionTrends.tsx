@@ -12,6 +12,7 @@ import { parseRepositoryHistory } from "@/lib/report/validate";
 import { EmptyState } from "@/components/EmptyState";
 import { Kicker, Surface } from "@/components/ui";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
+import { DeltaTag } from "@/components/report/deltas";
 import { DimLine, type ScanMeta } from "@/components/report/DimLine";
 import { RANGES, RangeToggle, withinRange, type RangeKey } from "@/components/report/DimensionTrendsRange";
 
@@ -172,12 +173,7 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                           )}
                           {r.current ?? "—"}
                         </div>
-                        {r.delta !== null && r.delta !== 0 && (
-                          <div className={`text-sm font-semibold ${r.delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                            {r.delta > 0 ? "▲+" : "▼"}
-                            {r.delta}
-                          </div>
-                        )}
+                        {r.delta !== null && <DeltaTag delta={r.delta} hideZero />}
                       </div>
                     </div>
                     <DimLine values={r.series} meta={meta} name={r.name} current={r.current} />
