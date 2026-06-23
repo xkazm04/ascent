@@ -17,9 +17,7 @@
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import {
-  consumeScanCredit,
   getInstallationIdForOwner,
-  grantCredits,
   isDbConfigured,
   persistScanReport,
   recordQuotaEvent,
@@ -33,7 +31,7 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { requireOrgAccess, sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
-import { maybeAlertLowCredits } from "@/lib/scan-alerts";
+import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequest, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
@@ -196,37 +194,26 @@ export async function POST(request: Request) {
           // mock or throws.
           let reserved = false;
           if (metered && !unlimited) {
-            const res = await consumeScanCredit(org, { repoFullName: r.fullName }).catch(() => null);
-            if (!res || (!res.unlimited && !res.ok)) {
+            const reservation = await reserveScanCredit(org, r.fullName);
+            if (reservation.skip) {
               skippedForCredits += 1;
               send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
               scanned += 1;
               send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
               return;
             }
-            reserved = res.charged; // true only on an overflow credit debit (within-allowance is free)
-            // Proactive lifecycle push when this debit landed on the low-water mark (or zero) —
-            // the SSE notice above only reaches whoever happens to be watching this stream.
-            if (reserved) await maybeAlertLowCredits(org, res.balance);
+            reserved = reservation.reserved;
           }
-          const refundCredit = async () => {
-            if (reserved) await grantCredits(org, 1, { reason: "refund", actor: "system" }).catch(() => {});
-          };
+          const refundCredit = () => refundScanCredit(org, reserved);
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
           try {
             const report = await scanRepository(r.fullName, scanOpts);
             const persisted = await persistScanReport(report, { orgSlug: org });
-            if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
-              console.warn("[org/import] persisted with partial write failures", {
-                repo: r.fullName,
-                scanId: persisted.scanId,
-                failures: persisted.failures,
-              });
-            }
+            logPartialWrites("org/import", r.fullName, persisted);
             // Refund the reservation when nothing billable was produced: either the scan degraded to
             // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
             // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
-            if (report.engine.provider === "mock" || persisted?.deduped) await refundCredit();
+            if (shouldRefundScan(report, persisted)) await refundCredit();
             if (watch) await setRepoWatch(org, r, true);
             if (watch && schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
             send("repo", {

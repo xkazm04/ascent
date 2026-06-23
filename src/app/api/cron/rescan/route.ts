@@ -10,17 +10,16 @@ import { scanRepository } from "@/lib/scan";
 import {
   advanceScheduleAfterFailure,
   claimRescan,
-  consumeScanCredit,
   getInstallationIdForOwner,
   getOrgId,
   getScanReportByCommit,
-  grantCredits,
   isDbConfigured,
   listDueRescans,
   persistScanReport,
   recordScanOutcome,
 } from "@/lib/db";
-import { checkAndAlertRegression, maybeAlertLowCredits } from "@/lib/scan-alerts";
+import { checkAndAlertRegression } from "@/lib/scan-alerts";
+import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
@@ -101,19 +100,16 @@ export async function GET(request: Request) {
     // Reserve one prepaid credit per autoscan (a private scan = paid). Unlimited plans are a no-op.
     // An org out of credits has this repo skipped; its schedule was already advanced by the claim
     // above, so a credit-less org doesn't jam the front of the queue. Refunded below if the scan fails,
-    // degrades to mock, or dedupes to an unchanged commit (no new scored row billed).
-    const reservation = await consumeScanCredit(r.orgSlug, { repoFullName: r.fullName }).catch(() => null);
-    if (!reservation || (!reservation.unlimited && !reservation.ok)) {
+    // degrades to mock, or dedupes to an unchanged commit (no new scored row billed). The reservation
+    // also fires the proactive low-credit alert when the debit lands on the low-water mark — the cron
+    // drains credits with nobody watching, which is exactly when depletion must reach a human.
+    const reservation = await reserveScanCredit(r.orgSlug, r.fullName);
+    if (reservation.skip) {
       skippedForCredits += 1;
       return;
     }
-    const charged = reservation.charged; // true only on an overflow credit debit (within-allowance is free)
-    // Proactive lifecycle push when this debit landed on the low-water mark (or zero): the cron
-    // drains credits with nobody watching, which is exactly when depletion must reach a human.
-    if (charged) await maybeAlertLowCredits(r.orgSlug, reservation.balance);
-    const refundCredit = async () => {
-      if (charged) await grantCredits(r.orgSlug, 1, { reason: "refund", actor: "system" }).catch(() => {});
-    };
+    const charged = reservation.reserved; // true only on an overflow credit debit (within-allowance is free)
+    const refundCredit = () => refundScanCredit(r.orgSlug, charged);
     try {
       const token = tokenByOrg.get(r.orgSlug);
       // Capture the prior persisted report BEFORE the new scan lands, so we can diff for a
@@ -123,17 +119,11 @@ export async function GET(request: Request) {
 
       const report = await scanRepository(r.fullName, { token });
       const persisted = await persistScanReport(report, { orgSlug: r.orgSlug });
-      if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
-        console.warn("[cron/rescan] persisted with partial write failures", {
-          repo: r.fullName,
-          scanId: persisted.scanId,
-          failures: persisted.failures,
-        });
-      }
+      logPartialWrites("cron/rescan", r.fullName, persisted);
       // Refund the reserved credit when the autoscan produced nothing billable: either it degraded to
       // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no new
       // scored row). An org shouldn't be charged for a system-initiated rescan that yielded no new result.
-      if (report.engine.provider === "mock" || persisted?.deduped) await refundCredit();
+      if (shouldRefundScan(report, persisted)) await refundCredit();
       // Live intelligence: alert on a regression vs the prior scan (skipped on an unchanged commit).
       if (persisted && !persisted.deduped) {
         const orgId = (await getOrgId(r.orgSlug).catch(() => null)) ?? undefined;
