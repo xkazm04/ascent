@@ -101,13 +101,31 @@ export interface QuotaDecision {
 }
 
 /**
+ * Pure rolling-window read, WITHOUT consuming a slot: trim hits older than 7 days, sort ascending,
+ * and derive the non-consuming `{ remaining, resetAt }` plus the trimmed `recent` window. The single
+ * source for the window trim + `resetAt` arithmetic that `decideQuota` (consuming) and
+ * `peekPublicScanQuota` (read-only) both build on.
+ */
+export function windowState(
+  prior: number[],
+  now: number,
+  limit: number,
+): { recent: number[]; remaining: number; resetAt: number | null } {
+  const cutoff = now - WEEK_MS;
+  const recent = prior.filter((t) => t > cutoff).sort((a, b) => a - b);
+  const remaining = Math.max(0, limit - recent.length);
+  // The window resets (a slot frees) when the OLDEST in-window hit ages out; null when empty.
+  const resetAt = recent.length ? recent[0]! + WEEK_MS : null;
+  return { recent, remaining, resetAt };
+}
+
+/**
  * Pure rolling-window decision: given prior hit timestamps, decide whether a new scan at `now` is
  * allowed under `limit`. Trims hits older than 7 days. Exported (and unit-tested) independently of
  * the DB so the window math is verifiable without a database.
  */
 export function decideQuota(prior: number[], now: number, limit: number): QuotaDecision {
-  const cutoff = now - WEEK_MS;
-  const recent = prior.filter((t) => t > cutoff).sort((a, b) => a - b);
+  const { recent } = windowState(prior, now, limit);
   if (recent.length >= limit) {
     // Denied: the oldest in-window hit must age past the week before a slot frees.
     return { allowed: false, remaining: 0, resetAt: recent[0]! + WEEK_MS, hits: recent };
@@ -245,11 +263,7 @@ export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity 
   try {
     return await withDb(async (db) => {
       const row = await db.publicScanQuota.findUnique({ where: { ipHash } });
-      const recent = parseHits(row?.hits)
-        .filter((t) => t > now - WEEK_MS)
-        .sort((a, b) => a - b);
-      const remaining = Math.max(0, limit - recent.length);
-      const resetAt = recent.length ? recent[0]! + WEEK_MS : null;
+      const { remaining, resetAt } = windowState(parseHits(row?.hits), now, limit);
       return { enforced: true, remaining, limit, resetAt, scope };
     });
   } catch (err) {
