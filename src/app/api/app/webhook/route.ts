@@ -49,12 +49,7 @@ interface WebhookPayload {
   pull_request?: { number?: number; head?: { sha?: string; ref?: string }; base?: { ref?: string } };
   ref?: string;
   after?: string;
-  before?: string;
   deleted?: boolean;
-  // installation_repositories event: repos added/removed from an installation's selected access.
-  repositories_added?: { full_name?: string }[];
-  repositories_removed?: { full_name?: string }[];
-  repository_selection?: string;
   // check_run event: a "Re-run" button click (requested_action) or GitHub's rerequested.
   check_run?: { head_sha?: string; pull_requests?: { number?: number; base?: { ref?: string } }[] };
   requested_action?: { identifier?: string };
