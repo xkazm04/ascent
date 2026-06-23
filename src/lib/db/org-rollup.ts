@@ -23,10 +23,18 @@ function parseGovernanceLite(raw: string | null | undefined): { readable: boolea
   }
 }
 
-/** Resolve an org slug to its id (the tenant scope), or null when it doesn't exist. */
+/**
+ * Resolve an org slug to its id (the tenant scope), or null when it doesn't exist. The slug is
+ * canonicalized (trimmed + lower-cased) before the lookup because org rows are PERSISTED with a
+ * lower-cased slug — the authoritative writer is the GitHub-App install flow (upsertInstallation,
+ * `const slug = opts.login.toLowerCase()`). Canonicalizing here makes every caller's lookup hit
+ * regardless of whether it pre-lowercased, and lets members.ts / invites.ts share this one resolver
+ * instead of each maintaining a privately-drifting copy.
+ */
 export async function getOrgId(slug: string): Promise<string | null> {
   if (!isDbConfigured()) return null;
-  const org = await getPrisma().organization.findUnique({ where: { slug }, select: { id: true } });
+  const normalized = slug.trim().toLowerCase();
+  const org = await getPrisma().organization.findUnique({ where: { slug: normalized }, select: { id: true } });
   return org?.id ?? null;
 }
 

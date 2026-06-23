@@ -14,6 +14,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole } from "./members";
+import { createInvite, listPendingInvites } from "./invites";
 
 describe("roleAtLeast", () => {
   it("orders owner > admin > member > viewer", () => {
@@ -270,9 +271,11 @@ describe("canonical-identifier audit invariant", () => {
       expect(userLoginLookups).toContain("alicelogin");
       expect(userLoginLookups).not.toContain("  AliceLogin  ");
       expect(userLoginLookups).not.toContain("AliceLogin");
-      // The org slug resolved by the data layer is the verbatim slug passed in (already lowercased by the
-      // route), feeding a single canonical orgId — never two divergent org identities for one request.
-      expect(orgSlugLookups).toContain("Acme");
+      // The org slug is CANONICALIZED (trimmed + lowercased) by the shared getOrgId resolver before the
+      // lookup — org rows are persisted with a lowercased slug, so a mixed-case "Acme" resolves to the
+      // same single canonical orgId as "acme" (never two divergent org identities for one request).
+      expect(orgSlugLookups).toContain("acme");
+      expect(orgSlugLookups).not.toContain("Acme");
     });
 
     it("removeMembership writes a delete keyed on the canonical resolved org + normalized login", async () => {
@@ -480,5 +483,63 @@ describe("getMembershipRole resolution misses", () => {
       expect(r === null || isOrgRole(r)).toBe(true);
       expect(r).toBe(expected);
     }
+  });
+});
+
+// --- Canonical slug normalization shared across members + invites (members-access-control.md HIGH #1) -
+// members.ts and invites.ts both used to keep a PRIVATE orgIdForSlug, and they had drifted: invites
+// lowercased the slug, members did not, and orgHasOwner pushed the slug through the LOGIN normalizer.
+// Both now route through the single exported getOrgId, which canonicalizes (trim + lowercase) to match
+// how org rows are PERSISTED (the GitHub-App install flow stores `login.toLowerCase()` as the slug).
+// This locks that a mixed-case / padded slug resolves to the SAME lowercased lookup from BOTH modules —
+// so a lookup can never miss just because a caller forgot to pre-lowercase.
+describe("canonical slug normalization is shared + consistent across members and invites", () => {
+  /** Prisma fake whose org/invite lookups capture the exact slug that reached organization.findUnique. */
+  function slugTracePrisma() {
+    const orgSlugLookups: string[] = [];
+    const prisma = {
+      organization: {
+        findUnique: vi.fn(async (args: { where: { slug: string } }) => {
+          orgSlugLookups.push(args.where.slug);
+          return { id: "org_1" };
+        }),
+      },
+      user: { findUnique: vi.fn(async () => ({ id: "user_1" })) },
+      membership: { findUnique: vi.fn(async () => null) },
+      invite: {
+        create: vi.fn(async () => ({
+          id: "inv_1",
+          email: null,
+          githubLogin: null,
+          role: "member",
+          token: "tok",
+          invitedBy: null,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 1000),
+        })),
+        findMany: vi.fn(async () => []),
+      },
+    };
+    return { prisma, orgSlugLookups };
+  }
+
+  it("members.getMembershipRole canonicalizes a mixed-case + padded slug to lowercase before the lookup", async () => {
+    const { prisma, orgSlugLookups } = slugTracePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getMembershipRole("  Acme-Corp  ", "alice");
+
+    expect(orgSlugLookups).toEqual(["acme-corp"]); // trimmed + lowercased, never the raw "  Acme-Corp  "
+  });
+
+  it("invites.createInvite + listPendingInvites resolve the SAME canonical slug as members", async () => {
+    const { prisma, orgSlugLookups } = slugTracePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await createInvite("  Acme-Corp  ", { role: "member" });
+    await listPendingInvites("ACME-CORP");
+
+    // Both invite paths reach getOrgId with the identical lowercased slug members resolves to — no drift.
+    expect(orgSlugLookups).toEqual(["acme-corp", "acme-corp"]);
   });
 });

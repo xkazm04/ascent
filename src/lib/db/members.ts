@@ -8,6 +8,7 @@
 // read by src/lib/authz.ts (requireOrgRole). A future invite/SSO flow populates members/viewers.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 export type OrgRole = "owner" | "admin" | "member" | "viewer";
 
@@ -34,11 +35,6 @@ function normalizeLogin(login: string): string {
   return login.trim().toLowerCase();
 }
 
-async function orgIdForSlug(slug: string): Promise<string | null> {
-  const org = await getPrisma().organization.findUnique({ where: { slug }, select: { id: true } });
-  return org?.id ?? null;
-}
-
 /**
  * Does `orgSlug` already have at least one owner? Used by the Supabase-login-wall role gate to decide
  * trust-on-first-use: an org with no owner yet may be claimed by the first viewer who manages it, but
@@ -46,7 +42,7 @@ async function orgIdForSlug(slug: string): Promise<string | null> {
  */
 export async function orgHasOwner(orgSlug: string): Promise<boolean> {
   if (!isDbConfigured()) return false;
-  const orgId = await orgIdForSlug(normalizeLogin(orgSlug));
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return false;
   const owners = await getPrisma().membership.count({ where: { orgId, role: "owner" } });
   return owners > 0;
@@ -60,7 +56,7 @@ export async function getMembershipRole(orgSlug: string, login: string): Promise
   if (!gh) return null;
   const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
   if (!user) return null;
-  const orgId = await orgIdForSlug(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const m = await prisma.membership.findUnique({
     where: { orgId_userId: { orgId, userId: user.id } },
@@ -111,7 +107,7 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
   if (!gh) return "error";
-  const orgId = await orgIdForSlug(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return "error";
   const user = await prisma.user.upsert({
     where: { githubLogin: gh },
@@ -155,7 +151,7 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
   if (!isDbConfigured()) return "not_found";
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
-  const orgId = await orgIdForSlug(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!gh || !orgId) return "not_found";
   const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
   if (!user) return "not_found";
@@ -184,7 +180,7 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
 export async function listOrgMembers(orgSlug: string): Promise<OrgMember[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const orgId = await orgIdForSlug(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const rows = await prisma.membership.findMany({
     where: { orgId },

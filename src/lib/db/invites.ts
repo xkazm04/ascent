@@ -8,6 +8,7 @@
 import { randomBytes } from "node:crypto";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { isOrgRole, setMembershipRole, type OrgRole } from "@/lib/db/members";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -22,11 +23,6 @@ export interface PendingInvite {
   expiresAt: string;
 }
 
-async function orgIdForSlug(slug: string): Promise<string | null> {
-  const org = await getPrisma().organization.findUnique({ where: { slug: slug.toLowerCase() }, select: { id: true } });
-  return org?.id ?? null;
-}
-
 /** Create a pending invite. Returns the row (with its token) or null (DB-less / unknown org). */
 export async function createInvite(
   orgSlug: string,
@@ -34,7 +30,7 @@ export async function createInvite(
 ): Promise<PendingInvite | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await orgIdForSlug(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const token = randomBytes(24).toString("base64url");
   const row = await prisma.invite.create({
@@ -62,7 +58,7 @@ export type PendingInviteSummary = Omit<PendingInvite, "token">;
  */
 export async function listPendingInvites(orgSlug: string): Promise<PendingInviteSummary[]> {
   if (!isDbConfigured()) return [];
-  const orgId = await orgIdForSlug(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const rows = await getPrisma().invite.findMany({
     where: { orgId, status: "pending", expiresAt: { gt: new Date() } },
@@ -104,7 +100,7 @@ export async function peekInvite(token: string): Promise<InvitePeek> {
 /** Revoke a pending invite (owner action). Scoped to the org so an id from another tenant can't be hit. */
 export async function revokeInvite(orgSlug: string, id: string): Promise<boolean> {
   if (!isDbConfigured()) return false;
-  const orgId = await orgIdForSlug(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return false;
   const res = await getPrisma().invite.updateMany({
     where: { id, orgId, status: "pending" },
