@@ -4,7 +4,8 @@
 // org's current standing but can't trigger scans (/api/org/scan stays session-gated). Exposes only the
 // same rollup the dashboard shows. noindex so a leaked link isn't crawled.
 
-import { LiveWarRoom, type LiveRepoSeed } from "@/components/org/LiveWarRoom";
+import { LiveWarRoom } from "@/components/org/LiveWarRoom";
+import { toLiveRepoSeeds } from "@/components/org/liveWarRoomShared";
 import { getOrgRollup, isDbConfigured } from "@/lib/db";
 import { verifyLiveShareToken } from "@/lib/live-share";
 
@@ -33,15 +34,7 @@ export default async function SharedLivePage({ params }: { params: Promise<{ tok
   if (!rollup || rollup.repoCount === 0) {
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }
-  const seed: LiveRepoSeed[] = rollup.repos.map((r) => ({
-    fullName: r.fullName,
-    name: r.name,
-    overall: r.latest?.overall ?? null,
-    adoption: r.latest?.adoption ?? null,
-    rigor: r.latest?.rigor ?? null,
-    level: r.latest?.level ?? null,
-    posture: r.latest?.posture ?? null,
-  }));
+  const seed = toLiveRepoSeeds(rollup.repos);
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-8">
       <LiveWarRoom slug={verified.org} watchedCount={rollup.repos.filter((r) => r.watched).length} seed={seed} readOnly />

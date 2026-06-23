@@ -3,7 +3,8 @@
 // /api/org/scan SSE stream and animates the wall (headline tiles, leaderboard, posture mix,
 // movers ticker, AI-Native bursts) as results land. The org layout supplies the auth/DB guards.
 
-import { LiveWarRoom, type LiveRepoSeed } from "@/components/org/LiveWarRoom";
+import { LiveWarRoom } from "@/components/org/LiveWarRoom";
+import { toLiveRepoSeeds } from "@/components/org/liveWarRoomShared";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { getOrgRollup, listGoals } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
@@ -38,15 +39,7 @@ export default async function OrgLivePage({
   const canShare = isOwner && liveShareEnabled();
 
   const watched = rollup.repos.filter((r) => r.watched).length;
-  const seed: LiveRepoSeed[] = rollup.repos.map((r) => ({
-    fullName: r.fullName,
-    name: r.name,
-    overall: r.latest?.overall ?? null,
-    adoption: r.latest?.adoption ?? null,
-    rigor: r.latest?.rigor ?? null,
-    level: r.latest?.level ?? null,
-    posture: r.latest?.posture ?? null,
-  }));
+  const seed = toLiveRepoSeeds(rollup.repos);
   // When a stack is active, launch() scans ONLY this stack's repos (the /api/org/scan `repos` filter),
   // so the wall doesn't animate out-of-stack repos. Undefined = scan the whole watched fleet (default).
   const scanRepos = activeStack ? rollup.repos.map((r) => r.fullName) : undefined;

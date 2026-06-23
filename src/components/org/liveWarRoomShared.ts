@@ -9,6 +9,36 @@ export interface LiveRepoSeed {
   posture: string | null;
 }
 
+/** The slice of a rollup repo the live wall seeds from — its identity + latest standing. */
+interface RollupRepoForSeed {
+  fullName: string;
+  name: string;
+  latest?: {
+    overall?: number | null;
+    adoption?: number | null;
+    rigor?: number | null;
+    level?: string | null;
+    posture?: string | null;
+  } | null;
+}
+
+/**
+ * Project an org rollup's repos into the LiveRepoSeed[] the war-room wall consumes — the same six-field
+ * `r.latest?.* ?? null` mapping the authenticated and shared/kiosk entry pages both need. Single-sourced
+ * here so a new seeded axis (or a fallback change) lands on both walls at once, not just one.
+ */
+export function toLiveRepoSeeds(repos: RollupRepoForSeed[]): LiveRepoSeed[] {
+  return repos.map((r) => ({
+    fullName: r.fullName,
+    name: r.name,
+    overall: r.latest?.overall ?? null,
+    adoption: r.latest?.adoption ?? null,
+    rigor: r.latest?.rigor ?? null,
+    level: r.latest?.level ?? null,
+    posture: r.latest?.posture ?? null,
+  }));
+}
+
 export interface LiveRepo extends LiveRepoSeed {
   /** Monotonic tick of the last live update (0 = seeded), used to flash freshly-landed rows. */
   updatedAt: number;
