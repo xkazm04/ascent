@@ -153,6 +153,47 @@ export interface RepositoryHistory {
   scans: HistoryPoint[];
 }
 
+/** The Scan columns a `HistoryPoint` projects. Shared by every HistoryPoint reader so the picker
+ *  shape stays single-sourced (pair with `dimensions` when the per-dimension scores are wanted). */
+const HISTORY_POINT_SELECT = {
+  id: true,
+  headSha: true,
+  overallScore: true,
+  level: true,
+  levelName: true,
+  confidence: true,
+  engineProvider: true,
+  engineModel: true,
+  scannedAt: true,
+} as const;
+
+/** Map a selected Scan row (with optional `dimensions`) to the wire `HistoryPoint`. */
+function historyPointFrom(s: {
+  id: string;
+  headSha: string | null;
+  overallScore: number;
+  level: string;
+  levelName: string;
+  confidence: number;
+  engineProvider: string;
+  engineModel: string;
+  scannedAt: Date;
+  dimensions?: { dimId: string; score: number }[];
+}): HistoryPoint {
+  return {
+    id: s.id,
+    headSha: s.headSha,
+    overallScore: s.overallScore,
+    level: s.level,
+    levelName: s.levelName,
+    confidence: s.confidence,
+    engineProvider: s.engineProvider,
+    engineModel: s.engineModel,
+    scannedAt: s.scannedAt.toISOString(),
+    dimensions: s.dimensions ?? [],
+  };
+}
+
 /**
  * Prior scans for a repo (most recent first), with per-dimension scores for trends.
  *
@@ -186,52 +227,17 @@ export async function getRepositoryHistory(
 
   // Two statically-typed queries (rather than a dynamic select) so the result type stays precise:
   // the light branch genuinely omits the dimensions join at the DB, not just in the mapping. Each
-  // branch maps through toPoint (mapping a single array type, never a union, so it stays type-safe).
-  const baseSelect = {
-    id: true,
-    headSha: true,
-    overallScore: true,
-    level: true,
-    levelName: true,
-    confidence: true,
-    engineProvider: true,
-    engineModel: true,
-    scannedAt: true,
-  } as const;
+  // branch maps through historyPointFrom (a single array type, never a union, so it stays type-safe).
   const args = { where: { repoId: repo.id }, orderBy: { scannedAt: "desc" }, take: limit } as const;
-
-  const toPoint = (s: {
-    id: string;
-    headSha: string | null;
-    overallScore: number;
-    level: string;
-    levelName: string;
-    confidence: number;
-    engineProvider: string;
-    engineModel: string;
-    scannedAt: Date;
-    dimensions?: { dimId: string; score: number }[];
-  }): HistoryPoint => ({
-    id: s.id,
-    headSha: s.headSha,
-    overallScore: s.overallScore,
-    level: s.level,
-    levelName: s.levelName,
-    confidence: s.confidence,
-    engineProvider: s.engineProvider,
-    engineModel: s.engineModel,
-    scannedAt: s.scannedAt.toISOString(),
-    dimensions: s.dimensions ?? [],
-  });
 
   const scans: HistoryPoint[] = includeDimensions
     ? (
         await prisma.scan.findMany({
           ...args,
-          select: { ...baseSelect, dimensions: { select: { dimId: true, score: true } } },
+          select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
         })
-      ).map(toPoint)
-    : (await prisma.scan.findMany({ ...args, select: baseSelect })).map(toPoint);
+      ).map(historyPointFrom)
+    : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map(historyPointFrom);
 
   return {
     repo: { owner: repo.owner, name: repo.name, fullName },
@@ -382,32 +388,10 @@ export async function getScanComparison(
     where: { repoId: repo.id },
     orderBy: { scannedAt: "desc" },
     take: limit,
-    select: {
-      id: true,
-      headSha: true,
-      overallScore: true,
-      level: true,
-      levelName: true,
-      confidence: true,
-      engineProvider: true,
-      engineModel: true,
-      scannedAt: true,
-      dimensions: { select: { dimId: true, score: true } },
-    },
+    select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
   });
 
-  const scans: HistoryPoint[] = list.map((s) => ({
-    id: s.id,
-    headSha: s.headSha,
-    overallScore: s.overallScore,
-    level: s.level,
-    levelName: s.levelName,
-    confidence: s.confidence,
-    engineProvider: s.engineProvider,
-    engineModel: s.engineModel,
-    scannedAt: s.scannedAt.toISOString(),
-    dimensions: s.dimensions,
-  }));
+  const scans: HistoryPoint[] = list.map(historyPointFrom);
 
   const repoInfo = { owner: repo.owner, name: repo.name, fullName };
   if (scans.length === 0) return { repo: repoInfo, scans, before: null, after: null };
