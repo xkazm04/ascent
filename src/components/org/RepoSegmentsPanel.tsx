@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { Card, SectionHeader } from "@/components/org/ui";
+import { bulkTagRepos } from "@/lib/org/segment-actions";
 
 export interface SegmentItem {
   id: string;
@@ -180,12 +181,7 @@ export function RepoSegmentsPanel({
     });
     setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: x.repoCount + added } : x)));
     try {
-      const res = await fetch(`/api/org/segments/${autoSeg}/repos/bulk`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, fullNames: matched, member: true }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? "Bulk add failed.");
+      await bulkTagRepos(autoSeg, { org: slug, fullNames: matched, member: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Bulk add failed.");
     } finally {

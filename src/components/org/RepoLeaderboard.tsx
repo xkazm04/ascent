@@ -10,6 +10,7 @@ import { OrgTable, postureLabel } from "@/components/org/ui";
 import { ScheduleSelect } from "@/components/org/ScheduleSelect";
 import { RepoRescanButton } from "@/components/org/RepoRescanButton";
 import { TechBadges } from "@/components/org/TechBadges";
+import { bulkTagRepos } from "@/lib/org/segment-actions";
 import { LEVEL_CLASSES, scoreHex } from "@/lib/ui";
 import type { LevelId, TechStack } from "@/lib/types";
 
@@ -70,13 +71,7 @@ export function RepoLeaderboard({
     setError(null);
     setDone(null);
     try {
-      const res = await fetch(`/api/org/segments/${target}/repos/bulk`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, fullNames: [...selected], member: true }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Bulk add failed.");
+      await bulkTagRepos(target, { org: slug, fullNames: [...selected], member: true });
       setDone(`Added ${selected.size} to ${segName.get(target) ?? "segment"}.`);
       setSelected(new Set());
     } catch (e) {
