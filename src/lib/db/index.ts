@@ -95,7 +95,6 @@ export {
 export {
   upsertInstallation,
   removeInstallation,
-  unwatchReposForInstallation,
   reconcileWatchedRepos,
   getInstallationIdForOwner,
 } from "@/lib/db/installations";

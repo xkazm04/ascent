@@ -41,7 +41,6 @@ vi.mock("@/lib/db", () => ({
   reconcileWatchedRepos: vi.fn(async () => 0),
   removeInstallation: vi.fn(),
   reportPermalink: vi.fn(() => "/report/x"),
-  unwatchReposForInstallation: vi.fn(),
   upsertInstallation: vi.fn(),
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
@@ -63,7 +62,6 @@ import {
   persistScanReport,
   reconcileWatchedRepos,
   removeInstallation,
-  unwatchReposForInstallation,
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
@@ -88,7 +86,6 @@ function reposResult(fullNames: string[], truncated = false) {
   };
 }
 const mockReconcile = vi.mocked(reconcileWatchedRepos);
-const mockUnwatch = vi.mocked(unwatchReposForInstallation);
 const mockIdForOwner = vi.mocked(getInstallationIdForOwner);
 const mockScan = vi.mocked(scanRepository);
 const mockEvaluateGate = vi.mocked(evaluateGate);
@@ -219,12 +216,9 @@ describe("POST /api/app/webhook — installation_repositories confirmation disci
       installation: { id: 42 },
       repositories_removed: [{ full_name: "acme/still-accessible" }],
     });
-    // The blind fast path is gone: nothing is unwatched from the payload before the response.
-    expect(mockUnwatch).not.toHaveBeenCalled();
-
-    // The deferred reconcile consults GitHub's live list — the authoritative set — instead.
+    // The deferred reconcile consults GitHub's live list — the authoritative set — rather than
+    // acting on the payload's repositories_removed verbatim. (The old blind-unwatch fast path is gone.)
     await runDeferred();
-    expect(mockUnwatch).not.toHaveBeenCalled();
     expect(mockReconcile).toHaveBeenCalledWith(42, ["acme/still-accessible"]);
   });
 
@@ -259,7 +253,6 @@ describe("POST /api/app/webhook — installation_repositories confirmation disci
     });
     await runDeferred();
     expect(mockReconcile).not.toHaveBeenCalled();
-    expect(mockUnwatch).not.toHaveBeenCalled();
   });
 });
 
