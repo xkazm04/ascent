@@ -8,8 +8,8 @@ import { DEFAULT_BEDROCK_MODEL } from "./bedrock";
 import { DEFAULT_GEMINI_MODEL } from "./gemini";
 import { DEFAULT_OPENAI_MODEL } from "./openai";
 import { DEFAULT_CLAUDE_MODEL } from "./claude-cli";
-import { priceForModel, billableInputTokens, thinkingBudgetTokens } from "./config";
-import { afterEach, vi } from "vitest";
+import { priceForModel, billableInputTokens, thinkingBudgetTokens, withLlmTimeout } from "./config";
+import { afterEach, beforeEach, vi } from "vitest";
 
 describe("priceForModel", () => {
   it("prices every shipped default model (derived from the providers' own constants)", () => {
@@ -123,5 +123,36 @@ describe("thinkingBudgetTokens (opt-in extended thinking — Tiger P2-6c)", () =
       vi.stubEnv("LLM_THINKING_BUDGET", v);
       expect(thinkingBudgetTokens()).toBe(0);
     }
+  });
+});
+
+describe("withLlmTimeout (shared provider cancellation wiring)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("aborts with the given message after `ms` and clears nothing the caller still needs", async () => {
+    const { signal, clear } = withLlmTimeout(undefined, 1000, "Provider request timed out.");
+    expect(signal.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(signal.aborted).toBe(true);
+    expect((signal.reason as Error).message).toBe("Provider request timed out.");
+    clear(); // safe to call after the fact
+  });
+
+  it("combines the caller's signal: a client disconnect aborts the combined signal too", () => {
+    const caller = new AbortController();
+    const { signal } = withLlmTimeout(caller.signal, 60_000, "timed out");
+    expect(signal.aborted).toBe(false);
+    caller.abort(new Error("client disconnected"));
+    expect(signal.aborted).toBe(true);
+    expect((signal.reason as Error).message).toBe("client disconnected");
+  });
+
+  it("clear() cancels the timer so the timeout never fires after a fast success", async () => {
+    const { signal, clear } = withLlmTimeout(undefined, 1000, "timed out");
+    clear();
+    expect(vi.getTimerCount()).toBe(0); // timer cleared — no leak
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(signal.aborted).toBe(false); // never aborted, the call already finished
   });
 });

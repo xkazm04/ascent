@@ -10,7 +10,7 @@ import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
 import { ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
-import { envNumber, llmTimeoutMs } from "@/lib/llm/config";
+import { envNumber, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
 
@@ -29,16 +29,13 @@ export class GeminiProvider implements LLMProvider {
     // Drive the timeout through an AbortController so a hung model request is actually CANCELLED
     // (frees the socket, stops token billing) — not merely abandoned by a promise race that left the
     // original call running in the background while retry/fallback fired (a retry storm that doubled
-    // in-flight requests on every timeout). Combine it with the client-disconnect signal so either
-    // one cancels the call.
-    const timeoutCtrl = new AbortController();
-    const timer = setTimeout(
-      () => timeoutCtrl.abort(new Error("Gemini request timed out.")),
+    // in-flight requests on every timeout). The shared helper combines it with the client-disconnect
+    // signal so either one cancels the call.
+    const { signal: abortSignal, clear } = withLlmTimeout(
+      opts.signal,
       llmTimeoutMs(),
+      "Gemini request timed out.",
     );
-    const abortSignal = opts.signal
-      ? AbortSignal.any([opts.signal, timeoutCtrl.signal])
-      : timeoutCtrl.signal;
     let response;
     try {
       response = await this.client.models.generateContent({
@@ -55,7 +52,7 @@ export class GeminiProvider implements LLMProvider {
         },
       });
     } finally {
-      clearTimeout(timer);
+      clear();
     }
     const text = response.text;
     if (!text) throw new Error("Empty response from Gemini.");

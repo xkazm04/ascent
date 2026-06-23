@@ -12,7 +12,7 @@ import { validateAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
-import { envNumber, llmTimeoutMs } from "@/lib/llm/config";
+import { envNumber, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -33,11 +33,11 @@ export class OpenAiProvider implements LLMProvider {
     if (!this.apiKey) throw new Error("OPENAI_API_KEY is not set.");
     const { system, user } = buildAssessmentPrompt(input);
 
-    // Abort on client disconnect OR our own timeout, whichever fires first.
-    const ctrl = new AbortController();
-    const onAbort = () => ctrl.abort();
-    opts.signal?.addEventListener("abort", onAbort, { once: true });
-    const timer = setTimeout(() => ctrl.abort(), llmTimeoutMs());
+    // Abort on client disconnect OR our own timeout, whichever fires first — via the shared
+    // withLlmTimeout helper (the AbortSignal.any form gemini/bedrock use), which composes the two
+    // signals and owns the timer/listener lifecycle so no listener leaks. (Was a hand-rolled
+    // addEventListener/removeEventListener pair.)
+    const { signal, clear } = withLlmTimeout(opts.signal, llmTimeoutMs(), "OpenAI request timed out.");
     try {
       const res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
@@ -51,7 +51,7 @@ export class OpenAiProvider implements LLMProvider {
             { role: "user", content: user },
           ],
         }),
-        signal: ctrl.signal,
+        signal,
         cache: "no-store",
       });
       if (!res.ok) {
@@ -67,8 +67,7 @@ export class OpenAiProvider implements LLMProvider {
       opts.onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens });
       return validateAssessment(parseJsonLoose(text));
     } finally {
-      clearTimeout(timer);
-      opts.signal?.removeEventListener("abort", onAbort);
+      clear();
     }
   }
 }

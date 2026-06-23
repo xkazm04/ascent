@@ -24,6 +24,25 @@ export function llmTimeoutMs(): number {
 }
 
 /**
+ * Compose a per-call LLM cancellation signal: a timeout AbortController that fires after `ms` with
+ * `new Error(message)` as the reason, combined with the caller's `signal` (a client disconnect) via
+ * AbortSignal.any so whichever fires first cancels the request. Returns the combined `signal` to pass
+ * to the SDK/fetch and a `clear()` to call in `finally` so the timer never leaks. Used by all three
+ * real providers (gemini/bedrock/openai) so the fiddly cancellation wiring lives in one place — the
+ * bug-prone parts (clearing the timer, not leaking a listener) are then correct everywhere at once.
+ */
+export function withLlmTimeout(
+  signal: AbortSignal | undefined,
+  ms: number,
+  message: string,
+): { signal: AbortSignal; clear: () => void } {
+  const timeoutCtrl = new AbortController();
+  const timer = setTimeout(() => timeoutCtrl.abort(new Error(message)), ms);
+  const combined = signal ? AbortSignal.any([signal, timeoutCtrl.signal]) : timeoutCtrl.signal;
+  return { signal: combined, clear: () => clearTimeout(timer) };
+}
+
+/**
  * Tech-stack prompt enrichment (Feature 3a, Option B) — OFF by default. When TECH_STACK_PROMPT=1|true,
  * the detected stack is added as a short block to the assessment user message. Gated because adding to
  * the prompt can move calibrated scores; roll out only after the bench shows median drift < 2 points

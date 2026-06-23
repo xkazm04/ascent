@@ -21,7 +21,7 @@ import {
   ASSESSMENT_TOOL_DESCRIPTION,
   ASSESSMENT_TOOL_NAME,
 } from "@/lib/llm/schema";
-import { envNumber, llmTimeoutMs, thinkingBudgetTokens } from "@/lib/llm/config";
+import { envNumber, llmTimeoutMs, thinkingBudgetTokens, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
 export const DEFAULT_BEDROCK_REGION = "us-east-1";
@@ -63,20 +63,17 @@ export class BedrockProvider implements LLMProvider {
     });
     const { system, user } = buildAssessmentPrompt(input);
 
-    // Per-call timeout via AbortController (the W6-2 pattern shared with gemini/openai): a hung
-    // Converse call must be CANCELLED at LLM_TIMEOUT_MS, not left to run until scan.ts's 90s
-    // total budget expires — Bedrock was the only provider without one, so a single hang ate the
-    // whole budget and structurally starved the retry + LLM_FALLBACK_PROVIDER steps for the
-    // enterprise path (straight to mock), while the open request kept billing for the extra 30s.
-    // Combined with the client-disconnect signal so either one cancels the call.
-    const timeoutCtrl = new AbortController();
-    const timer = setTimeout(
-      () => timeoutCtrl.abort(new Error("Bedrock request timed out.")),
+    // Per-call timeout via AbortController (the shared withLlmTimeout helper, also used by
+    // gemini/openai): a hung Converse call must be CANCELLED at LLM_TIMEOUT_MS, not left to run
+    // until scan.ts's 90s total budget expires — Bedrock was the only provider without one, so a
+    // single hang ate the whole budget and structurally starved the retry + LLM_FALLBACK_PROVIDER
+    // steps for the enterprise path (straight to mock), while the open request kept billing for the
+    // extra 30s. The helper combines it with the client-disconnect signal so either one cancels.
+    const { signal: abortSignal, clear } = withLlmTimeout(
+      opts.signal,
       llmTimeoutMs(),
+      "Bedrock request timed out.",
     );
-    const abortSignal = opts.signal
-      ? AbortSignal.any([opts.signal, timeoutCtrl.signal])
-      : timeoutCtrl.signal;
 
     // Extended-thinking budget (opt-in via LLM_THINKING_BUDGET — Tiger P2-6c; default 0 = off, no change).
     // When on, the model needs maxTokens ABOVE the reasoning budget to still have room for the answer.
@@ -125,7 +122,7 @@ export class BedrockProvider implements LLMProvider {
         { abortSignal },
       );
     } finally {
-      clearTimeout(timer);
+      clear();
     }
 
     // Meter the full prompt-cache breakdown (Tiger P1-6): inputTokens is the FRESH input; cache reads
