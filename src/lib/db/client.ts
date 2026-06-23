@@ -413,7 +413,7 @@ export function getPrisma(): PrismaClient {
   // Cold start. In DSQL mode a deploy-time DATABASE_URL seed token is REQUIRED: getPrisma() is
   // synchronous and can't mint an IAM token, so without a seed the cold client would be built with no
   // datasource URL and 500 every first query (with a cryptic "Environment variable not found:
-  // DATABASE_URL") until the async mint lands. Direct getPrisma() callers (125 sites) hit this; withDb()
+  // DATABASE_URL") until the async mint lands. Direct getPrisma() callers hit this; withDb()
   // awaits a mint first and is safe. Fail fast here with an actionable message rather than serving a
   // dead client. (withDb's getClient seeds g.__ascentPrisma via a mint before reaching this path, so a
   // warm/refreshed instance never trips this — it's strictly the no-seed misconfiguration guard.)
