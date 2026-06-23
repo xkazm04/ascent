@@ -3,7 +3,7 @@
 // contributor AI-attribution + PR signals (no new ingestion). Delivery is shown as honest context.
 
 import { buildAdoptionOverview, adoptionMarkdown } from "@/lib/org/adoption";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, MeterRow, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { scoreHex } from "@/lib/ui";
@@ -116,10 +116,15 @@ export default async function OrgAdoption({ params }: { params: Promise<{ slug: 
 
 function DeliveryRow({ label, value, rate }: { label: string; value: string; rate: number }) {
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="w-36 shrink-0 text-slate-400">{label}</span>
-      <Meter className="flex-1" value={rate} color={scoreHex(rate)} />
-      <span className="w-12 shrink-0 text-right font-mono text-slate-300">{value}</span>
-    </div>
+    <MeterRow
+      layout="labelled"
+      label={label}
+      value={rate}
+      display={value}
+      color={scoreHex(rate)}
+      meterSize="md"
+      meterClassName="flex-1"
+      valueClassName="w-12 shrink-0 text-right font-mono text-slate-300"
+    />
   );
 }

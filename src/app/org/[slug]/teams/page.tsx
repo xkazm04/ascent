@@ -1,4 +1,4 @@
-import { Card, Meter, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex, fmtDelta } from "@/components/org/ui";
+import { Card, MeterRow, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex, fmtDelta } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { getOrgTeamRollup, type TeamRollup } from "@/lib/db";
@@ -10,13 +10,14 @@ export const dynamic = "force-dynamic";
 
 function MetricBar({ label, value }: { label: string; value: number }) {
   return (
-    <div>
-      <div className="flex items-center justify-between font-mono text-sm uppercase tracking-widest text-slate-500">
-        <span>{label}</span>
-        <span style={{ color: scoreHex(value) }}>{value}</span>
-      </div>
-      <Meter className="mt-1" size="sm" value={value} color={scoreHex(value)} threshold={50} />
-    </div>
+    <MeterRow
+      layout="stacked"
+      label={label}
+      value={value}
+      color={scoreHex(value)}
+      valueColor={scoreHex(value)}
+      threshold={50}
+    />
   );
 }
 

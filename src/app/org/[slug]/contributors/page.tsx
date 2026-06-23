@@ -1,5 +1,5 @@
 import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
-import { Meter, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { ExportCsvLink, MeterRow, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { getContributorInsights, type ContributorInsights } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
@@ -8,12 +8,7 @@ import { scoreHex, timeAgo } from "@/lib/ui";
 export const dynamic = "force-dynamic";
 
 function AiBar({ pct, color }: { pct: number; color?: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <Meter className="w-24" size="sm" value={pct} color={color} />
-      <span className="w-9 font-mono text-sm text-slate-500">{pct}%</span>
-    </div>
-  );
+  return <MeterRow layout="inline" value={pct} display={`${pct}%`} color={color} meterClassName="w-24" />;
 }
 
 // AI champions leaderboard — exemplars whose adoption the team could learn from. Rendered by the page
@@ -74,12 +69,7 @@ function IndividualInvolvement({
             <span className="text-slate-300">not performance evaluation</span>. Breadth (repos) × depth (commits) and each
             person&apos;s AI-commit share.
           </p>
-          <a
-            href={`/api/org/export?org=${encodeURIComponent(slug)}&kind=contributors&format=csv${segmentId ? `&segment=${segmentId}` : ""}`}
-            className="focus-ring shrink-0 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
-          >
-            Export CSV
-          </a>
+          <ExportCsvLink org={slug} kind="contributors" segmentId={segmentId} className="shrink-0" />
         </div>
         <OrgTable
           className="mt-3"

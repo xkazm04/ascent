@@ -173,6 +173,65 @@ export function Meter({
   );
 }
 
+/**
+ * A labelled `Meter` row — the "a Meter plus a numeric/percent readout" composition that the people/
+ * adoption tabs each re-invented (contributors' AiBar, teams' MetricBar, adoption's DeliveryRow). One
+ * component with three layouts:
+ *  - `inline`    — bare Meter + a right-aligned readout (no label). The contributors AI-share bar.
+ *  - `labelled`  — left label + flex Meter + right readout on one row. The adoption delivery row.
+ *  - `stacked`   — a label/value header row, with the Meter beneath it. The teams metric bar.
+ * Per-site class widths/colors are passed through so the rendered output stays pixel-identical.
+ */
+export function MeterRow({
+  layout = "inline",
+  value,
+  display,
+  label,
+  color,
+  threshold,
+  meterClassName,
+  meterSize = "sm",
+  valueClassName,
+  valueColor,
+  labelClassName,
+}: {
+  layout?: "inline" | "labelled" | "stacked";
+  value: number;
+  /** The readout text (defaults to the numeric value). */
+  display?: React.ReactNode;
+  label?: React.ReactNode;
+  color?: string;
+  threshold?: number;
+  meterClassName?: string;
+  meterSize?: "sm" | "md";
+  valueClassName?: string;
+  valueColor?: string;
+  labelClassName?: string;
+}) {
+  const readout = display ?? value;
+  if (layout === "stacked") {
+    return (
+      <div>
+        <div className={labelClassName ?? "flex items-center justify-between font-mono text-sm uppercase tracking-widest text-slate-500"}>
+          <span>{label}</span>
+          <span style={valueColor ? { color: valueColor } : undefined}>{readout}</span>
+        </div>
+        <Meter className={meterClassName ?? "mt-1"} size={meterSize} value={value} color={color} threshold={threshold} />
+      </div>
+    );
+  }
+  // inline + labelled share a single flex row; `labelled` adds a leading label cell.
+  return (
+    <div className={layout === "labelled" ? "flex items-center gap-3 text-sm" : "flex items-center gap-2"}>
+      {layout === "labelled" && <span className={labelClassName ?? "w-36 shrink-0 text-slate-400"}>{label}</span>}
+      <Meter className={meterClassName} size={meterSize} value={value} color={color} threshold={threshold} />
+      <span className={valueClassName ?? "w-9 font-mono text-sm text-slate-500"} style={valueColor ? { color: valueColor } : undefined}>
+        {readout}
+      </span>
+    </div>
+  );
+}
+
 export function SectionEmpty({ children }: { children: React.ReactNode }) {
   return <EmptyState variant="section" body={children} />;
 }
@@ -187,4 +246,32 @@ export function InlineEmpty({ children }: { children: React.ReactNode }) {
 
 export function OrgEmpty({ title, body, href, cta }: { title: string; body: string; href?: string; cta?: string }) {
   return <EmptyState icon="🏔️" title={title} body={body} actions={[{ label: cta ?? "← Home", href: href ?? "/" }]} />;
+}
+
+/**
+ * The "Export CSV" download anchor shared by the org tabs (contributors, delivery, …). Owns the
+ * `/api/org/export` URL contract (`org`, `kind`, `format=csv`, optional `segment`) and the brand pill
+ * styling so a change to either lands in one place. Pass `className` for per-site additions (e.g.
+ * `shrink-0`). Server-safe.
+ */
+export function ExportCsvLink({
+  org,
+  kind,
+  segmentId,
+  className = "",
+}: {
+  org: string;
+  kind: string;
+  segmentId?: string | null;
+  className?: string;
+}) {
+  const href = `/api/org/export?org=${encodeURIComponent(org)}&kind=${kind}&format=csv${segmentId ? `&segment=${segmentId}` : ""}`;
+  return (
+    <a
+      href={href}
+      className={`focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white${className ? ` ${className}` : ""}`}
+    >
+      Export CSV
+    </a>
+  );
 }

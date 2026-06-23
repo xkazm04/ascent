@@ -1,4 +1,4 @@
-import { Card, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
+import { Card, ExportCsvLink, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
 import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
@@ -57,12 +57,7 @@ export default async function OrgDelivery({
       className="flex flex-wrap items-center justify-end gap-2"
       gate={false}
     >
-      <a
-        href={`/api/org/export?org=${encodeURIComponent(slug)}&kind=delivery&format=csv${segmentId ? `&segment=${segmentId}` : ""}`}
-        className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
-      >
-        Export CSV
-      </a>
+      <ExportCsvLink org={slug} kind="delivery" segmentId={segmentId} />
     </ScopeFilterBar>
   );
 
