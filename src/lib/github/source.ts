@@ -12,7 +12,7 @@ import type {
   RepoSnapshot,
   ScanProgress,
 } from "@/lib/types";
-import { githubApiBase, githubRawBase } from "@/lib/github/host";
+import { ghHeaders, githubApiBase, githubRawBase } from "@/lib/github/host";
 
 export type ProgressFn = (p: ScanProgress) => void;
 export interface FetchOptions {
@@ -108,16 +108,6 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
   return { owner, repo };
 }
 
-function headers(token?: string, accept = "application/vnd.github+json"): HeadersInit {
-  const h: Record<string, string> = {
-    Accept: accept,
-    "User-Agent": "ascent-maturity-scanner",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-  if (token) h.Authorization = `Bearer ${token}`;
-  return h;
-}
-
 /**
  * Encode a git ref for use in a URL while PRESERVING the slashes inside names like `release/1.2`,
  * `feature/x`, or any PR head ref. `encodeURIComponent(ref)` turns the whole ref into a single
@@ -188,10 +178,10 @@ export async function resolveHead(
   opts: { token?: string; etag?: string | null } = {},
 ): Promise<HeadLookup> {
   try {
-    const h: Record<string, string> = {
-      ...(headers(opts.token, "application/vnd.github.sha") as Record<string, string>),
-    };
-    if (opts.etag) h["If-None-Match"] = opts.etag;
+    const h = ghHeaders(opts.token, {
+      accept: "application/vnd.github.sha",
+      ...(opts.etag ? { extra: { "If-None-Match": opts.etag } } : {}),
+    });
     const res = await fetchWithTimeout(
       `${API}/repos/${owner}/${repo}/commits/HEAD`,
       { headers: h, cache: "no-store" },
@@ -249,7 +239,7 @@ async function pool<T, R>(
 async function ghJson<T>(url: string, token?: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
-    res = await fetchWithTimeout(url, { headers: headers(token), cache: "no-store" }, TIMEOUT_API_MS, signal);
+    res = await fetchWithTimeout(url, { headers: ghHeaders(token), cache: "no-store" }, TIMEOUT_API_MS, signal);
   } catch (e) {
     const msg =
       (e as Error)?.name === "AbortError"
@@ -495,7 +485,7 @@ async function fetchContents(
   const encoded = path.split("/").map(encodeURIComponent).join("/");
   const url = `${API}/repos/${owner}/${repo}/contents/${encoded}?ref=${encodeRef(branch)}`;
   try {
-    const res = await fetchWithTimeout(url, { headers: headers(token), cache: "no-store" }, TIMEOUT_FILE_MS, signal);
+    const res = await fetchWithTimeout(url, { headers: ghHeaders(token), cache: "no-store" }, TIMEOUT_FILE_MS, signal);
     if (!res.ok) return null;
     const data = (await res.json()) as { content?: string; encoding?: string };
     if (!data.content) return null;

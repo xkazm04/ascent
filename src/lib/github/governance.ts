@@ -6,19 +6,10 @@
 //   - `/stats/commit_activity` — 52 weeks of commit volume (may 202 on first call → one retry).
 
 import type { Governance } from "@/lib/types";
-import { githubApiBase } from "@/lib/github/host";
+import { ghHeaders, githubApiBase } from "@/lib/github/host";
 
 const API = githubApiBase();
 const TIMEOUT_MS = 10_000;
-
-function headers(token: string): HeadersInit {
-  return {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-    "User-Agent": "ascent-maturity-scanner",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-}
 
 async function getJson(
   url: string,
@@ -31,7 +22,7 @@ async function getJson(
   // aborted by whichever fires first.
   const combined = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
   try {
-    const res = await fetch(url, { headers: headers(token), signal: combined });
+    const res = await fetch(url, { headers: ghHeaders(token), signal: combined });
     const body = res.status === 204 ? null : await res.json().catch(() => null);
     return { status: res.status, body };
   } finally {

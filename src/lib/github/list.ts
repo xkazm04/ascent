@@ -2,7 +2,7 @@
 // bulk import (/api/org/import). Lists a public org's (falling back to a user's) repos,
 // most-recently-pushed first, filtering out forks and archived repos.
 
-import { githubApiBase } from "@/lib/github/host";
+import { ghHeaders, githubApiBase } from "@/lib/github/host";
 
 export interface OrgRepoListItem {
   owner: string;
@@ -78,12 +78,10 @@ export async function listOrgRepos(org: string, count: number, token?: string): 
   if (!VALID_HANDLE.test(org)) {
     throw new GitHubListError(`Invalid GitHub org/user handle: "${org}"`, "NOT_FOUND");
   }
-  const headers: Record<string, string> = {
-    accept: "application/vnd.github+json",
-    "x-github-api-version": "2022-11-28",
-    "user-agent": "ascent-org-listing",
-  };
-  if (token) headers.authorization = `Bearer ${token}`;
+  // Canonical header set (TitleCase keys — HTTP header names are case-insensitive on the wire, so
+  // this is equivalent to the lowercase variant this listing previously sent). Authorization is
+  // added only when a token is present.
+  const headers = ghHeaders(token, { userAgent: "ascent-org-listing" });
   const map = (r: GhRepo): OrgRepoListItem => ({
     owner: r.owner.login,
     name: r.name,

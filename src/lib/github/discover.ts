@@ -13,7 +13,7 @@
 //   • rankDiscoveredOrgs / selectSuggestedOrgLogins / selectSeedTarget — pure transforms over the
 //     fetched data, with no I/O.
 
-import { githubApiBase } from "@/lib/github/host";
+import { ghHeaders, githubApiBase } from "@/lib/github/host";
 
 // BUG (github-repo-data-access #1): this module was the only github layer hardcoding api.github.com,
 // so org auto-discovery ignored the GHES `GITHUB_API_URL` override and broke (firewalled/401) on
@@ -65,12 +65,7 @@ interface GhRepo {
 
 async function ghUser<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${githubApiBase()}${path}`, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": "ascent-org-discovery",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
+    headers: ghHeaders(token, { userAgent: "ascent-org-discovery" }),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`GitHub ${res.status} on ${path}`);

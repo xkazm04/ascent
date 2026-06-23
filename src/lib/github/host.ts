@@ -31,3 +31,31 @@ export function githubGraphqlUrl(): string {
 export function githubRawBase(): string {
   return envHost(process.env.GITHUB_RAW_URL) ?? "https://raw.githubusercontent.com";
 }
+
+/** The default User-Agent the REST scanner sends (most callers). */
+const DEFAULT_USER_AGENT = "ascent-maturity-scanner";
+
+/**
+ * Canonical GitHub REST request headers — the other half of "consistent auth" `host.ts` centralizes
+ * (the base URL is the first half). Returns `Accept`, `User-Agent`, and the pinned `X-GitHub-Api-Version`,
+ * adding `Authorization: Bearer <token>` only when a token is present (keyless public scans omit it).
+ * HTTP header names are case-insensitive on the wire, so the canonical TitleCase here is equivalent to
+ * the lowercase variant `list.ts` previously sent.
+ *
+ *  - `accept`    — override the media type (e.g. `application/vnd.github.sha` for the cheap head lookup).
+ *  - `userAgent` — override the UA convention per caller (org discovery / public listing set their own).
+ *  - `extra`     — merge additional headers (e.g. a conditional `If-None-Match`).
+ */
+export function ghHeaders(
+  token?: string,
+  opts: { accept?: string; userAgent?: string; extra?: Record<string, string> } = {},
+): Record<string, string> {
+  const h: Record<string, string> = {
+    Accept: opts.accept ?? "application/vnd.github+json",
+    "User-Agent": opts.userAgent ?? DEFAULT_USER_AGENT,
+    "X-GitHub-Api-Version": "2022-11-28",
+    ...opts.extra,
+  };
+  if (token) h.Authorization = `Bearer ${token}`;
+  return h;
+}
