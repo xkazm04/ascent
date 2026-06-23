@@ -201,7 +201,6 @@ export {
   updateInitiative,
   getGoalOrgSlug,
   getInitiativeOrgSlug,
-  simulateOrgFix,
   simulateOrgFixes,
   goalImpactsForScenario,
   rankOrgInvestments,

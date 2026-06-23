@@ -480,20 +480,6 @@ export async function getInitiativeOrgSlug(id: string): Promise<string | null> {
 // ── What-if simulator ──────────────────────────────────────────────────────
 
 /**
- * Project the fleet impact of raising `dimId` to `target` across `repoFullNames` (empty = all
- * scanned repos). Returns null when persistence is off or the org has no scanned repos; otherwise
- * the pure FleetProjection (before/after fleet averages, per-repo deltas, promotions).
- */
-export async function simulateOrgFix(
-  orgSlug: string,
-  dimId: DimensionId,
-  target: number,
-  repoFullNames: string[],
-): Promise<FleetProjection | null> {
-  return simulateOrgFixes(orgSlug, [{ dimId, target }], repoFullNames);
-}
-
-/**
  * Multi-dimension variant (SIM-2): project several `{dimId, target}` legs landing together across
  * the scope, so a leader can model a combined push ("raise Tests to 70 AND CI to 60 on these repos")
  * rather than one dimension at a time. Reuses the same pure simulateFleet projection.
