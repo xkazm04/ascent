@@ -46,11 +46,11 @@ export async function proxy(request: NextRequest) {
 
   // Touch the session so an expiring token is refreshed and the new cookies ride `response`.
   // Do not gate routing here — authorization happens at the data sources (gate + Route Handlers).
-  // BUG (github-oauth-session #1): this best-effort cookie refresh must NOT be request-fatal. The
-  // proxy runs on a superset of requests (the broad matcher below, incl. unauthenticated/public
-  // paths), so an un-guarded getUser() turns a transient Supabase auth-server hiccup into a 500 on
-  // the ENTIRE surface. Mirror getViewer()'s tolerance (access.ts): treat a thrown/error result as
-  // "no user, cookie not refreshed this request" and let the request proceed.
+  // This best-effort cookie refresh must NOT be request-fatal. The proxy runs on a superset of
+  // requests (the broad matcher below, incl. unauthenticated/public paths), so an un-guarded
+  // getUser() would turn a transient Supabase auth-server hiccup into a 500 on the ENTIRE surface.
+  // Mirror getViewer()'s tolerance (access.ts): treat a thrown/error result as "no user, cookie not
+  // refreshed this request" and let the request proceed.
   try {
     await supabase.auth.getUser();
   } catch {
