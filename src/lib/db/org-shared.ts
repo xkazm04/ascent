@@ -30,3 +30,14 @@ export function techGroupScope(groupId?: string | null) {
 // GitHub calls. "commits"/"aiCommits" reflect the recent-activity window we capture at scan
 // time. Bots ([bot]) and unattributed ("unknown") commits are excluded from the human view.
 export const isBot = (login: string) => /\[bot\]$/i.test(login) || login === "unknown";
+
+/** Arithmetic mean of a number list; 0 for an empty list (never divides by zero). */
+export function mean(xs: number[]): number {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+}
+
+/** {@link mean}, rounded to the nearest integer. The canonical rounded-average for the org rollups
+ *  — always empty-guarded, so copies that omitted the guard are corrected by routing through here. */
+export function roundedMean(xs: number[]): number {
+  return Math.round(mean(xs));
+}

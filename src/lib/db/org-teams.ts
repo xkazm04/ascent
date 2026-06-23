@@ -11,7 +11,7 @@ import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
-import { isBot } from "@/lib/db/org-shared";
+import { isBot, roundedMean } from "@/lib/db/org-shared";
 
 const TEAM_STRONG = 65; // a team "exemplifies" a dimension at/above this (a mentor candidate)
 const TEAM_WEAK = 50; // a team could grow a dimension below this (a learner candidate)
@@ -134,7 +134,7 @@ interface TeamAcc {
  * since-last-scan movers. Finally derives the org-level knowledge leader and one suggested pairing.
  */
 export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgTeamRollup {
-  const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0);
+  const avg = roundedMean;
 
   const acc = new Map<string, TeamAcc>();
   let attributedRepos = 0;

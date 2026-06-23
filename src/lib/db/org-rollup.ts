@@ -3,7 +3,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
-import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
@@ -174,7 +174,7 @@ export function computeWindowDeltas(
   const beforeIds = new Set(before.map((b) => b.repoId));
   const now = current.filter((c) => beforeIds.has(c.repoId));
   if (!before.length || !now.length) return null;
-  const avg = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+  const avg = roundedMean;
   return {
     overall: avg(now.map((c) => c.overall)) - avg(before.map((b) => b.overall)),
     adoption: avg(now.map((c) => c.adoption)) - avg(before.map((b) => b.adoption)),
@@ -249,7 +249,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   });
 
   const scanned = rows.filter((r) => r.latest);
-  const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0);
+  const avg = roundedMean;
   const postureCounts: Record<string, number> = {};
   for (const r of scanned) postureCounts[r.latest!.posture] = (postureCounts[r.latest!.posture] ?? 0) + 1;
 

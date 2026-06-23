@@ -7,7 +7,7 @@ import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
-import { IMPACT_WEIGHT, LEVEL_RANK, isBot, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
@@ -598,8 +598,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
     if (r.primaryLanguage) langCounts.set(r.primaryLanguage, (langCounts.get(r.primaryLanguage) ?? 0) + 1);
   }
 
-  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
-  const avg = (xs: number[]) => Math.round(mean(xs));
+  const avg = roundedMean;
   const myAvgOverall = mean(myOverall);
   const myAvgAdoption = mean(myAdoption);
 

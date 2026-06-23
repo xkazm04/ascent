@@ -2,7 +2,7 @@
 // governance, and commit-activity trend (Deepen-F3). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import type { PrStats } from "@/lib/types";
 
 export interface OrgPrSignals {
@@ -42,7 +42,7 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
   }
   if (!stats.length) return null;
 
-  const mean = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : 0);
+  const mean = roundedMean;
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
   const governed = stats.map((s) => s.aiGovernedRate).filter((x): x is number => x != null);
   const reviewed = stats.map((s) => s.reviewedRate).filter((x): x is number => x != null);
