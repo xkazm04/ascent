@@ -5,11 +5,11 @@
 import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
-import { cacheSet, coalesceScan } from "@/lib/cache";
+import { coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { isDbConfigured, persistScanReport, recordQuotaEvent } from "@/lib/db";
+import { recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
-import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
+import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 
@@ -61,35 +61,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
   }
 
-  // Weekly SOFT gate: public scans get a free per-window allowance (persistent — see
-  // src/lib/public-scan-quota.ts). A SIGNED-IN viewer gets an elevated, per-user allowance; an
-  // anonymous caller gets the smaller per-IP one. The /report flow peeks the cache first (cheap,
-  // unconsumed); reaching the stream means a real scan, so consume one slot here. Fails open when
-  // persistence isn't configured. Private (token) scans are credit-metered and skip this.
-  let quotaRemaining: number | null = null;
-  let quotaResetAt: number | null = null;
-  let quotaScope: "anon" | "user" | null = null;
-  // Set when a weekly slot was actually consumed, so the in-stream no-delivery paths below can
-  // REFUND it — the free tier meters on commit, not attempt (same policy as credit metering).
-  // Carries the viewer identity the slot was charged to, so the refund hits the same bucket.
-  let quotaCharged: { viewerId: string | null; chargedAt: number | null } | null = null;
-  if (orgSlug === "public" && !token && !mock) {
-    const viewer = await getViewer();
-    const quota = await consumePublicScanQuota(request, { viewerId: viewer?.id });
-    if (quota.enforced && !quota.allowed) return weeklyQuotaExceeded(quota);
-    if (quota.enforced) {
-      quotaRemaining = quota.remaining;
-      quotaResetAt = quota.resetAt;
-      quotaScope = quota.signedIn ? "user" : "anon";
-      quotaCharged = { viewerId: viewer?.id ?? null, chargedAt: quota.chargedAt };
-    }
-  }
-  const refundQuota = async () => {
-    if (quotaCharged) {
-      await refundPublicScanQuota(request, { viewerId: quotaCharged.viewerId }, quotaCharged.chargedAt);
-      quotaCharged = null; // at most one refund per consumed slot
-    }
-  };
+  // Weekly SOFT gate: public scans get a free per-window allowance (shared with /api/scan via
+  // consumeScanQuota). The /report flow peeks the cache first (cheap, unconsumed); reaching the stream
+  // means a real scan, so consume one slot here. Private (token) scans are credit-metered and skip this.
+  const quota = await consumeScanQuota(request, { orgSlug, token, mock });
+  if (quota.blocked) return quota.blocked;
+  const quotaRemaining = quota.quotaRemaining;
+  const quotaResetAt = quota.quotaResetAt;
+  const quotaScope = quota.quotaScope;
+  // Refund the consumed slot from the in-stream no-delivery paths below (cached hit, degrade-to-mock,
+  // failure) — the free tier meters on commit, not attempt (same policy as credit metering).
+  const refundQuota = quota.refund;
 
   // Hoisted so the stream's cancel() (fired when the client disconnects and tears the stream down
   // mid-scan) can stop the heartbeat immediately, rather than letting it fire on a dead controller
@@ -162,39 +144,23 @@ export async function POST(request: Request) {
           ? await coalesceScan(lookup.cacheKey, runScan, request.signal)
           : await runScan(request.signal);
 
-        // A transient LLM failure degrades to MockProvider, but the lookup key is still the llm
-        // key — caching it would pin the mock floor under `::llm` for the full TTL and serve it to
-        // every later scanner of this commit. Skip caching a mock report when the LLM was requested.
-        const degradedToMock = report.engine.provider === "mock" && !mock;
+        // Derive the cache-poisoning guards — shared with /api/scan via classifyScanResult.
+        // degradedToMock: a transient LLM failure fell back to MockProvider but the lookup key is still
+        // ::llm. lowCoverage: silent per-file fetch failures degraded coverage without failing the LLM.
+        const { degradedToMock, lowCoverage } = classifyScanResult(report, mock);
         // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not
         // the product the slot pays for — refund it, mirroring the credit rule ("a degrade-to-mock
         // run is free").
         if (degradedToMock) await refundQuota();
-        // Don't cache a low-coverage scan: silent per-file fetch failures degrade coverage without
-        // failing the LLM, so a transient blip would otherwise pin a degraded snapshot under the
-        // commit key for the full TTL. Skip like the mock-degrade case; the next scan re-resolves.
-        const lowCoverage = report.confidence < 0.5;
-        if (lookup && !degradedToMock && !lowCoverage) cacheSet(lookup.cacheKey, report);
-        // Mirror the cacheSet guard on the DURABLE store too: persisting a degraded-to-mock or
-        // low-coverage report lets getScanReportByCommit's DB tier re-serve the deterministic floor
-        // cross-instance for ~7 days under the ::llm identity — the same poisoning the cacheSet skip
-        // prevents, via the database. Skip persistence for these; the next fresh scan persists a real one.
-        if (isDbConfigured() && !degradedToMock && !lowCoverage) {
-          try {
-            // Persist the ETag so the next re-scan can issue a free conditional request.
-            const persisted = await persistScanReport(report, { orgSlug, headEtag: lookup?.etag ?? undefined });
-            if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
-              console.warn("[scan/stream] persisted with partial write failures", {
-                repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
-                scanId: persisted.scanId,
-                auditFailed: persisted.failures.audit,
-                contributorFailures: persisted.failures.contributors,
-              });
-            }
-          } catch (err) {
-            console.error("[scan/stream] persistence failed", err);
-          }
-        }
+        // Cache + persist behind the shared guards: skip BOTH caches on a degraded/low-coverage report
+        // (getScanReportByCommit's DB tier would otherwise re-serve the floor cross-instance under ::llm).
+        // The stream surfaces nothing from the result, so the deduped/persistedOk return is ignored here.
+        await cacheAndPersistScan(report, { degradedToMock, lowCoverage }, {
+          tag: "scan/stream",
+          repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
+          orgSlug,
+          lookup,
+        });
         // Stop the keepalive at the terminal frame (co-located), not only in finally, so a 15s ping
         // can't interleave after the result on a slow close.
         if (heartbeat) clearInterval(heartbeat);
