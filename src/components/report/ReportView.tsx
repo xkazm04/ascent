@@ -9,13 +9,16 @@ import { classifyHistoryResponse } from "@/components/report/reportTaxonomy";
 import { LEVELS, axisScore } from "@/lib/maturity/model";
 import { type TrendPoint } from "@/components/report/TrendChart";
 import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
-import { type ReportTab } from "@/components/report/ReportTabBar";
 import { ReportHeader } from "@/components/report/ReportHeader";
 import { ScoringTab } from "@/components/report/ScoringTab";
 import { NextLevelPath, RoadmapSteps, TrustLadder } from "@/components/report/RoadmapPanel";
 import { RecommendationTracker } from "@/components/report/RecommendationTracker";
 import { ContributorsPanel } from "@/components/report/ContributorsPanel";
 import { SideNav, type SideNavGroup } from "@/components/ui";
+
+// Report body section ids. (Previously lived in the now-deleted ReportTabBar, whose only
+// surviving consumer was this type import — the tab switcher itself migrated to SideNav.)
+export type ReportTab = "scoring" | "roadmap" | "sandbox" | "contributors";
 
 export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?: () => void }) {
   const { repo, level } = report;
