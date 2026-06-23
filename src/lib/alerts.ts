@@ -11,6 +11,7 @@
 
 import type { ScanDiff } from "@/lib/report/compare";
 import { isWithinNoise } from "@/lib/maturity/noise";
+import { isPrivateOrInternalHost } from "@/lib/net/ssrf";
 
 /** How loud the regression is — drives whether/how prominently it's surfaced. */
 export type AlertSeverity = "critical" | "warning";
@@ -309,8 +310,11 @@ export function isAlertConfigured(orgWebhookUrl?: string | null): boolean {
 /**
  * Validate a caller-supplied org webhook URL before storing it. Pure (unit-tested). The server
  * POSTs org data to this URL, so it must parse, be https, carry no inline credentials, and not
- * target an obviously-internal host (localhost / private-range IP literals) — the established
- * "validate outbound URLs built from caller input" rule. DNS-rebinding is out of scope here.
+ * target a private/internal host — the established "validate outbound URLs built from caller input"
+ * rule. The private/internal host check is the SHARED isPrivateOrInternalHost guard (same one the
+ * branding logo-URL guard uses), so this now also rejects CGNAT 100.64/10, IPv6 unique-local
+ * (fc00::/7) and link-local (fe80::), multicast/reserved, and internal hostnames (*.local/*.internal/
+ * cloud metadata) the old hand-rolled list missed. DNS-rebinding is out of scope here.
  */
 export function validateAlertWebhookUrl(raw: string): { ok: true; url: string } | { ok: false; error: string } {
   const trimmed = raw.trim();
@@ -323,15 +327,8 @@ export function validateAlertWebhookUrl(raw: string): { ok: true; url: string } 
   }
   if (parsed.protocol !== "https:") return { ok: false, error: "Webhook must be an https:// URL." };
   if (parsed.username || parsed.password) return { ok: false, error: "Credentials in the URL are not allowed." };
-  const host = parsed.hostname.toLowerCase();
-  const isPrivate =
-    host === "localhost" ||
-    host === "[::1]" ||
-    /^(127|10|0)\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  if (isPrivate) return { ok: false, error: "Webhook host must be publicly reachable." };
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 [..] brackets
+  if (isPrivateOrInternalHost(host)) return { ok: false, error: "Webhook host must be publicly reachable." };
   return { ok: true, url: parsed.toString() };
 }
 

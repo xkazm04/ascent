@@ -225,6 +225,22 @@ describe("validateAlertWebhookUrl", () => {
       expect(validateAlertWebhookUrl(u).ok).toBe(false);
     }
   });
+  // Hardening: the shared SSRF guard widened coverage past the old hand-rolled list to the same ranges
+  // the branding logo-URL guard always blocked — these all used to slip through to the webhook sink.
+  it("rejects the ranges the old webhook list missed (CGNAT, IPv6 ULA/link-local, multicast, internal hostnames)", () => {
+    for (const u of [
+      "https://100.64.0.1/hook", // CGNAT 100.64.0.0/10
+      "https://[fc00::1]/hook", // IPv6 unique-local
+      "https://[fd00::1]/hook", // IPv6 unique-local
+      "https://[fe80::1]/hook", // IPv6 link-local
+      "https://224.0.0.1/hook", // multicast / reserved
+      "https://printer.local/hook", // mDNS internal
+      "https://api.internal/hook", // internal TLD
+      "https://metadata.google.internal/hook", // cloud metadata hostname
+    ]) {
+      expect(validateAlertWebhookUrl(u).ok).toBe(false);
+    }
+  });
 });
 
 describe("dispatchAlert (the one real side-effect: 2xx/non-2xx/throw outcome mapping)", () => {
