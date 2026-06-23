@@ -8,6 +8,7 @@ import type { GateResult } from "@/lib/scoring/gate";
 import { effectiveFloor, failsFloor } from "@/lib/scoring/gate";
 import type { ScanDiff } from "@/lib/report/compare";
 import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
+import { signedDelta } from "@/components/ui/format";
 
 /** Hidden marker so the bot can find + update its own comment instead of stacking new ones. */
 export const GATE_COMMENT_MARKER = "<!-- ascent-maturity-gate -->";
@@ -23,8 +24,6 @@ export interface GateComment {
   commentBody: string;
 }
 
-const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
-
 // Escape text that reaches a rendered GitHub markdown surface. LLM-derived dimension names, gap text,
 // failure messages, and the provider label are NOT trusted plain text: a `|` breaks the table, a
 // newline splits a row/cell, and a literal `<!--` could forge the sticky-comment marker
@@ -37,7 +36,7 @@ const mdCell = (s: string) => defuseComment(s.replace(/\|/g, "\\|").replace(/\n+
 function deltaPhrase(diff?: ScanDiff | null): string | null {
   if (!diff || diff.unchanged) return null;
   const parts: string[] = [];
-  if (diff.overall.delta !== 0) parts.push(`overall ${signed(diff.overall.delta)}`);
+  if (diff.overall.delta !== 0) parts.push(`overall ${signedDelta(diff.overall.delta)}`);
   if (diff.level.changed) parts.push(`${diff.level.before.id} → ${diff.level.after.id}`);
   if (diff.posture.changed) parts.push(`posture → ${diff.posture.after.label}`);
   return parts.length ? parts.join(" · ") : null;
