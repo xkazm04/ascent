@@ -18,9 +18,6 @@ export interface RepoDims {
   dims: Record<string, number>;
 }
 
-/** The metric a scenario targets: a single dimension, or one of the two axes / the overall. */
-export type SimMetric = DimensionId | "overall" | "adoption" | "rigor";
-
 /** One leg of a scenario: raise `dimId` to `target` across the scope. */
 export interface SimFix {
   dimId: DimensionId;
