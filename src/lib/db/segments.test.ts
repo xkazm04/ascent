@@ -79,7 +79,7 @@ describe("buildSegmentComparison", () => {
   });
 });
 
-// ── Cross-tenant isolation of repo tagging (CRITICAL #1) ──────────────────────────────────────────
+// ── Cross-tenant isolation of repo tagging ────────────────────────────────────────────────────────
 //
 // The whole tenant boundary on /api/org/segments/<id>/repos rests on the org filter INSIDE these two
 // db functions: the route gates only on the client-supplied `body.org`, so the segment's true owner is
@@ -311,7 +311,7 @@ describe("setRepoSegmentsBulk — org-scoped bulk tagging boundary + count contr
   });
 });
 
-// ── Membership-write IDEMPOTENCY (HIGH #3) ────────────────────────────────────────────────────────
+// ── Membership-write IDEMPOTENCY ──────────────────────────────────────────────────────────────────
 //
 // The count contract (-1 / 0 / res.count) and fullName dedup are pinned above. What was NOT pinned is
 // the *write shape* that makes the membership writes idempotent — the load-bearing half of the finding:
@@ -398,7 +398,7 @@ describe("membership-write idempotency", () => {
   });
 });
 
-// ── Segment-scoped rollup actually filters to the segment's repos (CRITICAL #2) ───────────────────
+// ── Segment-scoped rollup actually filters to the segment's repos ──────────────────────────────────
 //
 // Every per-segment number on the comparison page is a getOrgRollup() scoped by seg.id:
 //   compareSegments → summarizeSegment(orgSlug, seg) → getOrgRollup(orgSlug, undefined, seg.id)
@@ -604,7 +604,7 @@ describe("summarizeSegment scope — the segment rollup must filter to the segme
   });
 });
 
-// ── getRepoSegmentMap inversion + sorted, deduped output (MEDIUM #5) ───────────────────────────────
+// ── getRepoSegmentMap inversion + sorted, deduped output ────────────────────────────────────────────
 //
 // getRepoSegmentMap reads flat repoSegment rows (segment→repo membership) and INVERTS them into a
 // fullName → segments[] map consumed two ways that both trust its exact shape: the repositories page
