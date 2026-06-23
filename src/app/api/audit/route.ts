@@ -98,11 +98,10 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Reuse the same `filters` object the CSV branch passes to exportCsv so both response formats
+    // derive their action/actorId/since/until from one place and can't filter differently.
     const page = await getAuditLog(org, {
-      action: searchParams.get("action") ?? undefined,
-      actorId: searchParams.get("actorId") ?? undefined,
-      since: searchParams.get("since") ?? undefined,
-      until: searchParams.get("until") ?? undefined,
+      ...filters,
       cursor: searchParams.get("cursor"),
       limit: Number(searchParams.get("limit")) || 25,
     });
