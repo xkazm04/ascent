@@ -60,3 +60,27 @@ export function Brand() {
     </div>
   );
 }
+
+/**
+ * The neutral "fallback" OG card body — the brand lockup, an uppercase monospace eyebrow, a 72px white
+ * headline, a muted tagline, and the shared footer. Used by every route's degraded (no-data / private /
+ * never-scanned) branch; only the eyebrow, title, and tagline vary per route. Returns a plain JSX tree
+ * for a `next/og` ImageResponse.
+ */
+export function FallbackOgCard({ eyebrow, title, tagline }: { eyebrow: string; title: string; tagline: string }) {
+  return (
+    <div style={SHELL}>
+      <Brand />
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", fontSize: 28, letterSpacing: 4, textTransform: "uppercase", color: BRAND_ACCENT, fontFamily: "monospace" }}>
+          {eyebrow}
+        </div>
+        <div style={{ display: "flex", fontSize: 72, fontWeight: 700, lineHeight: 1.05, color: BRAND_WHITE }}>{title}</div>
+        <div style={{ display: "flex", fontSize: 30, color: BRAND_MUTED }}>{tagline}</div>
+      </div>
+      <div style={{ display: "flex", fontSize: 26, color: "#64748b", fontFamily: "monospace" }}>
+        ascent · scan → score → route to the next level
+      </div>
+    </div>
+  );
+}

@@ -4,7 +4,7 @@ import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { LEVEL_HEX, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
-import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
+import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE, FallbackOgCard } from "@/lib/og/og-brand";
 
 // SHELL-2: fleet social card for the org dashboard. Mirrors the per-repo report OG. Real numbers are
 // drawn ONLY when the org is publicly readable (canReadOrg — true for the shared public org, and for a
@@ -92,21 +92,11 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   // Fallback — neutral card (no DB, private org without a session, or no scans).
   return new ImageResponse(
     (
-      <div style={SHELL}>
-        <Brand />
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", fontSize: 28, letterSpacing: 4, textTransform: "uppercase", color: "#3b9eff", fontFamily: "monospace" }}>
-            Fleet maturity
-          </div>
-          <div style={{ display: "flex", fontSize: 72, fontWeight: 700, lineHeight: 1.05, color: "#ffffff" }}>{slug}</div>
-          <div style={{ display: "flex", fontSize: 30, color: "#94a3b8" }}>
-            AI-native engineering maturity across the fleet — a 5-level ladder across 9 dimensions, with evidence.
-          </div>
-        </div>
-        <div style={{ display: "flex", fontSize: 26, color: "#64748b", fontFamily: "monospace" }}>
-          ascent · scan → score → route to the next level
-        </div>
-      </div>
+      <FallbackOgCard
+        eyebrow="Fleet maturity"
+        title={slug}
+        tagline="AI-native engineering maturity across the fleet — a 5-level ladder across 9 dimensions, with evidence."
+      />
     ),
     { ...size },
   );

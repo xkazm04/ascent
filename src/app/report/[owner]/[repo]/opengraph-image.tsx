@@ -3,7 +3,7 @@ import { getScanReportByCommit } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { LEVEL_HEX, LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
-import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
+import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE, FallbackOgCard } from "@/lib/og/og-brand";
 import { parseRepoParam } from "./repoParam";
 
 // Per-repo social card for the report permalink — the image the page's generateMetadata advertises
@@ -99,21 +99,11 @@ export default async function Image({ params }: { params: Promise<{ owner: strin
   // Fallback — static card from route params only (no DB, private, or never scanned).
   return new ImageResponse(
     (
-      <div style={SHELL}>
-        <Brand />
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", fontSize: 28, letterSpacing: 4, textTransform: "uppercase", color: "#3b9eff", fontFamily: "monospace" }}>
-            Maturity report
-          </div>
-          <div style={{ display: "flex", fontSize: 72, fontWeight: 700, lineHeight: 1.05, color: "#ffffff" }}>{ref}</div>
-          <div style={{ display: "flex", fontSize: 30, color: "#94a3b8" }}>
-            AI-native engineering maturity — a 5-level ladder across 9 dimensions, with evidence.
-          </div>
-        </div>
-        <div style={{ display: "flex", fontSize: 26, color: "#64748b", fontFamily: "monospace" }}>
-          ascent · scan → score → route to the next level
-        </div>
-      </div>
+      <FallbackOgCard
+        eyebrow="Maturity report"
+        title={ref}
+        tagline="AI-native engineering maturity — a 5-level ladder across 9 dimensions, with evidence."
+      />
     ),
     { ...size },
   );
