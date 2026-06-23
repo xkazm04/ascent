@@ -4,36 +4,6 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { isBot, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 
-export interface OrgContributor {
-  login: string;
-  name: string | null;
-  commits: number;
-  aiCommits: number;
-  repos: number;
-}
-
-/** Contributors aggregated across the org's repos — for the 'who is AI-native' view. */
-export async function getOrgContributors(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgContributor[]> {
-  if (!isDbConfigured()) return [];
-  const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return [];
-  const rows = await prisma.repoContributor.findMany({
-    where: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
-    select: { login: true, name: true, commits: true, aiCommits: true },
-  });
-  const map = new Map<string, OrgContributor>();
-  for (const r of rows) {
-    const e = map.get(r.login) ?? { login: r.login, name: r.name, commits: 0, aiCommits: 0, repos: 0 };
-    e.commits += r.commits;
-    e.aiCommits += r.aiCommits;
-    e.repos += 1;
-    if (!e.name) e.name = r.name;
-    map.set(r.login, e);
-  }
-  return [...map.values()].filter((c) => c.login !== "unknown").sort((a, b) => b.commits - a.commits);
-}
-
 // ── Contributor intelligence (F5) ────────────────────────────────────────────
 // All derived from the stored RepoContributor snapshots (latest scan per repo) — no extra
 // GitHub calls. "commits"/"aiCommits" reflect the recent-activity window we capture at scan

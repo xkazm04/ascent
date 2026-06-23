@@ -42,9 +42,7 @@ export {
 export { getOrgGatePolicy, setOrgGatePolicy } from "@/lib/db/org-gate";
 
 export {
-  getOrgContributors,
   getContributorInsights,
-  type OrgContributor,
   type ContributorInsight,
   type RepoConcentration,
   type ContributorInsights,
