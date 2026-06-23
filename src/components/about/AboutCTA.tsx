@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Surface } from "@/components/ui";
-import { AboutReveal } from "./AboutReveal";
+import { Reveal } from "@/components/deck/Reveal";
 
 /** Closing deck section — the call to action centered in the viewport, with a compact footer riding
  *  at the bottom of the same screen. The footer is inline (not the server SiteFooter, which can't be
@@ -12,7 +12,7 @@ export function AboutCTA() {
     <section id="cta" className="flex min-h-screen snap-start flex-col pt-14">
       <div className="flex flex-1 items-center">
         <div className="mx-auto w-full max-w-6xl px-5">
-          <AboutReveal>
+          <Reveal>
             <Surface tone="strong" radius="2xl" className="relative overflow-hidden p-10 text-center">
               <div aria-hidden className="strata absolute inset-0 opacity-50" />
               <div
@@ -35,7 +35,7 @@ export function AboutCTA() {
                 </div>
               </div>
             </Surface>
-          </AboutReveal>
+          </Reveal>
         </div>
       </div>
 

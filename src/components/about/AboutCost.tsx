@@ -1,7 +1,7 @@
 "use client";
 
 import { SectionHeading } from "@/components/ui";
-import { AboutReveal } from "./AboutReveal";
+import { Reveal } from "@/components/deck/Reveal";
 
 const COSTS = [
   { t: "Rework", d: "Initiatives that move two repos when you budgeted for twenty." },
@@ -24,17 +24,17 @@ export function AboutCost() {
   return (
     <section id="cost" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
       <div className="mx-auto w-full max-w-6xl px-5">
-        <AboutReveal>
+        <Reveal>
           <SectionHeading
             size="page"
             kicker="The cost of guessing"
             title="AI adoption without a map is expensive"
             intro="Most orgs can't see where their AI maturity actually is — so they spend in the wrong places, miss the risks, and find out too late."
           />
-        </AboutReveal>
+        </Reveal>
         <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {COSTS.map((c, i) => (
-            <AboutReveal key={c.t} delay={i * 0.08}>
+            <Reveal key={c.t} delay={i * 0.08}>
               <div className="h-full rounded-xl border border-divider bg-surface/40 p-6">
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-mono text-sm uppercase tracking-[0.2em] text-danger-soft">{c.t}</div>
@@ -42,7 +42,7 @@ export function AboutCost() {
                 </div>
                 <p className="mt-3 text-base leading-relaxed text-slate-400">{c.d}</p>
               </div>
-            </AboutReveal>
+            </Reveal>
           ))}
         </div>
       </div>
