@@ -21,6 +21,7 @@ export function OrgNav({ slug }: { slug: string }) {
       { href: `${base}/repositories`, label: "Repositories" },
       { href: `${base}/segments`, label: "Segments" },
       { href: `${base}/tech-stacks`, label: "Tech Stacks" },
+      { href: `${base}/passports`, label: "Passports" },
       { href: `${base}/live`, label: "Live" },
     ] },
     { label: "Intelligence", tabs: [

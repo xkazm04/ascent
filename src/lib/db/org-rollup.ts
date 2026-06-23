@@ -6,7 +6,8 @@ import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
-import type { TechStack } from "@/lib/types";
+import { parsePassportJson } from "@/lib/analyze/passport";
+import type { AppPassport, TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
  *  JSON blob. Returns undefined for a null/missing/malformed blob (no-token scan, parse error) so the
@@ -73,6 +74,9 @@ export interface OrgRepoRow {
   /** Detected tech stack (Feature 3a), cached from the latest scan — null until first scan / if absent.
    *  Drives tech badges on the leaderboard + tech-based grouping. */
   techStack: TechStack | null;
+  /** App Readiness Passport cached from the latest scan — null until first scan / if absent. Drives the
+   *  portfolio passports view (the two readiness axes + named stack). */
+  passport: AppPassport | null;
   scanSchedule: string;
   lastScanAt: string | null;
   /** Outcome of the most recent scan attempt — "ok" | "error" | null (never attempted). */
@@ -211,6 +215,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       watched: r.watched,
       primaryLanguage: r.primaryLanguage ?? null,
       techStack: parseTechStackJson(r.techStackJson),
+      passport: parsePassportJson(r.passportJson),
       scanSchedule: r.scanSchedule,
       lastScanAt: r.lastScanAt ? r.lastScanAt.toISOString() : null,
       lastScanStatus: r.lastScanStatus,

@@ -8,9 +8,10 @@ import type { Metadata } from "next";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { ReportClient } from "@/components/report/ReportClient";
 import { ReportView } from "@/components/report/ReportView";
+import { PassportCard } from "@/components/org/PassportCard";
 import { ReportSkeleton } from "@/components/report/ReportSkeleton";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
-import { getScanReportByCommit, getSkillHistory, diffTrackSets } from "@/lib/db";
+import { getScanReportByCommit, getRepoPassport, getSkillHistory, diffTrackSets } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { PRACTICES } from "@/lib/practices";
 
@@ -61,6 +62,9 @@ export default async function ReportPermalink({
   const pinned = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug }).catch(() => null);
   // STD-6: onboarding-skill generation history for this repo (only meaningful for a persisted report).
   const skillHistory = pinned ? await getSkillHistory(ref).catch(() => []) : [];
+  // App Readiness Passport (P2): the persisted scorecard for this repo's pinned scan. Gated identically
+  // to the report (getScanReportByCommit above used the same orgSlug), so a private passport never leaks.
+  const passport = pinned ? await getRepoPassport(owner, name, { orgSlug, headSha: sha }).catch(() => null) : null;
 
   return (
     <>
@@ -69,6 +73,11 @@ export default async function ReportPermalink({
         {pinned ? (
           <ReportErrorBoundary>
             <ReportView report={pinned} />
+            {passport && (
+              <div className="mt-8">
+                <PassportCard passport={passport} repo={ref} />
+              </div>
+            )}
           </ReportErrorBoundary>
         ) : (
           <Suspense fallback={<div className="mx-auto w-full max-w-md py-12"><ReportSkeleton /></div>}>
