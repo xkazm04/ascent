@@ -6,7 +6,7 @@ import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
 import { EVENT_LABEL, STATUS_ACCENT, STATUS_LABEL, dueLabel, eventValue } from "@/components/org/backlogShared";
 
-export function ItemRow({
+export function BacklogItemRow({
   org,
   item,
   assignees,

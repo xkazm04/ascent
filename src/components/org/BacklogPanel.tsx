@@ -4,7 +4,10 @@ import { useCallback, useRef, useState } from "react";
 import { Card } from "@/components/org/ui";
 import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
 import { OwnerHeader, SummaryStrip } from "@/components/org/BacklogSummary";
-import { ItemRow } from "@/components/org/BacklogItemRow";
+import { BacklogItemRow } from "@/components/org/BacklogItemRow";
+
+// Impact-word tiebreak ranking for the "Projected points" cross-repo sort.
+const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
 /**
  * The org-wide recommendation backlog: a stat strip, a By owner / By due date toggle, and inline
@@ -74,20 +77,6 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
     [refresh],
   );
 
-  // "Projected points" is a flat cross-repo ranking on the engine-true ROI each item carries
-  // (projectedPoints — overall-score upside of closing the gap), so cross-repo leverage the
-  // per-repo report can't show sorts to the top. Items without a projection (pre-dimension
-  // scans) sink below scored ones; impact words break ties.
-  const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
-  const byPoints = backlog.byOwner
-    .flatMap((g) => g.items)
-    .sort(
-      (a, b) =>
-        (b.projectedPoints ?? -1) - (a.projectedPoints ?? -1) ||
-        (IMPACT_RANK[b.impact] ?? 0) - (IMPACT_RANK[a.impact] ?? 0) ||
-        b.lastActivityAt.localeCompare(a.lastActivityAt),
-    );
-
   const groups: { key: string; header: React.ReactNode; items: BacklogItem[] }[] =
     view === "owner"
       ? backlog.byOwner.map((g) => ({ key: g.login ?? "__unassigned", header: <OwnerHeader group={g} />, items: g.items }))
@@ -112,7 +101,19 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
                   </span>
                 </span>
               ),
-              items: byPoints,
+              // "Projected points" is a flat cross-repo ranking on the engine-true ROI each item
+              // carries (projectedPoints — overall-score upside of closing the gap), so cross-repo
+              // leverage the per-repo report can't show sorts to the top. Items without a projection
+              // (pre-dimension scans) sink below scored ones; impact words break ties. Built lazily
+              // here so the cross-repo sort only runs when this view is actually selected.
+              items: backlog.byOwner
+                .flatMap((g) => g.items)
+                .sort(
+                  (a, b) =>
+                    (b.projectedPoints ?? -1) - (a.projectedPoints ?? -1) ||
+                    (IMPACT_RANK[b.impact] ?? 0) - (IMPACT_RANK[a.impact] ?? 0) ||
+                    b.lastActivityAt.localeCompare(a.lastActivityAt),
+                ),
             },
           ];
 
@@ -148,7 +149,7 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
               <div className="mb-3">{g.header}</div>
               <div className="space-y-3">
                 {g.items.map((item) => (
-                  <ItemRow
+                  <BacklogItemRow
                     key={item.id}
                     org={slug}
                     item={item}
