@@ -6,7 +6,7 @@
 
 import type { DimensionId, LlmRoadmapItem, ScanReport } from "@/lib/types";
 import { DIMENSION_BY_ID, LEVEL_BY_ID, LEVELS } from "@/lib/maturity/model";
-import { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
+import type { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
 import {
   DIMENSION_SHORT,
   EFFORT_CLASS,
