@@ -62,13 +62,18 @@ export async function POST(request: Request) {
     const ent = await checkScanEntitlement(org);
     if (!ent.allowed) return paymentRequired(ent.balance);
     unlimited = ent.unlimited;
-    if (!ent.unlimited && repos.length > ent.balance) {
-      // Optimistic cap from a point-in-time balance read: don't even attempt repos beyond the current
-      // balance. The AUTHORITATIVE enforcement is the per-repo atomic reservation in the loop below —
-      // two concurrent batches each read the same balance here, but only one can win each credit at
-      // debit time, so they can no longer both scan the same slice for free.
-      skippedForCredits = repos.length - ent.balance;
-      scanList = repos.slice(0, ent.balance);
+    if (!ent.unlimited) {
+      // Optimistic cap from a point-in-time read: don't attempt repos beyond what's free+prepaid. The
+      // cap is the monthly FREE allowance left PLUS the prepaid balance — capping on `balance` alone
+      // wrongly skipped an org's included free scans (a Free org with its 10 monthly scans but 0
+      // purchased credits saw slice(0,0) ⇒ everything skipped). The AUTHORITATIVE enforcement is still
+      // the per-repo atomic reservation in the loop below (it classifies allowance vs credit vs deny),
+      // so two concurrent batches can't both scan the same prepaid slice for free.
+      const capacity = ent.balance + ent.allowanceRemaining;
+      if (repos.length > capacity) {
+        skippedForCredits = repos.length - capacity;
+        scanList = repos.slice(0, capacity);
+      }
     }
   }
 

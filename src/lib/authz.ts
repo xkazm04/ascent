@@ -7,8 +7,10 @@
 
 import { NextResponse } from "next/server";
 import { getSession, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
-import { authGateEnabled, getViewer, requireViewer } from "@/lib/access";
+import { authGateEnabled, getViewer, requireViewer, type Viewer } from "@/lib/access";
 import { envBool } from "@/lib/env";
+import { getInstallationIdForOwner, isDbConfigured } from "@/lib/db";
+import { isAppConfigured, isOrgAdminViaInstallation } from "@/lib/github/app";
 import { ensureOwnerMembership, getMembershipRole, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
 
 /** True when the current session's installations include `org` (case-insensitive). */
@@ -26,20 +28,61 @@ export async function sessionHasInstallation(installationId: string | number): P
 }
 
 /**
+ * Resolve the signed-in viewer's effective role in `org` under the Supabase login wall — the SHARED
+ * resolver behind every gate (read / write / RBAC) so their tenant decisions can't drift. Returns the
+ * role (possibly just-seeded) or null when the viewer has no standing in the org.
+ *
+ * Trust-on-first-use is now BOUND TO IDENTITY, closing the owner land-grab: previously the first
+ * signed-in viewer to touch ANY ownerless org (e.g. one the scan pipeline's ensureOrgId created) was
+ * seeded as its owner, so a stranger could claim a victim's org. An as-yet-unowned org is seeded to the
+ * viewer as `owner` ONLY when the viewer is provably entitled to it:
+ *   • the viewer's OWN personal namespace (login === slug), which an attacker can't spoof to a victim; or
+ *   • a GitHub-CONFIRMED admin of the org backing the installation (isOrgAdminViaInstallation — fails
+ *     closed, so a stranger never passes).
+ * An already-owned org is never auto-claimed (it grows via invites/member admin). A viewer who is
+ * neither a member, the personal owner, nor a confirmed org admin gets null — no access, no seed.
+ */
+async function viewerOrgRole(slug: string, viewer: Viewer): Promise<OrgRole | null> {
+  const existing = await getMembershipRole(slug, viewer.login);
+  if (existing) return existing;
+  // Only an as-yet-unowned org is eligible for the identity-bound bootstrap; an owned org is a hard
+  // wall (membership/invite only) — the cross-tenant-takeover invariant.
+  if (await orgHasOwner(slug)) return null;
+  let entitled = slug === viewer.login.trim().toLowerCase();
+  if (!entitled && isAppConfigured() && isDbConfigured()) {
+    // GitHub-verified onboarding for an ORG installation — the install-verified claim the lazy
+    // first-touch seeding lacked. Fails closed on any error / missing permission.
+    const installId = await getInstallationIdForOwner(slug).catch(() => null);
+    if (installId) entitled = await isOrgAdminViaInstallation(installId, slug, viewer.login).catch(() => false);
+  }
+  if (!entitled) return null;
+  await ensureOwnerMembership(slug, viewer.login, viewer.name).catch(() => {});
+  return "owner";
+}
+
+/**
  * Gate a mutating / scanning org endpoint. Returns a NextResponse (401/403) to send back when the
  * caller may NOT act on `org`, or null when access is allowed. Auth-off deployments are open; the
  * shared "public" org is open (the free funnel); a real org requires a session whose installations
  * include it. Call at the top of every mutating /api/org/* (and token-minting /api/app/*) handler.
  */
 export async function requireOrgAccess(org: string): Promise<NextResponse | null> {
-  // Supabase login wall (layered on top): when enforced, require a signed-in viewer first. Past
-  // this, the existing installation-based model governs (and is open when custom OAuth is off, so a
-  // signed-in Supabase viewer may act on any org — the agreed simple-wall semantics).
+  // Supabase login wall (layered on top): when enforced, require a signed-in viewer first.
   const gate = await requireViewer();
   if (gate) return gate;
-  if (!isAuthConfigured()) return null;
   const slug = org.trim().toLowerCase();
   if (slug === PUBLIC_ORG) return null;
+  // Supabase login wall: a signed-in viewer may act on an org ONLY with a real membership (>= member),
+  // not merely by being signed in. The old `if (!isAuthConfigured()) return null` treated the dormant
+  // custom OAuth as "auth off" and let ANY viewer mutate ANY org — the cross-tenant write IDOR.
+  if (authGateEnabled()) {
+    const viewer = await getViewer();
+    if (!viewer) return NextResponse.json({ error: "Sign in to manage this organization." }, { status: 401 });
+    if (roleAtLeast(await viewerOrgRole(slug, viewer), "member")) return null;
+    return NextResponse.json({ error: "You don't have access to this organization." }, { status: 403 });
+  }
+  // Custom GitHub OAuth path (dormant under the Supabase wall) and fully auth-off (local/demo).
+  if (!isAuthConfigured()) return null;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Sign in to manage this organization." }, { status: 401 });
@@ -63,9 +106,15 @@ export async function requireOrgAccess(org: string): Promise<NextResponse | null
 export async function canReadOrg(org: string): Promise<boolean> {
   const slug = org.trim().toLowerCase();
   if (slug === PUBLIC_ORG) return true;
-  // Supabase login wall active: any signed-in viewer may read any org (simple-wall semantics);
-  // signed-out is refused. Checked before the custom-OAuth model below (which stays dormant).
-  if (authGateEnabled()) return Boolean(await getViewer());
+  // Supabase login wall: reading a private org requires a real standing in it (>= viewer), resolved
+  // exactly like the write/RBAC gates. The old blanket `Boolean(await getViewer())` let ANY signed-in
+  // viewer read ANY org — the cross-tenant read IDOR. viewerOrgRole only ever seeds for an
+  // identity-verified viewer, so a stranger reading a victim org gets null ⇒ false (no access, no seed).
+  if (authGateEnabled()) {
+    const viewer = await getViewer();
+    if (!viewer) return false;
+    return roleAtLeast(await viewerOrgRole(slug, viewer), "viewer");
+  }
   if (!isAuthConfigured()) return openOrgDashboardsEnabled();
   return sessionOwnsOrg(slug);
 }
@@ -79,8 +128,12 @@ export async function canReadOrg(org: string): Promise<boolean> {
  */
 export async function requireOrgRead(org: string): Promise<NextResponse | null> {
   if (await canReadOrg(org)) return null;
-  // Supabase login wall: canReadOrg only returns false here when the viewer is signed out.
+  // Supabase login wall: canReadOrg returns false for a signed-out viewer (401, sign in) OR a signed-in
+  // viewer with no standing in this org (403 — authenticated but not a member; the cross-tenant read IDOR).
   if (authGateEnabled()) {
+    if (await getViewer()) {
+      return NextResponse.json({ error: "You don't have access to this organization." }, { status: 403 });
+    }
     return NextResponse.json({ error: "Sign in to view this organization." }, { status: 401 });
   }
   if (isAuthConfigured()) {
@@ -130,25 +183,19 @@ export async function requireOrgRole(org: string, min: OrgRole): Promise<NextRes
   const slug = org.trim().toLowerCase();
   if (slug === PUBLIC_ORG) return null;
 
-  // Supabase login wall: resolve a REAL membership role for the signed-in viewer rather than
-  // blanket-allowing every viewer. The old `if (!isAuthConfigured()) return null` short-circuit
-  // treated "custom OAuth dormant" as "auth off ⇒ open", but under the Supabase wall auth is very
-  // much ON — so any free Supabase account could own every org (cross-tenant member-admin/credit-grant
-  // takeover). Trust-on-first-use: the first viewer to manage an as-yet-unowned org is seeded as its
-  // owner; after that, only members with a sufficient role pass. NOTE: any-member cross-tenant *writes*
-  // via requireOrgAccess (non-owner actions) still follow simple-wall semantics — closing those needs a
-  // real membership/invite model and is tracked as a follow-up.
+  // Supabase login wall: resolve a REAL membership role for the signed-in viewer (the shared
+  // viewerOrgRole resolver) rather than blanket-allowing every viewer. The old `if (!isAuthConfigured())
+  // return null` treated "custom OAuth dormant" as "auth off ⇒ open", but under the Supabase wall auth
+  // is very much ON — so any free Supabase account could own every org. Ownership is bootstrapped only
+  // for an identity-verified viewer (personal namespace or GitHub-confirmed org admin), never lazily for
+  // the first stranger to touch an ownerless org (the owner land-grab); after that, only members with a
+  // sufficient role pass.
   if (authGateEnabled()) {
     const viewer = await getViewer();
     if (!viewer) {
       return NextResponse.json({ error: "Sign in to manage this organization." }, { status: 401 });
     }
-    let role = await getMembershipRole(slug, viewer.login);
-    if (!role && !(await orgHasOwner(slug))) {
-      await ensureOwnerMembership(slug, viewer.login, viewer.name).catch(() => {});
-      role = "owner";
-    }
-    if (roleAtLeast(role, min)) return null;
+    if (roleAtLeast(await viewerOrgRole(slug, viewer), min)) return null;
     return NextResponse.json(
       { error: `This action requires the ${min} role in this organization.` },
       { status: 403 },

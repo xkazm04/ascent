@@ -167,9 +167,15 @@ export async function countMeteredScansThisMonth(orgSlug: string): Promise<numbe
  * Consume the budget for one metered scan under the hybrid model: FREE on the unlimited plan, FREE
  * while the org is under its monthly allowance, then ONE prepaid credit (atomic, balance-clamped), else
  * denied. Returns { ok, balance, unlimited, charged } — `charged` is true ONLY when a credit was
- * actually debited, so the caller refunds (on dedup/degrade) exactly that and nothing else. The
- * allowance pre-check is a soft read (a boundary race can free one extra scan — fine for an allowance);
- * the credit decrement remains the concurrency-safe hard gate.
+ * actually debited, so the caller refunds (on dedup/degrade) exactly that and nothing else.
+ *
+ * The allowance pre-check is a SOFT, non-atomic read: usageThisMonth counts persisted Scan rows, which
+ * land only AFTER a lane reserves, so concurrent lanes at the allowance boundary all read the same stale
+ * count and each classify "allowance" (free). The overshoot is therefore O(in-flight lanes) per boundary
+ * crossing — up to SCAN_CONCURRENCY-1 per batch, more across simultaneous batches — NOT "one". This is
+ * an accepted soft gate: the credit decrement below (conditional `updateMany ... scanCredits > 0`) is the
+ * concurrency-safe HARD money gate, so only the FREE allowance can be marginally overshot, never paid
+ * credits. A hard allowance bound would need an atomic monthly-usage counter (a schema change).
  */
 export async function consumeScanCredit(
   orgSlug: string,

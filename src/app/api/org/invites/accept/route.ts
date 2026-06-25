@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { acceptInvite, getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
 import { getSession, isAuthConfigured, isSameOrigin } from "@/lib/auth";
+import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,31 +23,45 @@ export async function POST(request: Request) {
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
   }
-  const session = isAuthConfigured() ? await getSession() : null;
-  if (isAuthConfigured() && !session) {
-    return NextResponse.json({ ok: false, reason: "auth", error: "Sign in to accept this invitation." }, { status: 401 });
-  }
-  if (!session) {
+  // Resolve the accepting identity from whichever auth is active: the Supabase login wall (getViewer —
+  // carries the VERIFIED email used to bind an email-only invite) or the dormant custom OAuth. The old
+  // route gated only on the custom session, so under the Supabase wall (the documented prod config)
+  // acceptance always 403'd — and it never carried an email to bind an email-pinned invite.
+  let identity: { login: string; email?: string | null } | null = null;
+  if (authGateEnabled()) {
+    const viewer = await getViewer();
+    if (!viewer) {
+      return NextResponse.json({ ok: false, reason: "auth", error: "Sign in to accept this invitation." }, { status: 401 });
+    }
+    identity = { login: viewer.login, email: viewer.email };
+  } else if (isAuthConfigured()) {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ ok: false, reason: "auth", error: "Sign in to accept this invitation." }, { status: 401 });
+    }
+    identity = { login: session.login }; // custom Session carries no email ⇒ can't claim an email-only invite
+  } else {
     return NextResponse.json(
       { ok: false, reason: "auth", error: "Authentication is not configured on this deployment." },
       { status: 403 },
     );
   }
+
   const body = (await request.json().catch(() => ({}))) as { token?: string };
   const token = body.token?.trim();
   if (!token) {
     return NextResponse.json({ ok: false, reason: "not_found", error: "Missing invite token." }, { status: 400 });
   }
 
-  const result = await acceptInvite(token, session.login);
+  const result = await acceptInvite(token, identity);
   if (result.ok) {
     // Audit the GRANT (not just the invite creation) so "who received which role, and when" is
     // attributable — the create path recorded org.member.invited, but acceptance recorded nothing.
     const orgId = (await getOrgId(result.org.toLowerCase()).catch(() => null)) ?? undefined;
     await recordAudit(
       "org.member.invite_accepted",
-      { org: result.org, login: session.login, role: result.role },
-      { orgId, actorId: session.login },
+      { org: result.org, login: identity.login, role: result.role },
+      { orgId, actorId: identity.login },
     ).catch(() => {});
   }
   return NextResponse.json(result, { status: result.ok ? 200 : 409 });

@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isDbConfigured } from "@/lib/db/client";
 import { getCreditState, countMeteredScansThisMonth } from "@/lib/db/credits";
-import { resolveScanCharge } from "@/lib/plans";
+import { resolveScanCharge, scanAllowance } from "@/lib/plans";
 
 /** True when this scan should draw on the org's prepaid credits. */
 export function isMeteredScan(orgSlug: string, mock: boolean): boolean {
@@ -23,22 +23,30 @@ export interface ScanEntitlement {
   balance: number;
   /** True when the next metered scan is covered by the monthly allowance (free, no credit debit). */
   withinAllowance: boolean;
+  /** Free metered scans LEFT in the monthly allowance (max(0, allowance − usageThisMonth)); Infinity
+   *  on the unlimited plan. The batch paths cap on `balance + allowanceRemaining`, not balance alone —
+   *  capping on prepaid credits only wrongly denied an org's INCLUDED free scans (a Free org with 0
+   *  purchased credits but its 10 monthly free scans had every bulk scan/import skipped). */
+  allowanceRemaining: number;
 }
 
 /**
  * Whether `orgSlug` may run a metered scan right now — under the hybrid model that's: unlimited, OR
  * under the monthly allowance, OR a positive credit balance. `withinAllowance` tells the caller the
- * scan will be free; only `!allowed` (allowance spent + no credits) is the 402.
+ * scan will be free; only `!allowed` (allowance spent + no credits) is the 402. `allowanceRemaining`
+ * lets a bulk caller size the batch to free-allowance + prepaid credits (not credits alone).
  */
 export async function checkScanEntitlement(orgSlug: string): Promise<ScanEntitlement> {
   const state = await getCreditState(orgSlug);
   const usage = state.unlimited ? 0 : await countMeteredScansThisMonth(orgSlug);
   const charge = resolveScanCharge({ plan: state.plan, usageThisMonth: usage, balance: state.balance });
+  const allowance = state.unlimited ? null : scanAllowance(state.plan);
   return {
     allowed: charge !== "denied",
     unlimited: state.unlimited,
     balance: state.balance,
     withinAllowance: charge === "allowance",
+    allowanceRemaining: allowance == null ? Number.POSITIVE_INFINITY : Math.max(0, allowance - usage),
   };
 }
 

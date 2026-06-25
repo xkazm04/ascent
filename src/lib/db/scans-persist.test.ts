@@ -44,6 +44,7 @@ vi.mock("@/lib/db/scans-read", () => ({
 // uses the real P2002 classification (the persist path's cross-instance backstop depends on it).
 vi.mock("@/lib/db/scans-shared", () => ({
   DEFAULT_ORG_SLUG: "public",
+  canonicalRepoFullName: (owner: string, name: string) => `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`,
   ensureOrgId: vi.fn(async () => "org_1"),
   withRepoLock: <T,>(_key: string, fn: () => Promise<T>) => fn(),
   upsertRacing: async <T,>(upsert: () => Promise<T>) => upsert(),

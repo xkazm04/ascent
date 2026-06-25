@@ -47,7 +47,20 @@ describe("checkScanEntitlement (hybrid: allowance, then credits)", () => {
       unlimited: true,
       balance: 0,
       withinAllowance: false,
+      allowanceRemaining: Infinity,
     });
+  });
+
+  it("allowanceRemaining = the monthly free scans left (the batch-cap input that was missing)", async () => {
+    // A Free org (10/mo) that's used 4 and bought 0 credits still has 6 FREE scans left — so a bulk
+    // scan/import must be sized to balance + allowanceRemaining (6), not balance (0). Capping on credits
+    // alone wrongly skipped every included free scan.
+    mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false });
+    mockCountUsage.mockResolvedValue(4);
+    expect(await checkScanEntitlement("acme")).toMatchObject({ balance: 0, allowanceRemaining: 6 });
+    // Allowance fully spent ⇒ 0 remaining (overflow then draws on credits only).
+    mockCountUsage.mockResolvedValue(10);
+    expect((await checkScanEntitlement("acme")).allowanceRemaining).toBe(0);
   });
 
   it("is allowed AND within-allowance under the monthly allowance, even at a zero credit balance", async () => {

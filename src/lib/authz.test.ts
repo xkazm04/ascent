@@ -17,6 +17,10 @@ const {
   mockAuthGateEnabled,
   mockGetViewer,
   mockRequireViewer,
+  mockGetInstallationIdForOwner,
+  mockIsDbConfigured,
+  mockIsAppConfigured,
+  mockIsOrgAdminViaInstallation,
 } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
   mockIsAuthConfigured: vi.fn(),
@@ -26,12 +30,26 @@ const {
   mockAuthGateEnabled: vi.fn(),
   mockGetViewer: vi.fn(),
   mockRequireViewer: vi.fn(),
+  mockGetInstallationIdForOwner: vi.fn(),
+  mockIsDbConfigured: vi.fn(),
+  mockIsAppConfigured: vi.fn(),
+  mockIsOrgAdminViaInstallation: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({
   PUBLIC_ORG: "public",
   getSession: mockGetSession,
   isAuthConfigured: mockIsAuthConfigured,
+}));
+
+// The installation lookup + GitHub org-admin verification behind the identity-bound owner bootstrap.
+vi.mock("@/lib/db", () => ({
+  getInstallationIdForOwner: mockGetInstallationIdForOwner,
+  isDbConfigured: mockIsDbConfigured,
+}));
+vi.mock("@/lib/github/app", () => ({
+  isAppConfigured: mockIsAppConfigured,
+  isOrgAdminViaInstallation: mockIsOrgAdminViaInstallation,
 }));
 
 // Mock the Supabase login-wall access layer so we can drive (authGateEnabled, getViewer, requireViewer)
@@ -79,6 +97,10 @@ beforeEach(() => {
   mockAuthGateEnabled.mockReset();
   mockGetViewer.mockReset();
   mockRequireViewer.mockReset();
+  mockGetInstallationIdForOwner.mockReset();
+  mockIsDbConfigured.mockReset();
+  mockIsAppConfigured.mockReset();
+  mockIsOrgAdminViaInstallation.mockReset();
   mockGetSession.mockResolvedValue(null);
   mockGetMembershipRole.mockResolvedValue(null);
   mockEnsureOwnerMembership.mockResolvedValue(undefined);
@@ -88,6 +110,13 @@ beforeEach(() => {
   mockAuthGateEnabled.mockReturnValue(false);
   mockGetViewer.mockResolvedValue(null);
   mockRequireViewer.mockResolvedValue(null);
+  // Identity-bound bootstrap deps: default to "no GitHub-org proof available", so the only auto-claim
+  // path under the wall is the personal namespace (login === slug). Individual tests opt into the
+  // GitHub-confirmed-admin path by enabling the App + a positive isOrgAdminViaInstallation.
+  mockGetInstallationIdForOwner.mockResolvedValue(null);
+  mockIsDbConfigured.mockReturnValue(true);
+  mockIsAppConfigured.mockReturnValue(false);
+  mockIsOrgAdminViaInstallation.mockResolvedValue(false);
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -234,11 +263,56 @@ describe("requireOrgRole under the Supabase login wall (cross-tenant takeover fi
     expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
   });
 
-  it("trust-on-first-use: the first viewer to manage an unowned org is seeded as owner", async () => {
+  it("a STRANGER is denied an unowned org and is NOT auto-claimed (owner land-grab fix)", async () => {
+    // The pre-fix land-grab seeded the FIRST viewer as owner of any ownerless org (e.g. one the scan
+    // pipeline created). Now alice — who neither owns the "victim" personal namespace nor is a
+    // GitHub-confirmed admin of it — gets nothing.
     mockGetMembershipRole.mockResolvedValue(null);
     mockOrgHasOwner.mockResolvedValue(false);
-    expect(await requireOrgRole("fresh", "owner")).toBeNull();
-    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("fresh", "alice", undefined);
+    expect((await requireOrgRole("victim", "owner"))?.status).toBe(403);
+    expect((await requireOrgRole("victim", "viewer"))?.status).toBe(403); // even at the lowest bar
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+  });
+
+  it("personal namespace: a viewer auto-claims their OWN unowned org (login === slug)", async () => {
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockOrgHasOwner.mockResolvedValue(false);
+    expect(await requireOrgRole("alice", "owner")).toBeNull();
+    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("alice", "alice", undefined);
+  });
+
+  it("GitHub-confirmed org admin: claims an unowned ORG installation; a non-admin does not", async () => {
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockOrgHasOwner.mockResolvedValue(false);
+    mockIsAppConfigured.mockReturnValue(true);
+    mockGetInstallationIdForOwner.mockResolvedValue(123);
+    mockIsOrgAdminViaInstallation.mockResolvedValue(true);
+    expect(await requireOrgRole("acme", "owner")).toBeNull();
+    expect(mockIsOrgAdminViaInstallation).toHaveBeenCalledWith(123, "acme", "alice");
+    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("acme", "alice", undefined);
+
+    // A viewer GitHub says is NOT an admin gets no claim — fail closed.
+    mockEnsureOwnerMembership.mockClear();
+    mockIsOrgAdminViaInstallation.mockResolvedValue(false);
+    expect((await requireOrgRole("acme", "owner"))?.status).toBe(403);
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+  });
+
+  it("does NOT consult GitHub once the org already has an owner (hard wall, no extra calls)", async () => {
+    mockGetMembershipRole.mockResolvedValue(null);
+    mockOrgHasOwner.mockResolvedValue(true);
+    mockIsAppConfigured.mockReturnValue(true);
+    expect((await requireOrgRole("acme", "viewer"))?.status).toBe(403);
+    expect(mockGetInstallationIdForOwner).not.toHaveBeenCalled();
+    expect(mockIsOrgAdminViaInstallation).not.toHaveBeenCalled();
+  });
+
+  it("does NOT re-claim when the viewer already holds a (non-owner) role on the unowned org", async () => {
+    mockGetMembershipRole.mockResolvedValue("member");
+    mockOrgHasOwner.mockResolvedValue(false);
+    expect((await requireOrgRole("fresh", "owner"))?.status).toBe(403); // member < owner
+    expect(await requireOrgRole("fresh", "member")).toBeNull(); // member >= member
+    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
   });
 
   it("enforces an explicit membership role against the minimum", async () => {
@@ -258,69 +332,46 @@ describe("requireOrgRole under the Supabase login wall (cross-tenant takeover fi
   });
 });
 
-// The claim seam itself: WHEN does the trust-on-first-use auto-owner-claim fire, and when must it
-// NOT? The cases above prove the two headline outcomes (owned⇒deny, unowned+no-role⇒claim). These
-// pin the surrounding boundary the security invariant actually rests on — the claim fires for a
-// role-less viewer on an UNOWNED org *regardless of the requested min* and seeds OWNER, never any
-// lower role; it does NOT fire when the viewer already holds a role on the unowned org (the `!role`
-// short-circuit); and a stranger is refused an OWNED org even at the lowest possible bar (viewer),
-// so orgHasOwner===true is a hard wall, not just an owner-vs-admin distinction.
-describe("requireOrgRole trust-on-first-use CLAIM seam (when the auto-owner fires)", () => {
+describe("requireOrgAccess + canReadOrg under the Supabase login wall (cross-tenant IDOR fix)", () => {
   beforeEach(() => {
     mockAuthGateEnabled.mockReturnValue(true);
     mockRequireViewer.mockResolvedValue(null);
-    mockGetViewer.mockResolvedValue({ id: "v", login: "alice", name: "Alice" });
-    mockIsAuthConfigured.mockReturnValue(false); // documented prod config: custom OAuth off
+    mockGetViewer.mockResolvedValue({ id: "v", login: "alice" });
+    mockIsAuthConfigured.mockReturnValue(false);
   });
 
-  it("claims OWNER for a role-less viewer on an unowned org even when only `member` was required", async () => {
-    // The claim is not scoped to owner-gated actions: the FIRST manager of an unowned org becomes its
-    // owner no matter how low the bar that triggered the gate, so the org gets a real anchor owner.
-    mockGetMembershipRole.mockResolvedValue(null);
-    mockOrgHasOwner.mockResolvedValue(false);
-    expect(await requireOrgRole("fresh", "member")).toBeNull();
-    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("fresh", "alice", "Alice");
-    // Seeded as owner ⇒ the post-claim role satisfies even an owner-level check in the same resolution.
-    expect(roleSeededIsOwner()).toBe(true);
-  });
-
-  it("does NOT claim when the viewer already holds a (non-owner) role on the unowned org", async () => {
-    // The claim guard is `!role && !orgHasOwner` — a viewer who already has a membership row is never
-    // re-seeded; their real role is judged against `min`. A `member` on an ownerless org is still
-    // refused an owner-level action and is NOT silently upgraded to owner.
+  it("requireOrgAccess: a member may write, a stranger may NOT (was: any viewer could)", async () => {
+    mockOrgHasOwner.mockResolvedValue(true);
     mockGetMembershipRole.mockResolvedValue("member");
-    mockOrgHasOwner.mockResolvedValue(false);
-    expect((await requireOrgRole("fresh", "owner"))?.status).toBe(403);
-    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
-    // The same membership still passes a bar it actually meets — no claim needed, no over-broad deny.
-    expect(await requireOrgRole("fresh", "member")).toBeNull();
-    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
-  });
-
-  it("a stranger is refused an ALREADY-OWNED org even at the lowest bar (viewer) — no auto-claim", async () => {
-    // orgHasOwner===true is a hard wall: a role-less viewer gets nothing, not even an auto `viewer`
-    // grant. This is the cross-tenant-takeover invariant at its weakest point — the lowest min.
+    expect(await requireOrgAccess("acme")).toBeNull();
     mockGetMembershipRole.mockResolvedValue(null);
-    mockOrgHasOwner.mockResolvedValue(true);
-    expect((await requireOrgRole("victim", "viewer"))?.status).toBe(403);
-    expect((await requireOrgRole("victim", "owner"))?.status).toBe(403);
-    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+    expect((await requireOrgAccess("victim"))?.status).toBe(403);
   });
 
-  it("checks ownership BEFORE claiming — orgHasOwner is consulted, and a true result blocks the claim write", async () => {
-    // The order matters: the gate must ask orgHasOwner and only call ensureOwnerMembership when it is
-    // false. Pin both halves of the seam are wired (a regression dropping the orgHasOwner check would
-    // claim every org for the first stranger).
+  it("requireOrgAccess: a viewer-role member is below `member` and is refused the write", async () => {
+    mockOrgHasOwner.mockResolvedValue(true);
+    mockGetMembershipRole.mockResolvedValue("viewer");
+    expect((await requireOrgAccess("acme"))?.status).toBe(403);
+  });
+
+  it("canReadOrg: any-role member reads, a stranger cannot (was: any viewer could read any org)", async () => {
+    mockOrgHasOwner.mockResolvedValue(true);
+    mockGetMembershipRole.mockResolvedValue("viewer");
+    expect(await canReadOrg("acme")).toBe(true);
     mockGetMembershipRole.mockResolvedValue(null);
-    mockOrgHasOwner.mockResolvedValue(true);
-    await requireOrgRole("victim", "owner");
-    expect(mockOrgHasOwner).toHaveBeenCalledWith("victim");
-    expect(mockEnsureOwnerMembership).not.toHaveBeenCalled();
+    expect(await canReadOrg("victim")).toBe(false);
+    // A signed-in non-member reading another tenant gets 403 (authenticated, no standing) — not 401.
+    expect((await requireOrgRead("victim"))?.status).toBe(403);
   });
 
-  // True iff the resolution that just ran would have treated the viewer as owner: the only way the
-  // owner-min check returns null after a no-role start is via the claim having set role="owner".
-  function roleSeededIsOwner() {
-    return mockEnsureOwnerMembership.mock.calls.length > 0;
-  }
+  it("canReadOrg: a signed-out viewer cannot read a private org (requireOrgRead ⇒ 401)", async () => {
+    mockGetViewer.mockResolvedValue(null);
+    expect(await canReadOrg("acme")).toBe(false);
+    expect((await requireOrgRead("acme"))?.status).toBe(401);
+  });
+
+  it("public stays readable + writable under the wall", async () => {
+    expect(await canReadOrg("public")).toBe(true);
+    expect(await requireOrgAccess("public")).toBeNull();
+  });
 });

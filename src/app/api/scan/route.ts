@@ -198,6 +198,16 @@ async function runScan(
   // lookup key is still ::llm, so caching/persisting it would pin the deterministic floor for the full
   // TTL and serve it to every later scanner of this commit. lowCoverage: silent per-file fetch failures
   // degrade coverage without failing the LLM — treat the same way.
+  // A caller-supplied body token can scan a PRIVATE repo while orgSlug is still the shared "public"
+  // funnel (orgSlug is only resolved on the token-LESS branch above). Persisting that under "public"
+  // would publish the private report to every anonymous visitor (the report page + history read the
+  // public org). Re-tenant a private body-token scan under the repo OWNER's org so it is stored
+  // privately — only readable by someone with that installation — never in the public corpus. The
+  // persist-side guard refuses public+private regardless; this is the correct-placement half.
+  if (opts.token && parsed && report.repo.isPrivate && orgSlug === "public") {
+    orgSlug = report.repo.owner.trim().toLowerCase() || parsed.owner.toLowerCase();
+  }
+
   const { degradedToMock, lowCoverage } = classifyScanResult(report, opts.mock);
   // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not the
   // product the slot pays for — refund both the weekly slot and any reserved credit ("a degrade-to-mock

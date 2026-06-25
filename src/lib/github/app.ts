@@ -169,6 +169,32 @@ export async function getInstallationToken(
   return data.token;
 }
 
+/**
+ * Confirm — via the org's own installation token — that `login` is an ACTIVE admin of GitHub org
+ * `org`. This is the identity-verified bootstrap for org ownership under the Supabase login wall: a
+ * stranger cannot pass it for a victim's org, so it is safe to seed `owner` on success (unlike a lazy
+ * first-touch claim, which a stranger could race). Needs the App's "Organization members: read"
+ * permission; ANY failure — no such membership, missing permission, suspended install, transient error —
+ * returns false (fail CLOSED). Personal-account installs have no org-membership endpoint and are handled
+ * by the caller's login===slug check, so a 404 here simply yields false.
+ */
+export async function isOrgAdminViaInstallation(
+  installationId: number | string,
+  org: string,
+  login: string,
+): Promise<boolean> {
+  try {
+    const token = await getInstallationToken(installationId);
+    const data = await githubAppFetch<{ role?: string; state?: string }>(
+      `/orgs/${encodeURIComponent(org)}/memberships/${encodeURIComponent(login)}`,
+      token,
+    );
+    return data.state === "active" && data.role === "admin";
+  } catch {
+    return false;
+  }
+}
+
 interface GhRepo {
   full_name: string;
   name: string;

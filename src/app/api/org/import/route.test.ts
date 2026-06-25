@@ -199,7 +199,7 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
 
   it("caps the batch to the credit balance — scans exactly `balance` repos (the affordable slice), not balance+1", async () => {
     // balance:2, three watched repos → only the first 2 are affordable; the 3rd must never scan.
-    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 2 });
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 2, allowanceRemaining: 0 });
     const events = await collectImport({
       org: "acme",
       repos: ["acme/a", "acme/b", "acme/c"],
@@ -225,7 +225,7 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
 
   it("does NOT cap when the balance covers the whole batch — scans every repo, no skip notice", async () => {
     // Guard the lower edge of the boundary: balance:3 for 3 repos → no slice, all three scan.
-    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 3 });
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 3, allowanceRemaining: 0 });
     const events = await collectImport({
       org: "acme",
       repos: ["acme/a", "acme/b", "acme/c"],
@@ -238,7 +238,7 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
   });
 
   it("refunds the reserved credit when a per-repo scan throws — never charge for a non-product", async () => {
-    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5 });
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
     mockScan.mockRejectedValueOnce(new Error("github 500"));
     const events = await collectImport({ org: "acme", repos: ["acme/boom"], mock: false, watch: false });
 
@@ -252,7 +252,7 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
 
   it("does not refund a successful, genuinely-billable scan — a real product is charged", async () => {
     // Pins the other side of the refund invariant: a non-mock, non-deduped scan keeps its debit.
-    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5 });
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
     await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
     expect(mockConsume).toHaveBeenCalledTimes(1);
     expect(mockGrant).not.toHaveBeenCalled();
@@ -260,7 +260,7 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
 
   it("never reserves a credit on the free mock funnel into a private org (mock is free)", async () => {
     // mock:true → metered = !mock && … = false: the credit dimension is skipped entirely.
-    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 2 });
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 2, allowanceRemaining: 0 });
     await collectImport({ org: "acme", repos: ["acme/a", "acme/b"], mock: true, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(mockConsume).not.toHaveBeenCalled();

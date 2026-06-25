@@ -113,22 +113,42 @@ export type AcceptResult =
   | { ok: true; org: string; role: OrgRole }
   | { ok: false; reason: "not_found" | "expired" | "used" | "wrong_user" | "db" };
 
+/** Identity of the viewer accepting an invite — their GitHub login plus, under the Supabase wall, the
+ *  verified email used to bind an EMAIL-pinned invite. */
+export interface AcceptIdentity {
+  login: string;
+  email?: string | null;
+}
+
 /**
- * Accept an invite by token for the signed-in `login`. Validates pending + unexpired, enforces a
- * pinned githubLogin when set, grants the role via setMembershipRole, and marks the invite accepted.
+ * Accept an invite by token for the signed-in viewer. Validates pending + unexpired, BINDS the grant to
+ * the invited identity, grants the role via setMembershipRole, and marks the invite accepted.
+ *
+ * Binding: a githubLogin-pinned invite must match the viewer's login. An EMAIL-only invite (no login
+ * pinned) must match the viewer's VERIFIED email — without this the token ALONE (forwarded, or leaked
+ * from an inbox / mail gateway / log) would hand the role to whoever opened the link, even though the
+ * owner's pending-invite list shows it bound to that address. An invite carrying NEITHER stays open to
+ * any signed-in viewer (the owner deliberately left it unpinned).
  */
-export async function acceptInvite(token: string, login: string): Promise<AcceptResult> {
+export async function acceptInvite(token: string, identity: AcceptIdentity): Promise<AcceptResult> {
   if (!isDbConfigured()) return { ok: false, reason: "db" };
   const prisma = getPrisma();
-  const gh = login.trim().toLowerCase();
+  const gh = identity.login.trim().toLowerCase();
+  const viewerEmail = identity.email?.trim().toLowerCase() || null;
   const invite = await prisma.invite.findUnique({
     where: { token },
-    select: { id: true, status: true, expiresAt: true, role: true, githubLogin: true, org: { select: { slug: true } } },
+    select: { id: true, status: true, expiresAt: true, role: true, githubLogin: true, email: true, org: { select: { slug: true } } },
   });
   if (!invite) return { ok: false, reason: "not_found" };
   if (invite.status !== "pending") return { ok: false, reason: "used" };
   if (invite.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
-  if (invite.githubLogin && invite.githubLogin !== gh) return { ok: false, reason: "wrong_user" };
+  if (invite.githubLogin) {
+    if (invite.githubLogin !== gh) return { ok: false, reason: "wrong_user" };
+  } else if (invite.email) {
+    // Email-pinned, no login: require the accepter's verified email to match (case-insensitively). A
+    // viewer with no verified email (e.g. the dormant custom-OAuth session) can't claim it — fail closed.
+    if (!viewerEmail || invite.email.trim().toLowerCase() !== viewerEmail) return { ok: false, reason: "wrong_user" };
+  }
 
   const role: OrgRole = isOrgRole(invite.role) ? invite.role : "member";
   const granted = await setMembershipRole(invite.org.slug, gh, role);

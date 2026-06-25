@@ -8,6 +8,7 @@ import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { matchRecommendations } from "@/lib/report/compare";
 import {
+  canonicalRepoFullName,
   DEFAULT_ORG_SLUG,
   ensureOrgId,
   isUniqueConstraintError,
@@ -70,7 +71,20 @@ export async function persistScanReport(
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const headSha = report.repo.headSha ?? null;
-  const fullName = `${report.repo.owner}/${report.repo.name}`;
+  // Canonical (lowercased) key so reads and writes agree regardless of the casing a caller typed.
+  const fullName = canonicalRepoFullName(report.repo.owner, report.repo.name);
+
+  // Defense-in-depth against the cross-tenant disclosure: a PRIVATE repo's report must never be
+  // persisted under the shared public org — the report page + history read the public org for ANY
+  // visitor, so a private snapshot there is an anonymous disclosure. The scan route re-tenants a
+  // body-token private scan under the owner org before calling us; this is the backstop for every
+  // other path. Refuse the write (return null ⇒ "not persisted") rather than leak it.
+  if (orgSlug === DEFAULT_ORG_SLUG && report.repo.isPrivate) {
+    console.warn(
+      `[scans-persist] refusing to persist PRIVATE repo "${report.repo.owner}/${report.repo.name}" under the public org`,
+    );
+    return null;
+  }
 
   // Resolve the org id once per process (ensureOrgId) instead of upserting the shared 'public' row
   // on every scan — that hot-row write made concurrent scans collide and, under DSQL's optimistic

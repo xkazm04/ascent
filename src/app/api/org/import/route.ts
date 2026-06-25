@@ -132,12 +132,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to import a private organization." }, { status: 401 });
   }
   let unlimited = true;
-  let creditBalance = 0;
+  // Scan capacity for a non-unlimited org = monthly FREE allowance left + prepaid credits. Capping on
+  // credits alone wrongly skipped an org's INCLUDED free scans (a Free org with its 10 monthly scans
+  // but 0 purchased credits saw slice(0,0) ⇒ "scanned: 0, all insufficient_credits").
+  let scanCapacity = 0;
   if (metered) {
     const ent = await checkScanEntitlement(org);
     if (!ent.allowed) return paymentRequired(ent.balance);
     unlimited = ent.unlimited;
-    creditBalance = ent.balance;
+    scanCapacity = ent.balance + ent.allowanceRemaining;
   }
 
   const stream = new ReadableStream<Uint8Array>({
@@ -175,9 +178,9 @@ export async function POST(request: Request) {
         // Cap the batch to what the prepaid balance covers (metered, non-unlimited imports only) and
         // tell the client how many were left for credits.
         let skippedForCredits = 0;
-        if (metered && !unlimited && fullNames.length > creditBalance) {
-          skippedForCredits = fullNames.length - creditBalance;
-          fullNames = fullNames.slice(0, creditBalance);
+        if (metered && !unlimited && fullNames.length > scanCapacity) {
+          skippedForCredits = fullNames.length - scanCapacity;
+          fullNames = fullNames.slice(0, scanCapacity);
           send("notice", { reason: "insufficient_credits", scanning: fullNames.length, skipped: skippedForCredits });
         }
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });

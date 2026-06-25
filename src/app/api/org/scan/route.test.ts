@@ -30,7 +30,7 @@ vi.mock("@/lib/github/app", () => ({
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
 vi.mock("@/lib/entitlement", () => ({
-  checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: false, balance: 5 })),
+  checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 })),
   paymentRequired: vi.fn(),
 }));
 
@@ -115,7 +115,7 @@ describe("POST /api/org/scan — never-scans-for-free + out-of-credits surfacing
   it("does NOT scan a repo whose mid-pool credit reservation was lost (never scans for free)", async () => {
     // Up-front entitlement allows the batch (balance covers the single repo) so we reach the pool,
     // but the authoritative per-repo debit loses the race and returns ok:false.
-    mockEntitlement.mockResolvedValueOnce({ allowed: true, unlimited: false, balance: 5 });
+    mockEntitlement.mockResolvedValueOnce({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
     mockConsume.mockResolvedValueOnce({ ok: false, balance: 0, unlimited: false });
 
     const body = await runBulkScan();
@@ -136,7 +136,8 @@ describe("POST /api/org/scan — never-scans-for-free + out-of-credits surfacing
       { fullName: "acme/repo-a", lastScanAt: null },
       { fullName: "acme/repo-b", lastScanAt: null },
     ] as unknown as Awaited<ReturnType<typeof listWatchedRepos>>);
-    mockEntitlement.mockResolvedValueOnce({ allowed: true, unlimited: false, balance: 0 });
+    // allowance spent AND no credits ⇒ capacity 0 ⇒ scanList sliced to empty (the defensive branch).
+    mockEntitlement.mockResolvedValueOnce({ allowed: true, unlimited: false, balance: 0, allowanceRemaining: 0 });
 
     const body = await runBulkScan();
 
@@ -147,5 +148,24 @@ describe("POST /api/org/scan — never-scans-for-free + out-of-credits surfacing
     expect(mockScan).not.toHaveBeenCalled();
     expect(mockConsume).not.toHaveBeenCalled();
     expect(body).not.toContain('"overall"'); // no per-repo scored events leaked
+  });
+
+  it("scans an org's INCLUDED free allowance even at a zero prepaid balance (allowance-cap fix)", async () => {
+    // A Free org (0 purchased credits) with 2 of its monthly free scans left must scan BOTH watched
+    // repos — capping on balance alone wrongly sliced this to empty and surfaced a false "out of credits".
+    mockList.mockResolvedValueOnce([
+      { fullName: "acme/repo-a", lastScanAt: null },
+      { fullName: "acme/repo-b", lastScanAt: null },
+    ] as unknown as Awaited<ReturnType<typeof listWatchedRepos>>);
+    mockEntitlement.mockResolvedValueOnce({ allowed: true, unlimited: false, balance: 0, allowanceRemaining: 2 });
+    mockConsume.mockResolvedValue({ ok: true, balance: 0, unlimited: false, charged: false }); // within allowance ⇒ free
+    mockScan.mockResolvedValue(report("gemini"));
+    mockPersist.mockResolvedValue(persisted(false));
+
+    const body = await runBulkScan();
+
+    expect(body).not.toContain("Out of scan credits");
+    expect(mockScan).toHaveBeenCalledTimes(2); // both included free scans ran
+    expect(body).toContain('"skippedForCredits":0');
   });
 });

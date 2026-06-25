@@ -102,9 +102,14 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
   }
 
   if (!owner || !repo) return null;
-  // Basic sanitation against the GitHub name charset.
+  // Sanitation against the GitHub name charset, PLUS the traversal guard the org-import validators
+  // (isValidHandle / isValidRepoName in github/list.ts) already enforce: reject a leading dot or any
+  // ".." segment so a coordinate like "owner/.." or ".git" can't reach the github.com / raw URL builders
+  // (or the persistence fullName / permalink layer). The charset itself stays lenient (dots/underscores
+  // in a coordinate are still accepted) — only the dot-traversal shapes are closed.
   const ok = /^[A-Za-z0-9_.-]+$/;
-  if (!ok.test(owner) || !ok.test(repo)) return null;
+  const clean = (s: string) => s.length <= 100 && ok.test(s) && !s.startsWith(".") && !s.includes("..");
+  if (!clean(owner) || !clean(repo)) return null;
   return { owner, repo };
 }
 

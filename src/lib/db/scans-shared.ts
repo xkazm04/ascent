@@ -16,6 +16,21 @@ import { getPrisma, withRetry } from "@/lib/db/client";
 /** The implicit tenant for anonymous/public scans — the shared org every DB-less-MVP scan lands in. */
 export const DEFAULT_ORG_SLUG = "public";
 
+/**
+ * Canonical key for a repository's `fullName` column. GitHub treats owner/repo case-insensitively, so
+ * the SAME repo must map to ONE key regardless of the casing a caller typed — we lowercase both sides.
+ * Reader and writer MUST agree on this: previously writes keyed by GitHub-canonical casing
+ * (`report.repo.owner/name`) while reads built `fullName` from the raw caller casing, so a mixed-case
+ * reference ("Facebook/React") always missed the case-sensitive unique index — silently defeating the
+ * cross-instance cache, the conditional-304 head hint, and the stale-salvage path (the invariant
+ * cache.ts's makeCacheKey documents, never enforced at the DB tier). The DISPLAY casing is preserved
+ * separately in the `owner`/`name` columns. Transitional note: a pre-existing mixed-case row is re-keyed
+ * on its next scan (one extra scan; the old row ages out via retention).
+ */
+export function canonicalRepoFullName(owner: string, name: string): string {
+  return `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`;
+}
+
 // ── Concurrency safety for persistScanReport ───────────────────────────────────────────────
 // Two concurrent scans of the same repo (a double-click, a cron rescan batch) used to race: the
 // org/repo upserts could collide on a unique constraint and throw, and the carry-forward read +
