@@ -3,6 +3,7 @@ import { SignInNotice } from "@/components/SignInNotice";
 import { OrgNav } from "@/components/org/OrgNav";
 import { OrgScanButton } from "@/components/org/OrgScanButton";
 import { CreditsControl } from "@/components/org/CreditsControl";
+import { PlanControl } from "@/components/org/PlanControl";
 import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
 import { ensureOwnerMembership, getCreditState, getMembershipRole, getOrgRollup, isDbConfigured, isDbUnavailableError } from "@/lib/db";
@@ -10,6 +11,7 @@ import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { creditPacks, polarEnabled } from "@/lib/polar";
+import { envBool } from "@/lib/env";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -152,6 +154,9 @@ export default async function OrgLayout({
   // are plain serializable data; the SDK stays server-side (CreditsControl declares its own Pack type).
   const buyEnabled = polarEnabled();
   const packs = buyEnabled ? creditPacks() : [];
+  // Manual plan-tier override (no-Polar demo path) — mirrors the /api/org/plan gate. Owner-gated at
+  // the route; here it just decides whether the tier chip is a switcher or read-only.
+  const planChangesEnabled = envBool("ASCENT_ALLOW_PLAN_CHANGES");
 
   return (
     <Frame>
@@ -178,6 +183,7 @@ export default async function OrgLayout({
         </div>
         <div className="flex items-center gap-2">
           {slug !== "public" && <AlertsControl org={slug} />}
+          {credit && <PlanControl org={slug} plan={credit.plan} enabled={planChangesEnabled} />}
           {credit && (
             <CreditsControl
               org={slug}

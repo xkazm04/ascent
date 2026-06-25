@@ -2,12 +2,15 @@
 
 // Status surfaces + SSE parsing for ReportClient: the loading checklist (provider-aware), the
 // empty/error state, and the SSE frame parser. Split out of ReportClient so the client component
-// stays focused on the scan lifecycle.
+// stays focused on the scan lifecycle. The shared progress helpers (headline, elapsed clock,
+// time-smoothed percentage) are exported so the in-place re-scan banner (ReportRescanBanner) reads
+// identically to the full Loading view.
 
+import { useEffect, useRef, useState } from "react";
 import type { ProviderName, ScanProgress } from "@/lib/types";
-import { ReportSkeleton } from "@/components/report/ReportSkeleton";
 import { EmptyState } from "@/components/EmptyState";
 import { DIMENSIONS } from "@/lib/maturity/model";
+import { expectationCopy, formatDuration, timeProgressPct } from "@/components/report/scanEstimate";
 
 export interface Progress {
   stage?: ScanProgress["stage"];
@@ -67,17 +70,62 @@ function scoreLabel(provider?: ProviderName, region?: string): string {
   }
 }
 
+/** Label for a scan step — provider-aware (and fallback-aware) on the score step. */
+function stepLabel(step: (typeof SCAN_STEPS)[number], progress: Progress): string {
+  if (step.stage !== "score") return step.label;
+  // model bailed → we're on the mock path now; else name the provider being queried.
+  return progress.fallback ? "Running deterministic rubric" : scoreLabel(progress.provider, progress.region);
+}
+
+/** The stage in flight: `done`, plus the index of the active step. -1 (before the first frame or on
+ *  an unknown stage) is treated as the first step, so the checklist never reads as fully idle. */
+function activeStep(progress: Progress): { done: boolean; activeIdx: number } {
+  const done = progress.stage === "done";
+  const cur = done ? SCAN_STEPS.length : SCAN_STEPS.findIndex((s) => s.stage === progress.stage);
+  return { done, activeIdx: cur === -1 ? 0 : cur };
+}
+
+/** Headline mirroring the active step (provider-aware) so the big status line and the checklist
+ *  never disagree; falls back to the server message before any step resolves. */
+export function progressHeadline(progress: Progress): string {
+  const { done, activeIdx } = activeStep(progress);
+  if (done) return "Done";
+  const step = SCAN_STEPS[activeIdx];
+  return step ? `${stepLabel(step, progress)}…` : progress.message;
+}
+
+/**
+ * Mount-anchored elapsed-time clock in ms (ticks every 250ms). The clock starts at 0 (useState) and
+ * is anchored on mount, so every host remounts per scan to reset it: Loading mounts/unmounts with the
+ * loading phase, and the re-scan banner is keyed by attempt — no in-effect reset needed.
+ */
+export function useElapsed(): number {
+  const startRef = useRef<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  useEffect(() => {
+    startRef.current = Date.now();
+    const id = setInterval(() => {
+      if (startRef.current != null) setElapsedMs(Date.now() - startRef.current);
+    }, 250);
+    return () => clearInterval(id);
+  }, []);
+  return elapsedMs;
+}
+
+/**
+ * Blend the server's stage percentage with a time-driven asymptotic curve via max(), so the bar
+ * only ever moves forward: stage jumps win early, the time curve carries it through the long score
+ * wait (where the server's stage percentage sits frozen). Snaps to 100 only when actually done.
+ */
+export function displayProgressPct(progress: Progress, elapsedMs: number, done = false): number {
+  return done ? 100 : Math.max(Math.round(progress.pct), Math.round(timeProgressPct(elapsedMs)));
+}
+
 function StepIcon({ state }: { state: "done" | "active" | "pending" }) {
   if (state === "done") {
     return (
       <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-accent" fill="none">
-        <path
-          d="M3.5 8.5l3 3 6-7"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }
@@ -97,26 +145,14 @@ function StepIcon({ state }: { state: "done" | "active" | "pending" }) {
 }
 
 export function Loading({ repo, progress }: { repo: string; progress: Progress }) {
-  const done = progress.stage === "done";
-  // Index of the stage in flight. -1 before the first frame ("Starting…") or on an unknown
-  // stage — treat the first step as active then, so the checklist never reads as fully idle.
-  const cur = done ? SCAN_STEPS.length : SCAN_STEPS.findIndex((s) => s.stage === progress.stage);
-  const activeIdx = cur === -1 ? 0 : cur;
-
-  const labelFor = (step: (typeof SCAN_STEPS)[number]) =>
-    step.stage === "score"
-      ? progress.fallback
-        ? "Running deterministic rubric" // model bailed; we're on the mock path now
-        : scoreLabel(progress.provider, progress.region)
-      : step.label;
-
-  // Headline mirrors the active step (provider-aware) so the big status line and the checklist
-  // never disagree; falls back to the server message before any step resolves.
-  const headline = done
-    ? "Done"
-    : SCAN_STEPS[activeIdx]
-      ? `${labelFor(SCAN_STEPS[activeIdx])}…`
-      : progress.message;
+  const { done, activeIdx } = activeStep(progress);
+  // Elapsed clock + time-driven percentage keep the bar honestly moving through the multi-minute
+  // score stage, where the server's stage percentage sits frozen (see scanEstimate.ts). Loading
+  // mounts when the scan starts and unmounts when it resolves, so the mount-anchored clock measures
+  // the whole scan (and a re-test remounts → resets).
+  const elapsedMs = useElapsed();
+  const displayPct = displayProgressPct(progress, elapsedMs, done);
+  const headline = progressHeadline(progress);
 
   return (
     <div
@@ -132,17 +168,23 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
       <div
         className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-800"
         role="progressbar"
-        aria-valuenow={progress.pct}
+        aria-valuenow={displayPct}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label="Scan progress"
       >
         <div
           className="h-full rounded-full bg-accent transition-all duration-500 ease-out"
-          style={{ width: `${Math.max(4, progress.pct)}%` }}
+          style={{ width: `${Math.max(4, displayPct)}%` }}
         />
       </div>
-      <p className="mt-1.5 font-mono text-sm tabular-nums text-slate-600">{progress.pct}%</p>
+      {/* Elapsed clock · percentage. The clock is the honest signal during the multi-minute score
+          stage; the percentage is time-smoothed so it advances rather than freezing. */}
+      <p className="mt-1.5 flex items-center justify-center gap-2 font-mono text-sm tabular-nums text-slate-600">
+        <span aria-label="Time elapsed">{formatDuration(elapsedMs)}</span>
+        <span className="text-slate-700" aria-hidden>·</span>
+        <span>{displayPct}%</span>
+      </p>
 
       {/* Determinate-feeling staged checklist. */}
       <ul className="mt-6 w-full space-y-2 text-left">
@@ -153,14 +195,10 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
               <StepIcon state={state} />
               <span
                 className={
-                  state === "done"
-                    ? "text-slate-400"
-                    : state === "active"
-                      ? "text-white"
-                      : "text-slate-600"
+                  state === "done" ? "text-slate-400" : state === "active" ? "text-white" : "text-slate-600"
                 }
               >
-                {labelFor(step)}
+                {stepLabel(step, progress)}
                 {state === "active" && <span className="text-slate-500">…</span>}
               </span>
             </li>
@@ -168,13 +206,18 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
         })}
       </ul>
 
-      {/* Calm fallback note: the model took too long, deterministic scores are on the way. Fades
-          in via the shared animate-fade-up instead of a hard error. */}
+      {/* Honest time expectation — keyed off elapsed so it sets the "few minutes" expectation up
+          front and owns it when a large repo runs long. Hidden once the model bailed (the fallback
+          note below takes over). */}
+      {!done && !progress.fallback && (
+        <p className="mt-5 max-w-sm text-sm text-slate-500" role="status" aria-live="polite">
+          {expectationCopy(elapsedMs)}
+        </p>
+      )}
+
+      {/* Calm fallback note: the model took too long, deterministic scores are on the way. */}
       {progress.fallback && (
-        <p
-          className="animate-fade-up mt-5 flex items-center gap-2 text-base text-amber-300/90"
-          role="status"
-        >
+        <p className="animate-fade-up mt-5 flex items-center gap-2 text-base text-amber-300/90" role="status">
           <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="none">
             <path
               d="M8 4v4l2.5 1.5M14 8A6 6 0 11 2 8a6 6 0 0112 0z"
@@ -187,11 +230,6 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
           Model took too long — showing deterministic scores.
         </p>
       )}
-
-      {/* Subtle skeleton of the report loading in — shared with the route's Suspense fallback. */}
-      <div className="mt-8 w-full">
-        <ReportSkeleton />
-      </div>
     </div>
   );
 }

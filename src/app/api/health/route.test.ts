@@ -33,6 +33,9 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/db", () => ({
   dbHealthCheck: mockDbHealthCheck,
   isDbConfigured: mockIsDbConfigured,
+  // The route now reports the active backend; a fixed safe value keeps the no-leak assertions honest
+  // (getDbMode only ever returns the mode enum — "dsql"/"postgres"/… — never the endpoint/credentials).
+  getDbMode: () => "postgres",
 }));
 
 vi.mock("@/lib/github/app", () => ({
@@ -120,7 +123,7 @@ describe("GET /api/health — DB check fails (the no-leak invariant)", () => {
     expect(text).not.toContain(LEAKY_ERROR);
 
     // No field is derived from result.error — the body has only the safe keys.
-    expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "reconnected", "status"]);
+    expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "dbMode", "reconnected", "status"]);
     expect("error" in body).toBe(false);
   });
 
@@ -147,7 +150,7 @@ describe("GET /api/health — DB check fails (the no-leak invariant)", () => {
     expect(text).not.toContain(LEAKY_ERROR);
 
     // Body has only the safe keys — nothing derived from the thrown error.
-    expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "reconnected", "status"]);
+    expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "dbMode", "reconnected", "status"]);
     expect("error" in body).toBe(false);
   });
 });

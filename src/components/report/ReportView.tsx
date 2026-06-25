@@ -20,7 +20,17 @@ import { SideNav, type SideNavGroup } from "@/components/ui";
 // surviving consumer was this type import — the tab switcher itself migrated to SideNav.)
 export type ReportTab = "scoring" | "roadmap" | "sandbox" | "contributors";
 
-export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?: () => void }) {
+export function ReportView({
+  report,
+  onRetest,
+  rescanning,
+}: {
+  report: ScanReport;
+  onRetest?: () => void;
+  /** An in-place re-test is running — the report stays mounted while ReportClient shows a re-scan
+   *  banner; forwarded to the header so the Re-test control reflects the in-flight state. */
+  rescanning?: boolean;
+}) {
   const { repo, level } = report;
   // Keyless deterministic demo (no LLM). Drive every engine-related treatment off this single
   // flag so the demo signal stays consistent everywhere the engine is shown.
@@ -168,7 +178,7 @@ export function ReportView({ report, onRetest }: { report: ScanReport; onRetest?
   return (
     <div className="animate-fade-up space-y-8" data-testid="report">
       {/* Header */}
-      <ReportHeader report={report} isMock={isMock} onRetest={onRetest} />
+      <ReportHeader report={report} isMock={isMock} onRetest={onRetest} rescanning={rescanning} />
 
       {/* Reliability caveats */}
       {report.warnings && report.warnings.length > 0 && (

@@ -10,6 +10,7 @@
     "dev": "next dev",
     "dev:inspect": "cross-env DEV_INSPECT=1 next dev",
     "db:local:seed": "node scripts/seed-scans.mjs",
+    "db:seed:fleet": "node scripts/seed-fleet.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

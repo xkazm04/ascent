@@ -162,7 +162,13 @@ export function CreditsControl({
           {grantsEnabled && (
             <div className="mt-3">
               <div className="text-sm text-slate-400">
-                Add credits{buyEnabled ? <span className="ml-1 text-slate-600">(dev)</span> : null}
+                {buyEnabled ? (
+                  <>Add credits <span className="ml-1 text-slate-600">(dev)</span></>
+                ) : (
+                  // No Polar configured: the grant buttons stand in for a purchase so the
+                  // upgrade → credits → unlock loop is demoable end-to-end without billing.
+                  <>Simulate a purchase <span className="ml-1 text-slate-600">(credits)</span></>
+                )}
               </div>
               <div className="mt-1.5 flex gap-2">
                 {[50, 200, 1000].map((a) => (

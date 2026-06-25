@@ -9,7 +9,6 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { ReportClient } from "@/components/report/ReportClient";
 import { ReportView } from "@/components/report/ReportView";
 import { PassportCard } from "@/components/org/PassportCard";
-import { ReportSkeletonFallback } from "@/components/report/ReportSkeleton";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { getScanReportByCommit, getRepoPassport, getSkillHistory, diffTrackSets } from "@/lib/db";
 import { PUBLIC_ORG, readableOrgForOwner } from "@/lib/auth";
@@ -77,7 +76,7 @@ export default async function ReportPermalink({
             )}
           </ReportErrorBoundary>
         ) : (
-          <Suspense fallback={<ReportSkeletonFallback />}>
+          <Suspense fallback={<div className="mx-auto w-full max-w-md py-12 text-center text-sm text-slate-500">Loading…</div>}>
             <ReportClient repo={ref} />
           </Suspense>
         )}

@@ -19,12 +19,13 @@ import type {
   ScanReport,
 } from "@/lib/types";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
-import { LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
+import { getDbMode, type DbMode } from "@/lib/db/mode";
+import { isDimensionId, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
 import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
-import { DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
+import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 
 // reportPermalink now lives in @/lib/ui (a client-safe module, so the trend charts can build the
 // same link); re-exported here for the existing @/lib/db barrel + server callers.
@@ -90,7 +91,7 @@ export async function getHeadHint(
     const orgId = await resolveOrgId(orgSlug);
     if (!orgId) return null;
     const repo = await prisma.repository.findUnique({
-      where: { orgId_fullName: { orgId, fullName: `${owner}/${name}` } },
+      where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
       select: { headSha: true, headEtag: true },
     });
     if (!repo?.headSha) return null;
@@ -115,7 +116,7 @@ export async function getRepoPassport(
     const orgId = await resolveOrgId(opts.orgSlug ?? DEFAULT_ORG_SLUG);
     if (!orgId) return null;
     const repo = await prisma.repository.findUnique({
-      where: { orgId_fullName: { orgId, fullName: `${owner}/${name}` } },
+      where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
       select: { id: true, passportOverridesJson: true },
     });
     if (!repo) return null;
@@ -216,7 +217,7 @@ export async function getRepositoryHistory(
   // instead of the newest — and an unbounded large limit is a cheap heavy query. Coerce NaN to 30.
   const limit = Math.max(1, Math.min(200, Math.trunc(opts.limit ?? 30) || 30));
   const includeDimensions = opts.includeDimensions ?? true;
-  const fullName = `${owner}/${name}`;
+  const fullName = canonicalRepoFullName(owner, name);
 
   const orgId = await resolveOrgId(orgSlug);
   if (!orgId) return null;
@@ -224,6 +225,9 @@ export async function getRepositoryHistory(
     where: { orgId_fullName: { orgId, fullName } },
   });
   if (!repo) return null;
+  // Defense-in-depth (cross-tenant disclosure): a private repo's history is never served from the
+  // shared public org (the anonymous read surface). Mirrors the guard in getScanReportByCommit.
+  if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
 
   // Two statically-typed queries (rather than a dynamic select) so the result type stays precise:
   // the light branch genuinely omits the dimensions join at the DB, not just in the mapping. Each
@@ -375,7 +379,7 @@ export async function getScanComparison(
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const limit = opts.limit ?? 60;
-  const fullName = `${owner}/${name}`;
+  const fullName = canonicalRepoFullName(owner, name);
 
   const orgId = await resolveOrgId(orgSlug);
   if (!orgId) return null;
@@ -428,6 +432,9 @@ export interface PublicRepoCard {
   overall: number;
   adoption: number;
   rigor: number;
+  /** Per-dimension scores (D1..D9) from this scan — powers the register's per-dimension columns.
+   *  Partial: a dimension a partial scan didn't persist is simply absent. */
+  dimensions: Partial<Record<DimensionId, number>>;
   posture: string; // posture id (ai-native | ungoverned | manual | early)
   primaryLanguage: string | null;
   stars: number;
@@ -443,6 +450,9 @@ export interface PublicScanGallery {
   topAiNative: PublicRepoCard[];
   /** Distinct public repos with at least one scan — the size of the public corpus. */
   totalRepos: number;
+  /** Which database backend served this gallery — drives the "served live from Aurora DSQL"
+   *  indicator on the landing register, so the AWS database in use is visible on screen. */
+  dbMode: DbMode;
 }
 
 /**
@@ -483,6 +493,7 @@ export async function getPublicScanGallery(
           rigorScore: true,
           posture: true,
           scannedAt: true,
+          dimensions: { select: { dimId: true, score: true } },
         },
       },
     },
@@ -492,6 +503,10 @@ export async function getPublicScanGallery(
   for (const r of repos) {
     const s = r.scans[0];
     if (!s) continue;
+    const dimensions: Partial<Record<DimensionId, number>> = {};
+    for (const d of s.dimensions) {
+      if (isDimensionId(d.dimId)) dimensions[d.dimId] = d.score;
+    }
     cards.push({
       owner: r.owner,
       name: r.name,
@@ -501,6 +516,7 @@ export async function getPublicScanGallery(
       overall: s.overallScore,
       adoption: s.adoptionScore,
       rigor: s.rigorScore,
+      dimensions,
       posture: s.posture,
       primaryLanguage: r.primaryLanguage ?? null,
       stars: r.stars,
@@ -517,7 +533,7 @@ export async function getPublicScanGallery(
     .sort((a, b) => b.overall - a.overall || b.scannedAt.localeCompare(a.scannedAt))
     .slice(0, topLimit);
 
-  return { recent, topAiNative, totalRepos: cards.length };
+  return { recent, topAiNative, totalRepos: cards.length, dbMode: getDbMode() };
 }
 
 /** Recommendations from the most recent scan of a repo (with ids + trackable status). */
@@ -529,7 +545,7 @@ export async function getLatestRecommendations(
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
-  const fullName = `${owner}/${name}`;
+  const fullName = canonicalRepoFullName(owner, name);
 
   const orgId = await resolveOrgId(orgSlug);
   if (!orgId) return null;
@@ -640,7 +656,7 @@ export async function getScanReportByCommit(
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const headSha = opts.headSha;
-  const fullName = `${owner}/${name}`;
+  const fullName = canonicalRepoFullName(owner, name);
 
   const orgId = await resolveOrgId(orgSlug);
   if (!orgId) return null;
@@ -649,6 +665,10 @@ export async function getScanReportByCommit(
     include: { contributors: { orderBy: { commits: "desc" }, take: 50 } },
   });
   if (!repo) return null;
+  // Defense-in-depth (cross-tenant disclosure): never serve a PRIVATE repo's report out of the shared
+  // public org — that org is the anonymous read surface (the report page / history resolve to it for
+  // any visitor without the installation). Backstops a legacy row from before the persist-side guard.
+  if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
 
   const scan = await prisma.scan.findFirst({
     where: { repoId: repo.id, ...(headSha ? { headSha } : {}) },

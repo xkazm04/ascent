@@ -120,12 +120,6 @@ export function SiteFooter() {
           The maturity index for AI-native engineering
         </p>
         <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
-          <Link href="/pricing" className="focus-ring rounded-sm hover:text-accent">
-            Pricing
-          </Link>
-          <Link href="/about" className="focus-ring rounded-sm hover:text-accent">
-            About
-          </Link>
           <Link href="/badge" className="focus-ring rounded-sm hover:text-accent">
             Badge
           </Link>

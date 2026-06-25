@@ -12,7 +12,7 @@
 // it as "scans mysteriously stopped".
 
 import { NextResponse } from "next/server";
-import { dbHealthCheck, isDbConfigured } from "@/lib/db";
+import { dbHealthCheck, getDbMode, isDbConfigured } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
 
 export const runtime = "nodejs";
@@ -27,8 +27,11 @@ function autoscanReadiness() {
 
 export async function GET() {
   const autoscan = autoscanReadiness();
+  // The active persistence backend ("dsql" | "postgres" | "pglite" | "disabled") — names the AWS
+  // database in use for monitoring + the hackathon architecture story (Aurora DSQL in production).
+  const dbMode = getDbMode();
   if (!isDbConfigured()) {
-    return NextResponse.json({ status: "ok", db: "disabled", autoscan });
+    return NextResponse.json({ status: "ok", db: "disabled", dbMode, autoscan });
   }
   try {
     const result = await dbHealthCheck();
@@ -42,6 +45,7 @@ export async function GET() {
       {
         status: result.ok ? "ok" : "error",
         db: result.ok ? "up" : "down",
+        dbMode,
         reconnected: result.reconnected,
         autoscan,
       },
@@ -54,7 +58,7 @@ export async function GET() {
     // degraded shape only, identical to the resolved-failure body (no `err` in the response).
     console.error("[health] database check threw", err);
     return NextResponse.json(
-      { status: "error", db: "down", reconnected: false, autoscan },
+      { status: "error", db: "down", dbMode, reconnected: false, autoscan },
       { status: 503 },
     );
   }

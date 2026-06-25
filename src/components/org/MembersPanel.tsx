@@ -3,11 +3,13 @@
 // Owner-only member management UI — the surface that makes the RBAC backend (Membership.role +
 // /api/org/members) usable without curl. Inline role change (optimistic POST) + remove (DELETE,
 // refused for the last owner server-side). Owners can grant a teammate viewer/admin without sharing
-// the GitHub App installation.
+// the GitHub App installation. The "Invite a teammate" panel lives in the co-located MemberInvites.
 
 import { useState } from "react";
 import { SectionHeader } from "@/components/org/ui";
 import type { OrgRole } from "@/lib/db/members";
+import { ROLES, ROLE_HINT } from "@/components/org/memberRoles";
+import { MemberInvites, type InviteRow } from "@/components/org/MemberInvites";
 
 interface Member {
   login: string;
@@ -15,26 +17,6 @@ interface Member {
   role: OrgRole;
   createdAt: string;
 }
-
-interface InviteRow {
-  id: string;
-  email: string | null;
-  githubLogin: string | null;
-  role: OrgRole;
-  // Present only for invites created in THIS session (the POST create response). Pre-existing
-  // pending invites loaded from the server no longer carry the token (it's the capability, shown
-  // once), so the copy-link affordance appears only right after creation.
-  token?: string | null;
-  expiresAt: string;
-}
-
-const ROLES: OrgRole[] = ["owner", "admin", "member", "viewer"];
-const ROLE_HINT: Record<OrgRole, string> = {
-  owner: "Full control, incl. member management & billing",
-  admin: "Destructive ops (deletes, credit grants)",
-  member: "Can act on the org (scan, watch, plan)",
-  viewer: "Read-only access to dashboards",
-};
 
 export function MembersPanel({
   slug,
@@ -50,63 +32,7 @@ export function MembersPanel({
   const [members, setMembers] = useState<Member[]>(initial);
   const [busy, setBusy] = useState<string | null>(null); // login currently mutating
   const [error, setError] = useState<string | null>(null);
-  const [invites, setInvites] = useState<InviteRow[]>(initialInvites);
-  const [inviteTarget, setInviteTarget] = useState("");
-  const [inviteRole, setInviteRole] = useState<OrgRole>("member");
-  const [inviteBusy, setInviteBusy] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-
-  // An invite target is an email if it contains "@", else a GitHub login.
-  async function sendInvite() {
-    const target = inviteTarget.trim();
-    if (!target || inviteBusy) return;
-    setInviteBusy(true);
-    setInviteError(null);
-    const payload = target.includes("@") ? { email: target } : { githubLogin: target };
-    try {
-      const res = await fetch("/api/org/invites", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, role: inviteRole, ...payload }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error ?? "Failed to create invite.");
-      setInvites((xs) => [d.invite as InviteRow, ...xs]);
-      setInviteTarget("");
-    } catch (e) {
-      setInviteError(e instanceof Error ? e.message : "Failed to create invite.");
-    } finally {
-      setInviteBusy(false);
-    }
-  }
-
-  async function revokeInvite(id: string) {
-    const prev = invites;
-    setInvites((xs) => xs.filter((i) => i.id !== id));
-    try {
-      const res = await fetch(`/api/org/invites?org=${encodeURIComponent(slug)}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
-    } catch {
-      setInvites(prev);
-      setInviteError("Failed to revoke the invite.");
-    }
-  }
-
-  function inviteLink(token: string): string {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/invite/${token}`;
-  }
-
-  async function copyLink(token: string) {
-    try {
-      await navigator.clipboard.writeText(inviteLink(token));
-      setCopied(token);
-      setTimeout(() => setCopied((c) => (c === token ? null : c)), 1500);
-    } catch {
-      /* clipboard blocked — the link is shown inline as a fallback */
-    }
-  }
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null); // login awaiting inline remove confirm
 
   async function changeRole(login: string, role: OrgRole) {
     const prev = members;
@@ -132,7 +58,10 @@ export function MembersPanel({
   }
 
   async function remove(login: string) {
-    if (!window.confirm(`Remove @${login} from ${slug}? They lose all access to this org.`)) return;
+    // Confirmation is the inline two-step affordance in the row (Remove? → confirm / cancel), so
+    // this runs only on an explicit confirm — matching the app's bespoke UX instead of a native
+    // window.confirm dialog that can't be themed or announced.
+    setConfirmRemove(null);
     const prev = members;
     setBusy(login);
     setError(null);
@@ -166,7 +95,11 @@ export function MembersPanel({
           </>
         }
       />
-      {error && <p className="mb-3 text-sm text-orange-300">{error}</p>}
+      {error && (
+        <p role="alert" className="mb-3 text-sm text-orange-300">
+          {error}
+        </p>
+      )}
       <div className="overflow-x-auto rounded-xl border border-slate-800">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-slate-800 bg-slate-950/50 font-mono text-sm uppercase tracking-widest text-slate-500">
@@ -207,13 +140,33 @@ export function MembersPanel({
                   {new Date(m.createdAt).toLocaleDateString()}
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <button
-                    onClick={() => remove(m.login)}
-                    disabled={busy === m.login}
-                    className="font-mono text-sm text-slate-600 transition hover:text-orange-300 disabled:opacity-50"
-                  >
-                    remove
-                  </button>
+                  {confirmRemove === m.login ? (
+                    <span className="inline-flex items-center justify-end gap-2 font-mono text-sm">
+                      <span className="text-slate-400">Remove?</span>
+                      <button
+                        onClick={() => remove(m.login)}
+                        disabled={busy === m.login}
+                        className="font-medium text-danger-soft transition hover:text-danger disabled:opacity-50"
+                      >
+                        confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmRemove(null)}
+                        disabled={busy === m.login}
+                        className="text-slate-500 transition hover:text-white disabled:opacity-50"
+                      >
+                        cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmRemove(m.login)}
+                      disabled={busy === m.login}
+                      className="font-mono text-sm text-slate-500 transition hover:text-danger-soft disabled:opacity-50"
+                    >
+                      remove
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -225,66 +178,7 @@ export function MembersPanel({
         the last owner can&apos;t be removed.
       </p>
 
-      {/* Invite a teammate — mints a single-use /invite/[token] link to share (expires in 7 days). */}
-      <div className="mt-6 border-t border-slate-800 pt-4">
-        <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Invite a teammate</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          Creates a single-use link (expires in 7 days). A GitHub login pins the invite to that account.
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            type="text"
-            value={inviteTarget}
-            onChange={(e) => setInviteTarget(e.target.value)}
-            placeholder="GitHub login or email"
-            className="min-w-[14rem] flex-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 outline-none focus:border-accent"
-          />
-          <select
-            value={inviteRole}
-            onChange={(e) => setInviteRole(e.target.value as OrgRole)}
-            aria-label="Invite role"
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-sm text-slate-200 outline-none focus:border-accent"
-          >
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={sendInvite}
-            disabled={inviteBusy || !inviteTarget.trim()}
-            className="rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
-          >
-            {inviteBusy ? "Creating…" : "Create invite"}
-          </button>
-        </div>
-        {inviteError && <p className="mt-2 text-sm text-orange-300">{inviteError}</p>}
-
-        {invites.length > 0 && (
-          <ul className="mt-3 space-y-1.5">
-            {invites.map((i) => (
-              <li key={i.id} className="flex flex-wrap items-center gap-2 font-mono text-sm">
-                <span className="text-slate-300">{i.githubLogin ? `@${i.githubLogin}` : i.email}</span>
-                <span className="rounded border border-slate-700 px-1.5 py-0.5 text-slate-400">{i.role}</span>
-                {i.token ? (
-                  <button onClick={() => copyLink(i.token!)} className="text-accent transition hover:text-white">
-                    {copied === i.token ? "copied ✓" : "copy link"}
-                  </button>
-                ) : (
-                  <span className="text-slate-600" title="The invite link is shown only when it's created. Revoke and re-issue to get a fresh link.">
-                    link shared at creation
-                  </span>
-                )}
-                <button onClick={() => revokeInvite(i.id)} className="text-slate-600 transition hover:text-orange-300">
-                  revoke
-                </button>
-                <span className="text-slate-600">expires {new Date(i.expiresAt).toLocaleDateString()}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <MemberInvites slug={slug} initialInvites={initialInvites} />
     </div>
   );
 }

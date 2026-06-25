@@ -8,7 +8,18 @@ import { pillClass } from "@/components/report/pill";
 /** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row.
  *  `isMock` (keyless deterministic demo, no LLM) is derived once by ReportView and threaded down so
  *  the demo signal stays consistent everywhere the engine is shown. */
-export function ReportHeader({ report, isMock, onRetest }: { report: ScanReport; isMock: boolean; onRetest?: () => void }) {
+export function ReportHeader({
+  report,
+  isMock,
+  onRetest,
+  rescanning,
+}: {
+  report: ScanReport;
+  isMock: boolean;
+  onRetest?: () => void;
+  /** A re-test is in flight — forwarded to the freshness control so it shows "Re-scanning…". */
+  rescanning?: boolean;
+}) {
   const { repo } = report;
 
   return (
@@ -44,6 +55,15 @@ export function ReportHeader({ report, isMock, onRetest }: { report: ScanReport;
             >
               Demo · deterministic rubric
             </span>
+          ) : report.engine.provider === "bedrock" ? (
+            // Surface the enterprise-privacy inference path on screen: when scoring ran on AWS Bedrock,
+            // the customer's code stayed in-account and was never used for training (see docs/ARCHITECTURE.md).
+            <span
+              className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-300"
+              title={`Inference ran in-account on AWS Bedrock (${report.engine.model}) — code never leaves the AWS boundary and is never used for training`}
+            >
+              inference · AWS Bedrock · {report.engine.model}
+            </span>
           ) : (
             <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
               engine: {report.engine.provider} · {report.engine.model}
@@ -54,7 +74,7 @@ export function ReportHeader({ report, isMock, onRetest }: { report: ScanReport;
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <FreshnessControl report={report} onRetest={onRetest} />
+          <FreshnessControl report={report} onRetest={onRetest} rescanning={rescanning} />
           <a
             href={`/api/report/pdf?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
             className={pillClass({ focusRing: true, textSm: true })}

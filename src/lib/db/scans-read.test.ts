@@ -40,6 +40,7 @@ vi.mock("@/lib/db/client", () => ({
 // the rest are kept real-ish but inert (reconstruction never calls toPersistedRec on this path).
 vi.mock("@/lib/db/scans-shared", () => ({
   DEFAULT_ORG_SLUG: "public",
+  canonicalRepoFullName: (owner: string, name: string) => `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`,
   resolveOrgId: vi.fn(async () => "org_1"),
   toPersistedRec: vi.fn(),
   // parseStringArray now lives in scans-shared (the dependency sink) and scans-read imports it from

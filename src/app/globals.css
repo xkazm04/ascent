@@ -50,9 +50,11 @@ html {
    is min-h-screen + snap-start and clears the sticky header with its own internal top padding. */
 @media (prefers-reduced-motion: no-preference) {
   html.snap-deck {
-    /* proximity (not mandatory): snaps section-to-section when you come to rest near one, but still
-       lets you free-scroll past the last section to a trailing footer without being trapped. */
-    scroll-snap-type: y proximity;
+    /* mandatory (not proximity): always settle on a section, so a single scroll gesture can't leave the
+       reader stranded in the gap between two sections — it auto-completes to the nearer one. The trailing
+       footer carries its own snap-end point (see the home page), so resting on it is a valid stop rather
+       than a trap. */
+    scroll-snap-type: y mandatory;
   }
 }
 
@@ -374,7 +376,7 @@ body {
   .burst-ring {
     animation: none;
   }
-  /* Tailwind's built-in looping utilities used by skeletons/spinners (loading.tsx, ReportSkeleton,
+  /* Tailwind's built-in looping utilities used by skeletons/spinners (loading.tsx,
      DimensionTrends, GitHubSignInButton). The custom ascent-* keyframes above are gated separately;
      these cover the remaining infinite pulse/spin so a reduced-motion user gets a still UI. */
   .animate-pulse,

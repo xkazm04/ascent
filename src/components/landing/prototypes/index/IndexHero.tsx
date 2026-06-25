@@ -4,6 +4,7 @@
 // and the index ring on the right. Restrained motion, generous whitespace, hairline rules.
 
 import Image from "next/image";
+import Link from "next/link";
 import { ScanForm } from "@/components/ScanForm";
 import { QuotaMeter } from "@/components/QuotaMeter";
 import { Dateline } from "@/components/ui";
@@ -50,6 +51,16 @@ export function IndexHero({ quota, exampleRepos }: LandingData) {
             </p>
             <div className="mt-8">
               <ScanForm autoFocus examples={exampleRepos} />
+            </div>
+            {/* Zero-friction path for first-time visitors: one click to a fully-rendered example report
+                (instant when persisted; falls back to a live keyless mock scan otherwise). */}
+            <div className="mt-3">
+              <Link
+                href="/report/vercel/next.js"
+                className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+              >
+                <span aria-hidden>▸</span> See a sample report — no signup
+              </Link>
             </div>
             <QuotaMeter />
             <p className="mt-4 font-mono text-sm uppercase tracking-widest text-slate-400">

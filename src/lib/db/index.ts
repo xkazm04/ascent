@@ -248,6 +248,7 @@ export {
   compareTechStacks,
   type TechGroupSummary,
 } from "@/lib/db/tech-groups";
+export { getDbMode, dbModeLabel, dbModeIsAws, type DbMode } from "@/lib/db/mode";
 export { getPassportOverrides, setPassportOverrides } from "@/lib/db/passport-overrides";
 export {
   getOrgLlmConfig,

@@ -7,18 +7,33 @@ import { useEffect, useId, useRef, useState } from "react";
 const FALLBACK_EXAMPLES = ["facebook/react", "vercel/next.js", "anthropics/claude-code"];
 
 /**
+ * Peel the GitHub URL/SSH chrome off a repo reference, leaving a bare `owner/repo`-ish string (no
+ * validation): strips a `git@github.com:` SSH prefix, an `https://` scheme, a `github.com/` host, a
+ * `.git` suffix, and surrounding slashes. Shared by {@link normalizeRepo} and the paste handler so
+ * both peel a pasted link identically.
+ */
+function stripRepoRef(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^git@github\.com:/i, "") // SSH form
+    .replace(/^https?:\/\//i, "") // scheme
+    .replace(/^(www\.)?github\.com\//i, "") // host prefix
+    .replace(/\.git$/i, "") // .git suffix
+    .replace(/^\/+|\/+$/g, ""); // leading/trailing slashes
+}
+
+/** A pasted value carrying URL/SSH chrome (a scheme, a `git@` SSH prefix, or a github.com host)
+ *  rather than a bare `owner/repo` — the cue to collapse it to `owner/repo` in place on paste. */
+const REPO_URL_LIKE = /:\/\/|^git@|github\.com/i;
+
+/**
  * Forgiving client-side normalization: accepts a full URL, a `git@` SSH URL, a
  * `github.com/owner/repo`, a trailing slash, or a bare `owner/repo`, and returns a clean
  * `owner/repo` — or null when it can't be coerced into a valid GitHub repo reference.
  */
 export function normalizeRepo(raw: string): string | null {
-  let s = raw.trim();
+  const s = stripRepoRef(raw);
   if (!s) return null;
-  s = s.replace(/^git@github\.com:/i, ""); // SSH form
-  s = s.replace(/^https?:\/\//i, ""); // scheme
-  s = s.replace(/^(www\.)?github\.com\//i, ""); // host prefix
-  s = s.replace(/\.git$/i, ""); // .git suffix
-  s = s.replace(/^\/+|\/+$/g, ""); // leading/trailing slashes
   const parts = s.split("/").filter(Boolean);
   if (parts.length < 2) return null;
   const [owner = "", repo = ""] = parts;
@@ -104,6 +119,18 @@ export function ScanForm({
         <input
           ref={inputRef}
           value={value}
+          onPaste={(e) => {
+            // Pasting a full GitHub link (URL or SSH) collapses to `owner/repo` in place, so the
+            // visible value matches the `github.com/` prefix the field shows — e.g.
+            // "https://github.com/xkazm04/ascent" becomes "xkazm04/ascent". A bare owner/repo (no
+            // URL chrome) pastes normally. Prefer the validated owner/repo; fall back to the peeled
+            // string when the link is only a partial reference (owner with no repo yet).
+            const text = e.clipboardData.getData("text");
+            if (!REPO_URL_LIKE.test(text)) return;
+            e.preventDefault();
+            setValue(normalizeRepo(text) ?? stripRepoRef(text));
+            if (error) setError(null);
+          }}
           onChange={(e) => {
             setValue(e.target.value);
             if (error) setError(null);

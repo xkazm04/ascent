@@ -12,7 +12,17 @@ import { pillClass } from "./pill";
  * In the live scan view `onRetest` re-triggers the in-page SSE run; on a server-rendered pinned
  * permalink (no callback) it links to the live scanner with `fresh=1` to force a re-check.
  */
-export function FreshnessControl({ report, onRetest }: { report: ScanReport; onRetest?: () => void }) {
+export function FreshnessControl({
+  report,
+  onRetest,
+  rescanning = false,
+}: {
+  report: ScanReport;
+  onRetest?: () => void;
+  /** A re-test is already in flight (the live view keeps the report up + shows a banner) — disable
+   *  the control so a second click can't stack another run. */
+  rescanning?: boolean;
+}) {
   // Re-render every 30s so "just now" → "1m ago" → "2m ago" stays honest without a reload.
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -49,9 +59,15 @@ export function FreshnessControl({ report, onRetest }: { report: ScanReport; onR
         Scanned <span className="text-slate-300">{freshness(report.scannedAt)}</span>
       </span>
       {onRetest ? (
-        <button type="button" onClick={onRetest} className={retestClass}>
+        <button
+          type="button"
+          onClick={onRetest}
+          disabled={rescanning}
+          aria-disabled={rescanning || undefined}
+          className={`${retestClass} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
           {refreshIcon}
-          Re-test
+          {rescanning ? "Re-scanning…" : "Re-test"}
         </button>
       ) : (
         <a href={retestHref} className={retestClass}>

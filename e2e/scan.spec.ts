@@ -45,18 +45,15 @@ test("scan flow streams to a report without a manual refresh", async ({ page }) 
   await expect(page.getByText(/Evidence|test file|signal /i).first()).toBeVisible();
 });
 
-test("public scan runs through the engine and clears the skeleton — no error wall", async ({ page }) => {
+test("public scan runs through the engine and renders — no error wall", async ({ page }) => {
   // The basic operation the product exists to do: open a report, let the live pipeline run
   // (GitHub ingest → deterministic signals → LLM engine → compose), and render. This 500'd
   // ("Unexpected error while scanning the repository") when the DB was configured but unreachable,
   // because a best-effort cache read threw instead of degrading. Drive it straight from the URL.
   await page.goto("/report?repo=sindresorhus/slugify");
 
-  // It must finish and render the report — not hang on the skeleton, not fall to the error wall.
+  // It must finish and render the report — not hang on the loading view, not fall to the error wall.
   await expect(page.getByTestId("report")).toBeVisible({ timeout: 90_000 });
-
-  // The loading silhouette must be REPLACED by the report, never left mounted behind/over it.
-  await expect(page.getByTestId("report-skeleton")).toHaveCount(0);
 
   // And no error states from the scan failing or the quota wall tripping.
   await expect(page.getByRole("heading", { name: "Couldn't scan that repo" })).toHaveCount(0);
