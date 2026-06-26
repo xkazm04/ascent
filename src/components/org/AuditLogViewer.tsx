@@ -5,7 +5,7 @@
 // where an entry references a scan — link straight to that pinned report so you can see
 // who triggered the scan that moved a score.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import type { AuditLogEntry, AuditLogPage } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
@@ -89,6 +89,11 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
   const [actor, setActor] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Monotonic request token: every load() takes the next id; a response only applies if it's still the
+  // latest. Without it, rapidly changing the action filter raced two un-sequenced fetches and whichever
+  // resolved LAST won — landing rows that disagree with the selected filter, or appending a "Load more"
+  // page from a superseded filter (duplicate / foreign e.id rows, possible React key collisions).
+  const reqId = useRef(0);
 
   interface Filters {
     action: string;
@@ -107,6 +112,7 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
   }
 
   async function load(reset: boolean, nextCursor: string | null, f: Filters) {
+    const myReq = ++reqId.current;
     setLoading(true);
     setError(null);
     try {
@@ -114,13 +120,17 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
       if (!reset && nextCursor) qs.set("cursor", nextCursor);
       const res = await fetch(`/api/audit?${qs.toString()}`);
       const data = await res.json();
+      // A newer load() superseded this one — drop the stale result so it can't scramble the list or
+      // append a page belonging to a prior filter.
+      if (myReq !== reqId.current) return;
       if (!res.ok) throw new Error(data?.error ?? `Failed (${res.status}).`);
       setEntries((prev) => (reset ? data.entries : [...prev, ...data.entries]));
       setCursor(data.nextCursor);
     } catch (e) {
+      if (myReq !== reqId.current) return;
       setError(e instanceof Error ? e.message : "Failed to load audit log.");
     } finally {
-      setLoading(false);
+      if (myReq === reqId.current) setLoading(false);
     }
   }
 
@@ -144,8 +154,9 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
             <select
               value={action}
               onChange={(e) => changeAction(e.target.value)}
+              disabled={loading}
               aria-label="Filter by action"
-              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
             >
               {ACTION_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>
