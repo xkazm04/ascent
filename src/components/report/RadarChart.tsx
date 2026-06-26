@@ -53,6 +53,13 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
 
   const rings = [0.25, 0.5, 0.75, 1];
   const dataPts = dimensions.map((d, i) => point(i, Math.max(0.04, d.score / 100)));
+  // Validate `active` against the CURRENT arrays before use: it persists across renders but is only
+  // checked at set-time, so if a parent swaps `dimensions` for a shorter (non-empty) array while a
+  // vertex tooltip is open, `dataPts[active]` is undefined and `undefined![0]` would throw mid-render.
+  // Resolve to a concrete point/dim once and gate the ring + tooltip on them (the DimLine pattern),
+  // dropping the non-null assertions.
+  const actPt = active != null ? dataPts[active] : undefined;
+  const actDim = active != null ? dimensions[active] : undefined;
   const dataPath = dataPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -107,9 +114,8 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
         <circle key={i} cx={x} cy={y} r={i === active ? 4.5 : 3} fill="#7bbcff" />
       ))}
       {/* hovered vertex highlight */}
-      {active !== null && (
-        // safe: active is a valid index into dataPts/dimensions (set from dataPts.forEach, same length)
-        <circle cx={dataPts[active]![0]} cy={dataPts[active]![1]} r={8} fill="none" stroke={scoreHex(dimensions[active]!.score)} strokeWidth={2} />
+      {actPt && actDim && (
+        <circle cx={actPt[0]} cy={actPt[1]} r={8} fill="none" stroke={scoreHex(actDim.score)} strokeWidth={2} />
       )}
       {/* labels */}
       {dimensions.map((d, i) => {
@@ -127,17 +133,16 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
       {/* transparent capture layer so pointer moves register across the whole plot */}
       <rect x={-labelPadX} y={0} width={vbWidth} height={size} fill="transparent" />
       </svg>
-      {active !== null && (
-        // safe: active is a valid index into dataPts/dimensions (set from dataPts.forEach, same length)
-        <ChartTooltip xFrac={(dataPts[active]![0] + labelPadX) / vbWidth} yFrac={dataPts[active]![1] / size}>
+      {actPt && actDim && (
+        <ChartTooltip xFrac={(actPt[0] + labelPadX) / vbWidth} yFrac={actPt[1] / size}>
           <div className="text-sm">
-            <div className="font-semibold text-white">{dimensions[active]!.name}</div>
+            <div className="font-semibold text-white">{actDim.name}</div>
             <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(dimensions[active]!.score) }}>
-                {dimensions[active]!.score}
+              <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(actDim.score) }}>
+                {actDim.score}
               </span>
               <span className="text-sm text-slate-400">
-                {levelForScore(dimensions[active]!.score).id} {levelForScore(dimensions[active]!.score).name}
+                {levelForScore(actDim.score).id} {levelForScore(actDim.score).name}
               </span>
             </div>
           </div>
