@@ -393,7 +393,11 @@ export async function getScanComparison(
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
-  const limit = opts.limit ?? 60;
+  // Clamp to a positive bounded range (scan-persistence-history #4): a NEGATIVE `take` makes Prisma
+  // read from the OTHER end (oldest-first), so the diff would default `afterId` to the OLDEST scan and
+  // target the wrong commit; NaN and an unbounded huge limit are also unhandled (a cheap heavy query).
+  // Coerce NaN to 60. Mirrors the guard the sibling getRepositoryHistory already applies.
+  const limit = Math.max(1, Math.min(200, Math.trunc(opts.limit ?? 60) || 60));
   const fullName = canonicalRepoFullName(owner, name);
 
   const orgId = await resolveOrgId(orgSlug);
