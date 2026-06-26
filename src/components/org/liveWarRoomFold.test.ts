@@ -192,3 +192,32 @@ describe("a sequence of live events folds to the correct stats + leaderboard", (
     expect(board.map((r) => r.fullName)).toEqual(["acme/api"]);
   });
 });
+
+describe("computeStats — per-axis averages divide by repos carrying that axis (live-war-room #2)", () => {
+  it("excludes null-axis repos from the divisor instead of counting them as 0", () => {
+    // 4 scored repos: two carry adoption=80, two have a null adoption axis. The headline tile must
+    // read 80, not (80+80+0+0)/4 = 40. rigor is present on all four; overall present on all four.
+    const repos = repoMap(
+      seedRepo({ fullName: "o/a", overall: 80, adoption: 80, rigor: 60 }),
+      seedRepo({ fullName: "o/b", overall: 80, adoption: 80, rigor: 60 }),
+      seedRepo({ fullName: "o/c", overall: 80, adoption: null, rigor: 60 }),
+      seedRepo({ fullName: "o/d", overall: 80, adoption: null, rigor: 60 }),
+    );
+    const stats = computeStats(repos);
+    expect(stats.scored).toBe(4);
+    expect(stats.avgAdoption).toBe(80); // averaged over only the 2 repos that carry adoption
+    expect(stats.avgRigor).toBe(60); // all four carry rigor
+    expect(stats.avgOverall).toBe(80);
+  });
+
+  it("returns null for an axis no scored repo carries (never 0)", () => {
+    const repos = repoMap(
+      seedRepo({ fullName: "o/a", overall: 70, adoption: null, rigor: null }),
+      seedRepo({ fullName: "o/b", overall: 90, adoption: null, rigor: null }),
+    );
+    const stats = computeStats(repos);
+    expect(stats.avgOverall).toBe(80); // (70 + 90) / 2 — overall is present on both
+    expect(stats.avgAdoption).toBeNull();
+    expect(stats.avgRigor).toBeNull();
+  });
+});
