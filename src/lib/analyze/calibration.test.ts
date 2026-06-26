@@ -62,6 +62,17 @@ describe("rubric calibration — extended D2 / D3 signals", () => {
     expect(labels).toMatch(/contract/i);
   });
 
+  it("does NOT credit advanced signals from a concept-word in a plain source path (decoys)", () => {
+    // maturity-model-scoring-engine #2: a filename naming a CONCEPT is not evidence of the PRACTICE.
+    // `AccessibilityMenu.tsx` (no a11y tests) must not earn D2 a11y credit, and a generic `src/eval.ts`
+    // (or a `json-eval` dep) must not earn the D8 eval/golden-test harness +30.
+    const decoy = snap(["src/components/AccessibilityMenu.tsx", "src/eval.ts", "README.md"]);
+    const d2 = analyzeSignals(decoy).find((d) => d.id === "D2")!.signals.map((x) => x.label).join(" | ");
+    const d8 = analyzeSignals(decoy).find((d) => d.id === "D8")!.signals.map((x) => x.label).join(" | ");
+    expect(d2).not.toMatch(/accessibility/i);
+    expect(d8).not.toMatch(/golden-test harness/i);
+  });
+
   it("D2 ranks a behaviorally-tested suite ABOVE an assertion-free one of the same size", () => {
     // Same number of test FILES (so the count/ratio base is identical) — only the sampled test
     // BODIES differ: one asserts behavior, the other only calls code. The vanity suite must score lower.
