@@ -672,6 +672,38 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
     expect(constructed).toHaveLength(0); // short-circuits before constructing any client
   });
 
+  // ── dbReadSafe: auth-expiry recovery on the READ surface (database-client-schema #1) ────────
+  it("dbReadSafe recovers a READ from an auth-expiry: reconnects with a fresh client and retries once", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    let calls = 0;
+    const result = await dbReadSafe(async () => {
+      calls++;
+      const c = getPrisma() as unknown as FakeClient; // reads the CURRENT cached client
+      if (calls === 1) throw { code: "28P01", message: "token expired" }; // first attempt: stale token
+      return c.id;
+    }, -1);
+    // reconnectDb rebuilt the client (static mode) and the read succeeded against the fresh client.
+    expect(calls).toBe(2);
+    expect(constructed).toHaveLength(2);
+    expect(result).toBe(constructed[1].id);
+    expect(g.__ascentPrisma?.client).toBe(constructed[1]);
+  });
+
+  it("dbReadSafe degrades to the fallback when the post-reconnect retry hits an unreachable DB", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    const unreachable = Object.assign(new Error("Can't reach database server"), {
+      name: "PrismaClientInitializationError",
+    });
+    let calls = 0;
+    const result = await dbReadSafe<string>(async () => {
+      calls++;
+      if (calls === 1) throw { code: "28P01", message: "token expired" }; // auth-expiry → reconnect+retry
+      throw unreachable; // the retry then finds the DB unreachable → degrade
+    }, "fallback");
+    expect(calls).toBe(2);
+    expect(result).toBe("fallback");
+  });
+
   // ── reconnectDb: re-establishes the client ────────────────────────────────────────────────
   it("reconnectDb (static) rebuilds a fresh client, caches it never-expiring, and disconnects the old one", async () => {
     process.env.DATABASE_URL = "postgresql://localhost:5432/app";

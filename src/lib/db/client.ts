@@ -11,7 +11,8 @@
 //     one client built from DATABASE_URL, never expires.
 //   • DSQL mode (DSQL_ENDPOINT set): the connection URL is rebuilt from a freshly minted IAM
 //     token. getPrisma() proactively kicks a background refresh before the token's TTL
-//     elapses, and withDb()/dbHealthCheck() reactively reconnect on an auth-expiry error.
+//     elapses, and withDb()/dbReadSafe()/dbHealthCheck() reactively reconnect on an auth-expiry
+//     error — so both the write path (withDb) and the read surface (dbReadSafe) self-heal.
 //
 // Token minting uses @aws-sdk/dsql-signer, imported lazily so the static/local path never
 // pulls in the AWS SDK and the build works without the package installed. See
@@ -208,11 +209,33 @@ export function isDbUnavailableError(err: unknown): boolean {
  * when persistence is unconfigured (isDbConfigured() === false). Lets a DB-less *and* a DB-down
  * deployment render the keyless MVP instead of 500-ing. A query error against a LIVE database (bad
  * SQL, a constraint violation, a genuine bug) is NOT swallowed — it re-throws unchanged.
+ *
+ * Auth-expiry recovery (database-client-schema #1): the reactive reconnect used to be reachable only
+ * through {@link withDb} (one production caller), while the entire read surface flows through this
+ * wrapper on a raw getPrisma() client. On a DSQL short-lived-IAM-token lapse (cold thaw, or a
+ * token-mint stall that outlasts the proactive refresh margin) that read would throw an auth-expiry
+ * error and 500 instead of self-healing. So before degrading, an auth-expiry is recovered exactly
+ * like {@link runWithReconnect}: reconnect with a fresh token and retry the read ONCE. The retry's
+ * `fn` re-invokes getPrisma() internally, so it transparently picks up the reconnected client.
  */
 export async function dbReadSafe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await fn();
   } catch (err) {
+    if (isAuthExpiryError(err)) {
+      try {
+        await reconnectDb();
+        return await fn();
+      } catch (retryErr) {
+        // Reconnect or the retried read still failed: degrade only when the DB is genuinely
+        // unreachable; a live-DB query error after a successful reconnect re-throws unchanged.
+        if (isDbUnavailableError(retryErr)) {
+          console.warn("[db] read degraded — database unreachable:", errorInfo(retryErr).message);
+          return fallback;
+        }
+        throw retryErr;
+      }
+    }
     if (isDbUnavailableError(err)) {
       console.warn("[db] read degraded — database unreachable:", errorInfo(err).message);
       return fallback;
