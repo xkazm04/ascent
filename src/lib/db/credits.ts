@@ -10,6 +10,29 @@ import { randomUUID } from "node:crypto";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { isUnlimitedPlan, resolveScanCharge } from "@/lib/plans";
 
+/**
+ * Canonical CreditLedger `reason` values. The refund WRITERS (scan-credit.refundScanCredit and the
+ * /api/scan inline refund) and the reconciliation READER (getCreditReconciliation) must agree on the
+ * refund marker: the prior free-text `/refund/i` substring would mis-bucket any refund stamped with a
+ * reason lacking the word "refund" (e.g. "dedup"/"reverted") as a fresh GRANT — overstating grants and
+ * understating refunds on the money-facing /usage reconciliation, while `net` stayed correct so nothing
+ * looked broken. Binding both sides to ONE constant makes that drift structurally impossible.
+ */
+export const CREDIT_REASON = {
+  SCAN: "scan",
+  GRANT: "grant",
+  ADJUSTMENT: "adjustment",
+  REFUND: "refund",
+  POLAR_REFUND: "polar-refund",
+} as const;
+
+/** True iff a (positive-delta) ledger reason marks a scan-credit refund — an EXACT match on the shared
+ *  CREDIT_REASON.REFUND constant (trim/case-tolerant), not a substring, so only a genuine refund row
+ *  lands in the reconciliation's `refunded` bucket and a non-refund reason can never leak into it. */
+export function isRefundReason(reason: string | null | undefined): boolean {
+  return (reason ?? "").trim().toLowerCase() === CREDIT_REASON.REFUND;
+}
+
 export interface CreditState {
   balance: number;
   plan: string;
@@ -126,7 +149,7 @@ export async function grantCredits(
             orgId: org.id,
             delta: appliedDelta,
             balanceAfter,
-            reason: opts.reason ?? (delta > 0 ? "grant" : "adjustment"),
+            reason: opts.reason ?? (delta > 0 ? CREDIT_REASON.GRANT : CREDIT_REASON.ADJUSTMENT),
             actor: opts.actor ?? null,
             externalId,
           },
@@ -203,7 +226,7 @@ export async function clawbackOrderRefund(
             orgId: org.id,
             delta: appliedDelta,
             balanceAfter: updated.scanCredits,
-            reason: "polar-refund",
+            reason: CREDIT_REASON.POLAR_REFUND,
             actor: opts.actor ?? "polar",
             externalId,
           },
@@ -316,7 +339,7 @@ export async function consumeScanCredit(
             orgId: org.id,
             delta: -1,
             balanceAfter,
-            reason: "scan",
+            reason: CREDIT_REASON.SCAN,
             repoFullName: ctx.repoFullName ?? null,
             scanId: ctx.scanId ?? null,
             actor: ctx.actor ?? null,
@@ -393,8 +416,10 @@ export async function getCreditReconciliation(orgSlug: string, days: number): Pr
     rows.filter(pred).reduce((a, e) => a + (abs ? Math.abs(e.delta) : e.delta), 0);
   return {
     debited: sum((e) => e.delta < 0, true),
-    refunded: sum((e) => e.delta > 0 && /refund/i.test(e.reason)),
-    granted: sum((e) => e.delta > 0 && !/refund/i.test(e.reason)),
+    // Classify on the shared CREDIT_REASON.REFUND constant (see isRefundReason), NOT a free-text
+    // substring, so a refund stamped with any other reason can't silently land in `granted`.
+    refunded: sum((e) => e.delta > 0 && isRefundReason(e.reason)),
+    granted: sum((e) => e.delta > 0 && !isRefundReason(e.reason)),
     net: rows.reduce((a, e) => a + e.delta, 0),
     entries: rows.length,
   };

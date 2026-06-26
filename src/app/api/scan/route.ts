@@ -10,7 +10,7 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { consumeScanCredit, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
+import { consumeScanCredit, CREDIT_REASON, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
@@ -165,7 +165,7 @@ async function runScan(
   const refundCredit = async () => {
     if (creditReserved) {
       creditReserved = false;
-      const bal = await grantCredits(orgSlug, 1, { reason: "refund", actor: "system" }).catch(() => null);
+      const bal = await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: "system" }).catch(() => null);
       if (typeof bal === "number") creditsRemaining = bal;
     }
   };
