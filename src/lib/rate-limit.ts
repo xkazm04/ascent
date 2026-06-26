@@ -39,7 +39,13 @@ function hit(key: string, limit: number, windowMs: number): { ok: boolean; retry
     for (const [k, v] of windows) if (v.every((t) => t <= cutoff)) windows.delete(k);
   }
   const ok = recent.length <= limit;
-  return { ok, retryAfterSec: ok ? 0 : Math.ceil(windowMs / 1000) };
+  if (ok) return { ok, retryAfterSec: 0 };
+  // Sliding window: a slot frees when the OLDEST in-window hit ages out at recent[0] + windowMs, not a
+  // fixed full-window wait. Reporting windowMs unconditionally tells a caller whose oldest hit expires
+  // in 2s to back off 60s — ~30× too long. Derive the true sliding edge (recent[0] always exists here
+  // since recent.length > limit ≥ 0), clamped to ≥1s. Mirrors public-scan-quota's resetAt logic.
+  const retryAfterSec = Math.max(1, Math.ceil((recent[0]! + windowMs - now) / 1000));
+  return { ok, retryAfterSec };
 }
 
 export interface RateLimitConfig {
