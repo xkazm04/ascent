@@ -147,6 +147,10 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
           value={repo}
+          // Programmatic name for the control: it has no visible <label> (the "Apply to a repo" heading is
+          // a styled <div>), so a screen reader would otherwise announce only "combobox" on a control that
+          // drives a write to a customer repo (WCAG 4.1.2 / 1.3.1).
+          aria-label="Repository to apply this practice to"
           // Disabled during a preview/apply so the selection can't change out from under an in-flight
           // request — the core fix for the stale-preview-applied-to-the-wrong-repo race.
           disabled={busy !== null}
@@ -194,7 +198,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
 
       {artifact && (
         <div className="mt-3">
-          <button onClick={() => setOpen((o) => !o)} className="font-mono text-sm text-slate-400 hover:text-white">
+          <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="font-mono text-sm text-slate-400 hover:text-white">
             {open ? "▾" : "▸"} {artifact.path}
           </button>
           {open && (
@@ -209,6 +213,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
         <div className="mt-3 border-t border-slate-800 pt-3">
           <button
             onClick={() => setShowBatch((s) => !s)}
+            aria-expanded={showBatch}
             className="font-mono text-sm uppercase tracking-widest text-accent hover:text-white"
           >
             {showBatch ? "▾" : "▸"} Roll out to the fleet ({gapRepos.length} repos)
