@@ -29,7 +29,7 @@ export default async function OrgSecurity({
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const [sec, supply] = await Promise.all([
     buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title, techGroupId),
-    getOrgSupplyChain(slug),
+    getOrgSupplyChain(slug, techGroupId),
   ]);
 
   if (!sec) {

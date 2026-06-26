@@ -109,14 +109,20 @@ const cache = new Map<string, { at: number; data: OrgSupplyChain }>();
  * scanning is off (the default). In `github` mode it mints the org's installation token and fetches
  * per repo (bounded concurrency); in `mock` mode it returns deterministic demo data flagged `demo`.
  */
-export async function getOrgSupplyChain(orgSlug: string): Promise<OrgSupplyChain | null> {
+export async function getOrgSupplyChain(orgSlug: string, techGroupId?: string | null): Promise<OrgSupplyChain | null> {
   const provider = selectProvider();
   if (!provider) return null;
 
-  const hit = cache.get(orgSlug);
+  // Key the TTL cache by slug + tech-stack scope so a scoped ("Frontend") result and the fleet-wide one
+  // don't share — and overwrite — the same entry.
+  const cacheKey = `${orgSlug}::${techGroupId ?? ""}`;
+  const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.data;
 
-  const rollup = await getOrgRollup(orgSlug);
+  // Scope the advisory fan-out to the same tech-stack subset the rest of the Security page is filtered
+  // by — otherwise selecting "Frontend" still tallied Dependabot advisories across the WHOLE fleet
+  // (backend repos included) while every other number on the page was frontend-only.
+  const rollup = await getOrgRollup(orgSlug, undefined, null, techGroupId ?? null);
   if (!rollup) return null;
   const repos = rollup.repos.filter((r) => r.latest).map((r) => ({ owner: r.owner, name: r.name, fullName: r.fullName }));
 
@@ -147,6 +153,6 @@ export async function getOrgSupplyChain(orgSlug: string): Promise<OrgSupplyChain
     totals: { ...totals, total: sum(totals) },
     repos: rows.slice(0, 10),
   };
-  cache.set(orgSlug, { at: Date.now(), data });
+  cache.set(cacheKey, { at: Date.now(), data });
   return data;
 }
