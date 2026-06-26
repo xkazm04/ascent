@@ -8,7 +8,7 @@ import { useId } from "react";
 import { useRouter } from "next/navigation";
 import { scoreHex } from "@/lib/ui";
 import { levelForScore } from "@/lib/maturity/model";
-import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
+import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
 
 export interface TrendPoint {
@@ -111,6 +111,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
 
   const hover = useChartHover(points.map((_, i) => xFor(i)), W);
   const a = hover.active;
+  const tap = useCoarseTapToOpen();
   const tableId = useId();
   const router = useRouter();
   // The hovered point's report permalink, when it has one — clicking anywhere on the plot opens it
@@ -140,11 +141,21 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         aria-label="Overall score over time"
         aria-describedby={tableId}
         style={{ touchAction: "none", cursor: activeHref || activeCommitUrl ? "pointer" : undefined }}
-        onPointerMove={hover.onPointerMove}
+        onPointerMove={(e) => {
+          tap.notePointer(e);
+          hover.onPointerMove(e);
+        }}
+        // Also snap on pointer-down so a stationary touch tap (which may not fire pointermove) still
+        // reveals the nearest point before the click is evaluated.
+        onPointerDown={(e) => {
+          tap.notePointer(e);
+          hover.onPointerMove(e);
+        }}
         onPointerLeave={hover.onPointerLeave}
         onClick={(e) => {
           if (e.shiftKey && activeCommitUrl) window.open(activeCommitUrl, "_blank", "noopener");
-          else if (activeHref) router.push(activeHref);
+          // On touch the first tap only reveals the point's tooltip; a second tap on it navigates.
+          else if (activeHref && tap.shouldOpen(a)) router.push(activeHref);
         }}
       >
         {/* level bands + their L-id labels — a non-color cue so each shaded range is identifiable

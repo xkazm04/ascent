@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
-import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
+import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { scoreHex } from "@/lib/ui";
 
 /** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips + deep links). */
@@ -46,6 +46,7 @@ export function DimLine({
     .filter((p): p is { v: number; i: number } => p.v !== null);
   const hover = useChartHover(present.map((p) => x(p.i)), W);
   const a = hover.active;
+  const tap = useCoarseTapToOpen();
 
   // Build the path in segments, breaking it wherever a value is missing so the line never
   // dives through 0 to bridge a gap.
@@ -95,11 +96,21 @@ export function DimLine({
             : "Dimension trend"
         }
         style={{ touchAction: "none", cursor: actMeta?.href || actMeta?.commitUrl ? "pointer" : undefined }}
-        onPointerMove={hover.onPointerMove}
+        onPointerMove={(e) => {
+          tap.notePointer(e);
+          hover.onPointerMove(e);
+        }}
+        // Also snap on pointer-down so a stationary touch tap (which may not fire pointermove) still
+        // reveals the nearest point before the click is evaluated.
+        onPointerDown={(e) => {
+          tap.notePointer(e);
+          hover.onPointerMove(e);
+        }}
         onPointerLeave={hover.onPointerLeave}
         onClick={(e) => {
           if (e.shiftKey && actMeta?.commitUrl) window.open(actMeta.commitUrl, "_blank", "noopener");
-          else if (actMeta?.href) router.push(actMeta.href);
+          // On touch the first tap only reveals the point's tooltip; a second tap on it navigates.
+          else if (actMeta?.href && tap.shouldOpen(a)) router.push(actMeta.href);
         }}
       >
         {/* Shaded maturity bands — same strata as the overall chart, so both read on one frame. */}
