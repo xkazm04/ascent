@@ -58,8 +58,9 @@ export async function GET(request: Request) {
       headers: {
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}.csv"`,
+        "cache-control": "private, no-store",
       },
     });
   }
-  return NextResponse.json({ org, kind, header, rows });
+  return NextResponse.json({ org, kind, header, rows }, { headers: { "cache-control": "private, no-store" } });
 }
