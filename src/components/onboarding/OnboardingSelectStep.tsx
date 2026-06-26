@@ -134,30 +134,38 @@ export function SelectStep({
               Back
             </button>
           </div>
-          {/* Cost disclosure AT the commitment button: scanning also schedules a recurring,
-              credit-metered autoscan — say so (with the balance when readable) instead of letting
-              the cron's insufficient-credit skips reveal it weeks later. */}
-          {selected.size > 0 && (
-            <p className="mt-3 max-w-xl text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
-              Scanning also watches {selected.size === 1 ? "this repo" : `these ${selected.size} repos`} with a{" "}
-              {IMPORT_WATCH_SCHEDULE} autoscan ≈{" "}
-              <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
-              {monthlyCredits === 1 ? "" : "s"}/month
-              {credit != null &&
-                (credit.unlimited ? (
-                  <> · unlimited plan</>
-                ) : (
-                  <>
-                    {" "}
-                    · balance: <span className="font-mono text-slate-300">{credit.balance}</span>
-                  </>
-                ))}
-              {underAMonth && (
-                <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
-              )}
-              . Adjust or turn off anytime on Connect.
-            </p>
-          )}
+          {/* Cost disclosure AT the commitment button — but ONLY on the metered App path. Scanning a
+              public handle (no installation) forces a preview (mock): it sets no credit account and is
+              never metered, so quoting "~N prepaid credits/month" there is money confusion that scares
+              users off the free top-of-funnel. Show the prepaid figure only when sourceInstallId is
+              present; otherwise reassure that the preview is free. */}
+          {selected.size > 0 &&
+            (sourceInstallId ? (
+              <p className="mt-3 max-w-xl text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
+                Scanning also watches {selected.size === 1 ? "this repo" : `these ${selected.size} repos`} with a{" "}
+                {IMPORT_WATCH_SCHEDULE} autoscan ≈{" "}
+                <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
+                {monthlyCredits === 1 ? "" : "s"}/month
+                {credit != null &&
+                  (credit.unlimited ? (
+                    <> · unlimited plan</>
+                  ) : (
+                    <>
+                      {" "}
+                      · balance: <span className="font-mono text-slate-300">{credit.balance}</span>
+                    </>
+                  ))}
+                {underAMonth && (
+                  <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
+                )}
+                . Adjust or turn off anytime on Connect.
+              </p>
+            ) : (
+              <p className="mt-3 max-w-xl text-sm text-slate-500">
+                Free preview — no prepaid credits are used. Install the GitHub App to run metered live
+                scans on your own public &amp; private repos.
+              </p>
+            ))}
         </>
       )}
     </div>
