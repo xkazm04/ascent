@@ -71,7 +71,7 @@ export async function listPendingInvites(orgSlug: string): Promise<PendingInvite
 }
 
 export type InvitePeek =
-  | { ok: true; org: string; role: OrgRole; pinnedLogin: string | null }
+  | { ok: true; org: string; role: OrgRole; pinnedLogin: string | null; pinnedEmail: string | null }
   | { ok: false; reason: "not_found" | "expired" | "used" };
 
 /**
@@ -84,7 +84,7 @@ export async function peekInvite(token: string): Promise<InvitePeek> {
   if (!isDbConfigured()) return { ok: false, reason: "not_found" };
   const invite = await getPrisma().invite.findUnique({
     where: { token },
-    select: { status: true, expiresAt: true, role: true, githubLogin: true, org: { select: { slug: true } } },
+    select: { status: true, expiresAt: true, role: true, githubLogin: true, email: true, org: { select: { slug: true } } },
   });
   if (!invite) return { ok: false, reason: "not_found" };
   if (invite.status !== "pending") return { ok: false, reason: "used" };
@@ -94,6 +94,9 @@ export async function peekInvite(token: string): Promise<InvitePeek> {
     org: invite.org.slug,
     role: isOrgRole(invite.role) ? invite.role : "member",
     pinnedLogin: invite.githubLogin,
+    // Surface an email-pinned binding so the accept page can hint "needs the invited email" up front,
+    // not only via the GitHub-login `pinnedLogin` mismatch. A login-pinned invite has no email pin.
+    pinnedEmail: invite.githubLogin ? null : invite.email,
   };
 }
 
@@ -111,7 +114,7 @@ export async function revokeInvite(orgSlug: string, id: string): Promise<boolean
 
 export type AcceptResult =
   | { ok: true; org: string; role: OrgRole }
-  | { ok: false; reason: "not_found" | "expired" | "used" | "wrong_user" | "db" };
+  | { ok: false; reason: "not_found" | "expired" | "used" | "wrong_user" | "wrong_email" | "db" };
 
 /** Identity of the viewer accepting an invite — their GitHub login plus, under the Supabase wall, the
  *  verified email used to bind an EMAIL-pinned invite. */
@@ -147,7 +150,9 @@ export async function acceptInvite(token: string, identity: AcceptIdentity): Pro
   } else if (invite.email) {
     // Email-pinned, no login: require the accepter's verified email to match (case-insensitively). A
     // viewer with no verified email (e.g. the dormant custom-OAuth session) can't claim it — fail closed.
-    if (!viewerEmail || invite.email.trim().toLowerCase() !== viewerEmail) return { ok: false, reason: "wrong_user" };
+    // Use a DISTINCT reason from the login pin so the UI can show email-specific copy: switching GitHub
+    // accounts won't change the verified email, so the "sign in as that GitHub account" guidance is wrong.
+    if (!viewerEmail || invite.email.trim().toLowerCase() !== viewerEmail) return { ok: false, reason: "wrong_email" };
   }
 
   const role: OrgRole = isOrgRole(invite.role) ? invite.role : "member";

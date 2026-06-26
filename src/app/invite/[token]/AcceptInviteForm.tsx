@@ -16,6 +16,7 @@ const REASON: Record<string, string> = {
   expired: "This invitation has expired. Ask an owner to send a fresh one.",
   used: "This invitation was already accepted or revoked.",
   wrong_user: "This invitation was issued to a different GitHub account. Sign in as that user to accept it.",
+  wrong_email: "This invitation is bound to a specific email address. Accept it while signed in with that verified email — switching GitHub accounts won't change your email.",
   auth: "Sign in to accept this invitation.",
   db: "Something went wrong applying the invitation. Try again, or ask an owner to re-send.",
 };
@@ -25,11 +26,13 @@ export function AcceptInviteForm({
   org,
   role,
   mismatch,
+  pinnedEmail,
 }: {
   token: string;
   org: string;
   role: string;
   mismatch: string | null;
+  pinnedEmail: string | null;
 }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AcceptResult | null>(null);
@@ -83,6 +86,12 @@ export function AcceptInviteForm({
         <p role="alert" className="mt-3 text-sm text-orange-300">
           This invite is pinned to <span className="font-mono">@{mismatch}</span>; accepting will fail
           unless you&apos;re signed in as that account.
+        </p>
+      )}
+      {!mismatch && pinnedEmail && (
+        <p className="mt-3 text-sm text-slate-400">
+          This invite is bound to <span className="font-mono text-slate-200">{pinnedEmail}</span>; accept it
+          while signed in with that verified email.
         </p>
       )}
       {error && (
