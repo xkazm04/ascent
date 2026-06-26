@@ -4,6 +4,7 @@
 // so the page, the clipboard brief, and the PDF can never disagree. Driven by /api/org/briefing/pdf.
 
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { engineMixDegraded, engineMixLabel } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 
 /** EXEC-5 white-label: an org's brand overrides the Ascent defaults in the PDF. All optional. */
@@ -118,6 +119,19 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
           </Text>
         ) : null}
         <Text style={styles.line}>Coverage: {b.coverage.scanned}/{b.coverage.total} repositories scanned</Text>
+        {/* Engine-mix provenance — the durable artifact must carry the same mock-degraded caveat the
+            page + "Copy for LLM" markdown show, so a board/auditor PDF can't present synthetic scores
+            as authoritative (reuses the shared engineMixLabel/engineMixDegraded source of truth). */}
+        {b.engineMix.length > 0 && (
+          <Text style={styles.line}>
+            Scored by {engineMixLabel(b.engineMix)}
+            {engineMixDegraded(b.engineMix) ? (
+              <Text style={{ color: "#d97706" }}>
+                {" "}· ⚠ some scores this period used the deterministic mock engine, not the live model
+              </Text>
+            ) : null}
+          </Text>
+        )}
 
         <View style={styles.rule} />
         <View style={styles.twoCol}>

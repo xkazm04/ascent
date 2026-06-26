@@ -6,7 +6,7 @@
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { DimRow, PriorPeriodGrid } from "@/components/org/briefingShared";
-import { buildExecBriefing } from "@/lib/org/briefing";
+import { buildExecBriefing, engineMixDegraded, engineMixLabel } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
 import { getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
@@ -66,6 +66,18 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           <Tile label="Engineering Rigor" value={maturity.rigor} color={scoreHex(maturity.rigor)} />
           <Tile label="Corpus percentile" value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"} sub={benchmark && benchmark.corpusRepos > 0 ? `vs ${benchmark.corpusRepos} repos` : "no corpus yet"} color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined} />
         </div>
+
+        {/* Engine-mix provenance — the shared board link must show the same mock-degraded caveat the
+            owner's page + PDF do, so a leaked/forwarded read-only link can't hide that some scores were
+            produced by the deterministic mock engine rather than the live model. */}
+        {briefing.engineMix.length > 0 && (
+          <p className="mt-4 font-mono text-sm text-slate-500">
+            Scored by {engineMixLabel(briefing.engineMix)}
+            {engineMixDegraded(briefing.engineMix) && (
+              <span className="text-warn"> · ⚠ some scores this period used the deterministic mock engine, not the live model</span>
+            )}
+          </p>
+        )}
 
         {briefing.forecastHeadline && (
           <Card className="mt-6">
