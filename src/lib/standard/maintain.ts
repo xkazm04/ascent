@@ -35,8 +35,14 @@ if (cmd === 'check') {
   const touched = new Set(files.filter((f) => f.endsWith('CONTEXT.md')).map(dirOf));
   const warnings = [];
   for (const m of (idx.modules || [])) {
-    const dir = m.path === '.' ? '' : String(m.path).replace(/\\/$/, '');
-    const codeHere = files.some((f) => !f.endsWith('CONTEXT.md') && (dir === '' ? true : f.startsWith(dir + '/')));
+    // A root/unscoped module (path ".") matches EVERY changed file, so it would warn on literally
+    // every push - including .ai/memory notes - until the root CONTEXT.md is touched in that same
+    // change. That is warning fatigue out of the box (the seed index ships exactly one ".\" module).
+    // Freshness tracking is only meaningful for a concrete sub-path; skip the catch-all root until
+    // the repo registers real per-module entries (node .ai/maintain.mjs touch <dir>).
+    const dir = String(m.path || '').replace(/\\/$/, '');
+    if (dir === '' || dir === '.') continue;
+    const codeHere = files.some((f) => !f.endsWith('CONTEXT.md') && f.startsWith(dir + '/'));
     if (codeHere && !touched.has(dirOf(m.context || '')))
       warnings.push('CONTEXT may be stale for "' + m.id + '" (' + m.context + '): code under ' + m.path + ' changed but CONTEXT.md did not. Refresh it, then: node .ai/maintain.mjs touch ' + m.path);
   }
