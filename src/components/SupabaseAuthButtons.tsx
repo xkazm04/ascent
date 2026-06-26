@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { GitHubMark, Spinner, SIGN_IN_VARIANTS, type SignInButtonVariant } from "@/components/auth/buttonChrome";
+import { SignInButtonChrome, signInBoxClass, SIGN_IN_VARIANTS, type SignInButtonVariant } from "@/components/auth/buttonChrome";
 
 type Variant = SignInButtonVariant;
 
@@ -51,22 +51,9 @@ export function SupabaseSignInButton({
       aria-label={idleLabel}
       aria-busy={pending}
       disabled={pending}
-      className={`focus-ring inline-flex items-center justify-center gap-2 transition ${v.box} ${
-        pending ? "cursor-wait opacity-70" : ""
-      } ${className}`}
+      className={signInBoxClass(variant, pending, className)}
     >
-      <span className="relative inline-flex items-center justify-center" style={{ width: v.icon, height: v.icon }}>
-        <span className={`absolute inline-flex transition-opacity duration-150 ${pending ? "opacity-0" : "opacity-100"}`}>
-          <GitHubMark size={v.icon} />
-        </span>
-        <span className={`absolute inline-flex transition-opacity duration-150 ${pending ? "opacity-100" : "opacity-0"}`}>
-          <Spinner size={v.icon} />
-        </span>
-      </span>
-      <span>{pending ? v.busy : idleLabel}</span>
-      <span role="status" aria-live="polite" className="sr-only">
-        {pending ? v.busy : ""}
-      </span>
+      <SignInButtonChrome pending={pending} idleLabel={idleLabel} busyLabel={v.busy} variant={variant} />
     </button>
   );
 }
