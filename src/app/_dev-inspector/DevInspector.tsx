@@ -229,7 +229,10 @@ export function DevInspector() {
         <HighlightBox rect={hover.pointerRect} variant="pointer" />
       )}
       {hover && <HighlightBox rect={hover.targetRect} variant="target" />}
-      {hover && defaultLoc && <SourceLabel rect={hover.pointerRect} loc={defaultLoc} />}
+      {/* Anchor the chip to the TARGET box (cyan) — it shows defaultLoc, which is the target/call-site
+          element's path and shares the cyan colour. Pinning it to pointerRect floated the cyan label
+          over the purple pointer box, breaking the colour→region association. */}
+      {hover && defaultLoc && <SourceLabel rect={hover.targetRect} loc={defaultLoc} />}
 
       <InspectorHud
         copied={copied}
