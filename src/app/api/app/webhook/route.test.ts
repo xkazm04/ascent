@@ -373,6 +373,9 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     expect(mockGetInstallation).toHaveBeenCalledWith(77);
     expect(mockGetToken).toHaveBeenCalledTimes(1);
     expect(mockGetToken).toHaveBeenCalledWith(77);
+    // The GitHub-confirmed pairing is persisted so subsequent events take the stronger stored-mapping
+    // path instead of re-confirming live with GitHub each time.
+    expect(mockUpsert).toHaveBeenCalledWith({ login: "NewOrg", installationId: 77 });
   });
 
   it("REJECTS (no mint) for an UNKNOWN owner when GitHub's account does NOT match the payload owner", async () => {
@@ -414,7 +417,8 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     await runDeferred();
     expect(mockGetToken).not.toHaveBeenCalled();
     expect(mockScan).not.toHaveBeenCalled();
-    // The gate is checked BEFORE the watch check / mint, so no rescan side effects fire.
+    // Both the watch check and the cross-tenant gate front the mint; the forged pairing fails the gate,
+    // so no rescan side effects fire regardless of their order.
     expect(mockCheckRegression).not.toHaveBeenCalled();
   });
 

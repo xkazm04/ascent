@@ -141,8 +141,21 @@ async function installationMatchesOwner(installationId: number, owner: string): 
       console.warn(
         `[webhook] installation ${installationId} account ${info.account} != payload owner ${owner}; skipping`,
       );
+      return false;
     }
-    return matches;
+    // Persist the GitHub-confirmed (owner → installation) pairing so subsequent events for this owner
+    // take the stronger stored-mapping path (the cheap, authoritative `known === installationId` check)
+    // instead of re-confirming live with GitHub every time. Best-effort: a write failure must not block
+    // this rescan, which already confirmed the match.
+    try {
+      await upsertInstallation({ login: info.account, installationId });
+    } catch (persistErr) {
+      console.warn(
+        `[webhook] could not persist confirmed mapping ${owner} -> ${installationId}`,
+        persistErr instanceof Error ? persistErr.message : persistErr,
+      );
+    }
+    return true;
   } catch (err) {
     console.warn(
       `[webhook] could not confirm installation ${installationId} for ${owner}; skipping`,
@@ -322,8 +335,11 @@ async function runPushRescan(installationId: number, owner: string, repo: string
   try {
     const fullName = `${owner}/${repo}`;
     const orgSlug = owner.toLowerCase();
+    // Cheap local short-circuit FIRST: only watched repos auto-rescan, so bail on the DB check before
+    // the (potentially GitHub-round-tripping) owner confirm. For a push from an unrecorded org the
+    // owner-confirm always dead-ended here anyway, burning a GitHub API call per push (rate-limit burn).
+    if (!(await isRepoWatched(orgSlug, fullName))) return;
     if (!(await installationMatchesOwner(installationId, owner))) return;
-    if (!(await isRepoWatched(orgSlug, fullName))) return; // only watched repos auto-rescan
     const token = await getInstallationToken(installationId);
     const prev = await getScanReportByCommit(owner, repo, { orgSlug }).catch(() => null);
     const report = await scanRepository(fullName, { token });
