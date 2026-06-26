@@ -234,7 +234,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <span className="font-mono text-sm text-slate-500">Raise</span>
-        <select value={dimId} onChange={(e) => setDimId(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
+        <select aria-label="Dimension to raise" value={dimId} onChange={(e) => setDimId(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
           {dims.map((d) => (
             <option key={d.id} value={d.id}>
               {d.id} · {d.label} (avg {d.avg})
@@ -242,7 +242,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
           ))}
         </select>
         <span className="font-mono text-sm text-slate-500">to</span>
-        <input type="number" min={0} max={100} value={target} onChange={(e) => setTarget(Number(e.target.value))} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
+        <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => setTarget(Number(e.target.value))} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
         <span className="font-mono text-sm text-slate-500">across</span>
         <button onClick={() => setShowRepos((s) => !s)} className="rounded-lg border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white">
           {scopeLabel} ▾
@@ -257,6 +257,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         <div key={idx} className="mt-2 flex flex-wrap items-center gap-2">
           <span className="font-mono text-sm text-slate-500">and</span>
           <select
+            aria-label={`Additional dimension ${idx + 2} to raise`}
             value={e.dimId}
             onChange={(ev) => updateExtra(idx, { dimId: ev.target.value })}
             className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
@@ -271,6 +272,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
           </select>
           <span className="font-mono text-sm text-slate-500">to</span>
           <input
+            aria-label={`Target score for dimension ${idx + 2}`}
             type="number"
             min={0}
             max={100}
