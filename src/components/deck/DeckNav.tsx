@@ -43,7 +43,7 @@ export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
         // destination label on focus (not just hover) so a focused dot announces where it jumps.
         return (
           <a key={s.id} href={`#${s.id}`} aria-label={s.label} aria-current={on ? "true" : undefined} className="focus-ring group flex items-center justify-end gap-2 rounded-full">
-            <span className={`font-mono text-xs uppercase tracking-wider transition ${on ? "text-accent opacity-100" : "text-slate-500 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"}`}>
+            <span className={`font-mono text-xs uppercase tracking-[0.22em] transition ${on ? "text-accent opacity-100" : "text-slate-500 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"}`}>
               {s.label}
             </span>
             <span className={`h-2 w-2 rounded-full border transition ${on ? "border-accent bg-accent" : "border-slate-600 group-hover:border-slate-400"}`} />
