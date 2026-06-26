@@ -9,7 +9,8 @@ import { NextResponse } from "next/server";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { BriefingDocument } from "@/lib/pdf/briefing-document";
 import { buildExecBriefing } from "@/lib/org/briefing";
-import { getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
+import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
+import { planAllowsWhiteLabel } from "@/lib/plans";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveWindow } from "@/lib/window";
 import { safeFilenameSegment } from "@/lib/export/filename";
@@ -43,7 +44,15 @@ export async function GET(request: Request) {
 
   // EXEC-5: white-label branding for the PDF. A bad/unreachable logo could fail rendering, so fall
   // back to an unbranded render rather than 500 the download.
-  const branding = (await getOrgBranding(org).catch(() => null)) ?? undefined;
+  // Entitlement is RE-CHECKED here, not just on write: the brand columns are never cleared on a plan
+  // downgrade, so applying them unconditionally would keep delivering a paid feature (branded title,
+  // logo, footer, filename) indefinitely after the org stopped paying for it. Mirror executive/page.tsx
+  // — only apply branding when the CURRENT plan still allows white-label.
+  const [rawBranding, credit] = await Promise.all([
+    getOrgBranding(org).catch(() => null),
+    getCreditState(org).catch(() => null),
+  ]);
+  const branding = planAllowsWhiteLabel(credit?.plan) ? (rawBranding ?? undefined) : undefined;
   const render = (b: typeof branding) =>
     renderToBuffer(createElement(BriefingDocument, { briefing, branding: b }) as unknown as ReactElement<DocumentProps>);
   let buffer: Buffer;
