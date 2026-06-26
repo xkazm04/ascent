@@ -53,8 +53,12 @@ function NavItem({ item }: { item: SideNavItem }) {
       </Link>
     );
   }
+  // State-based tab (report): selecting it swaps in-component state rather than navigating, so
+  // `aria-current="page"` (announced as "current page") is the wrong token. Use `aria-current="true"`
+  // — "the current item within a set" — which a screen reader announces as "current" without implying
+  // a page navigation that never happens.
   return (
-    <button type="button" onClick={item.onSelect} aria-current={item.active ? "page" : undefined} className={cls}>
+    <button type="button" onClick={item.onSelect} aria-current={item.active ? "true" : undefined} className={cls}>
       <ItemBody item={item} />
     </button>
   );
