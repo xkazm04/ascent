@@ -5,8 +5,10 @@
 // the old opt-in `if (secret)` shape that a forgotten env var silently disabled). A test is the only
 // thing that keeps that regression from shipping again, so we pin the gate shut from every side:
 //   (1) missing/empty CRON_SECRET → 503 (fail CLOSED) and purgeExpiredData is NEVER called;
-//   (2) wrong bearer / wrong ?key= / no credential → 401 and purgeExpiredData is NEVER called;
-//   (3) correct `Bearer ${secret}` AND correct `?key=${secret}` → purge proceeds (called once);
+//   (2) wrong bearer / any ?key= / no credential → 401 and purgeExpiredData is NEVER called;
+//   (3) correct `Bearer ${secret}` → purge proceeds (called once); the legacy `?key=${secret}`
+//       query-param auth path is REJECTED — a destructive-endpoint secret must not ride a log-prone
+//       channel (data-retention #3), and the compare is constant-time;
 //   (4) a throw from purgeExpiredData surfaces as 500, not a 200 with partial/implied success.
 // The next/server + @/lib/db boundaries are mocked so we can assert exactly when the destructive
 // primitive (purgeExpiredData) fires — and, more importantly, when it must NOT.
@@ -125,10 +127,14 @@ describe("GET /api/cron/purge — auth gate (fail-closed) + error surface", () =
     expect(mockPurge).toHaveBeenCalledTimes(1);
   });
 
-  it("accepts a correct ?key= secret and runs the purge exactly once", async () => {
+  it("REJECTS a correct ?key= secret — the query-param auth path was removed (log-leakage fix)", async () => {
+    // data-retention #3: the cron secret must travel ONLY in the Authorization header, never as ?key=
+    // (query strings leak into access/CDN/proxy logs, Referer headers, and browser history). A request
+    // presenting the secret solely via ?key= is now unauthorized and must NOT run the destructive purge.
+    // (This inverts the prior assertion, which pinned the very behavior the finding flags as the bug.)
     const res = await GET(req({ key: SECRET }));
-    expect(res.status ?? 200).toBe(200);
-    expect(mockPurge).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(401);
+    expect(mockPurge).not.toHaveBeenCalled();
   });
 
   // ---- (4) DB-not-configured short-circuit (still requires auth first) ----
