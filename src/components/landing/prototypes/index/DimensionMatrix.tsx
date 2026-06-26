@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { SectionHeading } from "@/components/ui";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
-import { ARCHETYPE_COLUMNS, AXIS_LABEL, MAX_WEIGHT, buildMatrixRows, pct } from "../shared/matrixData";
+import { ARCHETYPE_COLUMNS, AXIS_LABEL, TRACK_MAX, buildMatrixRows, pct } from "../shared/matrixData";
 
 const ROWS = buildMatrixRows();
 
@@ -17,7 +17,10 @@ function CellBar({ w }: { w: number }) {
   // transform value), so gate it explicitly like the sibling ScoreGauge/TrajectoryChart — reduced
   // motion renders the bar at its final width with no sweep.
   const reduced = usePrefersReducedMotion();
-  const frac = MAX_WEIGHT > 0 ? w / MAX_WEIGHT : 0;
+  // Scale against a FIXED 0..TRACK_MAX track (not the heaviest cell) so the bar length is proportional
+  // to the absolute percent printed beside it — the heaviest weight no longer renders a full-track bar
+  // captioned with a sub-100% number.
+  const frac = TRACK_MAX > 0 ? Math.min(1, w / TRACK_MAX) : 0;
   const target = `${(frac * 100).toFixed(0)}%`;
   return (
     <div className="flex items-center gap-2">
