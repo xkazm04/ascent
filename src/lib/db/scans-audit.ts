@@ -80,6 +80,9 @@ export interface AuditLogEntry {
   id: string;
   action: string;
   actorId: string | null;
+  /** The tenant org id this row belongs to — a SIGNED field (see audit-integrity canonical()), so it
+   *  must be present in any export for per-row HMAC verification to be reconstructable. */
+  orgId: string | null;
   at: string; // ISO timestamp
   meta: Record<string, unknown>;
   scan: AuditScanRef | null;
@@ -211,6 +214,7 @@ export async function getAuditLog(
       id: row.id,
       action: row.action,
       actorId: row.actorId,
+      orgId: row.orgId,
       at: row.at.toISOString(),
       meta,
       scan: s

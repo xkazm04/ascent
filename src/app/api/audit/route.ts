@@ -16,7 +16,11 @@ import { csvField } from "@/lib/export/csv";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CSV_COLUMNS = ["at", "action", "actorId", "repo", "level", "overall", "headSha", "meta"] as const;
+// `orgId` is included because it's one of the fields the per-row HMAC `_sig` (meta cell) is computed
+// over — omitting it (as this export used to) made the stated row-level tamper-evidence unverifiable
+// from the file alone, since the canonical signed input couldn't be reconstructed (the filename carries
+// only the org slug, not the DB orgId).
+const CSV_COLUMNS = ["at", "action", "actorId", "orgId", "repo", "level", "overall", "headSha", "meta"] as const;
 const CSV_MAX_ROWS = 10000; // safety cap so one export can't loop the whole table unbounded
 
 /** Stream the full filtered audit trail as a CSV download (cursor-looped over getAuditLog). */
@@ -36,6 +40,7 @@ async function exportCsv(
           e.at,
           e.action,
           e.actorId,
+          e.orgId,
           e.scan?.repo,
           e.scan?.level,
           e.scan?.overall,
