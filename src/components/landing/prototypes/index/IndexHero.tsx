@@ -25,8 +25,10 @@ export function IndexHero({ quota, exampleRepos }: LandingData) {
   return (
     <section id="hero" className="relative isolate flex min-h-screen snap-start items-center overflow-hidden">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-        {/* GPT Image 2 editorial paper-relief backdrop (hybrid), weighted right behind the index ring */}
-        <Image src="/brand/proto/index-bg.png" alt="" fill priority sizes="100vw" className="object-cover object-right opacity-40" />
+        {/* GPT Image 2 editorial paper-relief backdrop (hybrid), weighted right behind the index ring.
+            No `priority`: this 40%-opacity decorative backdrop is NOT the LCP element (the H1/CTA text is),
+            so it must not preempt the genuinely critical resources with a high-fetchpriority preload. */}
+        <Image src="/brand/proto/index-bg.png" alt="" fill sizes="100vw" className="object-cover object-right opacity-40" />
         <div className="absolute inset-0 bg-[radial-gradient(50rem_32rem_at_70%_-10%,rgba(59,158,255,0.08),transparent_62%)]" />
         <div className="absolute inset-y-0 left-0 w-1/2 bg-gradient-to-r from-ink to-transparent" />
         <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-ink to-transparent" />
