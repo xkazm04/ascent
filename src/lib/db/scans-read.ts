@@ -18,6 +18,7 @@ import type {
   RepoArchetype,
   ScanReport,
 } from "@/lib/types";
+import { Prisma } from "@prisma/client";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getDbMode, type DbMode } from "@/lib/db/mode";
 import { isDimensionId, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
@@ -31,6 +32,20 @@ import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId
 // same link); re-exported here for the existing @/lib/db barrel + server callers.
 export { reportPermalink };
 
+/**
+ * Deterministic "latest first" ordering for scan reads (scan-persistence-history #3). `scannedAt` is
+ * NOT unique — two re-scores can share a timestamp — so a bare `orderBy: { scannedAt: "desc" }`
+ * resolves `findFirst` / the head of a `findMany` to an ARBITRARY tied row, and different queries can
+ * pick different ones (the report, its recommendations, history, and the comparison disagreeing about
+ * which scan is "latest"). `createdAt` then `id` break the tie to the genuinely-latest row, mirroring
+ * the persist path's "previous" read (scans-persist.ts).
+ */
+const SCAN_ORDER: Prisma.ScanOrderByWithRelationInput[] = [
+  { scannedAt: "desc" },
+  { createdAt: "desc" },
+  { id: "desc" },
+];
+
 /** Find the most recent persisted scan for a repo at an exact commit (dedup lookup). */
 export async function findScanByCommit(
   repoId: string,
@@ -39,7 +54,7 @@ export async function findScanByCommit(
   if (!isDbConfigured()) return null;
   return getPrisma().scan.findFirst({
     where: { repoId, headSha },
-    orderBy: { scannedAt: "desc" },
+    orderBy: SCAN_ORDER,
     select: { id: true },
   });
 }
@@ -122,7 +137,7 @@ export async function getRepoPassport(
     if (!repo) return null;
     const scan = await prisma.scan.findFirst({
       where: { repoId: repo.id, ...(opts.headSha ? { headSha: opts.headSha } : {}) },
-      orderBy: { scannedAt: "desc" },
+      orderBy: SCAN_ORDER,
       select: { passportJson: true },
     });
     const pp = parsePassportJson(scan?.passportJson);
@@ -232,7 +247,7 @@ export async function getRepositoryHistory(
   // Two statically-typed queries (rather than a dynamic select) so the result type stays precise:
   // the light branch genuinely omits the dimensions join at the DB, not just in the mapping. Each
   // branch maps through historyPointFrom (a single array type, never a union, so it stays type-safe).
-  const args = { where: { repoId: repo.id }, orderBy: { scannedAt: "desc" }, take: limit } as const;
+  const args = { where: { repoId: repo.id }, orderBy: SCAN_ORDER, take: limit } as const;
 
   const scans: HistoryPoint[] = includeDimensions
     ? (
@@ -396,7 +411,7 @@ export async function getScanComparison(
 
   const list = await prisma.scan.findMany({
     where: { repoId: repo.id },
-    orderBy: { scannedAt: "desc" },
+    orderBy: SCAN_ORDER,
     take: limit,
     select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
   });
@@ -488,7 +503,7 @@ export async function getPublicScanGallery(
       primaryLanguage: true,
       stars: true,
       scans: {
-        orderBy: { scannedAt: "desc" },
+        orderBy: SCAN_ORDER,
         take: 1,
         select: {
           headSha: true,
@@ -562,7 +577,7 @@ export async function getLatestRecommendations(
 
   const scan = await prisma.scan.findFirst({
     where: { repoId: repo.id },
-    orderBy: { scannedAt: "desc" },
+    orderBy: SCAN_ORDER,
     select: {
       id: true,
       // Dimension scores + archetype feed projectedGain — engine-true "+N pts · unlocks LX" per
@@ -678,7 +693,7 @@ export async function getScanReportByCommit(
 
   const scan = await prisma.scan.findFirst({
     where: { repoId: repo.id, ...(headSha ? { headSha } : {}) },
-    orderBy: { scannedAt: "desc" },
+    orderBy: SCAN_ORDER,
     include: { dimensions: true, recommendations: { orderBy: { createdAt: "asc" } } },
   });
   if (!scan) return null;
