@@ -10,6 +10,7 @@ import { buildExecBriefing, engineMixDegraded, engineMixLabel, forecastConfidenc
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
 import { getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
+import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,22 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
     return <Notice title="Link expired or invalid" body="This shared briefing link is no longer valid. Ask an org owner for a fresh one." />;
   }
   if (!isDbConfigured()) return <Notice title="No data" body="This deployment has no database configured." />;
+
+  // briefing-share #5: a per-link revocation lever. A token bound to its minting owner (mintedBy, set
+  // under the Supabase wall) is honored only while that owner still holds owner access — so removing or
+  // demoting them kills their shared links instead of letting a stateless token outlive their authority.
+  // Legacy / stateless tokens (no mintedBy) keep the prior behavior. Fail-closed on a lookup error.
+  if (verified.mintedBy) {
+    const minterRole = await getMembershipRole(verified.org, verified.mintedBy).catch(() => null);
+    if (!roleAtLeast(minterRole, "owner")) {
+      return (
+        <Notice
+          title="Link revoked"
+          body="The person who shared this briefing no longer has access to the organization. Ask a current owner for a fresh link."
+        />
+      );
+    }
+  }
 
   const period = resolveWindow({ range: verified.range, from: verified.from, to: verified.to });
   // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's

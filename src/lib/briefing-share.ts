@@ -7,7 +7,7 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-const DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days — a board cycle
+const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — a board cycle; shortened from 14d to bound a leaked link's exposure window (briefing-share #5)
 
 /** Signing secret: a dedicated BRIEFING_SHARE_SECRET, else the existing AUTH_SECRET. Null = off. */
 function shareSecret(): string | null {
@@ -28,6 +28,12 @@ export interface BriefingShareParams {
   segment?: string;
   // Feature 3b: the tech-stack group KEY travels too, so a "Frontend briefing" share stays scoped.
   stack?: string;
+  // briefing-share #5: the GitHub login of the OWNER who minted the link. Carried so the shared page can
+  // bind the (otherwise un-revocable) stateless token to that owner's continued authority — when set, the
+  // link is honored only while `mintedBy` still holds owner access, so removing/demoting them kills their
+  // shared links. Set only under the enforced Supabase wall (where membership is the seeded source of
+  // truth); other auth modes leave it undefined and keep the prior stateless behavior.
+  mintedBy?: string;
 }
 
 function sign(payload: string, secret: string): string {
@@ -40,7 +46,7 @@ export function signBriefingShareToken(p: BriefingShareParams, ttlMs: number = D
   if (!secret) return null;
   const expiresAt = Date.now() + ttlMs;
   const payload = Buffer.from(
-    JSON.stringify({ org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, segment: p.segment, stack: p.stack, exp: expiresAt }),
+    JSON.stringify({ org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, segment: p.segment, stack: p.stack, mintedBy: p.mintedBy, exp: expiresAt }),
   ).toString("base64url");
   return { token: `${payload}.${sign(payload, secret)}`, expiresAt };
 }
@@ -64,6 +70,7 @@ export function verifyBriefingShareToken(token: string): BriefingShareParams | n
       to?: unknown;
       segment?: unknown;
       stack?: unknown;
+      mintedBy?: unknown;
       exp?: unknown;
     };
     if (typeof p.org !== "string" || typeof p.exp !== "number" || p.exp < Date.now()) return null;
@@ -74,6 +81,7 @@ export function verifyBriefingShareToken(token: string): BriefingShareParams | n
       to: typeof p.to === "string" ? p.to : undefined,
       segment: typeof p.segment === "string" ? p.segment : undefined,
       stack: typeof p.stack === "string" ? p.stack : undefined,
+      mintedBy: typeof p.mintedBy === "string" ? p.mintedBy : undefined,
     };
   } catch {
     return null;
