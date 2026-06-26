@@ -58,8 +58,9 @@ export class GitHubListError extends Error {
   }
 }
 
-/** Parse the `rel="next"` URL out of a GitHub `Link` header, or null when there's no next page. */
-function nextPageUrl(link: string | null): string | null {
+/** Parse the `rel="next"` URL out of a GitHub `Link` header, or null when there's no next page.
+ *  Exported so other GitHub layers (e.g. org discovery) reuse one Link-header parser. */
+export function nextPageUrl(link: string | null): string | null {
   if (!link) return null;
   for (const part of link.split(",")) {
     if (/rel="next"/.test(part)) {
