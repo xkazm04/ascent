@@ -47,12 +47,14 @@ export function ReportView({
   useEffect(() => {
     const repoRef = `${repo.owner}/${repo.name}`;
     let active = true;
+    // History and recommendations are two independent sources fetched in parallel but settled
+    // SEPARATELY — a recommendations failure must NOT pollute the history disposition. Previously
+    // both shared one Promise.all + try/catch + the `histError` flag, so a malformed/non-JSON recs
+    // payload (or a recs-only network fail) flipped the Trend panel to "Couldn't load history" even
+    // though history loaded fine, while the genuine recs failure was swallowed with no signal.
     (async () => {
       try {
-        const [h, r] = await Promise.all([
-          fetch(`/api/history?repo=${encodeURIComponent(repoRef)}`),
-          fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`),
-        ]);
+        const h = await fetch(`/api/history?repo=${encodeURIComponent(repoRef)}`);
         // A non-OK history response is a FAILURE, not "no history yet" — without this branch an
         // HTTP 500 (e.g. a transient DB token expiry) silently rendered "Baseline established"
         // over months of real history. 503 (persistence off) and 401 (signed-out viewer) are
@@ -62,11 +64,19 @@ export function ReportView({
           if (disposition === "ok") setHistory(parseRepositoryHistory(await h.json()));
           else if (disposition === "error") setHistError(true);
         }
-        if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
       } catch {
         // Couldn't reach the history endpoint (offline / transient). Surface it in the trend panel
         // instead of silently degrading to a misleading "Baseline established".
         if (active) setHistError(true);
+      }
+    })();
+    (async () => {
+      try {
+        const r = await fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`);
+        if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
+      } catch {
+        // A recommendations failure leaves the read-only roadmap fallback (recs stays null); it is
+        // deliberately NOT folded into histError, which is solely about the history/trend panel.
       }
     })();
     return () => {
