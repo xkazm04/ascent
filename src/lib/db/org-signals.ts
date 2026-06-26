@@ -157,13 +157,19 @@ export interface OrgActivity {
 }
 
 const WEEK_MS = 7 * 86_400_000;
+// The Unix epoch (1970-01-01) is a THURSDAY, so a bare `floor(ms / WEEK_MS)` anchors week boundaries to
+// Thursday. GitHub's commit_activity weeks start SUNDAY, so two repos covering the SAME Sun–Sat week but
+// scanned on opposite sides of a Thursday landed in ADJACENT week buckets and never summed together.
+// Shifting the phase by the Thursday→Sunday offset (the epoch's first Sunday is 1970-01-04, +3 days)
+// makes every repo bucket on one shared Sunday-anchored grid regardless of which weekday it was scanned.
+const SUNDAY_PHASE_MS = 3 * 86_400_000;
 
-/** Whole-week index (weeks since the Unix epoch) of an instant. GitHub's commit_activity buckets are
- *  weekly, so two repos' series elements only belong in the same fleet bucket if they fall in the same
- *  absolute week — this maps an instant to that integer week so series can be aligned by calendar week
- *  rather than by array position. */
+/** Whole Sunday-anchored week index of an instant — see SUNDAY_PHASE_MS. GitHub's commit_activity
+ *  buckets are weekly (Sunday-started), so two repos' series elements only belong in the same fleet
+ *  bucket if they fall in the same absolute calendar week; this maps an instant to that integer week so
+ *  series align by calendar week rather than by array position. */
 function weekIndex(ms: number): number {
-  return Math.floor(ms / WEEK_MS);
+  return Math.floor((ms - SUNDAY_PHASE_MS) / WEEK_MS);
 }
 
 /** Fleet commit-activity trend — sum of each repo's latest weekly series, aligned by absolute
@@ -218,9 +224,10 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
   const maxWk = Math.max(...weeksPresent);
   const series: number[] = [];
   for (let wk = minWk; wk <= maxWk; wk++) series.push(byWeek.get(wk) ?? 0);
-  // Week index → ISO date of that week's start, so the chart can label the real span instead of a
-  // literal "this week" (the grid's right edge is the latest SCAN week, which may be weeks stale).
-  const weekStartIso = (wk: number) => new Date(wk * WEEK_MS).toISOString().slice(0, 10);
+  // Week index → ISO date of that week's start (the Sunday that begins it — add back SUNDAY_PHASE_MS so
+  // the label points at the real week-start, not the epoch's Thursday), so the chart can label the real
+  // span instead of a literal "this week" (the grid's right edge is the latest SCAN week, possibly stale).
+  const weekStartIso = (wk: number) => new Date(wk * WEEK_MS + SUNDAY_PHASE_MS).toISOString().slice(0, 10);
   return {
     weeks: series.length,
     series,
