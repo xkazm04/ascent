@@ -51,7 +51,11 @@ export function RecommendationTracker({
   const total = items.length;
   const done = items.filter((i) => i.status === "done").length;
   const dismissed = items.filter((i) => i.status === "dismissed").length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  // Progress is measured against the ACTIONABLE set (everything not dismissed). Keeping dismissed
+  // items in the denominator left a fully-triaged backlog (e.g. 3 done + 2 dismissed) stuck below
+  // 100% forever, so a completed backlog read as perpetually incomplete.
+  const actionable = total - dismissed;
+  const pct = actionable ? Math.round((done / actionable) * 100) : 100;
 
   function clearError(id: string) {
     setErrors((e) => {
@@ -123,7 +127,7 @@ export function RecommendationTracker({
       <Surface radius="xl" className="p-4">
         <div className="flex items-center justify-between text-base">
           <span className="font-medium text-white">
-            {done} of {total} done
+            {done} of {actionable} done
             {dismissed > 0 && <span className="text-slate-500"> · {dismissed} dismissed</span>}
           </span>
           <span className="text-slate-400">{pct}%</span>
