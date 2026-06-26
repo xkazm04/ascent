@@ -151,7 +151,12 @@ export function validateAssessment(raw: unknown): LlmAssessment {
 
   const roadmap: LlmRoadmapItem[] = [];
   if (Array.isArray(obj.roadmap)) {
-    for (const r of obj.roadmap as Record<string, unknown>[]) {
+    // Pre-slice the INPUT before iterating (mirrors `dimensions` above and asStringArray): roadmap is
+    // trailing-sliced to 6 at the end, but fully walking a hostile/prompt-injected multi-million-element
+    // array first — building a capped object per element via cap/asStringArray/validLevelUnlock — pins
+    // the single-threaded event loop and spikes heap. Bound the work up front with generous headroom
+    // over the final cap (Array.slice on a huge array is O(headroom)). (llm-provider-abstraction #3)
+    for (const r of (obj.roadmap as Record<string, unknown>[]).slice(0, 6 * 4)) {
       const title = typeof r?.title === "string" ? cap(r.title.trim()) : "";
       if (!title) continue;
       // Drop a roadmap entry whose dimension is missing or unparseable instead of silently
@@ -176,7 +181,9 @@ export function validateAssessment(raw: unknown): LlmAssessment {
 
   const discrepancies: Discrepancy[] = [];
   if (Array.isArray(obj.discrepancies)) {
-    for (const d of obj.discrepancies as Record<string, unknown>[]) {
+    // Pre-slice the INPUT before iterating (same unbounded-work hardening as roadmap above); the result
+    // is trailing-sliced to 8. (llm-provider-abstraction #3)
+    for (const d of (obj.discrepancies as Record<string, unknown>[]).slice(0, 8 * 4)) {
       const dim =
         typeof d?.dimension === "string" && VALID_DIM_IDS.has(d.dimension as DimensionId)
           ? (d.dimension as DimensionId)
