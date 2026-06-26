@@ -20,6 +20,11 @@ interface BatchResult {
   error?: string;
 }
 
+// Mirror the server's per-batch cap (src/app/api/practices/apply-batch/route.ts MAX_BATCH). The route
+// truncates to the FIRST MAX_BATCH repos it receives and returns the over-cap count as `skipped`, so we
+// (a) send the neediest repos first and (b) surface `skipped` instead of implying full coverage.
+const MAX_BATCH = 25;
+
 /**
  * The "systematic apply" action on a practice card: pick a gap repo, preview the leak-free
  * starter artifact Ascent would generate, then open a draft PR seeding it. Preview is read-only;
@@ -38,6 +43,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   const [selected, setSelected] = useState<Set<string>>(() => new Set(gapRepos.map((r) => r.fullName)));
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
+  const [batchSummary, setBatchSummary] = useState<{ attempted: number; skipped: number } | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
 
   if (gapRepos.length === 0) return null;
@@ -52,11 +58,18 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   }
 
   async function applyBatch() {
-    const repos = [...selected];
+    // gapRepos is ordered highest-score-first (least needy), so the repos most in need of remediation
+    // are LAST. The server keeps the first MAX_BATCH repos it receives when truncating, so send the
+    // neediest first — otherwise the cap would silently drop exactly the repos the rollout should fix.
+    const repos = gapRepos
+      .filter((r) => selected.has(r.fullName))
+      .map((r) => r.fullName)
+      .reverse();
     if (repos.length === 0) return;
     setBatchBusy(true);
     setBatchError(null);
     setBatchResults(null);
+    setBatchSummary(null);
     try {
       const res = await fetch("/api/practices/apply-batch", {
         method: "POST",
@@ -65,7 +78,12 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PRs.");
-      setBatchResults(data.results as BatchResult[]);
+      const results = data.results as BatchResult[];
+      setBatchResults(results);
+      setBatchSummary({
+        attempted: typeof data.attempted === "number" ? data.attempted : results.length,
+        skipped: typeof data.skipped === "number" ? data.skipped : 0,
+      });
     } catch (e) {
       setBatchError(e instanceof Error ? e.message : "Failed to open PRs.");
     } finally {
@@ -216,6 +234,12 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
                   : `Open draft PRs across ${selected.size} repo${selected.size === 1 ? "" : "s"} →`}
               </button>
               {batchError && <p className="mt-2 text-sm text-orange-300">{batchError}</p>}
+              {batchSummary && batchSummary.skipped > 0 && (
+                <p className="mt-2 text-sm text-amber-300">
+                  Opened {batchSummary.attempted} of {batchSummary.attempted + batchSummary.skipped} —{" "}
+                  {batchSummary.skipped} over the per-batch cap of {MAX_BATCH} (neediest repos first). Re-run to open the rest.
+                </p>
+              )}
               {batchResults && (
                 <ul className="mt-2 space-y-1">
                   {batchResults.map((res) => (
