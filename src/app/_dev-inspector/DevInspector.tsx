@@ -72,6 +72,13 @@ export function DevInspector() {
   const [copyOk, setCopyOk] = useState(true);
   const [mounted, setMounted] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Live mirror of `mode` so the (subscribe-once) keydown handler never reads a stale closure: written
+  // synchronously on every keystroke transition below, and synced here as a backstop for the timer-driven
+  // auto-off. A rapid ';'→'i' can't miss arming on a not-yet-committed render.
+  const modeRef = useRef<Mode>(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => setMounted(true), []);
 
@@ -83,7 +90,9 @@ export function DevInspector() {
     copiedTimer.current = setTimeout(() => setCopied(null), 1800);
   }, []);
 
-  // `;` enters keyboard mode, then `i` arms the inspector; Esc exits.
+  // `;` enters keyboard mode, then `i` arms the inspector; Esc exits. Subscribed once (no `mode` dep) and
+  // driven off `modeRef` so there's no add/remove gap between a `;` dispatch and a re-subscribe where the
+  // handler would still see the old `mode` — `modeRef` is updated synchronously on each transition.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
@@ -91,27 +100,30 @@ export function DevInspector() {
 
       if (e.key === ";") {
         e.preventDefault();
-        // Pure updater: nav→off, off→nav, armed unchanged. The 2s auto-off is scheduled by the effect
-        // below (keyed on mode === "nav"), so the reducer has no side effect to double-fire/leak a
-        // timer under React StrictMode's double-invocation.
-        setMode((m) => (m === "armed" ? "armed" : m === "nav" ? "off" : "nav"));
+        // nav→off, off→nav, armed unchanged. Computed from the live ref (not the setMode updater, so the
+        // reducer stays pure); the 2s auto-off is scheduled by the effect below keyed on mode === "nav".
+        const next: Mode = modeRef.current === "armed" ? "armed" : modeRef.current === "nav" ? "off" : "nav";
+        modeRef.current = next;
+        setMode(next);
         return;
       }
 
-      if ((e.key === "i" || e.key === "I") && mode === "nav") {
+      if ((e.key === "i" || e.key === "I") && modeRef.current === "nav") {
         e.preventDefault();
+        modeRef.current = "armed";
         setMode("armed");
         return;
       }
 
-      if (e.key === "Escape" && mode !== "off") {
+      if (e.key === "Escape" && modeRef.current !== "off") {
+        modeRef.current = "off";
         setMode("off");
       }
     };
 
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [mode]);
+  }, []);
 
   // Auto-exit nav mode after 2s if the second key isn't pressed. Lives in an effect (not the setMode
   // updater) so the reducer stays pure: the timer is set on entering nav and cleared on cleanup, so it
