@@ -6,6 +6,8 @@
 // could be the thing that failed). Ordinary page/segment errors are handled by nearer error.tsx
 // boundaries with the full branded UI.
 
+import { useEffect } from "react";
+
 export default function GlobalError({
   error,
   reset,
@@ -13,6 +15,11 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Mirror error.tsx's breadcrumb. This is the rarest + highest-severity failure (the whole app
+  // shell is down), so it's the one error we must not swallow silently: log it so console breadcrumbs
+  // and error reporters (Sentry-style) hooked into this effect record the digest correlation handle.
+  useEffect(() => console.error("[global-error]", error), [error]);
+
   return (
     <html lang="en">
       <body
