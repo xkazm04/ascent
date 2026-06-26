@@ -151,12 +151,19 @@ if (process.argv.includes('--json')) {
   const reportRepo = process.env.GITHUB_REPOSITORY;
   if (reportUrl && reportTok && reportRepo && typeof fetch === 'function') {
     try {
-      await fetch(reportUrl, {
+      const res = await fetch(reportUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + reportTok },
         body: JSON.stringify({ repo: reportRepo, headSha: process.env.GITHUB_SHA || null, score: score, fails: fails, warns: warns }),
       });
-      console.log('Reported conformance to Ascent.');
+      // fetch only rejects on a network error, never on an HTTP error status - so inspect res.ok and
+      // the body. A 401 (bad token), 503 (Ascent DB off), or a 200 with { recorded:false } (repo not
+      // watched under its org yet) must NOT print success, or the maintainer believes the adopt->verify
+      // loop is closed while the dashboard silently never updates.
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) console.error('Conformance report rejected: HTTP ' + res.status + (data && data.error ? ' - ' + data.error : ''));
+      else if (data && data.recorded === false) console.error('Conformance report accepted but NOT recorded: this repo is not watched under its org in Ascent yet - watch it, then re-report.');
+      else console.log('Reported conformance to Ascent.');
     } catch (err) {
       console.error('Conformance report failed:', err && err.message);
     }
