@@ -25,6 +25,7 @@ export function ScanStep({
   error,
   announce,
   preview = false,
+  creditSkipped = 0,
   checklistSteps,
   onCancel,
   onViewDashboard,
@@ -39,6 +40,9 @@ export function ScanStep({
   /** The scan was a deterministic PREVIEW (mock), not a real LLM scan — disclosed so the numbers
    *  aren't mistaken for live scores. */
   preview?: boolean;
+  /** Repos the server deferred for insufficient credits — disclosed on the done screen so the run
+   *  isn't presented as complete coverage when some repos were skipped. */
+  creditSkipped?: number;
   checklistSteps: ChecklistStep[];
   onCancel: () => void;
   onViewDashboard: () => void;
@@ -49,7 +53,9 @@ export function ScanStep({
   /** Called after a successful invite so the wizard can mark the "invite your team" step done. */
   onInvited?: () => void;
 }) {
-  const completed = Object.values(rows).filter((r) => r.level || r.error).length;
+  // Skipped (credit-deferred) rows are terminal too, so they count toward completion — otherwise the
+  // progress bar would stay stuck below 100% on the done screen when some repos were skipped.
+  const completed = Object.values(rows).filter((r) => r.level || r.error || r.skipped).length;
   const errorCount = Object.values(rows).filter((r) => r.error).length;
   const scanTotal = Object.keys(rows).length;
   const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
@@ -160,6 +166,13 @@ export function ScanStep({
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
           These are <strong>preview</strong> scores — a fast, illustrative estimate. For live numbers,
           install the GitHub App and run a real scan (it draws prepaid credits) from the dashboard.
+        </p>
+      )}
+
+      {phase === "done" && creditSkipped > 0 && (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
+          {creditSkipped} {creditSkipped === 1 ? "repository was" : "repositories were"}{" "}
+          <strong>skipped — out of credits</strong>. Top up your prepaid balance, then scan the rest from the dashboard.
         </p>
       )}
 

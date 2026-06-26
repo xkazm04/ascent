@@ -7,6 +7,9 @@ export interface ScanRow {
   level?: LevelId;
   overall?: number;
   error?: string;
+  /** Set (e.g. "insufficient_credits") when the server deferred this repo instead of scanning it —
+   *  a terminal state distinct from "scanning…" and from an error. */
+  skipped?: string;
 }
 
 export function ScanRowView({ row }: { row: ScanRow }) {
@@ -39,7 +42,13 @@ export function ScanRowView({ row }: { row: ScanRow }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2.5">
       <span className="flex-1 truncate font-mono text-base text-white">{row.repo}</span>
-      {row.error ? <span className="text-sm text-danger">{row.error}</span> : <span className="text-sm text-slate-500">scanning…</span>}
+      {row.error ? (
+        <span className="text-sm text-danger">{row.error}</span>
+      ) : row.skipped ? (
+        <span className="text-sm text-amber-300">skipped — out of credits</span>
+      ) : (
+        <span className="text-sm text-slate-500">scanning…</span>
+      )}
     </div>
   );
 }
