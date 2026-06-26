@@ -43,6 +43,13 @@ export const maxDuration = 300; // bulk runs are long
 
 const SCHEDULES = new Set<string>(SCAN_SCHEDULES);
 
+// Cap an explicit caller-supplied repos[] so one (anonymous-capable) request can't fan out into
+// hundreds of real GitHub ingests: the request rate-limit caps REQUESTS, not the fan-out WITHIN a
+// request, and the metered slice below only bounds metered, non-unlimited orgs — so a public/unlimited
+// caller could drive an unbounded batch. The `count` discovery path is already capped at 100; this
+// mirrors the sibling /api/org/watch route's MAX_BULK.
+const MAX_IMPORT_REPOS = 500;
+
 export async function POST(request: Request) {
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "Org import requires a database (DATABASE_URL)." }, { status: 503 });
@@ -163,6 +170,13 @@ export async function POST(request: Request) {
           if (bad) {
             send("error", { error: `Invalid repository "${bad.fullName}". Use owner/name with valid GitHub names.` });
             return;
+          }
+          // Bound the client-supplied list length (see MAX_IMPORT_REPOS) and surface the truncation,
+          // like the credit cap below does, so the caller isn't left thinking the dropped repos scanned.
+          if (fullNames.length > MAX_IMPORT_REPOS) {
+            const dropped = fullNames.length - MAX_IMPORT_REPOS;
+            fullNames = fullNames.slice(0, MAX_IMPORT_REPOS);
+            send("notice", { reason: "too_many_repos", scanning: fullNames.length, skipped: dropped });
           }
         } else {
           send("progress", { stage: "list", message: `Listing public repos for ${org}…` });
