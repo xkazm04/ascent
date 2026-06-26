@@ -40,6 +40,9 @@ export function FleetMap({
   );
   // Org login currently scanning from the map (MAP-2) + an abort handle for cleanup.
   const [scanning, setScanning] = useState<string | null>(null);
+  // Per-org manual-scan error (quota/permission/server/network), shown inline without destroying the
+  // constellation's stars or its Scan button — so the user learns WHY a scan didn't run and can retry.
+  const [scanError, setScanError] = useState<Record<string, string>>({});
   const scanCtrl = useRef<AbortController | null>(null);
   // Bumped each time a manual scan begins. The auto-refresh captures it at fetch start and discards
   // its result if it changed — covering the case where a scan starts AND finishes during the refresh's
@@ -57,9 +60,19 @@ export function FleetMap({
   // Scan an org's watched repos straight from the map — reuses the dashboard's SSE bulk scan and
   // brightens each star in place as results land, so a near-empty grey field can be lit up on the
   // spot (the page the OAuth callback deliberately lands on).
+  function clearScanError(login: string) {
+    setScanError((e) => {
+      if (!e[login]) return e;
+      const next = { ...e };
+      delete next[login];
+      return next;
+    });
+  }
+
   async function scanOrg(login: string) {
     if (scanning) return;
     setScanning(login);
+    clearScanError(login); // a fresh attempt clears any prior error for this org
     scanGen.current += 1; // mark a new live scan so a concurrent auto-refresh discards its stale result
     const ctrl = new AbortController();
     scanCtrl.current = ctrl;
@@ -70,12 +83,27 @@ export function FleetMap({
         body: JSON.stringify({ org: login }),
         signal: ctrl.signal,
       });
-      if (!res.ok || !res.body) return;
+      if (!res.ok) {
+        // Surface the real reason (quota 402 / permission 403 / server 500) instead of silently
+        // reverting "Scanning…" → "Scan", which looks identical to "nothing watched" and makes a
+        // blocked paying user retry fruitlessly.
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setScanError((m) => ({ ...m, [login]: data?.error ?? `Scan failed (${res.status}).` }));
+        return;
+      }
+      if (!res.body) {
+        setScanError((m) => ({ ...m, [login]: "Scan failed to start." }));
+        return;
+      }
       await readSSE(res.body, (msg) => {
         setConstellations((cur) => applyScanEvent(cur, login, msg));
       });
-    } catch {
-      /* aborted or network — leave the seeded stars as-is */
+    } catch (e) {
+      // An aborted scan (Cancel / unmount / navigation) is expected — stay silent. Any other failure
+      // (a genuine network error) is surfaced so the user knows the scan didn't run.
+      if ((e as { name?: string } | null)?.name !== "AbortError") {
+        setScanError((m) => ({ ...m, [login]: "Network error — scan didn't run. Try again." }));
+      }
     } finally {
       if (scanCtrl.current === ctrl) scanCtrl.current = null;
       setScanning((s) => (s === login ? null : s));
@@ -292,6 +320,7 @@ export function FleetMap({
                 onScan={() => scanOrg(c.login)}
                 scanning={scanning === c.login}
                 scanDisabled={scanning !== null && scanning !== c.login}
+                scanError={scanError[c.login]}
               />
             ))}
           </div>
