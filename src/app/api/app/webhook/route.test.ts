@@ -31,6 +31,8 @@ vi.mock("@/lib/github/app", () => ({
   verifyWebhook: () => true,
 }));
 vi.mock("@/lib/db", () => ({
+  claimWebhookDelivery: vi.fn(async () => true),
+  releaseWebhookDelivery: vi.fn(async () => {}),
   getInstallationIdForOwner: vi.fn(),
   getOrgGatePolicy: vi.fn(),
   getOrgId: vi.fn(),
