@@ -411,10 +411,25 @@ export async function createInitiative(
     update: {},
     create: { slug: orgSlug, name: orgSlug === "public" ? "Public Scans" : orgSlug },
   });
+  const title = input.title.slice(0, 200);
+  // Idempotency (backlog-management #1): promoting the same backlog gap — or re-tracking the same fleet
+  // move — must not spawn duplicate initiatives. The only previous guard was a transient client-side
+  // `promoted` flag that resets on reload / row remount, so each click POSTed another identical row. Reuse
+  // an existing initiative on the same (org, title, dimension) and merge any newly-scoped repos into it
+  // instead of inserting a second one, making the create idempotent at the source.
+  const existing = await prisma.initiative.findFirst({
+    where: { orgId: org.id, title, dimId: input.dimId },
+    select: { id: true, repos: true },
+  });
+  if (existing) {
+    const mergedRepos = Array.from(new Set([...parseRepos(existing.repos), ...input.repos])).slice(0, 200);
+    await prisma.initiative.update({ where: { id: existing.id }, data: { repos: JSON.stringify(mergedRepos) } });
+    return { id: existing.id };
+  }
   const created = await prisma.initiative.create({
     data: {
       orgId: org.id,
-      title: input.title.slice(0, 200),
+      title,
       dimId: input.dimId,
       practiceId: input.practiceId ?? null,
       targetScore: Math.max(0, Math.min(100, Math.round(input.targetScore ?? 70))),
