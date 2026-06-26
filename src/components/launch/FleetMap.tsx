@@ -273,6 +273,10 @@ export function FleetMap({
                     type="button"
                     onClick={() => toggleLevel(b)}
                     aria-pressed={on}
+                    // The "unscanned" band renders as a bare "—"; without an explicit name a screen
+                    // reader announces only the punctuation. Give it a real accessible name (the glyph
+                    // stays decorative); L1–L5 already read fine but labelling them is harmless.
+                    aria-label={b === "unscanned" ? "unscanned" : b}
                     className={`rounded-md border px-2 py-0.5 font-mono text-sm transition ${
                       on ? "border-accent bg-accent/15 text-white" : "border-slate-700 text-slate-400 hover:text-white"
                     }`}
