@@ -130,12 +130,13 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
     <div className="space-y-5">
       <SummaryStrip b={backlog} />
 
-      <div className="flex items-center gap-1 text-sm">
+      <div role="group" aria-label="Group backlog by" className="flex items-center gap-1 text-sm">
         <span className="mr-1 font-mono text-sm uppercase tracking-widest text-slate-500">Group by</span>
         {(["owner", "due", "points"] as const).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
+            aria-pressed={view === v}
             className={`rounded-lg border px-3 py-1.5 font-medium transition ${
               view === v ? "border-accent/50 bg-accent/10 text-white" : "border-slate-700 text-slate-400 hover:text-white"
             }`}
