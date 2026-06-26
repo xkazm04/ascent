@@ -6,7 +6,7 @@ import { CreditsControl } from "@/components/org/CreditsControl";
 import { PlanControl } from "@/components/org/PlanControl";
 import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
-import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgRollup, isDbConfigured, isDbUnavailableError } from "@/lib/db";
+import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
@@ -89,9 +89,11 @@ export default async function OrgLayout({
     );
   }
 
-  // Rollup + credit state are independent (both keyed on the slug alone), so fetch them together —
-  // this shell wraps EVERY org tab, so its waterfall taxes every dashboard view. Prepaid scan-credit
-  // state feeds the header chip (null for the shared public org, which is free).
+  // A lightweight header summary + credit state are independent (both keyed on the slug alone), so fetch
+  // them together — this shell wraps EVERY org tab, so its waterfall taxes every dashboard view. The
+  // shell consumes only repo/scan/watch counts + avg maturity, so it uses getOrgHeaderSummary (one cheap
+  // query) instead of the full getOrgRollup (which each page that needs trend/forecast/postures runs
+  // itself). Prepaid scan-credit state feeds the header chip (null for the shared public org, which is free).
   // The "Org demo" header link points here whenever DATABASE_URL is set — but a set-yet-unreachable
   // DB (local Postgres not running, or a prod outage) makes these reads throw a
   // PrismaClientInitializationError that, unguarded, crashed the whole dashboard with a raw stack.
@@ -102,13 +104,13 @@ export default async function OrgLayout({
   const bypassViewer = authBypassEnabled() ? await getViewer() : null;
   const roleLogin = session?.login ?? bypassViewer?.login ?? null;
 
-  let rollup: Awaited<ReturnType<typeof getOrgRollup>>;
+  let summary: Awaited<ReturnType<typeof getOrgHeaderSummary>>;
   let credit: Awaited<ReturnType<typeof getCreditState>> | null;
   let myRole: Awaited<ReturnType<typeof getMembershipRole>> | null;
   let usageThisMonth: number;
   try {
-    [rollup, credit, myRole, usageThisMonth] = await Promise.all([
-      getOrgRollup(slug),
+    [summary, credit, myRole, usageThisMonth] = await Promise.all([
+      getOrgHeaderSummary(slug),
       slug === "public" ? Promise.resolve(null) : getCreditState(slug),
       // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
       // can open the Members tab). Null for the public org / non-members.
@@ -130,7 +132,7 @@ export default async function OrgLayout({
     }
     throw err;
   }
-  if (!rollup || rollup.repoCount === 0) {
+  if (!summary || summary.repoCount === 0) {
     return (
       <Frame>
         <OrgEmpty title={`No data for ${slug}`} body="Watch some repositories on /connect and run a scan, then this dashboard fills in." href="/connect" cta="Go to Connect" />
@@ -150,8 +152,8 @@ export default async function OrgLayout({
     await ensureOwnerMembership(slug, bypassViewer.login, bypassViewer.name).catch(() => {});
   }
 
-  const watched = rollup.repos.filter((r) => r.watched).length;
-  const level = levelForScore(rollup.avgOverall);
+  const watched = summary.watchedCount;
+  const level = levelForScore(summary.avgOverall);
 
   const grantsEnabled =
     process.env.ASCENT_ALLOW_CREDIT_GRANTS === "1" || process.env.ASCENT_ALLOW_CREDIT_GRANTS === "true";
@@ -176,8 +178,8 @@ export default async function OrgLayout({
             <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Org maturity</div>
             <h1 className="mt-0.5 text-2xl font-bold text-white">{slug}</h1>
           </div>
-          <span className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm" style={{ color: scoreHex(rollup.avgOverall) }}>
-            {level.id} · {rollup.avgOverall}
+          <span className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm" style={{ color: scoreHex(summary.avgOverall) }}>
+            {level.id} · {summary.avgOverall}
           </span>
           {myRole && (
             <span
@@ -188,7 +190,7 @@ export default async function OrgLayout({
             </span>
           )}
           <span className="font-mono text-sm text-slate-500">
-            {rollup.scannedCount}/{rollup.repoCount} scanned · {watched} watched
+            {summary.scannedCount}/{summary.repoCount} scanned · {watched} watched
           </span>
         </div>
         <div className="flex items-center gap-2">

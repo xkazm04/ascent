@@ -364,6 +364,40 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   };
 }
 
+/** A lightweight org header summary — repo/scan/watch counts + avg maturity. The org shell wraps EVERY
+ *  tab but consumes only these four fields (header chip + the has-data guard), so running the full
+ *  getOrgRollup there (all repos + latest scans + per-dim rows + governance/passport parsing, then
+ *  trend/forecast/deltas) inflated TTFB on every dashboard view to throw most of it away — and ran it
+ *  TWICE on the Overview tab (unscoped here + scoped in the page). This mirrors the rollup's repo set
+ *  (watched OR has-scans) and avg-of-latest-overall math, but as one cheap query. */
+export interface OrgHeaderSummary {
+  repoCount: number;
+  scannedCount: number;
+  watchedCount: number;
+  avgOverall: number;
+}
+
+export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSummary | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true } });
+  if (!org) return null;
+  const repos = await prisma.repository.findMany({
+    where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] },
+    select: {
+      watched: true,
+      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true } },
+    },
+  });
+  const scannedScores = repos.map((r) => r.scans[0]?.overallScore).filter((s): s is number => s != null);
+  return {
+    repoCount: repos.length,
+    scannedCount: scannedScores.length,
+    watchedCount: repos.filter((r) => r.watched).length,
+    avgOverall: roundedMean(scannedScores),
+  };
+}
+
 /** One inference engine's share of an org's scans over a window. */
 export interface EngineMixEntry {
   provider: string;
