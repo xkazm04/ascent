@@ -70,7 +70,16 @@ const IMPACTS: Set<string> = new Set(IMPACT_LEVELS);
 // prompt-injected payload) yields a "valid" assessment that bloats the persisted DB row, the SSE
 // payload, and UI rendering. Bound field size like field count.
 const MAX_FIELD_LEN = 2000;
-const cap = (s: string): string => (s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN) : s);
+const cap = (s: string): string => {
+  if (s.length <= MAX_FIELD_LEN) return s;
+  const sliced = s.slice(0, MAX_FIELD_LEN);
+  // Length-based truncation operates on UTF-16 code units, so the cut can land BETWEEN the high and
+  // low surrogate of an astral character (emoji, CJK ext-B, …), leaving a lone unpaired high surrogate
+  // (0xD800–0xDBFF) at the end. That's invalid UTF-16 and can break strict JSON re-serialization or
+  // corrupt the persisted DB column. Drop a trailing lone high surrogate so the result stays valid.
+  const last = sliced.charCodeAt(sliced.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? sliced.slice(0, -1) : sliced;
+};
 
 function asStringArray(v: unknown, max = 6): string[] {
   if (!Array.isArray(v)) return [];
