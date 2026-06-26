@@ -8,6 +8,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
+// Tabbable elements inside the dialog — drives the focus trap + the "focus the first field on open".
+const FOCUSABLE_SELECTOR =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
 export function AlertsControl({ org }: { org: string }) {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -20,6 +24,8 @@ export function AlertsControl({ org }: { org: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -34,6 +40,49 @@ export function AlertsControl({ org }: { org: string }) {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  // a11y: the popover declares role="dialog", so it must own the focus half of that contract too. On
+  // open, move focus into the dialog (so keyboard/SR users land inside what they just opened) and
+  // restore it to the trigger on close. Tab is trapped via onKeyDown below.
+  useEffect(() => {
+    if (!open) return;
+    const trigger = triggerRef.current;
+    const first = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    (first ?? dialogRef.current)?.focus();
+    return () => {
+      trigger?.focus();
+    };
+  }, [open]);
+
+  // Content loads lazily (Loading… → form). Once the form renders, advance focus from the dialog
+  // container to its first field — but only if the user hasn't already Tabbed elsewhere.
+  useEffect(() => {
+    if (!open || !loaded) return;
+    if (document.activeElement !== dialogRef.current) return;
+    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+  }, [open, loaded]);
+
+  // Keep Tab/Shift+Tab inside the dialog while it's open (cycle at the edges).
+  function trapTab(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Tab" || !dialogRef.current) return;
+    const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    if (focusables.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const firstEl = focusables[0]!;
+    const lastEl = focusables[focusables.length - 1]!;
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === firstEl || active === dialogRef.current) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else if (active === lastEl) {
+      e.preventDefault();
+      firstEl.focus();
+    }
+  }
 
   // Load the current webhook the first time the popover opens.
   useEffect(() => {
@@ -108,6 +157,7 @@ export function AlertsControl({ org }: { org: string }) {
   return (
     <div ref={ref} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -120,9 +170,12 @@ export function AlertsControl({ org }: { org: string }) {
 
       {open && (
         <div
+          ref={dialogRef}
           role="dialog"
           aria-label="Alert routing"
-          className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl"
+          tabIndex={-1}
+          onKeyDown={trapTab}
+          className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl outline-none"
         >
           <div className="font-mono text-sm uppercase tracking-widest text-accent">Alert routing</div>
           {denied ? (
