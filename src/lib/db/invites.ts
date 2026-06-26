@@ -151,10 +151,28 @@ export async function acceptInvite(token: string, identity: AcceptIdentity): Pro
   }
 
   const role: OrgRole = isOrgRole(invite.role) ? invite.role : "member";
+  // Claim-first: atomically flip the row pending→accepted keyed on BOTH id AND status, BEFORE granting.
+  // The three-step accept (read pending → grant → flip) was not atomic and the final update keyed on id
+  // alone, so two viewers racing to accept the SAME unpinned invite (a deliberately common case: an
+  // open link dropped in a channel) both read "pending", both granted a membership (to two different
+  // accounts), and both flipped to accepted — a single-use capability redeemed twice. The conditional
+  // updateMany serializes that race: exactly one caller matches the still-pending row (count === 1) and
+  // proceeds; the loser sees count 0 and gets `used`, making a double grant impossible.
+  const claim = await prisma.invite.updateMany({
+    where: { id: invite.id, status: "pending" },
+    data: { status: "accepted" },
+  });
+  if (claim.count !== 1) return { ok: false, reason: "used" };
+
   const granted = await setMembershipRole(invite.org.slug, gh, role);
-  if (granted !== "ok") return { ok: false, reason: "db" };
-  // Mark accepted only after the grant lands, so a failed grant leaves the invite re-usable.
-  await prisma.invite.update({ where: { id: invite.id }, data: { status: "accepted" } });
+  if (granted !== "ok") {
+    // The grant failed AFTER we claimed the invite. Release the claim (pending again) so the invite
+    // stays re-usable — preserving the prior "a failed grant leaves the invite re-usable" guarantee.
+    await prisma.invite
+      .updateMany({ where: { id: invite.id, status: "accepted" }, data: { status: "pending" } })
+      .catch(() => {});
+    return { ok: false, reason: "db" };
+  }
   return { ok: true, org: invite.org.slug, role };
 }
 
