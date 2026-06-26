@@ -21,8 +21,16 @@ export async function POST(request: Request) {
   if (denied) return denied;
 
   // Entitlement: briefing white-label is a Team-and-up feature (so a reseller on Team can brand the
-  // reports they hand to clients), not Enterprise-only.
-  const credit = await getCreditState(body.org).catch(() => null);
+  // reports they hand to clients), not Enterprise-only. Distinguish "couldn't determine the plan"
+  // (a transient DB hiccup) from "genuinely not entitled": folding a read error into `null` mapped a
+  // legitimate Team/Enterprise owner to a misleading 403 "you don't have this plan" during an outage,
+  // so a read failure returns a retryable 503 instead.
+  let credit;
+  try {
+    credit = await getCreditState(body.org);
+  } catch {
+    return NextResponse.json({ error: "Couldn’t verify your plan right now — please try again." }, { status: 503 });
+  }
   if (!planAllowsWhiteLabel(credit?.plan)) {
     return NextResponse.json({ error: "Briefing branding is a Team-plan feature." }, { status: 403 });
   }
