@@ -387,6 +387,12 @@ export async function getScanComparison(
     where: { orgId_fullName: { orgId, fullName } },
   });
   if (!repo) return null;
+  // Defense-in-depth (cross-tenant disclosure): never serve a PRIVATE repo's comparison (overall +
+  // per-dimension scores, evidence, gaps, recommendations) out of the shared public org — that org is
+  // the anonymous read surface, and an unauthorized visitor resolves to it via readableOrgForOwner.
+  // Mirrors the identical guard in getRepositoryHistory and getScanReportByCommit (the third twin
+  // reader was the only public-org read path missing it). Backstops a legacy pre-guard row.
+  if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
 
   const list = await prisma.scan.findMany({
     where: { repoId: repo.id },
