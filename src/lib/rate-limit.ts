@@ -127,6 +127,19 @@ export const ORG_IMPORT_RATE_LIMIT: RateLimitConfig = {
   windowMs: 60_000,
 };
 
+// The CI gate endpoint runs a FULL GitHub repo ingest + a head-resolve against the operator PAT on
+// EVERY request — even in its default (mock) mode, which only swaps the LLM provider, not the network
+// I/O. So an unauthenticated flood of the default path is the same denial-of-wallet vector as the
+// real-LLM path. Real CI calls this ~once per PR event, so this budget is generous per-IP (a busy
+// mono-org behind one egress IP) with a per-instance global ceiling; the ?mock=0 path keeps the
+// stricter SCAN_RATE_LIMIT. Env-overridable.
+export const GATE_RATE_LIMIT: RateLimitConfig = {
+  name: "gate",
+  perIp: envInt("RATE_LIMIT_GATE_PER_IP", 60),
+  global: envInt("RATE_LIMIT_GATE_GLOBAL", 600),
+  windowMs: 60_000,
+};
+
 // The public README badge is hammered by crawlers/READMEs; the limit gates only the EXPENSIVE
 // cache-miss scan (a cheap static badge is still returned). Generous per-IP for a busy README, with a
 // per-instance global ceiling. Matches the badge route's previous bespoke 60/min/IP. Env-overridable.
