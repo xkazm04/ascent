@@ -175,7 +175,12 @@ export function AlertsControl({ org }: { org: string }) {
                 <button
                   type="button"
                   onClick={save}
-                  disabled={busy !== null || !webhookUrl.trim()}
+                  // Enable Save when ANYTHING is editable, not only when a webhook URL is present: the
+                  // backend supports a thresholds-only update (an org on the global ALERT_WEBHOOK_URL
+                  // leaves this field blank), so gating purely on the URL made regression sensitivity
+                  // un-tunable through the UI. A blank URL is sent as a no-op clear; clearing an existing
+                  // per-org webhook stays on the dedicated Clear button.
+                  disabled={busy !== null || !(webhookUrl.trim() || overallDrop.trim() || dimensionDrop.trim())}
                   className="focus-ring rounded-md bg-accent px-2.5 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
                 >
                   {busy === "save" ? "Saving…" : "Save"}
