@@ -218,8 +218,20 @@ export async function POST(request: Request) {
             // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
             // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
             if (shouldRefundScan(report, persisted)) await refundCredit();
-            if (watch) await setRepoWatch(org, r, true);
-            if (watch && schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
+            // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
+            // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
+            // the credit and reports the repo as { error }). The notable failure is the lazy Organization
+            // upsert inside setRepoWatch losing a P2002 create race on a brand-new org's first parallel
+            // import — previously that refunded a genuinely-billed, persisted scan and flagged a scored
+            // repo "error". The sibling /api/org/watch route keeps these writes serial for the same reason.
+            if (watch) {
+              try {
+                await setRepoWatch(org, r, true);
+                if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
+              } catch (werr) {
+                console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
+              }
+            }
             send("repo", {
               repo: r.fullName,
               level: report.level.id,
