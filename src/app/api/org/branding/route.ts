@@ -27,11 +27,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Briefing branding is a Team-plan feature." }, { status: 403 });
   }
 
-  const ok = await setOrgBranding(body.org, {
+  // Echo the NORMALIZED values actually stored so the client can warn about anything the validator
+  // discarded (a non-https/private logo → null) or truncated (an >80-char name) instead of showing
+  // unconditional success while the value was silently dropped.
+  const stored = await setOrgBranding(body.org, {
     brandName: body.brandName ?? null,
     brandColor: body.brandColor ?? null,
     logoUrl: body.logoUrl ?? null,
   });
-  if (!ok) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  if (!stored) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  return NextResponse.json({ ok: true, branding: stored });
 }

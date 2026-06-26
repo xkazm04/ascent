@@ -36,15 +36,17 @@ function isSafeLogoUrl(raw: string): boolean {
 }
 
 /** Validate + persist branding. A malformed colour/URL is stored as null rather than rejected, so the
- *  PDF always renders. Returns false when persistence is off / the org is unknown. */
-export async function setOrgBranding(orgSlug: string, input: OrgBranding): Promise<boolean> {
-  if (!isDbConfigured()) return false;
+ *  PDF always renders. Returns the NORMALIZED values actually stored (so the caller/UI can tell what
+ *  was discarded or truncated instead of reporting blanket success), or null when persistence is off /
+ *  the org is unknown. */
+export async function setOrgBranding(orgSlug: string, input: OrgBranding): Promise<OrgBranding | null> {
+  if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return false;
+  if (!org) return null;
   const brandName = input.brandName?.trim().slice(0, 80) || null;
   const brandColor = input.brandColor && HEX_COLOR_RE.test(input.brandColor.trim()) ? input.brandColor.trim().toLowerCase() : null;
   const logoUrl = input.logoUrl && isSafeLogoUrl(input.logoUrl.trim()) ? input.logoUrl.trim().slice(0, 500) : null;
   await prisma.organization.update({ where: { id: org.id }, data: { brandName, brandColor, logoUrl } });
-  return true;
+  return { brandName, brandColor, logoUrl };
 }

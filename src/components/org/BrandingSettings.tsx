@@ -11,23 +11,36 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
   const [brandName, setBrandName] = useState(initial.brandName ?? "");
   const [brandColor, setBrandColor] = useState(initial.brandColor ?? "#2563eb");
   const [logoUrl, setLogoUrl] = useState(initial.logoUrl ?? "");
-  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "warn" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
 
   async function save() {
     setState("saving");
     setMsg(null);
+    const submitted = { brandName: brandName.trim(), brandColor: brandColor.trim(), logoUrl: logoUrl.trim() };
     try {
       const res = await fetch("/api/org/branding", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, brandName: brandName.trim(), brandColor: brandColor.trim(), logoUrl: logoUrl.trim() }),
+        body: JSON.stringify({ org: slug, ...submitted }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error ?? "Couldn't save branding.");
-      setState("saved");
-      setMsg("Saved — the next briefing PDF uses your brand.");
-      setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 4000);
+      // Compare what we submitted against what the server actually STORED, so a silently discarded
+      // logo / truncated name surfaces as a warning instead of a green "saved" that lies.
+      const stored = (d.branding ?? {}) as Partial<OrgBranding>;
+      const warnings: string[] = [];
+      if (submitted.logoUrl && !stored.logoUrl) warnings.push("Logo URL ignored — must be a public https image.");
+      if (submitted.brandColor && !stored.brandColor) warnings.push("Accent colour ignored — must be a #rrggbb hex.");
+      if (submitted.brandName && stored.brandName !== submitted.brandName) warnings.push("Brand name shortened to 80 characters.");
+      if (warnings.length) {
+        setState("warn");
+        setMsg(`Saved with changes — ${warnings.join(" ")}`);
+      } else {
+        setState("saved");
+        setMsg("Saved — the next briefing PDF uses your brand.");
+        setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 4000);
+      }
     } catch (e) {
       setState("error");
       setMsg(e instanceof Error ? e.message : "Failed to save.");
@@ -47,7 +60,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
           Brand name
-          <input value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="Acme Inc." className={`${field} w-44`} />
+          <input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="Acme Inc." className={`${field} w-44`} />
         </label>
         <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
           Accent
@@ -61,7 +74,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
           {state === "saving" ? "Saving…" : "Save"}
         </button>
       </div>
-      {msg && <p className={`mt-2 font-mono text-sm ${state === "error" ? "text-orange-300" : "text-emerald-300"}`}>{msg}</p>}
+      {msg && <p className={`mt-2 font-mono text-sm ${state === "error" ? "text-orange-300" : state === "warn" ? "text-amber-300" : "text-emerald-300"}`}>{msg}</p>}
     </details>
   );
 }
