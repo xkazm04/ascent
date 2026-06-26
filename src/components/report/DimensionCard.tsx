@@ -46,7 +46,10 @@ export function DimensionCard({
         {delta !== null && delta !== 0 && (
           <span className={`text-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
             {delta > 0 ? "▲+" : "▼"}
-            {delta}
+            {/* Absolute value after the arrow — the ▼ glyph already encodes the sign, so the raw
+                signed delta rendered "▼-3" (a down-arrow next to a minus), inconsistent with
+                ScoreWaterfall/PointTooltip which use ▼{Math.abs(...)}. */}
+            {Math.abs(delta)}
           </span>
         )}
         <span className="text-sm text-slate-500">{Math.round(d.weight * 100)}%</span>
