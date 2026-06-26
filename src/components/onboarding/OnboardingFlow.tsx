@@ -18,6 +18,9 @@ export interface OrgCredit {
   org: string;
   balance: number;
   unlimited: boolean;
+  /** Included free monthly scans still available (the route's allowanceRemaining; null/absent =
+   *  unknown/unlimited). The money-gate counts this as real-scan headroom alongside purchased balance. */
+  allowanceRemaining?: number | null;
 }
 
 type Phase = "pick" | "select" | "scanning" | "done";
@@ -210,7 +213,12 @@ export function OnboardingFlow({
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d && typeof d.balance === "number") {
-          setCredit({ org: creditOrg, balance: d.balance, unlimited: Boolean(d.unlimited) });
+          setCredit({
+            org: creditOrg,
+            balance: d.balance,
+            unlimited: Boolean(d.unlimited),
+            allowanceRemaining: typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : null,
+          });
         }
       })
       .catch(() => {});
