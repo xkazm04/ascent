@@ -37,7 +37,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
   const board = topAiNative.length > 0 ? topAiNative : recent;
   const latestScannedAt = recent[0]?.scannedAt;
   return (
-    <section id="gallery" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <section id="gallery" className="flex min-h-screen snap-start flex-col justify-start pb-10 pt-14 lg:justify-center">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
         <div>
           <Kicker>Live from the index</Kicker>

@@ -38,7 +38,7 @@ function CellBar({ w }: { w: number }) {
 
 export function DimensionMatrix() {
   return (
-    <section id="dimensions" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <section id="dimensions" className="flex min-h-screen snap-start flex-col justify-start pb-10 pt-14 lg:justify-center">
       <SectionHeading
         size="page"
         kicker="The instrument"
