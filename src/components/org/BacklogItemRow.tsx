@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { REC_STATUSES, type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
@@ -48,6 +48,10 @@ export function BacklogItemRow({
   const promoted = state?.promoted ?? false;
   const [prBusy, setPrBusy] = useState(false);
   const [promoteBusy, setPromoteBusy] = useState(false);
+  // Monotonic token for the history fetch: each open/refresh bumps it; a resolved fetch only writes
+  // its result if it is still the latest request. Closing the panel also bumps it, so an in-flight
+  // load that resolves after the user collapsed can't re-open it.
+  const historyReq = useRef(0);
 
   // Promote this gap into a tracked org Initiative (BKLG-2) — reuses /api/org/initiatives with the
   // rec's dimension + repo, so a per-repo backlog row rolls up into the org-level unit of work.
@@ -94,7 +98,7 @@ export function BacklogItemRow({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
       onState({ prResult: { url: data.url, reused: data.reused } });
-      if (item.status === "open") await onPatch(item.id, { status: "in_progress" });
+      if (item.status === "open") await patchAndRefresh(item.id, { status: "in_progress" });
     } catch (e) {
       onState({ prError: e instanceof Error ? e.message : "Failed to open PR." });
     } finally {
@@ -102,19 +106,34 @@ export function BacklogItemRow({
     }
   }
 
-  async function toggleHistory() {
-    if (history) {
-      onState({ history: null });
-      return;
-    }
+  async function loadHistory() {
+    const req = (historyReq.current += 1);
     onState({ history: "loading" });
     try {
       const res = await fetch(`/api/recommendations/${item.id}/events`);
       const data = res.ok ? ((await res.json()) as { events: RecEvent[] }) : { events: [] };
-      onState({ history: data.events });
+      // Ignore a stale response — the panel may have been collapsed (or re-opened) since this fetch began.
+      if (historyReq.current === req) onState({ history: data.events });
     } catch {
-      onState({ history: [] });
+      if (historyReq.current === req) onState({ history: [] });
     }
+  }
+
+  function toggleHistory() {
+    if (history) {
+      // Bump the token so any in-flight load can't re-open the panel we're collapsing.
+      historyReq.current += 1;
+      onState({ history: null });
+      return;
+    }
+    void loadHistory();
+  }
+
+  // onPatch records a new timeline event server-side, so an already-open history list goes stale.
+  // Wrap the patch to refetch history after a successful edit (and a no-op when it's collapsed).
+  async function patchAndRefresh(id: string, body: Record<string, unknown>) {
+    await onPatch(id, body);
+    if (history) void loadHistory();
   }
 
   const due = dueLabel(item);
@@ -159,7 +178,7 @@ export function BacklogItemRow({
           <select
             value={item.status}
             disabled={saving}
-            onChange={(e) => onPatch(item.id, { status: e.target.value })}
+            onChange={(e) => patchAndRefresh(item.id, { status: e.target.value })}
             aria-label="Status"
             className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
             style={{ color: STATUS_ACCENT[item.status] }}
@@ -177,7 +196,7 @@ export function BacklogItemRow({
           <select
             value={item.assigneeLogin ?? ""}
             disabled={saving}
-            onChange={(e) => onPatch(item.id, { assigneeLogin: e.target.value || null })}
+            onChange={(e) => patchAndRefresh(item.id, { assigneeLogin: e.target.value || null })}
             aria-label="Owner"
             className="max-w-[10rem] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
           >
@@ -196,7 +215,7 @@ export function BacklogItemRow({
             type="date"
             value={item.targetDate ?? ""}
             disabled={saving}
-            onChange={(e) => onPatch(item.id, { targetDate: e.target.value || null })}
+            onChange={(e) => patchAndRefresh(item.id, { targetDate: e.target.value || null })}
             aria-label="Due date"
             className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
           />
