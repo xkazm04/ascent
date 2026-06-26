@@ -10,12 +10,13 @@
 import { cache } from "react";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-// The two pure env predicates live in @/lib/env so the next/headers-free proxy (src/proxy.ts) can share
-// the SAME definition instead of re-implementing the bypass/configured logic. Re-exported here so the
-// gate's public surface (authBypassEnabled/supabaseAuthConfigured) is unchanged for existing importers.
-import { authBypassEnabled, supabaseAuthConfigured } from "@/lib/env";
+// The pure env predicates live in @/lib/env so the next/headers-free proxy (src/proxy.ts) can share
+// the SAME definitions instead of re-implementing the bypass/configured/gate logic. Re-exported here so
+// the gate's public surface (authBypassEnabled/supabaseAuthConfigured/authGateEnabled) is unchanged for
+// existing importers.
+import { authBypassEnabled, authGateEnabled, supabaseAuthConfigured } from "@/lib/env";
 
-export { authBypassEnabled, supabaseAuthConfigured };
+export { authBypassEnabled, authGateEnabled, supabaseAuthConfigured };
 
 /** Non-sensitive identity of the signed-in viewer (GitHub login + profile bits for the header). */
 export interface Viewer {
@@ -24,16 +25,6 @@ export interface Viewer {
   email?: string;
   avatar?: string;
   name?: string;
-}
-
-/**
- * Whether the login wall is actually enforced right now: Supabase is configured AND the dev bypass
- * is off. When this is false the app stays open exactly as before (no Supabase configured ⇒ nothing
- * to enforce; bypass on ⇒ developer wants everything open). Gate callers branch on this so a
- * deployment without Supabase keeps its prior behavior unchanged.
- */
-export function authGateEnabled(): boolean {
-  return supabaseAuthConfigured() && !authBypassEnabled();
 }
 
 const DEV_VIEWER: Viewer = {

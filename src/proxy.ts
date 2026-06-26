@@ -11,10 +11,12 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { authBypassEnabled, supabaseAuthConfigured } from "@/lib/env";
+import { authGateEnabled } from "@/lib/env";
 
+// gateInactive is exactly !authGateEnabled(); the composed predicate lives in @/lib/env (shared with the
+// server gate in access.ts) so this can't drift from the actual enforcement wall.
 function gateInactive(): boolean {
-  return !(supabaseAuthConfigured() && !authBypassEnabled());
+  return !authGateEnabled();
 }
 
 export async function proxy(request: NextRequest) {
