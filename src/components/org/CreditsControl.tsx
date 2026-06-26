@@ -49,15 +49,26 @@ export function CreditsControl({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ledger, setLedger] = useState<LedgerEntry[] | null>(null);
+  // Distinguish "loading" and "load failed" from "no activity yet" — collapsing all of them into an
+  // empty ledger made a 503/403/network error masquerade as an empty (successful) ledger on a money screen.
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside click / Escape — standard popover behavior.
+  // Close on outside click / Escape — standard popover behavior. On Escape, return focus to the
+  // trigger so a keyboard/screen-reader user isn't dropped back at <body> (the role="dialog" promises it).
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -66,14 +77,23 @@ export function CreditsControl({
     };
   }, [open]);
 
-  // Load the ledger the first time the popover opens.
+  // Move focus into the dialog when it opens, so the popover content is where a keyboard/AT user lands.
   useEffect(() => {
-    if (!open || ledger !== null) return;
+    if (open) dialogRef.current?.focus();
+  }, [open]);
+
+  // Load the ledger the first time the popover opens, tracking loading + a distinct error state. The
+  // `ledgerError` guard stops the effect re-firing in a loop while ledger stays null after a failure;
+  // the Retry button clears it to re-trigger.
+  useEffect(() => {
+    if (!open || ledger !== null || ledgerLoading || ledgerError) return;
+    setLedgerLoading(true);
     fetch(`/api/org/credits?org=${encodeURIComponent(org)}`)
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => setLedger(d?.ledger ?? []))
-      .catch(() => setLedger([]));
-  }, [open, ledger, org]);
+      .catch(() => setLedgerError(true))
+      .finally(() => setLedgerLoading(false));
+  }, [open, ledger, ledgerLoading, ledgerError, org]);
 
   async function grant(amount: number) {
     setBusy(true);
@@ -91,6 +111,7 @@ export function CreditsControl({
       }
       setBalance(data.balance);
       setLedger(null); // force a ledger refresh on next view
+      setLedgerError(false);
     } catch {
       setError("Top-up failed.");
     } finally {
@@ -119,6 +140,7 @@ export function CreditsControl({
   return (
     <div ref={ref} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -135,9 +157,11 @@ export function CreditsControl({
 
       {open && (
         <div
+          ref={dialogRef}
           role="dialog"
           aria-label="Scan credits"
-          className="absolute right-0 z-40 mt-2 w-72 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl"
+          tabIndex={-1}
+          className="focus-ring absolute right-0 z-40 mt-2 w-72 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl"
         >
           <div className="font-mono text-sm uppercase tracking-widest text-accent">Scan credits</div>
           <div className="mt-1 flex items-baseline gap-2">
@@ -211,21 +235,40 @@ export function CreditsControl({
           )}
           {error && <p className="mt-2 text-sm text-danger">{error}</p>}
 
-          {ledger && ledger.length > 0 && (
+          {(ledgerLoading || ledgerError || ledger !== null) && (
             <div className="mt-3 border-t border-slate-800 pt-2">
               <div className="text-sm text-slate-500">Recent activity</div>
-              <ul className="mt-1 space-y-1">
-                {ledger.slice(0, 5).map((e) => (
-                  <li key={e.id} className="flex items-center justify-between font-mono text-sm">
-                    <span className="truncate text-slate-400" title={e.repoFullName ?? e.reason}>
-                      {e.reason === "scan" ? e.repoFullName ?? "scan" : e.reason}
-                    </span>
-                    <span className={e.delta < 0 ? "text-slate-400" : "text-emerald-400"}>
-                      {e.delta > 0 ? `+${e.delta}` : e.delta}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              {ledgerLoading ? (
+                <p className="mt-1 text-sm text-slate-500" aria-live="polite">
+                  Loading…
+                </p>
+              ) : ledgerError ? (
+                <p className="mt-1 text-sm text-slate-400" aria-live="polite">
+                  Couldn&apos;t load activity.{" "}
+                  <button
+                    type="button"
+                    onClick={() => setLedgerError(false)}
+                    className="focus-ring rounded-sm text-accent hover:text-white"
+                  >
+                    Retry
+                  </button>
+                </p>
+              ) : ledger && ledger.length > 0 ? (
+                <ul className="mt-1 space-y-1">
+                  {ledger.slice(0, 5).map((e) => (
+                    <li key={e.id} className="flex items-center justify-between font-mono text-sm">
+                      <span className="truncate text-slate-400" title={e.repoFullName ?? e.reason}>
+                        {e.reason === "scan" ? e.repoFullName ?? "scan" : e.reason}
+                      </span>
+                      <span className={e.delta < 0 ? "text-slate-400" : "text-emerald-400"}>
+                        {e.delta > 0 ? `+${e.delta}` : e.delta}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-sm text-slate-500">No activity yet.</p>
+              )}
             </div>
           )}
         </div>
