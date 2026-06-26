@@ -6,6 +6,18 @@ export const LEVEL_RANK: Record<string, number> = { L1: 1, L2: 2, L3: 3, L4: 4, 
 export const IMPACT_WEIGHT: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
 /**
+ * Canonicalize an org slug for a lookup: trim + lower-case. Org rows are PERSISTED lower-cased (the
+ * GitHub-App install flow writes `opts.login.toLowerCase()`) and the auth layer (canReadOrg / getOrgId)
+ * normalizes before authorizing, so every data-layer `findUnique({ where: { slug } })` must normalize
+ * too — otherwise an authorized mixed-case login (e.g. `/org/PostHog`) misses the canonical `posthog`
+ * row and the aggregate silently returns an empty "no data" dashboard. The single source for this
+ * normalization across the whole org-rollup family, so the unnormalized-slug class can't recur.
+ */
+export function normalizeOrgSlug(slug: string): string {
+  return slug.trim().toLowerCase();
+}
+
+/**
  * Repo-level where-fragment that scopes an aggregate to a custom segment (a user-defined tag on
  * repos — see src/lib/db/segments.ts). Empty when no segment is selected, so every aggregate stays
  * fleet-wide by default. AND-combines with the existing `orgId` filter, so a segment id from another
