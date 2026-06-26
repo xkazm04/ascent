@@ -5,7 +5,7 @@
 // (briefings, reports, gap analyses, security findings) can hand a dev a ready-to-paste brief. Uses
 // the async Clipboard API with a legacy execCommand fallback for non-secure contexts.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { attemptCopy, nextCopyState } from "./copy-for-llm.logic";
 
 export function CopyForLlm({
@@ -25,17 +25,35 @@ export function CopyForLlm({
 }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Re-entrancy guard: a second click while a copy is still in flight is ignored, so a rapid
+  // double-click can't double-fire `onCopied` (which inflates the best-effort "use" count, §8.7).
+  const inFlight = useRef(false);
+  // Track the pending auto-reset so a fresh attempt cancels the previous one — otherwise an earlier
+  // timer flips the button back to idle 500ms after a later successful copy.
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function copy() {
-    const ok = await attemptCopy(text, navigator.clipboard, legacyCopy);
-    const { next, resetMs } = nextCopyState(ok);
-    if (next === "copied") {
-      setCopied(true);
-      onCopied?.();
-      setTimeout(() => setCopied(false), resetMs);
-    } else {
-      setFailed(true);
-      setTimeout(() => setFailed(false), resetMs);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const ok = await attemptCopy(text, navigator.clipboard, legacyCopy);
+      const { next, resetMs } = nextCopyState(ok);
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      if (next === "copied") {
+        setFailed(false);
+        setCopied(true);
+        onCopied?.();
+      } else {
+        setCopied(false);
+        setFailed(true);
+      }
+      resetTimer.current = setTimeout(() => {
+        setCopied(false);
+        setFailed(false);
+        resetTimer.current = null;
+      }, resetMs);
+    } finally {
+      inFlight.current = false;
     }
   }
 
