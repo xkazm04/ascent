@@ -146,7 +146,7 @@ export function PlaybookCard({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <CopyForLlm text={playbookMarkdown(p, dimLabel)} label="Copy" />
+          <CopyForLlm text={playbookMarkdown(p, dimLabel)} label="Copy" ariaLabel={`Copy "${p.title}" for LLM`} />
           <button onClick={onRemove} className="font-mono text-sm text-slate-600 hover:text-orange-300">remove</button>
         </div>
       </div>

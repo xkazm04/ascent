@@ -11,11 +11,14 @@ import { attemptCopy, nextCopyState } from "./copy-for-llm.logic";
 export function CopyForLlm({
   text,
   label = "Copy for LLM",
+  ariaLabel,
   className = "",
   onCopied,
 }: {
   text: string;
   label?: string;
+  /** Distinct accessible name when the visible label is generic (e.g. several "Copy" chips on one page). Defaults to label. */
+  ariaLabel?: string;
   className?: string;
   /** Fired once when a copy succeeds — e.g. to count a "use" (Org Skills Library, §8.7). Best-effort. */
   onCopied?: () => void;
@@ -41,6 +44,7 @@ export function CopyForLlm({
       type="button"
       onClick={copy}
       title="Copy a markdown briefing to paste into Claude Code or another LLM"
+      aria-label={ariaLabel ?? label}
       aria-live="polite"
       className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
         copied
