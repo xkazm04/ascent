@@ -30,18 +30,27 @@ export async function GET(
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
-  // Rate-limit ALL requests, not just the real-LLM path. The default (mock) gate is NOT free: mock only
-  // swaps the LLM provider, while the full GitHub repo ingest + a head-resolve against the operator PAT
-  // run on every hit — so an unauthenticated flood of the default path is the same GitHub
-  // denial-of-wallet vector as ?mock=0. The expensive ?mock=0 path keeps the stricter SCAN_RATE_LIMIT;
-  // the default path gets its own generous GATE_RATE_LIMIT so real CI (one call per PR event) never trips.
-  const rl = rateLimitRequest(req, mock ? GATE_RATE_LIMIT : SCAN_RATE_LIMIT);
-  if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  // Rate-limiting strategy (denial-of-wallet defense that still lets real CI through):
+  //  - The real-LLM path (?mock=0) is always throttled up-front with the strict SCAN_RATE_LIMIT — it
+  //    spends both LLM budget and a full GitHub ingest.
+  //  - The default (mock) path is not free either, but the cost is in the GitHub ingest, not the LLM:
+  //    a CACHE MISS or a ?ref scan runs a full repo ingest against the operator PAT, so those
+  //    GitHub-touching branches get a generous GATE_RATE_LIMIT (real CI calls once per PR event and
+  //    never trips). A warm cache HIT only does a cheap conditional head-resolve (free 304) and stays
+  //    unthrottled, preserving the deterministic-CI contract that a cache-hit gate is effectively free.
+  if (!mock) {
+    const rl = rateLimitRequest(req, SCAN_RATE_LIMIT);
+    if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+  }
   try {
     let report;
     if (ref) {
       // Ref-scoped: bypass the default-branch cache (keyed by the default head sha) and score the
-      // requested ref directly. Cheap enough — CI calls this once per PR event.
+      // requested ref directly. This always ingests from GitHub, so throttle the default path here too.
+      if (mock) {
+        const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
+        if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+      }
       report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref });
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
@@ -58,6 +67,11 @@ export async function GET(
       const key = makeCacheKey(ownerN, repoN, !mock, sha);
       report = cacheGet(key);
       if (!report) {
+        // Cache miss → about to run a full GitHub ingest; throttle the default path before spending it.
+        if (mock) {
+          const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
+          if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+        }
         report = await scanRepository(`${ownerN}/${repoN}`, { mock });
         cacheSet(key, report);
       }
