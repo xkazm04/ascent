@@ -231,14 +231,23 @@ export function LiveWarRoom({
         setPhase(sawError ? "error" : "done");
       }
     } catch {
+      // Only the run that still OWNS abortRef may write terminal phase/error. A stale aborted run
+      // settling AFTER a newer launch took ownership must leave the new run's "running" state alone
+      // (it previously overwrote it to "idle", which is what enabled the duplicate-scan window).
+      if (abortRef.current !== ctrl) return; // superseded by a newer run
       if (ctrl.signal.aborted) {
-        setPhase("idle");
+        setPhase("idle"); // our own Stop
         return;
       }
       setError("Network error.");
       setPhase("error");
     } finally {
-      abortRef.current = null;
+      // Guard ownership: only clear abortRef if THIS run still owns it. Without the check, a stale
+      // run's finally (firing a microtask after Stop→relaunch handed ownership to ctrl2) nulled out
+      // ctrl2 — which let the next Launch slip past the `if (abortRef.current) return` concurrency
+      // guard and start a duplicate full-fleet scan (double-billing credits) while leaving Stop's
+      // `abortRef.current?.abort()` a no-op. (live-war-room #1)
+      if (abortRef.current === ctrl) abortRef.current = null;
     }
   }, [onRepo, slug, watchedCount, scanRepos]);
 
