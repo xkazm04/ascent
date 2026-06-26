@@ -196,6 +196,7 @@ export function RepoLeaderboard({
           <select
             value={target}
             onChange={(e) => setTarget(e.target.value)}
+            aria-label="Add selected repos to segment"
             className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
           >
             <option value="">segment…</option>

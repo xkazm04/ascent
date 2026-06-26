@@ -302,6 +302,7 @@ export function RepoSegmentsPanel({
           <select
             value={autoLang}
             onChange={(e) => setAutoLang(e.target.value)}
+            aria-label="Auto-add language"
             className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
           >
             <option value="">language…</option>
@@ -315,6 +316,7 @@ export function RepoSegmentsPanel({
           <select
             value={autoSeg}
             onChange={(e) => setAutoSeg(e.target.value)}
+            aria-label="Auto-add target segment"
             className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
           >
             <option value="">segment…</option>
@@ -362,7 +364,7 @@ export function RepoSegmentsPanel({
           {busy ? "Adding…" : "Add segment"}
         </button>
       </div>
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+      {error && <p role="alert" aria-live="polite" className="mt-2 text-sm text-orange-300">{error}</p>}
 
       {/* Per-repo tagging */}
       {segments.length > 0 && (
