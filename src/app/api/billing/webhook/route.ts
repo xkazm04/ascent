@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { Webhooks } from "@polar-sh/nextjs";
-import { grantCredits } from "@/lib/db";
+import { clawbackOrderRefund, grantCredits } from "@/lib/db";
 import { creditsForProduct } from "@/lib/polar";
 
 export const runtime = "nodejs";
@@ -66,11 +66,12 @@ export const POST = secret
       // REVERSAL: an order.paid grant is append-only, so without this a buyer could purchase a pack,
       // spend the credits, then refund/charge back the Polar order and KEEP the credits (and the scans
       // they paid for) for free. Claw the granted credits back PROPORTIONALLY to the amount refunded —
-      // a full refund reverses the whole pack; a partial refund reverses its share. Idempotent on the
-      // order id so a redelivery can't double-claw. grantCredits clamps at zero, so an already-spent
-      // balance simply absorbs what remains. NOTE: multiple SEPARATE partial refunds on one order only
-      // reverse the first increment (the idempotency key is the order id); the full-refund case this
-      // closes reverses the whole pack.
+      // a full refund reverses the whole pack; a partial refund reverses its share. `order.refundedAmount`
+      // is CUMULATIVE, so one order can emit several refund events with a growing amount; we pass the
+      // cumulative TARGET clawback and clawbackOrderRefund applies only the marginal share not yet
+      // reversed (keyed per-event on the cumulative amount). That makes ANY sequence — sequential
+      // partials, partial-then-full — reconcile to the true refunded fraction, and a redelivery can't
+      // double-claw. The stored balance clamps at zero, so an already-spent balance absorbs what remains.
       onOrderRefunded: async (payload) => {
         const order = payload.data;
         const packCredits = creditsForProduct(order.productId);
@@ -84,18 +85,17 @@ export const POST = secret
         }
         const gross = order.netAmount > 0 ? order.netAmount : order.totalAmount;
         const fraction = gross > 0 ? Math.min(1, Math.max(0, order.refundedAmount / gross)) : 1;
-        const clawback = Math.round(packCredits * fraction);
-        if (clawback <= 0) return;
-        const balance = await grantCredits(org, -clawback, {
-          reason: "polar-refund",
+        const targetClawback = Math.round(packCredits * fraction);
+        const balance = await clawbackOrderRefund(org, order.id, targetClawback, {
+          // The cumulative refunded amount distinguishes each refund EVENT for idempotency.
+          eventKey: String(order.refundedAmount),
           actor: "polar",
-          externalId: `polar-refund:${order.id}`,
         });
         if (balance === null) {
           console.warn(`[billing/webhook] refund for order ${order.id}: org "${org}" not found`);
           return;
         }
-        console.info(`[billing/webhook] refund for order ${order.id}: -${clawback} credits from "${org}" (balance ${balance})`);
+        console.info(`[billing/webhook] refund for order ${order.id}: clawed toward ${targetClawback} (cumulative refund ${order.refundedAmount}); "${org}" balance ${balance}`);
       },
     })
   : async () => NextResponse.json({ error: "Billing webhook is not configured." }, { status: 503 });

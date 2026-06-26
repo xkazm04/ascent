@@ -147,6 +147,81 @@ export async function grantCredits(
 }
 
 /**
+ * Idempotently claw back credits for a (partially or fully) refunded Polar order. Polar's
+ * `order.refundedAmount` is CUMULATIVE — one order can emit several refund events with a growing
+ * amount — so the caller passes the CUMULATIVE TARGET clawback (round(packCredits · refundedFraction))
+ * and this applies only the MARGINAL share not yet reversed for the order. All of an order's refund
+ * clawbacks share the `polar-refund:<orderId>:` externalId prefix; their sum is the already-clawed
+ * total, and `eventKey` (the cumulative refunded amount) makes each refund EVENT idempotent — a webhook
+ * redelivery of the same event collapses on the unique externalId, while a later, larger refund applies
+ * its own increment. The stored balance is clamped at zero. Returns the new balance, or null when the
+ * org doesn't exist / no DB.
+ *
+ * This replaces a per-ORDER idempotency key (`polar-refund:<orderId>`) that collapsed every refund
+ * event into the first — so a partial-then-full (or any N>1) refund only reversed the first increment
+ * and the buyer kept the rest of the pack for free.
+ */
+export async function clawbackOrderRefund(
+  orgSlug: string,
+  orderId: string,
+  targetClawback: number,
+  opts: { eventKey: string; actor?: string },
+): Promise<number | null> {
+  if (!isDbConfigured()) return null;
+  const slug = orgSlug.toLowerCase(); // canonical-casing contract (see getCreditState)
+  const target = Math.max(0, Math.trunc(targetClawback));
+  const prisma = getPrisma();
+  const prefix = `polar-refund:${orderId}:`;
+  const externalId = `${prefix}${opts.eventKey}`;
+  // Fast path: this exact refund event already landed (a webhook redelivery) — don't re-apply.
+  const seen = await prisma.creditLedger
+    .findUnique({ where: { externalId }, select: { id: true } })
+    .catch(() => null);
+  if (seen) return (await getCreditState(slug)).balance;
+  try {
+    return await withRetry(() =>
+      prisma.$transaction(async (tx) => {
+        const org = await tx.organization.findUnique({ where: { slug }, select: { id: true, scanCredits: true } });
+        if (!org) return null;
+        // How much has ALREADY been clawed back for THIS order across prior refund events.
+        const prior = await tx.creditLedger.aggregate({
+          where: { orgId: org.id, externalId: { startsWith: prefix } },
+          _sum: { delta: true },
+        });
+        const alreadyClawed = Math.abs(prior._sum.delta ?? 0);
+        const marginal = target - alreadyClawed;
+        if (marginal <= 0) return org.scanCredits; // nothing new to reverse for this cumulative amount
+        const appliedDelta = Math.max(-marginal, -org.scanCredits); // clamp: never drive balance negative
+        if (appliedDelta === 0) return org.scanCredits; // balance already spent — nothing left to claw
+        const updated = await tx.organization.update({
+          where: { id: org.id },
+          data: { scanCredits: { increment: appliedDelta } },
+          select: { scanCredits: true },
+        });
+        await tx.creditLedger.create({
+          data: {
+            orgId: org.id,
+            delta: appliedDelta,
+            balanceAfter: updated.scanCredits,
+            reason: "polar-refund",
+            actor: opts.actor ?? "polar",
+            externalId,
+          },
+        });
+        return updated.scanCredits;
+      }),
+    );
+  } catch (err) {
+    // A redelivery lost the race to the unique externalId; its insert rolled the whole clawback back.
+    // Treat it as already-applied (report the current balance) rather than surfacing an error.
+    if (isDuplicateExternalId(err)) {
+      return (await getCreditState(slug)).balance;
+    }
+    throw err;
+  }
+}
+
+/**
  * Count the org's metered scans so far this calendar month — the allowance-usage basis. Cached/dedup
  * re-scans persist NO new Scan row (so they're naturally free), and degraded-to-mock runs are excluded
  * (engineProvider "mock"), so this counts only the real-inference scans that draw on the allowance.

@@ -63,6 +63,7 @@ export { getOrgBranding, setOrgBranding, type OrgBranding } from "@/lib/db/brand
 export {
   getCreditState,
   grantCredits,
+  clawbackOrderRefund,
   consumeScanCredit,
   getCreditLedger,
   getCreditReconciliation,
