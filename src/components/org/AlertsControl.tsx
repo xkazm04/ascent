@@ -99,7 +99,9 @@ export function AlertsControl({ org }: { org: string }) {
     }
   }
   async function test() {
-    const d = await post({ test: true }, "test");
+    // Send the URL currently in the form so "Send test" validates the CANDIDATE webhook the admin is
+    // editing — not the previously-saved sink. A blank field tests the org's resolved/saved sink.
+    const d = await post({ test: true, webhookUrl }, "test");
     if (d) setNotice(d.delivered ? "Test alert delivered ✓" : d.error ?? "No sink configured.");
   }
 
