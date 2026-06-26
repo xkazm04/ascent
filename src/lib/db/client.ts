@@ -379,14 +379,38 @@ function newClient(url?: string): PrismaClient {
   });
 }
 
-/** Mint a fresh token, build a client with it, and atomically swap it in (disconnecting the old). */
+/** Grace period before retiring a swapped-out client. Covers the longest plausible in-flight request
+ *  (the cron's maxDuration is 300s) so a query holding the old reference can drain before disconnect. */
+const RETIRE_CLIENT_GRACE_MS = 300_000;
+
+/**
+ * Lazily retire a swapped-out Prisma client (database-client-schema #2). getPrisma() returns the cached
+ * client SYNCHRONOUSLY and hands the OLD reference to concurrent callers microseconds before a refresh
+ * swaps it; Prisma's $disconnect() tears down the query engine/pool without a documented guarantee of
+ * draining in-flight work — so disconnecting the outgoing client immediately can abort queries that are
+ * mid-`await` on a token that was still VALID (the rotation recurs every ~TTL−margin under load). Defer
+ * the disconnect past the longest plausible request instead. The timer is unref()'d so it never keeps
+ * the process/event loop alive (clean serverless freeze).
+ */
+function retireClient(previous: PrismaClient): void {
+  const timer = setTimeout(() => {
+    void previous.$disconnect().catch(() => {});
+  }, RETIRE_CLIENT_GRACE_MS);
+  (timer as unknown as { unref?: () => void }).unref?.();
+}
+
+/** Mint a fresh token, build a client with it, and atomically swap it in (retiring the old lazily). */
 async function doRefresh(cfg: DsqlConfig): Promise<PrismaClient> {
   const token = await mintDsqlToken(cfg);
   const next = newClient(buildDsqlUrl(cfg, token));
   const previous = g.__ascentPrisma?.client;
   g.__ascentPrisma = { client: next, expiresAt: Date.now() + cfg.ttlSeconds * 1000 };
   if (previous && previous !== next) {
-    void previous.$disconnect().catch(() => {});
+    // Both the proactive background refresh (getPrisma/withDb) and the reactive reconnect funnel here.
+    // The proactive path swaps a STILL-VALID client out from under in-flight callers, so retire it
+    // lazily rather than disconnecting eagerly; harmless for the reactive path too (the old client is
+    // already broken — it simply disconnects a little later).
+    retireClient(previous);
   }
   return next;
 }
