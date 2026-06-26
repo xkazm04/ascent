@@ -46,7 +46,14 @@ export function GoalsPanel({
 
   async function refresh() {
     const res = await fetch(`/api/org/goals?org=${encodeURIComponent(slug)}`);
-    if (res.ok) setGoals((await res.json()).goals ?? []);
+    if (!res.ok) return;
+    const next: GoalProgressView[] = (await res.json()).goals ?? [];
+    setGoals(next);
+    // Reconcile the client-side suggestion list: drop any "+ Lift Dx" chip whose metric is now covered
+    // by an active goal. Otherwise a metric just added via the form/another suggestion still shows its
+    // chip, and clicking it creates a duplicate goal (the API has no per-metric uniqueness check).
+    const covered = new Set(next.map((g) => g.metric));
+    setPicks((ps) => ps.filter((p) => !covered.has(p.metric)));
   }
 
   async function create() {
