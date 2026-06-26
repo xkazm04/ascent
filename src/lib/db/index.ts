@@ -104,6 +104,7 @@ export {
   getInstallationIdForOwner,
 } from "@/lib/db/installations";
 export { getSessionVersion, bumpSessionVersion } from "@/lib/db/sessions";
+export { claimWebhookDelivery, releaseWebhookDelivery } from "@/lib/db/webhook-deliveries";
 export {
   setRepoWatch,
   setRepoSchedule,

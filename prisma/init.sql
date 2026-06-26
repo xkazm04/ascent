@@ -663,6 +663,22 @@ CREATE TABLE "OrgLlmConfig" (
 CREATE UNIQUE INDEX "OrgLlmConfig_orgId_key" ON "OrgLlmConfig"("orgId");
 
 
+-- CreateTable: cross-instance webhook replay/idempotency store (github-app-installation-webhooks #3).
+-- Backs the webhook route's in-memory replay Map with a shared claim keyed on X-GitHub-Delivery, so a
+-- replay routed to a different serverless instance is still deduped. A row is the "claimed" mark; deleted
+-- on a deferred-processing failure so a redelivery can retry; swept past expiresAt.
+CREATE TABLE "WebhookDelivery" (
+    "id" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "WebhookDelivery_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "WebhookDelivery_expiresAt_idx" ON "WebhookDelivery"("expiresAt");
+
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

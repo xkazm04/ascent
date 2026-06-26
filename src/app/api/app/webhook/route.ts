@@ -19,6 +19,7 @@ import {
   verifyWebhook,
 } from "@/lib/github/app";
 import {
+  claimWebhookDelivery,
   getInstallationIdForOwner,
   getOrgGatePolicy,
   getOrgId,
@@ -27,6 +28,7 @@ import {
   isRepoWatched,
   persistScanReport,
   reconcileWatchedRepos,
+  releaseWebhookDelivery,
   removeInstallation,
   reportPermalink,
   resumeInstallation,
@@ -64,8 +66,12 @@ const RERUN_ACTION = [{ label: "Re-run", description: "Re-evaluate this PR's mat
 
 // Replay defense. GitHub stamps each delivery with a unique X-GitHub-Delivery id. A captured,
 // still-valid signed request can be re-sent (the HMAC still verifies) to re-trigger scans/gates;
-// remember recently-seen ids (bounded, in-memory) and skip duplicates. Process-local — it collapses
-// same-instance replays; recorded only AFTER signature verification so junk can't fill the map.
+// remember recently-seen ids (bounded, in-memory) and skip duplicates. This Map is only a fast
+// FIRST-LEVEL filter — it is PROCESS-LOCAL, so on a horizontally-scaled / serverless deploy every
+// instance starts empty and a replay routed elsewhere slips past it. The AUTHORITATIVE cross-instance
+// check is claimWebhookDelivery (a shared DB-backed claim, github-app-installation-webhooks #3); the Map
+// just saves a DB round-trip on same-instance replays. Recorded only AFTER signature verification so junk
+// can't fill the map.
 const DELIVERY_TTL_MS = 10 * 60_000;
 const DELIVERY_MAX = 2000;
 const seenDeliveries = new Map<string, number>(); // delivery id -> expiry
@@ -87,14 +93,16 @@ function deliveryAlreadySeen(id: string): boolean {
 }
 
 /**
- * Release a delivery id from the seen-set so a redelivery can be retried. The handler marks a delivery
- * seen at the top (replay protection) BEFORE the deferred after() scan runs; if that scan then fails
- * transiently (DB blip, token mint failure), the delivery would stay "seen" and a GitHub/manual
- * redelivery of the same id would be silently deduped — dropping the scan forever. Calling this in the
- * deferred work's failure path frees the slot so the retry actually runs. (Process-local, like the map.)
+ * Release a delivery id from BOTH the in-memory seen-set AND the shared DB claim so a redelivery can be
+ * retried. The handler claims a delivery at the top (replay protection) BEFORE the deferred after() scan
+ * runs; if that scan then fails transiently (DB blip, token mint failure), the delivery would stay
+ * "claimed" and a GitHub/manual redelivery of the same id — to ANY instance — would be silently deduped,
+ * dropping the scan forever. Calling this in the deferred work's failure path frees the slot so the retry
+ * actually runs. The DB release is best-effort (it self-heals at the TTL even if it fails).
  */
-function forgetDelivery(id: string): void {
+async function forgetDelivery(id: string): Promise<void> {
   seenDeliveries.delete(id);
+  await releaseWebhookDelivery(id);
 }
 
 /** Bind a webhook's claimed installation to its owner before we mint a token / scan. For a KNOWN
@@ -265,7 +273,7 @@ async function runPrGate(ref: PrGateRef) {
       }).catch((e) => console.error("[webhook] neutral check failed", e instanceof Error ? e.message : e));
     }
     // The deferred gate failed after we already 2xx'd — release the delivery so a redelivery retries.
-    if (ref.deliveryId) forgetDelivery(ref.deliveryId);
+    if (ref.deliveryId) await forgetDelivery(ref.deliveryId);
   }
 }
 
@@ -305,7 +313,7 @@ async function reconcileInstallationRepos(installationId: number, deliveryId?: s
     // The deferred reconcile failed after we already 2xx'd — release the delivery so a redelivery
     // retries (same net as runPrGate/runPushRescan); otherwise a transient listing failure dedupes
     // the redelivery and the access change is lost until some later event happens to re-reconcile.
-    if (deliveryId) forgetDelivery(deliveryId);
+    if (deliveryId) await forgetDelivery(deliveryId);
   }
 }
 
@@ -327,7 +335,7 @@ async function runPushRescan(installationId: number, owner: string, repo: string
   } catch (err) {
     console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err);
     // The deferred rescan failed after we already 2xx'd — release the delivery so a redelivery retries.
-    if (deliveryId) forgetDelivery(deliveryId);
+    if (deliveryId) await forgetDelivery(deliveryId);
   }
 }
 
@@ -378,7 +386,7 @@ async function runInstallationLifecycle(
         // The install was NOT persisted (transient GitHub/DB failure). The delivery was already marked
         // seen, so without this release GitHub's redelivery — the only retry — would be deduped and the
         // installation silently never recorded (broken /connect, every scan falling back to public).
-        if (deliveryId) forgetDelivery(deliveryId);
+        if (deliveryId) await forgetDelivery(deliveryId);
       }
     } else if (action === "suspend") {
       // REVERSIBLE pause, not a permanent revocation — confirm with GitHub (symmetric with delete),
@@ -390,7 +398,7 @@ async function runInstallationLifecycle(
         await suspendInstallation(id);
       } else {
         console.warn(`[webhook] ignoring unconfirmed installation suspend for id ${id}`);
-        if (deliveryId) forgetDelivery(deliveryId);
+        if (deliveryId) await forgetDelivery(deliveryId);
       }
     } else {
       // deleted: a genuine permanent revocation. Destructive + cascading (removeInstallation unwatches
@@ -405,13 +413,13 @@ async function runInstallationLifecycle(
         // delivery (GitHub still has the installation — replaying re-runs only the confirm and refuses
         // again, no state change) and a TRANSIENT confirm failure on a genuine uninstall. Release the
         // delivery so the genuine case stays retryable; the security control is the GitHub confirm gate.
-        if (deliveryId) forgetDelivery(deliveryId);
+        if (deliveryId) await forgetDelivery(deliveryId);
       }
     }
   } catch (err) {
     console.error("[webhook] installation lifecycle failed", err instanceof Error ? err.message : err);
     // The deferred lifecycle failed after we already 2xx'd — release the delivery so a redelivery retries.
-    if (deliveryId) forgetDelivery(deliveryId);
+    if (deliveryId) await forgetDelivery(deliveryId);
   }
 }
 
@@ -423,11 +431,20 @@ export async function POST(request: Request) {
   }
 
   const event = request.headers.get("x-github-event") ?? "";
-  // Reject replays of an already-processed delivery (a verified signature alone can't distinguish a
-  // fresh delivery from a re-sent capture). Answer 200 so a genuine GitHub redelivery isn't retried.
+  // Reject replays of an already-processed delivery (a verified signature alone can't distinguish a fresh
+  // delivery from a re-sent capture). Two-level dedup: the in-memory Map is a fast first-level filter for
+  // SAME-instance replays; the DB claim (claimWebhookDelivery) is the AUTHORITATIVE cross-instance check —
+  // on a horizontally-scaled / serverless deploy each instance's Map starts empty, so process-local dedup
+  // alone is near-useless against a replay routed to another instance (#3). The claim is released on a
+  // deferred-processing failure (forgetDelivery) so a genuine redelivery still retries. Answer 200 so a
+  // genuine GitHub redelivery of a duplicate isn't retried.
   const delivery = request.headers.get("x-github-delivery");
-  if (delivery && deliveryAlreadySeen(delivery)) {
-    return NextResponse.json({ ok: true, event, duplicate: true });
+  if (delivery) {
+    const seenLocally = deliveryAlreadySeen(delivery);
+    const claimed = seenLocally ? false : await claimWebhookDelivery(delivery);
+    if (!claimed) {
+      return NextResponse.json({ ok: true, event, duplicate: true });
+    }
   }
   let payload: WebhookPayload = {};
   try {
@@ -511,7 +528,7 @@ export async function POST(request: Request) {
     // delivery from the seen-set so a GitHub/manual REDELIVERY isn't deduped: the synchronous work
     // (installation upsert/removal, repo unwatch) did NOT complete, and dedup must mean
     // "successfully processed", not merely "HTTP acknowledged".
-    if (delivery) forgetDelivery(delivery);
+    if (delivery) await forgetDelivery(delivery);
   }
 
   return NextResponse.json({ ok: true, event });

@@ -649,6 +649,23 @@ model SessionRevocation {
   updatedAt DateTime @updatedAt
 }
 
+// Cross-instance webhook replay/idempotency store (github-app-installation-webhooks #3). GitHub stamps
+// each delivery with a unique X-GitHub-Delivery id; a captured, still-validly-signed delivery can be
+// re-sent to re-trigger scans/gates. The webhook route's in-memory Map collapses only SAME-instance
+// replays — on a horizontally-scaled / serverless deploy every instance starts empty, so a replay routed
+// to another instance isn't deduped. This shared TTL store makes the claim AUTHORITATIVE across instances:
+// a row is the "claimed" mark (id = delivery id), kept until `expiresAt`, and DELETED when the deferred
+// processing fails so a GitHub redelivery can retry. Accessed via raw SQL (no typed model accessor) and
+// swept of expired rows opportunistically. Standalone under relationMode = "prisma" (no FKs); read/written
+// by its primary key. See src/lib/db/webhook-deliveries.ts.
+model WebhookDelivery {
+  id        String   @id // GitHub X-GitHub-Delivery id
+  expiresAt DateTime // TTL horizon; rows past this are sweepable and may be re-claimed
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 // Soft weekly quota for anonymous public scans, keyed by a SALTED HASH of the client IP (never the
 // raw IP — avoids persisting PII). Persistent + cross-instance, which is the whole point: a 7-day
 // window can't live in the per-minute in-memory burst limiter (src/lib/rate-limit.ts), since
