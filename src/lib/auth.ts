@@ -383,11 +383,17 @@ export async function getActiveOrg(session?: Session | null): Promise<string> {
  * fetch-metadata. Single-sourced here so the handlers can't drift apart.
  */
 export function isSameOrigin(request: Request): boolean {
-  const host = request.headers.get("host");
   const origin = request.headers.get("origin");
   if (origin) {
     try {
-      return new URL(origin).host === host;
+      // Compare the browser's Origin host against the FORWARDED-host-aware host (the same public origin
+      // the cookie-Secure flag and the OAuth redirect_uri already derive from), NOT the raw Host header.
+      // Behind a proxy that rewrites Host to the internal upstream, the raw Host is internal while the
+      // browser's Origin is the external host — so a legitimate same-origin logout/revoke would 403.
+      // x-forwarded-host is a proxy-controlled hop header a cross-site request cannot set, so honoring it
+      // does not weaken the guard. (github-oauth-session #2)
+      const expectedHost = new URL(publicOriginForRequest(request)).host;
+      return new URL(origin).host === expectedHost;
     } catch {
       return false;
     }
