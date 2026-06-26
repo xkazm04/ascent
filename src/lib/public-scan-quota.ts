@@ -332,9 +332,11 @@ export function removeHit(hits: number[], ts: number): number[] {
  * overstate usage by the one refunded slot — acceptable staleness for a soft gate.
  *
  * Pass `chargedAt` (the `QuotaResult.chargedAt` from the matching consume) so the refund removes the
- * EXACT slot this request charged. Without it the refund falls back to "drop the newest hit", which two
- * concurrent refunds on a shared/coalesced scan use to each peel off a different sibling's slot —
- * removing more slots than were consumed and bypassing the weekly budget (CRITICAL race).
+ * EXACT slot this request charged. It is REQUIRED for any refund to occur: the value-keyed `removeHit`
+ * is the only safe path. The old "drop the newest hit" fallback is gone — two concurrent refunds on a
+ * shared/coalesced scan would each peel off a different sibling's still-live slot, removing more slots
+ * than were consumed and bypassing the weekly budget (CRITICAL race). A refund called without a
+ * `chargedAt` (an allowed consume always yields one) is a NO-OP rather than a silent unsafe fallback.
  */
 export async function refundPublicScanQuota(
   req: Request,
@@ -342,6 +344,9 @@ export async function refundPublicScanQuota(
   chargedAt?: number | null,
 ): Promise<void> {
   if (!isDbConfigured() || publicScanQuotaDisabled()) return;
+  // Refund is value-keyed ONLY: without the exact charged timestamp there is no safe slot to remove
+  // (the racy "drop newest" fallback was removed), so an absent chargedAt is a no-op, never a guess.
+  if (typeof chargedAt !== "number") return;
   const { ipHash, unidentifiable } = bucketContext(req, identity);
   // An unidentifiable caller was never charged (consume returned enforced:false / chargedAt:null), so
   // there's nothing to refund — and touching the shared "unknown" bucket here could drop a real slot.
@@ -356,9 +361,8 @@ export async function refundPublicScanQuota(
             const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
             const prior = parseHits(row?.hits);
             if (!row || prior.length === 0) return;
-            // Value-keyed when we know the exact charged timestamp (idempotent if already absent);
-            // legacy "drop newest" only when a caller didn't thread it through.
-            const next = typeof chargedAt === "number" ? removeHit(prior, chargedAt) : removeNewestHit(prior);
+            // Value-keyed by the exact charged timestamp (idempotent if already absent / aged out).
+            const next = removeHit(prior, chargedAt);
             await tx.publicScanQuota.update({
               where: { ipHash },
               data: { hits: JSON.stringify(next) },
