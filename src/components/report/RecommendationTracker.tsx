@@ -38,7 +38,12 @@ export function RecommendationTracker({
   // disable only their own row instead of one freezing/clobbering another.
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, RowError>>({});
-  const [announcement, setAnnouncement] = useState("");
+  // Per-id announcement (not one shared string feeding a single live region): a single scalar meant
+  // two rows resolving close together overwrote each other before the screen reader voiced the first
+  // (and identical strings never re-announce), silently dropping a save success/failure for AT users.
+  // Each row now owns its own role="status" region so overlapping saves are announced independently.
+  const [announcements, setAnnouncements] = useState<Record<string, string>>({});
+  const announce = (id: string, msg: string) => setAnnouncements((a) => ({ ...a, [id]: msg }));
 
   const setSaving = (id: string, on: boolean) =>
     setSavingIds((cur) => {
@@ -96,7 +101,7 @@ export function RecommendationTracker({
               : "Couldn’t save that change. Check your connection and retry.";
         rollback(); // revert ONLY this row
         setErrors((e) => ({ ...e, [id]: { status, kind, message } }));
-        setAnnouncement(`Couldn’t update “${title}”: ${message}`);
+        announce(id, `Couldn’t update “${title}”: ${message}`);
         return;
       }
       // Reconcile from the authoritative server row so the displayed status + the done/total count
@@ -104,14 +109,14 @@ export function RecommendationTracker({
       // we optimistically sent. Was: keep the optimistic value + discard the response.
       const saved = (await res.json().catch(() => null)) as PersistedRecommendation | null;
       if (saved?.status) setItems((cur) => applyOptimisticStatus(cur, id, saved.status));
-      setAnnouncement(`“${title}” marked ${STATUS_LABEL[status]}.`);
+      announce(id, `“${title}” marked ${STATUS_LABEL[status]}.`);
     } catch {
       rollback();
       setErrors((e) => ({
         ...e,
         [id]: { status, kind: "transient", message: "Couldn’t save that change. Check your connection and retry." },
       }));
-      setAnnouncement(`Couldn’t update “${title}”: network error.`);
+      announce(id, `Couldn’t update “${title}”: network error.`);
     } finally {
       setSaving(id, false);
     }
@@ -119,11 +124,6 @@ export function RecommendationTracker({
 
   return (
     <div className="space-y-3">
-      {/* Polite live region — announces every save success/failure for screen readers. */}
-      <div role="status" aria-live="polite" className="sr-only">
-        {announcement}
-      </div>
-
       <Surface radius="xl" className="p-4">
         <div className="flex items-center justify-between text-base">
           <span className="font-medium text-white">
@@ -149,6 +149,11 @@ export function RecommendationTracker({
             className="rounded-xl border bg-surface/40 p-5"
             style={{ borderLeftWidth: 3, borderLeftColor: edge }}
           >
+            {/* Per-row polite live region — each save's success/failure is announced independently,
+                so overlapping saves on other rows can't clobber this one's message. */}
+            <div role="status" aria-live="polite" className="sr-only">
+              {announcements[item.id] ?? ""}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className={`font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
                 {item.title}
