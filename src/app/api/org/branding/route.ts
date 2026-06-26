@@ -21,17 +21,28 @@ export async function POST(request: Request) {
   if (denied) return denied;
 
   // Entitlement: briefing white-label is a Team-and-up feature (so a reseller on Team can brand the
-  // reports they hand to clients), not Enterprise-only.
-  const credit = await getCreditState(body.org).catch(() => null);
+  // reports they hand to clients), not Enterprise-only. Distinguish "couldn't determine the plan"
+  // (a transient DB hiccup) from "genuinely not entitled": folding a read error into `null` mapped a
+  // legitimate Team/Enterprise owner to a misleading 403 "you don't have this plan" during an outage,
+  // so a read failure returns a retryable 503 instead.
+  let credit;
+  try {
+    credit = await getCreditState(body.org);
+  } catch {
+    return NextResponse.json({ error: "Couldn’t verify your plan right now — please try again." }, { status: 503 });
+  }
   if (!planAllowsWhiteLabel(credit?.plan)) {
     return NextResponse.json({ error: "Briefing branding is a Team-plan feature." }, { status: 403 });
   }
 
-  const ok = await setOrgBranding(body.org, {
+  // Echo the NORMALIZED values actually stored so the client can warn about anything the validator
+  // discarded (a non-https/private logo → null) or truncated (an >80-char name) instead of showing
+  // unconditional success while the value was silently dropped.
+  const stored = await setOrgBranding(body.org, {
     brandName: body.brandName ?? null,
     brandColor: body.brandColor ?? null,
     logoUrl: body.logoUrl ?? null,
   });
-  if (!ok) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  if (!stored) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  return NextResponse.json({ ok: true, branding: stored });
 }

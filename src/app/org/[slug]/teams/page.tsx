@@ -8,6 +8,9 @@ import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
+/** Cap the per-team owned-repos pill list so a broad CODEOWNERS owner can't render hundreds of pills. */
+const OWNED_REPO_CAP = 12;
+
 function MetricBar({ label, value }: { label: string; value: number }) {
   return (
     <MeterRow
@@ -99,9 +102,10 @@ function TeamCard({ team }: { team: TeamRollup }) {
         </div>
       </div>
 
-      {/* Owned repos */}
+      {/* Owned repos — capped so a team owning many repos (e.g. a broad CODEOWNERS `*`) doesn't
+          render a wall of pills that buries the metrics above. repos are already sorted by overall. */}
       <div className="mt-4 flex flex-wrap gap-1.5">
-        {team.repos.map((r) => (
+        {team.repos.slice(0, OWNED_REPO_CAP).map((r) => (
           <span
             key={r.fullName}
             className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400"
@@ -111,6 +115,11 @@ function TeamCard({ team }: { team: TeamRollup }) {
             <span className="ml-1" style={{ color: scoreHex(r.overall) }}>{r.overall}</span>
           </span>
         ))}
+        {team.repos.length > OWNED_REPO_CAP && (
+          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-500">
+            +{team.repos.length - OWNED_REPO_CAP} more
+          </span>
+        )}
       </div>
     </div>
   );
@@ -171,13 +180,16 @@ export default async function TeamsPage({
           label="Unowned repos"
           value={rollup.unownedRepos}
           sub="scanned, no CODEOWNERS team"
-          color={rollup.unownedRepos > 0 ? "#f97316" : "#fff"}
+          color={rollup.unownedRepos > 0 ? "var(--color-warn)" : undefined}
         />
         <Tile
           label="Knowledge leader"
           value={rollup.knowledgeLeader ? `${rollup.knowledgeLeader.aiCommitShare}%` : "—"}
           sub={rollup.knowledgeLeader ? rollup.knowledgeLeader.name : "no AI activity yet"}
-          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.knowledgeScore) : "#fff"}
+          // Color by the metric SHOWN (AI commit share), not the ranking knowledgeScore — otherwise a
+          // team with low AI share but high adoption rendered its "30%" tinted green, disagreeing with
+          // both the number it sits on and the per-team cards (which color by aiCommitShare).
+          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.aiCommitShare) : undefined}
         />
       </div>
 

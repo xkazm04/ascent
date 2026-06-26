@@ -30,22 +30,39 @@ export function PlaybookCard({
   const [prBusy, setPrBusy] = useState(false);
   const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
   const [prError, setPrError] = useState<string | null>(null);
+  // Error surface for the adoption mark/unmark actions. Previously a failed mark/unmark just rolled
+  // the optimistic chip back with zero feedback (only `prError` existed, scoped to the Open-PR flow),
+  // so a 403/404 (e.g. "Repo must belong to …") or network blip read as "the click did nothing".
+  // (playbooks #3)
+  const [markError, setMarkError] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
-  const [tracked, setTracked] = useState(false);
+  // The repo set captured the last time this rollout was tracked (null = never tracked). Snapshotting
+  // the scope lets us re-enable "Update initiative" when adoption grows beyond what was tracked, and
+  // distinguishes "tracked" from "tracked but now stale" instead of a one-shot boolean.
+  const [trackedRepos, setTrackedRepos] = useState<string[] | null>(null);
+  const [trackError, setTrackError] = useState<string | null>(null);
+  // Tracked, and the current applied set still matches the scope we tracked → nothing to update.
+  const trackedUpToDate =
+    trackedRepos != null && applied.length === trackedRepos.length && applied.every((r) => trackedRepos.includes(r));
 
   // PLAY-5: turn a playbook's rollout into a tracked Initiative scoped to the repos that adopted it.
   async function trackAsInitiative() {
-    if (tracking || tracked || applied.length === 0) return;
+    if (tracking || trackedUpToDate || applied.length === 0) return;
     setTracking(true);
+    setTrackError(null);
+    const snapshot = [...applied];
     try {
       const res = await fetch("/api/org/initiatives", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, title: `Roll out: ${p.title}`, dimId: p.dimId, repos: applied, playbookId: p.id }),
+        body: JSON.stringify({ org: slug, title: `Roll out: ${p.title}`, dimId: p.dimId, repos: snapshot, playbookId: p.id }),
       });
-      if (res.ok) setTracked(true);
+      if (res.ok) setTrackedRepos(snapshot);
+      // Surface the API rejection instead of silently looking idle again (the previous comment only
+      // covered the thrown-exception branch, not a non-ok response).
+      else setTrackError((await res.json().catch(() => ({})))?.error ?? "Couldn't track this rollout.");
     } catch {
-      /* leave the button enabled to retry */
+      setTrackError("Couldn't track this rollout — try again.");
     } finally {
       setTracking(false);
     }
@@ -58,17 +75,24 @@ export function PlaybookCard({
     if (!repo || applied.includes(repo)) return;
     setApplied((a) => [...a, repo]); // optimistic
     setPick("");
+    setMarkError(null);
     // Roll the optimistic add back if the server didn't record it — otherwise the card shows the repo
-    // as adopted while the DB has no row, seeding phantom Initiatives + skewed lift analytics.
+    // as adopted while the DB has no row, seeding phantom Initiatives + skewed lift analytics. Surface
+    // the reason (mirroring PlaybooksPanel.remove) so a silent rollback isn't read as a no-op.
     try {
       const res = await fetch(`/api/org/playbooks/${p.id}/repos`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo }),
       });
-      if (!res.ok) setApplied((a) => a.filter((r) => r !== repo));
+      if (!res.ok) {
+        setApplied((a) => a.filter((r) => r !== repo));
+        const data = await res.json().catch(() => ({}));
+        setMarkError(data.error ?? `Couldn't record adoption for ${repo}.`);
+      }
     } catch {
       setApplied((a) => a.filter((r) => r !== repo));
+      setMarkError(`Couldn't record adoption for ${repo}.`);
     }
   }
 
@@ -99,16 +123,23 @@ export function PlaybookCard({
 
   async function unapply(repo: string) {
     setApplied((a) => a.filter((r) => r !== repo)); // optimistic
-    // Re-add on failure so the card can't show a repo as un-adopted while the DB still has the row.
+    setMarkError(null);
+    // Re-add on failure so the card can't show a repo as un-adopted while the DB still has the row,
+    // and surface the reason so the rollback isn't a silent no-op.
     try {
       const res = await fetch(`/api/org/playbooks/${p.id}/repos`, {
         method: "DELETE",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo }),
       });
-      if (!res.ok) setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+      if (!res.ok) {
+        setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+        const data = await res.json().catch(() => ({}));
+        setMarkError(data.error ?? `Couldn't remove adoption for ${repo}.`);
+      }
     } catch {
       setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+      setMarkError(`Couldn't remove adoption for ${repo}.`);
     }
   }
 
@@ -127,7 +158,7 @@ export function PlaybookCard({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <CopyForLlm text={playbookMarkdown(p, dimLabel)} label="Copy" />
+          <CopyForLlm text={playbookMarkdown(p, dimLabel)} label="Copy" ariaLabel={`Copy "${p.title}" for LLM`} />
           <button onClick={onRemove} className="font-mono text-sm text-slate-600 hover:text-orange-300">remove</button>
         </div>
       </div>
@@ -159,24 +190,31 @@ export function PlaybookCard({
           Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
         </span>
         {lift != null && (
-          <span className="font-mono" style={{ color: lift >= 0 ? "#84cc16" : "#f97316" }} title={`Average ${p.dimId} change in applied repos since they applied this playbook`}>
-            {lift >= 0 ? "▲ +" : "▼ "}
-            {lift} avg {p.dimId} since
+          // Treat a flat lift (0, or a sub-0.5 average rounded to 0) as NEUTRAL — no arrow, muted
+          // text — so a zero never paints a green "▲ +0" that implies improvement where there was
+          // none. Use the design-system emerald/orange tokens (as the rest of the card does) instead
+          // of inline hex, so the badge follows theming. (playbooks #5)
+          <span
+            className={`font-mono ${lift > 0 ? "text-emerald-300" : lift < 0 ? "text-orange-300" : "text-slate-400"}`}
+            title={`Average ${p.dimId} change in applied repos since they applied this playbook`}
+          >
+            {lift > 0 ? `▲ +${lift}` : lift < 0 ? `▼ ${lift}` : "± 0"} avg {p.dimId} since
           </span>
         )}
         {applied.length > 0 &&
-          (tracked ? (
+          (trackedUpToDate ? (
             <span className="font-mono text-sm text-emerald-300" title="Track this rollout on the Plan tab">✓ Tracked as initiative</span>
           ) : (
             <button
               onClick={trackAsInitiative}
               disabled={tracking}
               className="font-mono text-sm text-accent hover:text-white disabled:opacity-50"
-              title="Track this playbook's rollout as an initiative on the Plan tab"
+              title={trackedRepos ? "Update the tracked initiative to cover the newly-adopted repos" : "Track this playbook's rollout as an initiative on the Plan tab"}
             >
-              {tracking ? "Tracking…" : "Track as initiative →"}
+              {tracking ? "Tracking…" : trackedRepos ? "Update initiative →" : "Track as initiative →"}
             </button>
           ))}
+        {trackError && <span role="alert" className="font-mono text-sm text-orange-300">{trackError}</span>}
       </div>
 
       {applied.length > 0 && (
@@ -206,6 +244,7 @@ export function PlaybookCard({
           </button>
         </div>
       )}
+      {markError && <p className="mt-2 text-sm text-orange-300">{markError}</p>}
       {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
       {prResult && (
         <p className="mt-2 text-sm text-emerald-300">

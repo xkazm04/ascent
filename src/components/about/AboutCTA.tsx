@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Surface } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
+import { demoOrgHref } from "@/lib/site";
 import { GlowBackdrop } from "./GlowBackdrop";
 
 /** Closing deck section — the call to action centered in the viewport, with a compact footer riding
@@ -27,7 +28,7 @@ export function AboutCTA() {
                   <Link href="/connect" className="rounded-xl bg-accent px-6 py-3 font-semibold text-on-accent transition hover:bg-accent-soft">
                     Scan your org
                   </Link>
-                  <Link href="/org/vercel" className="rounded-xl border border-divider px-6 py-3 font-medium text-slate-200 transition hover:border-accent hover:text-white">
+                  <Link href={demoOrgHref()} className="rounded-xl border border-divider px-6 py-3 font-medium text-slate-200 transition hover:border-accent hover:text-white">
                     Explore the demo →
                   </Link>
                 </div>

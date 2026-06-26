@@ -21,15 +21,28 @@ export async function bootPglite(dataDir: string): Promise<void> {
     mkdirSync(dir, { recursive: true }); // PGlite.create won't make missing parent dirs
     const pglite = await PGlite.create(dir);
 
-    // Bootstrap once. prisma/init.sql uses plain CREATE TABLE (not IF NOT EXISTS), so gate on a known
-    // table: exec only when the database is empty (first boot / after a wipe).
+    // Bootstrap idempotently on EVERY boot. The old gate ran init.sql only when the "Organization"
+    // table was absent (a virgin DB), so any LATER schema change — a new table or index added to
+    // init.sql — never reached an existing local .pglite dir, and the next query against it threw
+    // "relation does not exist" with nothing pointing at the cause (the only cure was wiping the data
+    // dir). init.sql uses plain CREATE TABLE / CREATE INDEX; rewrite those to "... IF NOT EXISTS" so the
+    // script is safe to re-run, then exec it every boot. Existing tables/indexes and the public-org seed
+    // (already ON CONFLICT DO NOTHING) are untouched; newly-added tables + indexes now appear WITHOUT a
+    // wipe. (A new COLUMN on an existing table still needs a wipe — CREATE TABLE IF NOT EXISTS skips the
+    // table — but new tables/indexes were the dominant foot-gun.)
+    const rawSql = readFileSync(resolve(process.cwd(), "prisma", "init.sql"), "utf8");
+    const sql = rawSql
+      .replace(/CREATE TABLE (?!IF NOT EXISTS)/g, "CREATE TABLE IF NOT EXISTS ")
+      .replace(/CREATE UNIQUE INDEX (?!IF NOT EXISTS)/g, "CREATE UNIQUE INDEX IF NOT EXISTS ")
+      .replace(/CREATE INDEX (?!IF NOT EXISTS)/g, "CREATE INDEX IF NOT EXISTS ");
     const probe = await pglite.query(`SELECT to_regclass('public."Organization"') AS t`);
-    const hasSchema = (probe.rows?.[0] as { t?: unknown } | undefined)?.t != null;
-    if (!hasSchema) {
-      const sql = readFileSync(resolve(process.cwd(), "prisma", "init.sql"), "utf8");
-      await pglite.exec(sql);
-      console.log("[pglite] schema bootstrapped from prisma/init.sql");
-    }
+    const firstBoot = (probe.rows?.[0] as { t?: unknown } | undefined)?.t == null;
+    await pglite.exec(sql);
+    console.log(
+      firstBoot
+        ? "[pglite] schema bootstrapped from prisma/init.sql"
+        : "[pglite] schema ensured from prisma/init.sql (idempotent; new tables/indexes applied)",
+    );
 
     g.__ascentPgliteAdapter = new PrismaPGlite(pglite);
     console.log(`[pglite] embedded local DB ready (in-process) at ${dir}`);

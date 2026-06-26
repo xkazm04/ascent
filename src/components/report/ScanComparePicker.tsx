@@ -35,10 +35,12 @@ export function ScanComparePicker({
   const pathname = usePathname();
   const latestId = scans[0]?.id;
 
-  // Navigate to a new (after, before) pair — shareable URL, server re-renders the diff.
+  // Navigate to a new (after, before) pair — shareable URL, server re-renders the diff. Use push (not
+  // replace) so each selection is its own history entry and Back steps through the prior selections,
+  // matching this component's documented "the back button works" contract.
   const go = (after: string, before: string) => {
     const params = new URLSearchParams({ repo, a: after, b: before });
-    router.replace(`${pathname}?${params.toString()}`);
+    router.push(`${pathname}?${params.toString()}`);
   };
 
   const selectClass =

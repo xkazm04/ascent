@@ -59,13 +59,23 @@ export interface StickyCommentInput {
 
 /**
  * Upsert a sticky comment on a PR: find the bot's prior comment by `marker` and PATCH it, else
- * POST a new one. Scans the first few pages of comments (newest activity is usually early; bound
- * the search so a long thread can't make this unbounded). Returns the comment's html_url.
+ * POST a new one. Returns the comment's html_url.
+ *
+ * Ordering (ci-gate-status-checks #3): the issue-comments API returns comments OLDEST-first and the
+ * per-issue endpoint supports NO sort/direction override, and editing a comment (PATCH) does not move
+ * it — so a sticky comment created when the thread was already long sits at a FIXED, possibly late
+ * page. The old code scanned only the first MAX_PAGES=5 pages under a wrong "newest activity is usually
+ * early" assumption, so on a PR with >500 comments it never found its own marker and POSTed a brand-new
+ * comment on every push — stacking duplicates, the exact thing this upsert exists to prevent. We now
+ * scan FORWARD to the natural end of the thread (the first short page), with MAX_PAGES only as a high
+ * safety ceiling; the common case still costs a single request via the short-page break below.
  */
 export async function upsertStickyComment(input: StickyCommentInput): Promise<{ url: string; updated: boolean }> {
   const { token, owner, repo, prNumber, marker, body } = input;
   const PER_PAGE = 100;
-  const MAX_PAGES = 5;
+  // Safety ceiling (mirrors listInstallationReposResult): 50×100 = 5000 comments. The loop normally
+  // stops far earlier at the first short page — this only bounds a pathological mega-thread.
+  const MAX_PAGES = 50;
 
   let existingId: number | null = null;
   for (let page = 1; page <= MAX_PAGES && existingId == null; page++) {

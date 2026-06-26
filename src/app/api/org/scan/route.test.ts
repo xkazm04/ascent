@@ -15,6 +15,7 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 vi.mock("@/lib/db", () => ({
+  CREDIT_REASON: { SCAN: "scan", GRANT: "grant", ADJUSTMENT: "adjustment", REFUND: "refund", POLAR_REFUND: "polar-refund" },
   consumeScanCredit: vi.fn(),
   getInstallationIdForOwner: vi.fn(async () => "inst1"),
   grantCredits: vi.fn(async () => 5),

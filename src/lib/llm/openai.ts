@@ -45,6 +45,14 @@ export class OpenAiProvider implements LLMProvider {
         body: JSON.stringify({
           model: this.model,
           temperature: envNumber("LLM_TEMPERATURE", 0.2),
+          // Give the reply room to complete the multi-KB assessment JSON. The OpenAI-compatible self-
+          // hosted targets this module supports (vLLM, Ollama, LM Studio) often default to a SMALL
+          // completion cap (Ollama's num_predict ≈ 128), which truncates the JSON mid-object →
+          // parseJsonLoose recovers nothing usable → isAssessmentUsable falls below coverage → the scan
+          // silently degrades to the mock floor under the "openai" provider name. Bedrock sets a budget
+          // explicitly and Gemini relies on a high native default; OpenAI alone set none. Mirror
+          // BEDROCK_MAX_TOKENS with an env-overridable default. (llm-provider-abstraction #2)
+          max_tokens: Math.round(envNumber("OPENAI_MAX_TOKENS", 4096)),
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: system },

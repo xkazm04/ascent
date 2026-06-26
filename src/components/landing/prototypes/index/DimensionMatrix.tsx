@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { SectionHeading } from "@/components/ui";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
-import { ARCHETYPE_COLUMNS, AXIS_LABEL, MAX_WEIGHT, buildMatrixRows, pct } from "../shared/matrixData";
+import { ARCHETYPE_COLUMNS, AXIS_LABEL, TRACK_MAX, buildMatrixRows, pct } from "../shared/matrixData";
 
 const ROWS = buildMatrixRows();
 
@@ -17,7 +17,10 @@ function CellBar({ w }: { w: number }) {
   // transform value), so gate it explicitly like the sibling ScoreGauge/TrajectoryChart — reduced
   // motion renders the bar at its final width with no sweep.
   const reduced = usePrefersReducedMotion();
-  const frac = MAX_WEIGHT > 0 ? w / MAX_WEIGHT : 0;
+  // Scale against a FIXED 0..TRACK_MAX track (not the heaviest cell) so the bar length is proportional
+  // to the absolute percent printed beside it — the heaviest weight no longer renders a full-track bar
+  // captioned with a sub-100% number.
+  const frac = TRACK_MAX > 0 ? Math.min(1, w / TRACK_MAX) : 0;
   const target = `${(frac * 100).toFixed(0)}%`;
   return (
     <div className="flex items-center gap-2">
@@ -38,7 +41,7 @@ function CellBar({ w }: { w: number }) {
 
 export function DimensionMatrix() {
   return (
-    <section id="dimensions" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <section id="dimensions" className="flex min-h-screen snap-start flex-col justify-start pb-10 pt-14 lg:justify-center">
       <SectionHeading
         size="page"
         kicker="The instrument"
@@ -62,15 +65,20 @@ export function DimensionMatrix() {
           <tbody>
             {ROWS.map((r) => (
               <tr key={r.id} className="border-b border-slate-800/70 last:border-0">
-                <th scope="row" className="py-3.5 pr-4 align-middle">
+                <th scope="row" className="py-3.5 pr-4 align-top">
                   <span className="flex items-center gap-2">
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${r.axis === "adoption" ? "bg-accent" : "bg-slate-500"}`} title={AXIS_LABEL[r.axis]} />
                     <span className="font-mono text-xs text-slate-600">{r.id}</span>
                     <span className="text-sm font-semibold text-white">{r.name}</span>
                   </span>
+                  {/* Render the dimension description as visible text (it was previously reachable only via
+                      the native `title` hover on the data cells — invisible to touch/keyboard/SR users). */}
+                  <span className="mt-1 block max-w-xs pl-4 text-xs font-normal leading-snug text-slate-500">
+                    {r.description}
+                  </span>
                 </th>
                 {ARCHETYPE_COLUMNS.map((c) => (
-                  <td key={c.key} className="px-3 py-3.5 align-middle" title={r.description}>
+                  <td key={c.key} className="px-3 py-3.5 align-top">
                     <CellBar w={r[c.key]} />
                   </td>
                 ))}

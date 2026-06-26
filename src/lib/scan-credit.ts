@@ -6,7 +6,7 @@
 //
 // See src/lib/db/credits.ts for the underlying ledger accounting and docs/BILLING.md.
 
-import { consumeScanCredit, grantCredits } from "@/lib/db";
+import { consumeScanCredit, CREDIT_REASON, grantCredits } from "@/lib/db";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 
 /** Outcome of a per-repo credit reservation. */
@@ -52,7 +52,7 @@ export async function reserveScanCredit(
  * unless an overflow credit was actually charged (`reserved`). Best-effort: a failed grant is swallowed.
  */
 export async function refundScanCredit(orgSlug: string, reserved: boolean): Promise<void> {
-  if (reserved) await grantCredits(orgSlug, 1, { reason: "refund", actor: "system" }).catch(() => {});
+  if (reserved) await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: "system" }).catch(() => {});
 }
 
 /**

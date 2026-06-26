@@ -8,7 +8,7 @@ import { useId } from "react";
 import { useRouter } from "next/navigation";
 import { scoreHex } from "@/lib/ui";
 import { levelForScore } from "@/lib/maturity/model";
-import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
+import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
 
 export interface TrendPoint {
@@ -111,6 +111,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
 
   const hover = useChartHover(points.map((_, i) => xFor(i)), W);
   const a = hover.active;
+  const tap = useCoarseTapToOpen();
   const tableId = useId();
   const router = useRouter();
   // The hovered point's report permalink, when it has one — clicking anywhere on the plot opens it
@@ -140,11 +141,21 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         aria-label="Overall score over time"
         aria-describedby={tableId}
         style={{ touchAction: "none", cursor: activeHref || activeCommitUrl ? "pointer" : undefined }}
-        onPointerMove={hover.onPointerMove}
+        onPointerMove={(e) => {
+          tap.notePointer(e);
+          hover.onPointerMove(e);
+        }}
+        // Also snap on pointer-down so a stationary touch tap (which may not fire pointermove) still
+        // reveals the nearest point before the click is evaluated.
+        onPointerDown={(e) => {
+          tap.notePointer(e);
+          hover.onPointerMove(e);
+        }}
         onPointerLeave={hover.onPointerLeave}
         onClick={(e) => {
           if (e.shiftKey && activeCommitUrl) window.open(activeCommitUrl, "_blank", "noopener");
-          else if (activeHref) router.push(activeHref);
+          // On touch the first tap only reveals the point's tooltip; a second tap on it navigates.
+          else if (activeHref && tap.shouldOpen(a)) router.push(activeHref);
         }}
       >
         {/* level bands + their L-id labels — a non-color cue so each shaded range is identifiable
@@ -247,7 +258,10 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         </ChartTooltip>
       )}
       {/* Screen-reader equivalent of the chart — the bands/points convey meaning visually, so mirror
-          the series as a table referenced by the svg's aria-describedby (matches the radar chart). */}
+          the series as a table referenced by the svg's aria-describedby (matches the radar chart).
+          The svg is role="img" + pointer-only click, so the per-point "open this scan" deep links
+          would otherwise be mouse-only (WCAG 2.1.1 / 4.1.2). Expose them here as real focusable
+          links so keyboard and screen-reader users can reach the same target without a pointer. */}
       <table id={tableId} className="sr-only">
         <caption>Overall maturity score over time</caption>
         <thead>
@@ -255,6 +269,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             <th>Scan date</th>
             <th>Score</th>
             <th>Level</th>
+            <th>Report</th>
           </tr>
         </thead>
         <tbody>
@@ -266,6 +281,17 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
                 <td>{p.score}</td>
                 <td>
                   {lvl.id} {lvl.name}
+                </td>
+                <td>
+                  {p.href ? <a href={p.href}>Open this scan&apos;s report</a> : "—"}
+                  {p.commitUrl && (
+                    <>
+                      {p.href ? " · " : ""}
+                      <a href={p.commitUrl} target="_blank" rel="noopener noreferrer">
+                        GitHub commit
+                      </a>
+                    </>
+                  )}
                 </td>
               </tr>
             );

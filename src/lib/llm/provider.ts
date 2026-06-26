@@ -70,7 +70,16 @@ const IMPACTS: Set<string> = new Set(IMPACT_LEVELS);
 // prompt-injected payload) yields a "valid" assessment that bloats the persisted DB row, the SSE
 // payload, and UI rendering. Bound field size like field count.
 const MAX_FIELD_LEN = 2000;
-const cap = (s: string): string => (s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN) : s);
+const cap = (s: string): string => {
+  if (s.length <= MAX_FIELD_LEN) return s;
+  const sliced = s.slice(0, MAX_FIELD_LEN);
+  // Length-based truncation operates on UTF-16 code units, so the cut can land BETWEEN the high and
+  // low surrogate of an astral character (emoji, CJK ext-B, …), leaving a lone unpaired high surrogate
+  // (0xD800–0xDBFF) at the end. That's invalid UTF-16 and can break strict JSON re-serialization or
+  // corrupt the persisted DB column. Drop a trailing lone high surrogate so the result stays valid.
+  const last = sliced.charCodeAt(sliced.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? sliced.slice(0, -1) : sliced;
+};
 
 function asStringArray(v: unknown, max = 6): string[] {
   if (!Array.isArray(v)) return [];
@@ -151,7 +160,12 @@ export function validateAssessment(raw: unknown): LlmAssessment {
 
   const roadmap: LlmRoadmapItem[] = [];
   if (Array.isArray(obj.roadmap)) {
-    for (const r of obj.roadmap as Record<string, unknown>[]) {
+    // Pre-slice the INPUT before iterating (mirrors `dimensions` above and asStringArray): roadmap is
+    // trailing-sliced to 6 at the end, but fully walking a hostile/prompt-injected multi-million-element
+    // array first — building a capped object per element via cap/asStringArray/validLevelUnlock — pins
+    // the single-threaded event loop and spikes heap. Bound the work up front with generous headroom
+    // over the final cap (Array.slice on a huge array is O(headroom)). (llm-provider-abstraction #3)
+    for (const r of (obj.roadmap as Record<string, unknown>[]).slice(0, 6 * 4)) {
       const title = typeof r?.title === "string" ? cap(r.title.trim()) : "";
       if (!title) continue;
       // Drop a roadmap entry whose dimension is missing or unparseable instead of silently
@@ -176,7 +190,9 @@ export function validateAssessment(raw: unknown): LlmAssessment {
 
   const discrepancies: Discrepancy[] = [];
   if (Array.isArray(obj.discrepancies)) {
-    for (const d of obj.discrepancies as Record<string, unknown>[]) {
+    // Pre-slice the INPUT before iterating (same unbounded-work hardening as roadmap above); the result
+    // is trailing-sliced to 8. (llm-provider-abstraction #3)
+    for (const d of (obj.discrepancies as Record<string, unknown>[]).slice(0, 8 * 4)) {
       const dim =
         typeof d?.dimension === "string" && VALID_DIM_IDS.has(d.dimension as DimensionId)
           ? (d.dimension as DimensionId)

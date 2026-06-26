@@ -9,6 +9,7 @@ import { resolveInstallView } from "./installRouting";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { appConfigureUrl, appInstallUrl, isAppConfigured } from "@/lib/github/app";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
+import { listWatchedRepos } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +112,16 @@ export default async function ConnectPage({
     authConfigured: isAuthConfigured(),
   });
 
+  // Derive funnel progress from real watch/scan state so the checklist reflects actual progress
+  // rather than static literals: step 2 completes once any repo across the user's installs is watched,
+  // step 3 once a watched repo has been scanned. No-DB / no-installs degrade to "not done"
+  // (listWatchedRepos returns []), preserving the prior behaviour where nothing is marked complete.
+  const watchedAcrossInstalls = (
+    await Promise.all(installs.map((inst) => listWatchedRepos(inst.login.toLowerCase()).catch(() => [])))
+  ).flat();
+  const anyWatched = watchedAcrossInstalls.length > 0;
+  const anyScanned = watchedAcrossInstalls.some((r) => Boolean(r.lastScanAt));
+
   const installCount = session?.installations.length ?? 0;
   // Orgs auto-discovered at login (see src/lib/github/discover.ts): the most-active org we
   // pre-seeded a watchlist for (a ready dashboard), plus not-yet-installed orgs to nudge.
@@ -132,8 +143,8 @@ export default async function ConnectPage({
                 href: installs.length === 0 && !pendingInstall ? installUrl ?? undefined : undefined,
                 hint: "Grant read-only access to the repos you want scanned",
               },
-              { label: "Pick repositories to watch", done: false, hint: "Choose which repos Ascent should scan" },
-              { label: "Run your first scan", done: false, hint: "Open a repo's report to see its maturity" },
+              { label: "Pick repositories to watch", done: anyWatched, hint: "Choose which repos Ascent should scan" },
+              { label: "Run your first scan", done: anyScanned, hint: "Open a repo's report to see its maturity" },
             ]}
           />
         </div>

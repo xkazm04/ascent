@@ -21,14 +21,33 @@ export function QuotaMeter() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/quota")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (active && d) setQ(d as Quota);
-      })
-      .catch(() => {});
+    const load = () => {
+      fetch("/api/quota")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (active && d) setQ(d as Quota);
+        })
+        .catch(() => {});
+    };
+    load();
+    // Revalidate when the user returns to the page after a scan — a one-shot mount fetch goes stale the
+    // moment a scan consumes a slot, leaving the meter showing scans the visitor no longer has. Re-fetch
+    // on tab focus, on becoming visible again, and on bfcache restore (browser back from a report).
+    const onFocus = () => load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) load();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onPageShow);
     return () => {
       active = false;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
     };
   }, []);
 

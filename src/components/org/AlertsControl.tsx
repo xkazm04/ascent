@@ -8,6 +8,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
+// Tabbable elements inside the dialog — drives the focus trap + the "focus the first field on open".
+const FOCUSABLE_SELECTOR =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
 export function AlertsControl({ org }: { org: string }) {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -20,6 +24,8 @@ export function AlertsControl({ org }: { org: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -34,6 +40,49 @@ export function AlertsControl({ org }: { org: string }) {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  // a11y: the popover declares role="dialog", so it must own the focus half of that contract too. On
+  // open, move focus into the dialog (so keyboard/SR users land inside what they just opened) and
+  // restore it to the trigger on close. Tab is trapped via onKeyDown below.
+  useEffect(() => {
+    if (!open) return;
+    const trigger = triggerRef.current;
+    const first = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    (first ?? dialogRef.current)?.focus();
+    return () => {
+      trigger?.focus();
+    };
+  }, [open]);
+
+  // Content loads lazily (Loading… → form). Once the form renders, advance focus from the dialog
+  // container to its first field — but only if the user hasn't already Tabbed elsewhere.
+  useEffect(() => {
+    if (!open || !loaded) return;
+    if (document.activeElement !== dialogRef.current) return;
+    dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+  }, [open, loaded]);
+
+  // Keep Tab/Shift+Tab inside the dialog while it's open (cycle at the edges).
+  function trapTab(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Tab" || !dialogRef.current) return;
+    const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    if (focusables.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const firstEl = focusables[0]!;
+    const lastEl = focusables[focusables.length - 1]!;
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === firstEl || active === dialogRef.current) {
+        e.preventDefault();
+        lastEl.focus();
+      }
+    } else if (active === lastEl) {
+      e.preventDefault();
+      firstEl.focus();
+    }
+  }
 
   // Load the current webhook the first time the popover opens.
   useEffect(() => {
@@ -99,13 +148,16 @@ export function AlertsControl({ org }: { org: string }) {
     }
   }
   async function test() {
-    const d = await post({ test: true }, "test");
+    // Send the URL currently in the form so "Send test" validates the CANDIDATE webhook the admin is
+    // editing — not the previously-saved sink. A blank field tests the org's resolved/saved sink.
+    const d = await post({ test: true, webhookUrl }, "test");
     if (d) setNotice(d.delivered ? "Test alert delivered ✓" : d.error ?? "No sink configured.");
   }
 
   return (
     <div ref={ref} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -118,9 +170,12 @@ export function AlertsControl({ org }: { org: string }) {
 
       {open && (
         <div
+          ref={dialogRef}
           role="dialog"
           aria-label="Alert routing"
-          className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl"
+          tabIndex={-1}
+          onKeyDown={trapTab}
+          className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl outline-none"
         >
           <div className="font-mono text-sm uppercase tracking-widest text-accent">Alert routing</div>
           {denied ? (
@@ -173,7 +228,12 @@ export function AlertsControl({ org }: { org: string }) {
                 <button
                   type="button"
                   onClick={save}
-                  disabled={busy !== null || !webhookUrl.trim()}
+                  // Enable Save when ANYTHING is editable, not only when a webhook URL is present: the
+                  // backend supports a thresholds-only update (an org on the global ALERT_WEBHOOK_URL
+                  // leaves this field blank), so gating purely on the URL made regression sensitivity
+                  // un-tunable through the UI. A blank URL is sent as a no-op clear; clearing an existing
+                  // per-org webhook stays on the dedicated Clear button.
+                  disabled={busy !== null || !(webhookUrl.trim() || overallDrop.trim() || dimensionDrop.trim())}
                   className="focus-ring rounded-md bg-accent px-2.5 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
                 >
                   {busy === "save" ? "Saving…" : "Save"}

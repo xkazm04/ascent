@@ -51,7 +51,14 @@ const styles = StyleSheet.create({
 export function ReportDocument({ report }: { report: ScanReport }) {
   const { repo, level } = report;
   const ref = `${repo.owner}/${repo.name}`;
-  const scannedAt = report.scannedAt ? new Date(report.scannedAt).toISOString().slice(0, 10) : "";
+  // Parse defensively: a truthy-but-unparseable persisted `scannedAt` (legacy/garbage/reconstructed
+  // snapshot) would make `new Date(...).toISOString()` throw `RangeError: Invalid time value`, which
+  // propagates out of the document and fails the whole PDF render over one cosmetic date field.
+  const scannedAtDate = report.scannedAt ? new Date(report.scannedAt) : null;
+  const scannedAt =
+    scannedAtDate && !Number.isNaN(scannedAtDate.getTime())
+      ? scannedAtDate.toISOString().slice(0, 10)
+      : "";
 
   return (
     <Document title={`Ascent maturity report — ${ref}`} author="Ascent" subject="AI-native engineering maturity">

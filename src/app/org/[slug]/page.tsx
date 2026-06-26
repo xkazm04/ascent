@@ -227,7 +227,7 @@ export default async function OrgOverview({
       <CollapsibleSection id="goals" title="Goals & standing" defaultOpen={sectionOpen("goals")}>
         <div className="grid gap-6 lg:grid-cols-2">
           <GoalsOverview slug={slug} goals={goals ?? []} />
-          <OrgStanding benchmark={benchmark} regressionCount={regressionCount} comparedRepos={movers?.comparedRepos ?? 0} periodStart={Boolean(period.start)} />
+          <OrgStanding benchmark={benchmark} regressionCount={regressionCount} comparedRepos={movers?.comparedRepos ?? 0} periodStart={Boolean(period.start)} scoped={Boolean(segmentId || techGroupId)} />
         </div>
       </CollapsibleSection>
 
@@ -272,8 +272,8 @@ export default async function OrgOverview({
         </div>
       </CollapsibleSection>
 
-      {/* Trend */}
-      {trend.length >= 1 && (
+      {/* Trend — needs at least two points; a single rollup is just a lone dot in an empty axis. */}
+      {trend.length >= 2 && (
         <Card>
           <SectionHeader size="sm" title="Org maturity over time" right={<span className="font-mono text-sm text-slate-500">{period.title}</span>} />
           <div className="mt-3">

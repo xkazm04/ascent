@@ -6,10 +6,11 @@
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { DimRow, PriorPeriodGrid } from "@/components/org/briefingShared";
-import { buildExecBriefing } from "@/lib/org/briefing";
+import { buildExecBriefing, engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
 import { getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
+import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,22 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
     return <Notice title="Link expired or invalid" body="This shared briefing link is no longer valid. Ask an org owner for a fresh one." />;
   }
   if (!isDbConfigured()) return <Notice title="No data" body="This deployment has no database configured." />;
+
+  // briefing-share #5: a per-link revocation lever. A token bound to its minting owner (mintedBy, set
+  // under the Supabase wall) is honored only while that owner still holds owner access — so removing or
+  // demoting them kills their shared links instead of letting a stateless token outlive their authority.
+  // Legacy / stateless tokens (no mintedBy) keep the prior behavior. Fail-closed on a lookup error.
+  if (verified.mintedBy) {
+    const minterRole = await getMembershipRole(verified.org, verified.mintedBy).catch(() => null);
+    if (!roleAtLeast(minterRole, "owner")) {
+      return (
+        <Notice
+          title="Link revoked"
+          body="The person who shared this briefing no longer has access to the organization. Ask a current owner for a fresh link."
+        />
+      );
+    }
+  }
 
   const period = resolveWindow({ range: verified.range, from: verified.from, to: verified.to });
   // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's
@@ -67,10 +84,27 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           <Tile label="Corpus percentile" value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"} sub={benchmark && benchmark.corpusRepos > 0 ? `vs ${benchmark.corpusRepos} repos` : "no corpus yet"} color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined} />
         </div>
 
+        {/* Engine-mix provenance — the shared board link must show the same mock-degraded caveat the
+            owner's page + PDF do, so a leaked/forwarded read-only link can't hide that some scores were
+            produced by the deterministic mock engine rather than the live model. */}
+        {briefing.engineMix.length > 0 && (
+          <p className="mt-4 font-mono text-sm text-slate-500">
+            Scored by {engineMixLabel(briefing.engineMix)}
+            {engineMixDegraded(briefing.engineMix) && (
+              <span className="text-warn"> · ⚠ some scores this period used the deterministic mock engine, not the live model</span>
+            )}
+          </p>
+        )}
+
         {briefing.forecastHeadline && (
           <Card className="mt-6">
             <SectionHeader size="sm" title="Trajectory" />
             <p className="mt-2 text-base text-slate-300">{briefing.forecastHeadline}</p>
+            {/* Carry the same trend-confidence hedge the owner's page + PDF show, so a shared board link
+                can't present a noisy, low-R² projection as a firm commitment. */}
+            {forecastConfidenceNote(briefing.forecastConfidence) && (
+              <p className="mt-1 font-mono text-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
+            )}
           </Card>
         )}
 

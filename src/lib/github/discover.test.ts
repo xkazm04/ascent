@@ -158,7 +158,11 @@ describe("fetchUserOrgs / fetchUserRepos — GHES host override", () => {
   });
 
   function stubFetch(body: unknown) {
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as unknown as Response);
+    // No `link` header → the discovery fetchers' pagination stops after the first page (one call).
+    const fetchMock = vi.fn(
+      async () =>
+        ({ ok: true, status: 200, json: async () => body, headers: new Headers() }) as unknown as Response,
+    );
     vi.stubGlobal("fetch", fetchMock);
     return fetchMock;
   }
@@ -183,5 +187,33 @@ describe("fetchUserOrgs / fetchUserRepos — GHES host override", () => {
     const fetchMock = stubFetch([{ login: "Acme" }]);
     await fetchUserOrgs("tok");
     expect(String(fetchMock.mock.calls[0][0])).toBe("https://api.github.com/user/orgs?per_page=100");
+  });
+
+  it("follows the Link header's rel=next across pages so an active user isn't truncated to page 1", async () => {
+    vi.stubEnv("GITHUB_API_URL", "");
+    const page2 = "https://api.github.com/user/repos?page=2";
+    const fetchMock = vi
+      .fn()
+      // page 1 carries a rel="next" Link → the fetcher follows it
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [{ owner: { login: "Acme", type: "Organization" }, name: "a", full_name: "Acme/a", html_url: "u", private: false, pushed_at: "2026-01-02T00:00:00Z" }],
+        headers: new Headers({ link: `<${page2}>; rel="next"` }),
+      } as unknown as Response)
+      // page 2 has no Link → pagination stops
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [{ owner: { login: "Acme", type: "Organization" }, name: "b", full_name: "Acme/b", html_url: "u", private: false, pushed_at: "2026-01-01T00:00:00Z" }],
+        headers: new Headers(),
+      } as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const repos = await fetchUserRepos("tok");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toBe(page2); // second call used the Link URL
+    expect(repos.map((r) => r.name)).toEqual(["a", "b"]); // both pages concatenated
   });
 });

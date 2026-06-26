@@ -13,10 +13,25 @@ import { buildFallbackRoadmap } from "@/lib/scoring/recommendations";
 // The key fingerprints the actual drivers — repo identity, head sha, archetype, and the per-signal
 // scores — NOT headSha alone: a tokened scan folds in PR/governance signals, so the same commit
 // can legitimately produce different signal scores and must not collide. Bounded LRU, mirroring
-// the scan cache in src/lib/cache.ts. The cached assessment is treated as immutable (callers read
-// it and copy fields into a fresh report), so returning a shared reference is safe.
+// the scan cache in src/lib/cache.ts. The cached assessment MUST be immutable: it is returned by
+// reference on a hit and the engine aliases its arrays into the report, so it is deep-frozen (below)
+// rather than relying on an unenforced "callers won't mutate it" convention.
 const ASSESS_CACHE_MAX = 50;
 const assessCache = new Map<string, LlmAssessment>();
+
+// Enforce the cache's immutability contract (llm-provider-abstraction #4). The engine aliases the
+// cached assessment's arrays (strengths/risks/roadmap/discrepancies) straight into the report WITHOUT
+// copying, so any in-place mutation of report.* (a reorder, .sort(), .push()) would otherwise corrupt
+// this shared cached object and poison the NEXT keyless/degraded scan of the same commit+signals —
+// non-deterministic results from a provider whose entire value proposition is determinism. Deep-freezing
+// hands every consumer a genuinely read-only view (and surfaces any offending mutation immediately).
+function deepFreeze<T>(o: T): T {
+  if (o !== null && typeof o === "object" && !Object.isFrozen(o)) {
+    for (const v of Object.values(o)) deepFreeze(v);
+    Object.freeze(o);
+  }
+  return o;
+}
 
 function assessKey(input: LlmScoreInput): string {
   const sig = input.signals.map((s) => `${s.id}:${s.signalScore}`).join(",");
@@ -91,6 +106,8 @@ export class MockProvider implements LLMProvider {
       const oldest = assessCache.keys().next().value;
       if (oldest) assessCache.delete(oldest);
     }
+    // Freeze before caching so both this return and every later cache-hit hand out an immutable object.
+    deepFreeze(result);
     assessCache.set(cacheKey, result);
     return result;
   }

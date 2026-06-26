@@ -109,14 +109,21 @@ export function RepoSegmentsPanel({
   async function toggle(fullName: string, segId: string) {
     const current = membership[fullName] ?? [];
     const member = !current.includes(segId);
-    // Optimistic: flip the chip + adjust the segment's repo count.
+    // Optimistic: flip the chip + adjust the segment's repo count. Derive the actual flip from the
+    // functional updater's `prev` and only adjust the count when membership genuinely changed —
+    // otherwise two fast clicks both read stale closure state, both see member=true, and each bumps
+    // repoCount (+2) while the Set holds the id once, leaving the count permanently off by one.
+    let flipped = false;
     setMembership((m) => {
       const ids = new Set(m[fullName] ?? []);
+      flipped = member ? !ids.has(segId) : ids.has(segId);
       if (member) ids.add(segId);
       else ids.delete(segId);
       return { ...m, [fullName]: [...ids] };
     });
-    setSegments((s) => s.map((x) => (x.id === segId ? { ...x, repoCount: Math.max(0, x.repoCount + (member ? 1 : -1)) } : x)));
+    if (flipped) {
+      setSegments((s) => s.map((x) => (x.id === segId ? { ...x, repoCount: Math.max(0, x.repoCount + (member ? 1 : -1)) } : x)));
+    }
     setError(null);
     // Was fire-and-forget (.catch(()=>{})), so a 404/permission/network failure left the chip + repo-
     // count showing a membership that doesn't exist server-side (and fed the Overview filter). Inspect
@@ -128,13 +135,17 @@ export function RepoSegmentsPanel({
       body: JSON.stringify({ org: slug, fullName, member }),
     }).catch(() => null);
     if (!res || !res.ok) {
-      setMembership((m) => {
-        const ids = new Set(m[fullName] ?? []);
-        if (member) ids.delete(segId);
-        else ids.add(segId);
-        return { ...m, [fullName]: [...ids] };
-      });
-      setSegments((s) => s.map((x) => (x.id === segId ? { ...x, repoCount: Math.max(0, x.repoCount + (member ? -1 : 1)) } : x)));
+      // Only undo the parts we actually applied: if the optimistic flip was a no-op (a duplicate
+      // in-flight click), reverting membership/count here would over-correct.
+      if (flipped) {
+        setMembership((m) => {
+          const ids = new Set(m[fullName] ?? []);
+          if (member) ids.delete(segId);
+          else ids.add(segId);
+          return { ...m, [fullName]: [...ids] };
+        });
+        setSegments((s) => s.map((x) => (x.id === segId ? { ...x, repoCount: Math.max(0, x.repoCount + (member ? -1 : 1)) } : x)));
+      }
       setError((await res?.json().catch(() => ({})))?.error ?? "Couldn't update the tag.");
     }
   }
@@ -149,14 +160,25 @@ export function RepoSegmentsPanel({
   // Commit a rename + recolor in one PATCH. A blank name keeps the old one (recolor-only edits).
   async function saveEdit(id: string) {
     const next = editName.trim();
+    // Snapshot the prior name/color so a failed PATCH (403 for a viewer, validation reject, network drop)
+    // can be rolled back — otherwise the chip kept showing the new name/color the server never stored,
+    // i.e. phantom state until a manual refresh (the same hole toggle()/removeSegment() already close).
+    const prev = segments.find((x) => x.id === id);
+    const prevName = prev?.name;
+    const prevColor = prev?.color;
     setSegments((s) => s.map((x) => (x.id === id ? { ...x, name: next || x.name, color: editColor } : x)));
     setEditingId(null);
+    setError(null);
     const res = await fetch(`/api/org/segments/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...(next ? { name: next } : {}), color: editColor }),
     }).catch(() => null);
-    if (!res || !res.ok) setError((await res?.json().catch(() => ({})))?.error ?? "Failed to update segment.");
+    if (!res || !res.ok) {
+      // Restore just this segment with a functional updater so a concurrent edit to another isn't clobbered.
+      setSegments((s) => s.map((x) => (x.id === id ? { ...x, name: prevName ?? x.name, color: prevColor ?? x.color } : x)));
+      setError((await res?.json().catch(() => ({})))?.error ?? "Failed to update segment.");
+    }
   }
 
   // Auto-add every repo of the chosen language to the chosen segment, in one bulk call.
@@ -167,7 +189,11 @@ export function RepoSegmentsPanel({
     setAutoBusy(true);
     setError(null);
     // Optimistic: tag every matched repo + bump the segment count by the ones not already members.
-    const added = matched.filter((fn) => !(membership[fn] ?? []).includes(autoSeg)).length;
+    // Track exactly which repos we newly tagged so a failed bulkTagRepos (403 for a viewer, P2002, a
+    // network drop) can be reverted precisely — previously the catch only set `error` and left the chips
+    // + repoCount claiming memberships the server never stored, corrupting the Overview filter and the
+    // segment comparison until a manual refresh (toggle()/removeSegment() already roll back; this didn't).
+    const addedRepos = matched.filter((fn) => !(membership[fn] ?? []).includes(autoSeg));
     setMembership((m) => {
       const next = { ...m };
       for (const fn of matched) {
@@ -177,10 +203,18 @@ export function RepoSegmentsPanel({
       }
       return next;
     });
-    setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: x.repoCount + added } : x)));
+    setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: x.repoCount + addedRepos.length } : x)));
     try {
       await bulkTagRepos(autoSeg, { org: slug, fullNames: matched, member: true });
     } catch (e) {
+      // Undo only the memberships THIS call added (functional updaters, so a concurrent toggle of an
+      // unrelated repo isn't clobbered) and back out the count bump.
+      setMembership((m) => {
+        const next = { ...m };
+        for (const fn of addedRepos) next[fn] = (next[fn] ?? []).filter((id) => id !== autoSeg);
+        return next;
+      });
+      setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: Math.max(0, x.repoCount - addedRepos.length) } : x)));
       setError(e instanceof Error ? e.message : "Bulk add failed.");
     } finally {
       setAutoBusy(false);
@@ -268,6 +302,7 @@ export function RepoSegmentsPanel({
           <select
             value={autoLang}
             onChange={(e) => setAutoLang(e.target.value)}
+            aria-label="Auto-add language"
             className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
           >
             <option value="">language…</option>
@@ -281,6 +316,7 @@ export function RepoSegmentsPanel({
           <select
             value={autoSeg}
             onChange={(e) => setAutoSeg(e.target.value)}
+            aria-label="Auto-add target segment"
             className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
           >
             <option value="">segment…</option>
@@ -328,7 +364,7 @@ export function RepoSegmentsPanel({
           {busy ? "Adding…" : "Add segment"}
         </button>
       </div>
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+      {error && <p role="alert" aria-live="polite" className="mt-2 text-sm text-orange-300">{error}</p>}
 
       {/* Per-repo tagging */}
       {segments.length > 0 && (

@@ -18,6 +18,9 @@ export interface OrgCredit {
   org: string;
   balance: number;
   unlimited: boolean;
+  /** Included free monthly scans still available (the route's allowanceRemaining; null/absent =
+   *  unknown/unlimited). The money-gate counts this as real-scan headroom alongside purchased balance. */
+  allowanceRemaining?: number | null;
 }
 
 type Phase = "pick" | "select" | "scanning" | "done";
@@ -84,6 +87,9 @@ export function OnboardingFlow({
   const [previewScan, setPreviewScan] = useState(true);
   // How many teammates were invited from the done state (App path) — marks the checklist step done.
   const [invitedCount, setInvitedCount] = useState(0);
+  // How many repos the server deferred for insufficient credits this run — surfaced on the done
+  // screen so a credit shortfall is disclosed rather than left as ghost "scanning…" rows.
+  const [creditSkipped, setCreditSkipped] = useState(0);
 
   // Abort controller for the streaming import — aborted on Cancel and on unmount.
   const abortRef = useRef<AbortController | null>(null);
@@ -207,7 +213,12 @@ export function OnboardingFlow({
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d && typeof d.balance === "number") {
-          setCredit({ org: creditOrg, balance: d.balance, unlimited: Boolean(d.unlimited) });
+          setCredit({
+            org: creditOrg,
+            balance: d.balance,
+            unlimited: Boolean(d.unlimited),
+            allowanceRemaining: typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : null,
+          });
         }
       })
       .catch(() => {});
@@ -269,6 +280,7 @@ export function OnboardingFlow({
     setPhase("scanning");
     setRows(Object.fromEntries(picks.map((r) => [r.fullName, { repo: r.fullName }])));
     setError(null);
+    setCreditSkipped(0);
     setAnnounce(`Scanning ${picks.length} ${picks.length === 1 ? "repository" : "repositories"}.`);
 
     const controller = new AbortController();
@@ -291,15 +303,39 @@ export function OnboardingFlow({
         },
         controller,
         {
-          onRepo: ({ repo, level, overall, error: rowError }) => {
+          onRepo: ({ repo, level, overall, error: rowError, skipped }) => {
             setRows((cur) => {
-              const next = { ...cur, [repo]: { repo, level, overall, error: rowError } };
-              const completed = Object.values(next).filter((r) => r.level || r.error).length;
+              const next = { ...cur, [repo]: { repo, level, overall, error: rowError, skipped } };
+              // Skipped rows are terminal too, so they count toward "completed" — otherwise the
+              // progress bar would stall below 100% on a credit shortfall.
+              const completed = Object.values(next).filter((r) => r.level || r.error || r.skipped).length;
               setAnnounce(`Scanned ${completed} of ${total}: ${repo}.`);
               return next;
             });
           },
+          // A credit shortfall caps the batch server-side; forward the count so it's disclosed and
+          // the leftover (never-scanned) rows can be resolved to a skipped state on completion.
+          onNotice: ({ reason, skipped }) => {
+            if (reason === "insufficient_credits" && skipped > 0) setCreditSkipped(skipped);
+          },
           onResult: () => {
+            // The stream is done: any row still with no level/error/skipped was deferred for credits
+            // (the route emits no event for the repos it sliced off), so resolve those ghosts to a
+            // skipped state instead of leaving a perpetual "scanning…" row + stuck progress bar.
+            setRows((cur) => {
+              let leftover = 0;
+              const next: typeof cur = {};
+              for (const [key, r] of Object.entries(cur)) {
+                if (!r.level && !r.error && !r.skipped) {
+                  leftover += 1;
+                  next[key] = { ...r, skipped: "insufficient_credits" };
+                } else {
+                  next[key] = r;
+                }
+              }
+              if (leftover > 0) setCreditSkipped((n) => Math.max(n, leftover));
+              return next;
+            });
             setPhase("done");
             setAnnounce(`Scan complete — ${total} ${total === 1 ? "repository" : "repositories"}.`);
           },
@@ -398,6 +434,7 @@ export function OnboardingFlow({
         error={error}
         announce={announce}
         preview={previewScan}
+        creditSkipped={creditSkipped}
         checklistSteps={checklistSteps()}
         inviteOrg={sourceInstallId ? sourceLabel : null}
         onInvited={() => setInvitedCount((c) => c + 1)}

@@ -46,9 +46,10 @@ model Organization {
   // Threaded into detectRegression by checkAndAlertRegression — see src/lib/scan-alerts.ts.
   alertOverallDrop   Int?
   alertDimensionDrop Int?
-  // Per-org CI maturity-gate policy (GatePolicy JSON). null = archetype default. Honored by the
-  // App-mode PR Check Run + the governance fleet view — see src/lib/db/org-gate.ts.
-  gatePolicy      Json?
+  // Per-org CI maturity-gate policy (GatePolicy serialized as JSON in a TEXT column — the schema's
+  // no-jsonb DSQL-safety contract; parsed at the edge in org-gate.ts). null = archetype default.
+  // Honored by the App-mode PR Check Run + the governance fleet view — see src/lib/db/org-gate.ts.
+  gatePolicy      String?
   // White-label branding for the executive briefing (EXEC-5, enterprise) — null = the Ascent default.
   // brandColor is a #rrggbb accent; logoUrl an https image rendered in the PDF header. See briefing.
   brandName       String?
@@ -647,6 +648,23 @@ model SessionRevocation {
   login     String   @id // GitHub login, lowercased — matches Session.login
   version   Int      @default(0)
   updatedAt DateTime @updatedAt
+}
+
+// Cross-instance webhook replay/idempotency store (github-app-installation-webhooks #3). GitHub stamps
+// each delivery with a unique X-GitHub-Delivery id; a captured, still-validly-signed delivery can be
+// re-sent to re-trigger scans/gates. The webhook route's in-memory Map collapses only SAME-instance
+// replays — on a horizontally-scaled / serverless deploy every instance starts empty, so a replay routed
+// to another instance isn't deduped. This shared TTL store makes the claim AUTHORITATIVE across instances:
+// a row is the "claimed" mark (id = delivery id), kept until `expiresAt`, and DELETED when the deferred
+// processing fails so a GitHub redelivery can retry. Accessed via raw SQL (no typed model accessor) and
+// swept of expired rows opportunistically. Standalone under relationMode = "prisma" (no FKs); read/written
+// by its primary key. See src/lib/db/webhook-deliveries.ts.
+model WebhookDelivery {
+  id        String   @id // GitHub X-GitHub-Delivery id
+  expiresAt DateTime // TTL horizon; rows past this are sweepable and may be re-claimed
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 // Soft weekly quota for anonymous public scans, keyed by a SALTED HASH of the client IP (never the

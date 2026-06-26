@@ -38,7 +38,12 @@ export function RecommendationTracker({
   // disable only their own row instead of one freezing/clobbering another.
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, RowError>>({});
-  const [announcement, setAnnouncement] = useState("");
+  // Per-id announcement (not one shared string feeding a single live region): a single scalar meant
+  // two rows resolving close together overwrote each other before the screen reader voiced the first
+  // (and identical strings never re-announce), silently dropping a save success/failure for AT users.
+  // Each row now owns its own role="status" region so overlapping saves are announced independently.
+  const [announcements, setAnnouncements] = useState<Record<string, string>>({});
+  const announce = (id: string, msg: string) => setAnnouncements((a) => ({ ...a, [id]: msg }));
 
   const setSaving = (id: string, on: boolean) =>
     setSavingIds((cur) => {
@@ -51,7 +56,11 @@ export function RecommendationTracker({
   const total = items.length;
   const done = items.filter((i) => i.status === "done").length;
   const dismissed = items.filter((i) => i.status === "dismissed").length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  // Progress is measured against the ACTIONABLE set (everything not dismissed). Keeping dismissed
+  // items in the denominator left a fully-triaged backlog (e.g. 3 done + 2 dismissed) stuck below
+  // 100% forever, so a completed backlog read as perpetually incomplete.
+  const actionable = total - dismissed;
+  const pct = actionable ? Math.round((done / actionable) * 100) : 100;
 
   function clearError(id: string) {
     setErrors((e) => {
@@ -92,7 +101,7 @@ export function RecommendationTracker({
               : "Couldn’t save that change. Check your connection and retry.";
         rollback(); // revert ONLY this row
         setErrors((e) => ({ ...e, [id]: { status, kind, message } }));
-        setAnnouncement(`Couldn’t update “${title}”: ${message}`);
+        announce(id, `Couldn’t update “${title}”: ${message}`);
         return;
       }
       // Reconcile from the authoritative server row so the displayed status + the done/total count
@@ -100,14 +109,14 @@ export function RecommendationTracker({
       // we optimistically sent. Was: keep the optimistic value + discard the response.
       const saved = (await res.json().catch(() => null)) as PersistedRecommendation | null;
       if (saved?.status) setItems((cur) => applyOptimisticStatus(cur, id, saved.status));
-      setAnnouncement(`“${title}” marked ${STATUS_LABEL[status]}.`);
+      announce(id, `“${title}” marked ${STATUS_LABEL[status]}.`);
     } catch {
       rollback();
       setErrors((e) => ({
         ...e,
         [id]: { status, kind: "transient", message: "Couldn’t save that change. Check your connection and retry." },
       }));
-      setAnnouncement(`Couldn’t update “${title}”: network error.`);
+      announce(id, `Couldn’t update “${title}”: network error.`);
     } finally {
       setSaving(id, false);
     }
@@ -115,15 +124,10 @@ export function RecommendationTracker({
 
   return (
     <div className="space-y-3">
-      {/* Polite live region — announces every save success/failure for screen readers. */}
-      <div role="status" aria-live="polite" className="sr-only">
-        {announcement}
-      </div>
-
       <Surface radius="xl" className="p-4">
         <div className="flex items-center justify-between text-base">
           <span className="font-medium text-white">
-            {done} of {total} done
+            {done} of {actionable} done
             {dismissed > 0 && <span className="text-slate-500"> · {dismissed} dismissed</span>}
           </span>
           <span className="text-slate-400">{pct}%</span>
@@ -145,6 +149,11 @@ export function RecommendationTracker({
             className="rounded-xl border bg-surface/40 p-5"
             style={{ borderLeftWidth: 3, borderLeftColor: edge }}
           >
+            {/* Per-row polite live region — each save's success/failure is announced independently,
+                so overlapping saves on other rows can't clobber this one's message. */}
+            <div role="status" aria-live="polite" className="sr-only">
+              {announcements[item.id] ?? ""}
+            </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className={`font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
                 {item.title}
@@ -158,8 +167,10 @@ export function RecommendationTracker({
                   disabled={saving}
                   onChange={(e) => setStatus(item.id, e.target.value as RecStatus)}
                   aria-label="Recommendation status"
+                  // Render in a high-contrast token rather than the status accent: the dark accents
+                  // (Open #64748b, Dismissed #475569) on bg-slate-950 fell to ~2.4:1, below WCAG
+                  // 1.4.3. The accent still cues status via the row's left-edge bar above.
                   className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-                  style={{ color: STATUS_ACCENT[item.status] }}
                 >
                   {(Object.keys(STATUS_LABEL) as RecStatus[]).map((s) => (
                     <option key={s} value={s} className="text-slate-200">

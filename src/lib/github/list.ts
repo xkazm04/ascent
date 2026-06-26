@@ -2,7 +2,12 @@
 // bulk import (/api/org/import). Lists a public org's (falling back to a user's) repos,
 // most-recently-pushed first, filtering out forks and archived repos.
 
-import { ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+import { fetchWithTimeout, ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+
+// Per-page request timeout so a stalled GitHub connection (TCP accepted, response never arrives —
+// the same partial-outage mode that hangs discovery) can't hang /api/org/repos or /api/org/import
+// (github-repo-data-access #1). Bounds each page fetch; the caller's optional signal aborts too.
+const TIMEOUT_MS = 12_000;
 
 export interface OrgRepoListItem {
   owner: string;
@@ -53,8 +58,9 @@ export class GitHubListError extends Error {
   }
 }
 
-/** Parse the `rel="next"` URL out of a GitHub `Link` header, or null when there's no next page. */
-function nextPageUrl(link: string | null): string | null {
+/** Parse the `rel="next"` URL out of a GitHub `Link` header, or null when there's no next page.
+ *  Exported so other GitHub layers (e.g. org discovery) reuse one Link-header parser. */
+export function nextPageUrl(link: string | null): string | null {
   if (!link) return null;
   for (const part of link.split(",")) {
     if (/rel="next"/.test(part)) {
@@ -67,7 +73,7 @@ function nextPageUrl(link: string | null): string | null {
 
 const MAX_LIST_PAGES = 5; // backfill across up to 5 pages of 100 before giving up on `count` results
 
-export async function listOrgRepos(org: string, count: number, token?: string): Promise<OrgRepoListItem[]> {
+export async function listOrgRepos(org: string, count: number, token?: string, signal?: AbortSignal): Promise<OrgRepoListItem[]> {
   if (!VALID_HANDLE.test(org)) {
     throw new GitHubListError(`Invalid GitHub org/user handle: "${org}"`, "NOT_FOUND");
   }
@@ -96,13 +102,20 @@ export async function listOrgRepos(org: string, count: number, token?: string): 
     let url: string | null = `${base}?sort=pushed&direction=desc&type=public&per_page=100`;
     let probed = false; // have we gotten a successful first page from this base?
     for (let page = 0; page < MAX_LIST_PAGES && url; page++) {
-      const res = await fetch(url, { headers });
+      const res = await fetchWithTimeout(url, { headers }, TIMEOUT_MS, signal);
       if (res.status === 404 && !probed) break; // not an org → try the /users/ base
       // Don't mask a rate limit / auth failure as "not found": surface a typed error so the route can
       // return 429/502 with a Retry-After instead of a misleading 404 for a real account.
       if (res.status === 403 || res.status === 429) {
-        const rateLimited = res.status === 429 || res.headers.get("x-ratelimit-remaining") === "0";
         const retryAfter = Number(res.headers.get("retry-after")) || undefined;
+        // A present Retry-After on a 403 is GitHub's SECONDARY (abuse) rate limit — x-ratelimit-remaining
+        // stays > 0, so keying only on remaining===0 misreported it as an AUTH/permissions denial ("GitHub
+        // denied listing"). Treat a present Retry-After as rate-limited too so callers back off rather than
+        // being told to fix permissions. (github-repo-data-access #2)
+        const rateLimited =
+          res.status === 429 ||
+          res.headers.get("x-ratelimit-remaining") === "0" ||
+          retryAfter !== undefined;
         throw new GitHubListError(
           rateLimited ? `GitHub rate limit hit while listing "${org}".` : `GitHub denied listing "${org}" (403).`,
           rateLimited ? "RATE_LIMITED" : "AUTH",

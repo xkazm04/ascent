@@ -56,7 +56,7 @@ logic lives in `src/lib/maturity/model.ts` + `src/lib/scoring/engine.ts`.
 
 ### Dimension detail
 
-#### D1 — AI Tooling & Conventions (18%)
+#### D1 — AI Tooling & Conventions (15%)
 *Signals (deterministic):* presence of `CLAUDE.md`, `AGENTS.md`, `.cursorrules` /
 `.cursor/rules`, `.github/copilot-instructions.md`, `.aider.conf.yml`, MCP config
 (`mcp.json`, `.mcp.json`), `.claude/` directory, prompt libraries, devcontainer with AI
@@ -64,7 +64,7 @@ tooling, Continue/Cline/Windsurf configs.
 *LLM assessment:* are the conventions substantive and current, or token? Do they encode
 real architectural/testing guidance an agent could follow?
 
-#### D2 — Automated Testing (18%)
+#### D2 — Automated Testing (15%)
 *Signals:* test directories/files (`__tests__`, `*.test.*`, `*_test.*`, `tests/`),
 frameworks (Jest, Vitest, Pytest, Go test, JUnit…), e2e (Playwright/Cypress),
 test-to-source file ratio, coverage config (`coverage`, `codecov.yml`), fixtures,
@@ -83,7 +83,7 @@ progressive delivery (Argo Rollouts/Flagger, feature-flag SDKs); versioned DB mi
 declarative, auditable, and reversible the path to production is — what lets autonomy
 compound.
 
-#### D4 — Agentic Workflows (16%)
+#### D4 — Agentic Workflows (12%)
 *Signals:* AI review bots (CodeRabbit, Claude/Copilot review, `claude-code-action`,
 Greptile, Sweep), LLM invocations inside CI workflows, auto-fix/auto-format bots,
 auto-PR tooling, Renovate/Dependabot **auto-merge**, issue→PR automation, agent configs
@@ -91,7 +91,7 @@ in CI.
 *LLM assessment:* how deeply are agents embedded — keyboard assist only (low), or
 autonomous review/fix/ship loops (high)?
 
-#### D5 — Documentation & Knowledge (12%)
+#### D5 — Documentation & Knowledge (9%)
 *Signals:* README size/sections, `/docs` or `/documentation`, ADRs
 (`docs/adr`, `decisions/`), `CHANGELOG.md`, `CONTRIBUTING.md`, API docs
 (OpenAPI/Swagger, typedoc), inline doc density, examples/, machine-readable docs.

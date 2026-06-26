@@ -29,6 +29,49 @@ export function Spinner({ size = 18 }: { size?: number }) {
   );
 }
 
+/**
+ * The shared INNER body of both sign-in CTAs: the GitHub-mark↔spinner crossfade, the label, and the
+ * polite SR status region. Previously copy-pasted verbatim into both the `<a>` (custom OAuth) and the
+ * `<button>` (Supabase) wrappers, so a polish tweak (spinner timing, focus ring) had to be made twice
+ * and could drift. Each wrapper now supplies only its distinct element + handler and renders this body.
+ */
+export function SignInButtonChrome({
+  pending,
+  idleLabel,
+  busyLabel,
+  variant,
+}: {
+  pending: boolean;
+  idleLabel: string;
+  busyLabel: string;
+  variant: SignInButtonVariant;
+}) {
+  const iconSize = SIGN_IN_VARIANTS[variant].icon;
+  return (
+    <>
+      <span className="relative inline-flex items-center justify-center" style={{ width: iconSize, height: iconSize }}>
+        <span className={`absolute inline-flex transition-opacity duration-150 ${pending ? "opacity-0" : "opacity-100"}`}>
+          <GitHubMark size={iconSize} />
+        </span>
+        <span className={`absolute inline-flex transition-opacity duration-150 ${pending ? "opacity-100" : "opacity-0"}`}>
+          <Spinner size={iconSize} />
+        </span>
+      </span>
+      <span className="transition-opacity duration-150">{pending ? busyLabel : idleLabel}</span>
+      <span role="status" aria-live="polite" className="sr-only">
+        {pending ? busyLabel : ""}
+      </span>
+    </>
+  );
+}
+
+/** The shared OUTER class string for both sign-in CTAs (focus ring, layout, variant box, pending state). */
+export function signInBoxClass(variant: SignInButtonVariant, pending: boolean, className = ""): string {
+  return `focus-ring inline-flex items-center justify-center gap-2 transition ${SIGN_IN_VARIANTS[variant].box} ${
+    pending ? "cursor-wait opacity-70" : ""
+  } ${className}`;
+}
+
 export const SIGN_IN_VARIANTS: Record<SignInButtonVariant, { box: string; icon: number; idle: string; busy: string }> = {
   primary: {
     box: "rounded-xl bg-accent px-5 py-2.5 text-base font-semibold text-on-accent hover:bg-accent-soft",

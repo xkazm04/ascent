@@ -72,7 +72,13 @@ export function DevInspector() {
   const [copyOk, setCopyOk] = useState(true);
   const [mounted, setMounted] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const navTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Live mirror of `mode` so the (subscribe-once) keydown handler never reads a stale closure: written
+  // synchronously on every keystroke transition below, and synced here as a backstop for the timer-driven
+  // auto-off. A rapid ';'→'i' can't miss arming on a not-yet-committed render.
+  const modeRef = useRef<Mode>(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => setMounted(true), []);
 
@@ -84,7 +90,9 @@ export function DevInspector() {
     copiedTimer.current = setTimeout(() => setCopied(null), 1800);
   }, []);
 
-  // `;` enters keyboard mode, then `i` arms the inspector; Esc exits.
+  // `;` enters keyboard mode, then `i` arms the inspector; Esc exits. Subscribed once (no `mode` dep) and
+  // driven off `modeRef` so there's no add/remove gap between a `;` dispatch and a re-subscribe where the
+  // handler would still see the old `mode` — `modeRef` is updated synchronously on each transition.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
@@ -92,33 +100,38 @@ export function DevInspector() {
 
       if (e.key === ";") {
         e.preventDefault();
-        clearTimeout(navTimer.current);
-        setMode((m) => {
-          if (m === "nav") return "off";
-          if (m === "armed") return "armed"; // already inspecting; ignore
-          navTimer.current = setTimeout(() => {
-            setMode((cur) => (cur === "nav" ? "off" : cur));
-          }, 2000);
-          return "nav";
-        });
+        // nav→off, off→nav, armed unchanged. Computed from the live ref (not the setMode updater, so the
+        // reducer stays pure); the 2s auto-off is scheduled by the effect below keyed on mode === "nav".
+        const next: Mode = modeRef.current === "armed" ? "armed" : modeRef.current === "nav" ? "off" : "nav";
+        modeRef.current = next;
+        setMode(next);
         return;
       }
 
-      if ((e.key === "i" || e.key === "I") && mode === "nav") {
+      if ((e.key === "i" || e.key === "I") && modeRef.current === "nav") {
         e.preventDefault();
-        clearTimeout(navTimer.current);
+        modeRef.current = "armed";
         setMode("armed");
         return;
       }
 
-      if (e.key === "Escape" && mode !== "off") {
-        clearTimeout(navTimer.current);
+      if (e.key === "Escape" && modeRef.current !== "off") {
+        modeRef.current = "off";
         setMode("off");
       }
     };
 
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
+  // Auto-exit nav mode after 2s if the second key isn't pressed. Lives in an effect (not the setMode
+  // updater) so the reducer stays pure: the timer is set on entering nav and cleared on cleanup, so it
+  // can't be double-scheduled/leaked, and switching to armed/off cancels it.
+  useEffect(() => {
+    if (mode !== "nav") return;
+    const t = setTimeout(() => setMode((cur) => (cur === "nav" ? "off" : cur)), 2000);
+    return () => clearTimeout(t);
   }, [mode]);
 
   // Hover highlight + right-click copy, only while armed.
@@ -160,12 +173,40 @@ export function DevInspector() {
       void doCopy(pick.loc);
     };
 
+    // The highlight/label rects are captured from getBoundingClientRect on mousemove and rendered as
+    // position:fixed. Scroll/resize/reflow move the underlying elements WITHOUT firing mousemove, so
+    // the boxes would freeze at stale viewport coordinates and point at the wrong element. Re-measure
+    // from the stored chain elements (already in `hover`) on a rAF tick so the boxes track the element.
+    let raf = 0;
+    const reposition = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setHover((h) => {
+          if (!h) return h;
+          const pointerEl = h.chain[0]?.el;
+          if (!pointerEl || !pointerEl.isConnected) return null; // detached by a re-render → drop it
+          const targetEl = h.chain[h.defaultIndex]?.el ?? pointerEl;
+          return {
+            ...h,
+            pointerRect: pointerEl.getBoundingClientRect(),
+            targetRect: targetEl.getBoundingClientRect(),
+          };
+        });
+      });
+    };
+
     document.addEventListener("mousemove", onMove, true);
     document.addEventListener("contextmenu", onContextMenu, true);
+    // capture:true so scrolls inside any nested scroll container (not just the window) re-measure too.
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
     return () => {
       document.body.style.cursor = prevCursor;
       document.removeEventListener("mousemove", onMove, true);
       document.removeEventListener("contextmenu", onContextMenu, true);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+      cancelAnimationFrame(raf);
       setHover(null);
     };
   }, [mode, doCopy]);
@@ -173,7 +214,6 @@ export function DevInspector() {
   useEffect(
     () => () => {
       clearTimeout(copiedTimer.current);
-      clearTimeout(navTimer.current);
     },
     [],
   );
@@ -201,7 +241,10 @@ export function DevInspector() {
         <HighlightBox rect={hover.pointerRect} variant="pointer" />
       )}
       {hover && <HighlightBox rect={hover.targetRect} variant="target" />}
-      {hover && defaultLoc && <SourceLabel rect={hover.pointerRect} loc={defaultLoc} />}
+      {/* Anchor the chip to the TARGET box (cyan) — it shows defaultLoc, which is the target/call-site
+          element's path and shares the cyan colour. Pinning it to pointerRect floated the cyan label
+          over the purple pointer box, breaking the colour→region association. */}
+      {hover && defaultLoc && <SourceLabel rect={hover.targetRect} loc={defaultLoc} />}
 
       <InspectorHud
         copied={copied}

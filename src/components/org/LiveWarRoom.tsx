@@ -92,6 +92,10 @@ export function LiveWarRoom({
   const idRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Wall-clock deadline for the next auto-relaunch (war-room #2). Survives effect re-runs so a
+  // visibility flip / dependency churn resumes the REMAINING time instead of restarting the full
+  // 15-min interval (which let a frequently backgrounded wall perpetually defer and never relaunch).
+  const nextRunAtRef = useRef<number | null>(null);
 
   // Tear down any in-flight scan + pending celebration timers on unmount.
   useEffect(() => {
@@ -231,14 +235,23 @@ export function LiveWarRoom({
         setPhase(sawError ? "error" : "done");
       }
     } catch {
+      // Only the run that still OWNS abortRef may write terminal phase/error. A stale aborted run
+      // settling AFTER a newer launch took ownership must leave the new run's "running" state alone
+      // (it previously overwrote it to "idle", which is what enabled the duplicate-scan window).
+      if (abortRef.current !== ctrl) return; // superseded by a newer run
       if (ctrl.signal.aborted) {
-        setPhase("idle");
+        setPhase("idle"); // our own Stop
         return;
       }
       setError("Network error.");
       setPhase("error");
     } finally {
-      abortRef.current = null;
+      // Guard ownership: only clear abortRef if THIS run still owns it. Without the check, a stale
+      // run's finally (firing a microtask after Stop→relaunch handed ownership to ctrl2) nulled out
+      // ctrl2 — which let the next Launch slip past the `if (abortRef.current) return` concurrency
+      // guard and start a duplicate full-fleet scan (double-billing credits) while leaving Stop's
+      // `abortRef.current?.abort()` a no-op. (live-war-room #1)
+      if (abortRef.current === ctrl) abortRef.current = null;
     }
   }, [onRepo, slug, watchedCount, scanRepos]);
 
@@ -268,8 +281,22 @@ export function LiveWarRoom({
     // wall would otherwise keep firing a full fleet scan every 15 min, silently burning prepaid
     // credits with no one watching. Page Visibility gates the timer; visibilitychange re-arms it on
     // focus (the effect re-runs because `visible` flips).
-    if (!autoLoop || phase === "running" || readOnly || !visible) return; // readOnly can't scan, so never loop
-    const t = setTimeout(() => void launch(), LOOP_MS);
+    //
+    // Disarmed (toggle off, mid-run, or read-only): drop the deadline so the NEXT arming starts a
+    // fresh full interval — e.g. a run finishing schedules 15 min from then, not a stale pre-run
+    // deadline. A HIDDEN tab is NOT disarmed: keep the deadline so focus resumes the remaining time
+    // rather than restarting the full 15 min on every visibility flip (the bug that let a frequently
+    // backgrounded wall perpetually defer the relaunch).
+    if (!autoLoop || phase === "running" || readOnly) {
+      nextRunAtRef.current = null;
+      return; // readOnly can't scan, so never loop
+    }
+    if (!visible) return; // paused while hidden — preserve the existing deadline
+    if (nextRunAtRef.current == null) nextRunAtRef.current = Date.now() + LOOP_MS;
+    const t = setTimeout(() => {
+      nextRunAtRef.current = null; // consumed — the next arming after this run starts a fresh interval
+      void launch();
+    }, Math.max(0, nextRunAtRef.current - Date.now()));
     return () => clearTimeout(t);
   }, [autoLoop, phase, launch, LOOP_MS, readOnly, visible]);
 

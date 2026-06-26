@@ -72,6 +72,12 @@ export function cacheGet(key: string): ScanReport | null {
 }
 
 export function cacheSet(key: string, report: ScanReport): void {
+  // Refresh LRU recency (mirrors headHintSet + cacheGet): delete-then-set moves an existing key to the
+  // MRU tail so re-caching a hot commit (e.g. a fresh=1 re-test of an unchanged sha) isn't evicted
+  // before colder entries. Deleting first also means the capacity check below only evicts on a TRUE
+  // growth (a genuinely new key) — an overwrite that won't grow the map no longer needlessly drops a
+  // valid cached scan.
+  store.delete(key);
   if (store.size >= MAX_ENTRIES) {
     const oldest = store.keys().next().value;
     if (oldest) store.delete(oldest);

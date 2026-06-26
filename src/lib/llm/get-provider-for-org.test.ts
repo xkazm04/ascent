@@ -5,8 +5,8 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockResolve } = vi.hoisted(() => ({ mockResolve: vi.fn() }));
-vi.mock("@/lib/db/org-llm", () => ({ resolveByomProvider: mockResolve }));
+const { mockResolve, mockIsActive } = vi.hoisted(() => ({ mockResolve: vi.fn(), mockIsActive: vi.fn() }));
+vi.mock("@/lib/db/org-llm", () => ({ resolveByomProvider: mockResolve, isByomActive: mockIsActive }));
 
 import { getProviderForOrg } from "@/lib/llm";
 
@@ -16,6 +16,8 @@ beforeEach(() => {
   delete process.env.GEMINI_API_KEY;
   delete process.env.GOOGLE_API_KEY;
   process.env.LLM_PROVIDER = "auto";
+  // Default: BYOM not active. The fail-closed throw only fires when resolve fails AND BYOM is active.
+  mockIsActive.mockResolvedValue(false);
 });
 
 describe("getProviderForOrg", () => {
@@ -30,9 +32,19 @@ describe("getProviderForOrg", () => {
 
   it("falls back to the platform provider when no active BYOM (byom:false)", async () => {
     mockResolve.mockResolvedValue(null);
+    mockIsActive.mockResolvedValue(false); // BYOM not configured → platform fallback is correct
     const { provider, byom } = await getProviderForOrg("acme");
     expect(byom).toBe(false);
     expect(provider.name).toBe("mock"); // no platform key → mock
+  });
+
+  it("fails CLOSED when BYOM is active but its creds can't be resolved (no platform fallback)", async () => {
+    // ENCRYPTION_KEY rotated / decrypt failure / tampered blob: resolveByomProvider returns null but the
+    // org is still BYOM-active. Routing its private source through the env platform provider would breach
+    // the in-boundary privacy contract, so selection must THROW rather than silently degrade.
+    mockResolve.mockResolvedValue(null);
+    mockIsActive.mockResolvedValue(true);
+    await expect(getProviderForOrg("acme")).rejects.toThrow(/BYOM is enabled/i);
   });
 
   it("never consults BYOM for the public org", async () => {

@@ -70,8 +70,15 @@ export async function getUsageSummary(
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
 
+  // Canonicalize the slug ONCE up front. Org slugs are canonically lowercase (authz + the cap/panel
+  // logic on /usage already lowercase), but this lookup used the raw `?org=` value — so `/usage?org=Public`
+  // was treated as the public org by the page yet missed the `public` row here and rendered an empty
+  // "no scans metered yet" summary despite real data. Normalize so the DB lookup agrees with every
+  // downstream check. /api/usage shares this path, so it's fixed too.
+  const slug = orgSlug.trim().toLowerCase();
+
   const empty: UsageSummary = {
-    org: orgSlug,
+    org: slug,
     periodDays,
     totalScans: 0,
     periodScans: 0,
@@ -89,7 +96,7 @@ export async function getUsageSummary(
     lastScanAt: null,
   };
 
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
+  const org = await prisma.organization.findUnique({ where: { slug } });
   if (!org) return empty;
 
   // Anchor the window to UTC calendar days. `since` is the START of the oldest day shown on the
@@ -174,7 +181,7 @@ export async function getUsageSummary(
   }));
 
   return {
-    org: orgSlug,
+    org: slug,
     periodDays,
     totalScans: total,
     periodScans: period,

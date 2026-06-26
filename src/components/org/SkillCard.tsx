@@ -81,7 +81,7 @@ export function SkillCard({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <CopyForLlm text={s.content} label="Copy" onCopied={countCopy} />
+          <CopyForLlm text={s.content} label="Copy" ariaLabel={`Copy "${s.name}" for LLM`} onCopied={countCopy} />
           <a
             href={`/api/org/skills/${s.id}/download`}
             className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"

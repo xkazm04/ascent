@@ -32,6 +32,10 @@ vi.mock("@/lib/db", () => ({
   getOrgRecommendations: vi.fn(async () => null),
   getOrgBenchmark: vi.fn(async () => null),
   getCreditState: vi.fn(async () => null),
+  // Last-sent guard (at-most-once per window): getAuditLog reports whether a digest already went out
+  // this window; recordOrgAudit stamps it after a successful send. Default: nothing sent yet.
+  getAuditLog: vi.fn(async () => ({ entries: [] as unknown[], nextCursor: null })),
+  recordOrgAudit: vi.fn(async () => true),
 }));
 
 // ALERTS #1: the route noise-filters BOTH gainers and regressers before the movement-gate. Mock the
@@ -68,6 +72,8 @@ import {
   getOrgRecommendations,
   getOrgBenchmark,
   getCreditState,
+  getAuditLog,
+  recordOrgAudit,
 } from "@/lib/db";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
 import { isWithinNoise } from "@/lib/maturity/noise";
@@ -83,6 +89,8 @@ const mockCredit = vi.mocked(getCreditState);
 const mockDispatch = vi.mocked(dispatchAlert);
 const mockBuild = vi.mocked(buildFleetDigestMessage);
 const mockHasSignal = vi.mocked(digestHasSignal);
+const mockAuditLog = vi.mocked(getAuditLog);
+const mockRecordAudit = vi.mocked(recordOrgAudit);
 
 const SECRET = "digest-secret-xyz";
 
@@ -127,6 +135,8 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     mockCredit.mockResolvedValue(null);
     mockDispatch.mockResolvedValue(true);
     mockHasSignal.mockReturnValue(true);
+    mockAuditLog.mockResolvedValue({ entries: [], nextCursor: null });
+    mockRecordAudit.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -260,6 +270,50 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect((mockDispatch.mock.calls[0][1] as { webhookUrl?: string }).webhookUrl).toBe(
       "https://hooks.example.com/A",
     );
+  });
+
+  // ---- (5b) LAST-SENT GUARD — at-most-once dispatch per window (cron retry/overlap) ----
+
+  it("skips an org already sent a digest within the window — no rollup/build/dispatch (skippedAlreadySent++)", async () => {
+    mockListOrgs.mockResolvedValue(["orgSent", "orgFresh"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/X");
+    mockRollup.mockResolvedValue(rollupWith());
+    // orgSent already has a digest-sent audit entry in this window; orgFresh has none.
+    mockAuditLog.mockImplementation(async (org: string) =>
+      org === "orgSent"
+        ? { entries: [{ id: "a1" }] as unknown as never, nextCursor: null }
+        : { entries: [], nextCursor: null },
+    );
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+
+    // The already-sent org short-circuits BEFORE getOrgRollup; only orgFresh is processed + dispatched.
+    expect(body).toMatchObject({ orgs: 2, sent: 1, skippedAlreadySent: 1 });
+    expect(mockRollup).toHaveBeenCalledTimes(1);
+    expect(mockRollup.mock.calls[0][0]).toBe("orgFresh");
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("records a digest-sent audit entry ONLY after a successful dispatch (so a retry is idempotent)", async () => {
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue(rollupWith());
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockRecordAudit).toHaveBeenCalledTimes(1);
+    expect(mockRecordAudit.mock.calls[0][0]).toBe("org.digest.sent");
+    expect(mockRecordAudit.mock.calls[0][1]).toBe("orgA");
+  });
+
+  it("does NOT record a digest-sent entry when delivery failed (so the next run retries it)", async () => {
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockDispatch.mockResolvedValue(false);
+
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
   // ---- (6) PARTIAL-FAILURE ISOLATION — one org failing doesn't abort others ----
