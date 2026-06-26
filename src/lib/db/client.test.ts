@@ -223,8 +223,6 @@ describe("isDbUnavailableError", () => {
 
   it("matches the Prisma connection SQLSTATEs", () => {
     expect(isDbUnavailableError({ code: "P1001" })).toBe(true); // can't reach
-    expect(isDbUnavailableError({ code: "P1002" })).toBe(true); // reach timeout
-    expect(isDbUnavailableError({ code: "P1008" })).toBe(true); // op timeout
     expect(isDbUnavailableError({ code: "P1011" })).toBe(true); // TLS
     expect(isDbUnavailableError({ code: "P1017" })).toBe(true); // server closed
     expect(isDbUnavailableError({ meta: { code: "P1001" } })).toBe(true);
@@ -242,6 +240,16 @@ describe("isDbUnavailableError", () => {
     expect(isDbUnavailableError({ code: "P2002" })).toBe(false); // unique constraint — a real bug
     expect(isDbUnavailableError({ code: "23505" })).toBe(false);
     expect(isDbUnavailableError(new Error("unique constraint violated"))).toBe(false);
+  });
+
+  it("does NOT classify a query/connection TIMEOUT as unavailable (database-client-schema #3)", () => {
+    // P1008 (op timeout) and P1002 (reached-but-timed-out) fire on a LIVE-but-slow DB, not a dead one.
+    // Treating them as "unavailable" let dbReadSafe degrade a slow read to empty data (success theater);
+    // they must surface/retry instead. (These two assertions previously expected true — that pinned the
+    // bug.)
+    expect(isDbUnavailableError({ code: "P1008" })).toBe(false);
+    expect(isDbUnavailableError({ code: "P1002" })).toBe(false);
+    expect(isDbUnavailableError(new Error("The database server was reached but timed out"))).toBe(false);
   });
 });
 
@@ -268,6 +276,16 @@ describe("dbReadSafe", () => {
         throw { code: "P2002", message: "Unique constraint failed" };
       }, null),
     ).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("re-throws a query TIMEOUT instead of degrading to empty data (database-client-schema #3)", async () => {
+    // P1008 fires on a live-but-slow DB (heavy query, pool saturation, DSQL latency). Degrading it to
+    // the empty fallback renders plausible-but-wrong "no data"; it must surface, not be swallowed.
+    await expect(
+      dbReadSafe(async () => {
+        throw { code: "P1008", message: "Operations timed out" };
+      }, null),
+    ).rejects.toMatchObject({ code: "P1008" });
   });
 });
 

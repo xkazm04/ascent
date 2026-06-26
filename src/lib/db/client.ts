@@ -180,9 +180,16 @@ export function isSerializationConflictError(err: unknown): boolean {
  * PrismaClientInitializationError at connect time ("Can't reach database server at localhost:5432").
  * Left unhandled that crashes every DB-reading page/route the moment the local Postgres (or a prod
  * DB during an outage) isn't up. Matches that error class by name, the Prisma connection SQLSTATEs
- * (P1001 can't-reach, P1002 reach-timeout, P1008 op-timeout, P1011 TLS, P1017 server-closed), and the
- * connection-refused messages. Pure + exported for unit testing. Distinct from isAuthExpiryError (a
- * live server rejecting credentials) and isSerializationConflictError (a live server's OCC abort).
+ * (P1001 can't-reach, P1011 TLS, P1017 server-closed), and the connection-refused messages. Pure +
+ * exported for unit testing. Distinct from isAuthExpiryError (a live server rejecting credentials) and
+ * isSerializationConflictError (a live server's OCC abort).
+ *
+ * NOT included (database-client-schema #3): a query/connection TIMEOUT — P1008 ("Operations timed
+ * out") and P1002 ("server was reached but timed out"). Those fire routinely on a LIVE-but-slow DB (a
+ * heavy org rollup, pool saturation under a fleet scan, DSQL latency), not only when the server is
+ * down. Classifying them as "unavailable" let {@link dbReadSafe} degrade a slow read to its empty
+ * fallback — rendering plausible-but-wrong "no data" (success theater) instead of surfacing the error
+ * or retrying. A timeout is "this query was too slow", not "the server is gone", so it must propagate.
  */
 export function isDbUnavailableError(err: unknown): boolean {
   if (err == null) return false;
@@ -190,7 +197,7 @@ export function isDbUnavailableError(err: unknown): boolean {
     typeof err === "object" && "name" in err ? (err as { name?: unknown }).name : undefined;
   if (name === "PrismaClientInitializationError") return true;
   const { code, message } = errorInfo(err);
-  if (code && (code === "P1001" || code === "P1002" || code === "P1008" || code === "P1011" || code === "P1017")) {
+  if (code && (code === "P1001" || code === "P1011" || code === "P1017")) {
     return true;
   }
   const m = message.toLowerCase();
@@ -198,8 +205,7 @@ export function isDbUnavailableError(err: unknown): boolean {
     m.includes("can't reach database server") ||
     m.includes("cannot reach database server") ||
     m.includes("connection refused") ||
-    m.includes("econnrefused") ||
-    m.includes("the database server was reached but timed out")
+    m.includes("econnrefused")
   );
 }
 
