@@ -28,6 +28,7 @@ import { PUBLIC_ORG } from "@/lib/auth";
 import { isWithinNoise } from "@/lib/maturity/noise";
 import { levelForScore } from "@/lib/maturity/model";
 import { forecastHeadline } from "@/lib/maturity/forecast";
+import { resolveWindow, weekRangeParams } from "@/lib/window";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,8 +56,16 @@ export async function GET(request: Request) {
 
   const base = (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
   const orgs = await listOrgsWithWatchedRepos();
-  const windowStart = new Date(Date.now() - 7 * 86_400_000);
-  const win: OrgWindow = { start: windowStart, end: null };
+  // Derive "this week" from the SHARED period helper (a custom range snapped to local calendar days)
+  // instead of a hand-rolled rolling 168h offset, so the digest's "+N this week" deltas and the
+  // executive page it links to (which resolves the same ?range=custom&from=&to=) agree on identical
+  // period boundaries rather than disagreeing by up to a day. (fleet-alerts-digests #5)
+  const weekParams = weekRangeParams();
+  const period = resolveWindow(weekParams);
+  const windowStart = period.start ?? new Date(Date.now() - 7 * 86_400_000);
+  const win: OrgWindow = { start: period.start, end: period.end };
+  // Query string that makes the linked briefing reproduce the digest's exact window.
+  const periodQs = `range=custom&from=${weekParams.from}&to=${weekParams.to}`;
 
   let sent = 0;
   let skippedNoSink = 0;
@@ -117,8 +126,9 @@ export async function GET(request: Request) {
       const top = recs?.[0];
       const msg = buildFleetDigestMessage({
         org,
-        // Link straight to the exec briefing — the digest is its push-channel summary.
-        url: base ? `${base}/org/${encodeURIComponent(org)}/executive` : undefined,
+        // Link straight to the exec briefing — the digest is its push-channel summary. Carry the same
+        // ?range=custom&from=&to= so the page reproduces the digest's exact "this week" window.
+        url: base ? `${base}/org/${encodeURIComponent(org)}/executive?${periodQs}` : undefined,
         repoCount: rollup.repoCount,
         scannedCount: rollup.scannedCount,
         avgOverall: rollup.avgOverall,

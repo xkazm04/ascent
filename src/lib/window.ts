@@ -82,6 +82,27 @@ function parseDay(s: string | undefined): Date | null {
 
 const first = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
 
+/** Format a Date as the local-calendar `yyyy-mm-dd` the custom-range inputs use (round-trips parseDay). */
+function toDayInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * The trailing-week window as `?range=custom&from=&to=` params, snapped to LOCAL CALENDAR DAYS so it
+ * shares the dashboard's boundary semantics instead of a raw rolling 168h offset. `from` is 6 days
+ * before today (inclusive) and `to` is today, i.e. a 7-day inclusive span. Feeding these through
+ * resolveWindow (or the executive URL) makes a "this week" push and the page it links to agree on the
+ * exact same period boundaries. (fleet-alerts-digests #5)
+ */
+export function weekRangeParams(now: Date = new Date()): { range: "custom"; from: string; to: string } {
+  const today = startOfDay(now);
+  const from = new Date(today.getTime() - 6 * DAY);
+  return { range: "custom", from: toDayInput(from), to: toDayInput(today) };
+}
+
 /**
  * Resolve the `?range=…&from=…&to=…` search params into a concrete window. Unknown ranges fall
  * back to the default. `now` is injectable for testing; callers pass nothing in production.
