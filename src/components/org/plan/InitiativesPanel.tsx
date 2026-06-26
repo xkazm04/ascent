@@ -134,6 +134,7 @@ export function InitiativesPanel({
                 <select
                   value={i.status}
                   onChange={(e) => patch(i.id, { status: e.target.value })}
+                  aria-label={`Status for ${i.title}`}
                   className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
                 >
                   {REC_STATUSES.map((s) => (
@@ -156,6 +157,7 @@ export function InitiativesPanel({
                       if (v !== (i.assigneeLogin ?? "")) patch(i.id, { assigneeLogin: v || null });
                     }}
                     placeholder="assignee"
+                    aria-label={`Assignee GitHub login for ${i.title}`}
                     className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-600"
                   />
                 </label>

@@ -183,9 +183,10 @@ export function GoalsPanel({
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="e.g. Reach AI-Native by Q3"
+          aria-label="Goal name"
           className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
         />
-        <select value={metric} onChange={(e) => setMetric(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
+        <select value={metric} onChange={(e) => setMetric(e.target.value)} aria-label="Goal metric" className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
           {metricOptions.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
