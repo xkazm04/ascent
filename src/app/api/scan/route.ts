@@ -11,7 +11,7 @@ import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
 import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { consumeScanCredit, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
-import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";
@@ -49,6 +49,21 @@ async function runScan(
   // and no-signup. No-op when the gate is disabled (Supabase unconfigured / dev bypass).
   if (orgSlug !== "public" && authGateEnabled() && !(await getViewer())) {
     return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
+  }
+
+  // Throttle the cache-only "peek" hydration probe too. The cache lookup below issues a GitHub head
+  // request — a REAL, non-304 one for a never-before-seen repo — against the operator PAT, plus 1-2 DB
+  // reads, before the peek returns 204. That is cheap per request but an anonymous client looping
+  // distinct repo URLs can exhaust the shared GitHub budget at no cost to itself. Cap the peek path on
+  // its own generous budget (PEEK_RATE_LIMIT) WITHOUT consuming the weekly free-scan quota; the
+  // expensive full-scan path keeps its stricter limiter + quota below. Must run BEFORE the cache lookup
+  // so the head request itself is rate-limited, not just the 204.
+  if (opts.peek && opts.req) {
+    const rl = rateLimitRequest(opts.req, PEEK_RATE_LIMIT);
+    if (!rl.ok) {
+      void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // observability on the throttled peek path
+      return tooManyRequests(rl.retryAfterSec);
+    }
   }
 
   // Only cache anonymous (tokenless) scans — installation scans are per-tenant. The shared

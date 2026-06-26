@@ -107,6 +107,18 @@ export const SCAN_RATE_LIMIT: RateLimitConfig = {
   windowMs: 60_000,
 };
 
+// The /report cache-only "peek" probe (cheap hydration before a live scan) is light PER request, but it
+// still spends one GitHub head request against the operator PAT for a never-before-seen repo plus 1-2 DB
+// reads, then returns 204 — so an anonymous client looping distinct repo URLs is a no-cost amplification
+// lever on the shared GitHub budget. Throttle it on its OWN generous budget (well above the full-scan cap
+// so real hydration never trips) and WITHOUT consuming the weekly free-scan quota. Env-overridable.
+export const PEEK_RATE_LIMIT: RateLimitConfig = {
+  name: "scan-peek",
+  perIp: envInt("RATE_LIMIT_PEEK_PER_IP", 60),
+  global: envInt("RATE_LIMIT_PEEK_GLOBAL", 600),
+  windowMs: 60_000,
+};
+
 // Org import bulk-scans up to 100 repos per call — far more expensive, so limit it harder.
 export const ORG_IMPORT_RATE_LIMIT: RateLimitConfig = {
   name: "org-import",
