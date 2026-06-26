@@ -901,6 +901,43 @@ describe("purgeExpiredData — fleet-wide opt-in safety (a misconfig can't silen
     );
   });
 
+  it("pages the repo enumeration with an id cursor instead of one unbounded findMany (finding #5)", async () => {
+    // A fleet org's repo list must never be pulled all at once. Simulate >1 page: the mock honors
+    // take + cursor so a full first page (matching REPO_PAGE_SIZE=500) forces a second fetch that
+    // returns a short page, ending the loop. We assert findMany was called more than once and that the
+    // second call carried a cursor positioned past the first page's last id.
+    const PAGE = 500;
+    const page1 = Array.from({ length: PAGE }, (_, i) => ({ id: `repo_${String(i).padStart(4, "0")}` }));
+    const page2 = [{ id: "repo_0500" }]; // short page → terminates
+    const repoCalls: Array<{ cursor?: string; take?: number }> = [];
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_on", slug: "on", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: {
+        findMany: vi.fn(
+          async (args: { take?: number; cursor?: { id: string } }) => {
+            repoCalls.push({ cursor: args.cursor?.id, take: args.take });
+            return args.cursor ? page2 : page1;
+          },
+        ),
+      },
+      scan: { findMany: vi.fn(async () => []) }, // no stale scans → no deletes, just exercising paging
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await purgeExpiredData();
+
+    // More than one page was fetched, the second positioned by a cursor past page1's last id.
+    expect(repoCalls.length).toBe(2);
+    expect(repoCalls[0]!.cursor).toBeUndefined();
+    expect(repoCalls[0]!.take).toBe(PAGE);
+    expect(repoCalls[1]!.cursor).toBe("repo_0499"); // last id of the full first page
+  });
+
   it("a configured org with nothing currently expired writes NO audit entry (finding #4)", async () => {
     // org_on has a real policy, but no repos/scans are stale this tick → zero deletes. Previously the
     // job wrote an all-zero `retention.purged` AuditLog row for it every cron tick, forever — audit

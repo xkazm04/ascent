@@ -35,6 +35,8 @@ const RETENTION_MAX_BATCH_SIZE = 5000;
 /** Wall-clock budget for the per-org loop. Stays comfortably under the route's maxDuration (300s) so
  *  the run finishes cleanly instead of being killed mid-delete by the platform. (data-retention #2) */
 const RETENTION_DEFAULT_TIME_BUDGET_MS = 250_000;
+/** Repos enumerated per page when pruning an org, so a fleet org's repo list is never read all at once. */
+const REPO_PAGE_SIZE = 500;
 
 /** An effective retention policy. A window of `0` means "keep everything" (disabled). */
 export interface RetentionPolicy {
@@ -300,13 +302,31 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
       let auditDeleted = 0;
 
       if (policy.maxScansPerRepo > 0) {
-        const repos = await prisma.repository.findMany({ where: { orgId: org.id }, select: { id: true } });
-        for (const repo of repos) {
-          const r = await pruneRepoScans(prisma, repo.id, policy.maxScansPerRepo, policy.batchSize);
-          scansDeleted += r.scans;
-          dimensionsDeleted += r.dimensions;
-          recommendationsDeleted += r.recommendations;
-          recommendationEventsDeleted += r.events;
+        // Page the repo enumeration with a stable id cursor (data-retention #5): the prior single
+        // unbounded findMany pulled EVERY repo id for the org into memory at once — a fleet org
+        // watching thousands of repos is a large read that compounds the timeout/memory exposure the
+        // scan SELECT was already paged to avoid. Fetch a bounded page, prune it, advance past the
+        // last id; stop on a short page. Keep per-repo pruning serial so DSQL conflict pressure stays
+        // bounded (each prune is itself batched + retry-on-conflict).
+        let repoCursor: string | undefined;
+        for (;;) {
+          const repos = await prisma.repository.findMany({
+            where: { orgId: org.id },
+            orderBy: { id: "asc" },
+            select: { id: true },
+            take: REPO_PAGE_SIZE,
+            ...(repoCursor ? { cursor: { id: repoCursor }, skip: 1 } : {}),
+          });
+          if (repos.length === 0) break;
+          for (const repo of repos) {
+            const r = await pruneRepoScans(prisma, repo.id, policy.maxScansPerRepo, policy.batchSize);
+            scansDeleted += r.scans;
+            dimensionsDeleted += r.dimensions;
+            recommendationsDeleted += r.recommendations;
+            recommendationEventsDeleted += r.events;
+          }
+          if (repos.length < REPO_PAGE_SIZE) break;
+          repoCursor = repos[repos.length - 1]!.id;
         }
       }
 
