@@ -68,6 +68,7 @@ export function ScanStep({
   const [inviteErr, setInviteErr] = useState<string | null>(null);
 
   async function invite() {
+    if (inviteBusy) return; // guard the keyboard entry point too — the button's disabled prop can't
     const login = handle.trim().replace(/^@/, "");
     if (!login || !inviteOrg) return;
     setInviteBusy(true);
@@ -213,7 +214,7 @@ export function ScanStep({
                 <input
                   value={handle}
                   onChange={(e) => setHandle(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && invite()}
+                  onKeyDown={(e) => e.key === "Enter" && !inviteBusy && invite()}
                   placeholder="github-handle"
                   aria-label="Teammate's GitHub handle"
                   className="w-48 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
