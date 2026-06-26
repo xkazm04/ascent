@@ -25,6 +25,10 @@ export interface OrgSupplyChain {
   provider: "github" | "mock";
   /** True when the data is deterministic demo data (provider=mock), so the UI can label it honestly. */
   demo: boolean;
+  /** True when a github-mode run couldn't authenticate (no installation / token mint failed), so
+   *  `scanned: 0` means "couldn't reach GitHub", NOT "genuinely clean". The UI must surface this as a
+   *  transient error, never as an all-clear / not-enabled empty state. Never cached. */
+  degraded?: boolean;
   scanned: number; // repos we have advisory data for
   totals: AdvisoryCounts & { total: number };
   repos: RepoAdvisories[]; // worst-first (critical, then high, …)
@@ -100,8 +104,10 @@ function selectProvider(): SupplyChainProvider | null {
   }
 }
 
-// Small per-org TTL cache so live mode doesn't re-hit the GitHub API on every page render.
+// Small per-(org × scope) TTL cache so live mode doesn't re-hit the GitHub API on every page render.
+// Bounded so it can't grow without limit across tenants/scopes (the Map was previously never evicted).
 const CACHE_TTL_MS = 5 * 60_000;
+const CACHE_MAX = 256;
 const cache = new Map<string, { at: number; data: OrgSupplyChain }>();
 
 /**
@@ -130,6 +136,14 @@ export async function getOrgSupplyChain(orgSlug: string, techGroupId?: string | 
   if (provider.name === "github") {
     const id = await getInstallationIdForOwner(orgSlug).catch(() => null);
     token = id ? await getInstallationToken(id).catch(() => undefined) : undefined;
+    // No token → every fetchAdvisories returns null and the run collapses to scanned:0, which is
+    // INDISTINGUISHABLE from "genuinely zero advisories". Caching that empty result (as the code used
+    // to) serves a recoverable install/token blip as "supply chain clean / not enabled" for the full
+    // TTL — the most dangerous false signal in a security view. Return a distinct `degraded` state and
+    // do NOT cache it, so the next render re-attempts authentication.
+    if (!token) {
+      return { provider: "github", demo: false, degraded: true, scanned: 0, totals: { ...EMPTY, total: 0 }, repos: [] };
+    }
   }
 
   const rows = (
@@ -153,6 +167,12 @@ export async function getOrgSupplyChain(orgSlug: string, techGroupId?: string | 
     totals: { ...totals, total: sum(totals) },
     repos: rows.slice(0, 10),
   };
+  // Evict the oldest entry (Map preserves insertion order) once at capacity, so a long-lived process
+  // serving many orgs/scopes keeps the cache bounded instead of leaking an entry per tenant forever.
+  if (!cache.has(cacheKey) && cache.size >= CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
   cache.set(cacheKey, { at: Date.now(), data });
   return data;
 }

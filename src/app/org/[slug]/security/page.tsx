@@ -152,10 +152,27 @@ export default async function OrgSecurity({
         </Card>
       )}
 
+      {/* Degraded: a github-mode run couldn't authenticate (no install / token mint failed). scanned:0
+          here means "couldn't reach GitHub", NOT "clean / not enabled" — say so explicitly so a transient
+          blip isn't read as an all-clear, and do not fall through to the "not enabled" empty card. */}
+      {supply?.degraded && (
+        <Card>
+          <SectionHeader
+            size="sm"
+            title="Supply chain"
+            description="Open Dependabot advisories per repo — a separate signal that does NOT change the Security (D9) score."
+          />
+          <InlineEmpty>
+            Couldn’t load Dependabot advisories right now — the GitHub App installation or token was
+            unavailable for this request. This is NOT an all-clear; reload in a minute to retry.
+          </InlineEmpty>
+        </Card>
+      )}
+
       {/* Empty state (Nadia): when supply-chain scanning is OFF (or no advisory data yet) the card above
           silently vanished — so the tab looked like it simply had no supply-chain feature. Say so, and
           reinforce that this is a SEPARATE signal that does not change the D9 score. */}
-      {!(supply && supply.scanned > 0) && (
+      {!(supply && supply.scanned > 0) && !supply?.degraded && (
         <Card>
           <SectionHeader
             size="sm"
