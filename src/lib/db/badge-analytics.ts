@@ -11,6 +11,17 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 
+// Cap on distinct embedding hosts tracked per repo. The badge endpoint is unauthenticated and the host
+// is derived from the client-controlled, spoofable `Referer` header, so without a bound an attacker can
+// insert one new row per fake host (the upsert keys on (repo, host)) and grow the table without limit —
+// a storage-exhaustion / write-amplification abuse on the most-exposed public route. Real embeds spread
+// across far fewer hosts than this, so the cap is invisible to legitimate reach while making unbounded
+// host cardinality structurally impossible. Env-overridable.
+const MAX_HOSTS_PER_REPO = (() => {
+  const n = Number(process.env.BADGE_MAX_HOSTS_PER_REPO);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 200;
+})();
+
 /** Best-effort: bump the (repo, host) tally. Swallows every error — analytics must never break a badge. */
 export async function recordBadgeImpression(repoFullName: string, refererHost: string): Promise<void> {
   if (!isDbConfigured()) return;
@@ -18,13 +29,21 @@ export async function recordBadgeImpression(repoFullName: string, refererHost: s
   const host = (refererHost || "direct").toLowerCase().slice(0, 100);
   if (!repo.includes("/")) return;
   try {
-    await getPrisma().badgeImpression.upsert({
-      where: { repoFullName_refererHost: { repoFullName: repo, refererHost: host } },
-      update: { count: { increment: 1 }, lastSeen: new Date() },
-      create: { repoFullName: repo, refererHost: host, count: 1 },
+    const prisma = getPrisma();
+    // Bump an EXISTING (repo, host) tally in place — always allowed, since it grows no rows.
+    const updated = await prisma.badgeImpression.updateMany({
+      where: { repoFullName: repo, refererHost: host },
+      data: { count: { increment: 1 }, lastSeen: new Date() },
     });
+    if (updated.count > 0) return;
+    // A genuinely NEW host for this repo: only create a row while under the per-repo cap, so a flood of
+    // distinct spoofed Referer values can't grow the table without bound. Past the cap the new host is
+    // dropped rather than persisted (the tally is deliberately approximate — see the module note).
+    const hostCount = await prisma.badgeImpression.count({ where: { repoFullName: repo } });
+    if (hostCount >= MAX_HOSTS_PER_REPO) return;
+    await prisma.badgeImpression.create({ data: { repoFullName: repo, refererHost: host, count: 1 } });
   } catch {
-    /* best-effort tally — never surface to the public badge path */
+    /* best-effort tally — never surface to the public badge path (incl. a create racing the cap check) */
   }
 }
 
