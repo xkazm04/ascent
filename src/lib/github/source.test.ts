@@ -595,8 +595,10 @@ describe("fetchBranchGovernance — rule extraction + the readable-vs-null contr
 //     prior page's endCursor as `after`, accumulating up to `limit` nodes;
 //   - it STOPS on a short page (hasNextPage:false) OR an empty page (nodes:[]) — never loops forever
 //     (bounded by MAX_PAGES) and never over-fetches past `limit`;
-//   - `data.repository === null` (missing/denied repo) → break with whatever accumulated; a zero-PR
-//     repo → totalCount/nodes both empty, NOT a crash;
+//   - `data.repository === null` (missing/denied repo) on the FIRST page → THROWS (unreadable ≠ zero PRs:
+//     the scorer omits the PR dimensions rather than scoring a real zero); on a LATER page → break with
+//     whatever accumulated; a zero-PR repo (repository present, empty nodes, totalCount 0) → empty result,
+//     NOT a crash;
 //   - a non-2xx mid-pagination PROPAGATES (githubGraphql throws on !res.ok) — the partial pages already
 //     pushed are discarded by the throw, which is the real code's behaviour (the scan fails loudly
 //     rather than scoring a half-read window);
@@ -764,17 +766,40 @@ describe("fetchPullRequests — cursor pagination across pages, accumulating up 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("data.repository === null (missing/denied repo) → break with empty result, not a throw", async () => {
-    // GraphQL can resolve `data` with `repository:null` (repo not found / not visible to the token).
-    // The function must break cleanly and return an empty result, never dereference null.
+  it("data.repository === null on the FIRST page (missing/denied repo) → THROWS, not a silent zero (github-repo-data-access #3)", async () => {
+    // PREVIOUSLY this returned {totalCount:0, nodes:[]}, conflating "can't see this repo's PRs" with a
+    // genuinely zero-PR repo — the scorer then scored the review/collaboration dimension as if the team
+    // never opens PRs. GraphQL nulls `repository` when the token lacks access (or a node error blanked it),
+    // which on the first page is NOT an empty repo: fail loudly so the caller drops the PR-derived signals.
     const fetchMock = vi.fn(async (url: string) => {
       if (url !== GQL) throw new Error(`unexpected fetch: ${url}`);
       return res({ data: { repository: null } });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const out = await fetchPullRequests("o", "r", "tok", 40);
-    expect(out).toEqual({ totalCount: 0, nodes: [] });
+    await expect(fetchPullRequests("o", "r", "tok", 40)).rejects.toThrow(/not readable/i);
+  });
+
+  it("data.repository === null on a LATER page → stops with the nodes already accumulated (no throw)", async () => {
+    // Page 1 returns a full window with more to come; page 2 resolves repository:null (a transient node
+    // error AFTER we already have data). We keep what we read rather than discarding a good page or throwing.
+    let call = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url !== GQL) throw new Error(`unexpected fetch: ${url}`);
+      call++;
+      if (call === 1) {
+        return res(
+          gqlPage(Array.from({ length: 100 }, (_, k) => prNode(k)), { hasNextPage: true, endCursor: "cur0" }, 500),
+        );
+      }
+      return res({ data: { repository: null } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await fetchPullRequests("o", "r", "tok", 250);
+    expect(out.nodes).toHaveLength(100);
+    expect(out.totalCount).toBe(500); // captured from page 1
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("a NON-2xx mid-pagination (page 2 = 502) PROPAGATES — the scan fails loudly, not on a half-read window", async () => {
