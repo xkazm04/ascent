@@ -101,22 +101,22 @@ export async function updateRecommendation(
 
   const updated = await prisma.$transaction(async (tx) => {
     // Optimistic-concurrency guard: apply the update ONLY if the row still matches the pre-image we
-    // read. Two members editing the same row each read e.g. status="open" and both pass the change
-    // checks above; a plain update({where:{id}}) then commits last-write-wins, leaving the timeline +
-    // audit with BOTH transitions while the row reflects only one (lost update + a self-contradicting
-    // compliance trail — the exact divergence the in-tx audit was meant to prevent). Key the
-    // conditional update on the captured pre-image of every editable field; count===0 means a
-    // concurrent write landed first → throw a tagged conflict the route surfaces as 409 (the whole
-    // tx, incl. events + audit, rolls back) so the client refetches and retries, not silently overwrites.
-    const res = await tx.recommendation.updateMany({
-      where: {
-        id,
-        status: current.status,
-        assigneeLogin: current.assigneeLogin,
-        targetDate: current.targetDate,
-      },
-      data,
-    });
+    // read FOR THE FIELDS THIS PATCH WRITES. Two members editing the same row each read e.g.
+    // status="open" and both pass the change checks above; a plain update({where:{id}}) then commits
+    // last-write-wins, leaving the timeline + audit with BOTH transitions while the row reflects only
+    // one (lost update + a self-contradicting compliance trail — the exact divergence the in-tx audit
+    // was meant to prevent). Key the conditional update on the captured pre-image of ONLY the fields
+    // present in `data` — guarding the whole editable tuple raised a FALSE conflict whenever ANY other
+    // field moved concurrently (member A edits the assignee, member B the due date → B's where no
+    // longer matched and B got a spurious 409 though their field never conflicted). count===0 now
+    // means a concurrent write to one of THIS patch's own fields → throw a tagged conflict the route
+    // surfaces as 409 (the whole tx, incl. events + audit, rolls back) so the client refetches and
+    // retries, not silently overwrites.
+    const where: Prisma.RecommendationWhereInput = { id };
+    if ("status" in data) where.status = current.status;
+    if ("assigneeLogin" in data) where.assigneeLogin = current.assigneeLogin;
+    if ("targetDate" in data) where.targetDate = current.targetDate;
+    const res = await tx.recommendation.updateMany({ where, data });
     if (res.count === 0) {
       throw Object.assign(new Error("Recommendation changed concurrently — refresh and retry."), {
         code: "REC_CONFLICT",
