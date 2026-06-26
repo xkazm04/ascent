@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import {
   advanceScheduleAfterFailure,
+  advanceToFullCadence,
   claimRescan,
   getInstallationIdForOwner,
   getOrgId,
@@ -95,9 +96,11 @@ export async function GET(request: Request) {
     // Short-circuit a whole org whose installation token couldn't be minted (likely revoked/suspended):
     // don't reserve a credit, re-mint, or scan with no token (every private repo would 404, refund, and
     // get a 6h failure backoff — so the dead fleet was re-attempted EVERY daily cron pass). The claim
-    // above already advanced nextScanAt to the full cadence, so it now waits the cadence, not 6h.
+    // only LEASED the repo (15 min), so settle it to the full cadence here, so it waits the cadence
+    // rather than re-qualifying every run.
     if (brokenInstallOrgs.has(r.orgSlug)) {
       skippedNoToken += 1;
+      await advanceToFullCadence(r.repoId, r.scanSchedule).catch(() => {});
       await recordScanOutcome(r.orgSlug, r.fullName, { ok: false, error: "installation token unavailable" }).catch(() => {});
       return;
     }
@@ -120,6 +123,9 @@ export async function GET(request: Request) {
       const reservation = await reserveScanCredit(r.orgSlug, r.fullName);
       if (reservation.skip) {
         skippedForCredits += 1;
+        // Settle the lease to the full cadence (the claim only leased the repo): a credit-less org
+        // waits its cadence instead of re-qualifying and jamming the front of the queue every run.
+        await advanceToFullCadence(r.repoId, r.scanSchedule).catch(() => {});
         return;
       }
       charged = reservation.reserved;
@@ -144,7 +150,10 @@ export async function GET(request: Request) {
         const orgId = (await getOrgId(r.orgSlug).catch(() => null)) ?? undefined;
         await checkAndAlertRegression(prev, report, { orgId, orgSlug: r.orgSlug });
       }
-      // Schedule was already advanced to the full cadence by the claim above — nothing to do here.
+      // The claim only LEASED the repo (short window). Now that the scan completed, settle it to the
+      // full next cadence — so a run that died/timed out before reaching here re-qualifies after the
+      // lease instead of silently skipping a whole cadence.
+      await advanceToFullCadence(r.repoId, r.scanSchedule).catch(() => {});
       await recordScanOutcome(r.orgSlug, r.fullName, { ok: true }).catch(() => {});
       scanned += 1;
     } catch (err) {

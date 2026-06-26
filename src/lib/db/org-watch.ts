@@ -185,26 +185,50 @@ export async function listDueRescans(limit = 100): Promise<DueRescan[]> {
   return out;
 }
 
+// How far a claim leases a repo. Long enough to block an overlapping pass from re-claiming the same
+// repo mid-run, short enough that a repo whose run DIED/timed out between claim and scan re-qualifies on
+// the next cron pass rather than waiting a whole cadence (a month, for `monthly`).
+const CLAIM_LEASE_MS = 15 * 60_000; // 15 min
+
 /**
  * Atomically CLAIM a due repo BEFORE scanning it, so two overlapping cron runs (a long batch near the
  * 300s ceiling, a manual `?key=` retry, or a re-fired schedule) can't both pick up the same repo and
- * double-scan + double-bill it. The conditional `updateMany` advances `nextScanAt` to the next cadence
- * ONLY while the repo is still due (watched, scheduled, `nextScanAt` in the past); the first run to win
- * the DB-serialized update flips the repo out of the due window, so the loser's update matches 0 rows
- * and skips. This is cross-instance safe (unlike the process-local {@link withRepoLock}). Returns true
- * iff this caller won the claim. On a scan FAILURE the caller overrides this cadence with
- * {@link advanceScheduleAfterFailure}'s shorter backoff; on success the cadence set here stands, so a
- * separate post-success advance is unnecessary.
+ * double-scan + double-bill it. The conditional `updateMany` advances `nextScanAt` by a SHORT LEASE
+ * (not the full cadence) ONLY while the repo is still due (watched, scheduled, `nextScanAt` in the
+ * past); the first run to win the DB-serialized update leases the repo out of the due window, so the
+ * loser's update matches 0 rows and skips. Cross-instance safe (unlike the process-local
+ * {@link withRepoLock}). Returns true iff this caller won the claim.
+ *
+ * The lease (not full cadence) is deliberate: if this run dies or times out between the claim and the
+ * scan, the repo only waits the lease before becoming due again — instead of silently skipping a whole
+ * cadence with no error. The caller MUST settle the lease: {@link advanceToFullCadence} on a successful
+ * scan (or a deliberate cadence-skip like no-credit / broken-install), {@link advanceScheduleAfterFailure}
+ * on a scan failure (a 6h backoff, longer than the lease, so it wins).
  */
 export async function claimRescan(repoId: string, schedule: string): Promise<boolean> {
   if (!isDbConfigured()) return false;
-  const next = nextScanFor(schedule);
-  if (!next) return false; // "off"/unknown schedule isn't claimable (and listDueRescans excludes it)
+  if (!nextScanFor(schedule)) return false; // "off"/unknown schedule isn't claimable (and listDueRescans excludes it)
   const res = await getPrisma().repository.updateMany({
     where: { id: repoId, watched: true, scanSchedule: { not: "off" }, nextScanAt: { lte: new Date() } },
-    data: { nextScanAt: next },
+    data: { nextScanAt: new Date(Date.now() + CLAIM_LEASE_MS) },
   });
   return res.count === 1;
+}
+
+/**
+ * Settle a claimed repo to its FULL next cadence — call after a successful rescan, or a deliberate
+ * cadence-relevant skip (out of credits, broken installation), so the repo waits the real cadence
+ * rather than re-qualifying after the short {@link claimRescan} lease. A no-op for an off/unknown
+ * schedule or when persistence is off. Keyed by repo id, like claimRescan.
+ */
+export async function advanceToFullCadence(repoId: string, schedule: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  const next = nextScanFor(schedule);
+  if (!next) return;
+  await getPrisma().repository.update({
+    where: { id: repoId },
+    data: { nextScanAt: next },
+  });
 }
 
 /** Retry backoff after a FAILED autoscan. Critical for queue fairness: the schedule used to advance

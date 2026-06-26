@@ -127,6 +127,7 @@ export {
   rollupTeams,
   listDueRescans,
   advanceScheduleAfterFailure,
+  advanceToFullCadence,
   claimRescan,
   recordScanOutcome,
   recordConformance,

@@ -11,6 +11,7 @@ export {
   seedWatchlist,
   listDueRescans,
   advanceScheduleAfterFailure,
+  advanceToFullCadence,
   claimRescan,
   recordScanOutcome,
   recordConformance,

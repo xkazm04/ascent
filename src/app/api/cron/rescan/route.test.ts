@@ -39,6 +39,7 @@ vi.mock("@/lib/db", () => ({
   consumeScanCredit: vi.fn(),
   grantCredits: vi.fn(),
   advanceScheduleAfterFailure: vi.fn(),
+  advanceToFullCadence: vi.fn(),
   recordScanOutcome: vi.fn(),
   persistScanReport: vi.fn(),
   getScanReportByCommit: vi.fn(),
@@ -56,6 +57,7 @@ import {
   consumeScanCredit,
   grantCredits,
   advanceScheduleAfterFailure,
+  advanceToFullCadence,
   recordScanOutcome,
   persistScanReport,
   getScanReportByCommit,
@@ -73,6 +75,7 @@ const mockClaim = vi.mocked(claimRescan);
 const mockConsume = vi.mocked(consumeScanCredit);
 const mockGrant = vi.mocked(grantCredits);
 const mockAdvanceFail = vi.mocked(advanceScheduleAfterFailure);
+const mockAdvanceCadence = vi.mocked(advanceToFullCadence);
 const mockRecord = vi.mocked(recordScanOutcome);
 const mockPersist = vi.mocked(persistScanReport);
 const mockPrevReport = vi.mocked(getScanReportByCommit);
@@ -131,6 +134,7 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     mockGrant.mockResolvedValue(undefined as never);
     mockRecord.mockResolvedValue(undefined as never);
     mockAdvanceFail.mockResolvedValue(undefined as never);
+    mockAdvanceCadence.mockResolvedValue(undefined as never);
     vi.mocked(maybeAlertLowCredits).mockResolvedValue(undefined as never);
     vi.mocked(checkAndAlertRegression).mockResolvedValue(undefined as never);
   });
@@ -251,6 +255,25 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     const body = await bodyOf(res);
     expect(mockGrant).not.toHaveBeenCalled();
     expect(body.scanned).toBe(1);
+  });
+
+  // ---- (3b) LEASE-THEN-SETTLE — a successful scan advances to the FULL cadence ----
+
+  it("settles a successful scan to the full cadence (claim only LEASES; success advances)", async () => {
+    // claimRescan now leases the repo for a short window so a timed-out run re-qualifies soon; a
+    // successful scan must then advance it to its real cadence (and NOT take the failure backoff).
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(body.scanned).toBe(1);
+    expect(mockAdvanceCadence).toHaveBeenCalledWith("repo-1", "daily");
+    expect(mockAdvanceFail).not.toHaveBeenCalled();
+  });
+
+  it("does NOT advance to the full cadence when the scan THROWS (the short lease + 6h backoff stand)", async () => {
+    mockScan.mockRejectedValue(new Error("boom"));
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockAdvanceCadence).not.toHaveBeenCalled();
+    expect(mockAdvanceFail).toHaveBeenCalledWith("repo-1");
   });
 
   it("does NOT refund when the scan was never charged (no reservation → no scan, no refund)", async () => {
