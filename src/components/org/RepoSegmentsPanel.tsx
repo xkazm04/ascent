@@ -149,14 +149,25 @@ export function RepoSegmentsPanel({
   // Commit a rename + recolor in one PATCH. A blank name keeps the old one (recolor-only edits).
   async function saveEdit(id: string) {
     const next = editName.trim();
+    // Snapshot the prior name/color so a failed PATCH (403 for a viewer, validation reject, network drop)
+    // can be rolled back — otherwise the chip kept showing the new name/color the server never stored,
+    // i.e. phantom state until a manual refresh (the same hole toggle()/removeSegment() already close).
+    const prev = segments.find((x) => x.id === id);
+    const prevName = prev?.name;
+    const prevColor = prev?.color;
     setSegments((s) => s.map((x) => (x.id === id ? { ...x, name: next || x.name, color: editColor } : x)));
     setEditingId(null);
+    setError(null);
     const res = await fetch(`/api/org/segments/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...(next ? { name: next } : {}), color: editColor }),
     }).catch(() => null);
-    if (!res || !res.ok) setError((await res?.json().catch(() => ({})))?.error ?? "Failed to update segment.");
+    if (!res || !res.ok) {
+      // Restore just this segment with a functional updater so a concurrent edit to another isn't clobbered.
+      setSegments((s) => s.map((x) => (x.id === id ? { ...x, name: prevName ?? x.name, color: prevColor ?? x.color } : x)));
+      setError((await res?.json().catch(() => ({})))?.error ?? "Failed to update segment.");
+    }
   }
 
   // Auto-add every repo of the chosen language to the chosen segment, in one bulk call.
@@ -167,7 +178,11 @@ export function RepoSegmentsPanel({
     setAutoBusy(true);
     setError(null);
     // Optimistic: tag every matched repo + bump the segment count by the ones not already members.
-    const added = matched.filter((fn) => !(membership[fn] ?? []).includes(autoSeg)).length;
+    // Track exactly which repos we newly tagged so a failed bulkTagRepos (403 for a viewer, P2002, a
+    // network drop) can be reverted precisely — previously the catch only set `error` and left the chips
+    // + repoCount claiming memberships the server never stored, corrupting the Overview filter and the
+    // segment comparison until a manual refresh (toggle()/removeSegment() already roll back; this didn't).
+    const addedRepos = matched.filter((fn) => !(membership[fn] ?? []).includes(autoSeg));
     setMembership((m) => {
       const next = { ...m };
       for (const fn of matched) {
@@ -177,10 +192,18 @@ export function RepoSegmentsPanel({
       }
       return next;
     });
-    setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: x.repoCount + added } : x)));
+    setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: x.repoCount + addedRepos.length } : x)));
     try {
       await bulkTagRepos(autoSeg, { org: slug, fullNames: matched, member: true });
     } catch (e) {
+      // Undo only the memberships THIS call added (functional updaters, so a concurrent toggle of an
+      // unrelated repo isn't clobbered) and back out the count bump.
+      setMembership((m) => {
+        const next = { ...m };
+        for (const fn of addedRepos) next[fn] = (next[fn] ?? []).filter((id) => id !== autoSeg);
+        return next;
+      });
+      setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: Math.max(0, x.repoCount - addedRepos.length) } : x)));
       setError(e instanceof Error ? e.message : "Bulk add failed.");
     } finally {
       setAutoBusy(false);
