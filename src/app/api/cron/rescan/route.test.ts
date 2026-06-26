@@ -33,6 +33,7 @@ vi.mock("@/lib/github/app", () => ({
   isAppConfigured: vi.fn(() => true),
 }));
 vi.mock("@/lib/db", () => ({
+  CREDIT_REASON: { SCAN: "scan", GRANT: "grant", ADJUSTMENT: "adjustment", REFUND: "refund", POLAR_REFUND: "polar-refund" },
   isDbConfigured: vi.fn(() => true),
   listDueRescans: vi.fn(),
   claimRescan: vi.fn(),
