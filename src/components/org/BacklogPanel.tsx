@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { Card } from "@/components/org/ui";
 import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
 import { OwnerHeader, SummaryStrip } from "@/components/org/BacklogSummary";
-import { BacklogItemRow } from "@/components/org/BacklogItemRow";
+import { BacklogItemRow, type BacklogRowState } from "@/components/org/BacklogItemRow";
 
 // Impact-word tiebreak ranking for the "Projected points" cross-repo sort.
 const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -20,6 +20,15 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
   const [view, setView] = useState<"owner" | "due" | "points">("owner");
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Volatile per-row state (PR result, expanded history, promote flag) lifted out of BacklogItemRow and
+  // keyed by item id, so it SURVIVES the remount that happens when an edit re-groups a row into a
+  // different owner/due Card. Keeping it in the row dropped the just-opened PR link on a routine edit
+  // (backlog-management #2).
+  const [rowStates, setRowStates] = useState<Record<string, BacklogRowState>>({});
+  const setRowState = useCallback(
+    (id: string, patch: BacklogRowState) => setRowStates((cur) => ({ ...cur, [id]: { ...cur[id], ...patch } })),
+    [],
+  );
   // Monotonic token so only the LATEST refresh's response is applied. Each edit triggers a full
   // server re-read that wholesale-replaces the backlog; without sequencing, a slower-arriving OLDER
   // snapshot can clobber a newer one when two items are edited in quick succession (lost edit).
@@ -156,6 +165,8 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
                     assignees={backlog.assignees}
                     saving={savingIds.has(item.id)}
                     error={errors[item.id]}
+                    state={rowStates[item.id]}
+                    onState={(patch) => setRowState(item.id, patch)}
                     onPatch={patch}
                   />
                 ))}

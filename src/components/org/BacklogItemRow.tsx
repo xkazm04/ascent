@@ -6,12 +6,27 @@ import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
 import { EVENT_LABEL, STATUS_ACCENT, STATUS_LABEL, dueLabel, eventValue } from "@/components/org/backlogShared";
 
+/**
+ * Volatile per-row interaction state that must survive a regroup. The backlog re-parents rows into a
+ * different owner/due `<Card>` on every edit, which unmounts+remounts the row; keeping this state in
+ * the row would wipe the just-opened PR link, the expanded history and the promote flag. So it is
+ * lifted into BacklogPanel (keyed by item id) and passed back in — see backlog-management #2.
+ */
+export interface BacklogRowState {
+  history?: RecEvent[] | "loading" | null;
+  prResult?: { url: string; reused: boolean } | null;
+  prError?: string | null;
+  promoted?: boolean;
+}
+
 export function BacklogItemRow({
   org,
   item,
   assignees,
   saving,
   error,
+  state,
+  onState,
   onPatch,
 }: {
   org: string;
@@ -19,21 +34,27 @@ export function BacklogItemRow({
   assignees: string[];
   saving: boolean;
   error?: string;
+  /** Lifted per-row state (PR result, history, promote flag) that survives a regroup remount. */
+  state?: BacklogRowState;
+  /** Merge a patch into this row's lifted state in the parent. */
+  onState: (patch: BacklogRowState) => void;
   onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
-  const [history, setHistory] = useState<RecEvent[] | "loading" | null>(null);
+  // Persisted-across-remount state lives in the parent (BacklogPanel); only the truly transient
+  // in-flight busy flags stay local.
+  const history = state?.history ?? null;
+  const prResult = state?.prResult ?? null;
+  const prError = state?.prError ?? null;
+  const promoted = state?.promoted ?? false;
   const [prBusy, setPrBusy] = useState(false);
-  const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
-  const [prError, setPrError] = useState<string | null>(null);
   const [promoteBusy, setPromoteBusy] = useState(false);
-  const [promoted, setPromoted] = useState(false);
 
   // Promote this gap into a tracked org Initiative (BKLG-2) — reuses /api/org/initiatives with the
   // rec's dimension + repo, so a per-repo backlog row rolls up into the org-level unit of work.
   async function promoteToInitiative() {
     if (promoteBusy || promoted) return;
     setPromoteBusy(true);
-    setPrError(null);
+    onState({ prError: null });
     try {
       const res = await fetch("/api/org/initiatives", {
         method: "POST",
@@ -42,9 +63,9 @@ export function BacklogItemRow({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
-      setPromoted(true);
+      onState({ promoted: true });
     } catch (e) {
-      setPrError(e instanceof Error ? e.message : "Failed to create initiative.");
+      onState({ prError: e instanceof Error ? e.message : "Failed to create initiative." });
     } finally {
       setPromoteBusy(false);
     }
@@ -63,7 +84,7 @@ export function BacklogItemRow({
   async function openDraftPr() {
     if (!practice || prBusy) return;
     setPrBusy(true);
-    setPrError(null);
+    onState({ prError: null });
     try {
       const res = await fetch("/api/practices/apply", {
         method: "POST",
@@ -72,10 +93,10 @@ export function BacklogItemRow({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
-      setPrResult({ url: data.url, reused: data.reused });
+      onState({ prResult: { url: data.url, reused: data.reused } });
       if (item.status === "open") await onPatch(item.id, { status: "in_progress" });
     } catch (e) {
-      setPrError(e instanceof Error ? e.message : "Failed to open PR.");
+      onState({ prError: e instanceof Error ? e.message : "Failed to open PR." });
     } finally {
       setPrBusy(false);
     }
@@ -83,16 +104,16 @@ export function BacklogItemRow({
 
   async function toggleHistory() {
     if (history) {
-      setHistory(null);
+      onState({ history: null });
       return;
     }
-    setHistory("loading");
+    onState({ history: "loading" });
     try {
       const res = await fetch(`/api/recommendations/${item.id}/events`);
       const data = res.ok ? ((await res.json()) as { events: RecEvent[] }) : { events: [] };
-      setHistory(data.events);
+      onState({ history: data.events });
     } catch {
-      setHistory([]);
+      onState({ history: [] });
     }
   }
 
