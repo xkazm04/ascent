@@ -5,7 +5,8 @@
 import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getLatestRecommendations, isDbConfigured } from "@/lib/db";
-import { readableOrgForOwner } from "@/lib/auth";
+import { PUBLIC_ORG } from "@/lib/auth";
+import { canReadOrg } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,9 +29,16 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Scope to the org the caller may read (own org via session, else public) so a
-    // name collision can't leak another tenant's recommendations.
-    const orgSlug = await readableOrgForOwner(parsed.owner);
+    // Scope to the org the caller may read, using the SAME Supabase-aware membership resolver the
+    // sibling per-row routes use (requireOrgAccess/requireOrgRead → canReadOrg). The legacy
+    // readableOrgForOwner consulted only the custom GitHub-OAuth session, which is dormant under the
+    // Supabase login wall — so it always returned "public" and a private-org member silently lost the
+    // whole recommendation tracker (the list came back empty → read-only roadmap). A private repo is
+    // stored under owner-as-org-slug; serve it when the viewer may read that org, otherwise fall back
+    // to the shared public org so the anonymous public-scan path still works. (Under-permissioning fix,
+    // not a leak — getLatestRecommendations stays org-scoped either way.)
+    const ownerOrg = parsed.owner.toLowerCase();
+    const orgSlug = (await canReadOrg(ownerOrg)) ? ownerOrg : PUBLIC_ORG;
     const result = await getLatestRecommendations(parsed.owner, parsed.repo, { orgSlug });
     return NextResponse.json(result ?? { scanId: null, items: [] });
   } catch (err) {
