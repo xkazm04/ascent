@@ -246,7 +246,15 @@ export function WarRoomHeader({
       {/* run progress bar + currently-scanning caption */}
       {running && (
         <div className="mt-4">
-          <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div
+            className="h-1.5 overflow-hidden rounded-full bg-slate-800"
+            role="progressbar"
+            aria-label="Scan progress"
+            aria-valuenow={pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuetext={`${progress.done} of ${progress.total} repos scanned`}
+          >
             <div className="h-full rounded-full bg-accent transition-all motion-reduce:transition-none" style={{ width: `${Math.max(3, pct)}%` }} />
           </div>
           {progress.current && (
