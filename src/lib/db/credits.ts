@@ -273,40 +273,69 @@ export async function consumeScanCredit(
   if (charge === "denied") return { ok: false, balance: org0.scanCredits, unlimited: false, charged: false };
 
   // Overflow → debit one credit, atomically and balance-clamped.
-  return withRetry(() =>
-    prisma.$transaction(async (tx) => {
-      const org = await tx.organization.findUnique({
-        where: { slug },
-        select: { id: true, scanCredits: true },
-      });
-      if (!org) return { ok: false, balance: 0, unlimited: false, charged: false };
-      const dec = await tx.organization.updateMany({
-        where: { slug, scanCredits: { gt: 0 } },
-        data: { scanCredits: { decrement: 1 } },
-      });
-      if (dec.count === 0) return { ok: false, balance: org.scanCredits, unlimited: false, charged: false };
-      // Re-read AFTER the decrement (same tx) so the ledger stamps the real post-debit balance.
-      // Deriving it from the initial read races with concurrent debits: under READ COMMITTED each
-      // tx's stale snapshot would stamp the same balanceAfter, corrupting the reconciliation trail.
-      const after = await tx.organization.findUniqueOrThrow({
-        where: { id: org.id },
-        select: { scanCredits: true },
-      });
-      const balanceAfter = after.scanCredits;
-      await tx.creditLedger.create({
-        data: {
-          orgId: org.id,
-          delta: -1,
-          balanceAfter,
-          reason: "scan",
-          repoFullName: ctx.repoFullName ?? null,
-          scanId: ctx.scanId ?? null,
-          actor: ctx.actor ?? null,
-        },
-      });
-      return { ok: true, balance: balanceAfter, unlimited: false, charged: true };
-    }),
-  );
+  //
+  // Idempotency key, STABLE across retries of THIS invocation (synthesized ONCE, outside withRetry).
+  // The grant path defends against a withRetry re-application via a unique externalId; the symmetric
+  // -1 debit did NOT, so a commit-ambiguity blip (the COMMIT acked-lost, then retried) re-ran the whole
+  // closure: a SECOND decrement + a SECOND `delta:-1` row → the org charged twice for one scan; and at
+  // balance=1 the retry's conditional decrement found 0 and reported a PAID scan as denied. A scanId
+  // gives a natural key; otherwise synthesize a per-invocation id (mirrors grantCredits).
+  const externalId = ctx.scanId ? `scan:${ctx.scanId}` : `auto:${randomUUID()}`;
+  try {
+    return await withRetry(() =>
+      prisma.$transaction(async (tx) => {
+        const org = await tx.organization.findUnique({
+          where: { slug },
+          select: { id: true, scanCredits: true },
+        });
+        if (!org) return { ok: false, balance: 0, unlimited: false, charged: false };
+        const dec = await tx.organization.updateMany({
+          where: { slug, scanCredits: { gt: 0 } },
+          data: { scanCredits: { decrement: 1 } },
+        });
+        if (dec.count === 0) {
+          // Either genuinely out of credits, OR a prior (acked-lost) attempt of THIS invocation already
+          // debited + committed and we're re-running. Distinguish via the deterministic externalId so a
+          // retry of a scan that WAS paid isn't mis-reported as denied (and later wrongly re-charged).
+          const prior = await tx.creditLedger
+            .findUnique({ where: { externalId }, select: { id: true } })
+            .catch(() => null);
+          if (prior) return { ok: true, balance: org.scanCredits, unlimited: false, charged: true };
+          return { ok: false, balance: org.scanCredits, unlimited: false, charged: false };
+        }
+        // Re-read AFTER the decrement (same tx) so the ledger stamps the real post-debit balance.
+        // Deriving it from the initial read races with concurrent debits: under READ COMMITTED each
+        // tx's stale snapshot would stamp the same balanceAfter, corrupting the reconciliation trail.
+        const after = await tx.organization.findUniqueOrThrow({
+          where: { id: org.id },
+          select: { scanCredits: true },
+        });
+        const balanceAfter = after.scanCredits;
+        await tx.creditLedger.create({
+          data: {
+            orgId: org.id,
+            delta: -1,
+            balanceAfter,
+            reason: "scan",
+            repoFullName: ctx.repoFullName ?? null,
+            scanId: ctx.scanId ?? null,
+            actor: ctx.actor ?? null,
+            externalId,
+          },
+        });
+        return { ok: true, balance: balanceAfter, unlimited: false, charged: true };
+      }),
+    );
+  } catch (err) {
+    // A retry lost the race to the unique externalId — the duplicate insert rolled the whole debit
+    // (the decrement too) back, so the credit was charged exactly once by the winning attempt. Report
+    // the post-debit balance as a successful, charged debit rather than surfacing the error.
+    if (isDuplicateExternalId(err)) {
+      const state = await getCreditState(slug);
+      return { ok: true, balance: state.balance, unlimited: false, charged: true };
+    }
+    throw err;
+  }
 }
 
 /** Set an org's plan tier (owner-gated at the route). Returns false for an unknown org / no DB. */
