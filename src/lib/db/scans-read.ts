@@ -431,7 +431,12 @@ export async function getScanComparison(
   const ids = new Set(scans.map((s) => s.id));
   const afterId = opts.afterId && ids.has(opts.afterId) ? opts.afterId : scans[0]!.id; // safe: scans.length > 0 checked above
   const afterIdx = scans.findIndex((s) => s.id === afterId);
-  const defaultBeforeId = scans[afterIdx + 1]?.id ?? scans.find((s) => s.id !== afterId)?.id ?? null;
+  // The default baseline is the scan immediately OLDER than `after` (scans is newest-first). When
+  // `after` IS the oldest scan there is no older one, so leave `before` null rather than reaching
+  // FORWARD to a newer scan (scan-persistence-history #5): a forward baseline inverts the time axis,
+  // making every delta read backward (a real improvement shows as a regression). The page renders a
+  // missing `before` gracefully.
+  const defaultBeforeId = scans[afterIdx + 1]?.id ?? null;
   const beforeId = opts.beforeId && ids.has(opts.beforeId) ? opts.beforeId : defaultBeforeId;
 
   const [after, before] = await Promise.all([
