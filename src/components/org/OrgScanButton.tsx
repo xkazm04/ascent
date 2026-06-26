@@ -103,12 +103,34 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           Stale only
         </button>
       </div>
-      {p.running && (
-        <div className="w-48">
-          <Meter value={Math.max(4, pct)} size="sm" />
-          <p className="mt-1 truncate font-mono text-sm text-slate-500">{p.current}</p>
-        </div>
-      )}
+      {/* One polite live region for the whole async lifecycle (progress + partial-outcome + error), so a
+          keyboard/AT user who tabs away still hears that the long fleet scan progressed, finished, partly
+          failed, was capped for credits, or errored. The meter is visual only (aria-hidden); the text
+          carries the announcement. aria-atomic re-reads the region as a unit on each change. */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="flex flex-col items-end gap-1">
+        {p.running && (
+          <div className="w-48">
+            <div aria-hidden="true">
+              <Meter value={Math.max(4, pct)} size="sm" />
+            </div>
+            <p className="mt-1 truncate font-mono text-sm text-slate-500">
+              {p.total ? `Scanning ${p.done} of ${p.total}` : "Scanning"}
+              {p.current ? ` — ${p.current}` : "…"}
+            </p>
+          </div>
+        )}
+        {!p.running && p.failed > 0 && !p.error && (
+          <p className="text-sm text-warn">
+            {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan — see the Repositories tab.
+          </p>
+        )}
+        {!p.running && p.skipped > 0 && !p.error && (
+          <p className="text-sm text-warn">
+            {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped — out of scan credits.
+          </p>
+        )}
+        {p.error && <p className="text-sm text-danger">{p.error}</p>}
+      </div>
       {!p.running && watchedCount === 0 && (
         <Link
           href="/connect"
@@ -117,17 +139,6 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           Watch repos on Connect →
         </Link>
       )}
-      {!p.running && p.failed > 0 && !p.error && (
-        <p className="text-sm text-warn">
-          {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan — see the Repositories tab.
-        </p>
-      )}
-      {!p.running && p.skipped > 0 && !p.error && (
-        <p className="text-sm text-warn">
-          {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped — out of scan credits.
-        </p>
-      )}
-      {p.error && <p className="text-sm text-danger">{p.error}</p>}
     </div>
   );
 }
