@@ -41,6 +41,10 @@ export function FleetMap({
   // Org login currently scanning from the map (MAP-2) + an abort handle for cleanup.
   const [scanning, setScanning] = useState<string | null>(null);
   const scanCtrl = useRef<AbortController | null>(null);
+  // Bumped each time a manual scan begins. The auto-refresh captures it at fetch start and discards
+  // its result if it changed — covering the case where a scan starts AND finishes during the refresh's
+  // network round-trip (then scanCtrl.current is null again, so the abort-handle check alone misses it).
+  const scanGen = useRef(0);
   useEffect(() => () => scanCtrl.current?.abort(), []);
 
   // Fleet triage controls (MAP-4): search, level-band filter, watched-only, and an org sort key.
@@ -56,6 +60,7 @@ export function FleetMap({
   async function scanOrg(login: string) {
     if (scanning) return;
     setScanning(login);
+    scanGen.current += 1; // mark a new live scan so a concurrent auto-refresh discards its stale result
     const ctrl = new AbortController();
     scanCtrl.current = ctrl;
     try {
@@ -114,6 +119,10 @@ export function FleetMap({
     let cancelled = false;
     async function refreshAll() {
       if (document.visibilityState !== "visible" || scanCtrl.current) return;
+      // Snapshot the scan generation BEFORE the network round-trip. The guard above only catches a scan
+      // already in flight; a scan that starts (and the fetch resolves) after this point would otherwise
+      // commit pre-scan rows (often overall:null) over the live scores the SSE stream just painted.
+      const genAtStart = scanGen.current;
       await Promise.all(
         installations.map(async (inst) => {
           try {
@@ -122,7 +131,9 @@ export function FleetMap({
             if (!r.ok || cancelled) return;
             const data = (await r.json().catch(() => null)) as { repos?: unknown } | null;
             const fresh = mapRepos(data?.repos);
-            if (cancelled) return;
+            // Re-check the live-scan guard at COMMIT time, not just at fetch start: a manual scan that
+            // began during this round-trip now owns the stars, so don't clobber its fresh scores.
+            if (cancelled || scanCtrl.current || scanGen.current !== genAtStart) return;
             setConstellations((cur) =>
               cur.map((c) => (c.id === inst.id && c.status === "done" ? { ...c, repos: mergeStars(c.repos, fresh) } : c)),
             );
