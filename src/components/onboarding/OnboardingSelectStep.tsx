@@ -85,10 +85,14 @@ export function SelectStep({
               <button
                 key={r.fullName}
                 type="button"
-                disabled={capped}
+                // aria-disabled (not native `disabled`) so a keyboard/SR user at the cap can still Tab
+                // onto the row and hear the "limit reached" reason + swap hint; the click is no-op'd
+                // below. A native `disabled` button is unfocusable, hiding the constraint entirely.
                 aria-disabled={capped}
                 title={capped ? `Limit reached — deselect one to swap (max ${maxSelect})` : undefined}
-                onClick={() => onToggle(r.fullName)}
+                onClick={() => {
+                  if (!capped) onToggle(r.fullName);
+                }}
                 className={`focus-ring flex w-full items-center gap-3 rounded-lg border px-4 py-2.5 text-left transition ${
                   checked
                     ? "border-accent bg-accent/10"
