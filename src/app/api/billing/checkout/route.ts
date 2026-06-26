@@ -1,16 +1,17 @@
-// GET /api/billing/checkout?org=<slug>&pack=<productId> — start a Polar checkout for a credit pack.
+// GET /api/billing/checkout?org=<slug>&pack=<productId> — start a Polar checkout for a product.
 //
-// Creates a hosted Polar checkout session (sandbox by default) for the requested pack and 303-redirects
-// the browser to it. The pack must be one we actually sell (POLAR_CREDIT_PACKS) — an unknown/forged
-// product id is rejected, so a session is only ever created for a real, priced pack. The org is carried
-// into the session two ways (externalCustomerId + metadata) so the fulfilment webhook can credit the
-// right org; the GRANT AMOUNT is decided by the webhook from the product, never from anything sent here.
+// Creates a hosted Polar checkout session (sandbox by default) for the requested product and
+// 303-redirects the browser to it. The product must be one we actually sell — a credit pack
+// (POLAR_CREDIT_PACKS) or a plan-tier upgrade (POLAR_PLAN_PRODUCTS); an unknown/forged id is rejected,
+// so a session is only ever created for a real, priced product. The org is carried into the session two
+// ways (externalCustomerId + metadata) so the fulfilment webhook can fulfil the right org; the credits
+// granted / tier applied are decided by the webhook from the product, never from anything sent here.
 //
 // No credits move until Polar confirms payment via the signed webhook, so this GET makes no state
 // change and needs no CSRF/owner gate — the trust boundary is the webhook signature. See docs/BILLING.md.
 
 import { NextResponse } from "next/server";
-import { creditsForProduct, getPolar, polarEnabled } from "@/lib/polar";
+import { creditsForProduct, getPolar, planForProduct, polarEnabled } from "@/lib/polar";
 import { getOrgId, isDbConfigured } from "@/lib/db";
 import { publicBaseUrl } from "@/lib/site";
 
@@ -26,8 +27,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Billing is not configured on this deployment." }, { status: 503 });
   }
   if (!org) return NextResponse.json({ error: "Missing org." }, { status: 400 });
-  if (!pack || creditsForProduct(pack) <= 0) {
-    return NextResponse.json({ error: "Unknown credit pack." }, { status: 400 });
+  // Accept a product we actually sell — either a credit pack (POLAR_CREDIT_PACKS) or a plan-tier
+  // product (POLAR_PLAN_PRODUCTS). An unknown/forged id is rejected, so a session is only ever created
+  // for a real, priced product; the webhook decides credits/tier from the product, never from here.
+  if (!pack || (creditsForProduct(pack) <= 0 && !planForProduct(pack))) {
+    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
   }
   // Fail fast on a target that can never receive the credits — a typo'd/nonexistent slug would create
   // a real paid checkout whose fulfilment then can't bind to an org (pay-into-a-void). Cheap DB read,
