@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LEVEL_CLASSES, LEVEL_GLYPH, timeAgo } from "@/lib/ui";
+import { LEVEL_CLASSES, LEVEL_GLYPH, readableTextOn, timeAgo } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import { type AppRepo, SCHEDULES } from "./installationRepoTypes";
 
@@ -105,8 +105,10 @@ export function RepoRow({
                 type="button"
                 onClick={() => onToggleSegment(r, s.id)}
                 aria-pressed={on}
-                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-sm transition"
-                style={on ? { backgroundColor: s.color, borderColor: s.color, color: "#04070e" } : { borderColor: "#334155", color: "#94a3b8" }}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-sm transition ${
+                  on ? "" : "border-slate-700 text-slate-400"
+                }`}
+                style={on ? { backgroundColor: s.color, borderColor: s.color, color: readableTextOn(s.color) } : undefined}
               >
                 {!on && <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />}
                 {s.name}
