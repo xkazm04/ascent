@@ -72,7 +72,10 @@ export function ReportView({
     return () => {
       active = false;
     };
-  }, [repo.owner, repo.name]);
+    // report.scannedAt changes after an in-place re-test (owner/name don't), so include it to
+    // re-fetch history + recommendations for the fresh scan — otherwise the Roadmap tab keeps
+    // rendering the previous scan's recommendations and stale compare/"what changed" affordances.
+  }, [repo.owner, repo.name, report.scannedAt]);
 
   // Reconcile the live report with persisted history. `history.scans` is newest-first and
   // MAY already include the scan being viewed (it can be persisted mid-stream) — or may not,
