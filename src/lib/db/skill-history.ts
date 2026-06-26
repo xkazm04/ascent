@@ -22,12 +22,31 @@ function parseTrackIds(raw: string): string[] {
   }
 }
 
-/** Best-effort: record one skill generation. Swallows errors — the download must not depend on it. */
+/** True when two track-id lists describe the same set (order-insensitive). */
+function sameTrackSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const seen = new Set(a);
+  return b.every((t) => seen.has(t));
+}
+
+/**
+ * Best-effort: record one skill generation. Swallows errors — the download must not depend on it.
+ * Deduped: skips the insert when the most-recent row for the same (repo, commit) already has the
+ * identical track set, so safe/idempotent GETs (refreshes, link prefetch, CDN revalidation, bots)
+ * can't fill the STD-6 history with duplicate no-change entries.
+ */
 export async function recordSkillGeneration(repoFullName: string, headSha: string | null, trackIds: string[]): Promise<void> {
   if (!isDbConfigured()) return;
+  const fullName = repoFullName.slice(0, 200);
+  const capped = trackIds.slice(0, 30);
   try {
+    const latest = await getPrisma().skillGeneration.findFirst({
+      where: { repoFullName: fullName, headSha: headSha ?? null },
+      orderBy: { generatedAt: "desc" },
+    });
+    if (latest && sameTrackSet(parseTrackIds(latest.trackIds), capped)) return;
     await getPrisma().skillGeneration.create({
-      data: { repoFullName: repoFullName.slice(0, 200), headSha: headSha ?? null, trackIds: JSON.stringify(trackIds.slice(0, 30)) },
+      data: { repoFullName: fullName, headSha: headSha ?? null, trackIds: JSON.stringify(capped) },
     });
   } catch {
     /* history is best-effort */
