@@ -44,6 +44,7 @@ vi.mock("@/lib/db", () => ({
   getScanReportByCommit: vi.fn(),
   getInstallationIdForOwner: vi.fn(),
   getOrgId: vi.fn(),
+  isByomActive: vi.fn(async () => false),
 }));
 
 import { GET } from "./route";
@@ -60,6 +61,7 @@ import {
   getScanReportByCommit,
   getInstallationIdForOwner,
   getOrgId,
+  isByomActive,
 } from "@/lib/db";
 import { isAppConfigured, getInstallationToken } from "@/lib/github/app";
 import { checkAndAlertRegression, maybeAlertLowCredits } from "@/lib/scan-alerts";
@@ -76,6 +78,7 @@ const mockPersist = vi.mocked(persistScanReport);
 const mockPrevReport = vi.mocked(getScanReportByCommit);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockOrgId = vi.mocked(getOrgId);
+const mockByom = vi.mocked(isByomActive);
 const mockIsApp = vi.mocked(isAppConfigured);
 const mockToken = vi.mocked(getInstallationToken);
 
@@ -124,6 +127,7 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     mockPersist.mockResolvedValue({ scanId: "s1", deduped: false, failures: { audit: false, contributors: 0 } } as never);
     mockPrevReport.mockResolvedValue(null as never);
     mockOrgId.mockResolvedValue("org-1" as never);
+    mockByom.mockResolvedValue(false); // metered org by default; BYOM tests override
     mockGrant.mockResolvedValue(undefined as never);
     mockRecord.mockResolvedValue(undefined as never);
     mockAdvanceFail.mockResolvedValue(undefined as never);
@@ -256,5 +260,30 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     expect(mockScan).not.toHaveBeenCalled();
     expect(mockGrant).not.toHaveBeenCalled();
     expect(body.skippedForCredits).toBe(1);
+  });
+
+  // ---- (4) UNMETERED PATHS (BYOM / public) — mirror the manual scan route's gate ----------
+
+  it("does NOT charge a BYOM org (own Bedrock) — the autoscan still runs, free", async () => {
+    mockByom.mockResolvedValue(true);
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    // reserveScanCredit (→ consumeScanCredit) is skipped entirely for a BYOM org, so no platform
+    // credit is debited; the scan still happens and there's nothing to refund.
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(body.scanned).toBe(1);
+    expect(body.skippedForCredits).toBe(0);
+  });
+
+  it("does NOT charge the shared public org — the autoscan still runs, free", async () => {
+    mockListDue.mockResolvedValue([dueRepo({ orgSlug: "public", repoId: "pub-1" })]);
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(body.scanned).toBe(1);
+    expect(body.skippedForCredits).toBe(0);
   });
 });

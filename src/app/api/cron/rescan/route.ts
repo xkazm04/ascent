@@ -13,6 +13,7 @@ import {
   getInstallationIdForOwner,
   getOrgId,
   getScanReportByCommit,
+  isByomActive,
   isDbConfigured,
   listDueRescans,
   persistScanReport,
@@ -53,9 +54,13 @@ export async function GET(request: Request) {
   // org whose repos legitimately scan via the tokenless path.
   const orgSlugs = [...new Set(due.map((r) => r.orgSlug))];
   const tokenByOrg = new Map<string, string | undefined>();
+  const byomByOrg = new Map<string, boolean>();
   const brokenInstallOrgs = new Set<string>();
   await Promise.all(
     orgSlugs.map(async (slug) => {
+      // Resolve BYOM once per org (like the manual scan route does for the batch): an org scanning on
+      // its OWN Bedrock bills inference to its AWS account, so the platform must NOT charge scan credits.
+      byomByOrg.set(slug, await isByomActive(slug).catch(() => false));
       const id = await getInstallationIdForOwner(slug).catch(() => null);
       if (!id) {
         tokenByOrg.set(slug, undefined); // no install — a public org; scans use the tokenless path
@@ -103,12 +108,22 @@ export async function GET(request: Request) {
     // degrades to mock, or dedupes to an unchanged commit (no new scored row billed). The reservation
     // also fires the proactive low-credit alert when the debit lands on the low-water mark — the cron
     // drains credits with nobody watching, which is exactly when depletion must reach a human.
-    const reservation = await reserveScanCredit(r.orgSlug, r.fullName);
-    if (reservation.skip) {
-      skippedForCredits += 1;
-      return;
+    //
+    // Gate the reservation on the SAME predicate the manual scan route uses (org/scan/route.ts): the
+    // shared "public" org and any BYOM org (own Bedrock, inference billed to its AWS) are NOT metered,
+    // so they must not be charged platform credits on autoscan. Without this, the cron reserved
+    // unconditionally — wrongly billing BYOM orgs and, once their platform balance hit 0, silently
+    // dropping every scheduled scan (skippedForCredits++); public scheduled repos never autoscanned.
+    const metered = r.orgSlug.toLowerCase() !== "public" && !byomByOrg.get(r.orgSlug);
+    let charged = false; // true only on an overflow credit debit (within-allowance / unmetered is free)
+    if (metered) {
+      const reservation = await reserveScanCredit(r.orgSlug, r.fullName);
+      if (reservation.skip) {
+        skippedForCredits += 1;
+        return;
+      }
+      charged = reservation.reserved;
     }
-    const charged = reservation.reserved; // true only on an overflow credit debit (within-allowance is free)
     const refundCredit = () => refundScanCredit(r.orgSlug, charged);
     try {
       const token = tokenByOrg.get(r.orgSlug);
