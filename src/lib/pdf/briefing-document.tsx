@@ -4,7 +4,7 @@
 // so the page, the clipboard brief, and the PDF can never disagree. Driven by /api/org/briefing/pdf.
 
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { engineMixDegraded, engineMixLabel } from "@/lib/org/briefing";
+import { engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 
 /** EXEC-5 white-label: an org's brand overrides the Ascent defaults in the PDF. All optional. */
@@ -111,6 +111,11 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
           <Text style={styles.line}>Change vs {b.periodTitle} start: {b.periodDelta >= 0 ? "+" : ""}{b.periodDelta}</Text>
         )}
         {b.forecastHeadline ? <Text style={styles.traj}>Trajectory: {b.forecastHeadline}</Text> : null}
+        {/* The same trend-confidence hedge the exec page + LLM markdown carry — so the board PDF can't
+            present a noisy, low-R² projection as a firm headline (briefing.ts forecastConfidenceNote). */}
+        {b.forecastHeadline && forecastConfidenceNote(b.forecastConfidence) ? (
+          <Text style={styles.meta}>{forecastConfidenceNote(b.forecastConfidence)}</Text>
+        ) : null}
         {b.benchmark?.cohort && b.benchmark.cohort.overallPercentile != null ? (
           <Text style={styles.line}>
             Peer cohort ({b.benchmark.cohort.language}): {b.benchmark.cohort.overallPercentile}th percentile vs{" "}

@@ -6,7 +6,7 @@
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { DimRow, PriorPeriodGrid } from "@/components/org/briefingShared";
-import { buildExecBriefing, engineMixDegraded, engineMixLabel } from "@/lib/org/briefing";
+import { buildExecBriefing, engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
 import { getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
@@ -83,6 +83,11 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           <Card className="mt-6">
             <SectionHeader size="sm" title="Trajectory" />
             <p className="mt-2 text-base text-slate-300">{briefing.forecastHeadline}</p>
+            {/* Carry the same trend-confidence hedge the owner's page + PDF show, so a shared board link
+                can't present a noisy, low-R² projection as a firm commitment. */}
+            {forecastConfidenceNote(briefing.forecastConfidence) && (
+              <p className="mt-1 font-mono text-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
+            )}
           </Card>
         )}
 

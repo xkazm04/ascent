@@ -42,6 +42,14 @@ export function engineMixDegraded(mix: EngineMixEntry[]): boolean {
   return mock > 0 && real > 0;
 }
 
+/** "trend confidence 30% · noisy" — the same hedge the exec page shows under the trajectory headline,
+ *  so the board PDF and the shared read-only link can't present a low-R² projection as a firm headline.
+ *  Null when there's no confidence figure (too little history). `< 50` (R²) is the "noisy" threshold. */
+export function forecastConfidenceNote(confidence: number | null): string | null {
+  if (confidence == null) return null;
+  return `trend confidence ${confidence}%${confidence < 50 ? " · noisy" : ""}`;
+}
+
 /** One-line value-realization summary ("3 recommendations completed · fleet +6 pts · 2 repos leveled
  *  up"), or null when nothing measurable happened this period — so the renewal line only appears when
  *  there's value to show, never as an empty "0 · 0 · 0". Shared by the exec page and the markdown. */
