@@ -24,7 +24,7 @@ CREATE TABLE "Organization" (
     "alertWebhookUrl" TEXT,
     "alertOverallDrop" INTEGER,
     "alertDimensionDrop" INTEGER,
-    "gatePolicy" JSONB,
+    "gatePolicy" TEXT,
     "brandName" TEXT,
     "brandColor" TEXT,
     "logoUrl" TEXT,

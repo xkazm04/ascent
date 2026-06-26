@@ -46,9 +46,10 @@ model Organization {
   // Threaded into detectRegression by checkAndAlertRegression — see src/lib/scan-alerts.ts.
   alertOverallDrop   Int?
   alertDimensionDrop Int?
-  // Per-org CI maturity-gate policy (GatePolicy JSON). null = archetype default. Honored by the
-  // App-mode PR Check Run + the governance fleet view — see src/lib/db/org-gate.ts.
-  gatePolicy      Json?
+  // Per-org CI maturity-gate policy (GatePolicy serialized as JSON in a TEXT column — the schema's
+  // no-jsonb DSQL-safety contract; parsed at the edge in org-gate.ts). null = archetype default.
+  // Honored by the App-mode PR Check Run + the governance fleet view — see src/lib/db/org-gate.ts.
+  gatePolicy      String?
   // White-label branding for the executive briefing (EXEC-5, enterprise) — null = the Ascent default.
   // brandColor is a #rrggbb accent; logoUrl an https image rendered in the PDF header. See briefing.
   brandName       String?
