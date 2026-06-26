@@ -57,6 +57,7 @@ export function FleetGrid() {
         <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}>
           {REPOS.map((r, i) => {
             const dim = seg !== "All" && r.segment !== seg;
+            const isPinned = pinned && inspect?.name === r.name;
             const col = i % COLS;
             const row = Math.floor(i / COLS);
             return (
@@ -69,7 +70,10 @@ export function FleetGrid() {
                 disabled={dim}
                 tabIndex={dim ? -1 : undefined}
                 aria-hidden={dim || undefined}
-                className="focus-ring aspect-square rounded-[3px]"
+                aria-pressed={isPinned || undefined}
+                className={`focus-ring aspect-square rounded-[3px]${
+                  isPinned ? " ring-2 ring-accent ring-offset-2 ring-offset-ink" : ""
+                }`}
                 style={{ backgroundColor: scoreHex(r.score) }}
                 initial={{ opacity: 0, scale: 0.4 }}
                 animate={inView ? { opacity: dim ? 0.1 : 0.92, scale: 1 } : { opacity: 0, scale: 0.4 }}
