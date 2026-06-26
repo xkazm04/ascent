@@ -901,3 +901,78 @@ describe("purgeExpiredData — fleet-wide opt-in safety (a misconfig can't silen
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// purgeExpiredData — tail-org starvation guard (finding #2). A large fleet that
+// can't drain in one 300s tick used to die at the same prefix every run (stable
+// org order), so late-ordered orgs were NEVER reached. The fix rotates the order
+// each tick and stops cleanly on a wall-clock budget, surfacing the unreached
+// count (which the route turns into a non-2xx, finding #1).
+// ---------------------------------------------------------------------------
+
+describe("purgeExpiredData — wall-clock budget + rotation (tail-org starvation, finding #2)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+    delete process.env.RETENTION_TIME_BUDGET_MS;
+    vi.mocked(recordAudit).mockClear();
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("stops cleanly when the time budget is exhausted, leaving the rest for the next tick", async () => {
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "a", retentionMaxScans: 1, retentionAuditDays: 0 },
+          { id: "org_2", slug: "b", retentionMaxScans: 1, retentionAuditDays: 0 },
+          { id: "org_3", slug: "c", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) }, // nothing to prune; the org is still "processed"
+      scan: { findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // now() sequence: startedAt=0, iter-0 check=0 (under the 100ms budget → process one org), iter-1
+    // check=999 (over budget → stop), then the error-message read=999. random()=0 → deterministic shuffle.
+    const clock = [0, 0, 999, 999];
+    let t = 0;
+    const summary = await purgeExpiredData({
+      timeBudgetMs: 100,
+      now: () => clock[Math.min(t++, clock.length - 1)]!,
+      random: () => 0,
+    });
+
+    expect(summary).not.toBeNull();
+    expect(summary!.stoppedEarly).toBe(true);
+    expect(summary!.orgsRemaining).toBe(2); // 3 orgs − 1 processed this tick
+    expect(summary!.orgsProcessed).toBe(1);
+    // Surfaced as an error so the route returns a non-2xx (finding #1) and cron alerting trips.
+    expect(summary!.errors.some((e) => e.startsWith("(budget):"))).toBe(true);
+  });
+
+  it("processes every org and reports stoppedEarly:false when the budget is ample", async () => {
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "a", retentionMaxScans: 1, retentionAuditDays: 0 },
+          { id: "org_2", slug: "b", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) },
+      scan: { findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ timeBudgetMs: 1_000_000, now: () => 0, random: () => 0 });
+
+    expect(summary!.stoppedEarly).toBe(false);
+    expect(summary!.orgsRemaining).toBe(0);
+    expect(summary!.orgsProcessed).toBe(2);
+    expect(summary!.errors).toEqual([]);
+  });
+});

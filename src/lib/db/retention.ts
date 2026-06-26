@@ -32,6 +32,9 @@ export const PURGE_ACTION = "retention.purged";
 const DAY_MS = 86_400_000;
 export const RETENTION_DEFAULT_BATCH_SIZE = 500;
 const RETENTION_MAX_BATCH_SIZE = 5000;
+/** Wall-clock budget for the per-org loop. Stays comfortably under the route's maxDuration (300s) so
+ *  the run finishes cleanly instead of being killed mid-delete by the platform. (data-retention #2) */
+const RETENTION_DEFAULT_TIME_BUDGET_MS = 250_000;
 
 /** An effective retention policy. A window of `0` means "keep everything" (disabled). */
 export interface RetentionPolicy {
@@ -211,6 +214,32 @@ export interface PurgeSummary {
   auditDeleted: number;
   results: OrgPurgeResult[];
   errors: string[];
+  /** True when the wall-clock budget stopped the loop before every org was reached this tick
+   *  (data-retention #2). The next tick re-shuffles and resumes the unreached orgs. */
+  stoppedEarly?: boolean;
+  /** How many orgs were not reached this tick because the budget was exhausted (0 on a full run). */
+  orgsRemaining?: number;
+}
+
+/** Options for {@link purgeExpiredData}. Clock + RNG are injectable so the budget/rotation are testable. */
+export interface PurgeOptions {
+  actorId?: string;
+  /** Wall-clock budget (ms) for the org loop; defaults to RETENTION_TIME_BUDGET_MS env or 250_000. */
+  timeBudgetMs?: number;
+  /** Monotonic-ish clock (ms). Defaults to Date.now. */
+  now?: () => number;
+  /** Jitter source in [0, 1). Defaults to Math.random. */
+  random?: () => number;
+}
+
+/** Fisher-Yates in-place shuffle, so each cron tick rotates the org order (data-retention #2). */
+function shuffleInPlace<T>(arr: T[], random: () => number): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    const tmp = arr[i]!;
+    arr[i] = arr[j]!;
+    arr[j] = tmp;
+  }
 }
 
 /**
@@ -220,19 +249,45 @@ export interface PurgeSummary {
  * org-less audit entries under the global default. Deletes in small, retry-on-conflict batches
  * for Aurora DSQL. Returns null when persistence is disabled.
  */
-export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise<PurgeSummary | null> {
+export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSummary | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const defaults = envRetentionDefaults();
+  const now = opts.now ?? Date.now;
+  const random = opts.random ?? Math.random;
+  const timeBudgetMs =
+    opts.timeBudgetMs ?? (parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS) || RETENTION_DEFAULT_TIME_BUDGET_MS);
+  const startedAt = now();
 
   const orgs = await prisma.organization.findMany({
     select: { id: true, slug: true, retentionMaxScans: true, retentionAuditDays: true },
   });
 
+  // Tail-org starvation guard (data-retention #2): the run is strictly sequential under the route's
+  // 300s maxDuration, and with a STABLE org order a large fleet that can't drain in one tick dies at
+  // the same prefix every run — so late-ordered orgs are NEVER reached and their retention is never
+  // enforced (the exact failure this module exists to prevent), worst for the biggest fleets. Two
+  // cheap, schema-free defenses, combined: (1) rotate the order each tick (shuffle) so no org is
+  // deterministically last, and (2) stop cleanly once a wall-clock budget is exhausted — before the
+  // platform kills the function mid-delete — surfacing the unreached count so the route's non-2xx
+  // alerting (finding #1) trips. Over a few ticks every org is reached instead of never.
+  shuffleInPlace(orgs, random);
+
   const results: OrgPurgeResult[] = [];
   const errors: string[] = [];
+  let stoppedEarly = false;
+  let orgsRemaining = 0;
 
-  for (const org of orgs) {
+  for (let i = 0; i < orgs.length; i++) {
+    if (now() - startedAt >= timeBudgetMs) {
+      stoppedEarly = true;
+      orgsRemaining = orgs.length - i;
+      errors.push(
+        `(budget): retention stopped after ${Math.round((now() - startedAt) / 1000)}s with ${orgsRemaining} org(s) unprocessed this tick`,
+      );
+      break;
+    }
+    const org = orgs[i]!;
     const policy = resolveRetention(defaults, org);
     // Nothing to enforce for this org — skip (don't write a no-op audit entry).
     if (policy.maxScansPerRepo <= 0 && policy.auditDays <= 0) continue;
@@ -339,5 +394,7 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
     auditDeleted: results.reduce((a, r) => a + r.auditDeleted, 0),
     results,
     errors,
+    stoppedEarly,
+    orgsRemaining,
   };
 }
