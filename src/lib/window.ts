@@ -128,10 +128,18 @@ export function resolveWindow(
     case "all":
       return { key, start: null, end: null, title: "All time", comparisonLabel: "", reviewTitle: "All-time review" };
     case "custom": {
-      const from = first(params.from);
-      const to = first(params.to);
-      const start = parseDay(from);
-      const toDay = parseDay(to);
+      let from = first(params.from);
+      let to = first(params.to);
+      let start = parseDay(from);
+      let toDay = parseDay(to);
+      // Guard a reversed range: when BOTH bounds parse and from > to, swap them rather than yielding
+      // start > end — which downstream matches no rows (blank trend/forecast) while the baseline query
+      // (lt: start) still returns an incoherent, end-bounded "current" snapshot that predates start.
+      // Swapping keeps the user's two dates and presents a coherent period instead of empty data. (fleet-rollups-insights #5)
+      if (start && toDay && start.getTime() > toDay.getTime()) {
+        [start, toDay] = [toDay, start];
+        [from, to] = [to, from];
+      }
       // Make `to` inclusive of its whole day; an absent `to` leaves the window open-ended (now).
       const end = toDay ? new Date(toDay.getTime() + DAY - 1) : null;
       return {

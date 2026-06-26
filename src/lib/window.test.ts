@@ -136,6 +136,17 @@ describe("resolveWindow — custom half-open boundary (to is inclusive of its wh
     expect(bad.start).toBeNull();
     expect(bad.comparisonLabel).toBe("");
   });
+
+  it("a reversed range (from > to) is SWAPPED into a coherent period, not start > end", () => {
+    // Without the guard, start > end → the trend query matches nothing (blank dashboard) while the
+    // baseline (lt: start) returns an incoherent pre-start snapshot. Swap keeps both dates, ordered.
+    const w = resolveWindow({ range: "custom", from: "2026-03-31", to: "2026-01-01" }, NOW);
+    expect(w.start!.getTime()).toBe(new Date("2026-01-01T00:00:00").getTime());
+    expect(w.end!.getTime()).toBe(new Date("2026-03-31T00:00:00").getTime() + DAY - 1);
+    expect(w.start!.getTime()).toBeLessThan(w.end!.getTime());
+    expect(w.from).toBe("2026-01-01");
+    expect(w.to).toBe("2026-03-31");
+  });
 });
 
 describe("parsePeriodCookie — malformed-input fallthrough and round-trip into resolveWindow", () => {
