@@ -11,6 +11,7 @@ export function RepoRow({
   onToggleWatch,
   onChangeSchedule,
   bulkBusy = false,
+  watchPending = false,
   segments = [],
   segmentIds = [],
   onToggleSegment,
@@ -22,6 +23,10 @@ export function RepoRow({
   /** A bulk watch/schedule op is in flight — disable per-row controls so a concurrent single-row
    *  change can't be clobbered by the bulk path's partial-failure revert. */
   bulkBusy?: boolean;
+  /** This row's watch mutation is in flight — the repo is only OPTIMISTICALLY watched, not yet
+   *  confirmed by the server, so the schedule select stays disabled to avoid scheduling a repo whose
+   *  watch may still fail and roll back (which would orphan the cadence). */
+  watchPending?: boolean;
   /** The org's segments + this repo's current membership, for tag-as-you-select (watched repos only). */
   segments?: { id: string; name: string; color: string }[];
   segmentIds?: string[];
@@ -69,7 +74,7 @@ export function RepoRow({
         <select
           value={st?.scanSchedule ?? "off"}
           onChange={(e) => onChangeSchedule(r, e.target.value)}
-          disabled={!st?.watched || bulkBusy}
+          disabled={!st?.watched || bulkBusy || watchPending}
           aria-label="Autoscan schedule"
           className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-40"
         >

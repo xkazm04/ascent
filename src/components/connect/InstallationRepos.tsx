@@ -24,6 +24,11 @@ interface CreditInfo {
 export function InstallationRepos({ org, installationId }: { org: string; installationId?: string }) {
   const [view, setView] = useState<View>({ status: "loading" });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Rows with a watch mutation currently in flight. The schedule control is gated on this so a user
+  // can't set a cadence on a repo that is only OPTIMISTICALLY watched — if the watch POST then fails
+  // and rolls back, an independent schedule write would otherwise leave an orphaned cadence on an
+  // unwatched repo (cron won't scan it, yet the row renders a stale "daily").
+  const [watchPending, setWatchPending] = useState<Record<string, boolean>>({});
   // Prepaid-credit context for the commitment moment: every scheduled autoscan on this org draws
   // one credit per run, so the header shows what the current watch/schedule choices cost against
   // the balance. Best-effort — a failed read (DB-less deploy, no access) just hides the strip.
@@ -198,6 +203,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     const prevWatched = r.state?.watched ?? false;
     patchOptimistic(r.fullName, { watched });
     setRowError(r.fullName, null);
+    setWatchPending((p) => ({ ...p, [r.fullName]: true }));
     try {
       const res = await fetch("/api/org/watch", {
         method: "POST",
@@ -211,10 +217,19 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     } catch {
       patchRollback(r.fullName, { watched: prevWatched });
       setRowError(r.fullName, "Network error — change not saved. Try again.");
+    } finally {
+      setWatchPending((p) => {
+        const next = { ...p };
+        delete next[r.fullName];
+        return next;
+      });
     }
   }
 
   async function changeSchedule(r: AppRepo, schedule: string) {
+    // Defense in depth: never persist a cadence while this row's watch is still in flight (the select
+    // is also disabled then) — an orphaned schedule on an unwatched repo would result if the watch fails.
+    if (watchPending[r.fullName]) return;
     const prevSchedule = r.state?.scanSchedule ?? "off";
     patchOptimistic(r.fullName, { scanSchedule: schedule });
     setRowError(r.fullName, null);
@@ -472,6 +487,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
               onToggleWatch={toggleWatch}
               onChangeSchedule={changeSchedule}
               bulkBusy={bulkBusy}
+              watchPending={Boolean(watchPending[r.fullName])}
               segments={segments}
               segmentIds={segMembership[r.fullName] ?? []}
               onToggleSegment={toggleSegment}
