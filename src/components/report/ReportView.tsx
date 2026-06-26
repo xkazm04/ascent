@@ -171,6 +171,15 @@ export function ReportView({
     { id: "sandbox", label: "Sandbox" },
   ];
   if (showActivity) tabs.push({ id: "contributors", label: "Contributors" });
+  // After an in-place re-test the new report may drop a tab the user was on (e.g. the fresh scan
+  // surfaces no activity, removing "Contributors"). The selection would then point at a tab that
+  // no longer renders, leaving a blank panel with nothing active. Clamp back to Scoring whenever
+  // the active tab isn't in the current set.
+  useEffect(() => {
+    if (!tabs.some((t) => t.id === tab)) setTab("scoring");
+    // showActivity fully determines which tabs exist; re-check when it or the selection changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, showActivity]);
   const navGroups: SideNavGroup[] = [
     { items: tabs.map((t) => ({ label: t.label, active: tab === t.id, onSelect: () => setTab(t.id) })) },
   ];
