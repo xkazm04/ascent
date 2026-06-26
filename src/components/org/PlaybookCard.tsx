@@ -36,21 +36,33 @@ export function PlaybookCard({
   // (playbooks #3)
   const [markError, setMarkError] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
-  const [tracked, setTracked] = useState(false);
+  // The repo set captured the last time this rollout was tracked (null = never tracked). Snapshotting
+  // the scope lets us re-enable "Update initiative" when adoption grows beyond what was tracked, and
+  // distinguishes "tracked" from "tracked but now stale" instead of a one-shot boolean.
+  const [trackedRepos, setTrackedRepos] = useState<string[] | null>(null);
+  const [trackError, setTrackError] = useState<string | null>(null);
+  // Tracked, and the current applied set still matches the scope we tracked → nothing to update.
+  const trackedUpToDate =
+    trackedRepos != null && applied.length === trackedRepos.length && applied.every((r) => trackedRepos.includes(r));
 
   // PLAY-5: turn a playbook's rollout into a tracked Initiative scoped to the repos that adopted it.
   async function trackAsInitiative() {
-    if (tracking || tracked || applied.length === 0) return;
+    if (tracking || trackedUpToDate || applied.length === 0) return;
     setTracking(true);
+    setTrackError(null);
+    const snapshot = [...applied];
     try {
       const res = await fetch("/api/org/initiatives", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, title: `Roll out: ${p.title}`, dimId: p.dimId, repos: applied, playbookId: p.id }),
+        body: JSON.stringify({ org: slug, title: `Roll out: ${p.title}`, dimId: p.dimId, repos: snapshot, playbookId: p.id }),
       });
-      if (res.ok) setTracked(true);
+      if (res.ok) setTrackedRepos(snapshot);
+      // Surface the API rejection instead of silently looking idle again (the previous comment only
+      // covered the thrown-exception branch, not a non-ok response).
+      else setTrackError((await res.json().catch(() => ({})))?.error ?? "Couldn't track this rollout.");
     } catch {
-      /* leave the button enabled to retry */
+      setTrackError("Couldn't track this rollout — try again.");
     } finally {
       setTracking(false);
     }
@@ -184,18 +196,19 @@ export function PlaybookCard({
           </span>
         )}
         {applied.length > 0 &&
-          (tracked ? (
+          (trackedUpToDate ? (
             <span className="font-mono text-sm text-emerald-300" title="Track this rollout on the Plan tab">✓ Tracked as initiative</span>
           ) : (
             <button
               onClick={trackAsInitiative}
               disabled={tracking}
               className="font-mono text-sm text-accent hover:text-white disabled:opacity-50"
-              title="Track this playbook's rollout as an initiative on the Plan tab"
+              title={trackedRepos ? "Update the tracked initiative to cover the newly-adopted repos" : "Track this playbook's rollout as an initiative on the Plan tab"}
             >
-              {tracking ? "Tracking…" : "Track as initiative →"}
+              {tracking ? "Tracking…" : trackedRepos ? "Update initiative →" : "Track as initiative →"}
             </button>
           ))}
+        {trackError && <span role="alert" className="font-mono text-sm text-orange-300">{trackError}</span>}
       </div>
 
       {applied.length > 0 && (
