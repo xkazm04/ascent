@@ -80,22 +80,29 @@ export async function setRepoSchedule(orgSlug: string, fullName: string, schedul
  * Set the autoscan cadence for the WHOLE watched set of an org in one write — optionally scoped to a
  * segment — so a fleet owner manages cadence as policy ("rescan the platform segment weekly") instead
  * of clicking every repo. Reuses the same segment where-fragment as the read aggregates, so a segment
- * id from another org matches nothing. Returns how many repos were updated.
+ * id from another org matches nothing. Returns the fullNames of the repos that were updated, so the
+ * caller can reconcile its optimistic UI against exactly what persisted (updateMany yields only a
+ * count, which can't reveal that the client's watched set was larger than the DB's).
  */
 export async function setWatchedSchedule(
   orgSlug: string,
   schedule: string,
   segmentId?: string | null,
-): Promise<number> {
-  if (!isDbConfigured()) return 0;
+): Promise<string[]> {
+  if (!isDbConfigured()) return [];
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return 0;
-  const res = await prisma.repository.updateMany({
-    where: { orgId: org.id, watched: true, ...segmentScope(segmentId) },
+  if (!org) return [];
+  const where = { orgId: org.id, watched: true, ...segmentScope(segmentId) };
+  // Capture which repos the update targets BEFORE writing (updateMany returns only a count), so the
+  // caller learns the exact set the server actually scheduled — preventing "schedule success theater"
+  // where a row shows a cadence the server never saved.
+  const affected = await prisma.repository.findMany({ where, select: { fullName: true } });
+  await prisma.repository.updateMany({
+    where,
     data: { scanSchedule: schedule, nextScanAt: nextScanFor(schedule) },
   });
-  return res.count;
+  return affected.map((r) => r.fullName);
 }
 
 /**

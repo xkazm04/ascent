@@ -297,14 +297,30 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, schedule }),
       });
-      const d = (await res.json().catch(() => ({}))) as { updated?: number; error?: string };
+      const d = (await res.json().catch(() => ({}))) as { updated?: number; fullNames?: string[]; error?: string };
       if (!res.ok) {
         prev.forEach((s, fn) => patch(fn, { scanSchedule: s }));
         setBulkMsg({ kind: "error", text: d.error ?? "Failed to set schedule." });
         return;
       }
-      const n = d.updated ?? watchedRepos.length;
-      setBulkMsg({ kind: "note", text: `Set ${schedule} cadence for ${n} watched repo${n === 1 ? "" : "s"}.` });
+      // Reconcile against exactly the rows the server persisted. The DB only schedules repos watched
+      // IN THE DB; if the client's optimistic watched set is larger (a per-row watch still in flight or
+      // silently rolled back), those rows weren't saved. Revert any optimistically-patched row the
+      // server didn't confirm so it can't show a cadence that will never run (no success theater).
+      const confirmed = new Set(
+        Array.isArray(d.fullNames) ? d.fullNames : watchedRepos.map((r) => r.fullName),
+      );
+      const unconfirmed = watchedRepos.filter((r) => !confirmed.has(r.fullName));
+      unconfirmed.forEach((r) => patch(r.fullName, { scanSchedule: prev.get(r.fullName) ?? "off" }));
+      const n = watchedRepos.length - unconfirmed.length;
+      if (unconfirmed.length > 0) {
+        setBulkMsg({
+          kind: "error",
+          text: `Set ${schedule} for ${n} of ${watchedRepos.length} repo${watchedRepos.length === 1 ? "" : "s"} — ${unconfirmed.length} weren't watched on the server and were reverted. Refresh, then retry.`,
+        });
+      } else {
+        setBulkMsg({ kind: "note", text: `Set ${schedule} cadence for ${n} watched repo${n === 1 ? "" : "s"}.` });
+      }
     } catch {
       prev.forEach((s, fn) => patch(fn, { scanSchedule: s }));
       setBulkMsg({ kind: "error", text: "Network error — schedule not saved." });
