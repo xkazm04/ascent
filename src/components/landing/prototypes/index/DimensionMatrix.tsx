@@ -65,15 +65,20 @@ export function DimensionMatrix() {
           <tbody>
             {ROWS.map((r) => (
               <tr key={r.id} className="border-b border-slate-800/70 last:border-0">
-                <th scope="row" className="py-3.5 pr-4 align-middle">
+                <th scope="row" className="py-3.5 pr-4 align-top">
                   <span className="flex items-center gap-2">
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${r.axis === "adoption" ? "bg-accent" : "bg-slate-500"}`} title={AXIS_LABEL[r.axis]} />
                     <span className="font-mono text-xs text-slate-600">{r.id}</span>
                     <span className="text-sm font-semibold text-white">{r.name}</span>
                   </span>
+                  {/* Render the dimension description as visible text (it was previously reachable only via
+                      the native `title` hover on the data cells — invisible to touch/keyboard/SR users). */}
+                  <span className="mt-1 block max-w-xs pl-4 text-xs font-normal leading-snug text-slate-500">
+                    {r.description}
+                  </span>
                 </th>
                 {ARCHETYPE_COLUMNS.map((c) => (
-                  <td key={c.key} className="px-3 py-3.5 align-middle" title={r.description}>
+                  <td key={c.key} className="px-3 py-3.5 align-top">
                     <CellBar w={r[c.key]} />
                   </td>
                 ))}
