@@ -195,7 +195,13 @@ export async function buildExecBriefing(
   // slice(-3) would overlap, listing the same dim as both a top strength AND a top risk. Keep the two
   // lists DISJOINT by excluding any strength from the risk pool (rich-fleet behavior is unchanged —
   // there they were already disjoint). Ordering preserved: strengths strongest-first, risks weakest-first.
-  const strengthDims = dimSorted.slice(0, 3);
+  // Cap strengths so they can't claim the dims that should be risks on a sparse fleet: at most the top
+  // half (rounded up), capped at 3. On a rich fleet (≥6 dims) this stays the top 3 — unchanged — but on
+  // e.g. a 3-dim fleet it's the top 2, so an obviously-weak dim (D9@30) is no longer bucketed as a
+  // "strength" while ALSO surfacing as the weakness (executive-briefing #4). Risks remain the bottom of
+  // the non-strength pool, so the two lists stay disjoint.
+  const strengthCount = Math.min(3, Math.ceil(dimSorted.length / 2));
+  const strengthDims = dimSorted.slice(0, strengthCount);
   const strengthIds = new Set(strengthDims.map((d) => d.dimId));
   const riskDims = dimSorted
     .filter((d) => !strengthIds.has(d.dimId))

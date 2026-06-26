@@ -397,15 +397,20 @@ describe("buildExecBriefing — strengths / risks selection", () => {
     expect(overlap).toEqual([]); // D4 is no longer both a top strength and a top risk
   });
 
-  it("with exactly 3 dimensions all 3 are strengths and risks is empty (no dim in both)", async () => {
+  // executive-briefing #4: with only 3 dims the OLD slice(0,3) claimed ALL of them as strengths — so
+  // D9@30 was listed as a "strength" while ALSO being the fleet's weakness (risks was then empty, which
+  // let the page's security special-case re-surface D9 → the same dim in both). Strengths are now capped
+  // to the top half (ceil(3/2)=2), so the weakest dim falls into risks instead of being mislabeled.
+  it("with exactly 3 dimensions the weakest is a risk, not a mislabeled strength (and the lists are disjoint)", async () => {
     mockRollup.mockResolvedValue(
       rollup({ dimAverages: [{ dimId: "D1", avg: 90 }, { dimId: "D2", avg: 60 }, { dimId: "D9", avg: 30 }] }),
     );
     const b = (await buildExecBriefing("acme"))!;
-    expect(b.strengths.map((d) => d.dimId)).toEqual(["D1", "D2", "D9"]);
-    expect(b.risks.map((d) => d.dimId)).toEqual([]); // all dims claimed as strengths → no overlap left
+    expect(b.strengths.map((d) => d.dimId)).toEqual(["D1", "D2"]); // top half — D9@30 is NOT a strength
+    expect(b.risks.map((d) => d.dimId)).toEqual(["D9"]); // the obviously-weak dim is the risk
     const sIds = new Set(b.strengths.map((d) => d.dimId));
-    expect(b.risks.every((d) => sIds.has(d.dimId))).toBe(true); // vacuously true: disjoint
+    const rIds = new Set(b.risks.map((d) => d.dimId));
+    expect([...sIds].filter((id) => rIds.has(id))).toEqual([]); // disjoint: no dim in both
   });
 
   it("on a fleet with ≥7 dimensions strengths and risks ARE disjoint", async () => {

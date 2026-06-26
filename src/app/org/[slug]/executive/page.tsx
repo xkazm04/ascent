@@ -202,9 +202,14 @@ export default async function OrgExecutive({
             {briefing.risks.map((d) => (
               <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} />
             ))}
-            {briefing.security && briefing.risks.every((r) => r.dimId !== "D9") && (
-              <DimRow dimId={briefing.security.dimId} label={`${briefing.security.label} (security)`} avg={briefing.security.avg} />
-            )}
+            {/* Surface the security dim here only when it isn't ALREADY shown — neither in the risk list
+                nor (executive-briefing #4) in Strengths — so a security dim that ranks as a top strength
+                isn't simultaneously rendered under "Weakest dimensions". */}
+            {briefing.security &&
+              briefing.risks.every((r) => r.dimId !== briefing.security!.dimId) &&
+              briefing.strengths.every((s) => s.dimId !== briefing.security!.dimId) && (
+                <DimRow dimId={briefing.security.dimId} label={`${briefing.security.label} (security)`} avg={briefing.security.avg} />
+              )}
           </div>
         </Card>
       </div>
