@@ -34,6 +34,12 @@ export async function GET(request: Request) {
     const summary = await purgeExpiredData();
     if (summary && summary.errors.length > 0) {
       console.warn("[cron/purge] completed with errors", { errors: summary.errors });
+      // A DEGRADED run (a per-org prune threw, a destructive purge lost its compliance audit trace, or
+      // the time budget stopped the loop with orgs unprocessed) must NOT report a green 200: Vercel Cron
+      // and uptime monitors only watch the HTTP status, so a non-2xx is the only thing that pages an
+      // operator. Return 207 (Multi-Status) with the FULL summary in the body — the deletes that did
+      // succeed are still reported, but the run is visibly not-OK. A TOTAL failure still 500s (catch).
+      return NextResponse.json(summary, { status: 207 });
     }
     return NextResponse.json(summary ?? { skipped: "Database required." });
   } catch (err) {

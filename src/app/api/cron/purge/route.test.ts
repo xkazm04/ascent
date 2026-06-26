@@ -157,4 +157,26 @@ describe("GET /api/cron/purge — auth gate (fail-closed) + error surface", () =
     const body = await bodyOf(res);
     expect(body).toMatchObject({ orgsProcessed: 0, errors: [] });
   });
+
+  // ---- (6) A run that COLLECTED errors → 207 (not a green 200) -----------
+  it("returns 207 (not 200) when the run collected errors — so cron alerting trips", async () => {
+    // A degraded purge (a per-org prune threw, or the audit-trace write failed) surfaces its failures
+    // in summary.errors. The route must translate a non-empty errors[] into a non-2xx so Vercel Cron /
+    // uptime monitors (which only see the HTTP status) page an operator instead of seeing a green 200.
+    mockPurge.mockResolvedValue({
+      orgsProcessed: 1,
+      scansDeleted: 0,
+      dimensionsDeleted: 0,
+      recommendationsDeleted: 0,
+      recommendationEventsDeleted: 0,
+      auditDeleted: 0,
+      results: [],
+      errors: ["acme: retention audit write failed (deletes applied, compliance trace missing)"],
+    } as Awaited<ReturnType<typeof purgeExpiredData>>);
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(res.status).toBe(207);
+    // The full summary (including the deletes that succeeded) is still returned in the body.
+    expect(body.errors).toHaveLength(1);
+  });
 });
