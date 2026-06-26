@@ -171,7 +171,7 @@ export default async function TeamsPage({
           label="Unowned repos"
           value={rollup.unownedRepos}
           sub="scanned, no CODEOWNERS team"
-          color={rollup.unownedRepos > 0 ? "#f97316" : "#fff"}
+          color={rollup.unownedRepos > 0 ? "var(--color-warn)" : undefined}
         />
         <Tile
           label="Knowledge leader"
@@ -180,7 +180,7 @@ export default async function TeamsPage({
           // Color by the metric SHOWN (AI commit share), not the ranking knowledgeScore — otherwise a
           // team with low AI share but high adoption rendered its "30%" tinted green, disagreeing with
           // both the number it sits on and the per-team cards (which color by aiCommitShare).
-          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.aiCommitShare) : "#fff"}
+          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.aiCommitShare) : undefined}
         />
       </div>
 
