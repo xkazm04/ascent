@@ -188,13 +188,29 @@ export async function getProviderForOrg(
 ): Promise<{ provider: LLMProvider; byom: boolean }> {
   if (opts.forceMock) return { provider: new MockProvider(), byom: false };
   if (orgSlug && orgSlug !== "public") {
-    const { resolveByomProvider } = await import("@/lib/db/org-llm");
+    const { resolveByomProvider, isByomActive } = await import("@/lib/db/org-llm");
     const byom = await resolveByomProvider(orgSlug).catch(() => null);
     if (byom) {
       return {
         provider: new BedrockProvider({ model: byom.model, region: byom.region, credentials: byom.credentials }),
         byom: true,
       };
+    }
+    // resolveByomProvider returned null, which conflates TWO very different states: "BYOM not
+    // configured" (fall through to the platform provider, correct) and "BYOM configured + ACTIVE but
+    // its credentials couldn't be resolved" — an ENCRYPTION_KEY rotation, a decrypt/DB failure, or a
+    // tampered blob. For an active-BYOM org, silently routing its private repository source through the
+    // env platform provider (Gemini / an OpenAI-compatible endpoint) breaches the in-boundary inference
+    // contract that Enterprise paid for, with byom:false and no caveat. FAIL CLOSED: when BYOM is still
+    // active but unresolvable, throw a clear, actionable error rather than falling back to the platform,
+    // so private source never leaves the org's AWS boundary. (Non-active orgs fall through unchanged.)
+    if (await isByomActive(orgSlug).catch(() => false)) {
+      throw new Error(
+        `BYOM is enabled for organization "${orgSlug}" but its Amazon Bedrock credentials could not be ` +
+          `resolved. Refusing to fall back to the platform LLM provider so your private repository ` +
+          `contents never leave your AWS boundary. Verify ENCRYPTION_KEY and re-save the organization's ` +
+          `BYOM credentials, then retry the scan.`,
+      );
     }
   }
   return { provider: getProvider(opts), byom: false };
