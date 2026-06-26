@@ -12,11 +12,17 @@ export interface SSEMessage {
 /** Parse a single SSE frame ("event: …\ndata: …") into its name + JSON payload. */
 export function parseSSE(block: string): SSEMessage {
   let event: string | null = null;
-  let dataStr = "";
+  // Per the SSE spec, consecutive `data:` lines in one frame are concatenated with a "\n" separator —
+  // accumulate them and join, rather than fusing them with no separator (which would turn a payload
+  // that ever spans multiple lines into invalid JSON and silently drop the frame). Each line has at
+  // most one leading space stripped (the spec's optional single space after the colon); the final
+  // assembled string is trimmed before parsing.
+  const dataLines: string[] = [];
   for (const line of block.split("\n")) {
     if (line.startsWith("event:")) event = line.slice(6).trim();
-    else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
   }
+  const dataStr = dataLines.length ? dataLines.join("\n").trim() : "";
   try {
     return { event, data: dataStr ? JSON.parse(dataStr) : null };
   } catch {
