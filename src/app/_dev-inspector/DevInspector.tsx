@@ -72,7 +72,6 @@ export function DevInspector() {
   const [copyOk, setCopyOk] = useState(true);
   const [mounted, setMounted] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const navTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => setMounted(true), []);
 
@@ -92,33 +91,35 @@ export function DevInspector() {
 
       if (e.key === ";") {
         e.preventDefault();
-        clearTimeout(navTimer.current);
-        setMode((m) => {
-          if (m === "nav") return "off";
-          if (m === "armed") return "armed"; // already inspecting; ignore
-          navTimer.current = setTimeout(() => {
-            setMode((cur) => (cur === "nav" ? "off" : cur));
-          }, 2000);
-          return "nav";
-        });
+        // Pure updater: nav→off, off→nav, armed unchanged. The 2s auto-off is scheduled by the effect
+        // below (keyed on mode === "nav"), so the reducer has no side effect to double-fire/leak a
+        // timer under React StrictMode's double-invocation.
+        setMode((m) => (m === "armed" ? "armed" : m === "nav" ? "off" : "nav"));
         return;
       }
 
       if ((e.key === "i" || e.key === "I") && mode === "nav") {
         e.preventDefault();
-        clearTimeout(navTimer.current);
         setMode("armed");
         return;
       }
 
       if (e.key === "Escape" && mode !== "off") {
-        clearTimeout(navTimer.current);
         setMode("off");
       }
     };
 
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
+  }, [mode]);
+
+  // Auto-exit nav mode after 2s if the second key isn't pressed. Lives in an effect (not the setMode
+  // updater) so the reducer stays pure: the timer is set on entering nav and cleared on cleanup, so it
+  // can't be double-scheduled/leaked, and switching to armed/off cancels it.
+  useEffect(() => {
+    if (mode !== "nav") return;
+    const t = setTimeout(() => setMode((cur) => (cur === "nav" ? "off" : cur)), 2000);
+    return () => clearTimeout(t);
   }, [mode]);
 
   // Hover highlight + right-click copy, only while armed.
@@ -201,7 +202,6 @@ export function DevInspector() {
   useEffect(
     () => () => {
       clearTimeout(copiedTimer.current);
-      clearTimeout(navTimer.current);
     },
     [],
   );
