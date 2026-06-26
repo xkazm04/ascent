@@ -470,7 +470,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
           <span
             role={bulkMsg.kind === "error" ? "alert" : "status"}
             aria-live={bulkMsg.kind === "error" ? "assertive" : "polite"}
-            className={`font-mono text-sm ${bulkMsg.kind === "error" ? "text-orange-300" : "text-slate-500"}`}
+            className={`font-mono text-sm ${bulkMsg.kind === "error" ? "text-danger" : "text-slate-500"}`}
           >
             {bulkMsg.text}
           </span>
