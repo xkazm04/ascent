@@ -160,12 +160,40 @@ export function DevInspector() {
       void doCopy(pick.loc);
     };
 
+    // The highlight/label rects are captured from getBoundingClientRect on mousemove and rendered as
+    // position:fixed. Scroll/resize/reflow move the underlying elements WITHOUT firing mousemove, so
+    // the boxes would freeze at stale viewport coordinates and point at the wrong element. Re-measure
+    // from the stored chain elements (already in `hover`) on a rAF tick so the boxes track the element.
+    let raf = 0;
+    const reposition = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setHover((h) => {
+          if (!h) return h;
+          const pointerEl = h.chain[0]?.el;
+          if (!pointerEl || !pointerEl.isConnected) return null; // detached by a re-render → drop it
+          const targetEl = h.chain[h.defaultIndex]?.el ?? pointerEl;
+          return {
+            ...h,
+            pointerRect: pointerEl.getBoundingClientRect(),
+            targetRect: targetEl.getBoundingClientRect(),
+          };
+        });
+      });
+    };
+
     document.addEventListener("mousemove", onMove, true);
     document.addEventListener("contextmenu", onContextMenu, true);
+    // capture:true so scrolls inside any nested scroll container (not just the window) re-measure too.
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
     return () => {
       document.body.style.cursor = prevCursor;
       document.removeEventListener("mousemove", onMove, true);
       document.removeEventListener("contextmenu", onContextMenu, true);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+      cancelAnimationFrame(raf);
       setHover(null);
     };
   }, [mode, doCopy]);
