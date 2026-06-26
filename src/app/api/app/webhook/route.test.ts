@@ -40,6 +40,8 @@ vi.mock("@/lib/db", () => ({
   persistScanReport: vi.fn(),
   reconcileWatchedRepos: vi.fn(async () => 0),
   removeInstallation: vi.fn(),
+  suspendInstallation: vi.fn(),
+  resumeInstallation: vi.fn(),
   reportPermalink: vi.fn(() => "/report/x"),
   upsertInstallation: vi.fn(),
 }));
@@ -62,6 +64,8 @@ import {
   persistScanReport,
   reconcileWatchedRepos,
   removeInstallation,
+  resumeInstallation,
+  suspendInstallation,
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
@@ -75,6 +79,8 @@ const mockGetInstallation = vi.mocked(getInstallation);
 const mockGetToken = vi.mocked(getInstallationToken);
 const mockUpsert = vi.mocked(upsertInstallation);
 const mockRemove = vi.mocked(removeInstallation);
+const mockSuspend = vi.mocked(suspendInstallation);
+const mockResume = vi.mocked(resumeInstallation);
 const mockAfter = vi.mocked(after);
 const mockListReposResult = vi.mocked(listInstallationReposResult);
 
@@ -201,6 +207,37 @@ describe("POST /api/app/webhook — installation lifecycle redelivery net (defer
     expect(second.duplicate).toBeUndefined();
     await runDeferred();
     expect(mockRemove).toHaveBeenCalledTimes(2);
+  });
+});
+
+// github-app-installation-webhooks #1: suspend is a REVERSIBLE pause, not a permanent uninstall, so it
+// must NOT run the full removeInstallation teardown (which unwatched everything and never restored it),
+// and unsuspend must resume the paused schedules.
+describe("POST /api/app/webhook — suspend is a non-destructive pause; unsuspend resumes", () => {
+  it("pauses (suspendInstallation) on a GitHub-confirmed suspend — never removeInstallation", async () => {
+    // GitHub confirms the suspension (suspendedAt set) → pause, do not tear down.
+    mockGetInstallation.mockResolvedValue(installation({ suspendedAt: "2026-06-25T00:00:00Z" }));
+    await post("installation", "del-suspend-ok", { action: "suspend", installation: { id: 42 } });
+    await runDeferred();
+    expect(mockSuspend).toHaveBeenCalledWith(42);
+    expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  it("does not pause an unconfirmed (forged) suspend GitHub says is still active", async () => {
+    mockGetInstallation.mockResolvedValue(installation({ suspendedAt: null }));
+    await post("installation", "del-suspend-forged", { action: "suspend", installation: { id: 42 } });
+    await runDeferred();
+    expect(mockSuspend).not.toHaveBeenCalled();
+    expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  it("re-arms schedules (resumeInstallation) on unsuspend, after re-confirming the mapping", async () => {
+    mockGetInstallation.mockResolvedValue(installation());
+    await post("installation", "del-unsuspend-ok", { action: "unsuspend", installation: { id: 42 } });
+    await runDeferred();
+    expect(mockUpsert).toHaveBeenCalledWith({ login: "acme", installationId: 42 });
+    expect(mockResume).toHaveBeenCalledWith(42);
+    expect(mockRemove).not.toHaveBeenCalled();
   });
 });
 

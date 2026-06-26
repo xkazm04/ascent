@@ -96,6 +96,8 @@ export {
 export {
   upsertInstallation,
   removeInstallation,
+  suspendInstallation,
+  resumeInstallation,
   reconcileWatchedRepos,
   getInstallationIdForOwner,
 } from "@/lib/db/installations";
