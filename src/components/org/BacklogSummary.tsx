@@ -1,25 +1,17 @@
+import { Tile } from "@/components/org/ui";
 import type { BacklogOwnerGroup, OrgBacklog } from "@/lib/db";
 
-function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
-  return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3">
-      <div className="font-mono text-2xl font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
-        {value}
-      </div>
-      <div className="mt-0.5 font-mono text-sm uppercase tracking-widest text-slate-500">{label}</div>
-    </div>
-  );
-}
-
 export function SummaryStrip({ b }: { b: OrgBacklog }) {
+  // Use the canonical Tile (brand Surface + Stat) so these tiles match every other dashboard surface,
+  // instead of a local Stat copy that drifted (bordered box, text-2xl vs the canonical text-3xl).
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-      <Stat label="Active" value={b.active} />
-      <Stat label="Overdue" value={b.overdue} color={b.overdue ? "#f97316" : undefined} />
-      <Stat label="Due ≤ 7d" value={b.dueSoon} color={b.dueSoon ? "#eab308" : undefined} />
-      <Stat label="Unassigned" value={b.unassigned} color={b.unassigned ? "#fbbf24" : undefined} />
-      <Stat label="In progress" value={b.inProgress} />
-      <Stat label="Done" value={b.done} color={b.done ? "#22c55e" : undefined} />
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <Tile label="Active" value={b.active} />
+      <Tile label="Overdue" value={b.overdue} color={b.overdue ? "#f97316" : undefined} />
+      <Tile label="Due ≤ 7d" value={b.dueSoon} color={b.dueSoon ? "#eab308" : undefined} />
+      <Tile label="Unassigned" value={b.unassigned} color={b.unassigned ? "#fbbf24" : undefined} />
+      <Tile label="In progress" value={b.inProgress} />
+      <Tile label="Done" value={b.done} color={b.done ? "#22c55e" : undefined} />
     </div>
   );
 }
