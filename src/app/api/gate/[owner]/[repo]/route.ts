@@ -9,11 +9,25 @@ import { scanRepository } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
+
+// Query params that explicitly configure the gate policy on the URL (all consumed by policyFromParams).
+// When ANY is present the caller is overriding the policy per-request; when NONE is, the endpoint falls
+// back to the org's persisted gate policy (ci-gate-status-checks #2).
+const GATE_POLICY_PARAMS = [
+  "min_level",
+  "min_overall",
+  "min_dimension",
+  "no_ungoverned",
+  "require_protection",
+  "security",
+  "min_security",
+] as const;
 
 export async function GET(
   req: Request,
@@ -77,7 +91,18 @@ export async function GET(
       }
     }
 
-    const gate = evaluateGate(report, policyFromParams(searchParams, report.archetype));
+    // Policy precedence (ci-gate-status-checks #2): explicit query params override; else the org's
+    // PERSISTED gate policy — the SAME bar the App-mode Check Run + governance fleet view enforce via
+    // getOrgGatePolicy; else the archetype default. Before this, the HTTP gate built its policy ONLY
+    // from query params + archetype default and never consulted the configured org bar, so a team that
+    // saved a strict policy in GatePolicyEditor and wired `curl --fail /api/gate/...` into CI had that
+    // bar silently ignored here while the App check enforced it (the two surfaces disagreeing on the
+    // same repo). DB-less / unknown org / a read error all resolve to null → archetype default.
+    const hasPolicyParams = GATE_POLICY_PARAMS.some((k) => searchParams.has(k));
+    const policy = hasPolicyParams
+      ? policyFromParams(searchParams, report.archetype)
+      : (await getOrgGatePolicy(ownerN).catch(() => null)) ?? policyFromParams(searchParams, report.archetype);
+    const gate = evaluateGate(report, policy);
     return NextResponse.json(
       {
         repo: `${ownerN}/${repoN}`,
