@@ -10,6 +10,7 @@ export function OrgStanding({
   regressionCount,
   comparedRepos,
   periodStart,
+  scoped = false,
 }: {
   benchmark: OrgBenchmark | null;
   regressionCount: number;
@@ -17,6 +18,10 @@ export function OrgStanding({
    *  neither "regressed" nor "no regressions" is a truthful read. */
   comparedRepos: number;
   periodStart: boolean;
+  /** True when a segment/tech-stack filter is active. The corpus percentile is a cross-org metric that
+   *  can't be sliced to an org-local segment, so it stays whole-org; this flag qualifies the label so an
+   *  unscoped number isn't presented as filtered beside its scoped siblings. */
+  scoped?: boolean;
 }) {
   return (
     <Card>
@@ -24,7 +29,7 @@ export function OrgStanding({
       <div className="mt-4 space-y-3 text-base">
         {benchmark && benchmark.overallPercentile != null ? (
           <div className="flex items-baseline justify-between">
-            <span className="text-slate-300">vs the Ascent corpus</span>
+            <span className="text-slate-300">{scoped ? "whole org vs corpus" : "vs the Ascent corpus"}</span>
             <span>
               <span className="font-mono text-2xl font-bold tabular-nums" style={{ color: scoreHex(benchmark.overallPercentile) }}>
                 {benchmark.overallPercentile}
@@ -39,6 +44,9 @@ export function OrgStanding({
           <div className="font-mono text-sm text-slate-500">
             corpus avg: overall {benchmark.corpusAvgOverall} · adopt {benchmark.corpusAvgAdoption} · rigor {benchmark.corpusAvgRigor}
           </div>
+        )}
+        {scoped && benchmark && benchmark.overallPercentile != null && (
+          <div className="font-mono text-sm text-slate-600">Corpus standing is org-wide — not scoped to the active filter.</div>
         )}
         <div className="flex items-center gap-2 pt-1">
           {/* Bug-fix (org-overview-standing #1): only assert "no regressions" when a comparison
