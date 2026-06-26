@@ -76,6 +76,11 @@ export default function PricingPage() {
                   highlight ? "border-accent/50 ring-1 ring-accent/20" : "border-slate-800"
                 }`}
               >
+                {highlight && (
+                  <span className="mb-2 inline-flex w-fit rounded-full bg-accent/20 px-2 py-0.5 text-xs font-semibold text-accent">
+                    Most popular
+                  </span>
+                )}
                 <h2 className="text-lg font-semibold text-white">{p.label}</h2>
                 <p className="mt-2">
                   <span className="text-3xl font-bold text-white">{PRICE[id].amount}</span>{" "}
@@ -88,7 +93,7 @@ export default function PricingPage() {
                 <ul className="mt-3 flex-1 space-y-1.5 text-sm text-slate-300">
                   {p.features.map((f) => (
                     <li key={f} className="flex gap-2">
-                      <span className="select-none text-accent">✓</span>
+                      <span aria-hidden="true" className="select-none text-accent">✓</span>
                       <span>{f}</span>
                     </li>
                   ))}
