@@ -257,9 +257,14 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
   ]);
   const series = await metricSeries(orgId, new Set(goals.map((g) => g.metric)));
   const now = Date.now();
-  // GOAL-4: a goal that first reaches its target is stamped achieved (status + achievedAt) exactly
-  // once — collected here, persisted after the map. Idempotent: a goal already "achieved" is skipped.
+  // GOAL-4: the achieved transition is SYMMETRIC. A goal that first reaches its target is stamped
+  // achieved (status + achievedAt) exactly once; a goal already "achieved" whose live value has since
+  // regressed below target is reverted to "active" (achievedAt cleared) so the board reflects the
+  // backslide instead of latching a false "🎉 Achieved" forever. Both are collected here and
+  // persisted (best-effort) after the map. Idempotent: an already-achieved goal still at/above target
+  // triggers no write.
   const justAchieved: string[] = [];
+  const justRegressed: string[] = [];
   const out = goals.map((g) => {
     const current = currentFor(g.metric, snap);
     const targetDate = g.targetDate ? g.targetDate.toISOString().slice(0, 10) : null;
@@ -271,8 +276,17 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       .map((r) => ({ ...r, gap: g.target - r.value }));
     const reached = current >= g.target;
     const newlyAchieved = reached && g.status === "active";
+    const regressed = !reached && g.status === "achieved";
     if (newlyAchieved) justAchieved.push(g.id);
-    const achievedAt = newlyAchieved ? new Date(now).toISOString() : g.achievedAt ? g.achievedAt.toISOString() : null;
+    if (regressed) justRegressed.push(g.id);
+    const status = newlyAchieved ? "achieved" : regressed ? "active" : g.status;
+    const achievedAt = newlyAchieved
+      ? new Date(now).toISOString()
+      : regressed
+        ? null
+        : g.achievedAt
+          ? g.achievedAt.toISOString()
+          : null;
     return {
       id: g.id,
       label: g.label,
@@ -282,7 +296,7 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       current,
       pct: g.target > 0 ? Math.max(0, Math.min(100, Math.round((current / g.target) * 100))) : 100,
       achieved: reached,
-      status: newlyAchieved ? "achieved" : g.status,
+      status,
       achievedAt,
       createdAt: g.createdAt.toISOString(),
       targetDate,
@@ -297,12 +311,14 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       belowCount: below.length,
     };
   });
-  // Best-effort persistence of the transition — a failed write just re-marks on the next load.
-  if (justAchieved.length) {
+  // Best-effort persistence of the transition (both directions) — a failed write just re-marks on the
+  // next load.
+  if (justAchieved.length || justRegressed.length) {
     const at = new Date(now);
-    await Promise.all(
-      justAchieved.map((id) => prisma.goal.update({ where: { id }, data: { status: "achieved", achievedAt: at } }).catch(() => {})),
-    );
+    await Promise.all([
+      ...justAchieved.map((id) => prisma.goal.update({ where: { id }, data: { status: "achieved", achievedAt: at } }).catch(() => {})),
+      ...justRegressed.map((id) => prisma.goal.update({ where: { id }, data: { status: "active", achievedAt: null } }).catch(() => {})),
+    ]);
   }
   return out;
 }

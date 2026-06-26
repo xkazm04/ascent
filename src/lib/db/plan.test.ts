@@ -188,6 +188,29 @@ describe("listGoals achievedAt state-stamp (the persisted transition inside a re
     expect(prisma.goal.update).not.toHaveBeenCalled();
     expect(goalUpdates).toHaveLength(0);
   });
+
+  it("REVERTS an 'achieved' goal to 'active' (clearing achievedAt) once the fleet regresses below target", async () => {
+    // goals-initiatives #1: the transition is symmetric. A goal that was achieved and has since
+    // backslid must not latch "🎉 Achieved" forever — it returns to the active list showing the slide.
+    const original = new Date("2026-03-15T09:30:00.000Z");
+    const { prisma, goalUpdates } = fakePrisma({
+      goals: [{ id: "g_done", target: 70, status: "achieved", achievedAt: original }],
+      repos: [{ fullName: "acme/a", name: "a", overall: 50 }], // avg 50 < target 70 → regressed
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+    expect(g.achieved).toBe(false); // live value is below target
+    expect(g.status).toBe("active"); // the latched "achieved" is reverted, not kept
+    expect(g.achievedAt).toBeNull(); // the stale first-reached date is cleared
+
+    // The revert is persisted exactly once: status back to active, achievedAt nulled.
+    expect(prisma.goal.update).toHaveBeenCalledTimes(1);
+    expect(goalUpdates).toHaveLength(1);
+    expect(goalUpdates[0]!.id).toBe("g_done");
+    expect(goalUpdates[0]!.data.status).toBe("active");
+    expect(goalUpdates[0]!.data.achievedAt).toBeNull();
+  });
 });
 
 describe("listGoals progress / laggard / pct derivation", () => {
