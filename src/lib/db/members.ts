@@ -100,9 +100,11 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
  * Set (or change) a member's role — the owner-gated member admin path. Creates the user/membership if
  * absent. Returns a typed outcome (mirrors removeMembership): `last_owner` when the change would demote
  * the org's only owner (which would orphan its admin surface — refused), `error` on a bad input / unknown
- * org / DB-off, else `ok`.
+ * org / DB-off, `db_error` when the role-write transaction itself throws (transient infra failure, NOT a
+ * missing org), else `ok`. The two failure modes are kept distinct so the route can map a real
+ * unknown-org to 404 and a transient write failure to 503 instead of a misleading "Unknown organization".
  */
-export async function setMembershipRole(orgSlug: string, login: string, role: OrgRole): Promise<"ok" | "last_owner" | "error"> {
+export async function setMembershipRole(orgSlug: string, login: string, role: OrgRole): Promise<"ok" | "last_owner" | "error" | "db_error"> {
   if (!isDbConfigured()) return "error";
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
@@ -139,7 +141,9 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
       return "ok" as const;
     });
   } catch {
-    return "error";
+    // The org exists (orgId resolved above); this is the transaction failing transiently
+    // (serialization abort / DB blip). Signal it distinctly so the caller doesn't report 404.
+    return "db_error";
   }
 }
 

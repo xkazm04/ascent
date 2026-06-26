@@ -53,6 +53,9 @@ export async function POST(request: Request) {
   const prevRole = await getMembershipRole(org, login).catch(() => null);
   const outcome = await setMembershipRole(org, login, body.role);
   if (outcome === "error") return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  if (outcome === "db_error") {
+    return NextResponse.json({ error: "Couldn't update the role, try again." }, { status: 503 });
+  }
   if (outcome === "last_owner") {
     return NextResponse.json({ error: "Can't demote the last owner — assign another owner first." }, { status: 409 });
   }
