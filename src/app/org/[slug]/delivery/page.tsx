@@ -13,12 +13,19 @@ function fmtWeek(iso: string): string {
 
 function ActivityChart({ series, oldestWeekIso, latestWeekIso }: { series: number[]; oldestWeekIso: string; latestWeekIso: string }) {
   const max = Math.max(1, ...series);
+  // The bars carry their magnitude only as fill height + a hover title — invisible to keyboard/SR users.
+  // Give the chart a role="img" with a text summary so non-visual users get the series, not just the
+  // heading. (The bar divs are decorative once the summary exists.)
+  const total = series.reduce((a, b) => a + b, 0);
+  const peak = Math.max(0, ...series);
+  const ariaLabel = `Weekly fleet commit activity, week of ${fmtWeek(oldestWeekIso)} to week of ${fmtWeek(latestWeekIso)}: ${total.toLocaleString()} commits over ${series.length} week${series.length === 1 ? "" : "s"}, peak ${peak.toLocaleString()} in a week.`;
   return (
     <div>
-      <div className="flex h-28 items-end gap-1">
+      <div className="flex h-28 items-end gap-1" role="img" aria-label={ariaLabel}>
         {series.map((v, i) => (
           <div
             key={i}
+            aria-hidden
             className="flex-1 rounded-t bg-accent/70 transition-all hover:bg-accent"
             style={{ height: `${Math.max(2, (v / max) * 100)}%` }}
             title={`${v} commits`}
