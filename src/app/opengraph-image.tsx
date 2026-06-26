@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
+import { LEVELS } from "@/lib/maturity/model";
 
 // Default social card for the site (homepage + any route without its own opengraph-image). Pages
 // set `twitter: { card: "summary_large_image" }` in metadata, so without an image their shares
@@ -27,9 +28,11 @@ export default function OpengraphImage() {
         </div>
 
         <div style={{ display: "flex", gap: 12 }}>
-          {["L0", "L1", "L2", "L3", "L4"].map((l) => (
+          {/* Derive the chips from the rubric so the card can never disagree with LEVELS (the ladder
+              is L1..L5; a hardcoded ["L0".."L4"] invented a non-existent L0 and dropped L5). */}
+          {LEVELS.map((lvl) => (
             <div
-              key={l}
+              key={lvl.id}
               style={{
                 display: "flex",
                 padding: "8px 20px",
@@ -40,7 +43,7 @@ export default function OpengraphImage() {
                 fontFamily: "monospace",
               }}
             >
-              {l}
+              {lvl.id}
             </div>
           ))}
         </div>
