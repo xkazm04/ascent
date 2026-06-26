@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
-import { CREDIT_ESTIMATE_NOTE, estimateMonthlyCredits } from "@/lib/credit-estimate";
+import { CREDIT_ESTIMATE_NOTE, estimateMonthlyCredits, scheduledRunsPerMonth } from "@/lib/credit-estimate";
 import { appConfigureUrl } from "@/lib/ui";
 import { RepoFilterBar } from "./RepoFilterBar";
 import { RepoListSkeleton } from "./RepoListSkeleton";
@@ -19,6 +19,8 @@ type View =
 interface CreditInfo {
   balance: number;
   unlimited: boolean;
+  /** Included free monthly scans still available — the estimate nets these out before charging credits. */
+  allowanceRemaining: number;
 }
 
 export function InstallationRepos({ org, installationId }: { org: string; installationId?: string }) {
@@ -88,7 +90,11 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (active && d && typeof d.balance === "number") {
-          setCredit({ balance: d.balance, unlimited: Boolean(d.unlimited) });
+          setCredit({
+            balance: d.balance,
+            unlimited: Boolean(d.unlimited),
+            allowanceRemaining: typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : 0,
+          });
         }
       })
       .catch(() => {});
@@ -374,9 +380,13 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   const scheduledCount = view.repos.filter(
     (r) => r.state?.watched && (r.state?.scanSchedule ?? "off") !== "off",
   ).length;
-  const monthlyCredits = estimateMonthlyCredits(
-    view.repos.map((r) => ({ watched: r.state?.watched, schedule: r.state?.scanSchedule })),
-  );
+  const repoStates = view.repos.map((r) => ({ watched: r.state?.watched, schedule: r.state?.scanSchedule }));
+  // Raw scheduled runs vs the prepaid credits they actually DRAW: a metered scan is free until the org
+  // exceeds its monthly allowance, so subtract the org's remaining free scans (0 when unknown) — the
+  // figure no longer overstates the spend for an org whose allowance still covers the schedule.
+  const scheduledRuns = scheduledRunsPerMonth(repoStates);
+  const allowanceRemaining = credit && !credit.unlimited ? Math.max(0, credit.allowanceRemaining) : 0;
+  const monthlyCredits = estimateMonthlyCredits(repoStates, allowanceRemaining);
   const underAMonth =
     credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
 
@@ -397,16 +407,21 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       {/* Cost/quota context at the moment of commitment: schedules below are billable units, so
           say what they add up to — and what's in the tank — before the cron finds out. Hidden
           when nothing is scheduled and no balance could be read (e.g. DB-less local). */}
-      {(monthlyCredits > 0 || (credit != null && !credit.unlimited)) && (
+      {(scheduledRuns > 0 || (credit != null && !credit.unlimited)) && (
         <p className="-mt-2 mb-3 text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
           {scheduledCount > 0 ? (
             <>
               {scheduledCount} scheduled autoscan{scheduledCount === 1 ? "" : "s"} ≈{" "}
+              <span className="font-mono text-slate-300">{scheduledRuns}</span> run
+              {scheduledRuns === 1 ? "" : "s"}/month →{" "}
               <span className="font-mono text-slate-300">{monthlyCredits}</span> credit
               {monthlyCredits === 1 ? "" : "s"}/month
+              {allowanceRemaining > 0 && (
+                <> (after {allowanceRemaining} free scan{allowanceRemaining === 1 ? "" : "s"} left this month)</>
+              )}
             </>
           ) : (
-            <>Each scheduled autoscan run draws 1 prepaid credit</>
+            <>Each scheduled autoscan run draws 1 prepaid credit beyond your free monthly allowance</>
           )}
           {credit != null &&
             (credit.unlimited ? (
