@@ -900,6 +900,31 @@ describe("purgeExpiredData — fleet-wide opt-in safety (a misconfig can't silen
       expect.objectContaining({ orgId: "org_on" }),
     );
   });
+
+  it("a configured org with nothing currently expired writes NO audit entry (finding #4)", async () => {
+    // org_on has a real policy, but no repos/scans are stale this tick → zero deletes. Previously the
+    // job wrote an all-zero `retention.purged` AuditLog row for it every cron tick, forever — audit
+    // noise in an audit product. The recordAudit is now gated on totalDeleted > 0.
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_on", slug: "on", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => [{ id: "repo_on" }]) },
+      scan: { findMany: vi.fn(async () => []) }, // nothing stale → nothing to delete
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary).not.toBeNull();
+    expect(summary!.scansDeleted).toBe(0);
+    // The org was still visited/processed (the summary reflects the run), but no zero-count audit row.
+    expect(summary!.orgsProcessed).toBe(1);
+    expect(vi.mocked(recordAudit)).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

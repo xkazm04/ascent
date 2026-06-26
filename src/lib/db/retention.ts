@@ -320,20 +320,29 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
       // recordAudit swallows its own error and returns false — for an audit/compliance product, a
       // destructive purge that loses its "what was deleted and when" trace must surface as a degraded
       // run, not a green 200, so check the boolean and push to errors.
-      const audited = await recordAudit(
-        PURGE_ACTION,
-        {
-          scansDeleted,
-          dimensionsDeleted,
-          recommendationsDeleted,
-          recommendationEventsDeleted,
-          auditDeleted,
-          policy: { maxScansPerRepo: policy.maxScansPerRepo, auditDays: policy.auditDays },
-        },
-        { orgId: org.id, actorId: opts.actorId },
-      );
-      if (!audited) {
-        errors.push(`${org.slug}: retention audit write failed (deletes applied, compliance trace missing)`);
+      //
+      // Only write the audit entry when something was actually deleted (data-retention #4): a policy
+      // that's set but currently has nothing expired would otherwise write an all-zero retention.purged
+      // row for every configured org every cron tick, forever — noise that obscures the real trail in an
+      // audit product. Mirrors the orphan sweep's `auditDeleted > 0` gate below.
+      const totalDeleted =
+        scansDeleted + dimensionsDeleted + recommendationsDeleted + recommendationEventsDeleted + auditDeleted;
+      if (totalDeleted > 0) {
+        const audited = await recordAudit(
+          PURGE_ACTION,
+          {
+            scansDeleted,
+            dimensionsDeleted,
+            recommendationsDeleted,
+            recommendationEventsDeleted,
+            auditDeleted,
+            policy: { maxScansPerRepo: policy.maxScansPerRepo, auditDays: policy.auditDays },
+          },
+          { orgId: org.id, actorId: opts.actorId },
+        );
+        if (!audited) {
+          errors.push(`${org.slug}: retention audit write failed (deletes applied, compliance trace missing)`);
+        }
       }
 
       results.push({
