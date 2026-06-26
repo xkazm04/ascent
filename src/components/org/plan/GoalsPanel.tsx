@@ -71,8 +71,19 @@ export function GoalsPanel({
   }
 
   async function remove(id: string) {
+    // Optimistic delete WITH a failure path: a 403 (lost session) / 404 / network error used to leave the
+    // goal gone from the UI but alive in the DB, shown as success. Snapshot first, then restore + surface
+    // the error if the DELETE didn't actually persist (goals-initiatives #2).
+    const prev = goals;
     setGoals((g) => g.filter((x) => x.id !== id));
-    await fetch(`/api/org/goals/${id}`, { method: "DELETE" });
+    setError(null);
+    try {
+      const res = await fetch(`/api/org/goals/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to delete goal.");
+    } catch (e) {
+      setGoals(prev);
+      setError(e instanceof Error ? e.message : "Failed to delete goal.");
+    }
   }
 
   // GOAL-5: one-click add a suggested goal, then drop it from the row.

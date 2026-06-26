@@ -81,6 +81,10 @@ export function InitiativesPanel({
   // Optimistically patch one initiative and persist the same fields. `goalLabel` is kept in sync
   // locally when the link changes so the chip updates without a refetch.
   async function patch(id: string, body: Partial<Pick<InitiativeView, "status" | "assigneeLogin" | "targetDate" | "goalId">>) {
+    // Optimistic patch WITH a failure path: previously the PATCH response was ignored, so a failed write
+    // (403/404/network) left the UI showing a status/assignee/due/goal-link the server never accepted.
+    // Snapshot first, then restore + surface the error if the write didn't persist (goals-initiatives #2).
+    const prev = items;
     setItems((xs) =>
       xs.map((i) =>
         i.id === id
@@ -88,11 +92,18 @@ export function InitiativesPanel({
           : i,
       ),
     );
-    await fetch(`/api/org/initiatives/${id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    setError(null);
+    try {
+      const res = await fetch(`/api/org/initiatives/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to update initiative.");
+    } catch (e) {
+      setItems(prev);
+      setError(e instanceof Error ? e.message : "Failed to update initiative.");
+    }
   }
 
   const trackedTitles = new Set(items.map((i) => i.title));
