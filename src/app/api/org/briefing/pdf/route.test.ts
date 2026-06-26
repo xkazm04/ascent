@@ -30,6 +30,9 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(() => true),
 }));
 vi.mock("@react-pdf/renderer", () => ({ renderToBuffer: vi.fn() }));
+// The logo SSRF guard does real DNS + fetch; pass the URL through here so the branded-render path stays
+// hermetic. Its own guard is covered in src/lib/net/logo-fetch.test.ts.
+vi.mock("@/lib/net/logo-fetch", () => ({ resolveSafeLogoDataUri: vi.fn(async (u: string) => u) }));
 // BriefingDocument is irrelevant here — the route passes it to the (mocked) renderToBuffer.
 vi.mock("@/lib/pdf/briefing-document", () => ({ BriefingDocument: () => null }));
 // resolveWindow is pure; let the real one run so we don't have to model the route's window plumbing.

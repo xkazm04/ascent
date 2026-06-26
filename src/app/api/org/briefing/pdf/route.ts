@@ -13,6 +13,7 @@ import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } f
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveWindow } from "@/lib/window";
+import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
 import { safeFilenameSegment } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
@@ -53,14 +54,20 @@ export async function GET(request: Request) {
     getCreditState(org).catch(() => null),
   ]);
   const branding = planAllowsWhiteLabel(credit?.plan) ? (rawBranding ?? undefined) : undefined;
+  // SSRF: resolve the owner-supplied logo to image bytes OURSELVES under a strict guard and hand
+  // @react-pdf a data: URI, so it never fetches a remote (potentially DNS-rebound) host server-side at
+  // render time. On any failure keep the brand name/colour but drop the logo.
+  const brandingForRender: typeof branding = branding?.logoUrl
+    ? { ...branding, logoUrl: await resolveSafeLogoDataUri(branding.logoUrl) }
+    : branding;
   const render = (b: typeof branding) =>
     renderToBuffer(createElement(BriefingDocument, { briefing, branding: b }) as unknown as ReactElement<DocumentProps>);
   let buffer: Buffer;
   try {
-    // Try branded; on a bad/unreachable logo fall back to an unbranded render. If THAT also fails (or
-    // there was no branding), the rejection used to escape as an unhandled 500 with a raw stack — wrap
-    // the whole thing so a render failure degrades to a clean error instead.
-    buffer = await render(branding).catch(() => (branding ? render(undefined) : Promise.reject(new Error("render failed"))));
+    // Try branded; on a bad logo fall back to an unbranded render. If THAT also fails (or there was no
+    // branding), the rejection used to escape as an unhandled 500 with a raw stack — wrap the whole
+    // thing so a render failure degrades to a clean error instead.
+    buffer = await render(brandingForRender).catch(() => (brandingForRender ? render(undefined) : Promise.reject(new Error("render failed"))));
   } catch (err) {
     console.error("[briefing/pdf] render failed", err);
     return NextResponse.json({ error: "Failed to render the briefing PDF." }, { status: 500 });
