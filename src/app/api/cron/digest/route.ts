@@ -11,6 +11,7 @@
 
 import { NextResponse } from "next/server";
 import {
+  getAuditLog,
   getCreditState,
   getOrgAlertWebhook,
   getOrgBenchmark,
@@ -19,6 +20,7 @@ import {
   getOrgRollup,
   isDbConfigured,
   listOrgsWithWatchedRepos,
+  recordOrgAudit,
   type OrgWindow,
 } from "@/lib/db";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
@@ -30,6 +32,11 @@ import { forecastHeadline } from "@/lib/maturity/forecast";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+// Audit action stamped after each successful per-org digest send. It doubles as the at-most-once
+// idempotency key for the window (skip an org that already has one within the current 7-day window) —
+// migration-free, since Organization has no spare last-sent column under the junctioned DB client.
+const DIGEST_SENT_ACTION = "org.digest.sent";
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -48,11 +55,13 @@ export async function GET(request: Request) {
 
   const base = (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
   const orgs = await listOrgsWithWatchedRepos();
-  const win: OrgWindow = { start: new Date(Date.now() - 7 * 86_400_000), end: null };
+  const windowStart = new Date(Date.now() - 7 * 86_400_000);
+  const win: OrgWindow = { start: windowStart, end: null };
 
   let sent = 0;
   let skippedNoSink = 0;
   let skippedFlat = 0;
+  let skippedAlreadySent = 0;
   const errors: string[] = [];
   for (const org of orgs) {
     try {
@@ -62,6 +71,16 @@ export async function GET(request: Request) {
       const webhookUrl = await getOrgAlertWebhook(org).catch(() => null);
       if (!isAlertConfigured(webhookUrl)) {
         skippedNoSink += 1;
+        continue;
+      }
+      // At-most-once per window: this handler loops every org under maxDuration and can time out
+      // partway, be retried by the platform, or overlap a re-fired schedule. Without a last-sent guard
+      // every already-notified org would receive the weekly digest AGAIN (eroding the exact push channel
+      // the feature makes habit-forming). Skip an org that already got a digest within this window —
+      // recorded as an audit entry after each successful dispatch below.
+      const alreadySent = await getAuditLog(org, { action: DIGEST_SENT_ACTION, since: windowStart, limit: 1 }).catch(() => null);
+      if (alreadySent && alreadySent.entries.length > 0) {
+        skippedAlreadySent += 1;
         continue;
       }
       const rollup = await getOrgRollup(org, win);
@@ -118,11 +137,16 @@ export async function GET(request: Request) {
         // reads, so a depleting balance gets a standing line there, not just the crossing alert.
         creditsRemaining: creditLow && credit ? credit.balance : null,
       });
-      if (await dispatchAlert(msg, { webhookUrl })) sent += 1;
+      if (await dispatchAlert(msg, { webhookUrl })) {
+        sent += 1;
+        // Stamp the send so a retry/overlap within this window is skipped by the guard above. Best-
+        // effort: a lost stamp at worst risks one duplicate, never a dropped digest.
+        await recordOrgAudit(DIGEST_SENT_ACTION, org, { weekStart: windowStart.toISOString() }).catch(() => {});
+      }
     } catch (err) {
       errors.push(`${org}: ${err instanceof Error ? err.message : "failed"}`);
     }
   }
 
-  return NextResponse.json({ orgs: orgs.length, sent, skippedNoSink, skippedFlat, errors });
+  return NextResponse.json({ orgs: orgs.length, sent, skippedNoSink, skippedFlat, skippedAlreadySent, errors });
 }
