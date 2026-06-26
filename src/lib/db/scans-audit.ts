@@ -100,6 +100,21 @@ export interface AuditLogQuery {
   limit?: number;
 }
 
+/**
+ * Resolve the `until` upper bound. An <input type="date"> yields a date-only string ("YYYY-MM-DD"),
+ * which `new Date()` parses as start-of-day UTC — so `lte` would exclude every entry recorded LATER
+ * that same day, silently dropping the entire final day from the trail and the CSV export. Treat a
+ * date-only value as an INCLUSIVE day bound by resolving it to the end of that UTC day; a full
+ * timestamp (with a time component) is honored verbatim. Applied once here so both the on-screen
+ * viewer and the CSV branch (which share getAuditLog) inherit the inclusive semantics.
+ */
+function resolveUntilBound(until: Date | string): Date {
+  if (typeof until === "string" && /^\d{4}-\d{2}-\d{2}$/.test(until)) {
+    return new Date(`${until}T23:59:59.999Z`);
+  }
+  return new Date(until);
+}
+
 function parseMeta(raw: string): Record<string, unknown> {
   try {
     const p = JSON.parse(raw);
@@ -150,7 +165,7 @@ export async function getAuditLog(
   if (query.actorId) where.actorId = query.actorId;
   const atFilter: Prisma.DateTimeFilter = {};
   if (query.since) atFilter.gte = new Date(query.since);
-  if (query.until) atFilter.lte = new Date(query.until);
+  if (query.until) atFilter.lte = resolveUntilBound(query.until);
   if (atFilter.gte || atFilter.lte) where.at = atFilter;
 
   const cursor = decodeAuditCursor(query.cursor);
