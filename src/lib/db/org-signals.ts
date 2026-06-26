@@ -148,6 +148,12 @@ export interface OrgActivity {
   series: number[]; // fleet weekly commit totals (sum across repos), oldest→newest
   total: number;
   repos: number;
+  /** ISO date (YYYY-MM-DD) of the start of the most-recent / oldest week in `series`. The grid is
+   *  anchored to the most recent SCAN (not the current calendar week) and zero-fills gaps, so axis
+   *  labels must use these real week dates — the old "this week" / "{length} weeks ago" mislabelled a
+   *  stale right edge and was off by one on the left. */
+  latestWeekIso: string;
+  oldestWeekIso: string;
 }
 
 const WEEK_MS = 7 * 86_400_000;
@@ -212,5 +218,15 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
   const maxWk = Math.max(...weeksPresent);
   const series: number[] = [];
   for (let wk = minWk; wk <= maxWk; wk++) series.push(byWeek.get(wk) ?? 0);
-  return { weeks: series.length, series, total: series.reduce((a, b) => a + b, 0), repos: repoCount };
+  // Week index → ISO date of that week's start, so the chart can label the real span instead of a
+  // literal "this week" (the grid's right edge is the latest SCAN week, which may be weeks stale).
+  const weekStartIso = (wk: number) => new Date(wk * WEEK_MS).toISOString().slice(0, 10);
+  return {
+    weeks: series.length,
+    series,
+    total: series.reduce((a, b) => a + b, 0),
+    repos: repoCount,
+    latestWeekIso: weekStartIso(maxWk),
+    oldestWeekIso: weekStartIso(minWk),
+  };
 }

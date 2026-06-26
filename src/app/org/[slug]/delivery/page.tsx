@@ -6,7 +6,12 @@ import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
-function ActivityChart({ series }: { series: number[] }) {
+/** YYYY-MM-DD → "Mon D" (UTC, so a date-only string isn't shifted a day by the server's local zone). */
+function fmtWeek(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function ActivityChart({ series, oldestWeekIso, latestWeekIso }: { series: number[]; oldestWeekIso: string; latestWeekIso: string }) {
   const max = Math.max(1, ...series);
   return (
     <div>
@@ -20,9 +25,11 @@ function ActivityChart({ series }: { series: number[] }) {
           />
         ))}
       </div>
+      {/* The grid is anchored to the most recent scan and zero-fills gaps, so label the real week dates
+          rather than "this week" (which can be weeks stale) / an off-by-one "{length} weeks ago". */}
       <div className="mt-2 flex justify-between font-mono text-sm uppercase tracking-widest text-slate-600">
-        <span>{series.length} weeks ago</span>
-        <span>this week</span>
+        <span>wk of {fmtWeek(oldestWeekIso)}</span>
+        <span>wk of {fmtWeek(latestWeekIso)}</span>
       </div>
     </div>
   );
@@ -184,7 +191,7 @@ export default async function OrgDelivery({
             }
           />
           <div className="mt-4">
-            <ActivityChart series={activity.series} />
+            <ActivityChart series={activity.series} oldestWeekIso={activity.oldestWeekIso} latestWeekIso={activity.latestWeekIso} />
           </div>
         </Card>
       )}
