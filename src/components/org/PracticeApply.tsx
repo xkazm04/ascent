@@ -10,6 +10,9 @@ interface RepoRef {
 interface Artifact {
   path: string;
   body: string;
+  /** The repo this artifact was previewed for. Apply must target THIS repo, not whatever the dropdown
+   *  reads now — otherwise a stale preview response can be applied to a different repo (see preview()). */
+  repo: string;
 }
 
 interface BatchResult {
@@ -95,15 +98,17 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
     setBusy("preview");
     setError(null);
     setPr(null);
+    const target = repo; // capture: ignore a response that arrives after the selection changed
     try {
       const res = await fetch("/api/practices/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo, practiceId }),
+        body: JSON.stringify({ repo: target, practiceId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to generate.");
-      setArtifact(data.artifact);
+      // Stamp the artifact with the repo it was generated for, so apply can't post a different one.
+      setArtifact({ path: data.artifact.path, body: data.artifact.body, repo: target });
       setOpen(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate.");
@@ -113,13 +118,18 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   }
 
   async function apply() {
+    // Apply the repo we actually PREVIEWED, never whatever the dropdown reads now — the previewed
+    // artifact (commands/description) is repo-specific, so opening a PR in a different repo would land
+    // content the user never reviewed.
+    const target = artifact?.repo;
+    if (!target) return;
     setBusy("apply");
     setError(null);
     try {
       const res = await fetch("/api/practices/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo, practiceId }),
+        body: JSON.stringify({ repo: target, practiceId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
@@ -137,13 +147,16 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
           value={repo}
+          // Disabled during a preview/apply so the selection can't change out from under an in-flight
+          // request — the core fix for the stale-preview-applied-to-the-wrong-repo race.
+          disabled={busy !== null}
           onChange={(e) => {
             setRepo(e.target.value);
             setArtifact(null);
             setPr(null);
             setError(null);
           }}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 disabled:opacity-50"
         >
           {gapRepos.map((r) => (
             <option key={r.fullName} value={r.fullName}>
@@ -158,7 +171,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
         >
           {busy === "preview" ? "Generating…" : "Preview starter"}
         </button>
-        {artifact && (
+        {artifact && artifact.repo === repo && (
           <button
             onClick={apply}
             disabled={busy !== null}
