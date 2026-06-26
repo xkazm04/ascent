@@ -30,6 +30,11 @@ export function PlaybookCard({
   const [prBusy, setPrBusy] = useState(false);
   const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
   const [prError, setPrError] = useState<string | null>(null);
+  // Error surface for the adoption mark/unmark actions. Previously a failed mark/unmark just rolled
+  // the optimistic chip back with zero feedback (only `prError` existed, scoped to the Open-PR flow),
+  // so a 403/404 (e.g. "Repo must belong to …") or network blip read as "the click did nothing".
+  // (playbooks #3)
+  const [markError, setMarkError] = useState<string | null>(null);
   const [tracking, setTracking] = useState(false);
   const [tracked, setTracked] = useState(false);
 
@@ -58,17 +63,24 @@ export function PlaybookCard({
     if (!repo || applied.includes(repo)) return;
     setApplied((a) => [...a, repo]); // optimistic
     setPick("");
+    setMarkError(null);
     // Roll the optimistic add back if the server didn't record it — otherwise the card shows the repo
-    // as adopted while the DB has no row, seeding phantom Initiatives + skewed lift analytics.
+    // as adopted while the DB has no row, seeding phantom Initiatives + skewed lift analytics. Surface
+    // the reason (mirroring PlaybooksPanel.remove) so a silent rollback isn't read as a no-op.
     try {
       const res = await fetch(`/api/org/playbooks/${p.id}/repos`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo }),
       });
-      if (!res.ok) setApplied((a) => a.filter((r) => r !== repo));
+      if (!res.ok) {
+        setApplied((a) => a.filter((r) => r !== repo));
+        const data = await res.json().catch(() => ({}));
+        setMarkError(data.error ?? `Couldn't record adoption for ${repo}.`);
+      }
     } catch {
       setApplied((a) => a.filter((r) => r !== repo));
+      setMarkError(`Couldn't record adoption for ${repo}.`);
     }
   }
 
@@ -99,16 +111,23 @@ export function PlaybookCard({
 
   async function unapply(repo: string) {
     setApplied((a) => a.filter((r) => r !== repo)); // optimistic
-    // Re-add on failure so the card can't show a repo as un-adopted while the DB still has the row.
+    setMarkError(null);
+    // Re-add on failure so the card can't show a repo as un-adopted while the DB still has the row,
+    // and surface the reason so the rollback isn't a silent no-op.
     try {
       const res = await fetch(`/api/org/playbooks/${p.id}/repos`, {
         method: "DELETE",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo }),
       });
-      if (!res.ok) setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+      if (!res.ok) {
+        setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+        const data = await res.json().catch(() => ({}));
+        setMarkError(data.error ?? `Couldn't remove adoption for ${repo}.`);
+      }
     } catch {
       setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+      setMarkError(`Couldn't remove adoption for ${repo}.`);
     }
   }
 
@@ -206,6 +225,7 @@ export function PlaybookCard({
           </button>
         </div>
       )}
+      {markError && <p className="mt-2 text-sm text-orange-300">{markError}</p>}
       {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
       {prResult && (
         <p className="mt-2 text-sm text-emerald-300">
