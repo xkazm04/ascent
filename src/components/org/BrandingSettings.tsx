@@ -70,11 +70,21 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
           Logo URL (https)
           <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" className={`${field} min-w-[12rem]`} />
         </label>
-        <button onClick={save} disabled={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
+        <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {state === "saving" ? "Saving…" : "Save"}
         </button>
       </div>
-      {msg && <p className={`mt-2 font-mono text-sm ${state === "error" ? "text-orange-300" : state === "warn" ? "text-amber-300" : "text-emerald-300"}`}>{msg}</p>}
+      {/* Live region so assistive tech announces the save outcome (the status was previously conveyed
+          purely by text colour). An error is assertive (role="alert"); success/warnings are polite. */}
+      {msg && (
+        <p
+          role={state === "error" ? "alert" : "status"}
+          aria-live={state === "error" ? "assertive" : "polite"}
+          className={`mt-2 font-mono text-sm ${state === "error" ? "text-orange-300" : state === "warn" ? "text-amber-300" : "text-emerald-300"}`}
+        >
+          {msg}
+        </p>
+      )}
     </details>
   );
 }
