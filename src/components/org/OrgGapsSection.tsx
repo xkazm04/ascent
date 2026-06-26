@@ -12,6 +12,7 @@ export function OrgGapsSection({ gaps, slug }: { gaps: OrgGapAnalysis; slug: str
       <SectionHeader
         title="Where the gaps live"
         description="Common across the org (fix once — reuse a practice) vs repo-specific (outliers lagging what the rest already handles)."
+        right={<span className="font-mono text-sm uppercase tracking-widest text-slate-600">current state · not period-scoped</span>}
       />
       <div className="mt-3 grid gap-6 lg:grid-cols-2">
         {/* Common organization gaps */}
