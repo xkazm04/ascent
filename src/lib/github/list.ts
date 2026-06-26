@@ -106,8 +106,15 @@ export async function listOrgRepos(org: string, count: number, token?: string, s
       // Don't mask a rate limit / auth failure as "not found": surface a typed error so the route can
       // return 429/502 with a Retry-After instead of a misleading 404 for a real account.
       if (res.status === 403 || res.status === 429) {
-        const rateLimited = res.status === 429 || res.headers.get("x-ratelimit-remaining") === "0";
         const retryAfter = Number(res.headers.get("retry-after")) || undefined;
+        // A present Retry-After on a 403 is GitHub's SECONDARY (abuse) rate limit — x-ratelimit-remaining
+        // stays > 0, so keying only on remaining===0 misreported it as an AUTH/permissions denial ("GitHub
+        // denied listing"). Treat a present Retry-After as rate-limited too so callers back off rather than
+        // being told to fix permissions. (github-repo-data-access #2)
+        const rateLimited =
+          res.status === 429 ||
+          res.headers.get("x-ratelimit-remaining") === "0" ||
+          retryAfter !== undefined;
         throw new GitHubListError(
           rateLimited ? `GitHub rate limit hit while listing "${org}".` : `GitHub denied listing "${org}" (403).`,
           rateLimited ? "RATE_LIMITED" : "AUTH",

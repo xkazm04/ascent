@@ -267,9 +267,12 @@ async function runScan(
 
 function handleError(err: unknown) {
   if (err instanceof GitHubError) {
+    // Surface GitHub's Retry-After on a (secondary) rate limit so the client can back off instead of
+    // hammering — paired with the secondary-limit classification in ghJson (github-repo-data-access #2).
+    const headers = err.retryAfterSec ? { "retry-after": String(err.retryAfterSec) } : undefined;
     return NextResponse.json(
       { error: err.message, code: err.code },
-      { status: STATUS[err.code] ?? 500 },
+      { status: STATUS[err.code] ?? 500, headers },
     );
   }
   // Client disconnected mid-scan — the scan aborted as intended (no work wasted), and no one is
