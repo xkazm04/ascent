@@ -136,27 +136,34 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     }
   }
 
-  // Commit the simulated scenario as a tracked Initiative — closes the "insight → plan" loop.
-  // /api/org/initiatives takes the exact { dimId, targetScore, repos } shape the sim already holds.
+  // Commit the simulated scenario as tracked Initiative(s) — closes the "insight → plan" loop.
+  // /api/org/initiatives is single-dimension ({ dimId, targetScore, repos }), so drive it from the
+  // FULL set of legs the projection was computed from (result.fixes), one initiative per leg —
+  // NOT just the live primary dimId/target. Sourcing from result.fixes (the immutable snapshot that
+  // produced the on-screen projection) instead of the mutable form state also means editing the
+  // dropdown after simulating, or building a multi-leg scenario, no longer silently drops legs or
+  // tracks a target that disagrees with what leadership reviewed.
   async function trackAsInitiative() {
-    if (!result) return;
+    if (!result || result.fixes.length === 0) return;
     setTracking(true);
     setTrackError(null);
     // Use the explicit selection, or the concrete repos the projection covered when scope = "all".
     const initRepos = scope.size > 0 ? [...scope] : result.repos.map((r) => r.fullName);
-    const dimLabel = dims.find((d) => d.id === dimId)?.label ?? dimId;
-    const title = `Raise ${dimId} · ${dimLabel} to ${target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
-    const practiceId = PRACTICES.find((p) => p.dimId === dimId)?.id ?? null; // GOAL-3: carry the starter shape
     try {
-      const res = await fetch("/api/org/initiatives", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, title, dimId, practiceId, targetScore: target, repos: initRepos }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
+      for (const fix of result.fixes) {
+        const dimLabel = dims.find((d) => d.id === fix.dimId)?.label ?? fix.dimId;
+        const title = `Raise ${fix.dimId} · ${dimLabel} to ${fix.target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
+        const practiceId = PRACTICES.find((p) => p.dimId === fix.dimId)?.id ?? null; // GOAL-3: carry the starter shape
+        const res = await fetch("/api/org/initiatives", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ org: slug, title, dimId: fix.dimId, practiceId, targetScore: fix.target, repos: initRepos }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
+      }
       setTracked(true);
-      router.refresh(); // surface the new initiative in the Initiatives panel on this page
+      router.refresh(); // surface the new initiative(s) in the Initiatives panel on this page
     } catch (e) {
       setTrackError(e instanceof Error ? e.message : "Failed to create initiative.");
     } finally {
