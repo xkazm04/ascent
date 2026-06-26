@@ -247,7 +247,10 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         </ChartTooltip>
       )}
       {/* Screen-reader equivalent of the chart — the bands/points convey meaning visually, so mirror
-          the series as a table referenced by the svg's aria-describedby (matches the radar chart). */}
+          the series as a table referenced by the svg's aria-describedby (matches the radar chart).
+          The svg is role="img" + pointer-only click, so the per-point "open this scan" deep links
+          would otherwise be mouse-only (WCAG 2.1.1 / 4.1.2). Expose them here as real focusable
+          links so keyboard and screen-reader users can reach the same target without a pointer. */}
       <table id={tableId} className="sr-only">
         <caption>Overall maturity score over time</caption>
         <thead>
@@ -255,6 +258,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             <th>Scan date</th>
             <th>Score</th>
             <th>Level</th>
+            <th>Report</th>
           </tr>
         </thead>
         <tbody>
@@ -266,6 +270,17 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
                 <td>{p.score}</td>
                 <td>
                   {lvl.id} {lvl.name}
+                </td>
+                <td>
+                  {p.href ? <a href={p.href}>Open this scan&apos;s report</a> : "—"}
+                  {p.commitUrl && (
+                    <>
+                      {p.href ? " · " : ""}
+                      <a href={p.commitUrl} target="_blank" rel="noopener noreferrer">
+                        GitHub commit
+                      </a>
+                    </>
+                  )}
                 </td>
               </tr>
             );

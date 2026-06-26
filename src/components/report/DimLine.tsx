@@ -74,6 +74,15 @@ export function DimLine({
   const router = useRouter();
   const actMeta = act ? meta[act.i] : undefined;
 
+  // Short date for the screen-reader link list below (the svg has no visible date axis).
+  const srDate = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  // Present points that deep-link somewhere — exposed as real focusable links so keyboard / SR users
+  // can reach the same per-point report the pointer-only svg (role="img" + onClick) opens.
+  const linkedPoints = present.filter((p) => meta[p.i]?.href);
+
   return (
     <div className="relative mt-2">
       <svg
@@ -131,6 +140,21 @@ export function DimLine({
             commitLinked={Boolean(actMeta?.commitUrl)}
           />
         </ChartTooltip>
+      )}
+      {linkedPoints.length > 0 && (
+        <ul className="sr-only">
+          {linkedPoints.map((p) => {
+            const mp = meta[p.i]!; // filtered to href-bearing points above
+            const when = srDate(mp.at);
+            return (
+              <li key={p.i}>
+                <a href={mp.href}>
+                  {`${name ? name + " " : ""}${p.v} of 100${when ? ` on ${when}` : ""} — open this scan's report`}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );
