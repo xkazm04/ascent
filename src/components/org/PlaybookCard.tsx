@@ -190,9 +190,15 @@ export function PlaybookCard({
           Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
         </span>
         {lift != null && (
-          <span className="font-mono" style={{ color: lift >= 0 ? "#84cc16" : "#f97316" }} title={`Average ${p.dimId} change in applied repos since they applied this playbook`}>
-            {lift >= 0 ? "▲ +" : "▼ "}
-            {lift} avg {p.dimId} since
+          // Treat a flat lift (0, or a sub-0.5 average rounded to 0) as NEUTRAL — no arrow, muted
+          // text — so a zero never paints a green "▲ +0" that implies improvement where there was
+          // none. Use the design-system emerald/orange tokens (as the rest of the card does) instead
+          // of inline hex, so the badge follows theming. (playbooks #5)
+          <span
+            className={`font-mono ${lift > 0 ? "text-emerald-300" : lift < 0 ? "text-orange-300" : "text-slate-400"}`}
+            title={`Average ${p.dimId} change in applied repos since they applied this playbook`}
+          >
+            {lift > 0 ? `▲ +${lift}` : lift < 0 ? `▼ ${lift}` : "± 0"} avg {p.dimId} since
           </span>
         )}
         {applied.length > 0 &&
