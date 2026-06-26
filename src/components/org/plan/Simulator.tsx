@@ -49,6 +49,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [trackError, setTrackError] = useState<string | null>(null);
   const [ranking, setRanking] = useState<InvestmentRank[] | null>(null);
   const [rankBusy, setRankBusy] = useState(false);
+  const [rankError, setRankError] = useState<string | null>(null);
   // SIM-5: client-only saved scenarios + a 2-up compare. No backend — a scratchpad for "what if".
   const [saved, setSaved] = useState<SavedScenario[]>([]);
   const [compare, setCompare] = useState<number[]>([]);
@@ -75,16 +76,22 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   // SIM-3: ask the engine which dimension yields the biggest fleet lift, instead of guessing.
   async function suggestMoves() {
     setRankBusy(true);
+    setRankError(null);
     try {
       const res = await fetch("/api/org/simulate", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org: slug, rank: true, target, repos: [...scope] }),
       });
-      const data = await res.json();
-      if (res.ok) setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0).slice(0, 5));
-    } catch {
-      /* leave the manual simulator usable */
+      const data = await res.json().catch(() => ({}));
+      // Previously a non-ok response (404 "no scanned repos", 503 "requires a database", 401/403, or a
+      // network throw with an empty catch) cleared the spinner and changed nothing, so a failed request
+      // looked identical to "no suggestions" — the user re-clicked with no idea why. Surface the reason.
+      // (investment-simulator-forecast #3)
+      if (!res.ok) throw new Error(data.error ?? "Couldn't rank moves.");
+      setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0).slice(0, 5));
+    } catch (e) {
+      setRankError(e instanceof Error ? e.message : "Couldn't rank moves.");
     } finally {
       setRankBusy(false);
     }
@@ -193,6 +200,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
             {rankBusy ? "Ranking…" : ranking ? "Refresh" : `Suggest (→ ${target})`}
           </button>
         </div>
+        {rankError && <p className="mt-2 font-mono text-sm text-orange-300">{rankError}</p>}
         {ranking &&
           (ranking.length === 0 ? (
             <p className="mt-2 font-mono text-sm text-slate-500">No dimension moves the fleet average at this target/scope.</p>
