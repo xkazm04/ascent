@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { OrgTable, postureLabel } from "@/components/org/ui";
 import { ScheduleSelect } from "@/components/org/ScheduleSelect";
 import { RepoRescanButton } from "@/components/org/RepoRescanButton";
@@ -47,6 +48,7 @@ export function RepoLeaderboard({
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const allSelected = selected.size > 0 && selected.size === rows.length;
   const segName = useMemo(() => new Map(segments.map((s) => [s.id, s.name])), [segments]);
@@ -71,9 +73,19 @@ export function RepoLeaderboard({
     setError(null);
     setDone(null);
     try {
-      await bulkTagRepos(target, { org: slug, fullNames: [...selected], member: true });
-      setDone(`Added ${selected.size} to ${segName.get(target) ?? "segment"}.`);
+      // bulkTagRepos returns the server's authoritative `changed` count (createMany skips repos already
+      // tagged). Report THAT, not selected.size — telling the user "Added 10" when 7 were already tagged
+      // and only 3 changed is success theater. Then router.refresh() so the sibling segment panel's chips
+      // / repoCount and this leaderboard's server-rendered data re-hydrate (they used to stay stale).
+      const name = segName.get(target) ?? "segment";
+      const changed = await bulkTagRepos(target, { org: slug, fullNames: [...selected], member: true });
+      setDone(
+        changed === 0
+          ? `All ${selected.size} selected were already tagged to ${name}.`
+          : `Added ${changed} to ${name}.`,
+      );
       setSelected(new Set());
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Bulk add failed.");
     } finally {
