@@ -162,8 +162,10 @@ export function RecommendationTracker({
                   disabled={saving}
                   onChange={(e) => setStatus(item.id, e.target.value as RecStatus)}
                   aria-label="Recommendation status"
+                  // Render in a high-contrast token rather than the status accent: the dark accents
+                  // (Open #64748b, Dismissed #475569) on bg-slate-950 fell to ~2.4:1, below WCAG
+                  // 1.4.3. The accent still cues status via the row's left-edge bar above.
                   className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-                  style={{ color: STATUS_ACCENT[item.status] }}
                 >
                   {(Object.keys(STATUS_LABEL) as RecStatus[]).map((s) => (
                     <option key={s} value={s} className="text-slate-200">
