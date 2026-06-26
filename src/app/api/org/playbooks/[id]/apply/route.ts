@@ -72,9 +72,14 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       token,
       owner: parsed.owner,
       repo: parsed.repo,
-      branch: `ascent/playbook-${slug(playbook.title)}`,
+      // Namespace the branch + committed file by the playbook's DB id (its true identity), not only
+      // the human title slug: two distinct playbooks whose titles slug identically (e.g. "Our CI
+      // standard" / "Our CI Standard!") used to collide on the SAME branch/file, so applying B reused
+      // A's open PR and overwrote it with B's content while adoption was recorded against B's id.
+      // Including the id makes the GitHub artifact namespace as unique as the playbook. (playbooks #2)
+      branch: `ascent/playbook-${id}-${slug(playbook.title)}`,
       base: body.base,
-      path: `docs/playbooks/${slug(playbook.title)}.md`,
+      path: `docs/playbooks/${id}-${slug(playbook.title)}.md`,
       content: fileBody,
       commitMessage: `docs: adopt "${playbook.title}" playbook (via Ascent)`,
       prTitle: `Adopt playbook: ${playbook.title}`,
