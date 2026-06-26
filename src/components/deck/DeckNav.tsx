@@ -14,19 +14,26 @@ export interface DeckSectionRef {
 export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
   const [active, setActive] = useState(sections[0]?.id ?? "");
 
+  // Depend on a derived stable key (the section ids) rather than the array identity. A caller passing
+  // an inline `sections` literal produces a new array every render; keying the effect on `[sections]`
+  // would disconnect/rebuild the observer each render and momentarily drop the active-dot highlight.
+  // Keying on the id signature rebuilds only when the actual sections change.
+  const sectionKey = sections.map((s) => s.id).join("|");
+
   useEffect(() => {
+    const ids = sectionKey ? sectionKey.split("|") : [];
     const observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) if (e.isIntersecting) setActive(e.target.id);
       },
       { rootMargin: "-45% 0px -45% 0px" }, // active once a section crosses the viewport middle
     );
-    for (const s of sections) {
-      const el = document.getElementById(s.id);
+    for (const id of ids) {
+      const el = document.getElementById(id);
       if (el) observer.observe(el);
     }
     return () => observer.disconnect();
-  }, [sections]);
+  }, [sectionKey]);
 
   return (
     <nav aria-label="Page sections" className="fixed right-4 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-3 lg:flex">
