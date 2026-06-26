@@ -53,9 +53,19 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, policy }),
       });
-      const d = await res.json().catch(() => ({}));
+      const d = (await res.json().catch(() => ({}))) as { error?: string; policy?: GatePolicy | null };
       if (!res.ok) throw new Error(d.error ?? "Failed to save policy.");
-      setMsg({ kind: "note", text: kind === "reset" ? "Reset to the archetype default." : "Policy saved — the gate now enforces it." });
+      // Drive the success copy from the SERVER's echoed result, not from the request. sanitizeGatePolicy
+      // drops out-of-range/zero floors, and an all-invalid policy sanitizes to null — which CLEARS the
+      // gate back to the archetype default. So a save of e.g. "min overall = 0" actually RESETS the bar.
+      // The old copy hardcoded "Policy saved — the gate now enforces it" regardless, telling the owner a
+      // stricter bar was live when it had really been reset (success-theater). (ci-gate-status-checks #4)
+      const stored = d.policy ?? null;
+      setMsg(
+        kind === "reset" || stored == null
+          ? { kind: "note", text: "Reset to the archetype default — no custom bar is enforced." }
+          : { kind: "note", text: "Policy saved — the gate now enforces it." },
+      );
       router.refresh();
     } catch (e) {
       setMsg({ kind: "error", text: e instanceof Error ? e.message : "Failed to save policy." });
