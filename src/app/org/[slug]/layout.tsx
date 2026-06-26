@@ -6,12 +6,13 @@ import { CreditsControl } from "@/components/org/CreditsControl";
 import { PlanControl } from "@/components/org/PlanControl";
 import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
-import { ensureOwnerMembership, getCreditState, getMembershipRole, getOrgRollup, isDbConfigured, isDbUnavailableError } from "@/lib/db";
+import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgRollup, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { creditPacks, polarEnabled } from "@/lib/polar";
 import { envBool } from "@/lib/env";
+import { scanAllowance } from "@/lib/plans";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
@@ -104,13 +105,17 @@ export default async function OrgLayout({
   let rollup: Awaited<ReturnType<typeof getOrgRollup>>;
   let credit: Awaited<ReturnType<typeof getCreditState>> | null;
   let myRole: Awaited<ReturnType<typeof getMembershipRole>> | null;
+  let usageThisMonth: number;
   try {
-    [rollup, credit, myRole] = await Promise.all([
+    [rollup, credit, myRole, usageThisMonth] = await Promise.all([
       getOrgRollup(slug),
       slug === "public" ? Promise.resolve(null) : getCreditState(slug),
       // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
       // can open the Members tab). Null for the public org / non-members.
       roleLogin && slug !== "public" ? getMembershipRole(slug, roleLogin).catch(() => null) : Promise.resolve(null),
+      // Month-to-date metered scans, so the credits chip knows the plan's free allowance still covers
+      // scans at balance 0 (and doesn't falsely warn "paused"). Free for the public org.
+      slug === "public" ? Promise.resolve(0) : countMeteredScansThisMonth(slug).catch(() => 0),
     ]);
   } catch (err) {
     if (isDbUnavailableError(err)) {
@@ -157,6 +162,11 @@ export default async function OrgLayout({
   // Manual plan-tier override (no-Polar demo path) — mirrors the /api/org/plan gate. Owner-gated at
   // the route; here it just decides whether the tier chip is a switcher or read-only.
   const planChangesEnabled = envBool("ASCENT_ALLOW_PLAN_CHANGES");
+  // Free metered scans left in the plan's monthly allowance, so the credits chip doesn't say "out of
+  // credits / paused" at balance 0 while the allowance still covers scans. null allowance = unlimited
+  // (Enterprise) — the chip shows "Unlimited" anyway, so 0 here is harmless.
+  const planAllowance = credit ? scanAllowance(credit.plan) : null;
+  const allowanceRemaining = planAllowance == null ? 0 : Math.max(0, planAllowance - usageThisMonth);
 
   return (
     <Frame>
@@ -192,6 +202,7 @@ export default async function OrgLayout({
               grantsEnabled={grantsEnabled}
               buyEnabled={buyEnabled}
               packs={packs}
+              allowanceRemaining={allowanceRemaining}
             />
           )}
           <OrgScanButton org={slug} watchedCount={watched} />

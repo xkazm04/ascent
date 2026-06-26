@@ -32,6 +32,7 @@ export function CreditsControl({
   grantsEnabled,
   buyEnabled = false,
   packs = [],
+  allowanceRemaining = 0,
 }: {
   org: string;
   initialBalance: number;
@@ -39,6 +40,9 @@ export function CreditsControl({
   grantsEnabled: boolean;
   buyEnabled?: boolean;
   packs?: Pack[];
+  /** Free metered scans LEFT in the plan's monthly allowance (from checkScanEntitlement). While this
+   *  is > 0, a 0 prepaid balance does NOT pause scanning — the allowance still covers them. */
+  allowanceRemaining?: number;
 }) {
   const [balance, setBalance] = useState(initialBalance);
   const [open, setOpen] = useState(false);
@@ -105,7 +109,12 @@ export function CreditsControl({
     );
   }
 
-  const low = balance <= 0;
+  // A 0 prepaid balance only PAUSES scanning when the monthly free allowance is also spent. While the
+  // allowance still covers scans, consumeScanCredit charges nothing (charge === "allowance"), so the
+  // chip must not cry "out of credits / paused" — that falsely nudges toward unnecessary top-ups.
+  const freeScansLeft = Math.max(0, allowanceRemaining);
+  const paused = balance <= 0 && freeScansLeft <= 0;
+  const coveredByAllowance = balance <= 0 && freeScansLeft > 0;
 
   return (
     <div ref={ref} className="relative">
@@ -115,7 +124,7 @@ export function CreditsControl({
         aria-expanded={open}
         aria-haspopup="dialog"
         className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-sm transition ${
-          low
+          paused
             ? "border-amber-500/50 bg-amber-500/10 text-amber-300 hover:border-amber-400"
             : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
         }`}
@@ -135,9 +144,15 @@ export function CreditsControl({
             <span className="text-3xl font-bold text-white">{balance}</span>
             <span className="text-sm text-slate-400">private scans remaining</span>
           </div>
-          {low && (
+          {paused && (
             <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-sm text-amber-300">
               Out of credits — private scans are paused until you top up.
+            </p>
+          )}
+          {coveredByAllowance && (
+            <p className="mt-2 rounded-md border border-slate-700 bg-slate-800/40 px-2.5 py-1.5 text-sm text-slate-300">
+              {freeScansLeft} free {freeScansLeft === 1 ? "scan" : "scans"} left this month — scans
+              keep running on your monthly allowance.
             </p>
           )}
 

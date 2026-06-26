@@ -65,6 +65,7 @@ export {
   grantCredits,
   clawbackOrderRefund,
   consumeScanCredit,
+  countMeteredScansThisMonth,
   getCreditLedger,
   getCreditReconciliation,
   setOrgPlan,
