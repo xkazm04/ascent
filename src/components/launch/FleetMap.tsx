@@ -172,9 +172,17 @@ export function FleetMap({
       );
     }
     const id = setInterval(refreshAll, 90_000);
+    // Re-pull immediately when the tab regains focus so a user returning to a backgrounded Mission
+    // Control doesn't stare at scores up to ~90s stale before the next tick (the interval no-ops while
+    // hidden). refreshAll's own visibility/scan guards keep this safe.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshAll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [installations]);
 
