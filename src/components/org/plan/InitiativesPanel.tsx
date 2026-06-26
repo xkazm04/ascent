@@ -211,11 +211,18 @@ export function InitiativesPanel({
               <div key={s.title} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-2">
                 <div className="min-w-0">
                   <div className="truncate text-base text-slate-200">{s.title}</div>
-                  <div className="font-mono text-sm text-slate-500">{s.dimId} · affects {s.repoCount} repos</div>
+                  {/* Show the MAPPED scope (what track() actually POSTs), not the rec's pre-map count —
+                      repos that don't resolve to a current-scan fullName are dropped, so advertising the
+                      original count promised repos the initiative never scopes (goals-initiatives #3). */}
+                  <div className="font-mono text-sm text-slate-500">
+                    {s.dimId} · affects {s.repos.length} repo{s.repos.length === 1 ? "" : "s"}
+                    {s.repoCount > s.repos.length ? ` (of ${s.repoCount} — others aren't in the latest scan)` : ""}
+                  </div>
                 </div>
                 <button
                   onClick={() => track(s)}
-                  disabled={busy === s.title}
+                  disabled={busy === s.title || s.repos.length === 0}
+                  title={s.repos.length === 0 ? "None of this recommendation's repos are in the latest scan — nothing to scope" : undefined}
                   className="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
                 >
                   {busy === s.title ? "…" : "Track"}
