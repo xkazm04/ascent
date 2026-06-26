@@ -17,7 +17,10 @@ export function withinRange(scans: HistoryPoint[], days: number | null): History
   const cutoff = Date.now() - days * 86_400_000;
   return scans.filter((s) => {
     const t = Date.parse(s.scannedAt);
-    return Number.isNaN(t) ? true : t >= cutoff;
+    // An undateable point has, by definition, no place in a time window — excluding it lets the user
+    // narrow it out of view (previously it stuck in every 5d/30d/90d range as a floating dot with a
+    // blank x-label). The "keep all" path above still preserves NaN-date points for `days === null`.
+    return Number.isNaN(t) ? false : t >= cutoff;
   });
 }
 

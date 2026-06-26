@@ -8,9 +8,11 @@ import type { HistoryPoint } from "@/lib/db/scans";
 // either with no other test catching it:
 //   1. BOUNDARY: a scan whose timestamp is exactly at the cutoff is KEPT (the predicate is `t >= cutoff`,
 //      inclusive). Only points STRICTLY older than the window are dropped.
-//   2. NaN KEEP-RULE: a scan whose `scannedAt` is unparseable (Date.parse → NaN) is KEPT, not dropped
-//      (DimensionTrendsRange.tsx:20 — `Number.isNaN(t) ? true : t >= cutoff`). Filtering unplaceable
-//      dates is `parseRepositoryHistory`'s job upstream, never this window slice's.
+//   2. NaN RULE (by window): a scan whose `scannedAt` is unparseable (Date.parse → NaN) is DROPPED when
+//      a finite `days` window is active — an undateable point has no place in a 5d/30d/90d range, so the
+//      user must be able to narrow it out (DimensionTrendsRange.tsx — `Number.isNaN(t) ? false : ...`).
+//      For the open `days === null` (All) view it is KEPT (identity passthrough below). (Previously the
+//      slice kept NaN-date points in EVERY window, leaving a floating, unfilterable, blank-x-label dot.)
 // Also pinned: `days === null` (All) is an identity passthrough, and newest-first input order is
 // preserved (filter never reorders).
 
@@ -60,14 +62,22 @@ describe("withinRange", () => {
     expect(result.map((s) => s.id)).toEqual(["atCutoff"]);
   });
 
-  it("NaN KEEP-RULE: a scan with an unparseable `scannedAt` is KEPT (never silently filtered here)", () => {
+  it("NaN RULE: with a finite window, an unparseable `scannedAt` is DROPPED (an undateable point has no place in a date range)", () => {
     pinNow();
     const garbage = pt("garbage", "garbage"); // Date.parse → NaN
     const empty = pt("", "empty"); // Date.parse("") → NaN
-    const old = pt(iso(NOW - 90 * DAY), "old"); // far outside the 5d window
-    const result = withinRange([garbage, empty, old], 5);
-    // Both NaN-date points survive even though the window is tiny; only the placeable-but-old one drops.
-    expect(result.map((s) => s.id)).toEqual(["garbage", "empty"]);
+    const inside = pt(iso(NOW - 2 * DAY), "inside"); // within the 5d window
+    const result = withinRange([garbage, empty, inside], 5);
+    // The NaN-date points are excluded so the user can narrow them out; only the placeable, in-range one survives.
+    expect(result.map((s) => s.id)).toEqual(["inside"]);
+  });
+
+  it("NaN RULE: with the open (All) view an unparseable `scannedAt` is KEPT (identity passthrough)", () => {
+    pinNow();
+    const garbage = pt("garbage", "garbage");
+    const old = pt(iso(NOW - 1000 * DAY), "old");
+    const result = withinRange([garbage, old], null);
+    expect(result.map((s) => s.id)).toEqual(["garbage", "old"]);
   });
 
   it("OPEN RANGE: `days === null` (All) returns the input unchanged (identity passthrough)", () => {
