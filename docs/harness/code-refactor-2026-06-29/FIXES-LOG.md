@@ -83,6 +83,20 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 7 — GitHub I/O layer consolidation (Theme F)
+
+**3 commits · 2 High (4-way fetch dup, publicBase dup) + path-encoder Med closed · gate: tsc 0 · vitest 2640/2640.**
+
+| Commit | What |
+|---|---|
+| `aa1b941` | New `ghFetch`/`ghGetJson` in `host.ts` (over `ghHeaders`+`fetchWithTimeout`); `source/governance/discover/list` route through it. `discover` + `list` GAIN the timeout they lacked; each keeps its own typed error mapping + return shape. |
+| `4651983` | `webhook` + `scan-alerts` + `cron/digest` drop local `publicBase()` for canonical `publicBaseUrl()` (strict superset: adds the Vercel fallback). |
+| `1f6d945` | Centralized `encodePathSegments` (carries `encodeRef`'s rationale); ~5 inline copies routed through it, byte-identical encoding. |
+
+**Left (correctly):** the two GitHub error *classes* (source vs list) — they've provably diverged (list parses `retry-after` + has a 401 case source collapses to UPSTREAM), so not behavior-identical to merge.
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -93,3 +107,4 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 6. **Multi-doc theme extraction with per-doc overrides.** Don't flatten when hoisting shared style/theme constants across N documents — diff all N first, hoist only identical values, keep per-doc overrides where they differ. Flattening silently changes output (no snapshot test will catch a PDF).
 7. **Shared crypto codec, per-caller parameters.** Deduping HMAC sign/verify across share flows: parameterize the legitimately-different bits (secret env var, TTL) and keep each caller building its own payload, so JSON key order → token bytes stay identical and already-issued tokens still verify.
 8. **The "shared" helper can be the buggy fork.** Four SSE parsers existed; the one in the shared lib silently corrupted multi-line `data:` while a component kept a correct private copy. When consolidating, adopt the *correct* implementation as the single source (not whichever is labeled "shared"), and add a test for the bug it fixes.
+9. **Consolidate the transport, keep per-call error taxonomies.** Four GitHub JSON fetchers shared a body but had genuinely divergent status→error mappings (one parsed `retry-after` / had a 401 case another collapsed). Extract the transport (headers+timeout+fetch) into one helper, but let callers keep their own typed error mapping — don't merge error classes that have provably diverged.
