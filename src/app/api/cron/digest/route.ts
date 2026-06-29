@@ -27,6 +27,7 @@ import { PUBLIC_ORG } from "@/lib/auth";
 import { isWithinNoise } from "@/lib/maturity/noise";
 import { levelForScore } from "@/lib/maturity/model";
 import { forecastHeadline } from "@/lib/maturity/forecast";
+import { publicBaseUrl } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
   if (denied) return denied;
   if (!isDbConfigured()) return NextResponse.json({ skipped: "Database required." });
 
-  const base = (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
+  const base = publicBaseUrl();
   const orgs = await listOrgsWithWatchedRepos();
   const win: OrgWindow = { start: new Date(Date.now() - 7 * 86_400_000), end: null };
 

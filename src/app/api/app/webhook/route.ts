@@ -32,6 +32,7 @@ import {
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
+import { publicBaseUrl } from "@/lib/site";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment, GATE_COMMENT_MARKER } from "@/lib/scoring/gate-comment";
 import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
@@ -171,10 +172,6 @@ async function confirmRevocationWithGitHub(installationId: number, action: "dele
   }
 }
 
-function publicBase(): string {
-  return (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-}
-
 interface PrGateRef {
   installationId: number;
   owner: string;
@@ -228,7 +225,7 @@ async function runPrGate(ref: PrGateRef) {
     }
 
     const comment = buildGateComment(headReport, gate, baseline, { baselineSuffix: "in this PR" });
-    const detailsUrl = publicBase() + reportPermalink(fullName, headReport.repo.headSha);
+    const detailsUrl = publicBaseUrl() + reportPermalink(fullName, headReport.repo.headSha);
 
     await createCheckRun({
       token,
