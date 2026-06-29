@@ -55,7 +55,6 @@ const mockRecord = vi.mocked(recordSkillGeneration);
 const REPORT = { repo: "acme/api", headline: "SECRET_HEADLINE" } as unknown as ScanReport;
 const SKILL: GeneratedSkill = {
   name: "ascent-onboard",
-  fileName: "SKILL.md",
   path: ".claude/skills/ascent-onboard/SKILL.md",
   body: "---\nname: ascent-onboard\n---\n# Onboard acme/api",
   trackIds: ["D4", "D9"],

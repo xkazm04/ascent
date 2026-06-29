@@ -15,9 +15,8 @@ describe("matrixData", () => {
     expect(rows.map((r) => r.id)).toEqual(DIMENSIONS.map((d) => d.id));
   });
 
-  it("mirrors the real ARCHETYPE_WEIGHTS and base weight for every cell", () => {
+  it("mirrors the real ARCHETYPE_WEIGHTS for every cell", () => {
     for (const r of rows) {
-      expect(r.base).toBe(DIMENSIONS.find((d) => d.id === r.id)!.weight);
       expect(r.solo).toBe(ARCHETYPE_WEIGHTS.solo[r.id]);
       expect(r.team).toBe(ARCHETYPE_WEIGHTS.team[r.id]);
       expect(r.org).toBe(ARCHETYPE_WEIGHTS.org[r.id]);
