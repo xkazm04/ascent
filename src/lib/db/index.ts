@@ -1,19 +1,12 @@
 export {
-  getPrisma,
   isDbConfigured,
   withDb,
   withRetry,
-  reconnectDb,
   dbHealthCheck,
-  isAuthExpiryError,
-  isSerializationConflictError,
   isDbUnavailableError,
-  dbReadSafe,
-  type RetryOptions,
 } from "@/lib/db/client";
 export {
   persistScanReport,
-  findScanByCommit,
   getHeadHint,
   getRepositoryHistory,
   getScanComparison,
@@ -28,38 +21,18 @@ export {
   getAuditLog,
   getPublicScanGallery,
   reportPermalink,
-  type PersistResult,
   type RecommendationPatch,
-  type RecommendationActor,
   type RepositoryHistory,
-  type HistoryPoint,
-  type ScanComparison,
-  type ComparableScan,
-  type ComparableDimension,
-  type ComparableRecommendation,
-  type PublicRepoCard,
   type PublicScanGallery,
   type AuditLogEntry,
   type AuditLogPage,
-  type AuditLogQuery,
-  type AuditScanRef,
 } from "@/lib/db/scans";
-export {
-  purgeExpiredData,
-  envRetentionDefaults,
-  resolveRetention,
-  clampBatchSize,
-  PURGE_ACTION,
-  RETENTION_DEFAULT_BATCH_SIZE,
-  type RetentionPolicy,
-  type OrgPurgeResult,
-  type PurgeSummary,
-} from "@/lib/db/retention";
-export { getUsageSummary, type UsageSummary, type ProviderUsage, type UsageDay } from "@/lib/db/usage";
+export { purgeExpiredData } from "@/lib/db/retention";
+export { getUsageSummary, type UsageSummary, type UsageDay } from "@/lib/db/usage";
 export { recordBadgeImpression, getBadgeReach, type BadgeReach } from "@/lib/db/badge-analytics";
 export { recordQuotaEvent, getQuotaEventTotals, type QuotaEventTotals } from "@/lib/db/quota-events";
-export { recordSkillGeneration, getSkillHistory, diffTrackSets, type SkillGenerationRow } from "@/lib/db/skill-history";
-export { getOrgBranding, setOrgBranding, type OrgBranding } from "@/lib/db/branding";
+export { recordSkillGeneration, getSkillHistory, diffTrackSets } from "@/lib/db/skill-history";
+export { getOrgBranding, setOrgBranding } from "@/lib/db/branding";
 export {
   getCreditState,
   grantCredits,
@@ -68,7 +41,6 @@ export {
   getCreditReconciliation,
   setOrgPlan,
   type CreditState,
-  type CreditLedgerEntry,
   type CreditReconciliation,
 } from "@/lib/db/credits";
 export {
@@ -77,8 +49,6 @@ export {
   setMembershipRole,
   removeMembership,
   listOrgMembers,
-  type OrgRole,
-  type OrgMember,
 } from "@/lib/db/members";
 export {
   createInvite,
@@ -86,10 +56,6 @@ export {
   revokeInvite,
   acceptInvite,
   peekInvite,
-  type PendingInvite,
-  type PendingInviteSummary,
-  type InvitePeek,
-  type AcceptResult,
 } from "@/lib/db/invites";
 export {
   upsertInstallation,
@@ -115,11 +81,9 @@ export {
   getOrgMovers,
   getOrgRecommendations,
   getOrgBacklog,
-  dueBucketFor,
   getOrgDiscrepancies,
   getOrgBenchmark,
   getOrgTeamRollup,
-  rollupTeams,
   listDueRescans,
   advanceScheduleAfterFailure,
   claimRescan,
@@ -132,26 +96,13 @@ export {
   setOrgAlertWebhook,
   getOrgAlertThresholds,
   setOrgAlertThresholds,
-  type OrgAlertThresholds,
   getOrgGatePolicy,
   setOrgGatePolicy,
   type DueRescan,
-  type RepoRef,
-  type OrgRepoRow,
   type OrgRollup,
   type OrgWindow,
-  type RepoState,
-  type ContributorInsight,
-  type RepoConcentration,
   type ContributorInsights,
-  type OrgPrSignals,
-  type OrgGovernance,
-  type RepoGovernance,
-  type OrgActivity,
-  type OrgPractice,
   type OrgGapAnalysis,
-  type CommonGap,
-  type RepoOutlier,
   type OrgMovers,
   type RepoMove,
   type OrgRec,
@@ -159,17 +110,8 @@ export {
   type BacklogItem,
   type BacklogOwnerGroup,
   type BacklogDueGroup,
-  type BacklogDueBucket,
   type OrgBenchmark,
-  type OrgDiscrepancies,
-  type DiscrepancyGroup,
-  type OrgTeamRollup,
   type TeamRollup,
-  type TeamRepoScore,
-  type TeamChampion,
-  type TeamDimAvg,
-  type TeamPairing,
-  type TeamRollupRepoInput,
 } from "@/lib/db/org";
 export {
   listSegments,
@@ -182,9 +124,6 @@ export {
   getRepoSegmentMap,
   compareSegments,
   listSegmentSummaries,
-  buildSegmentComparison,
-  normalizeSegmentName,
-  normalizeColor,
   type SegmentRow,
   type SegmentSummary,
   type SegmentComparison,
@@ -204,10 +143,6 @@ export {
   rankOrgInvestments,
   isGoalMetric,
   metricLabel,
-  type GoalProgress,
-  type GoalMetric,
-  type GoalImpact,
-  type InitiativeRow,
 } from "@/lib/db/plan";
 export {
   listPlaybooks,
@@ -220,7 +155,6 @@ export {
   unapplyPlaybook,
   getPlaybookAdoption,
   type PlaybookRow,
-  type PlaybookInput,
   type PlaybookAdoption,
 } from "@/lib/db/playbooks";
 export {
@@ -235,29 +169,23 @@ export {
   unadoptOrgSkill,
   recordSkillDownload,
   type SkillRow,
-  type SkillInput,
   type SkillSort,
-  type SkillListOpts,
   type SkillAdoption,
 } from "@/lib/db/org-skills";
 export {
-  syncTechStackGroups,
   listTechStackGroups,
   getTechGroupIdByKey,
   listTechStackSummaries,
   compareTechStacks,
   type TechGroupSummary,
 } from "@/lib/db/tech-groups";
-export { getDbMode, dbModeLabel, dbModeIsAws, type DbMode } from "@/lib/db/mode";
-export { getPassportOverrides, setPassportOverrides } from "@/lib/db/passport-overrides";
+export { getDbMode } from "@/lib/db/mode";
+export { setPassportOverrides } from "@/lib/db/passport-overrides";
 export {
   getOrgLlmConfig,
   setOrgLlmConfig,
   disableOrgLlmConfig,
   recordOrgLlmValidation,
   isByomActive,
-  resolveByomProvider,
   type OrgLlmConfigPublic,
-  type OrgLlmConfigInput,
-  type ByomProviderParams,
 } from "@/lib/db/org-llm";
