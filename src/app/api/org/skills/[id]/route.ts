@@ -9,11 +9,10 @@ import { NextResponse } from "next/server";
 import {
   archiveOrgSkill,
   getCreditState,
-  getOrgId,
   getOrgSkill,
   getOrgSkillOrgSlug,
   isDbConfigured,
-  recordAudit,
+  recordOrgAudit,
   updateOrgSkill,
 } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead, requireOrgRole } from "@/lib/authz";
@@ -77,9 +76,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       archived: body.archived,
     });
     const session = await getSession();
-    const orgId = (await getOrgId(g.org.toLowerCase()).catch(() => null)) ?? undefined;
     const changed = Object.keys(body).filter((k) => body[k as keyof typeof body] !== undefined);
-    await recordAudit("org_skill.updated", { skillId: id, changed }, { orgId, actorId: session?.login });
+    await recordOrgAudit("org_skill.updated", g.org, { skillId: id, changed }, session?.login);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const code = (err as { code?: string }).code;
@@ -96,8 +94,7 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
   try {
     await archiveOrgSkill(id);
     const session = await getSession();
-    const orgId = (await getOrgId(g.org.toLowerCase()).catch(() => null)) ?? undefined;
-    await recordAudit("org_skill.archived", { skillId: id }, { orgId, actorId: session?.login });
+    await recordOrgAudit("org_skill.archived", g.org, { skillId: id }, session?.login);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Skill not found." }, { status: 404 });

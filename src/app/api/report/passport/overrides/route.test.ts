@@ -15,14 +15,13 @@ vi.mock("next/server", () => ({
 const h = vi.hoisted(() => ({
   isDbConfigured: vi.fn(),
   setPassportOverrides: vi.fn(),
-  getOrgId: vi.fn(),
-  recordAudit: vi.fn(),
+  recordOrgAudit: vi.fn(),
   readableOrgForOwner: vi.fn(),
   isSameOrigin: vi.fn(),
   getSession: vi.fn(),
   requireOrgRole: vi.fn(),
 }));
-vi.mock("@/lib/db", () => ({ isDbConfigured: h.isDbConfigured, setPassportOverrides: h.setPassportOverrides, getOrgId: h.getOrgId, recordAudit: h.recordAudit }));
+vi.mock("@/lib/db", () => ({ isDbConfigured: h.isDbConfigured, setPassportOverrides: h.setPassportOverrides, recordOrgAudit: h.recordOrgAudit }));
 vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public", readableOrgForOwner: h.readableOrgForOwner, isSameOrigin: h.isSameOrigin, getSession: h.getSession }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
 
@@ -37,8 +36,7 @@ beforeEach(() => {
   h.readableOrgForOwner.mockResolvedValue("acme");
   h.requireOrgRole.mockResolvedValue(null); // owner
   h.setPassportOverrides.mockResolvedValue(true);
-  h.getOrgId.mockResolvedValue("org_acme");
-  h.recordAudit.mockResolvedValue(undefined);
+  h.recordOrgAudit.mockResolvedValue(undefined);
   h.getSession.mockResolvedValue({ login: "alice" });
 });
 
@@ -78,6 +76,6 @@ describe("POST /api/report/passport/overrides", () => {
     const res = await POST(post({ repo: "acme/web", criticality: "mission-critical", lifecycle: "ga", rollback: true }));
     expect(res.status).toBe(200);
     expect(h.setPassportOverrides).toHaveBeenCalledWith("acme", "acme/web", { criticality: "mission-critical", lifecycle: "ga", rollback: true });
-    expect(h.recordAudit.mock.calls[0][0]).toBe("passport.overrides_set");
+    expect(h.recordOrgAudit.mock.calls[0][0]).toBe("passport.overrides_set");
   });
 });

@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { GitHubError } from "@/lib/github/source";
 import { openDraftPr } from "@/lib/github/write";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { getInstallationIdForOwner, getOrgId, getRepoPassport, isDbConfigured, recordAudit } from "@/lib/db";
+import { getInstallationIdForOwner, getRepoPassport, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { PUBLIC_ORG, getSession, isAuthConfigured, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
 
@@ -69,8 +69,7 @@ export async function POST(request: Request) {
       prTitle: "Add App Readiness Passport",
       prBody: `Seeds \`.ai/passport.json\` — the portfolio readiness scorecard Ascent derived from this repo's latest scan (automation **${passport.automationReadiness.level}** · production **${passport.productionReadiness.band}**). Descriptive + tool-naming; sibling to the agent-facing \`.ai/manifest.yaml\`. Regenerate it from a fresh scan when the stack drifts.`,
     });
-    const orgId = (await getOrgId(org.toLowerCase()).catch(() => null)) ?? undefined;
-    await recordAudit("passport.pr_opened", { repo: `${parsed.owner}/${parsed.name}`, pr: pr.number, reused: pr.reused }, { orgId, actorId: session?.login });
+    await recordOrgAudit("passport.pr_opened", org, { repo: `${parsed.owner}/${parsed.name}`, pr: pr.number, reused: pr.reused }, session?.login);
     return NextResponse.json(pr);
   } catch (err) {
     if (err instanceof AppApiError) {
