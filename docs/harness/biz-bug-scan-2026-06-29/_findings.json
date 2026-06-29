@@ -1,0 +1,1982 @@
+[
+{
+"group": "billing-credits-and-metering",
+"context": "Checkout & Plans (Polar)",
+"title": "Split / partial refunds let a buyer keep credits after a refund",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/app/api/billing/webhook/route.ts:74-99"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Checkout & Plans (Polar)",
+"title": "Refund clawback fraction uses `netAmount` as the denominator against a gross-based `refundedAmount`",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/app/api/billing/webhook/route.ts:85-87"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Checkout & Plans (Polar)",
+"title": "Fulfilment webhook throws forever when the bound org no longer exists",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "recovery-gap",
+"file": "src/app/api/billing/webhook/route.ts:53-63"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Checkout & Plans (Polar)",
+"title": "Pricing page shows no actual price for Pro/Team (\"Prepaid\") \u2014 a conversion dead-end",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/app/pricing/page.tsx:16-21"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Checkout & Plans (Polar)",
+"title": "No self-serve subscription/upgrade path \u2014 recurring revenue left on the table",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/app/pricing/page.tsx:75-80, src/app/api/org/plan/route.ts:34-39"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Quotas & Rate Limiting",
+"title": "`clientIp` \"unknown\" fallback collapses the entire anonymous weekly quota into one bucket",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "input-validation",
+"file": "src/lib/rate-limit.ts:17-26, src/lib/public-scan-quota.ts:94"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Quotas & Rate Limiting",
+"title": "Per-instance global rate-limit ceiling is illusory on the production (DSQL/serverless) topology",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure",
+"file": "src/lib/rate-limit.ts:1-9, 28"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Quotas & Rate Limiting",
+"title": "Quota fail-open events are unobservable",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/lib/public-scan-quota.ts:244-248, src/lib/db/quota-events.ts:12-24"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Quotas & Rate Limiting",
+"title": "The blocked-quota moment dead-ends at `/pricing` instead of converting",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "activation",
+"file": "src/components/report/QuotaNotice.tsx:38-66"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Quotas & Rate Limiting",
+"title": "The sign-in quota lever isn't amplified with referral / email capture",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "growth",
+"file": "src/lib/public-scan-quota.ts:55-59, src/components/report/QuotaNotice.tsx:119-158"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Credits & Entitlements",
+"title": "Monthly free-allowance overshoot under concurrent scans (real on high-allowance tiers)",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/lib/db/credits.ts:166-199"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Credits & Entitlements",
+"title": "Reconciliation mis-buckets Polar refund-clawbacks as scan debits",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/lib/db/credits.ts:288-294, src/app/api/billing/webhook/route.ts:89-93"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Credits & Entitlements",
+"title": "A missing/typo'd org is indistinguishable from \"out of credits\"",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/lib/db/credits.ts:45-55, src/lib/entitlement.ts:39-62"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Credits & Entitlements",
+"title": "No auto-recharge / low-balance top-up \u2014 paying orgs' scans silently hard-stop",
+"severity": "High",
+"lens": "business-visionary",
+"category": "retention",
+"file": "src/lib/entitlement.ts:53-63, src/lib/db/credits.ts:180-235"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Credits & Entitlements",
+"title": "Surface runway/burn at the point of top-up (CreditsControl popover)",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/components/org/CreditsControl.tsx:127-160"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Usage Metering & Public Badge",
+"title": "Badge-impression write is unbounded on attacker-controlled `Referer`, and bypasses the rate limiter on cache hits",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "input-validation",
+"file": "src/app/api/badge/[owner]/[repo]/route.ts:312-316, src/lib/db/badge-analytics.ts:15-29"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Usage Metering & Public Badge",
+"title": "`getUsageSummary` doesn't normalize the org slug \u2014 mixed-case queries under-report as empty",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/lib/db/usage.ts:92"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Usage Metering & Public Badge",
+"title": "Daily-series SQL fallback silently degrades to a full row stream",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "latent-failure",
+"file": "src/lib/db/usage.ts:266-305"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Usage Metering & Public Badge",
+"title": "Badge analytics aren't turned into the growth loop they enable (trend badge + leaderboard)",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/lib/db/badge-analytics.ts:48-85, src/app/api/badge/[owner]/[repo]/route.ts:343-363"
+},
+{
+"group": "billing-credits-and-metering",
+"context": "Usage Metering & Public Badge",
+"title": "Detected badge embeds don't trigger an activation nudge to run a real scan",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "activation",
+"file": "src/app/api/badge/[owner]/[repo]/route.ts:316,323-324, src/components/badge/BadgeGenerator.tsx:166-169"
+},
+{
+"group": "data-and-persistence",
+"context": "Data Retention & Purge",
+"title": "Org loop has no ordering and no time budget \u2014 a fleet that exceeds maxDuration perpetually starves the same tail of orgs",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure",
+"file": "src/lib/db/retention.ts:228 (org `findMany`, no `orderBy`); src/app/api/cron/purge/route.ts:14 (`maxDuration = 300`); src/lib/db/retention.ts:235 (loop)"
+},
+{
+"group": "data-and-persistence",
+"context": "Data Retention & Purge",
+"title": "Purge \"completed with errors\" still returns HTTP 200 \u2014 audit-write/compliance failures are swallowed at the route boundary",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/app/api/cron/purge/route.ts:35-38; src/lib/db/retention.ts:280-282, 305-308"
+},
+{
+"group": "data-and-persistence",
+"context": "Data Retention & Purge",
+"title": "Per-page `skip: max` OFFSET re-paging makes deep-history repos expensive under the 300s cap",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case / performance",
+"file": "src/lib/db/retention.ts:124-163 (`pruneRepoScans`)"
+},
+{
+"group": "data-and-persistence",
+"context": "Data Retention & Purge",
+"title": "Configurable data retention is a packaged enterprise pricing lever \u2014 but it's DB-column-only with no UI or plan gating",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "prisma/schema.prisma:36-39 (`retentionMaxScans` / `retentionAuditDays`); src/lib/db/retention.ts"
+},
+{
+"group": "data-and-persistence",
+"context": "Data Retention & Purge",
+"title": "No on-demand \"delete my data\" (DSR) endpoint \u2014 GDPR/SOC2 right-to-erasure is table stakes for enterprise sales",
+"severity": "High",
+"lens": "business-visionary",
+"category": "differentiation / compliance",
+"file": "src/lib/db/retention.ts:106-191 (reusable `pruneRepoScans` / `pruneAudit`)"
+},
+{
+"group": "data-and-persistence",
+"context": "Scan Persistence & History",
+"title": "The \"most AI-native\" leaderboard ranks only within the 200 most-recently-updated repos \u2014 it silently becomes inaccurate as the public corpus grows",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case / correctness",
+"file": "src/lib/db/scans-read.ts:463 (`GALLERY_CANDIDATE_CAP = 200`), 486-513 (candidate window by `updatedAt desc`), 547-549 (`topAiNative` sort within that window)"
+},
+{
+"group": "data-and-persistence",
+"context": "Scan Persistence & History",
+"title": "Read-side \"latest scan\" lookups use a bare `scannedAt desc` \u2014 non-deterministic tie-break where the persist path is careful",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case / consistency",
+"file": "src/lib/db/scans-read.ts:41-45 (`findScanByCommit`), 599-603 (`getLatestRecommendations`), 715-719 (`getScanReportByCommit`) \u2014 vs the deliberate `[scannedAt desc, createdAt desc, id desc]` in src/lib/db/scans-persist.ts:197"
+},
+{
+"group": "data-and-persistence",
+"context": "Scan Persistence & History",
+"title": "Sha-less dedup keys on exact `scannedAt` equality \u2014 two distinct same-millisecond re-scores silently collapse to one",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/lib/db/scans-read.ts:55-69 (`findScanByScannedAt`); used at src/lib/db/scans-persist.ts:178"
+},
+{
+"group": "data-and-persistence",
+"context": "Scan Persistence & History",
+"title": "The public scan gallery + leaderboard is a ready-made viral growth flywheel that's under-leveraged",
+"severity": "High",
+"lens": "business-visionary",
+"category": "growth / retention",
+"file": "src/lib/db/scans-read.ts:447-579 (`getPublicScanGallery` / `loadPublicGalleryCards`)"
+},
+{
+"group": "data-and-persistence",
+"context": "Scan Persistence & History",
+"title": "The \"what changed\" scan comparison is a shareable retention/social artifact, not just an internal diff",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "retention / differentiation",
+"file": "src/lib/db/scans-read.ts:374-419 (`getScanComparison`)"
+},
+{
+"group": "data-and-persistence",
+"context": "Database Client & Schema",
+"title": "Read paths use raw `getPrisma()`/`dbReadSafe`, not `withDb` \u2014 a DSQL IAM-token expiry 500s the report page, landing gallery, history, and recommendations",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "latent-failure",
+"file": "src/lib/db/scans-read.ts:41,60,90,116,214,380,479,588,698 (all `getPrisma()` directly); src/lib/db/client.ts:212-222 (`dbReadSafe` catches only `isDbUnavailableError`); contrast src/lib/db/scans-persist.ts:70 (persist wrapped in `withDb`)"
+},
+{
+"group": "data-and-persistence",
+"context": "Database Client & Schema",
+"title": "PGlite local-dev boot skips schema upgrades \u2014 an existing data dir never picks up new tables/columns added to init.sql",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case / DX",
+"file": "src/lib/db/pglite-boot.ts:25-32"
+},
+{
+"group": "data-and-persistence",
+"context": "Database Client & Schema",
+"title": "`Organization.gatePolicy` uses Prisma `Json`/JSONB \u2014 the lone jsonb column, contradicting the schema's stated \"no jsonb dependency\" DSQL-safe invariant",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure / portability",
+"file": "prisma/schema.prisma:7-9 (header: \"stored as serialized JSON in text columns (no jsonb dependency)\") vs prisma/schema.prisma:51 (`gatePolicy Json?`); prisma/init.sql:27 (`\"gatePolicy\" JSONB`)"
+},
+{
+"group": "data-and-persistence",
+"context": "Database Client & Schema",
+"title": "The tamper-evident audit trail (per-row HMAC) is a built but unsold SOC2/compliance differentiator",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation / monetization",
+"file": "src/lib/db/scans-audit.ts:7,26-37 (`withAuditSignature` folded into every audit row)"
+},
+{
+"group": "data-and-persistence",
+"context": "Database Client & Schema",
+"title": "The AWS-native stack (Aurora DSQL + Bedrock BYOM) is a data-residency / \"runs in your account\" enterprise differentiator and Marketplace path",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation / monetization",
+"file": "src/lib/db/scans-read.ts:454-457 + 577-578 (`dbMode` \"served live from Aurora DSQL\"); prisma/schema.prisma:616-635 (`OrgLlmConfig` \u2014 per-org Bedrock BYOM)"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub Repo Data Access",
+"title": "Org discovery uses un-timed `fetch`, blocking the OAuth callback (login latency)",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure / recovery-gap",
+"file": "src/lib/github/discover.ts:60"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub Repo Data Access",
+"title": "CODEOWNERS truncated at 14 KB silently corrupts team attribution",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure / boundary",
+"file": "src/lib/github/source.ts:423 (`content.slice(0, MAX_FILE_BYTES)`), consumed at src/lib/github/codeowners.ts:62"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub Repo Data Access",
+"title": "GraphQL \"prefer partial data\" yields silently-incomplete PR sets feeding the score",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/lib/github/graphql.ts:67"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub Repo Data Access",
+"title": "Built-but-unmonetized GitHub Enterprise Server support \u2192 Enterprise tier",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization / differentiation",
+"file": "src/lib/github/host.ts:21"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub Repo Data Access",
+"title": "CODEOWNERS team attribution \u2192 premium \"riskiest team\" scorecards",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation / monetization",
+"file": "src/lib/github/codeowners.ts:29"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub App Installation & Webhooks",
+"title": "`/api/app/repos` IDOR \u2014 auth guard keys off the DORMANT custom OAuth, not the active Supabase wall",
+"severity": "Critical",
+"lens": "bug-hunter",
+"category": "input-validation / cross-tenant-IDOR",
+"file": "src/app/api/app/repos/route.ts:38"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub App Installation & Webhooks",
+"title": "Push rescan runs an unthrottled, LLM-billed full scan on every default-branch push",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "retry-storm / cost-DoS",
+"file": "src/app/api/app/webhook/route.ts:319 (dispatched at :477)"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub App Installation & Webhooks",
+"title": "Concurrent push rescans diff against a stale baseline \u2192 duplicate/misleading regression alerts",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/app/api/app/webhook/route.ts:318"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub App Installation & Webhooks",
+"title": "Webhook replay protection is process-local \u2192 ineffective across serverless instances",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "state-corruption / replay",
+"file": "src/app/api/app/webhook/route.ts:69"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub App Installation & Webhooks",
+"title": "The PR gate Check Run + sticky comment is an untapped growth + monetization surface",
+"severity": "High",
+"lens": "business-visionary",
+"category": "retention / monetization / virality",
+"file": "src/app/api/app/webhook/route.ts:233 (`createCheckRun`) / :245 (`upsertStickyComment`); policy at :219"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub OAuth & Session",
+"title": "CSRF same-origin check reads raw `Host`, while the rest of auth uses `x-forwarded-host`",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case / proxy-mismatch",
+"file": "src/lib/auth.ts:385 (`isSameOrigin`)"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub OAuth & Session",
+"title": "Proxy validates the Supabase JWT (`getUser`) on every non-static request",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "performance / cost",
+"file": "src/proxy.ts:51"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub OAuth & Session",
+"title": "Session cookie tail-drops installations to fit 3800 B \u2192 power users silently lose org access",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "boundary / silent-failure",
+"file": "src/lib/auth.ts:592"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub OAuth & Session",
+"title": "Two live auth systems (custom HMAC cookie + Supabase) create a divergent trust model",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "architecture / latent-failure",
+"file": "src/app/api/auth/callback/route.ts:142 (still mints `ascent_session`) vs src/lib/access.ts:35 (Supabase wall)"
+},
+{
+"group": "identity-and-github-connectivity",
+"context": "GitHub OAuth & Session",
+"title": "`read:user`-only scope + session security features \u2192 activation & Enterprise-trust levers",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "activation / monetization / differentiation",
+"file": "src/lib/auth.ts:445 (scope) ; src/app/api/auth/revoke-sessions/route.ts (kill switch)"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Design System: UI Primitives & Deck",
+"title": "DeckNav active-section indicator can point at the wrong section",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/components/deck/DeckNav.tsx:18-29"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Design System: UI Primitives & Deck",
+"title": "Deck section nav is desktop-only \u2014 no jump nav on tablet/mobile",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "accessibility",
+"file": "src/components/deck/DeckNav.tsx:32"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Design System: UI Primitives & Deck",
+"title": "Index-keyed nav items + silent background contract in shared primitives",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "state-corruption",
+"file": "src/components/ui/SideNav.tsx:77-85"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Design System: UI Primitives & Deck",
+"title": "Productize the brand kit as white-label / branded reports (Enterprise lever)",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/components/ui/index.ts:1-14"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Design System: UI Primitives & Deck",
+"title": "Turn the score ring + deck motion into shareable social/OG cards",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "growth",
+"file": "src/components/landing/prototypes/index/ScoreGauge.tsx:14-67"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Landing Page Prototypes",
+"title": "Pricing section has no purchase/CTA path \u2014 direct revenue leak",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/components/landing/prototypes/index/PricingCards.tsx:21-49"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Landing Page Prototypes",
+"title": "The public \"register\" is a buried deck section, not a standalone destination",
+"severity": "High",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/components/landing/prototypes/index/IndexGallery.tsx:35-117"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Landing Page Prototypes",
+"title": "ScanModal locks signed-in members out of scanning on any viewer-fetch error",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/components/landing/prototypes/index/ScanModal.tsx:129-139,184"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Landing Page Prototypes",
+"title": "ScanModal's useSearchParams can force the marketing homepage to render dynamically",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure",
+"file": "src/components/landing/prototypes/index/ScanModal.tsx:107"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Landing Page Prototypes",
+"title": "Gated deploys flash the sign-in wall to authenticated members",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/components/landing/prototypes/index/ScanModal.tsx:104,184"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Marketing About Page",
+"title": "AboutAscentSteps hardcodes 5 Y-positions \u2014 coupling landmine vs LEVELS",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/components/about/AboutAscentSteps.tsx:13,27"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Marketing About Page",
+"title": "about/page.tsx uses existsSync(public/...) \u2014 prod/local divergence",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure",
+"file": "src/app/about/page.tsx:18"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Marketing About Page",
+"title": "Risk radar shows \"Gate Pass\" while a risk stays unmitigated",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/components/about/risk/RadarComposition.tsx:23-27"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Marketing About Page",
+"title": "RoiSimulator runs on fake repos \u2014 make it run on the visitor's real org",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "activation",
+"file": "src/components/about/RoiSimulator.tsx:20-29"
+},
+{
+"group": "marketing-site-and-design-system",
+"context": "Marketing About Page",
+"title": "About CTAs dump straight into GitHub connect \u2014 no lower-friction lead capture",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "retention",
+"file": "src/components/about/AboutCTA.tsx:27-34"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Dev Inspector",
+"title": "setTimeout scheduled inside a setState updater double-fires in StrictMode",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/app/_dev-inspector/DevInspector.tsx:96-103"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Dev Inspector",
+"title": "Armed mode swallows the native context menu document-wide",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/app/_dev-inspector/DevInspector.tsx:152-161"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Dev Inspector",
+"title": "buildChain runs on every mousemove over the whole document with no throttle",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "performance",
+"file": "src/app/_dev-inspector/DevInspector.tsx:134-148 (buildChain at devLocate.ts:49)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Dev Inspector",
+"title": "Reuse the data-loc \u2192 source-locator pattern in customer reports",
+"severity": "Low",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/app/_dev-inspector/devLocate.ts:48-69"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "App Shell, SEO & Error Pages",
+"title": "The public Leaderboard is missing from the sitemap",
+"severity": "High",
+"lens": "business-visionary",
+"category": "growth",
+"file": "src/app/sitemap.ts:18-25 (page exists at src/app/leaderboard/page.tsx; linked from Brand.tsx:52,127)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "App Shell, SEO & Error Pages",
+"title": "JSON-LD advertises the product as free (`price: \"0\"`)",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/app/layout.tsx:57"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "App Shell, SEO & Error Pages",
+"title": "The 404 page can degrade into the chrome-less 500",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/app/not-found.tsx:8-11 (SiteHeader at Brand.tsx:30-42)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "App Shell, SEO & Error Pages",
+"title": "Error boundaries have no telemetry \u2014 production errors are invisible",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/app/error.tsx:25-27, src/app/global-error.tsx (no reporter)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "App Shell, SEO & Error Pages",
+"title": "Default OG card hardcodes \"9 dimensions / 5 levels\" instead of deriving from the model",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/app/opengraph-image.tsx:24-26,30"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "AI-Native Standard & Onboarding Skill",
+"title": "Generated CI runs `doctor.mjs --run`, which execSyncs manifest commands (fork-PR RCE)",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "input-validation",
+"file": "src/lib/standard/doctor.ts:80-86,144-151"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "AI-Native Standard & Onboarding Skill",
+"title": "Conformance ingest is unvalidated and wholly self-attested",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "input-validation",
+"file": "src/app/api/report/conformance/route.ts:17-20,35-52"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "AI-Native Standard & Onboarding Skill",
+"title": "Productize the adopt \u2192 verify \u2192 re-score loop (the real moat)",
+"severity": "High",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/lib/standard/index.ts:27-36, src/app/api/report/conformance/route.ts"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "AI-Native Standard & Onboarding Skill",
+"title": "Publish `.ai/` as a named, vendor-neutral standard with a \"powered by\" badge",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "growth",
+"file": "src/lib/standard/manifest.ts:97-141 (references docs/AI_MANIFEST_SPEC.md)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "AI-Native Standard & Onboarding Skill",
+"title": "Skill route conflates a DB error with \"no saved scan\"",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/app/api/report/skill/route.ts:32-41"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Launch Fleet Map",
+"title": "The 90s refresh can dim a just-scanned star back to its stale score",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/components/launch/FleetMap.tsx:112-140 (mergeStars.ts:6-15, applyScanEvent.ts)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Launch Fleet Map",
+"title": "A failed org scan from the map is completely silent",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/components/launch/FleetMap.tsx:62-77"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Launch Fleet Map",
+"title": "Live polling fans out N unaborted GitHub-App fetches every tick",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "performance",
+"file": "src/components/launch/FleetMap.tsx:112-140"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Launch Fleet Map",
+"title": "No public, shareable fleet map",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "growth",
+"file": "src/app/launch/page.tsx:36-53"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Launch Fleet Map",
+"title": "\"Movers \u00b7 30d\" is computed but never re-engages the user",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "retention",
+"file": "src/components/launch/fleetMapDerive.ts:19-49 (risers/fallers); src/components/launch/FleetMap.tsx:197-199"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Connect & Repo Selection",
+"title": "Rapid watch/unwatch toggles race on the wire",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/components/connect/InstallationRepos.tsx:197-235"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Connect & Repo Selection",
+"title": "No buy-credits / upgrade CTA at the \"autoscans pause at zero\" warning",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/components/connect/InstallationRepos.tsx:349-351,389-391"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Connect & Repo Selection",
+"title": "Bulk \"Schedule watched\" commits recurring spend with no confirmation",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/components/connect/InstallationRepos.tsx:286-314,406-422"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Connect & Repo Selection",
+"title": "Repo-list error JSON is parsed unguarded, mislabeling server failures",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/components/connect/InstallationRepos.tsx:61-69"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "Connect & Repo Selection",
+"title": "Add per-org scan-budget caps as a governance (paid) feature",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/components/connect/InstallationRepos.tsx:339-393 (watch/schedule surface)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "First-Run Onboarding Wizard",
+"title": "Clicking \"Scan\" before credits load runs a mock on a paying org",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/components/onboarding/OnboardingFlow.tsx:204-213,280-281 (canRunReal.ts:16-23)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "First-Run Onboarding Wizard",
+"title": "Public-path source label keeps original case \u2192 dashboard link can 404",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/components/onboarding/OnboardingFlow.tsx:167,183 vs 233-236"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "First-Run Onboarding Wizard",
+"title": "Public onboarding scans are mock-only \u2014 fabricated first-run \"wow\"",
+"severity": "High",
+"lens": "business-visionary",
+"category": "activation",
+"file": "src/components/onboarding/OnboardingFlow.tsx:278-281 (importScan.ts:64-72)"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "First-Run Onboarding Wizard",
+"title": "45s stall watchdog can false-abort a slow real scan",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/components/onboarding/importScan.ts:6,50-56,86"
+},
+{
+"group": "onboarding-shell-and-ai-standard",
+"context": "First-Run Onboarding Wizard",
+"title": "No top-up/free-trial CTA at the money gate; recurring watch auto-enrolled",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/components/onboarding/importScan.ts:11,70-71; OnboardingFlow.tsx:280-281"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Branding & White-label",
+"title": "Logo URL is a residual server-side SSRF vector (DNS rebinding)",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "input-validation / SSRF",
+"file": "src/lib/db/branding.ts:34-36, src/lib/db/branding.ts:47"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Branding & White-label",
+"title": "Rejected logo/colour silently saved as null while UI claims success",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure / success-theater",
+"file": "src/lib/db/branding.ts:45-49, src/components/org/BrandingSettings.tsx:27-29"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Branding & White-label",
+"title": "White-label persists after a plan downgrade (entitlement not re-checked on read)",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/lib/db/branding.ts:17-25, src/app/api/org/branding/route.ts:25-28"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Branding & White-label",
+"title": "Extend white-label into a full agency / reseller mode",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization / differentiation",
+"file": "src/components/org/BrandingSettings.tsx:3-4 (today only the briefing PDF)"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Branding & White-label",
+"title": "Branding changes are not written to the audit trail",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure / compliance",
+"file": "src/app/api/org/branding/route.ts:30-36, src/components/org/AuditLogViewer.tsx:17-30"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Security Posture & Audit Log",
+"title": "Audit CSV export silently truncates at 10,000 rows",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "silent-failure / data-integrity",
+"file": "src/app/api/audit/route.ts:20, src/app/api/audit/route.ts:30-51"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Security Posture & Audit Log",
+"title": "Supply-chain card is whole-fleet while the rest of the page is scoped",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "state-inconsistency",
+"file": "src/app/org/[slug]/security/page.tsx:30-33, src/lib/security/supply-chain.ts:112-117"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Security Posture & Audit Log",
+"title": "Invalid `since`/`until` returns 500 instead of 400",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "input-validation",
+"file": "src/app/api/audit/route.ts:84-89, src/lib/db/scans-audit.ts:151-154"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Security Posture & Audit Log",
+"title": "Activate the dormant supply-chain / SBOM scanner as a premium security module",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization / market-fit",
+"file": "src/lib/security/supply-chain.ts:1-101 (full GitHub provider, default `off`)"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Security Posture & Audit Log",
+"title": "Package the audit trail as a Compliance/Enterprise add-on",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization / differentiation",
+"file": "src/lib/db/scans-audit.ts:22-37 (per-row HMAC), src/app/api/audit/route.ts:60-63 (file SHA)"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Repositories & Segments",
+"title": "createSegment auto-creates the org (phantom-org / data-pollution)",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "input-validation / data-integrity",
+"file": "src/lib/db/segments.ts:63-74, src/app/api/org/segments/route.ts:38-42"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Repositories & Segments",
+"title": "deleteSegment is not transactional",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "state-corruption",
+"file": "src/lib/db/segments.ts:89-95"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Repositories & Segments",
+"title": "Segments page runs N sequential full rollups (N+1 latency landmine)",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure / performance",
+"file": "src/lib/db/segments.ts:242-252, src/lib/db/segments.ts:255-256"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Repositories & Segments",
+"title": "Ship one-click auto-segmentation",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "activation / retention",
+"file": "src/app/api/org/segments/[id]/repos/bulk/route.ts:1-4 (backend exists), src/components/org/RepoSegmentsPanel.tsx"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Repositories & Segments",
+"title": "Make the segment the unit of governance + billing",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/lib/db/segments.ts:277-300 (compareSegments), src/app/org/[slug]/segments/page.tsx"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Practices, Governance & Adoption",
+"title": "Every generated practice PR carries a dead attribution link",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "correctness / growth-surface defect",
+"file": "src/lib/practice-artifact.ts:306"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Practices, Governance & Adoption",
+"title": "Owner case-normalization is inconsistent across the apply path",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "input-validation / tenant-scoping",
+"file": "src/app/api/practices/apply/route.ts:41-54, src/app/api/practices/apply-batch/route.ts:62-81"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Practices, Governance & Adoption",
+"title": "apply-batch drops the helpful \"file already exists\" hint",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "error-handling",
+"file": "src/app/api/practices/apply-batch/route.ts:96-104 vs src/app/api/practices/apply/route.ts:69-75"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Practices, Governance & Adoption",
+"title": "Turn remediation-as-PR into a measured ROI loop (and gate the fleet rollout)",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization / differentiation",
+"file": "src/app/api/practices/apply-batch/route.ts:1-7, src/components/org/PracticeApply.tsx:177-217"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Practices, Governance & Adoption",
+"title": "Benchmark AI adoption against the corpus",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation / retention",
+"file": "src/lib/org/adoption.ts:30-57"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "People & Delivery Analytics",
+"title": "Contributor PII is exported raw and world-readable on the public org",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "privacy / data-exposure",
+"file": "src/app/org/[slug]/contributors/page.tsx:72 (ExportCsvLink), src/app/org/[slug]/contributors/page.tsx:89-111"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "People & Delivery Analytics",
+"title": "Concentration table renders unbounded rows",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case / performance",
+"file": "src/app/org/[slug]/contributors/page.tsx:147-168"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "People & Delivery Analytics",
+"title": "Knowledge-leader tile mixes two metrics",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "correctness / UX",
+"file": "src/app/org/[slug]/teams/page.tsx:176-181"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "People & Delivery Analytics",
+"title": "Productize bus-factor / key-person risk as an \"Org Resilience\" module",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization / market-fit",
+"file": "src/app/org/[slug]/contributors/page.tsx:121-171 (concentration, bus factor, solo-maintainer)"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "People & Delivery Analytics",
+"title": "Stand up a DORA-style Delivery module",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "market-fit / differentiation",
+"file": "src/app/org/[slug]/delivery/page.tsx:81-117 (PR signals, time-to-merge, review coverage)"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Overview & Standing",
+"title": "Peripheral fetches can 500 the entire overview",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "error-handling / resilience",
+"file": "src/app/org/[slug]/page.tsx:112-119"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Overview & Standing",
+"title": "Social-unfurl metadata runs a full un-windowed rollup per crawl",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "performance",
+"file": "src/app/org/[slug]/page.tsx:34-41"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Overview & Standing",
+"title": "Dimension-average deep-links can scroll to a missing anchor under tech-stack scope",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case / UX",
+"file": "src/components/org/DimensionAverages.tsx:31-39, src/app/org/[slug]/practices/page.tsx:24-30"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Overview & Standing",
+"title": "Ship a public, embeddable org scorecard + badge",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "growth / virality",
+"file": "src/app/org/[slug]/page.tsx:29-48 (OG metadata already exists)"
+},
+{
+"group": "org-dashboard-and-analytics",
+"context": "Org Overview & Standing",
+"title": "Use the Trajectory ETA for proactive re-engagement",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "retention / re-engagement",
+"file": "src/components/org/Trajectory.tsx:72-104 (ETA to next level), src/app/org/[slug]/page.tsx:225"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Executive Briefing",
+"title": "White-label PDF branding survives a plan downgrade",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/app/api/org/briefing/pdf/route.ts:46"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Executive Briefing",
+"title": "Share tokens have no per-link revocation",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure / security",
+"file": "src/lib/briefing-share.ts:38"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Executive Briefing",
+"title": "Shared link re-runs LIVE, not a snapshot",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "data-exposure",
+"file": "src/app/share/briefing/[token]/page.tsx:44"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Executive Briefing",
+"title": "No view receipts / analytics on shared briefings",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "retention",
+"file": "src/components/org/BriefingShareButton.tsx:29"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Executive Briefing",
+"title": "Scheduled exec email digest is referenced but unbuilt",
+"severity": "High",
+"lens": "business-visionary",
+"category": "activation / retention",
+"file": "src/lib/org/briefing.ts:4"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Live War Room",
+"title": "Fleet adoption/rigor averages divide by the wrong denominator",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/components/org/liveWarRoomFold.ts:95"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Live War Room",
+"title": "Auto-loop silently burns prepaid scan credits with no cap",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure / cost",
+"file": "src/components/org/LiveWarRoom.tsx:266"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Live War Room",
+"title": "Public/embeddable leaderboard + maturity badges",
+"severity": "High",
+"lens": "business-visionary",
+"category": "growth / virality",
+"file": "src/components/org/LiveWarRoomLeaderboard.tsx:1"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Live War Room",
+"title": "War room as a gated \"presentation/review\" premium surface",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/app/org/[slug]/live/page.tsx:1"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Live War Room",
+"title": "Milestone events to Slack/Teams",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "re-engagement",
+"file": "src/components/org/liveWarRoomFold.ts:88"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Investment Simulator & Forecast",
+"title": "Exec briefing renders \"100% trend confidence\" on a 2-point fit",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure / success-theater",
+"file": "src/lib/org/briefing.ts:237"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Investment Simulator & Forecast",
+"title": "\"Track as initiative\" silently drops the extra dimensions",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "data-loss",
+"file": "src/components/org/plan/Simulator.tsx:141"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Investment Simulator & Forecast",
+"title": "Rank mode silently substitutes target 70 when the typed target is out of range",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/app/api/org/simulate/route.ts:36"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Investment Simulator & Forecast",
+"title": "Gate the planning suite as a premium tier",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization / differentiation",
+"file": "src/components/org/plan/Simulator.tsx:35"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Investment Simulator & Forecast",
+"title": "Saved scenarios are client-only and unshareable",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "retention / differentiation",
+"file": "src/components/org/plan/Simulator.tsx:52"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Playbooks",
+"title": "Playbook PR branch/path collide on slug",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/app/api/org/playbooks/[id]/apply/route.ts:75"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Playbooks",
+"title": "Optimistic adoption can seed an initiative the DB never recorded",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/components/org/PlaybookCard.tsx:56"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Playbooks",
+"title": "Playbook \"lift\" attributes all dimension change to the playbook",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "success-theater",
+"file": "src/lib/db/playbooks.ts:233"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Playbooks",
+"title": "Cross-org playbook marketplace / curated standards library",
+"severity": "High",
+"lens": "business-visionary",
+"category": "differentiation / growth",
+"file": "src/lib/org/playbook-templates.ts:15"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Playbooks",
+"title": "Meter PR rollouts + surface aggregate playbook ROI",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization / retention",
+"file": "src/app/api/org/playbooks/[id]/apply/route.ts:71"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Backlog Management",
+"title": "Inline edit controls snap back to the old value mid-save",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "UX-degradation",
+"file": "src/components/org/BacklogItemRow.tsx:139"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Backlog Management",
+"title": "Opening a PR only advances status from \"open\"",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/components/org/BacklogItemRow.tsx:76"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Backlog Management",
+"title": "Promote-to-initiative has no duplicate guard across sessions",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "latent-failure",
+"file": "src/components/org/BacklogItemRow.tsx:33"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Backlog Management",
+"title": "Two-way sync with GitHub Issues / Jira",
+"severity": "High",
+"lens": "business-visionary",
+"category": "integration / differentiation",
+"file": "src/app/api/org/backlog/route.ts:1"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Backlog Management",
+"title": "Overdue-item nudges via email/Slack",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "re-engagement",
+"file": "src/components/org/backlogShared.ts:32"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Goals & Initiatives",
+"title": "Deleting a goal ignores the server response (data-loss illusion)",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/components/org/plan/GoalsPanel.tsx:73"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Goals & Initiatives",
+"title": "Goal `target` is not range-validated",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "input-validation",
+"file": "src/app/api/org/goals/route.ts:25"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Goals & Initiatives",
+"title": "Initiative `repos[]` accept arbitrary, untenanted repo names",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "input-validation",
+"file": "src/app/api/org/initiatives/route.ts:48"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Goals & Initiatives",
+"title": "Goal-pace digests to Slack/email",
+"severity": "High",
+"lens": "business-visionary",
+"category": "re-engagement / accountability",
+"file": "src/components/org/plan/goalView.tsx:61"
+},
+{
+"group": "org-planning-and-execution",
+"context": "Goals & Initiatives",
+"title": "Package the Plan tab as enterprise \"OKRs for engineering maturity\"",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/app/org/[slug]/plan/page.tsx:24"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Alerts & Digests",
+"title": "Weekly digest cron is a serial loop with no per-webhook timeout \u2014 one slow tenant starves the rest",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "latent-failure / timeout",
+"file": "src/app/api/cron/digest/route.ts:57 (the `for (const org of orgs)` loop) + src/lib/alerts.ts:362 (`dispatchAlert` `fetch` with no timeout; the digest calls it at route.ts:121 passing **no** `signal`)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Alerts & Digests",
+"title": "Alert config can't be saved without a webhook \u2014 global-sink orgs can never tune regression sensitivity",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "ux-degradation / dead-feature",
+"file": "src/components/org/AlertsControl.tsx:176 (`disabled={busy !== null || !webhookUrl.trim()}`)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Alerts & Digests",
+"title": "CRON_SECRET accepted as a `?key=` query param leaks the secret into access/proxy logs",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "input-validation / secret-exposure",
+"file": "src/app/api/cron/digest/route.ts:43-44 (and the twin at src/app/api/cron/rescan/route.ts:39-40)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Alerts & Digests",
+"title": "Alerts are Slack-only \u2014 add Email + MS Teams channels (SES is already wired) to widen reach",
+"severity": "High",
+"lens": "business-visionary",
+"category": "market-fit / retention",
+"file": "src/lib/alerts.ts:355 (`dispatchAlert` posts a Slack-shaped payload to one webhook) + src/lib/db/org-alerts.ts"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Alerts & Digests",
+"title": "The weekly digest only fires if an org manually configures a webhook \u2014 default it on to start the habit loop",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "activation / retention",
+"file": "src/app/api/cron/digest/route.ts:62-66 (`if (!isAlertConfigured(webhookUrl)) { skippedNoSink++; continue; }`)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Members & Access Control",
+"title": "Two org-creation paths set `plan` inconsistently \u2014 owner-seed/invite create a plan-less org, breaking retention depth",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "state-corruption / data-consistency",
+"file": "src/lib/db/members.ts:86-90 (`organization.upsert \u2026 create: { slug, name }` \u2014 no `plan`) vs src/lib/db/org-watch.ts:31-36 (`create: { \u2026 plan: \"private\" }`)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Members & Access Control",
+"title": "`acceptInvite` is not atomic \u2014 the \"single-use\" token check\u2192grant\u2192mark is a check-then-act race",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/lib/db/invites.ts:138-157 (findUnique \u2192 `status !== \"pending\"` guard \u2192 `setMembershipRole` \u2192 `invite.update({ status: \"accepted\" })`, no surrounding transaction)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Members & Access Control",
+"title": "OrgSwitcher swallows a failed active-org switch with no feedback",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure / ux",
+"file": "src/components/OrgSwitcher.tsx:48 (`if (!res.ok) return;` inside the try, menu already closed)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Members & Access Control",
+"title": "Invites generate a link but never EMAIL it \u2014 close the teammate-acquisition loop with SES",
+"severity": "High",
+"lens": "business-visionary",
+"category": "growth / activation",
+"file": "src/app/api/org/invites/route.ts:48-61 (creates the invite, returns the token to the owner) + src/lib/db/invites.ts:27 (`createInvite`)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Members & Access Control",
+"title": "Monetize seats/roles \u2014 RBAC exists but billing is scan-credit-only",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/lib/db/members.ts (owner/admin/member/viewer model) + src/app/api/org/members/route.ts"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Rollups & Insights",
+"title": "Inconsistent org-slug canonicalization across the rollup family \u2014 a mixed-case URL silently returns empty fleet data",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case / silent-failure",
+"file": "src/lib/db/org-shared.ts:16-18 (`getOrgBySlug` queries `{ slug }` verbatim) \u2014 called raw by org-rollup.ts:187, org-insights.ts:560/566, org-teams.ts:326, org-signals.ts:24, org-contributors.ts:51; contrast org-rollup.ts:34-37 where `getOrgId` *does* `trim().toLowerCase()`"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Rollups & Insights",
+"title": "Fleet commit-activity buckets by `floor(ms/WEEK_MS)`, not GitHub's Sunday-aligned weeks \u2014 cross-repo misalignment",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case / clock-alignment",
+"file": "src/lib/db/org-signals.ts:159-161 (`weekIndex`) + 193-199 (per-element bucketing from `lastWeek = weekIndex(scannedAt)`)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Rollups & Insights",
+"title": "Benchmark corpus mixes other tenants' PRIVATE repo scores into stats shown to a different org",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "trust-boundary / privacy",
+"file": "src/lib/db/org-insights.ts:565 (`where: { orgId: { not: org.id } }`) \u2192 573-577 (corpus includes private repos' scores) \u2192 640-648 (returns `corpusAvgOverall/Adoption/Rigor` + percentiles)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Rollups & Insights",
+"title": "Productize the cross-org benchmark as a public \"AI-Native Maturity Index\" \u2014 a true differentiator",
+"severity": "High",
+"lens": "business-visionary",
+"category": "differentiation / growth",
+"file": "src/lib/db/org-insights.ts:557 (`getOrgBenchmark`) + the new src/app/leaderboard/page.tsx"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Fleet Rollups & Insights",
+"title": "Push the recommendation backlog (owners + due dates) to GitHub Issues / Jira / Linear",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "retention / integration",
+"file": "src/lib/db/org-insights.ts:278-303 (`BacklogItem` already carries `assigneeLogin`, `targetDate`, `dueBucket`, `projectedPoints`, `unlocks`) + `getOrgBacklog`"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Org Import, Scan & Watchlist",
+"title": "Import's explicit `repos[]` list is uncapped \u2014 one request can launch thousands of GitHub ingests/scans",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "resource-exhaustion / adversarial-input",
+"file": "src/app/api/org/import/route.ts:152-166 (`if (body.repos?.length) { fullNames = body.repos.map(...) }` \u2014 no slice) vs the `count` cap at :79 (`Math.min(100, \u2026)`) and the sibling watch route's `MAX_BULK = 500` (src/app/api/org/watch/route.ts:16,48)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Org Import, Scan & Watchlist",
+"title": "Import fans out org-creating upserts under `mapPool(4)` \u2014 the org-upsert race the watch route deliberately serializes",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/app/api/org/import/route.ts:193 (`mapPool(fullNames, SCAN_CONCURRENCY, \u2026)`) \u2192 :215 `persistScanReport({ orgSlug })` / :221 `setRepoWatch` \u2192 src/lib/db/org-watch.ts:30-36 (`ensureOrg` upsert); the watch route notes the hazard at src/app/api/org/watch/route.ts:43-44 (\"Writes are sequential so the lazy Organization upsert \u2026 can't race itself\")"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Org Import, Scan & Watchlist",
+"title": "Scan route doesn't normalize `org`, so the access gate and the watched-repo lookup can disagree on casing",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case / silent-failure",
+"file": "src/app/api/org/scan/route.ts:28 (`const org = body.org;` \u2014 no trim/lowercase) \u2192 :35 `listWatchedRepos(org)` (org-watch.ts:271 queries `{ slug: orgSlug }` verbatim); contrast import/route.ts:65 which does `body.org?.trim().toLowerCase()`"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Org Import, Scan & Watchlist",
+"title": "Turn the \"scan a whole org\" funnel into a shareable org scorecard + badge (mirror the per-repo badge & leaderboard)",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "growth / virality",
+"file": "src/app/api/org/import/route.ts (the no-install public-org funnel) + src/app/leaderboard/page.tsx / src/components/leaderboard/LeaderboardTable.tsx (the existing per-repo growth loop)"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Org Import, Scan & Watchlist",
+"title": "Sell scan throughput \u2014 fixed `SCAN_CONCURRENCY=4` + 300s ceiling makes large fleets slow",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/lib/pool.ts:37 (`SCAN_CONCURRENCY = 4`) + the `maxDuration = 300` on scan/import/rescan routes"
+},
+{
+"group": "org-scanning-and-fleet-rollups",
+"context": "Org Import, Scan & Watchlist",
+"title": "Leaderboard \"as of\" timestamp reads the freshest *recent* scan, not the freshest *ranked* row",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case / display",
+"file": "src/app/leaderboard/page.tsx:30 (`const latest = gallery?.recent[0]?.scannedAt`)"
+},
+{
+"group": "reporting-and-visualization",
+"context": "PDF & LLM Export",
+"title": "PDF export is gated by org-read, not by plan tier \u2014 a paid feature leaks to free orgs",
+"severity": "High",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/app/api/report/pdf/route.ts:28-30"
+},
+{
+"group": "reporting-and-visualization",
+"context": "PDF & LLM Export",
+"title": "Transient DB error is reported to the user as \"never scanned\"",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/app/api/report/pdf/route.ts:32-40"
+},
+{
+"group": "reporting-and-visualization",
+"context": "PDF & LLM Export",
+"title": "`wrap={false}` dimension rows can break PDF rendering on verbose LLM output",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/lib/pdf/report-document.tsx:118-126"
+},
+{
+"group": "reporting-and-visualization",
+"context": "PDF & LLM Export",
+"title": "The PDF omits the roadmap / recommendations / evidence \u2014 the actionable, paid-for part",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/lib/pdf/report-document.tsx:116-126"
+},
+{
+"group": "reporting-and-visualization",
+"context": "PDF & LLM Export",
+"title": "Ship a machine-readable LLM endpoint, not just a copy button",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/components/CopyForLlm.tsx:11-37 ; src/components/copy-for-llm.logic.ts"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Roadmap & Recommendation Tracking",
+"title": "409-conflict \"Retry\" resubmits the same status without refetching \u2014 repeats the conflict",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/components/report/RecommendationTracker.tsx:186-192 ; src/app/api/recommendations/[id]/route.ts:115-120"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Roadmap & Recommendation Tracking",
+"title": "Completion % is deflated by dismissed items",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/components/report/RecommendationTracker.tsx:51-54"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Roadmap & Recommendation Tracking",
+"title": "Wire recommendation completions into a re-engagement email",
+"severity": "High",
+"lens": "business-visionary",
+"category": "retention",
+"file": "src/lib/report/compare.ts:282-288 ; src/app/api/recommendations/[id]/events/route.ts"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Roadmap & Recommendation Tracking",
+"title": "\"Create GitHub Issue / push to Projects\" from a recommendation",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/components/report/RecommendationTracker.tsx:152-170"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Roadmap & Recommendation Tracking",
+"title": "Position the tracked roadmap + audit timeline as the paid \"governance\" tier",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/lib/db/scans-recommendations.ts:102-140 ; src/app/api/recommendations/[id]/route.ts:44-49"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Trends & Comparison",
+"title": "`LevelBadge` can crash the trends page on a drifted/empty stored level",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "state-corruption",
+"file": "src/components/LevelBadge.tsx:10 ; src/app/trends/page.tsx:130"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Trends & Comparison",
+"title": "Lazy dimension fetch has no abort/active guard \u2014 stale-repo data race",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "race-condition",
+"file": "src/components/report/DimensionTrends.tsx:35-52"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Trends & Comparison",
+"title": "`recsMovedToDone` counts a born-done recommendation as a fresh completion",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/lib/report/compare.ts:282-288"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Trends & Comparison",
+"title": "Ship an embeddable README maturity badge (the missing adoption loop)",
+"severity": "High",
+"lens": "business-visionary",
+"category": "growth",
+"file": "src/app/api/history/route.ts ; src/app/report/[owner]/[repo]/opengraph-image.tsx"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Trends & Comparison",
+"title": "Scheduled trend-digest email using existing SES + history",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "retention",
+"file": "src/app/trends/page.tsx:115-117 ; src/app/api/history/route.ts"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Score Charts & Visuals",
+"title": "Chart deep-links are pointer-only \u2014 keyboard/SR users can't reach per-scan reports",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "accessibility",
+"file": "src/components/report/TrendChart.tsx:145-148, 251-274 ; src/components/report/DimLine.tsx:91-94"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Score Charts & Visuals",
+"title": "ScoreRing's fill transition ignores prefers-reduced-motion",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "accessibility",
+"file": "src/components/report/ScoreRing.tsx:55"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Score Charts & Visuals",
+"title": "A NaN/undefined score prints \"NaN\" while geometry silently clamps to 0",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/components/report/ScoreRing.tsx:43-58 ; src/components/report/DimensionExplorer.tsx:122-125"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Score Charts & Visuals",
+"title": "Productize the score visuals as a downloadable share card",
+"severity": "High",
+"lens": "business-visionary",
+"category": "growth",
+"file": "src/components/report/ScoreRing.tsx ; src/components/report/RadarChart.tsx"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Score Charts & Visuals",
+"title": "Use Remotion (already in the stack) for a \"maturity recap\" share clip",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/components/report/PassportHero.tsx ; src/components/report/TrendChart.tsx"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Repo Report Shell & Tabs",
+"title": "Permalink page runs 5 sequential awaits \u2014 avoidable cold TTFB",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "performance",
+"file": "src/app/report/[owner]/[repo]/page.tsx:54-62"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Repo Report Shell & Tabs",
+"title": "After an in-place Re-test, history/recs panels keep showing pre-rescan data",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "stale-data",
+"file": "src/components/report/ReportView.tsx:70-98"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Repo Report Shell & Tabs",
+"title": "ReportConversionCta fires an uncached `/api/auth/viewer` on every report mount",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "performance",
+"file": "src/components/report/ReportConversionCta.tsx:19-30"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Repo Report Shell & Tabs",
+"title": "Add \"Watch this repo \u2014 email me when the score moves\"",
+"severity": "High",
+"lens": "business-visionary",
+"category": "retention",
+"file": "src/components/report/ReportView.tsx:298-300 ; src/components/report/ReportConversionCta.tsx"
+},
+{
+"group": "reporting-and-visualization",
+"context": "Repo Report Shell & Tabs",
+"title": "Turn ColdScanGate into a converting teaser, not a bare empty state",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "activation",
+"file": "src/components/report/ColdScanGate.tsx:29-44"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "CI Gate & Status Checks",
+"title": "`/api/gate` mock path is unauthenticated AND unthrottled \u2014 GitHub-quota / compute DoS",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "trust-boundary / resource-exhaustion",
+"file": "src/app/api/gate/[owner]/[repo]/route.ts:36-45"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "CI Gate & Status Checks",
+"title": "Sticky PR comment dedup scans the OLDEST pages \u2014 stacks duplicates on busy PRs",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "edge-case / ordering",
+"file": "src/lib/github/checks.ts:65-79"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "CI Gate & Status Checks",
+"title": "The documented CI gate endpoint never honors the saved org gate policy",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure / success-theater",
+"file": "src/app/api/gate/[owner]/[repo]/route.ts:66 (vs src/lib/db/org-gate.ts:13)"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "CI Gate & Status Checks",
+"title": "Org gate-pass-rate trend dashboard \u2014 retention + upsell surface",
+"severity": "High",
+"lens": "business-visionary",
+"category": "retention / monetization",
+"file": "src/lib/scoring/gate.ts:245 (evaluateGateLite already computes fleet verdicts)"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "CI Gate & Status Checks",
+"title": "The PR comment is a per-contributor viral impression \u2014 and the policy levers are ungated",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "growth / monetization",
+"file": "src/lib/scoring/gate-comment.ts:127-131; src/components/org/GatePolicyEditor.tsx:32-45"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "LLM Provider Abstraction",
+"title": "OpenAI provider sends `json_object` with no schema \u2014 silent degrade-to-mock for the enterprise path",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/lib/llm/openai.ts:45-68"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "LLM Provider Abstraction",
+"title": "`validateAssessment` length-caps but never sanitizes untrusted model text for public surfaces",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "input-validation / injection",
+"file": "src/lib/llm/provider.ts:72-73, 189-197"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "LLM Provider Abstraction",
+"title": "`roadmap`/`discrepancies` validation loops are not input-bounded (asymmetric with the `dimensions` fix)",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "resource-exhaustion",
+"file": "src/lib/llm/provider.ts:152-187 (vs the pre-slice at 125)"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "LLM Provider Abstraction",
+"title": "BYOM + true multi-provider is a built, unmonetized enterprise moat",
+"severity": "High",
+"lens": "business-visionary",
+"category": "differentiation / monetization",
+"file": "src/lib/llm/index.ts:185-201; src/lib/llm/bedrock.ts:29-66; src/lib/llm/openai.ts"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "LLM Provider Abstraction",
+"title": "Per-model price table + token metering \u2192 cost transparency as a monetization lever",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "monetization",
+"file": "src/lib/llm/config.ts:80-96, 113-122"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Maturity Model & Scoring Engine",
+"title": "`projectSandbox` drops the present-dimension predicate \u2014 baseline diverges from the report",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "state-corruption / consistency",
+"file": "src/lib/scoring/engine.ts:312-313 (vs assembleReport 176-177)"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Maturity Model & Scoring Engine",
+"title": "A totally-failed scan (0 scorable dimensions) is published as a genuine L1 on warning-blind surfaces",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "silent-failure",
+"file": "src/lib/scoring/engine.ts:153-165, 174-177"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Maturity Model & Scoring Engine",
+"title": "`cheapestPathToNextLevel` can list a 0-gain step for a lens-zero-weight dimension",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "edge-case",
+"file": "src/lib/scoring/engine.ts:355-368"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Maturity Model & Scoring Engine",
+"title": "The what-if simulator + glass-box attribution is a premium \"Improvement Planner\"",
+"severity": "High",
+"lens": "business-visionary",
+"category": "differentiation / monetization",
+"file": "src/lib/scoring/engine.ts:218-321 (projectScore/projectSandbox/cheapestPathToNextLevel/contributions)"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Maturity Model & Scoring Engine",
+"title": "Archetype-aware fair grading is an under-marketed trust differentiator",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "differentiation",
+"file": "src/lib/maturity/model.ts:232-254"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Scan Pipeline & Ingestion",
+"title": "\"Email me when it's done\" is an open relay \u2014 Ascent-branded mail to arbitrary recipients",
+"severity": "High",
+"lens": "bug-hunter",
+"category": "trust-boundary / abuse",
+"file": "src/app/api/scan/stream/route.ts:81-83, 197-201; src/lib/email/index.ts:29-33"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Scan Pipeline & Ingestion",
+"title": "Client-controlled `headSha` pins ingestion and persists an arbitrary commit",
+"severity": "Medium",
+"lens": "bug-hunter",
+"category": "input-validation / cache-shaping",
+"file": "src/app/api/scan/stream/route.ts:129-133; src/lib/scan.ts:165-167"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Scan Pipeline & Ingestion",
+"title": "Opt-in \"email me\" silently no-ops on a cache hit",
+"severity": "Low",
+"lens": "bug-hunter",
+"category": "silent-failure / UX",
+"file": "src/app/api/scan/stream/route.ts:134-146 (early return) vs 197-201"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Scan Pipeline & Ingestion",
+"title": "The completion email is a wasted re-engagement / virality engine",
+"severity": "High",
+"lens": "business-visionary",
+"category": "retention / growth",
+"file": "src/lib/email/index.ts:37-74; src/components/scan/NotifyToggle.tsx"
+},
+{
+"group": "repository-scanning-and-scoring",
+"context": "Scan Pipeline & Ingestion",
+"title": "Keyless zero-signup public scan is top-of-funnel \u2014 under-leveraged for viral growth",
+"severity": "Medium",
+"lens": "business-visionary",
+"category": "growth / activation",
+"file": "src/app/api/scan/route.ts (anonymous public funnel); src/components/ScanForm.tsx"
+}
+]
