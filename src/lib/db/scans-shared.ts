@@ -192,19 +192,32 @@ export async function resolveOrgId(orgSlug: string): Promise<string | null> {
 }
 
 /**
+ * Parse a persisted JSON column to T, or null when the column is null/empty or holds malformed JSON.
+ * The single canonical "JSON.parse with a safe fallback" primitive for the scan persistence layer —
+ * every other persisted-column parser (`parseStringArray` here; `parseJsonObject` / `parseNumberArray`
+ * / `parseDiscrepancies` in scans-read) is built on it, so the raw try/catch exists in exactly one
+ * place and can't drift in edge handling. Lives here (the dependency sink) so scans-read can share it
+ * without an import cycle. Never throws.
+ */
+export function parseJson<T>(s: string | null | undefined): T | null {
+  if (!s) return null;
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Parse a persisted string-array JSON column (`explore`, `evidence`, `gaps`, …): malformed JSON,
  * null/empty, or a non-array all yield `[]`, and non-string entries are dropped. The single canonical
  * parser for stored `string[]` columns — lives here (the dependency sink) so both scans-shared and
- * scans-read use one implementation instead of two that drift in edge handling.
+ * scans-read use one implementation instead of two that drift in edge handling. Built on `parseJson`
+ * so the raw try/catch isn't re-rolled (null/empty/malformed → null → not an array → `[]`).
  */
 export function parseStringArray(s: string | null | undefined): string[] {
-  if (!s) return [];
-  try {
-    const p = JSON.parse(s);
-    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
+  const p = parseJson<unknown>(s);
+  return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
 }
 
 /**

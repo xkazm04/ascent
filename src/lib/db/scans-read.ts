@@ -7,9 +7,7 @@ import type {
   DimensionId,
   DimensionResult,
   Discrepancy,
-  Effort,
   Governance,
-  Impact,
   LevelId,
   LlmRoadmapItem,
   PersistedRecommendation,
@@ -26,7 +24,7 @@ import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
-import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
+import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseJson, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 
 // reportPermalink now lives in @/lib/ui (a client-safe module, so the trend charts can build the
 // same link); re-exported here for the existing @/lib/db barrel + server callers.
@@ -641,16 +639,10 @@ export async function getLatestRecommendations(
 }
 
 // ---- Pinned snapshot reconstruction (shareable permalinks) -------------------
-// parseStringArray now lives in scans-shared (the dependency sink) — imported above.
-
-function parseJson<T>(s: string | null | undefined): T | null {
-  if (!s) return null;
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    return null;
-  }
-}
+// The persisted-column parsers all build on the canonical `parseJson` primitive (scans-shared, the
+// dependency sink), so the raw JSON.parse try/catch exists in exactly one place. `parseStringArray`
+// and `parseJson` are imported above; the object/number/discrepancy parsers below layer their own
+// shape validation on top.
 
 /**
  * Parse persisted JSON that MUST be a plain object. A valid-JSON-but-wrong-shape row (stored as an
@@ -675,18 +667,15 @@ function parseNumberArray(s: string | null | undefined): number[] | null {
   return p.filter((n): n is number => typeof n === "number" && Number.isFinite(n));
 }
 
-/** Parse the persisted `discrepancies` JSON into validated Discrepancy[] (drops malformed rows). */
+/** Parse the persisted `discrepancies` JSON into validated Discrepancy[] (drops malformed rows). Built
+ *  on `parseJson` (null/empty/malformed → null → not an array → `[]`), so the same `[]`-on-bad-input
+ *  fallback is preserved without re-rolling the try/catch. */
 function parseDiscrepancies(s: string | null | undefined): Discrepancy[] {
-  if (!s) return [];
-  try {
-    const p = JSON.parse(s);
-    if (!Array.isArray(p)) return [];
-    return p
-      .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
-      .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
-  } catch {
-    return [];
-  }
+  const p = parseJson<unknown>(s);
+  if (!Array.isArray(p)) return [];
+  return p
+    .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
+    .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
 }
 
 /**
@@ -739,15 +728,22 @@ export async function getScanReportByCommit(
     gaps: parseStringArray(d.gaps),
   }));
 
-  const roadmap: LlmRoadmapItem[] = scan.recommendations.map((r) => ({
-    title: r.title,
-    dimension: r.dimId as DimensionId,
-    impact: r.impact as Impact,
-    effort: r.effort as Effort,
-    rationale: r.rationale,
-    explore: parseStringArray(r.explore),
-    levelUnlock: r.levelUnlock ?? undefined,
-  }));
+  // Reuse the canonical Recommendation-row mapper (toPersistedRec) for the shared field decoding
+  // (dimId/impact/effort casts, explore via parseStringArray, levelUnlock ?? undefined), then project
+  // down to the LlmRoadmapItem shape. Byte-identical to the prior inline mapping for these fields; the
+  // extra PersistedRecommendation fields (id/status/assignee/targetDate) are simply not carried over.
+  const roadmap: LlmRoadmapItem[] = scan.recommendations.map((r) => {
+    const rec = toPersistedRec(r);
+    return {
+      title: rec.title,
+      dimension: rec.dimension,
+      impact: rec.impact,
+      effort: rec.effort,
+      rationale: rec.rationale,
+      explore: rec.explore,
+      levelUnlock: rec.levelUnlock,
+    };
+  });
 
   // Contributors are stored as a per-repo LATEST-scan snapshot (persistScanReport replaces them
   // wholesale on every scan), so they describe `scan` ONLY when `scan` is the latest. For an older
