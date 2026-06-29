@@ -4,6 +4,7 @@ import { importWatchMonthlyCredits } from "@/components/onboarding/importCost";
 import { IMPORT_WATCH_SCHEDULE } from "@/components/onboarding/importScan";
 import type { OrgRepo } from "@/components/onboarding/types";
 import { CREDIT_ESTIMATE_NOTE } from "@/lib/credit-estimate";
+import { WatchCostTail } from "@/components/credit/WatchCostTail";
 
 /** The "choose up to maxSelect repos" phase: sticky action bar, repo list (or skeleton), scan/back. */
 export function SelectStep({
@@ -39,7 +40,6 @@ export function SelectStep({
   // The scan button also COMMITS these repos to a weekly autoscan (watch:true in the import) —
   // a recurring prepaid-credit draw that was previously invisible at this exact decision moment.
   const monthlyCredits = importWatchMonthlyCredits(selected.size);
-  const underAMonth = credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
   return (
     <div key="select" className="animate-phase-in">
       {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change). */}
@@ -143,19 +143,7 @@ export function SelectStep({
               {IMPORT_WATCH_SCHEDULE} autoscan ≈{" "}
               <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
               {monthlyCredits === 1 ? "" : "s"}/month
-              {credit != null &&
-                (credit.unlimited ? (
-                  <> · unlimited plan</>
-                ) : (
-                  <>
-                    {" "}
-                    · balance: <span className="font-mono text-slate-300">{credit.balance}</span>
-                  </>
-                ))}
-              {underAMonth && (
-                <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
-              )}
-              . Adjust or turn off anytime on Connect.
+              <WatchCostTail credit={credit} monthlyCredits={monthlyCredits} />. Adjust or turn off anytime on Connect.
             </p>
           )}
         </>
