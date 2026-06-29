@@ -18,6 +18,7 @@ import {
   persistScanReport,
   recordScanOutcome,
 } from "@/lib/db";
+import { requireCronAuth } from "@/lib/cron-auth";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
@@ -28,18 +29,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    // Fail closed: a missing/empty CRON_SECRET must NOT leave this endpoint open. The check was
-    // opt-in (`if (secret)`), so a forgotten env var on a new deploy silently disabled auth on a
-    // route that mints every org's token and spends LLM budget. Refuse rather than run unauthed.
-    return NextResponse.json({ error: "Cron is not configured (CRON_SECRET unset)." }, { status: 503 });
-  }
-  const auth = request.headers.get("authorization");
-  const key = new URL(request.url).searchParams.get("key");
-  if (auth !== `Bearer ${secret}` && key !== secret) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  // Fail-closed CRON_SECRET gate (503 when unset, 401 on a bad credential), single-sourced so this
+  // route that mints every org's token and spends LLM budget can't drift from the other cron handlers.
+  const denied = requireCronAuth(request);
+  if (denied) return denied;
   if (!isAppConfigured() || !isDbConfigured()) {
     return NextResponse.json({ skipped: "GitHub App + database required." });
   }

@@ -22,6 +22,7 @@ import {
   type OrgWindow,
 } from "@/lib/db";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { requireCronAuth } from "@/lib/cron-auth";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isWithinNoise } from "@/lib/maturity/noise";
 import { levelForScore } from "@/lib/maturity/model";
@@ -32,18 +33,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    // Fail closed: a missing/empty CRON_SECRET must NOT leave this endpoint open. The check was
-    // opt-in (`if (secret)`), so a forgotten env var on a new deploy silently disabled auth on a
-    // route that pushes fleet data to an external alert sink. Refuse rather than run unauthed.
-    return NextResponse.json({ error: "Cron is not configured (CRON_SECRET unset)." }, { status: 503 });
-  }
-  const auth = request.headers.get("authorization");
-  const key = new URL(request.url).searchParams.get("key");
-  if (auth !== `Bearer ${secret}` && key !== secret) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+  // Fail-closed CRON_SECRET gate (503 when unset, 401 on a bad credential), single-sourced so this
+  // route that pushes fleet data to an external alert sink can't drift from the other cron handlers.
+  const denied = requireCronAuth(request);
+  if (denied) return denied;
   if (!isDbConfigured()) return NextResponse.json({ skipped: "Database required." });
 
   const base = (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
