@@ -30,10 +30,14 @@ export async function GET(
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
-  // Rate-limit the EXPENSIVE real-LLM path only (?mock=0). Default mock gating is cheap/deterministic
-  // and stays unthrottled for CI; only ?mock=0 (optionally with distinct ?ref= values that bypass the
-  // cache) spends LLM budget, so cap it per-IP/global to prevent unauthenticated cost amplification.
-  if (!mock) {
+  // Rate-limit the paths that spend real budget OR bypass the cache:
+  //   • the real-LLM path (?mock=0) — every uncached scan is an LLM completion ($); and
+  //   • any ref-scoped scan (?ref=…) — a ref bypasses the per-commit cache (see below), so an
+  //     attacker spamming ?ref=<unique> forces a fresh GitHub ingest on the shared GITHUB_TOKEN every
+  //     call, an unbounded unauthenticated cost/quota-amplification DoS.
+  // The default no-ref mock gate stays unthrottled for CI: it shares the per-commit cache, so repeated
+  // calls for the same repo are free after the first (cache-bounded, not amplifiable).
+  if (!mock || ref) {
     const rl = rateLimitRequest(req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   }
