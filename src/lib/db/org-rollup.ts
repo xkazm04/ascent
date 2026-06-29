@@ -3,7 +3,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
-import { roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { GroupedMean, dateRange, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
@@ -255,19 +255,12 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   const postureCounts: Record<string, number> = {};
   for (const r of scanned) postureCounts[r.latest!.posture] = (postureCounts[r.latest!.posture] ?? 0) + 1;
 
-  const dimSum: Record<string, { sum: number; n: number }> = {};
-  for (const r of scanned)
-    for (const d of r.latest!.dims) {
-      const entry = (dimSum[d.dimId] = dimSum[d.dimId] || { sum: 0, n: 0 });
-      entry.sum += d.score;
-      entry.n += 1;
-    }
-  const dimAverages = Object.keys(dimSum)
+  const dimSum = new GroupedMean();
+  for (const r of scanned) for (const d of r.latest!.dims) dimSum.add(d.dimId, d.score);
+  const dimAverages = dimSum
+    .keys()
     .sort()
-    .map((dimId) => {
-      const entry = dimSum[dimId]!; // safe: dimId comes from Object.keys(dimSum)
-      return { dimId, avg: Math.round(entry.sum / entry.n) };
-    });
+    .map((dimId) => ({ dimId, avg: dimSum.get(dimId) }));
 
   // Org maturity trend: avg overall per day across scans within the window. The lower bound is also
   // clamped to the plan's retention window — a NON-DESTRUCTIVE read floor — so the trajectory looks back
@@ -278,24 +271,17 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   const allScans = await prisma.scan.findMany({
     where: {
       repo: { orgId: org.id, ...seg },
-      ...(trendStart || end ? { scannedAt: { ...(trendStart ? { gte: trendStart } : {}), ...(end ? { lte: end } : {}) } } : {}),
+      ...dateRange(trendStart, end),
     },
     select: { scannedAt: true, overallScore: true },
     orderBy: { scannedAt: "asc" },
   });
-  const byDay: Record<string, { sum: number; n: number }> = {};
-  for (const s of allScans) {
-    const day = s.scannedAt.toISOString().slice(0, 10);
-    byDay[day] = byDay[day] || { sum: 0, n: 0 };
-    byDay[day].sum += s.overallScore;
-    byDay[day].n += 1;
-  }
-  const trend = Object.keys(byDay)
+  const byDay = new GroupedMean();
+  for (const s of allScans) byDay.add(s.scannedAt.toISOString().slice(0, 10), s.overallScore);
+  const trend = byDay
+    .keys()
     .sort()
-    .map((date) => {
-      const entry = byDay[date]!; // safe: date comes from Object.keys(byDay)
-      return { date, avg: Math.round(entry.sum / entry.n) };
-    });
+    .map((date) => ({ date, avg: byDay.get(date) }));
 
   // Project where the org maturity trend is heading from its per-day history.
   const forecast = forecastTrajectory(trend.map((t) => ({ date: t.date, value: t.avg })));
@@ -390,7 +376,7 @@ export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segme
     by: ["engineProvider"],
     where: {
       repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-      ...(start || end ? { scannedAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
+      ...dateRange(start, end),
     },
     _count: true,
   });
@@ -417,7 +403,7 @@ export async function getOrgRecsActioned(
   const end = window?.end ?? null;
   const scope = {
     kind: "status",
-    ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
+    ...dateRange(start, end, "createdAt"),
     recommendation: { scan: { repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } } },
   };
   const [engaged, actioned] = await Promise.all([
