@@ -97,6 +97,18 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 8 — Scoring single-source (Theme G)
+
+**3 commits · 3 High closed · gate: tsc 0 · vitest 2641/2641 (+1).** Two deliberate, drift-fixing behavior changes (flagged).
+
+| Commit | What | Output change |
+|---|---|---|
+| `b2822e5` | `recomputeRepo` (orgsim) → canonical `overallScoreFor`. | **None** — verified byte-equivalent math; magnitude tests unchanged. |
+| `2e1485e` | New `analyze/ai-tools.ts` union vocab; `pulls`/`index`/`passport` derive from it. | **Detection broadens** (union direction only, no narrowing): pulls/index/passport gain gemini/sweep/sourcery/github-actions. Correctness fix. |
+| `5edf1f6` | `describeGatePolicy` in `gate.ts`; `policyText`/`gateQuery`/`ciWith`/`policyBits` derive from it. | **PR-comment footer** now includes the D9 floor + `protected branch` it previously omitted (the gate already enforced them). Deliberate; new test pins it. |
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -108,3 +120,4 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 7. **Shared crypto codec, per-caller parameters.** Deduping HMAC sign/verify across share flows: parameterize the legitimately-different bits (secret env var, TTL) and keep each caller building its own payload, so JSON key order → token bytes stay identical and already-issued tokens still verify.
 8. **The "shared" helper can be the buggy fork.** Four SSE parsers existed; the one in the shared lib silently corrupted multi-line `data:` while a component kept a correct private copy. When consolidating, adopt the *correct* implementation as the single source (not whichever is labeled "shared"), and add a test for the bug it fixes.
 9. **Consolidate the transport, keep per-call error taxonomies.** Four GitHub JSON fetchers shared a body but had genuinely divergent status→error mappings (one parsed `retry-after` / had a 401 case another collapsed). Extract the transport (headers+timeout+fetch) into one helper, but let callers keep their own typed error mapping — don't merge error classes that have provably diverged.
+10. **"Single source of truth" comments are drift detectors.** Three Highs were values a comment explicitly claimed were single-sourced but weren't (`overallScoreFor`, AI-vocab, GatePolicy). Grep for "single source"/"keep in sync"/"must match" comments — they mark exactly the spots that have silently forked. Unify toward the *correct/complete* copy and flag the resulting output change.
