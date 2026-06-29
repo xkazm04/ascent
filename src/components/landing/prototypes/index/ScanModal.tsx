@@ -130,9 +130,14 @@ export function ScanModal({
     if (!gated) return;
     let active = true;
     fetch("/api/auth/viewer")
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`viewer ${r.status}`))))
       .then((d) => active && setSignedIn(Boolean(d?.signedIn)))
-      .catch(() => active && setSignedIn(false));
+      // The gate is only a UX optimization — the scan endpoint enforces the login wall server-side. If
+      // the viewer check itself FAILS (network blip / 5xx), do NOT cache "signed out": the old
+      // `.catch(() => setSignedIn(false))` (and a non-ok response) locked a real signed-in member out of
+      // the hero's primary CTA for the whole page lifetime. Fail OPEN to the scan form instead — a
+      // genuinely signed-out user still hits the server 401 on submit, with a clear sign-in message.
+      .catch(() => active && setSignedIn(true));
     return () => {
       active = false;
     };
