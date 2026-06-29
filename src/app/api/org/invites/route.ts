@@ -6,7 +6,7 @@
 // carries a single-use token returned to the owner so they can share the /invite/[token] link.
 
 import { NextResponse } from "next/server";
-import { createInvite, getOrgId, isDbConfigured, listPendingInvites, recordAudit, revokeInvite } from "@/lib/db";
+import { createInvite, isDbConfigured, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
 import { getSession, isSameOrigin } from "@/lib/auth";
@@ -52,11 +52,11 @@ export async function POST(request: Request) {
     invitedBy: session?.login ?? null,
   });
   if (!invite) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
-  const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
-  await recordAudit(
+  await recordOrgAudit(
     "org.member.invited",
+    body.org,
     { org: body.org, role: body.role, target: body.githubLogin?.toLowerCase() ?? body.email ?? null },
-    { orgId, actorId: session?.login },
+    session?.login,
   ).catch(() => {});
   return NextResponse.json({ invite });
 }

@@ -9,7 +9,7 @@
 // signed-in gates and records an attributable audit event on the grant.
 
 import { NextResponse } from "next/server";
-import { acceptInvite, getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
+import { acceptInvite, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getSession, isAuthConfigured, isSameOrigin } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 
@@ -57,11 +57,11 @@ export async function POST(request: Request) {
   if (result.ok) {
     // Audit the GRANT (not just the invite creation) so "who received which role, and when" is
     // attributable — the create path recorded org.member.invited, but acceptance recorded nothing.
-    const orgId = (await getOrgId(result.org.toLowerCase()).catch(() => null)) ?? undefined;
-    await recordAudit(
+    await recordOrgAudit(
       "org.member.invite_accepted",
+      result.org,
       { org: result.org, login: identity.login, role: result.role },
-      { orgId, actorId: identity.login },
+      identity.login,
     ).catch(() => {});
   }
   return NextResponse.json(result, { status: result.ok ? 200 : 409 });
