@@ -12,6 +12,7 @@ import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
 import { aiShareOf, isBot, pickChampions, roundedMean } from "@/lib/db/org-shared";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 const TEAM_STRONG = 65; // a team "exemplifies" a dimension at/above this (a mentor candidate)
 const TEAM_WEAK = 50; // a team could grow a dimension below this (a learner candidate)
@@ -323,11 +324,11 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
 export async function getOrgTeamRollup(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgTeamRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       fullName: true,
       name: true,

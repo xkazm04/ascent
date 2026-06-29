@@ -8,7 +8,7 @@ import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
-import type { OrgWindow } from "@/lib/db/org-rollup";
+import { getOrgId, type OrgWindow } from "@/lib/db/org-rollup";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
 
@@ -70,8 +70,8 @@ function buildMove(fullName: string, name: string, now: ScanLite, prev: ScanLite
 export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgMovers | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const start = window?.start ?? null;
   const end = window?.end ?? null;
@@ -82,7 +82,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     // Windowed: fetch every in-window scan (one lightweight query), group per repo, then pick the
     // latest as "now" and the latest STRICTLY before `start` as the baseline (half-open, like rollup).
     const rows = await prisma.scan.findMany({
-      where: { repo: { orgId: org.id, ...seg }, ...(end ? { scannedAt: { lte: end } } : {}) },
+      where: { repo: { orgId, ...seg }, ...(end ? { scannedAt: { lte: end } } : {}) },
       select: {
         repoId: true,
         overallScore: true,
@@ -116,7 +116,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     }
   } else {
     const repos = await prisma.repository.findMany({
-      where: { orgId: org.id, ...seg },
+      where: { orgId, ...seg },
       select: {
         fullName: true,
         name: true,
@@ -163,11 +163,11 @@ export interface OrgRec {
 export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRec[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
       scans: {
@@ -351,11 +351,11 @@ export interface OrgBacklog extends BacklogCounts {
 export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, now: Date = new Date(), techGroupId?: string | null): Promise<OrgBacklog | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       fullName: true,
       name: true,
@@ -389,7 +389,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
 
   // Distinct human logins across the fleet's contributor snapshots — the assignee picker options.
   const contributorRows = await prisma.repoContributor.findMany({
-    where: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
+    where: { repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
     select: { login: true },
     distinct: ["login"],
   });
@@ -557,13 +557,13 @@ export function percentileOf(xs: readonly number[], v: number, min = 1): number 
 export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   // Latest scan + primary language per repo, for every repo NOT in this org. `orgId` is carried so the
   // percentile comparison can be done org-vs-org (like-for-like), not org-mean-vs-repo-distribution.
   const repos = await prisma.repository.findMany({
-    where: { orgId: { not: org.id } },
+    where: { orgId: { not: orgId } },
     select: {
       orgId: true,
       primaryLanguage: true,
@@ -581,7 +581,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   // This org's averages + dominant language (latest scan per repo).
   const mine = await prisma.repository.findMany({
-    where: { orgId: org.id },
+    where: { orgId },
     select: {
       primaryLanguage: true,
       scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true, adoptionScore: true } },
@@ -670,11 +670,11 @@ const GAP = 40;
 export async function getOrgPractices(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPractice[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
       fullName: true,
@@ -761,11 +761,11 @@ const HEALTHY_AVG = 50; // …while the org generally handles that dimension
 export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgGapAnalysis | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
       fullName: true,
@@ -860,11 +860,11 @@ export interface OrgDiscrepancies {
 export async function getOrgDiscrepancies(orgSlug: string): Promise<OrgDiscrepancies | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id },
+    where: { orgId },
     select: { name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { discrepancies: true } } },
   });
 

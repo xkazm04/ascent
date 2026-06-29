@@ -49,10 +49,10 @@ export interface RepoState {
 export async function getRepoStates(orgSlug: string): Promise<Record<string, RepoState>> {
   if (!isDbConfigured()) return {};
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return {};
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return {};
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id },
+    where: { orgId },
     select: {
       fullName: true,
       watched: true,
@@ -185,6 +185,8 @@ export function computeWindowDeltas(
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
+  // NOT routed through getOrgId: this lookup needs the full org row (org.plan feeds the retention
+  // window for the trend floor below), and getOrgId returns only the id.
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
   if (!org) return null;
 
@@ -380,14 +382,14 @@ export interface EngineMixEntry {
 export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<EngineMixEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
   const start = window?.start ?? null;
   const end = window?.end ?? null;
   const groups = await prisma.scan.groupBy({
     by: ["engineProvider"],
     where: {
-      repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+      repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
       ...(start || end ? { scannedAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
     },
     _count: true,
@@ -409,14 +411,14 @@ export async function getOrgRecsActioned(
 ): Promise<{ engaged: number; actioned: number }> {
   if (!isDbConfigured()) return { engaged: 0, actioned: 0 };
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return { engaged: 0, actioned: 0 };
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return { engaged: 0, actioned: 0 };
   const start = window?.start ?? null;
   const end = window?.end ?? null;
   const scope = {
     kind: "status",
     ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
-    recommendation: { scan: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } } },
+    recommendation: { scan: { repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } } },
   };
   const [engaged, actioned] = await Promise.all([
     prisma.recommendationEvent.count({ where: scope }),
