@@ -134,6 +134,20 @@ export async function ghGetJson<T>(url: string, opts: GhFetchOpts = {}): Promise
 }
 
 /**
+ * Percent-encode a slash-delimited GitHub path or git ref while PRESERVING the slashes between its
+ * segments (names like `release/1.2`, `feature/x`, or a nested file path `src/a b/c.ts`). A whole-string
+ * `encodeURIComponent(ref)` would turn `release/1.2` into the single literal token `release%2F1.2`, which
+ * the trees/contents APIs and the raw host treat as a branch/path that doesn't exist — every read 404s
+ * and a scan silently degrades to a content-less report. Encoding each segment but joining on a raw `/`
+ * keeps the value valid both as a URL path and as a query value (a literal `/` is allowed in the query
+ * component). The single source for this encoding — used for refs (trees/commits) AND file paths
+ * (contents/raw/write) so the rationale can't be silently re-implemented and drift across call sites.
+ */
+export function encodePathSegments(s: string): string {
+  return s.split("/").map(encodeURIComponent).join("/");
+}
+
+/**
  * The common fields of a GitHub `/…/repos` response row that BOTH repo-listing surfaces read (the
  * public org/user listing in list.ts and the post-OAuth user-repo discovery in discover.ts). Each
  * module extends this with the extra fields it happens to need (stars/description vs owner.type), but
