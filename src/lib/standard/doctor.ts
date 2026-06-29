@@ -12,6 +12,11 @@ const DOCTOR = `#!/usr/bin/env node
 // .ai/doctor.mjs - executable conformance for the .ai/ standard (reference impl, zero-dependency).
 // Usage: node .ai/doctor.mjs [--run] [--json]
 //   --run   also executes capability commands to verify they actually pass (flips "verified").
+//           SECURITY: --run shell-executes the commands declared in .ai/manifest.yaml. Run it ONLY on
+//           code you trust. Do NOT run it on untrusted pull_request builds from forks, and never expose
+//           ASCENT_CONFORMANCE_TOKEN (or any secret) to a fork-PR workflow that runs --run: a malicious
+//           PR can rewrite a capability command to execute arbitrary code and exfiltrate those secrets.
+//           In CI, gate --run/reporting to trusted events (push, or same-repo PRs) only.
 //   --json  prints a JSON summary and (when ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN are
 //           set, e.g. in CI) POSTs it to Ascent — closing the adopt->verify->re-score loop.
 // Contract: docs/AI_MANIFEST_SPEC.md. Reimplement freely; the checks are what matter, not this runner.
