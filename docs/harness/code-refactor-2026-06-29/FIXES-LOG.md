@@ -186,6 +186,21 @@ The full suite shows **1 failure: `client.test.ts` "still fails when no client e
 
 ---
 
+## Wave 16 — Dead code removal (Theme I)
+
+**4 commits · design-system #1 (H) + database #2 (H) + several M/L closed · gate: tsc 0 · vitest 2643 pass + 1 env.**
+
+| Commit | What |
+|---|---|
+| `ee44a3c` | Pruned **77** unused `@/lib/db` barrel re-exports (175 retained; consumers use direct module paths). tsc as final guard. |
+| `5380bbf` | Removed dead `toneFor` (def + 2 re-exports). |
+| `752488d` | Removed dead exports: `RecommendationActor`/`buildManifest`/`LiveRepoSeed` re-exports; demoted `SECURITY_DIM` + `auth.ts GitHubError` to non-exported locals. |
+| `ba2cd54` | Removed write-only dead fields `MatrixRow.base` + `GeneratedSkill.fileName` (+ their test assertions). |
+
+Nothing skipped — every targeted item proved dead. Out of scope (runtime branches): `removeNewestHit`, `DimensionSignals.notes`.
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -203,3 +218,4 @@ The full suite shows **1 failure: `client.test.ts` "still fails when no client e
 13. **Drift = a missing validation, not just duplicate code.** A duplicated block had drifted by OMISSION (targetDate validation present on goals, absent on initiatives → bad dates silently coerced to null). De-duplicating a validation often means *adding* the missing copy — a deliberate behavior change worth flagging + testing, not a pure no-op refactor.
 14. **Junctioned node_modules can fail HEAD's tests environmentally.** A worktree junctioning the main checkout's `node_modules` inherits its (possibly WIP-installed) deps. A test asserting an optional dep is ABSENT (`@aws-sdk/dsql-signer`) fails when the junction physically contains it, even though HEAD's `package.json` doesn't declare it. Diagnose, don't fix: `git log c8e04c3..HEAD -- <file> package.json` (untouched) + `grep dsql-signer package.json` (absent) ⇒ environmental, not a regression.
 15. **A "re-implemented canonical component" finding can overestimate consolidation safety.** The scan said 5 inline `Stat` copies were "all expressible via className", but `className` governs only the wrapper — the canonical hardcodes a label style and the copies diverge in rendered classes, so adoption would change visuals. Verify the canonical's actual API/markup before adopting; if it can't reproduce a copy without an API extension, that's a (deferred) enhancement, not a pure refactor.
+16. **Barrel prune is tsc-guarded but regex-fragile.** Pruning unused re-exports from a 252-symbol barrel: a naive "spanning" usage regex over-counted dead symbols (matched across preceding imports) and flagged ~40 live ones; tsc caught it. Use a non-spanning `import\s*\{[^{}]*\bX\b[^{}]*\}\s*from "@/lib/db"` check and let tsc be the final arbiter — removing fewer is safe, removing a live one errors loudly.
