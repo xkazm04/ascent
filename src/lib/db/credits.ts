@@ -265,6 +265,29 @@ export async function getCreditLedger(orgSlug: string, limit = 50): Promise<Cred
 }
 
 /**
+ * Total credits already clawed back for a Polar order — the sum of |delta| over its `polar-refund`
+ * ledger rows. The refund webhook uses this to reverse only the INCREMENTAL share on a 2nd+ partial
+ * refund (Polar's `refundedAmount` is cumulative), instead of dropping every refund after the first.
+ * Matches both the legacy key (`polar-refund:<orderId>`) and the per-level key
+ * (`polar-refund:<orderId>:<cumulativeRefundedAmount>`). 0 when none / no org / no DB.
+ */
+export async function sumRefundClawback(orgSlug: string, orderId: string): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
+  if (!org) return 0;
+  const rows = await prisma.creditLedger.findMany({
+    where: {
+      orgId: org.id,
+      reason: "polar-refund",
+      OR: [{ externalId: `polar-refund:${orderId}` }, { externalId: { startsWith: `polar-refund:${orderId}:` } }],
+    },
+    select: { delta: true },
+  });
+  return rows.reduce((a, r) => a + Math.abs(r.delta), 0);
+}
+
+/**
  * Reconcile the credit ledger over the last `days` (USE-4): credits debited (scan spends), refunded
  * (failed/deduped scans return their credit — a positive delta whose reason says so), granted (other
  * positives), and the net. Windows the recent ledger rows by date here (server-side) so the /usage
@@ -287,10 +310,15 @@ export async function getCreditReconciliation(orgSlug: string, days: number): Pr
   });
   const sum = (pred: (e: { delta: number; reason: string }) => boolean, abs = false) =>
     rows.filter(pred).reduce((a, e) => a + (abs ? Math.abs(e.delta) : e.delta), 0);
+  // Bucket by REASON before sign: a Polar refund-clawback is a NEGATIVE delta with reason `polar-refund`
+  // (a /refund/i match). The old `debited: delta < 0` counted that reversal as scan spend, so the /usage
+  // panel reported a billing refund as extra "credits debited". Exclude /refund/i-reason rows from the
+  // scan-spend bucket; the clawback still nets correctly in `net`.
+  const isReversal = (e: { reason: string }) => /refund/i.test(e.reason);
   return {
-    debited: sum((e) => e.delta < 0, true),
-    refunded: sum((e) => e.delta > 0 && /refund/i.test(e.reason)),
-    granted: sum((e) => e.delta > 0 && !/refund/i.test(e.reason)),
+    debited: sum((e) => e.delta < 0 && !isReversal(e), true),
+    refunded: sum((e) => e.delta > 0 && isReversal(e)),
+    granted: sum((e) => e.delta > 0 && !isReversal(e)),
     net: rows.reduce((a, e) => a + e.delta, 0),
     entries: rows.length,
   };

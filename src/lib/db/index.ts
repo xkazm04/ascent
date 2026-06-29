@@ -66,6 +66,7 @@ export {
   consumeScanCredit,
   getCreditLedger,
   getCreditReconciliation,
+  sumRefundClawback,
   setOrgPlan,
   type CreditState,
   type CreditLedgerEntry,
