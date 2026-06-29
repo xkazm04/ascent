@@ -25,11 +25,6 @@ export const DIRECTION_TONE = {
   flat: { arrow: "→", color: "#94a3b8", label: "holding" },
 } as const;
 
-/** Classify a numeric delta into a direction-tone key. */
-export function toneFor(delta: number): keyof typeof DIRECTION_TONE {
-  return delta > 0 ? "rising" : delta < 0 ? "falling" : "flat";
-}
-
 /**
  * "▲+8" / "▼-5" / "≈+1" / "→0" — arrowed delta badge. Within-noise non-zero deltas use "≈" (held,
  * within the scan-to-scan noise band) instead of ▲/▼, so a small wobble is not shown as real movement.
