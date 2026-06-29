@@ -6,28 +6,25 @@
 import { NextResponse } from "next/server";
 import { getCreditState, isDbConfigured, setOrgBranding } from "@/lib/db";
 import { planAllowsWhiteLabel } from "@/lib/plans";
-import { requireOrgRole } from "@/lib/authz";
-import { isSameOrigin } from "@/lib/auth";
+import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Branding requires a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as { org?: string; brandName?: string; brandColor?: string; logoUrl?: string };
-  if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "owner");
-  if (denied) return denied;
+  const gate = await requireOrgOwnerPost<{ brandName?: string; brandColor?: string; logoUrl?: string }>(request);
+  if (gate instanceof NextResponse) return gate;
+  const { org, body } = gate;
 
   // Entitlement: briefing white-label is a Team-and-up feature (so a reseller on Team can brand the
   // reports they hand to clients), not Enterprise-only.
-  const credit = await getCreditState(body.org).catch(() => null);
+  const credit = await getCreditState(org).catch(() => null);
   if (!planAllowsWhiteLabel(credit?.plan)) {
     return NextResponse.json({ error: "Briefing branding is a Team-plan feature." }, { status: 403 });
   }
 
-  const ok = await setOrgBranding(body.org, {
+  const ok = await setOrgBranding(org, {
     brandName: body.brandName ?? null,
     brandColor: body.brandColor ?? null,
     logoUrl: body.logoUrl ?? null,
