@@ -138,6 +138,21 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 12 — Scan-read tenant scope + select shapes + JSON parsers (Theme B10)
+
+**3 commits · scan-persistence #1 (H) + #2/#3/#4 (M) closed · gate: tsc 0 · vitest 2643 pass + 1 environmental.**
+
+| Commit | What |
+|---|---|
+| `43f6f77` | `resolveScopedRepo(...)` extracted; 6 readers in `scans-read.ts` adopt it. Cross-tenant guard `orgSlug===DEFAULT_ORG_SLUG && repo.isPrivate` byte-identical; only `getRepositoryHistory` + `getScanReportByCommit` enable it (as before), the other 4 pass it off. |
+| `4fc7316` | Hoisted repeated dim-score `select` (×4) + latest-scan `findFirst` (×2) into named consts (HISTORY_POINT_SELECT pattern). |
+| `6dc33ac` | `parseStringArray`/`parseDiscrepancies` now build on canonical `parseJson` (hoisted to scans-shared); roadmap mapping reuses `toPersistedRec`. `[]`-on-bad-input fallbacks preserved. |
+
+### ⚠ Environmental test note (NOT a regression)
+The full suite shows **1 failure: `client.test.ts` "still fails when no client exists at all (… dsql-signer)"**. Root cause: that test asserts `@aws-sdk/dsql-signer` is **absent** (it is **not** in HEAD's `package.json`), but the worktree's **junctioned `node_modules`** (shared with master's WIP) **physically contains** it, so the dynamic import resolves and `withDb` throws an AWS-credential error instead of the expected "dsql-signer" message. **No wave touched `client.ts`/`getPrisma`/`package.json`** (verified `git log c8e04c3..HEAD --`). On a clean `npm ci` of this branch the test passes. From here the effective gate baseline is **2643 pass + 1 environmental**; any NEW failure beyond this is a real regression.
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -153,3 +168,4 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 11. **Load-bearing guard order.** When folding a route preamble (config 503 → session 401 → tenant 403 → install 403), the ORDER and per-check messages are observable — folding an earlier check into a shared helper changes which failure a request hits first (a signed-out request would get the tenant message instead of 401). Keep order-sensitive checks inline; only extract the tail that's truly common + order-independent (e.g. install-gate + token-mint + error mapping).
 12. **Wholesale route-test mocks block helper adoption.** A route whose test does `vi.mock("@/lib/authz")` wholesale breaks if you move its guard into a new module the test doesn't mock. Leave such a handler inline unless you deliberately update the mock — same root cause as the "new `@/lib/db` export missing from a route-test mock" regression class.
 13. **Drift = a missing validation, not just duplicate code.** A duplicated block had drifted by OMISSION (targetDate validation present on goals, absent on initiatives → bad dates silently coerced to null). De-duplicating a validation often means *adding* the missing copy — a deliberate behavior change worth flagging + testing, not a pure no-op refactor.
+14. **Junctioned node_modules can fail HEAD's tests environmentally.** A worktree junctioning the main checkout's `node_modules` inherits its (possibly WIP-installed) deps. A test asserting an optional dep is ABSENT (`@aws-sdk/dsql-signer`) fails when the junction physically contains it, even though HEAD's `package.json` doesn't declare it. Diagnose, don't fix: `git log c8e04c3..HEAD -- <file> package.json` (untouched) + `grep dsql-signer package.json` (absent) ⇒ environmental, not a regression.
