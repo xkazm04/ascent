@@ -76,11 +76,18 @@ export async function POST(request: Request) {
   if (authGateEnabled() && !viewer) {
     return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
   }
-  // Completion-email recipient (when opted in): the trusted account email, or a custom address ONLY when
-  // the account has none. Resolved here so the stream closure can use it without re-reading cookies.
-  const notifyTo = body.notify
-    ? viewer?.email ?? (isValidEmail(body.email) ? body.email.trim() : undefined)
-    : undefined;
+  // Completion-email recipient (when opted in). For a SIGNED-IN viewer we ONLY ever send to their own
+  // verified account address — never a client-supplied `email`. The old `viewer?.email ?? body.email`
+  // fallback let an authenticated viewer with no account email have Ascent's verified SES domain mail an
+  // ARBITRARY recipient (an open-relay / branded-spam vector). The custom `email` opt-in is honored ONLY
+  // on the anonymous public funnel (no viewer, where there's no account address), and that funnel is
+  // already rate-limited per-IP/global; a fuller anti-abuse step (double opt-in confirmation for an
+  // anonymous recipient) is tracked as a follow-up. Resolved here so the stream closure can use it.
+  const notifyTo = !body.notify
+    ? undefined
+    : viewer
+      ? (isValidEmail(viewer.email) ? viewer.email : undefined)
+      : (isValidEmail(body.email) ? body.email.trim() : undefined);
 
   // Weekly SOFT gate: public scans get a free per-window allowance (shared with /api/scan via
   // consumeScanQuota). The /report flow peeks the cache first (cheap, unconsumed); reaching the stream
