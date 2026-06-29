@@ -5,12 +5,12 @@
 // + signed-in; openDraftPr refuses to clobber an existing `.ai/passport.json` on the base branch.
 
 import { NextResponse } from "next/server";
-import { GitHubError } from "@/lib/github/source";
 import { openDraftPr } from "@/lib/github/write";
-import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { getInstallationIdForOwner, getRepoPassport, isDbConfigured, recordOrgAudit } from "@/lib/db";
+import { isAppConfigured } from "@/lib/github/app";
+import { getRepoPassport, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { PUBLIC_ORG, getSession, isAuthConfigured, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
+import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,16 +47,14 @@ export async function POST(request: Request) {
   if (!passport) {
     return NextResponse.json({ error: "No passport for this repository yet. Scan it first." }, { status: 404 });
   }
-  const installId = await getInstallationIdForOwner(org).catch(() => null);
-  if (!installId) {
-    return NextResponse.json({ error: `Ascent isn't installed on ${org}. Install the GitHub App (with write access) to open PRs.` }, { status: 403 });
-  }
-
   // The committed file: schema pointer first, then the (override-applied) passport.
   const fileContent = JSON.stringify({ $schema: "https://ascent.dev/schemas/app-passport-0.1.json", ...passport }, null, 2) + "\n";
   const session = await getSession();
   try {
-    const token = await getInstallationToken(installId);
+    // Install presence (403) + installation-token mint, single-sourced across the PR-write routes.
+    const ctx = await requirePrWriteContext(org);
+    if (ctx instanceof Response) return ctx;
+    const { token } = ctx;
     const pr = await openDraftPr({
       token,
       owner: parsed.owner,
@@ -72,18 +70,12 @@ export async function POST(request: Request) {
     await recordOrgAudit("passport.pr_opened", org, { repo: `${parsed.owner}/${parsed.name}`, pr: pr.number, reused: pr.reused }, session?.login);
     return NextResponse.json(pr);
   } catch (err) {
-    if (err instanceof AppApiError) {
-      const status = err.status === 403 || err.status === 404 || err.status === 409 ? err.status : 502;
-      const hint =
-        err.status === 409
-          ? err.message
-          : err.status === 403
-            ? "The installation lacks contents/PR write access — update the GitHub App's permissions."
-            : "GitHub rejected the write. Check the repo and base branch.";
-      return NextResponse.json({ error: hint }, { status });
-    }
-    if (err instanceof GitHubError) return NextResponse.json({ error: err.message }, { status: err.status ?? 502 });
-    console.error("[passport/pr] failed", err);
-    return NextResponse.json({ error: "Failed to open the passport PR." }, { status: 500 });
+    // Shared mapper. passport/pr keeps surfacing openDraftPr's OWN 409 message (the specific
+    // ".ai/passport.json already exists on <base>" collision detail) rather than the generic copy.
+    return mapPrWriteError(err, {
+      tag: "passport/pr",
+      genericError: "Failed to open the passport PR.",
+      conflict: (e) => e.message,
+    });
   }
 }
