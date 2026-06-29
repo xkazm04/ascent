@@ -1289,3 +1289,46 @@ This completes ALL eight medium waves (A–H).
   is retry-idempotent via a synthesized per-invocation externalId; scan persistence skips degraded-mock/
   low-coverage; headSha is the COMMIT sha; recommendation PATCH is optimistic-locked (409 on conflict);
   reduced-motion must gate non-transform animations explicitly; DB_CONNECTION_LIMIT is an env knob.
+
+## Business-Visionary + Bug-Hunter combined scan (2026-06-29) — 17 closed, 4 waves
+
+Branch `vibeman/biz-bug-scan-2026-06-29` (snapshot of master's WIP committed as a baseline; master
+left clean at c8e04c3). 220 findings (1C/46H/130M/43L; 130 bug / 90 business) across all 44 contexts.
+**17 closed over 4 waves, 0 regressions** (tsc 0; vitest 2635 pass / 1 pre-existing env-fail throughout).
+
+- **W1 security (4):** `/api/app/repos` IDOR (gated only on dormant `isAuthConfigured()`, inert under the
+  Supabase wall → fixed to `requireOrgRead` + derive installation from the authorized org); gate `?ref`
+  cache-bypass DoS; scan-completion open-relay email; doctor.mjs `--run` CI-RCE warning.
+- **W2 billing/quota (5):** split/partial-refund clawback (reverse-to-cumulative-target via
+  `sumRefundClawback`); refund fraction basis (totalAmount not netAmount); fulfilment ack-on-unbindable;
+  reconciliation reason-bucketing; clientIp `unknown` weekly-quota fail-open.
+- **W3 report data-integrity (5):** LevelBadge crash on drifted level; completion% excludes dismissed;
+  PDF lookup error → 503 not 404; audit CSV truncation flagged (`x-ascent-truncated`/`-PARTIAL`); exec
+  briefing + portfolio suppress forecast confidence on `lowData` (<3 scans).
+- **W4 (3):** leaderboard added to sitemap (safe SEO quick-win); conformance score clamped 0-100;
+  ScanModal fails OPEN on a viewer-check error (was locking signed-in members out).
+
+New structural facts:
+- **Dual auth layers:** `authGateEnabled()` (Supabase, ACTIVE prod wall) vs `isAuthConfigured()`
+  (dormant custom OAuth). Every gate MUST branch on `authGateEnabled()` first; a route checking only
+  `isAuthConfigured()` is silently open in prod. (`/api/app/repos` was the last such hole.)
+- **Polar `order.refundedAmount` is cumulative** across partial refunds; reverse-to-target keyed per
+  cumulative amount is the idempotent clawback pattern (`sumRefundClawback` in credits.ts).
+- **forecast.lowData (n<3)** must gate any `fitQuality`-as-confidence render (briefing + portfolio).
+- **Stale Prisma client gotcha persists:** a WIP schema change (gatePolicy JSON→TEXT) shows as a tsc
+  error in `src/lib/db/org-gate.ts` until `npx prisma generate`. Run it before trusting a tsc baseline.
+
+## Open follow-ups (from biz-bug scan, 2026-06-29)
+- **Push-rescan throttle (High, `app/webhook/route.ts:319`):** watched-repo pushes run unthrottled
+  LLM-billed scans; needs a per-repo cooldown (DB last-scan-ts or shared store — in-memory limiter is
+  per-instance). Same-commit pushes already dedup via persistScanReport.
+- **DimensionTrends stale-repo race (Med, `DimensionTrends.tsx:35`):** loadDimensions has no abort/active
+  guard; needs AbortController/latest-repo ref through the useCallback+effect.
+- **Logo-URL DNS-rebinding SSRF (High, `branding.ts:34`):** string-guarded by isSafePublicHttpsUrl; the
+  resolve-time residual needs a pinned-IP fetch at the @react-pdf layer (documented in-code).
+- **recsMovedToDone born-done count (Med, `compare.ts:282`):** INTENTIONAL per the code comment + pinned
+  by compare.test; whether "moved to done" includes born-done is a product decision.
+- **DSQL read-path `withDb` migration (High, `scans-read.ts` many sites):** reads use raw getPrisma, so a
+  thawed instance past the ~15-min IAM-token TTL 500s on first read. Large multi-site change → own session.
+- **~110 Medium/Low bug tail + 90 business findings** remain per `biz-bug-scan-2026-06-29/INDEX.md`
+  (business = product/pricing decisions; not auto-fix material).
