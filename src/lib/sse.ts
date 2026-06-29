@@ -34,10 +34,15 @@ export function parseSSE(block: string): SSEMessage {
  * Read an SSE response body to completion, invoking `onMessage` for every "\n\n"-delimited
  * frame as it arrives. Empty keepalive frames (no event and no data) are skipped. Resolves
  * when the stream closes; pass an aborted signal's body to stop early.
+ *
+ * `onChunk` (optional) fires once per successful `reader.read()` — i.e. on every byte of progress,
+ * before its frames are drained — so a caller can re-arm a stall watchdog without re-implementing the
+ * reader/decoder/buffer loop (see src/components/onboarding/importScan.ts).
  */
 export async function readSSE(
   body: ReadableStream<Uint8Array>,
   onMessage: (msg: SSEMessage) => void,
+  onChunk?: () => void,
 ): Promise<void> {
   const reader = body.getReader();
   const dec = new TextDecoder();
@@ -45,6 +50,7 @@ export async function readSSE(
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    onChunk?.();
     buf += dec.decode(value, { stream: true });
     let nl: number;
     while ((nl = buf.indexOf("\n\n")) >= 0) {

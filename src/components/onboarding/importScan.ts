@@ -1,5 +1,5 @@
 import type { LevelId } from "@/lib/types";
-import { parseSSE } from "@/lib/sse";
+import { readSSE } from "@/lib/sse";
 
 // Abort an import if no SSE event arrives within this window — turns a server stall into a
 // recoverable error instead of an indefinite "Scanning…" hang.
@@ -77,24 +77,14 @@ export async function runImportScan(
       throw new Error(data?.error ?? `Import failed (${res.status}).`);
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      armStall(); // progress arrived — reset the stall window
-      buffer += decoder.decode(value, { stream: true });
-      let nl: number;
-      while ((nl = buffer.indexOf("\n\n")) >= 0) {
-        const block = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 2);
-        // Parse the frame through the shared client SSE parser (src/lib/sse.ts) rather than a
-        // third hand-rolled copy of the event:/data: line scan. The outer read loop stays here so
-        // the stall watchdog (armStall on every chunk) is preserved. A frame whose data is absent
-        // or unparseable yields data:null — skip it, matching the old `continue` behavior.
-        const { event, data } = parseSSE(block);
-        if (!data) continue;
+    // Drain the SSE stream through the shared reader (src/lib/sse.ts) rather than a third hand-rolled
+    // copy of the getReader/decoder/buffer/indexOf("\n\n") loop. The stall watchdog stays LOCAL: readSSE's
+    // `onChunk` re-arms it on every chunk of progress, exactly as the old inline `armStall()` did. A frame
+    // whose data is absent or unparseable yields data:null — skip it, matching the old `continue` behavior.
+    await readSSE(
+      res.body,
+      ({ event, data }) => {
+        if (!data) return;
         if (event === "repo") {
           cb.onRepo({
             repo: String(data.repo),
@@ -107,8 +97,9 @@ export async function runImportScan(
         } else if (event === "error") {
           cb.onError(String(data.error ?? "Scan failed."));
         }
-      }
-    }
+      },
+      armStall, // progress arrived — reset the stall window
+    );
     return { ok: true };
   } catch (err) {
     if (controller.signal.aborted) {
