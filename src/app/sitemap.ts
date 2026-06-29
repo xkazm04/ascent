@@ -18,6 +18,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const routes: { path: string; priority: number }[] = [
     { path: "/", priority: 1 },
     { path: "/report", priority: 0.7 },
+    // The public AI-native leaderboard is a prime indexable/viral surface (README badge → report →
+    // scan-your-own), but it was reachable only by following links. It is public and NOT robots-blocked
+    // (robots.ts disallows only /api, /connect, /onboarding, /launch), so list it for discovery.
+    { path: "/leaderboard", priority: 0.6 },
     { path: "/pricing", priority: 0.6 },
     { path: "/badge", priority: 0.5 },
     { path: "/trends", priority: 0.5 },
