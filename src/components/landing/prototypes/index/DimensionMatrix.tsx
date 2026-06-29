@@ -7,6 +7,7 @@
 import { motion } from "framer-motion";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { SectionHeading } from "@/components/ui";
+import { DeckSection } from "@/components/deck/DeckSection";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { ARCHETYPE_COLUMNS, AXIS_LABEL, MAX_WEIGHT, buildMatrixRows, pct } from "../shared/matrixData";
 
@@ -38,7 +39,7 @@ function CellBar({ w }: { w: number }) {
 
 export function DimensionMatrix() {
   return (
-    <section id="dimensions" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <DeckSection id="dimensions">
       <SectionHeading
         size="page"
         kicker="The instrument"
@@ -84,6 +85,6 @@ export function DimensionMatrix() {
         <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-accent" /> Adoption axis</span>
         <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> Rigor axis</span>
       </div>
-    </section>
+    </DeckSection>
   );
 }

@@ -4,13 +4,14 @@
 // an accent ring + badge and arrow bullets. Content from shared buildPricing.
 
 import { Kicker } from "@/components/ui";
+import { DeckSection } from "@/components/deck/DeckSection";
 import { buildPricing } from "../shared/content";
 import type { LandingData } from "../types";
 
 export function PricingCards({ quota }: Pick<LandingData, "quota">) {
   const tiers = buildPricing(quota);
   return (
-    <section id="pricing" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <DeckSection id="pricing">
       <Kicker>Pricing</Kicker>
       <h2 className="mt-2 text-2xl font-bold text-white sm:text-3xl">Usage-based — pay only for what you scan</h2>
       <p className="mt-2 max-w-2xl text-slate-400">
@@ -47,6 +48,6 @@ export function PricingCards({ quota }: Pick<LandingData, "quota">) {
           </div>
         ))}
       </div>
-    </section>
+    </DeckSection>
   );
 }

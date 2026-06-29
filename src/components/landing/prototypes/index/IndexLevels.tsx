@@ -7,12 +7,13 @@
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
 import { HairlineGrid, SectionHeading, Surface } from "@/components/ui";
+import { DeckSection } from "@/components/deck/DeckSection";
 import { TrajectoryChart } from "./TrajectoryChart";
 import type { LevelId } from "@/lib/types";
 
 export function IndexLevels() {
   return (
-    <section id="levels" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <DeckSection id="levels">
       <SectionHeading
         size="page"
         kicker="The ladder"
@@ -36,6 +37,6 @@ export function IndexLevels() {
           </div>
         ))}
       </HairlineGrid>
-    </section>
+    </DeckSection>
   );
 }

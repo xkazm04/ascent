@@ -2,6 +2,7 @@
 
 import { SectionHeading } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
+import { DeckSection } from "@/components/deck/DeckSection";
 
 const COSTS = [
   { t: "Rework", d: "Initiatives that move two repos when you budgeted for twenty." },
@@ -22,9 +23,8 @@ function DownTrend() {
 /** The problem framing: unmeasured AI adoption burns money in four predictable ways. */
 export function AboutCost() {
   return (
-    <section id="cost" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
-      <div className="mx-auto w-full max-w-6xl px-5">
-        <Reveal>
+    <DeckSection id="cost" contained>
+      <Reveal>
           <SectionHeading
             size="page"
             kicker="The cost of guessing"
@@ -45,7 +45,6 @@ export function AboutCost() {
             </Reveal>
           ))}
         </div>
-      </div>
-    </section>
+    </DeckSection>
   );
 }

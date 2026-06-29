@@ -10,6 +10,7 @@ import { QuotaMeter } from "@/components/QuotaMeter";
 import { Dateline } from "@/components/ui";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { ScoreGauge } from "./ScoreGauge";
+import { DeckSection } from "@/components/deck/DeckSection";
 import type { LandingData } from "../types";
 
 function RuleStat({ value, label }: { value: string; label: string }) {
@@ -23,7 +24,7 @@ function RuleStat({ value, label }: { value: string; label: string }) {
 
 export function IndexHero({ quota, exampleRepos }: LandingData) {
   return (
-    <section id="hero" className="relative isolate flex min-h-screen snap-start items-center overflow-hidden">
+    <DeckSection id="hero" variant="hero">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         {/* GPT Image 2 editorial paper-relief backdrop (hybrid), weighted right behind the index ring */}
         <Image src="/brand/proto/index-bg.png" alt="" fill priority sizes="100vw" className="object-cover object-right opacity-40" />
@@ -94,6 +95,6 @@ export function IndexHero({ quota, exampleRepos }: LandingData) {
           <div className="px-4 sm:px-8"><RuleStat value="0–100" label="Index scale" /></div>
         </div>
       </div>
-    </section>
+    </DeckSection>
   );
 }

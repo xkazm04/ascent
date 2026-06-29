@@ -5,6 +5,7 @@
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { DeckSection } from "@/components/deck/DeckSection";
 
 interface OrgUseCase {
   title: string;
@@ -49,7 +50,7 @@ const ORG_USE_CASES: OrgUseCase[] = [
 
 export function IndexOrg() {
   return (
-    <section id="org" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <DeckSection id="org">
       <div className="grid gap-6 border-y border-slate-800 py-8 sm:grid-cols-[1fr_auto] sm:items-center">
         <div className="max-w-2xl">
           <Kicker>Organization edition</Kicker>
@@ -87,6 +88,6 @@ export function IndexOrg() {
           </Link>
         ))}
       </div>
-    </section>
+    </DeckSection>
   );
 }
