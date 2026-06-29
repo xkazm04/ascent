@@ -109,6 +109,19 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 9 — PR-write auth preamble (Theme A4)
+
+**2 commits · 2 High (practices #1, playbooks #1) closed · gate: tsc 0 · vitest 2641/2641.**
+
+| Commit | What |
+|---|---|
+| `506e812` | New `src/lib/github/pr-route.ts`: `requirePrWriteContext(org)` (install 403 + token mint) + `mapPrWriteError(err,{tag,genericError,conflict?})` (incl. the 409 branch). Adopted across practices/apply, apply-batch, playbooks/[id]/apply, passport/pr. |
+| `91db044` | `parseOrgRepo` in `playbook-gate.ts`; playbooks `[id]/repos` + `[id]/apply` share the per-row tenant validation. |
+
+**Kept inline (load-bearing):** each route's App-config 503, session 401, and tenant gate — they run *before* the install gate and their order/messages are observable (folding would change the signed-out message). **Deliberate change (flagged):** playbooks/apply now maps a base-file-collision 409→409 like its siblings (was 502 "write rejected"; its test pinned that as a known bug to flip). **Left:** apply-batch's per-repo worker returns `RepoResult.error` strings (not NextResponse), so `mapPrWriteError` doesn't apply (Medium, out of scope).
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -121,3 +134,4 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 8. **The "shared" helper can be the buggy fork.** Four SSE parsers existed; the one in the shared lib silently corrupted multi-line `data:` while a component kept a correct private copy. When consolidating, adopt the *correct* implementation as the single source (not whichever is labeled "shared"), and add a test for the bug it fixes.
 9. **Consolidate the transport, keep per-call error taxonomies.** Four GitHub JSON fetchers shared a body but had genuinely divergent status→error mappings (one parsed `retry-after` / had a 401 case another collapsed). Extract the transport (headers+timeout+fetch) into one helper, but let callers keep their own typed error mapping — don't merge error classes that have provably diverged.
 10. **"Single source of truth" comments are drift detectors.** Three Highs were values a comment explicitly claimed were single-sourced but weren't (`overallScoreFor`, AI-vocab, GatePolicy). Grep for "single source"/"keep in sync"/"must match" comments — they mark exactly the spots that have silently forked. Unify toward the *correct/complete* copy and flag the resulting output change.
+11. **Load-bearing guard order.** When folding a route preamble (config 503 → session 401 → tenant 403 → install 403), the ORDER and per-check messages are observable — folding an earlier check into a shared helper changes which failure a request hits first (a signed-out request would get the tenant message instead of 401). Keep order-sensitive checks inline; only extract the tail that's truly common + order-independent (e.g. install-gate + token-mint + error mapping).
