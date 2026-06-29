@@ -234,7 +234,12 @@ export async function buildExecBriefing(
     periodDelta: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
     priorPeriod,
     forecastHeadline: rollup.forecast ? forecastHeadline(rollup.forecast) : null,
-    forecastConfidence: rollup.forecast ? Math.round(rollup.forecast.fitQuality * 100) : null,
+    // forecast.ts explicitly warns NOT to render fitQuality as a hard confidence % when `lowData` is
+    // set: OLS through 1–2 points fits perfectly by construction (fitQuality=1), so a 2-scan forecast
+    // would otherwise show "trend confidence 100%" in the board PDF. Suppress the number on low data —
+    // the trajectory headline still renders, just without a bogus confidence.
+    forecastConfidence:
+      rollup.forecast && !rollup.forecast.lowData ? Math.round(rollup.forecast.fitQuality * 100) : null,
     engineMix,
     adoptionRate:
       rollup.scannedCount > 0

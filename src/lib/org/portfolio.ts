@@ -95,7 +95,9 @@ export async function buildPortfolio(orgSlugs: string[]): Promise<Portfolio> {
         trajectory: f?.trajectory ?? null,
         perWeek: f?.perWeek ?? null,
         etaLabel: f?.eta ? `${f.eta.toLevel} in ${humanizeDays(f.eta.days)}` : null,
-        confidence: f ? Math.round(f.fitQuality * 100) : null,
+        // Same low-data caveat as the exec briefing: a <3-scan OLS fit is 100% by construction, so
+        // don't surface fitQuality as a confidence % when `lowData` is set (forecast.ts warns on this).
+        confidence: f && !f.lowData ? Math.round(f.fitQuality * 100) : null,
         percentile: benchmark?.overallPercentile ?? null,
       };
     }),
