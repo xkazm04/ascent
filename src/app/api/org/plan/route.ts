@@ -6,7 +6,7 @@
 // mint unlimited free scans (the same hazard the credit-grant endpoint gates).
 
 import { NextResponse } from "next/server";
-import { getOrgId, isDbConfigured, recordAudit, setOrgPlan } from "@/lib/db";
+import { isDbConfigured, recordOrgAudit, setOrgPlan } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { getSession, isSameOrigin } from "@/lib/auth";
 import { isPlanId } from "@/lib/plans";
@@ -40,9 +40,8 @@ export async function POST(request: Request) {
   const ok = await setOrgPlan(org, body.plan);
   if (!ok) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   const session = await getSession();
-  const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
   // SEC #1: record the actor in the dedicated `actorId` column (not just `meta.actor`) so the audit
   // viewer's Actor column shows it and the actor filter can match — matching member/playbook writes.
-  await recordAudit("org.plan", { org, plan: body.plan }, { orgId, actorId: session?.login }).catch(() => {});
+  await recordOrgAudit("org.plan", org, { org, plan: body.plan }, session?.login).catch(() => {});
   return NextResponse.json({ ok: true, plan: body.plan });
 }

@@ -6,7 +6,7 @@
 // changes the bar that blocks merges across the org. The stored value is sanitized on write.
 
 import { NextResponse } from "next/server";
-import { getOrgGatePolicy, getOrgId, isDbConfigured, recordAudit, setOrgGatePolicy } from "@/lib/db";
+import { getOrgGatePolicy, isDbConfigured, recordOrgAudit, setOrgGatePolicy } from "@/lib/db";
 import { requireOrgRead, requireOrgRole } from "@/lib/authz";
 import { getSession, isSameOrigin } from "@/lib/auth";
 import { sanitizeGatePolicy } from "@/lib/scoring/gate";
@@ -37,12 +37,12 @@ export async function POST(request: Request) {
   const stored = await setOrgGatePolicy(body.org, clean);
   if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   const session = await getSession();
-  const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
   // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
-  await recordAudit(
+  await recordOrgAudit(
     "org.gate_policy",
+    body.org,
     { org: body.org, action: stored ? "set" : "cleared" },
-    { orgId, actorId: session?.login },
+    session?.login,
   ).catch(() => {});
   return NextResponse.json({ ok: true, policy: stored });
 }
