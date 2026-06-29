@@ -14,20 +14,8 @@ import {
 import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org";
 import { forecastHeadline } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
+import { providerLabel as engineLabel } from "@/lib/llm/config";
 import type { DimensionId } from "@/lib/types";
-
-const ENGINE_LABEL: Record<string, string> = {
-  "claude-cli": "Claude CLI",
-  claude: "Claude",
-  gemini: "Gemini",
-  bedrock: "AWS Bedrock",
-  mock: "Mock (deterministic)",
-};
-
-/** Human label for an inference-engine provider id. */
-function engineLabel(provider: string): string {
-  return ENGINE_LABEL[provider] ?? provider;
-}
 
 /** "Claude CLI ×18, Mock ×2" — the period's scoring provenance, busiest engine first. */
 export function engineMixLabel(mix: EngineMixEntry[]): string {

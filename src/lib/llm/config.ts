@@ -64,6 +64,29 @@ export function techStackPromptEnabled(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Inference-engine provider vocabulary
+// ---------------------------------------------------------------------------
+
+/**
+ * Human label per inference-engine provider id — the single source for the /usage "By inference
+ * engine" bars and the executive briefing's "Scored by" provenance line (was duplicated as
+ * `PROVIDER_META` in usage/page and `ENGINE_LABEL` in lib/org/briefing). The per-provider chart
+ * COLOR stays local to /usage (a UI concern); only the id→label vocabulary lives here.
+ */
+export const PROVIDER_LABEL: Record<string, string> = {
+  "claude-cli": "Claude CLI",
+  claude: "Claude",
+  gemini: "Gemini",
+  bedrock: "AWS Bedrock",
+  mock: "Mock (deterministic)",
+};
+
+/** Human label for an inference-engine provider id; unknown ids fall back to the raw id. */
+export function providerLabel(id: string): string {
+  return PROVIDER_LABEL[id] ?? id;
+}
+
+// ---------------------------------------------------------------------------
 // Built-in per-model price table
 // ---------------------------------------------------------------------------
 
