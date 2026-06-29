@@ -214,6 +214,20 @@ Nothing skipped — every targeted item proved dead. Out of scope (runtime branc
 
 ---
 
+## Wave 18 — Org-dashboard adoptions (Theme H, Medium)
+
+**3 commits · org-overview + people/delivery Mediums closed · gate: tsc 0 · vitest 2646 pass + 1 env.**
+
+`331bb37` ScopeFilterBar: `scope.ts` gains a `barProps` bundle; teams/delivery/contributors use `<ScopeFilterBar {...barProps}>`, passports drops its inline bar reimpl. `0559b0d` `DIMENSION_SHORT` cast+fallback → new `dimShort` helper (OrgLeverageMoves ×2, SegmentComparisonView). `9789f31` overview dimension-average rows → shared `MeterRow`. **Left (visual divergence):** overview SegmentSelector (unconditional for the "+ Create segment" CTA), posture rows (`text-base` vs MeterRow `text-sm`), all `postureLabel` sites (helper title-cases unknown ids), all 3 progress bars (different motion/structure).
+
+## Wave 19 — Fleet rollup + alerts helpers (Medium)
+
+**4 commits · fleet-rollups + fleet-alerts Mediums closed · gate: tsc 0 · vitest 2646 pass + 1 env.**
+
+`69c7e88` new `GroupedMean` accumulator (3 sites) + `dateRange()` window helper (3 sites) + `mean`→`avg` alias fix. `294831c` `loadRepoDimScores` shared by practices/gap. `000a7e9` `mrkdwnSection`/`linkContext` Block-Kit factories (4 builders, JSON byte-identical) + `signed()` formatter. `cc3681d` `org-alerts` `updateOrgById` tail. **Signed-formatter drift unified on `>=0` — no output change** (delta sites only run for nonzero moves).
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
