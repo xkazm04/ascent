@@ -89,10 +89,19 @@ export function hashIp(ip: string): string {
 function bucketContext(
   req: Request,
   identity: QuotaIdentity,
-): { signedIn: boolean; ipHash: string; scope: "anon" | "user" } {
+): { signedIn: boolean; ipHash: string; scope: "anon" | "user"; identifiable: boolean } {
   const signedIn = Boolean(identity.viewerId);
-  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
-  return { signedIn, ipHash, scope: signedIn ? "user" : "anon" };
+  if (signedIn) {
+    return { signedIn, ipHash: hashKey(`u:${identity.viewerId}`), scope: "user", identifiable: true };
+  }
+  // An anonymous caller whose client IP can't be resolved (clientIp -> "unknown": no x-real-ip /
+  // x-forwarded-for, e.g. a mis-set reverse proxy or direct origin) would otherwise hash into ONE
+  // shared bucket with every other unidentifiable visitor. The per-minute burst limiter treats that
+  // shared fallback as fail-CLOSED (correct for a short window), but for this 7-day low-N quota the
+  // same shared bucket would lock the ENTIRE public funnel for a week after N scans. Flag it so the
+  // weekly gate fails OPEN instead of charging a collective bucket (the burst limiter stays the backstop).
+  const ip = clientIp(req);
+  return { signedIn, ipHash: hashIp(ip), scope: "anon", identifiable: ip !== "unknown" };
 }
 
 /** Parse the stored JSON number[] of hit timestamps, tolerating null/garbage as an empty window. */
@@ -192,9 +201,11 @@ export async function consumePublicScanQuota(
   req: Request,
   identity: QuotaIdentity = {},
 ): Promise<QuotaResult> {
-  const { signedIn, ipHash } = bucketContext(req, identity);
+  const { signedIn, ipHash, identifiable } = bucketContext(req, identity);
   const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
-  if (!isDbConfigured() || publicScanQuotaDisabled()) {
+  // Fail OPEN when the gate isn't active OR the anonymous caller has no resolvable IP (see bucketContext):
+  // charging a shared "unknown" bucket would lock the whole public funnel on a benign proxy misconfig.
+  if (!isDbConfigured() || publicScanQuotaDisabled() || !identifiable) {
     return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
 
@@ -265,9 +276,11 @@ export interface QuotaPeek {
  * unconfigured / disabled / errors, exactly like consume.
  */
 export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<QuotaPeek> {
-  const { signedIn, ipHash, scope } = bucketContext(req, identity);
+  const { signedIn, ipHash, scope, identifiable } = bucketContext(req, identity);
   const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
-  if (!isDbConfigured() || publicScanQuotaDisabled()) {
+  // Fail open (report the full allowance) when the gate is inactive OR the anonymous caller has no
+  // resolvable IP — consume fails open for the same caller, so the meter must match (see bucketContext).
+  if (!isDbConfigured() || publicScanQuotaDisabled() || !identifiable) {
     return { enforced: false, remaining: limit, limit, resetAt: null, scope };
   }
   const now = Date.now();
@@ -328,7 +341,10 @@ export async function refundPublicScanQuota(
   chargedAt?: number | null,
 ): Promise<void> {
   if (!isDbConfigured() || publicScanQuotaDisabled()) return;
-  const { ipHash } = bucketContext(req, identity);
+  const { ipHash, identifiable } = bucketContext(req, identity);
+  // An unidentifiable anonymous caller failed OPEN at consume time (no slot was charged), so there is
+  // nothing to refund — and operating on the shared "unknown" bucket could peel a slot off another path.
+  if (!identifiable) return;
   try {
     await withDb((db) =>
       withRetry(
