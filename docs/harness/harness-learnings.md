@@ -1289,3 +1289,58 @@ This completes ALL eight medium waves (A–H).
   is retry-idempotent via a synthesized per-invocation externalId; scan persistence skips degraded-mock/
   low-coverage; headSha is the COMMIT sha; recommendation PATCH is optimistic-locked (409 on conflict);
   reduced-motion must gate non-transform animations explicitly; DB_CONNECTION_LIMIT is an env knob.
+
+## Code Refactor Pipeline B — duplication consolidation (2026-06-29, all 24 waves; branch `vibeman/code-refactor-2026-06-29`)
+
+### Structural facts — shared helpers ADDED this run (reuse, don't recreate)
+- **2026-06-29** — `requireCronAuth` (`lib/cron-auth.ts`), `requireOrgOwnerPost` (`lib/api/orgPost.ts`),
+  `requireSameOrigin` (`lib/auth.ts`), `requirePrWriteContext`/`mapPrWriteError`/`parseOrgRepo`
+  (`lib/github/pr-route.ts` + `playbook-gate.ts`), `ghFetch`/`ghGetJson`/`encodePathSegments`
+  (`lib/github/host.ts`), `resolveScopedRepo` (`db/scans-read.ts`), `signed-share.ts` HMAC codec,
+  `pdf/theme.tsx`, `finalizeAssessment`/`parseAssessment` (`lib/llm/provider.ts`) + `llmTemperature()`
+  (`lib/llm/config.ts`), `shortDate`/`shortDateSafe` (`components/ui/format.ts`), `GroupedMean`/`dateRange`
+  (`db/org-shared.ts`), `bumpCounter` (`db/best-effort.ts`), `meanPerDayKey` (`maturity/forecast.ts`),
+  `DeckSection` (`components/deck`), `levelBandRects`/`CHART_INK` (`components/report/chartScale.ts`),
+  `useSavingIds`/`StatusSelect` (`components/org/recStatusUi.tsx`), `SegmentComparisonView`,
+  `RepoScanNotice` (`components/EmptyState.tsx`), `summarizeScopedRollup`/`fastestPathNames`,
+  `IMPACT_RANK` (`lib/scoring/impact.ts`, re-exported as `IMPACT_WEIGHT`), `orgPlan.ts` route helpers,
+  `dimShort` + `scope.ts barProps`, `gatedReveal`/`RemotionDiagram` (about).
+- **2026-06-29** — `getOrgId` (`db/org-rollup.ts`) is now THE org-slug→id resolver — ~40 inline
+  `findUnique({where:{slug}})` copies were routed through it across the db layer. Leave only upsert/
+  create-if-missing, tx-scoped, and non-id-column reads (it returns `null` on missing).
+- **2026-06-29** — `db/index.ts` barrel pruned 252→175 re-exports (77 were direct-path-only). Prefer
+  direct `@/lib/db/<module>` imports.
+
+### Conventions enforced
+- **2026-06-29** — **Load-bearing guard order**: API route preambles run config-503 → session-401 →
+  tenant-403 → install-403 in a fixed order with distinct messages; the order is observable. Only fold a
+  guard into a shared helper when it's the FIRST check and byte-identical; else keep inline (this left
+  ~15/16 CSRF one-liners, most owner-POST routes, and the App-config/session/tenant heads inline).
+- **2026-06-29** — Multi-doc theme constants keep PER-DOC overrides (PDF `h1` 22 vs 24); hoist only
+  identical values. Diverged GitHub error taxonomies (`source.ts` vs `list.ts`) share the transport but
+  keep their own status→error mappings.
+
+### Environment gotchas
+- **2026-06-29** — Worktree `node_modules` junctioned from the main checkout INHERITS its WIP-installed
+  deps. `db/client.test.ts`'s "dsql-signer" test asserts `@aws-sdk/dsql-signer` is ABSENT (not in HEAD's
+  `package.json`); the junction physically contains it (master WIP) → that ONE test fails environmentally.
+  NOT a regression (passes on clean `npm ci`). Diagnose via `git log <base>..HEAD -- <file> package.json`
+  (untouched) + `grep dsql-signer package.json` (absent).
+
+### Open follow-ups (from the 2026-06-29 code_refactor run — 34/35 High closed, ~2 dozen Med/Low deferred)
+- **design-system #2 (High, DEFERRED)**: canonical `ui/Stat` can't absorb its 5 inline copies without a
+  label-style prop (copies use `text-sm tracking-widest`, value-first order, pill `<span>`, count-up).
+  Extend `Stat`'s API, then adopt.
+- **Deferred-with-reason Med/Low** (all noted in `code-refactor-2026-06-29/FIXES-LOG.md`): CSRF one-liner
+  15/16 (order-sensitive), connect AbortController ×3, posture rows/`postureLabel`/progress bars (visual
+  divergence), `definitionOfDone`+CI_SETUP (golden-pinned), error/not-found→EmptyState (markup diverges),
+  live/share `Notice`, NextLevel callout, `EFFORT_RANK` (inverted), landing "prototypes" rename
+  (high-churn), `removeNewestHit`/`DimensionSignals.notes` (runtime branches), `engine.ts` 475-line split,
+  apply-batch worker error strings, github error-class merge.
+- **Context-map drift (run `refresh_context`)**: `landing/ScanGallery.tsx`, `landing/prototypes/index/
+  EditorialSteps.tsx`, `report/RoadmapPanel.tsx` (→`roadmapPieces.tsx`), `report/ReportTabBar.tsx` +
+  `report/ReportSkeleton.tsx` (→`SideNav`) no longer exist.
+- **4 deliberate behavior changes shipped (drift fixes, flagged in FIXES-LOG)**: AI-tool detection
+  broadened to the union vocab; PR gate-comment footer gains the D9 floor + protected-branch condition;
+  `playbooks/apply` maps a base-file collision 409→409 (was 502); initiatives `targetDate` now rejects
+  invalid dates (was silently coerced to null).

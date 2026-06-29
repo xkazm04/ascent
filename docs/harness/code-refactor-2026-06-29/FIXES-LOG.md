@@ -228,6 +228,69 @@ Nothing skipped — every targeted item proved dead. Out of scope (runtime branc
 
 ---
 
+## Wave 20 — Members / connect / onboarding (Medium)
+
+**4 commits · gate: tsc 0 · vitest 2646 pass + 1 env.** `233eaf2` `requireSameOrigin(request)` guard in `auth.ts` (folded only 1/16 sites — order-sensitivity: 12 follow an `isDbConfigured` check, 3 return a different 403; helper now exists for future first-check sites). `8f07220` members last-owner guard + user-by-login/noreply factored. `b6ddbf9` connect watch-patch aliases collapsed + shared `WatchCostTail` (connect↔onboarding). `687c491` `importScan` framing → `readSSE` (closing the Wave-6 loose end). **Left:** connect AbortController ×3 (eslint/behavior drift risk).
+
+## Wave 21 — App-shell + AI-standard (Medium/Low)
+
+**4 commits · gate: tsc 0 · vitest 2646 pass + 1 env.** `fc3b306` rubric counts + tagline single-sourced in `site.ts` (verified model = 5 levels/9 dims, no rendered change). `185dc90` OG routes → shared `BRAND_*` palette. `57b68c2` dead `.reveal-pre` CSS removed + demo-slug const. `7efcd88` `langDeliverable`←CONTROL. **Left:** error/not-found→EmptyState (markup diverges), `definitionOfDone` (curated text), CI_SETUP/ciWorkflow (golden-pinned).
+
+## Wave 22 — Report charts + marketing (Medium/Low)
+
+**2 commits · gate: tsc 0 · vitest 2646 pass + 1 env.** `4a2ada0` `levelBandRects(y)` shared by TrendChart+DimLine (geometry was byte-identical — no drift) + `CHART_INK` palette across 6 charts. `6fea7be` `RemotionDiagram` wrapper + shared `W/H/FPS/DURATION`, `gatedReveal()` reduced-motion helper, dropped in-file-only `hexToRgb`/`AboutFeatureData` exports. **Left:** per-chart gridlines (different chrome), semantic-state colors, FleetGrid/RoiSimulator motion (different shape).
+
+## Wave 23 — Billing + usage + maturity (Medium)
+
+**7 commits · gate: tsc 0 · vitest 2646 pass + 1 env.** `7c59213` `normalizePlan` + capability gates derived from `PLAN_FEATURES` (data-driven flags; gate decisions identical). `a414d18` `CreditsControl` type-only `CreditPack`. `d6a061d` `envBool` for the credit-grants flag. `a892d50` badge `readableOn` → canonical `ui.ts` WCAG primitives (heatCell left — genuinely different pick). `7fc3130` single-sourced provider labels. `d042c07` shared best-effort `bumpCounter` (badge-analytics + quota-events). `2711ddc` memoized detector search-blob. **No entitlement/score/label change** (verified).
+
+## Wave 24 — Final Medium mop-up (Medium)
+
+**6 commits · gate: tsc 0 · vitest 2646 pass + 1 env.** `05e040e` recommendation double-read → single `findUnique` w/ org-chain include. `f4a5ce0` shared `summarizeScopedRollup` (segments+tech-stacks). `71e58d6` shared `RepoScanNotice` (trends+compare). `f9d9e81` shared `meanPerDayKey` (forecast+plan). `4640146` shared `fastestPathNames`. `660712b` single `IMPACT_RANK` (`org-shared` re-exports as `IMPACT_WEIGHT`). **Left:** live/share token-page Notices (different chrome), NextLevel callout wrappers (different styling), `EFFORT_RANK` (inverted between roadmap/tracks).
+
+---
+
+## Cumulative status (Waves 1–24)
+
+**66 atomic fix commits + 18 doc commits across 24 themed waves on `vibeman/code-refactor-2026-06-29` (off HEAD `c8e04c3`, unmerged).**
+Gate held every wave: **tsc 0 errors**, **vitest 2630 → 2646 passing** (+16 new tests), **0 refactor regressions**. The lone failure (`client.test.ts` dsql-signer) is environmental — junctioned `node_modules` contains a dep HEAD's `package.json` doesn't declare; passes on a clean `npm ci`.
+
+| Wave | Theme | Commits |
+|---|---|--:|
+| 1 | Cron auth + CSRF guard | 2 |
+| 2–3 | `getOrgId` adoption (~40 sites) | 4 |
+| 4 | `recordOrgAudit` adoption | 3 |
+| 5 | PDF theme + share-token codec | 2 |
+| 6 | SSE parser consolidation | 2 |
+| 7 | GitHub I/O layer | 3 |
+| 8 | Scoring single-source | 3 |
+| 9 | PR-write preamble | 2 |
+| 10 | Owner-POST preamble | 1 |
+| 11 | Goals/initiatives CRUD preamble | 1 |
+| 12 | Scan-read tenant scope | 3 |
+| 13 | DeltaTag (Stat deferred) | 1 |
+| 14 | StatusSelect + comparison view | 2 |
+| 15 | DeckSection | 1 |
+| 16 | Dead code (77 barrel re-exports) | 4 |
+| 17 | LLM epilogue + short-date | 2 |
+| 18 | Org-dashboard adoptions | 3 |
+| 19 | Fleet rollup + alerts helpers | 4 |
+| 20 | Members/connect/onboarding | 4 |
+| 21 | App-shell + AI-standard | 4 |
+| 22 | Charts + marketing | 2 |
+| 23 | Billing + usage + maturity | 7 |
+| 24 | Final Medium mop-up | 6 |
+
+**Findings:** all 35 High addressed (**34 closed**, 1 deferred = design-system #2 `Stat`, needs a label-style prop). The large majority of the 98 Mediums + 70 Lows closed via shared-helper/primitive extraction; **~2 dozen Med/Low deferred-with-documented-reason** (behavior/visual-divergent, golden-pinned, order-sensitive, or genuinely-distinct — each noted in its wave above).
+
+### Deliberate behavior changes (4 — all drift fixes, flagged)
+1. **W8/G2** — AI-tool detection broadens to the union vocabulary (no narrowing).
+2. **W8/G3** — PR-comment gate footer now includes the D9 security floor + `protected branch` the gate already enforces.
+3. **W9/A4** — `playbooks/apply` maps a base-file collision 409→409 (was 502; its test pinned that as a bug to flip).
+4. **W11/A6** — initiatives POST/PATCH now reject an invalid `targetDate` (a `DateTime?` column; was silently coerced to null).
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
