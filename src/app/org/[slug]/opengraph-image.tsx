@@ -4,7 +4,7 @@ import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { LEVEL_HEX, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
-import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE, FallbackOgCard } from "@/lib/og/og-brand";
+import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE, FallbackOgCard, BRAND_ACCENT, BRAND_WHITE, BRAND_MUTED } from "@/lib/og/og-brand";
 import { DIMENSION_COUNT, LEVEL_COUNT } from "@/lib/site";
 
 // SHELL-2: fleet social card for the org dashboard. Mirrors the per-repo report OG. Real numbers are
@@ -37,7 +37,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
 
   if (rollup && rollup.repoCount > 0) {
     const levelId = levelForScore(rollup.avgOverall).id as LevelId;
-    const accent = LEVEL_HEX[levelId] ?? "#3b9eff";
+    const accent = LEVEL_HEX[levelId] ?? BRAND_ACCENT;
     const maxPosture = Math.max(1, ...POSTURES.map((p) => rollup.postureCounts[p.id] ?? 0));
     return new ImageResponse(
       (
@@ -59,11 +59,11 @@ export default async function Image({ params }: { params: Promise<{ slug: string
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
-              <div style={{ display: "flex", fontSize: 26, letterSpacing: 4, textTransform: "uppercase", color: "#3b9eff", fontFamily: "monospace" }}>
+              <div style={{ display: "flex", fontSize: 26, letterSpacing: 4, textTransform: "uppercase", color: BRAND_ACCENT, fontFamily: "monospace" }}>
                 Fleet maturity
               </div>
-              <div style={{ display: "flex", fontSize: 60, fontWeight: 700, lineHeight: 1.05, color: "#ffffff" }}>{slug}</div>
-              <div style={{ display: "flex", fontSize: 26, color: "#94a3b8" }}>
+              <div style={{ display: "flex", fontSize: 60, fontWeight: 700, lineHeight: 1.05, color: BRAND_WHITE }}>{slug}</div>
+              <div style={{ display: "flex", fontSize: 26, color: BRAND_MUTED }}>
                 Adoption {rollup.avgAdoption} · Rigor {rollup.avgRigor} — {rollup.scannedCount}/{rollup.repoCount} repos scanned.
               </div>
             </div>
@@ -75,9 +75,9 @@ export default async function Image({ params }: { params: Promise<{ slug: string
               const n = rollup.postureCounts[p.id] ?? 0;
               return (
                 <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 16, fontFamily: "monospace", fontSize: 22 }}>
-                  <span style={{ display: "flex", width: 290, color: "#94a3b8" }}>{p.label}</span>
+                  <span style={{ display: "flex", width: 290, color: BRAND_MUTED }}>{p.label}</span>
                   <div style={{ display: "flex", width: 560, height: 14, borderRadius: 7, background: "#1e293b" }}>
-                    <div style={{ display: "flex", width: (n / maxPosture) * 560, height: 14, borderRadius: 7, background: "#3b9eff" }} />
+                    <div style={{ display: "flex", width: (n / maxPosture) * 560, height: 14, borderRadius: 7, background: BRAND_ACCENT }} />
                   </div>
                   <span style={{ display: "flex", color: "#cbd5e1" }}>{n}</span>
                 </div>
