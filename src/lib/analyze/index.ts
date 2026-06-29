@@ -13,6 +13,7 @@ import type {
   Signal,
 } from "@/lib/types";
 import { clamp } from "@/lib/maturity/model";
+import { AI_TOOL_ALT } from "./ai-tools";
 
 // ---------------------------------------------------------------------------
 // Analysis context — precomputed views over the snapshot for cheap querying.
@@ -462,8 +463,12 @@ const d6: Detector = (idx) => {
 // ---------------------------------------------------------------------------
 // D7 — Commit & Velocity Signals
 // ---------------------------------------------------------------------------
-const AI_TRAILER =
-  /co-authored-by:\s*(claude|copilot|cursor|devin|codex|gemini|aider|sourcery|github-actions)|generated with \[?claude code|🤖 generated with|noreply@anthropic/i;
+// Tool-name alternation sourced from the single AI vocabulary (ai-tools.ts) so commit, PR, and
+// passport attribution recognize the same set; the fixed phrases are commit-trailer specific.
+const AI_TRAILER = new RegExp(
+  `co-authored-by:\\s*(${AI_TOOL_ALT})|generated with \\[?claude code|🤖 generated with|noreply@anthropic`,
+  "i",
+);
 const CONVENTIONAL =
   /^(feat|fix|chore|docs|refactor|test|build|ci|perf|style|revert)(\(.+\))?!?:/i;
 

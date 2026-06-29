@@ -5,22 +5,19 @@
 
 import { fetchPullRequests, type PrNode } from "@/lib/github/graphql";
 import { clamp } from "@/lib/maturity/model";
+import { AI_TOOLS as AI_TOOL_VOCAB, AI_TOOL_ALT } from "./ai-tools";
 import type { DimensionSignals, Governance, PrStats } from "@/lib/types";
 
-// AI coding agents that open PRs as GitHub App bots (author.__typename === "Bot").
-const AI_AGENT = /(copilot|devin|cursor|codex|sweep|claude|aider)/i;
-// AI fingerprints in PR title / body / labels (human-authored but AI-assisted).
-const AI_MARKER =
-  /(co-authored-by:\s*(claude|copilot|cursor|devin|gemini|aider|codex)|generated with (claude|copilot|cursor|codex)|🤖|claude code|github copilot|made with cursor)/i;
-const AI_TOOLS: { name: string; re: RegExp }[] = [
-  { name: "Claude", re: /claude/i },
-  { name: "Copilot", re: /copilot/i },
-  { name: "Cursor", re: /cursor/i },
-  { name: "Devin", re: /devin/i },
-  { name: "Codex", re: /codex/i },
-  { name: "Gemini", re: /gemini/i },
-  { name: "Aider", re: /aider/i },
-];
+// AI coding agents that open PRs as GitHub App bots (author.__typename === "Bot"). Derived from the
+// single AI vocabulary (ai-tools.ts) so it can't drift from the commit/marker/counter detectors.
+const AI_AGENT = new RegExp(`(${AI_TOOL_ALT})`, "i");
+// AI fingerprints in PR title / body / labels (human-authored but AI-assisted). The tool-name
+// alternations come from the shared vocabulary; the fixed phrases below are PR-specific markers.
+const AI_MARKER = new RegExp(
+  `(co-authored-by:\\s*(${AI_TOOL_ALT})|generated with (${AI_TOOL_ALT})|🤖|claude code|github copilot|made with cursor)`,
+  "i",
+);
+const AI_TOOLS: { name: string; re: RegExp }[] = AI_TOOL_VOCAB.map((t) => ({ name: t.name, re: new RegExp(t.token, "i") }));
 
 function median(xs: number[]): number | null {
   // Drop any non-finite entries first: a single malformed timestamp upstream would otherwise
