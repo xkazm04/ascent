@@ -201,6 +201,19 @@ Nothing skipped — every targeted item proved dead. Out of scope (runtime branc
 
 ---
 
+## Wave 17 — LLM provider epilogue + short-date formatter (Theme J / last Highs)
+
+**2 commits · llm-provider #1 (H) + quotas #1 (H) closed · gate: tsc 0 · vitest 2646 pass + 1 env (+3).**
+
+| Commit | What |
+|---|---|
+| `32e347b` | `provider.ts`: `finalizeAssessment(text,usage,opts,label)` + `parseAssessment(text)`; `config.ts`: `llmTemperature()` (mirrors `llmTimeoutMs`). gemini/openai adopt finalize fully; claude-cli + bedrock use `parseAssessment`; all 3 real providers use `llmTemperature()`; `testBedrockConnection` reuses `withLlmTimeout`. Error msgs byte-identical via `label`. **Bedrock keeps its meter-always `onUsage` inline** (its test pins empty-path metering). Stale header comment + resolved BUG comment cleaned. |
+| `7dce88d` | `format.ts`: `shortDate`/`shortDateSafe`; `formatResetAt`/`QuotaStaleNotice`/TrendChart route through them (byte-identical, invalid→`""`). Left `chartHover.shortDateTime` + `ui.ts` relative-time (different options). |
+
+**All 35 High findings now addressed: 34 closed, 1 deferred (design-system #2 Stat — needs a `Stat` label-style prop).**
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
