@@ -51,7 +51,11 @@ export function RecommendationTracker({
   const total = items.length;
   const done = items.filter((i) => i.status === "done").length;
   const dismissed = items.filter((i) => i.status === "dismissed").length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
+  // Dismissed items are intentionally OUT of scope, so they must leave the denominator — otherwise
+  // dismissing N of M caps the progress ring below 100% forever (e.g. 4 dismissed of 10 → max 60%
+  // even after every actionable item is done). Base the percentage on the actionable set.
+  const actionable = total - dismissed;
+  const pct = actionable > 0 ? Math.round((done / actionable) * 100) : 100;
 
   function clearError(id: string) {
     setErrors((e) => {
