@@ -9,23 +9,21 @@
 // labels it as such. No-op / null when persistence is off, like the rest of src/lib/db.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { bumpCounter } from "@/lib/db/best-effort";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 
 /** Best-effort: bump the (repo, host) tally. Swallows every error — analytics must never break a badge. */
 export async function recordBadgeImpression(repoFullName: string, refererHost: string): Promise<void> {
-  if (!isDbConfigured()) return;
   const repo = repoFullName.toLowerCase().slice(0, 200);
   const host = (refererHost || "direct").toLowerCase().slice(0, 100);
   if (!repo.includes("/")) return;
-  try {
-    await getPrisma().badgeImpression.upsert({
+  await bumpCounter(() =>
+    getPrisma().badgeImpression.upsert({
       where: { repoFullName_refererHost: { repoFullName: repo, refererHost: host } },
       update: { count: { increment: 1 }, lastSeen: new Date() },
       create: { repoFullName: repo, refererHost: host, count: 1 },
-    });
-  } catch {
-    /* best-effort tally — never surface to the public badge path */
-  }
+    }),
+  );
 }
 
 export interface BadgeReach {
