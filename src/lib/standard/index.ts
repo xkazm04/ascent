@@ -11,7 +11,7 @@ import { buildMaintain } from "./maintain";
 import { buildMemorySeed } from "./memory";
 import { buildContextScaffold } from "./context";
 
-export { buildManifest, buildManifestData, serializeManifestYaml } from "./manifest";
+export { buildManifestData, serializeManifestYaml } from "./manifest";
 export { buildDoctor } from "./doctor";
 export { buildConformanceWiring } from "./wiring";
 export { buildMaintain } from "./maintain";

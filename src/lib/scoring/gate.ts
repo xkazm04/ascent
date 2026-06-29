@@ -7,7 +7,7 @@ import type { DimensionId, LevelId, Posture, RepoArchetype, ScanReport } from "@
 import { LEVELS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 
 /** The Security dimension + the default floor a security gate holds it to (`?security=1`). */
-export const SECURITY_DIM: DimensionId = "D9";
+const SECURITY_DIM: DimensionId = "D9";
 export const DEFAULT_SECURITY_MIN = 50;
 
 export interface GatePolicy {

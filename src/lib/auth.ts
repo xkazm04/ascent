@@ -471,7 +471,7 @@ export async function exchangeCodeForToken(code: string, origin: string): Promis
 
 /** Error carrying the GitHub HTTP status, so callers can tell transient (rate limit /
  *  outage) failures apart from permanent ones. */
-export class GitHubError extends Error {
+class GitHubError extends Error {
   constructor(
     readonly status: number,
     readonly path: string,
