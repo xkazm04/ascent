@@ -29,9 +29,20 @@ export async function GET(request: Request) {
   const denied = await requireOrgRead(orgSlug);
   if (denied) return denied;
 
-  const report = await getScanReportByCommit(parsed.owner, parsed.name, { headSha: parsed.sha, orgSlug }).catch(
-    () => null,
-  );
+  // Distinguish "no saved scan" (genuine 404) from "lookup FAILED" (transient infra, e.g. a DSQL IAM
+  // token expiry). The old `.catch(() => null)` collapsed both into null → a transient error was shown
+  // as 404 "Scan it first", telling the user to re-scan a repo that already HAS a report (wasting a
+  // scan) and masking real incidents. Let a successful-but-empty lookup 404; surface an error as 503.
+  let report;
+  try {
+    report = await getScanReportByCommit(parsed.owner, parsed.name, { headSha: parsed.sha, orgSlug });
+  } catch (err) {
+    console.error("[report/pdf] report lookup failed", err);
+    return NextResponse.json(
+      { error: "Couldn't load this report right now. Please try again in a moment." },
+      { status: 503 },
+    );
+  }
   if (!report) {
     return NextResponse.json(
       { error: "No saved scan for this repository yet. Scan it first, then export." },

@@ -149,10 +149,16 @@ describe("GET /api/report/pdf", () => {
     expect(mockRender).not.toHaveBeenCalled();
   });
 
-  it("404 (not 500) when the fetch rejects — the route swallows the DB error", async () => {
+  it("503 (NOT a misleading 404) when the report lookup REJECTS — a transient DB error is not 'no scan'", async () => {
+    // The route used to `.catch(() => null)`, collapsing a DSQL token expiry into the same 404 as a
+    // genuinely-unscanned repo — telling the user to re-scan a repo that already has a report. A
+    // rejected lookup is now surfaced as a retryable 503; only a resolved-null is the 404 above.
     mockGetReport.mockRejectedValue(new Error("db exploded"));
     const res = await get("acme/private-repo");
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toMatch(/try again/i);
+    expect(mockRender).not.toHaveBeenCalled();
   });
 
   it("500 with a clean message (no raw stack) when the PDF render throws", async () => {
