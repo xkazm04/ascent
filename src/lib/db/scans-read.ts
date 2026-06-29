@@ -18,6 +18,7 @@ import type {
   RepoArchetype,
   ScanReport,
 } from "@/lib/types";
+import { Prisma } from "@prisma/client";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getDbMode, type DbMode } from "@/lib/db/mode";
 import { isDimensionId, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
@@ -154,8 +155,7 @@ export async function getRepoPassport(
     );
     if (!repo) return null;
     const scan = await prisma.scan.findFirst({
-      where: { repoId: repo.id, ...(opts.headSha ? { headSha: opts.headSha } : {}) },
-      orderBy: { scannedAt: "desc" },
+      ...latestScanArgs(repo.id, opts.headSha),
       select: { passportJson: true },
     });
     const pp = parsePassportJson(scan?.passportJson);
@@ -200,6 +200,24 @@ const HISTORY_POINT_SELECT = {
   engineModel: true,
   scannedAt: true,
 } as const;
+
+/** The per-dimension columns the trend/score readers project (dimId + score). Co-located with
+ *  HISTORY_POINT_SELECT so the dimension sub-select stays single-sourced across the read queries that
+ *  chart by dimension (history, comparison list, public gallery, latest recommendations). */
+const DIM_SCORE_SELECT = { dimId: true, score: true } as const;
+
+/** WHERE + ORDER for "the latest scan of a repo, optionally pinned to an exact commit": newest first,
+ *  narrowed to `headSha` when one is given. Shared by the snapshot readers (passport, pinned report),
+ *  each of which adds its own select/include. Single-sources the "latest" ordering + optional pin. */
+function latestScanArgs(
+  repoId: string,
+  headSha?: string,
+): { where: Prisma.ScanWhereInput; orderBy: Prisma.ScanOrderByWithRelationInput } {
+  return {
+    where: { repoId, ...(headSha ? { headSha } : {}) },
+    orderBy: { scannedAt: "desc" },
+  };
+}
 
 /** Map a selected Scan row (with optional `dimensions`) to the wire `HistoryPoint`. */
 function historyPointFrom(s: {
@@ -271,7 +289,7 @@ export async function getRepositoryHistory(
     ? (
         await prisma.scan.findMany({
           ...args,
-          select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
+          select: { ...HISTORY_POINT_SELECT, dimensions: { select: DIM_SCORE_SELECT } },
         })
       ).map(historyPointFrom)
     : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map(historyPointFrom);
@@ -423,7 +441,7 @@ export async function getScanComparison(
     where: { repoId: repo.id },
     orderBy: { scannedAt: "desc" },
     take: limit,
-    select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
+    select: { ...HISTORY_POINT_SELECT, dimensions: { select: DIM_SCORE_SELECT } },
   });
 
   const scans: HistoryPoint[] = list.map(historyPointFrom);
@@ -524,7 +542,7 @@ export async function getPublicScanGallery(
           rigorScore: true,
           posture: true,
           scannedAt: true,
-          dimensions: { select: { dimId: true, score: true } },
+          dimensions: { select: DIM_SCORE_SELECT },
         },
       },
     },
@@ -591,7 +609,7 @@ export async function getLatestRecommendations(
       // Dimension scores + archetype feed projectedGain — engine-true "+N pts · unlocks LX" per
       // item, mirroring the live report's PayoffChip on the persisted read path.
       archetype: true,
-      dimensions: { select: { dimId: true, score: true } },
+      dimensions: { select: DIM_SCORE_SELECT },
       recommendations: {
         orderBy: { createdAt: "asc" },
         select: {
@@ -703,8 +721,7 @@ export async function getScanReportByCommit(
   if (!repo) return null;
 
   const scan = await prisma.scan.findFirst({
-    where: { repoId: repo.id, ...(headSha ? { headSha } : {}) },
-    orderBy: { scannedAt: "desc" },
+    ...latestScanArgs(repo.id, headSha),
     include: { dimensions: true, recommendations: { orderBy: { createdAt: "asc" } } },
   });
   if (!scan) return null;
