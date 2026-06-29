@@ -59,6 +59,17 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 5 — PDF theme module + share-token codec (Themes C + D)
+
+**2 commits · 2 High (PDF triplication, share-token dup) closed · gate: tsc 0 · vitest 2638/2638.**
+
+| Commit | What |
+|---|---|
+| `8881130` | New `src/lib/pdf/theme.tsx` (palette, `scoreColor`, `baseStyles`, `Stat`, `Footer`); adopted in all 3 `pdf/*-document.tsx`. Values diffed first — **per-doc overrides kept** (report-document `h1` 22 vs 24, `rule` margin 16 vs 14). Byte-identical render. |
+| `30d84b2` | New `src/lib/signed-share.ts` (`signShareToken`/`verifyShareToken`/`resolveShareSecret`); adopted in `briefing-share.ts` + `live-share.ts`. **Token format unchanged** — each keeps its own secret env var + TTL + payload shape, so issued tokens still verify; timing-safe compare preserved. |
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -66,3 +77,5 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 3. **Inline entity-resolver copies vs a canonical resolver.** ~35 inline `findUnique({where:{slug}})→id` lookups duplicated a canonical `getOrgId`. Before adopting, verify the canonical's exact semantics (normalization, missing-value contract, db-guard) match each site, and lean on the upstream invariant (slugs stored/queried lowercased) so normalization is a no-op.
 4. **Test mocks that don't mirror production normalization.** A fakePrisma resolved slugs case-sensitively while prod stores lowercase + normalizes on lookup; adopting the normalizing resolver exposed the mock's wrong assumption. Fix the mock to mirror prod, not the code.
 5. **"Adopt the canonical resolver" has boundary cases.** When mass-adopting a resolver, leave the sites it can't serve: upsert/create-if-missing (resolver returns null on missing), transaction-scoped client reads, and reads that need columns beyond the resolved id. Adopt only the pure id-read sites; deduping the rest would change behavior.
+6. **Multi-doc theme extraction with per-doc overrides.** Don't flatten when hoisting shared style/theme constants across N documents — diff all N first, hoist only identical values, keep per-doc overrides where they differ. Flattening silently changes output (no snapshot test will catch a PDF).
+7. **Shared crypto codec, per-caller parameters.** Deduping HMAC sign/verify across share flows: parameterize the legitimately-different bits (secret env var, TTL) and keep each caller building its own payload, so JSON key order → token bytes stay identical and already-issued tokens still verify.
