@@ -7,6 +7,7 @@
 // seeding them as `owner`) and the owner-gated member admin endpoint. The resolver getMembershipRole is
 // read by src/lib/authz.ts (requireOrgRole). A future invite/SSO flow populates members/viewers.
 
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 
@@ -35,6 +36,46 @@ function normalizeLogin(login: string): string {
   return login.trim().toLowerCase();
 }
 
+/** Synthetic, unique email for a GitHub-OAuth/App user (the identity carries no real email) — satisfies
+ *  User.email's required-unique column. Single-sourced so the noreply domain can't drift between the
+ *  two writers that mint it. */
+function noreplyEmail(gh: string): string {
+  return `${gh}@users.noreply.github.com`;
+}
+
+/**
+ * Resolve (creating if absent) the User row id for an already-normalized GitHub login — the
+ * GitHub-login→User bridge the role writers share. Stamps the synthetic noreply email on create;
+ * updates the display name only when one is supplied (the lazy owner-seed passes it, the role write
+ * doesn't). `name` defaults to null on create, matching the nullable, default-less User.name column.
+ */
+async function ensureUserId(prisma: PrismaClient, gh: string, name?: string | null): Promise<string> {
+  const user = await prisma.user.upsert({
+    where: { githubLogin: gh },
+    update: name ? { name } : {},
+    create: { githubLogin: gh, email: noreplyEmail(gh), name: name ?? null },
+    select: { id: true },
+  });
+  return user.id;
+}
+
+/** The User row id for an already-normalized GitHub login, or null when no row exists (read-only). */
+async function findUserId(prisma: PrismaClient, gh: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
+  return user?.id ?? null;
+}
+
+/**
+ * Inside a membership transaction: is `orgId` down to a single owner, so demoting/removing one would
+ * orphan its admin surface? Re-read on the SAME `tx` object as the write so the last-owner guard sees a
+ * consistent snapshot (TOCTOU-safe) — the single safety-critical invariant shared by setMembershipRole
+ * and removeMembership.
+ */
+async function isLastOwner(tx: Prisma.TransactionClient, orgId: string): Promise<boolean> {
+  const owners = await tx.membership.count({ where: { orgId, role: "owner" } });
+  return owners <= 1;
+}
+
 /**
  * Does `orgSlug` already have at least one owner? Used by the Supabase-login-wall role gate to decide
  * trust-on-first-use: an org with no owner yet may be claimed by the first viewer who manages it, but
@@ -54,12 +95,12 @@ export async function getMembershipRole(orgSlug: string, login: string): Promise
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
   if (!gh) return null;
-  const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
-  if (!user) return null;
+  const userId = await findUserId(prisma, gh);
+  if (!userId) return null;
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const m = await prisma.membership.findUnique({
-    where: { orgId_userId: { orgId, userId: user.id } },
+    where: { orgId_userId: { orgId, userId } },
     select: { role: true },
   });
   if (!m) return null;
@@ -77,12 +118,7 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
   if (!gh || orgSlug === "public") return;
-  const user = await prisma.user.upsert({
-    where: { githubLogin: gh },
-    update: name ? { name } : {},
-    create: { githubLogin: gh, email: `${gh}@users.noreply.github.com`, name: name ?? null },
-    select: { id: true },
-  });
+  const userId = await ensureUserId(prisma, gh, name);
   const org = await prisma.organization.upsert({
     where: { slug: orgSlug },
     update: {},
@@ -90,9 +126,9 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
     select: { id: true },
   });
   await prisma.membership.upsert({
-    where: { orgId_userId: { orgId: org.id, userId: user.id } },
+    where: { orgId_userId: { orgId: org.id, userId } },
     update: {},
-    create: { orgId: org.id, userId: user.id, role: "owner" },
+    create: { orgId: org.id, userId, role: "owner" },
   });
 }
 
@@ -109,32 +145,24 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
   if (!gh) return "error";
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return "error";
-  const user = await prisma.user.upsert({
-    where: { githubLogin: gh },
-    update: {},
-    create: { githubLogin: gh, email: `${gh}@users.noreply.github.com` },
-    select: { id: true },
-  });
+  const userId = await ensureUserId(prisma, gh);
   // Last-owner guard + the role write run in ONE transaction so two concurrent owner-gated requests
   // can't each read "2 owners > 1", both proceed, and orphan the org with zero owners (a TOCTOU the
-  // separate read-then-write left open). On Aurora DSQL (serializable) the loser aborts; the count is
-  // re-read inside the tx so the guard sees a consistent snapshot.
+  // separate read-then-write left open). On Aurora DSQL (serializable) the loser aborts; isLastOwner
+  // re-reads the count inside the tx so the guard sees a consistent snapshot.
   try {
     return await prisma.$transaction(async (tx) => {
       if (role !== "owner") {
         const existing = await tx.membership.findUnique({
-          where: { orgId_userId: { orgId, userId: user.id } },
+          where: { orgId_userId: { orgId, userId } },
           select: { role: true },
         });
-        if (existing?.role === "owner") {
-          const owners = await tx.membership.count({ where: { orgId, role: "owner" } });
-          if (owners <= 1) return "last_owner" as const;
-        }
+        if (existing?.role === "owner" && (await isLastOwner(tx, orgId))) return "last_owner" as const;
       }
       await tx.membership.upsert({
-        where: { orgId_userId: { orgId, userId: user.id } },
+        where: { orgId_userId: { orgId, userId } },
         update: { role },
-        create: { orgId, userId: user.id, role },
+        create: { orgId, userId, role },
       });
       return "ok" as const;
     });
@@ -153,22 +181,19 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
   const gh = normalizeLogin(login);
   const orgId = await getOrgId(orgSlug);
   if (!gh || !orgId) return "not_found";
-  const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
-  if (!user) return "not_found";
+  const userId = await findUserId(prisma, gh);
+  if (!userId) return "not_found";
   // Last-owner guard + delete run in ONE transaction (see setMembershipRole) so two concurrent
   // removals can't both pass the "owners > 1" check and leave the org with no owner.
   try {
     return await prisma.$transaction(async (tx) => {
       const m = await tx.membership.findUnique({
-        where: { orgId_userId: { orgId, userId: user.id } },
+        where: { orgId_userId: { orgId, userId } },
         select: { role: true },
       });
       if (!m) return "not_found" as const;
-      if (m.role === "owner") {
-        const owners = await tx.membership.count({ where: { orgId, role: "owner" } });
-        if (owners <= 1) return "last_owner" as const;
-      }
-      await tx.membership.delete({ where: { orgId_userId: { orgId, userId: user.id } } });
+      if (m.role === "owner" && (await isLastOwner(tx, orgId))) return "last_owner" as const;
+      await tx.membership.delete({ where: { orgId_userId: { orgId, userId } } });
       return "ok" as const;
     });
   } catch {
