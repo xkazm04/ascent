@@ -5,7 +5,7 @@
 // (techGroupsFor, src/lib/org/tech-stack.ts) so the badge a user sees and the group they filter match.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getOrgRollup } from "@/lib/db/org-rollup";
+import { getOrgId, getOrgRollup } from "@/lib/db/org-rollup";
 import { buildSegmentComparison, type SegmentComparison, type SegmentSummary } from "@/lib/db/segments";
 import { techGroupsFor } from "@/lib/org/tech-stack";
 import { postureFor } from "@/lib/maturity/model";
@@ -65,10 +65,10 @@ export async function syncTechStackGroups(
 export async function getTechGroupIdByKey(orgSlug: string, key: string | null | undefined): Promise<string | null> {
   if (!isDbConfigured() || !key) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
   const g = await prisma.techStackGroup.findUnique({
-    where: { orgId_key: { orgId: org.id, key } },
+    where: { orgId_key: { orgId, key } },
     select: { id: true },
   });
   return g?.id ?? null;
@@ -90,10 +90,10 @@ function groupSortRank(key: string): number {
 export async function listTechStackGroups(orgSlug: string): Promise<TechGroupSummary[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
   const groups = await prisma.techStackGroup.findMany({
-    where: { orgId: org.id },
+    where: { orgId },
     include: { _count: { select: { members: true } } },
   });
   return groups

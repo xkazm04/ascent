@@ -5,6 +5,7 @@
 // GitHub App lands; until then everything is under the "public" org.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { priceForModel } from "@/lib/llm/config";
 
 export interface ProviderUsage {
@@ -89,8 +90,8 @@ export async function getUsageSummary(
     lastScanAt: null,
   };
 
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return empty;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return empty;
 
   // Anchor the window to UTC calendar days. `since` is the START of the oldest day shown on the
   // chart, derived from the SAME UTC-day floor the axis uses (emptyDailySeries) — so every counted
@@ -99,7 +100,7 @@ export async function getUsageSummary(
   // fell into the idx-miss gap and were silently dropped (under-reporting billable volume).
   const todayUtcMs = utcDayStart(Date.now());
   const since = new Date(todayUtcMs - (periodDays - 1) * 86_400_000);
-  const where = { repo: { orgId: org.id } };
+  const where = { repo: { orgId } };
   // The private/public split and provider mix are shown beside the "Last Nd" window, so they
   // must be scoped to the same window as periodScans — otherwise the billable figure reported
   // for a selected period would actually be the org's all-time private-scan total.
@@ -109,14 +110,14 @@ export async function getUsageSummary(
     await Promise.all([
       prisma.scan.count({ where }),
       prisma.scan.count({ where: periodWhere }),
-      prisma.scan.count({ where: { ...periodWhere, repo: { orgId: org.id, isPrivate: true } } }),
-      prisma.scan.count({ where: { ...periodWhere, repo: { orgId: org.id, isPrivate: false } } }),
-      prisma.repository.count({ where: { orgId: org.id, scans: { some: {} } } }),
+      prisma.scan.count({ where: { ...periodWhere, repo: { orgId, isPrivate: true } } }),
+      prisma.scan.count({ where: { ...periodWhere, repo: { orgId, isPrivate: false } } }),
+      prisma.repository.count({ where: { orgId, scans: { some: {} } } }),
       prisma.scan.groupBy({ by: ["engineProvider"], where: periodWhere, _count: true }),
       prisma.scan.aggregate({ where, _min: { scannedAt: true }, _max: { scannedAt: true } }),
       // Per-day series, aggregated in SQL (one row per UTC-day × visibility) instead of streaming
       // every period scan row back to bucket in JS — see fetchDailySeries.
-      fetchDailySeries(prisma, org.id, since, periodDays, todayUtcMs),
+      fetchDailySeries(prisma, orgId, since, periodDays, todayUtcMs),
       // Token totals (cost basis) grouped PER MODEL — one aggregate, no row streaming. The split
       // matters because failover legitimately mixes models in one window (Gemini Flash cents/MTok
       // beside Claude Sonnet dollars/MTok); a single global rate can't price that correctly. byRepo
@@ -129,7 +130,7 @@ export async function getUsageSummary(
       }),
       prisma.scan.groupBy({
         by: ["repoId"],
-        where: { ...periodWhere, repo: { orgId: org.id, isPrivate: true } },
+        where: { ...periodWhere, repo: { orgId, isPrivate: true } },
         _count: true,
         _sum: { inputTokens: true, outputTokens: true },
         orderBy: { _count: { repoId: "desc" } },

@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockGetPrisma, mockGetOrgRollup } = vi.hoisted(() => ({ mockGetPrisma: vi.fn(), mockGetOrgRollup: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: () => true }));
-vi.mock("@/lib/db/org-rollup", () => ({ getOrgRollup: mockGetOrgRollup }));
+vi.mock("@/lib/db/org-rollup", () => ({ getOrgRollup: mockGetOrgRollup, getOrgId: vi.fn(async () => "org_1") }));
 
 import { compareTechStacks } from "@/lib/db/tech-groups";
 

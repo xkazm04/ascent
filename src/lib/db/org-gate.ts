@@ -7,6 +7,7 @@
 
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { sanitizeGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
 
 /** The org's configured gate policy, or null (unset / unknown org / DB-less / invalid → archetype default). */
@@ -23,11 +24,11 @@ export async function getOrgGatePolicy(orgSlug: string): Promise<GatePolicy | nu
 export async function setOrgGatePolicy(orgSlug: string, policy: GatePolicy | null): Promise<GatePolicy | null | undefined> {
   if (!isDbConfigured()) return undefined;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return undefined;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return undefined;
   const clean = policy ? sanitizeGatePolicy(policy) : null;
   await prisma.organization.update({
-    where: { id: org.id },
+    where: { id: orgId },
     // DbNull = SQL NULL (clear); otherwise store the sanitized policy object. (undefined would skip
     // the field entirely, so a "clear" must be an explicit DbNull.)
     data: { gatePolicy: clean === null ? Prisma.DbNull : (clean as Prisma.InputJsonValue) },

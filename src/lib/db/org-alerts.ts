@@ -6,6 +6,7 @@
 // DATABASE_URL like the rest of the db layer.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 /** The org's configured alert webhook URL, or null (unset / unknown org / DB-less). */
 export async function getOrgAlertWebhook(orgSlug: string): Promise<string | null> {
@@ -24,9 +25,9 @@ export async function getOrgAlertWebhook(orgSlug: string): Promise<string | null
 export async function setOrgAlertWebhook(orgSlug: string, url: string | null): Promise<string | null | undefined> {
   if (!isDbConfigured()) return undefined;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return undefined;
-  await prisma.organization.update({ where: { id: org.id }, data: { alertWebhookUrl: url } });
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return undefined;
+  await prisma.organization.update({ where: { id: orgId }, data: { alertWebhookUrl: url } });
   return url;
 }
 
@@ -53,10 +54,10 @@ export async function setOrgAlertThresholds(
 ): Promise<OrgAlertThresholds | undefined> {
   if (!isDbConfigured()) return undefined;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return undefined;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return undefined;
   await prisma.organization.update({
-    where: { id: org.id },
+    where: { id: orgId },
     data: { alertOverallDrop: t.overallDrop, alertDimensionDrop: t.dimensionDrop },
   });
   return t;

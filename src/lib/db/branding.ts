@@ -4,6 +4,7 @@
 // break PDF rendering. No-op / null when persistence is off, like the rest of src/lib/db.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { isSafePublicHttpsUrl } from "@/lib/net/ssrf";
 import { HEX_COLOR_RE } from "@/lib/branding/color";
 
@@ -40,11 +41,11 @@ function isSafeLogoUrl(raw: string): boolean {
 export async function setOrgBranding(orgSlug: string, input: OrgBranding): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return false;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
   const brandName = input.brandName?.trim().slice(0, 80) || null;
   const brandColor = input.brandColor && HEX_COLOR_RE.test(input.brandColor.trim()) ? input.brandColor.trim().toLowerCase() : null;
   const logoUrl = input.logoUrl && isSafeLogoUrl(input.logoUrl.trim()) ? input.logoUrl.trim().slice(0, 500) : null;
-  await prisma.organization.update({ where: { id: org.id }, data: { brandName, brandColor, logoUrl } });
+  await prisma.organization.update({ where: { id: orgId }, data: { brandName, brandColor, logoUrl } });
   return true;
 }
