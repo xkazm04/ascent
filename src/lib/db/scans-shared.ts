@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import { Prisma } from "@prisma/client";
 import { getPrisma, withRetry } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 /** The implicit tenant for anonymous/public scans — the shared org every DB-less-MVP scan lands in. */
 export const DEFAULT_ORG_SLUG = "public";
@@ -179,13 +180,15 @@ export function withRepoLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
  * exist. Repo lookups MUST go through this: `fullName` is only unique *within* an org
  * (`@@unique([orgId, fullName])`), so resolving by fullName alone (findFirst) can return
  * another tenant's repo and leak its scores/recommendations across org boundaries.
+ *
+ * Delegates to the canonical {@link getOrgId} (the single source of truth — it normalizes the slug
+ * and guards `isDbConfigured()`) instead of keeping a private copy of the lookup. Behavior is
+ * unchanged for the scan layer: the scan path always resolves with an already-lowercased slug
+ * (the route lowercases the owner; `DEFAULT_ORG_SLUG` is "public"), so the normalization is a no-op,
+ * and every caller already short-circuits on `isDbConfigured()` before reaching here.
  */
 export async function resolveOrgId(orgSlug: string): Promise<string | null> {
-  const org = await getPrisma().organization.findUnique({
-    where: { slug: orgSlug },
-    select: { id: true },
-  });
-  return org?.id ?? null;
+  return getOrgId(orgSlug);
 }
 
 /**

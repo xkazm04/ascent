@@ -7,6 +7,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { postureFor } from "@/lib/maturity/model";
 import { getOrgRollup } from "@/lib/db/org";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 const DEFAULT_COLOR = "#3b9eff";
 const NAME_MAX = 60;
@@ -31,15 +32,10 @@ export interface SegmentRow {
   createdAt: string;
 }
 
-async function resolveOrgId(slug: string): Promise<string | null> {
-  const org = await getPrisma().organization.findUnique({ where: { slug }, select: { id: true } });
-  return org?.id ?? null;
-}
-
 /** All segments for an org, with live tagged-repo counts, newest first. */
 export async function listSegments(orgSlug: string): Promise<SegmentRow[] | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const segments = await getPrisma().segment.findMany({
     where: { orgId },
@@ -114,7 +110,7 @@ export async function setRepoSegment(
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return false;
   const [segment, repo] = await Promise.all([
     prisma.segment.findFirst({ where: { id: segmentId, orgId }, select: { id: true } }),
@@ -150,7 +146,7 @@ export async function setRepoSegmentsBulk(
 ): Promise<number> {
   if (!isDbConfigured()) return -1;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return -1;
   const segment = await prisma.segment.findFirst({ where: { id: segmentId, orgId }, select: { id: true } });
   if (!segment) return -1;
@@ -177,7 +173,7 @@ export async function getRepoSegmentMap(
   orgSlug: string,
 ): Promise<Record<string, { id: string; name: string; color: string }[]>> {
   if (!isDbConfigured()) return {};
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return {};
   const rows = await getPrisma().repoSegment.findMany({
     where: { segment: { orgId } },
@@ -280,7 +276,7 @@ export async function compareSegments(
   bId: string | null,
 ): Promise<SegmentComparison | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const ids = bId ? [aId, bId] : [aId];
   const segments = await getPrisma().segment.findMany({

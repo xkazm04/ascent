@@ -6,6 +6,7 @@
 // Every function is a no-op / null when DATABASE_URL is unset, like the rest of src/lib/db.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
 import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims, type SimFix } from "@/lib/scoring/orgsim";
@@ -36,11 +37,6 @@ interface FleetSnapshot {
   avgRigor: number;
   dimAvg: Record<string, number>;
   repos: SnapshotRepo[];
-}
-
-async function resolveOrgId(slug: string): Promise<string | null> {
-  const org = await getPrisma().organization.findUnique({ where: { slug }, select: { id: true } });
-  return org?.id ?? null;
 }
 
 /** Build the latest-scan snapshot once; goals/initiatives/simulate all read from it. */
@@ -249,7 +245,7 @@ export async function createGoal(
 export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const [goals, snap] = await Promise.all([
     prisma.goal.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
@@ -416,7 +412,7 @@ export async function createInitiative(
 export async function listInitiatives(orgSlug: string): Promise<InitiativeRow[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const [rows, snap, goals, playbooks] = await Promise.all([
     prisma.initiative.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
@@ -491,7 +487,7 @@ export async function simulateOrgFixes(
 ): Promise<FleetProjection | null> {
   if (!isDbConfigured()) return null;
   if (fixes.length === 0) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const snap = await fleetSnapshot(orgId);
   if (snap.repos.length === 0) return null;
@@ -531,7 +527,7 @@ export async function goalImpactsForScenario(
   after: { avgOverall: number; avgAdoption: number; avgRigor: number },
 ): Promise<GoalImpact[] | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const AXIS = new Set(["overall", "adoption", "rigor"]);
   const goals = (await getPrisma().goal.findMany({ where: { orgId, status: "active" } })).filter((g) => AXIS.has(g.metric));
@@ -577,7 +573,7 @@ export async function rankOrgInvestments(
   repoFullNames: string[],
 ): Promise<InvestmentRank[] | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const snap = await fleetSnapshot(orgId);
   if (snap.repos.length === 0) return null;
