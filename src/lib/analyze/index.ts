@@ -25,6 +25,8 @@ class RepoIndex {
   readonly contentByLowerPath: Map<string, string>;
   readonly workflowText: string;
   readonly manifestText: string;
+  private _pathText?: string;
+  private _allText?: string;
 
   constructor(private readonly snap: RepoSnapshot) {
     const blobs = snap.tree.filter((t) => t.type === "blob");
@@ -49,6 +51,18 @@ class RepoIndex {
       .map((f) => f.content)
       .join("\n")
       .toLowerCase();
+  }
+
+  /** The lowercased path list as one space-joined haystack (`lowerPaths.join(" ")`), built once and
+   *  cached — several detectors `.test()` against this and it was an O(paths) rebuild per detector. */
+  get pathText(): string {
+    return (this._pathText ??= this.lowerPaths.join(" "));
+  }
+
+  /** The combined lowercased search-blob `pathText + " " + workflowText + " " + manifestText`, built
+   *  once and shared verbatim by the d8/d9 detectors (was reconstructed identically in each). */
+  get allText(): string {
+    return (this._allText ??= this.pathText + " " + this.workflowText + " " + this.manifestText);
   }
 
   /** Does any path match the regex? */
@@ -248,7 +262,7 @@ const d2: Detector = (idx) => {
 
   // Advanced testing rigor — these only show up in deliberately-engineered suites, so they
   // signal high maturity even though the cap keeps a thin suite from riding them to a top score.
-  const adv = idx.manifestText + " " + idx.workflowText + " " + idx.lowerPaths.join(" ");
+  const adv = idx.manifestText + " " + idx.workflowText + " " + idx.pathText;
   if (/stryker|mutmut|\bpitest\b|cargo-mutants|\bmutant\b|mutation-testing/.test(adv))
     s.add(8, "Mutation testing configured");
   if (idx.has(/(^|\/)pacts?\//) || /@pact-foundation|pactflow|spring-cloud-contract/.test(adv))
@@ -325,7 +339,7 @@ const d3: Detector = (idx) => {
 
   // Delivery-as-code: a declarative, auditable, reversible path to production — what lets
   // autonomy compound (the L4→L5 jump). Detected from manifests/workflows, presence-only.
-  const deliver = idx.lowerPaths.join(" ") + " " + idx.workflowText;
+  const deliver = idx.pathText + " " + idx.workflowText;
   if (idx.has(/\.rego$/) || /conftest|open-policy-agent|\bopa\b.*policy|policy-as-code/.test(deliver))
     s.add(8, "Policy-as-code (OPA/conftest)");
   if (
@@ -355,7 +369,7 @@ const d3: Detector = (idx) => {
 const d4: Detector = (idx) => {
   const s = new Scorer();
   const wf = idx.workflowText;
-  const blob = wf + " " + idx.lowerPaths.join(" ");
+  const blob = wf + " " + idx.pathText;
 
   if (
     idx.has(/(^|\/)\.coderabbit\.ya?ml$/) ||
@@ -550,7 +564,7 @@ const d7: Detector = (idx, snap, nowMs) => {
 // ---------------------------------------------------------------------------
 const d8: Detector = (idx) => {
   const s = new Scorer();
-  const blob = idx.lowerPaths.join(" ") + " " + idx.workflowText + " " + idx.manifestText;
+  const blob = idx.allText;
 
   // Evals / golden tests for AI/LLM output.
   if (
@@ -602,7 +616,7 @@ const d8: Detector = (idx) => {
 // ---------------------------------------------------------------------------
 const d9: Detector = (idx) => {
   const s = new Scorer();
-  const blob = idx.lowerPaths.join(" ") + " " + idx.workflowText + " " + idx.manifestText;
+  const blob = idx.allText;
   const hasContainer = idx.has(/(^|\/)(dockerfile|containerfile)$/) || idx.has(/(^|\/)docker-compose\.ya?ml$/);
 
   // SAST — static analysis of first-party code.
