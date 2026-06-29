@@ -67,6 +67,62 @@ export function failsFloor(policy: GatePolicy, dimId: string, score: number): bo
   return belowFloor(score, effectiveFloor(policy, dimId));
 }
 
+/** One enforced gate condition, rendered into every surface that must stay in lockstep. */
+export interface GateConditionView {
+  /** Human-readable sentence — the governance dashboard list + LLM brief (`policyText`). */
+  text: string;
+  /** Terse chip for the PR-comment footer (`policyBits`). */
+  bit: string;
+  /** Gate-API query param as `[key, value]`, present only when the gate URL exposes this condition. */
+  query?: [string, string];
+  /** GitHub-Action `with:` line, present only when the action input exposes this condition. */
+  ci?: string;
+}
+
+/**
+ * The ONE ordered enumeration of an active policy's conditions, each pre-rendered into all four
+ * projections that previously hand-walked GatePolicy in lockstep: the human-readable list
+ * (`policyText`), the PR-comment footer (`policyBits`), the gate-API query string (`gateQuery`),
+ * and the GitHub-Action `with:` lines (`ciWith`). They can no longer drift — the PR footer used to
+ * silently omit the D9 security floor + protected-branch rule the gate actually enforces. `query`
+ * and `ci` are populated only for conditions the gate URL / action input expose (the per-dimension
+ * Security floor maps to `min_security`; protection to `require_protection`); other per-dimension
+ * floors still render into `text`/`bit` so every enforced condition is visible.
+ */
+export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
+  const out: GateConditionView[] = [];
+  if (p.minLevel) {
+    out.push({ text: `Minimum overall level ${p.minLevel}`, bit: `min ${p.minLevel}`, query: ["min_level", p.minLevel], ci: `min-level: ${p.minLevel}` });
+  }
+  if (typeof p.minOverall === "number") {
+    out.push({ text: `Overall score ≥ ${p.minOverall}`, bit: `min overall ${p.minOverall}`, query: ["min_overall", String(p.minOverall)], ci: `min-overall: '${p.minOverall}'` });
+  }
+  if (typeof p.minDimension === "number") {
+    out.push({ text: `Every dimension ≥ ${p.minDimension}`, bit: `no dim < ${p.minDimension}`, query: ["min_dimension", String(p.minDimension)], ci: `min-dimension: '${p.minDimension}'` });
+  }
+  for (const [dim, floor] of Object.entries(p.minDimensionFor ?? {})) {
+    const exposed = dim === SECURITY_DIM; // only the Security floor has a gate URL / action input
+    out.push({
+      text: `${dim} (${DIMENSION_BY_ID[dim as DimensionId]?.name ?? dim}) ≥ ${floor}`,
+      bit: `no ${dim} < ${floor}`,
+      ...(exposed ? { query: ["min_security", String(floor)] as [string, string], ci: `min-security: '${floor}'` } : {}),
+    });
+  }
+  if (p.forbidPostures?.length) {
+    const forbids = p.forbidPostures;
+    const exposesUngoverned = forbids.includes("ungoverned"); // the only posture the gate URL/action expose
+    out.push({
+      text: `No ${forbids.map((x) => `"${x}"`).join(" / ")} posture`,
+      bit: `forbid ${forbids.join("/")}`,
+      ...(exposesUngoverned ? { query: ["no_ungoverned", "1"] as [string, string], ci: `no-ungoverned: 'true'` } : {}),
+    });
+  }
+  if (p.requireProtectedBranch) {
+    out.push({ text: "Default branch must be protected", bit: "protected branch", query: ["require_protection", "1"], ci: `require-protection: 'true'` });
+  }
+  return out;
+}
+
 function isLevelId(v: string | null | undefined): v is LevelId {
   return v != null && LEVELS.some((l) => l.id === v);
 }

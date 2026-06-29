@@ -148,4 +148,25 @@ describe("buildGateComment", () => {
     expect(c.summary).toContain("claude-cli");
     expect(c.summary).not.toContain("deterministic rubric");
   });
+
+  it("the policy footer reflects the FULL enforced policy — incl. the D9 floor + protected branch", () => {
+    // DELIBERATE behavior change (ci-gate-and-status-checks.md #1): the footer is now derived from the
+    // same canonical condition enumeration (describeGatePolicy) as the governance dashboard / gate URL
+    // / CI snippet, so it can no longer omit the per-dimension Security (D9) floor or the
+    // protected-branch requirement that the gate actually enforces.
+    const gate: GateResult = {
+      pass: true,
+      policy: {
+        minLevel: "L3",
+        minOverall: 50,
+        minDimension: 40,
+        minDimensionFor: { D9: 50 },
+        forbidPostures: ["ungoverned"],
+        requireProtectedBranch: true,
+      },
+      failures: [],
+    };
+    const c = buildGateComment(report(), gate);
+    expect(c.commentBody).toContain("Policy: min L3 · min overall 50 · no dim < 40 · no D9 < 50 · forbid ungoverned · protected branch");
+  });
 });

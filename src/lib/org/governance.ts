@@ -5,7 +5,7 @@
 // @/lib/scoring/gate (no re-scan). Powers /org/[slug]/governance + its Copy-for-LLM brief.
 
 import { getOrgGatePolicy, getOrgRollup } from "@/lib/db";
-import { defaultGatePolicy, effectiveFloor, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
+import { defaultGatePolicy, describeGatePolicy, effectiveFloor, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
 import type { DimensionId } from "@/lib/types";
@@ -66,43 +66,22 @@ export interface GovernanceOverview {
 
 const ORG_POLICY_ARCHETYPE = "org" as const;
 
+// policyText / gateQuery / ciWith (and the PR-comment policyBits over in gate-comment.ts) all derive
+// from ONE ordered enumeration of the policy's conditions (describeGatePolicy in scoring/gate.ts), so
+// they can't drift — the dashboard, the copyable CI snippet, the gate URL, and the PR footer always
+// advertise the SAME bar the gate enforces.
 function policyText(p: GatePolicy): string[] {
-  const t: string[] = [];
-  if (p.minLevel) t.push(`Minimum overall level ${p.minLevel}`);
-  if (typeof p.minOverall === "number") t.push(`Overall score ≥ ${p.minOverall}`);
-  if (typeof p.minDimension === "number") t.push(`Every dimension ≥ ${p.minDimension}`);
-  for (const [dim, floor] of Object.entries(p.minDimensionFor ?? {})) {
-    t.push(`${dim} (${DIMENSION_BY_ID[dim as DimensionId]?.name ?? dim}) ≥ ${floor}`);
-  }
-  if (p.forbidPostures?.length) t.push(`No ${p.forbidPostures.map((x) => `"${x}"`).join(" / ")} posture`);
-  if (p.requireProtectedBranch) t.push("Default branch must be protected");
-  return t;
+  return describeGatePolicy(p).map((c) => c.text);
 }
 
-// gateQuery + ciWith MUST emit every condition policyText shows — otherwise the dashboard enforces a bar
-// the copyable CI snippet / gate URL silently drops (policy drift). The Security (D9) floor maps to the
-// gate's `min_security` param (the one per-dimension floor the policy editor exposes); protection maps
-// to `require_protection`.
 function gateQuery(p: GatePolicy): string {
   const q = new URLSearchParams();
-  if (p.minLevel) q.set("min_level", p.minLevel);
-  if (typeof p.minOverall === "number") q.set("min_overall", String(p.minOverall));
-  if (typeof p.minDimension === "number") q.set("min_dimension", String(p.minDimension));
-  if (typeof p.minDimensionFor?.D9 === "number") q.set("min_security", String(p.minDimensionFor.D9));
-  if (p.forbidPostures?.includes("ungoverned")) q.set("no_ungoverned", "1");
-  if (p.requireProtectedBranch) q.set("require_protection", "1");
+  for (const c of describeGatePolicy(p)) if (c.query) q.set(c.query[0], c.query[1]);
   return q.toString();
 }
 
 function ciWith(p: GatePolicy): string[] {
-  const w: string[] = [];
-  if (p.minLevel) w.push(`min-level: ${p.minLevel}`);
-  if (typeof p.minOverall === "number") w.push(`min-overall: '${p.minOverall}'`);
-  if (typeof p.minDimension === "number") w.push(`min-dimension: '${p.minDimension}'`);
-  if (typeof p.minDimensionFor?.D9 === "number") w.push(`min-security: '${p.minDimensionFor.D9}'`);
-  if (p.forbidPostures?.includes("ungoverned")) w.push(`no-ungoverned: 'true'`);
-  if (p.requireProtectedBranch) w.push(`require-protection: 'true'`);
-  return w;
+  return describeGatePolicy(p).flatMap((c) => (c.ci ? [c.ci] : []));
 }
 
 export async function buildGovernanceOverview(orgSlug: string): Promise<GovernanceOverview | null> {
