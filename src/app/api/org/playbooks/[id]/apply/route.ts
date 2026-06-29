@@ -6,12 +6,12 @@
 // records the adoption mark so the playbook's lift analytics light up.
 
 import { NextResponse } from "next/server";
-import { parseRepoUrl, fetchRepoContext } from "@/lib/github/source";
+import { fetchRepoContext } from "@/lib/github/source";
 import { openDraftPr } from "@/lib/github/write";
 import { isAppConfigured } from "@/lib/github/app";
 import { applyPlaybook, getPlaybook, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
-import { resolvePlaybookOrg } from "@/lib/org/playbook-gate";
+import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
 import { DIMENSION_SHORT } from "@/lib/ui";
@@ -44,11 +44,10 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const { org } = gated;
 
   const body = (await request.json().catch(() => ({}))) as { repo?: string; base?: string };
-  const parsed = parseRepoUrl(body.repo ?? "");
-  if (!parsed) return NextResponse.json({ error: "Provide { repo: 'owner/name' }." }, { status: 400 });
-  if (parsed.owner.toLowerCase() !== org.toLowerCase()) {
-    return NextResponse.json({ error: `Repo must belong to ${org}.` }, { status: 400 });
-  }
+  // Tenant gate on the repo coordinate (shared with [id]/repos via parseOrgRepo): require the repo to
+  // belong to this playbook's org.
+  const parsed = parseOrgRepo(body.repo, org);
+  if (parsed instanceof Response) return parsed;
 
   const playbook = await getPlaybook(id);
   if (!playbook) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
