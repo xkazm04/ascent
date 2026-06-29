@@ -648,6 +648,58 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   };
 }
 
+// ── Shared loader: latest-scan dimension scores, indexed by dimension and by repo ─────────────
+
+/** One repo's score on one dimension, carrying its display + full name — the row shape both the
+ *  practice library and the gap analysis index per dimension. */
+interface DimScoreRow {
+  name: string;
+  fullName: string;
+  score: number;
+}
+
+/**
+ * Shared loader behind getOrgPractices + getOrgGapAnalysis: pull each repo's latest-scan dimension
+ * scores (segment / tech-group scoped) and index them two ways — `byDim` (per-dimension
+ * `[{ repo, score }]`) and `perRepo` (each repo's `dimId → score` map). Both views read the SAME
+ * "latest-scan dimensions per repo" shape, so they share one query + one pass here. A repo whose
+ * latest scan has no dimension rows is skipped (it contributes to neither index).
+ */
+async function loadRepoDimScores(
+  prisma: ReturnType<typeof getPrisma>,
+  orgId: string,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+): Promise<{
+  byDim: Map<string, DimScoreRow[]>;
+  perRepo: { name: string; fullName: string; dims: Record<string, number> }[];
+}> {
+  const repos = await prisma.repository.findMany({
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    select: {
+      name: true,
+      fullName: true,
+      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
+    },
+  });
+
+  const byDim = new Map<string, DimScoreRow[]>();
+  const perRepo: { name: string; fullName: string; dims: Record<string, number> }[] = [];
+  for (const r of repos) {
+    const dims = r.scans[0]?.dimensions;
+    if (!dims?.length) continue;
+    const map: Record<string, number> = {};
+    for (const d of dims) {
+      map[d.dimId] = d.score;
+      const arr = byDim.get(d.dimId) ?? [];
+      arr.push({ name: r.name, fullName: r.fullName, score: d.score });
+      byDim.set(d.dimId, arr);
+    }
+    perRepo.push({ name: r.name, fullName: r.fullName, dims: map });
+  }
+  return { byDim, perRepo };
+}
+
 // ── P2: Practice Library — capture & reuse best practices across the org ──────
 
 export interface OrgPractice {
@@ -673,26 +725,7 @@ export async function getOrgPractices(orgSlug: string, segmentId?: string | null
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      name: true,
-      fullName: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
-    },
-  });
-
-  // Per-dimension list of {repo, score} from each repo's latest scan.
-  const byDim = new Map<string, { name: string; fullName: string; score: number }[]>();
-  for (const r of repos) {
-    const dims = r.scans[0]?.dimensions;
-    if (!dims) continue;
-    for (const d of dims) {
-      const arr = byDim.get(d.dimId) ?? [];
-      arr.push({ name: r.name, fullName: r.fullName, score: d.score });
-      byDim.set(d.dimId, arr);
-    }
-  }
+  const { byDim } = await loadRepoDimScores(prisma, orgId, segmentId, techGroupId);
   if (byDim.size === 0) return null;
 
   const practices: OrgPractice[] = PRACTICES.map((p) => {
@@ -764,30 +797,8 @@ export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | nu
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      name: true,
-      fullName: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
-    },
-  });
-
-  // Per dimension: [{repo, score}]. Per repo: its dim→score map.
-  const byDim = new Map<string, { name: string; fullName: string; score: number }[]>();
-  const perRepo: { name: string; fullName: string; dims: Record<string, number> }[] = [];
-  for (const r of repos) {
-    const dims = r.scans[0]?.dimensions;
-    if (!dims?.length) continue;
-    const map: Record<string, number> = {};
-    for (const d of dims) {
-      map[d.dimId] = d.score;
-      const arr = byDim.get(d.dimId) ?? [];
-      arr.push({ name: r.name, fullName: r.fullName, score: d.score });
-      byDim.set(d.dimId, arr);
-    }
-    perRepo.push({ name: r.name, fullName: r.fullName, dims: map });
-  }
+  // Per dimension: [{repo, score}]. Per repo: its dim→score map. (Shared with getOrgPractices.)
+  const { byDim, perRepo } = await loadRepoDimScores(prisma, orgId, segmentId, techGroupId);
   const scanned = perRepo.length;
   if (scanned === 0) return null;
 
