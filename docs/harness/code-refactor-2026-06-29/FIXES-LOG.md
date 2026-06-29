@@ -178,6 +178,14 @@ The full suite shows **1 failure: `client.test.ts` "still fails when no client e
 
 ---
 
+## Wave 15 — DeckSection shell extraction (Theme H)
+
+**1 commit · marketing-about #1 (H) + landing deck-pane (M) closed · gate: tsc 0 · vitest 2643 pass + 1 env.**
+
+`9a60f98` — new `src/components/deck/DeckSection.tsx` (`{id?, variant:"section"|"hero", contained?, className?, containerClassName?}`; classes appended, never replaced). Adopted at **10/11** sites (5 About + 5 landing-prototype), incl. a `hero` variant for AboutHero/IndexHero. The `snap-start…`/hero literals now live solely as DeckSection constants. **Left:** AboutCTA (shell drops `justify-center pb-10` + nests its container differently — not byte-identical). Rendered DOM/classes unchanged at all adopted sites.
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
