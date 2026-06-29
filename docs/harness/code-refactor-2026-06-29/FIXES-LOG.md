@@ -45,6 +45,20 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 4 — `recordOrgAudit` adoption (Theme A, audit)
+
+**3 commits · security-audit #2 + members #1 (H) closed · gate: tsc 0 · vitest 2638/2638.**
+
+| Commit | What |
+|---|---|
+| `e91d45c` | invites + invites/accept routes → `recordOrgAudit`. |
+| `aa3a571` | org config writes (alerts, plan, gate-policy, llm-provider) → `recordOrgAudit`. |
+| `55a00b4` | skills/[id] + passport (pr, overrides) writes → `recordOrgAudit`. |
+
+14 files (8 routes + 5 tests + invites pair). 9 audit sites adopted. Verified `recordOrgAudit(action, slug, meta, actorId?)` resolves via `getOrgId`, forwards to `recordAudit`, swallows failures (never throws) — identical to the hand-rolled tail. **Left (correctly):** app/webhook & cron/rescan (their `getOrgId` feeds `checkAndAlertRegression`, not audit) and practices apply/apply-batch (`getOrgId` is an input to `applyPracticeToRepo`, not an audit write).
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
