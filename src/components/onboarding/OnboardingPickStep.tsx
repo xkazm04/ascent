@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { demoOrgHref } from "@/lib/site";
 
 /** A GitHub App installation the signed-in user can scan through (private repos included). */
 export interface Installation {
@@ -9,10 +10,6 @@ export interface Installation {
 }
 
 const SUGGESTIONS = ["vercel", "anthropics", "openai"];
-
-// A curated, already-scanned org for the zero-setup "just show me" path (ONB-6) — the same example
-// the landing page showcases, so a user with no obvious org of their own can see a real rollup now.
-const EXAMPLE_ORG = "vercel";
 
 /** The first phase: seeded-org CTA + installed-org / suggested-org shortcuts + public-handle form. */
 export function PickStep({
@@ -61,7 +58,9 @@ export function PickStep({
           instead of picking/scanning anything, for a user without an obvious org to start with. */}
       <p className="text-center text-sm text-slate-500">
         Not sure where to start?{" "}
-        <a href={`/org/${EXAMPLE_ORG}`} className="focus-ring rounded-sm font-medium text-accent transition hover:text-white">
+        {/* The zero-setup "just show me" path (ONB-6): the SAME curated org the landing showcases (lib/site),
+            so a user with no obvious org of their own can see a real rollup now. */}
+        <a href={demoOrgHref()} className="focus-ring rounded-sm font-medium text-accent transition hover:text-white">
           See an example org report →
         </a>
       </p>

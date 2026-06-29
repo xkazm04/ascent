@@ -123,9 +123,23 @@ export function RepoLeaderboard({
                 )}
               </td>
               <td className="px-4 py-2">
-                <Link href={`/report?repo=${encodeURIComponent(r.fullName)}`} className="font-mono text-sm text-white hover:text-accent">
-                  {r.fullName}
-                </Link>
+                {/* Title links to the repo's STORED report (server-rendered permalink, no re-scan) —
+                    not /report?repo= which kicks off the live scan flow. Only linked once there's a
+                    persisted scan to show; a never-scanned repo renders inert (its permalink would be a
+                    cold-scan confirm gate, not a report) and is reached via the row's ↻ Rescan button. */}
+                {l ? (
+                  <Link
+                    href={`/report/${r.fullName}`}
+                    title={`View ${r.fullName}'s latest report`}
+                    className="font-mono text-sm text-white hover:text-accent"
+                  >
+                    {r.fullName}
+                  </Link>
+                ) : (
+                  <span title={`${r.fullName} — not scanned yet`} className="font-mono text-sm text-slate-400">
+                    {r.fullName}
+                  </span>
+                )}
                 {r.lastScanStatus === "error" && (
                   <span
                     title={r.lastScanError ?? "The most recent scan attempt failed."}

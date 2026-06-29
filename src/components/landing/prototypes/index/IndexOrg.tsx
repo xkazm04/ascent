@@ -1,10 +1,11 @@
 "use client";
 
 // Organization edition section for The Index — the cross-repo intro plus a gallery of the use cases
-// an org gets inside the app, each card linking straight into the live Vercel demo for that view.
+// an org gets inside the app, each card linking straight into the curated org demo for that view.
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { DEMO_ORG_NAME, demoOrgHref } from "@/lib/site";
 
 interface OrgUseCase {
   title: string;
@@ -12,38 +13,38 @@ interface OrgUseCase {
   href: string;
 }
 
-// Concrete org surfaces the app ships — each links into the public Vercel demo so the use case is one
-// click away rather than described in the abstract.
+// Concrete org surfaces the app ships — each links into the curated demo org (one configurable slug —
+// see lib/site) so the use case is one click away rather than described in the abstract.
 const ORG_USE_CASES: OrgUseCase[] = [
   {
     title: "Executive rollup",
     blurb: "One maturity score for the whole org, with trends and the repos pulling it up or down.",
-    href: "/org/vercel/executive",
+    href: demoOrgHref("executive"),
   },
   {
     title: "Governance & policy",
     blurb: "Branch protection, review gates, and rulesets audited across every repository.",
-    href: "/org/vercel/governance",
+    href: demoOrgHref("governance"),
   },
   {
     title: "AI adoption",
     blurb: "See which teams have operationalized AI tooling, agents, and shared conventions.",
-    href: "/org/vercel/adoption",
+    href: demoOrgHref("adoption"),
   },
   {
     title: "Delivery & CI/CD",
     blurb: "Pipeline health, merge gates, and how reliably code reaches production.",
-    href: "/org/vercel/delivery",
+    href: demoOrgHref("delivery"),
   },
   {
     title: "Supply-chain security",
     blurb: "Shift-left scanning, secret hygiene, and provenance across the fleet.",
-    href: "/org/vercel/security",
+    href: demoOrgHref("security"),
   },
   {
     title: "Improvement plan",
     blurb: "A prioritized, ROI-ranked backlog to raise the org to the next level.",
-    href: "/org/vercel/plan",
+    href: demoOrgHref("plan"),
   },
 ];
 
@@ -61,10 +62,10 @@ export function IndexOrg() {
         </div>
         <div className="flex flex-col gap-3 sm:items-end">
           <Link
-            href="/org/vercel"
+            href={demoOrgHref()}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
           >
-            Explore the Vercel org report →
+            Explore the {DEMO_ORG_NAME} org report →
           </Link>
           <Link href="/onboarding" className="text-sm font-medium text-slate-300 transition hover:text-white">
             Or analyze your own organization →

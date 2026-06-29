@@ -1,24 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import type { DimensionId, PersistedRecommendation, ScanReport } from "@/lib/types";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import type { AppPassport, DimensionId, PersistedRecommendation, ScanReport } from "@/lib/types";
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { parseRepositoryHistory } from "@/lib/report/validate";
 import { classifyHistoryResponse } from "@/components/report/reportTaxonomy";
-import { LEVELS, axisScore } from "@/lib/maturity/model";
+import { axisScore } from "@/lib/maturity/model";
 import { type TrendPoint } from "@/components/report/TrendChart";
-import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
 import { ReportHeader } from "@/components/report/ReportHeader";
-import { ScoringTab } from "@/components/report/ScoringTab";
-import { NextLevelPath, RoadmapSteps, TrustLadder } from "@/components/report/roadmapPieces";
-import { RecommendationTracker } from "@/components/report/RecommendationTracker";
-import { ContributorsPanel } from "@/components/report/ContributorsPanel";
+import { PassportHero } from "@/components/report/PassportHero";
+import { ReportPanels } from "@/components/report/ReportPanels";
+import { ReportConversionCta } from "@/components/report/ReportConversionCta";
 import { SideNav, type SideNavGroup } from "@/components/ui";
 
 // Report body section ids. (Previously lived in the now-deleted ReportTabBar, whose only
 // surviving consumer was this type import — the tab switcher itself migrated to SideNav.)
-export type ReportTab = "scoring" | "roadmap" | "sandbox" | "contributors";
+export type ReportTab = "scoring" | "dimensions" | "roadmap" | "sandbox" | "contributors";
 
 export function ReportView({
   report,
@@ -31,18 +30,42 @@ export function ReportView({
    *  banner; forwarded to the header so the Re-test control reflects the in-flight state. */
   rescanning?: boolean;
 }) {
-  const { repo, level } = report;
+  const { repo } = report;
+  const repoFull = `${repo.owner}/${repo.name}`;
   // Keyless deterministic demo (no LLM). Drive every engine-related treatment off this single
   // flag so the demo signal stays consistent everywhere the engine is shown.
   const isMock = report.engine.provider === "mock";
-  const curIdx = LEVELS.findIndex((l) => l.id === level.id);
-  const nextLevel = curIdx >= 0 && curIdx < LEVELS.length - 1 ? LEVELS[curIdx + 1] : null;
 
   const [history, setHistory] = useState<RepositoryHistory | null>(null);
   const [recs, setRecs] = useState<PersistedRecommendation[] | null>(null);
   // Distinguishes a genuine history-fetch failure (offline / transient) from the legitimate
   // "no history yet" baseline — otherwise both render an identical "Baseline established" panel.
   const [histError, setHistError] = useState(false);
+  // The App Readiness Passport drives the hero. A LIVE scan carries it on the report (built during the
+  // scan); a report rebuilt from the DB (cache hit / permalink) doesn't, so fall back to the stored
+  // passport endpoint. The fetched passport is TAGGED with its repo so it's ignored once the repo
+  // changes (no stale carry-over) — letting us DERIVE the displayed passport instead of syncing state.
+  const [fetchedPassport, setFetchedPassport] = useState<{ repo: string; passport: AppPassport } | null>(null);
+
+  useEffect(() => {
+    if (report.passport) return; // already in hand from the live scan — no fetch needed
+    let active = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/report/passport?repo=${encodeURIComponent(repoFull)}`);
+        if (active && r.ok) setFetchedPassport({ repo: repoFull, passport: (await r.json()) as AppPassport });
+      } catch {
+        // No stored passport (offline / no DB / not yet persisted) — the hero just doesn't render.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [repoFull, report.passport]);
+
+  // Live report's own passport wins; otherwise the fetched one, but only while it still matches this repo.
+  const passport: AppPassport | null =
+    report.passport ?? (fetchedPassport?.repo === repoFull ? fetchedPassport.passport : null);
 
   useEffect(() => {
     const repoRef = `${repo.owner}/${repo.name}`;
@@ -81,6 +104,10 @@ export function ReportView({
   // this report. This keeps the headline ring's "since last scan" delta and the trend line's
   // last point in agreement: no double-counting when the current scan IS stored, and no
   // skipping the true previous when it ISN'T.
+  // All of the below is pure history×report shaping (including dimSeries, which rebuilds a Map over up
+  // to `limit` scans × |dimensions|). Memoize on [history, report] so switching the section tab — which
+  // re-renders via `tab`/`recs`/`fetchedPassport` state — doesn't recompute the whole series set.
+  const { scans, trendPoints, overallDelta, prevDimScores, prevPosture, dimSeries } = useMemo(() => {
   const scans = history?.scans ?? [];
   // Reconcile by parsed INSTANT, not byte-identical ISO strings. The stored scannedAt
   // (Date.toISOString) and the live report.scannedAt are serialized independently and can differ by a
@@ -159,26 +186,52 @@ export function ReportView({
     return m;
   })();
 
-  const [tab, setTab] = useState<ReportTab>("scoring");
+    return { scans, trendPoints, overallDelta, prevDimScores, prevPosture, dimSeries };
+  }, [history, report]);
+
   // Recent contributors + PR signals only earn a tab when the scan actually surfaced that data —
   // an empty "Contributors" tab would be a dead end. Scoring/Roadmap/Sandbox always have content.
   const hasContributors = report.contributors.filter((c) => c.login !== "unknown").length > 0;
   const hasPrStats = !!(report.prStats && report.prStats.analyzed > 0);
   const showActivity = hasContributors || hasPrStats;
+
+  // The active section is URL-backed (?tab=…) so a report tab is shareable, bookmarkable, and survives
+  // Back/forward + refresh — a report is an artifact people link to, and the org dashboard already keeps
+  // its scope in the URL. `scoring` is the default and stays clean (no param). An unknown or unavailable
+  // tab (e.g. ?tab=contributors on a scan with no activity) falls back to scoring. `router.replace` with
+  // scroll:false swaps the tab without a history-stack entry per click or a scroll jump.
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const validTabs: ReportTab[] = ["scoring", "dimensions", "roadmap", "sandbox", ...(showActivity ? (["contributors"] as const) : [])];
+  const tabParam = params.get("tab") as ReportTab | null;
+  const tab: ReportTab = tabParam && validTabs.includes(tabParam) ? tabParam : "scoring";
+  const setTab = (t: ReportTab) => {
+    const next = new URLSearchParams(params.toString());
+    if (t === "scoring") next.delete("tab");
+    else next.set("tab", t);
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
   const tabs: { id: ReportTab; label: string }[] = [
     { id: "scoring", label: "Scoring" },
+    { id: "dimensions", label: "Dimensions" },
     { id: "roadmap", label: "Roadmap" },
     { id: "sandbox", label: "Sandbox" },
   ];
   if (showActivity) tabs.push({ id: "contributors", label: "Contributors" });
   const navGroups: SideNavGroup[] = [
-    { items: tabs.map((t) => ({ label: t.label, active: tab === t.id, onSelect: () => setTab(t.id) })) },
+    { label: "Sections", items: tabs.map((t) => ({ label: t.label, active: tab === t.id, onSelect: () => setTab(t.id) })) },
   ];
 
   return (
     <div className="animate-fade-up space-y-8" data-testid="report">
       {/* Header */}
       <ReportHeader report={report} isMock={isMock} onRetest={onRetest} rescanning={rescanning} />
+
+      {/* App Readiness Passport — the first thing seen: the two-axis trust scorecard for this codebase,
+          full-width above the section nav so it leads every tab. Omitted when no passport is available. */}
+      {passport && <PassportHero passport={passport} repo={`${repo.owner}/${repo.name}`} />}
 
       {/* Reliability caveats */}
       {report.warnings && report.warnings.length > 0 && (
@@ -195,63 +248,32 @@ export function ReportView({
         </div>
       )}
 
-      {/* Left-rail section nav + the active panel. Header / caveats / flagged-for-review stay
-          full-width outside the rail as always-visible context. */}
-      <div className="lg:grid lg:grid-cols-[180px_minmax(0,1fr)] lg:gap-8">
-        <aside className="lg:sticky lg:top-20 lg:self-start">
-          <SideNav groups={navGroups} ariaLabel="Report sections" />
+      {/* Section nav as a distinct left sidebar. On wide desktops (2xl+, where the centered max-w-6xl
+          body leaves room in the left gutter) the rail floats OUTSIDE the content into that gutter —
+          sticky, absolutely positioned to the left of the body — so the panels reclaim the full width.
+          Below 2xl it stays an in-flow left column (lg) / horizontal scroller (mobile). The active panel
+          owns its own cross-fade (see ReportPanels). */}
+      <div className="relative lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-10 2xl:block">
+        <aside className="lg:sticky lg:top-24 lg:self-start lg:border-r lg:border-divider lg:pr-6 2xl:absolute 2xl:inset-y-0 2xl:right-full 2xl:mr-6 2xl:w-40 2xl:self-auto 2xl:border-0 2xl:pr-0">
+          <div className="2xl:sticky 2xl:top-24">
+            <SideNav groups={navGroups} ariaLabel="Report sections" />
+          </div>
         </aside>
-        <div className="mt-4 space-y-8 lg:mt-0">
-      {tab === "scoring" && (
-        <ScoringTab
-          report={report}
-          isMock={isMock}
-          overallDelta={overallDelta}
-          trendPoints={trendPoints}
-          histError={histError}
-          scans={scans}
-          prevPosture={prevPosture}
-          prevDimScores={prevDimScores}
-          dimSeries={dimSeries}
-        />
-      )}
-
-      {tab === "sandbox" && (
-        <div data-testid="report-tab-sandbox">
-          {/* Roadmap sandbox — drag dimensions, watch the future (client-side what-if recompute) */}
-          <RoadmapSandbox report={report} />
-        </div>
-      )}
-
-      {showActivity && tab === "contributors" && <ContributorsPanel report={report} />}
-
-      {tab === "roadmap" && (
-        <div className="space-y-8" data-testid="report-tab-roadmap">
-      {/* Trust ladder — where this repo sits, what the next rung needs */}
-      <TrustLadder currentId={report.level.id} />
-
-      {/* Gaps to explore — trust-gap exploration, not a directive list */}
-      <div>
-        <h2 className="text-xl font-bold text-white">
-          Gaps to explore{nextLevel ? ` — your next rung: ${nextLevel.id} ${nextLevel.name}` : " — sustaining the summit"}
-        </h2>
-        <p className="mt-1 text-base text-slate-400">
-          {recs && recs.length > 0
-            ? "Inputs to explore at your own pace — these aren't orders. Track what you take on."
-            : "Where trust in AI could grow — open questions to explore, quick wins first."}
-        </p>
-        <NextLevelPath report={report} />
-        <div className="mt-4">
-          {recs && recs.length > 0 ? (
-            <RecommendationTracker items={recs} report={report} />
-          ) : (
-            <RoadmapSteps items={report.roadmap} report={report} />
-          )}
-        </div>
-      </div>
-
-        </div>
-      )}
+        <div className="mt-6 lg:mt-0">
+          <ReportPanels
+            tab={tab}
+            report={report}
+            isMock={isMock}
+            showActivity={showActivity}
+            recs={recs}
+            overallDelta={overallDelta}
+            trendPoints={trendPoints}
+            histError={histError}
+            scans={scans}
+            prevPosture={prevPosture}
+            prevDimScores={prevDimScores}
+            dimSeries={dimSeries}
+          />
         </div>
       </div>
 
@@ -273,9 +295,13 @@ export function ReportView({
         </div>
       )}
 
+      {/* Activation nudge: the report is the peak-engagement moment — pull a first-timer toward the
+          org rollup + an account (or a signed-in viewer toward the fleet view) instead of dead-ending. */}
+      <ReportConversionCta />
+
       <div className="flex justify-center pt-2">
         <Link
-          href="/"
+          href="/?scan=1"
           className="rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
         >
           ← Scan another repo

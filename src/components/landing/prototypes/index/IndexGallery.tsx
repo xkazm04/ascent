@@ -101,7 +101,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
         <span className="text-sm text-slate-500">Want your repo on the register?</span>
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/#hero"
+            href="/?scan=1"
             className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
           >
             <span aria-hidden>▸</span> Scan your repo

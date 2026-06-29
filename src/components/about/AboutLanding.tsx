@@ -5,19 +5,38 @@
 // section per viewport plus the right-edge section nav. MotionConfig reducedMotion="user" degrades
 // entrances to fades; each section's animation (Remotion + reveals) re-triggers on entry.
 
+import dynamic from "next/dynamic";
 import { MotionConfig } from "framer-motion";
 import { AboutHero } from "./AboutHero";
 import { AboutCost } from "./AboutCost";
 import { AboutFeature } from "./AboutFeature";
 import { FleetGrid } from "./FleetGrid";
 import { RoiSimulator } from "./RoiSimulator";
-import { ChampionNetwork } from "./ChampionNetwork";
-import { RiskRadar } from "./RiskRadar";
 import { AboutTransition } from "./AboutTransition";
 import { AboutCTA } from "./AboutCTA";
 import { DeckNav, type DeckSectionRef } from "@/components/deck/DeckNav";
 import { useSnapDeck } from "@/components/deck/useSnapDeck";
 import { ABOUT_FEATURES, type AboutFeatureId } from "./features";
+
+// The adoption + risk diagrams each pull in the full Remotion runtime — @remotion/player (via
+// RemotionStage) plus the `remotion` core (via their compositions): the heaviest graph on this route.
+// Split them into a client-only chunk (ssr:false, valid in this Client Component) so the /about initial
+// payload never carries the video runtime. The deck reveals these sections on scroll, and RemotionStage
+// already holds a sized aspect-video placeholder until its Player mounts — the loading fallback matches
+// that box so there's no layout shift while the chunk streams in.
+const DiagramPlaceholder = () => (
+  <div className="overflow-hidden rounded-xl border border-divider bg-surface-strong/40">
+    <div className="aspect-video w-full" />
+  </div>
+);
+const ChampionNetwork = dynamic(() => import("./ChampionNetwork").then((m) => m.ChampionNetwork), {
+  ssr: false,
+  loading: DiagramPlaceholder,
+});
+const RiskRadar = dynamic(() => import("./RiskRadar").then((m) => m.RiskRadar), {
+  ssr: false,
+  loading: DiagramPlaceholder,
+});
 
 const DIAGRAM: Record<AboutFeatureId, React.ReactNode> = {
   xray: <FleetGrid />,

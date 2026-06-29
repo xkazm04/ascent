@@ -3,7 +3,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
-import { roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { getOrgBySlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
@@ -34,8 +34,7 @@ function parseGovernanceLite(raw: string | null | undefined): { readable: boolea
 export async function getOrgId(slug: string): Promise<string | null> {
   if (!isDbConfigured()) return null;
   const normalized = slug.trim().toLowerCase();
-  const org = await getPrisma().organization.findUnique({ where: { slug: normalized }, select: { id: true } });
-  return org?.id ?? null;
+  return (await getOrgBySlug(normalized))?.id ?? null;
 }
 
 export interface RepoState {
@@ -49,7 +48,7 @@ export interface RepoState {
 export async function getRepoStates(orgSlug: string): Promise<Record<string, RepoState>> {
   if (!isDbConfigured()) return {};
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
+  const org = await getOrgBySlug(orgSlug);
   if (!org) return {};
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id },
@@ -185,7 +184,7 @@ export function computeWindowDeltas(
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
+  const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
   const start = window?.start ?? null;
@@ -380,7 +379,7 @@ export interface EngineMixEntry {
 export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<EngineMixEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  const org = await getOrgBySlug(orgSlug);
   if (!org) return [];
   const start = window?.start ?? null;
   const end = window?.end ?? null;
@@ -409,7 +408,7 @@ export async function getOrgRecsActioned(
 ): Promise<{ engaged: number; actioned: number }> {
   if (!isDbConfigured()) return { engaged: 0, actioned: 0 };
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  const org = await getOrgBySlug(orgSlug);
   if (!org) return { engaged: 0, actioned: 0 };
   const start = window?.start ?? null;
   const end = window?.end ?? null;

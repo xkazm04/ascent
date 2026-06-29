@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
-import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
+import { isPersistedScanFresh, lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
 import { consumeScanCredit, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
@@ -19,7 +19,9 @@ import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// 300s (Vercel's max on Pro): a live Gemini-Flash scan plus the in-request completion email must fit
+// inside one function invocation. The client backstop (SCAN_CLIENT_TIMEOUT_MS) sits above this.
+export const maxDuration = 300;
 
 const STATUS: Record<GitHubError["code"], number> = {
   INVALID_URL: 400,
@@ -31,7 +33,7 @@ const STATUS: Record<GitHubError["code"], number> = {
 
 async function runScan(
   url: string,
-  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; peek?: boolean; latest?: boolean; signal?: AbortSignal; req?: Request },
+  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; peek?: boolean; recent?: boolean; latest?: boolean; signal?: AbortSignal; req?: Request },
 ) {
   const parsed = parseRepoUrl(url);
 
@@ -78,19 +80,37 @@ async function runScan(
       peekHeaders["x-ascent-head-sha"] = lookup.headSha;
       if (lookup.etag) peekHeaders["x-ascent-head-etag"] = lookup.etag;
     }
-    // Any-commit fallback (peek=1&latest=1): the head-pinned lookup above missed, but a
-    // quota-blocked client can still be served this repo's most recent PERSISTED report instead
-    // of a dead-end wall — one DB read, zero GitHub/LLM cost, still cache-only (never scans).
-    // Anonymous public funnel only (token scans are per-tenant and never quota-blocked), and the
-    // report must not be private (same defense-in-depth gate as the badge: the shared store could
-    // in principle hold a private snapshot). x-ascent-stale flags that it isn't head-fresh.
-    if (opts.latest && parsed && !token) {
+    // Any-commit fallback: the head-pinned lookup above missed (the head moved, or no snapshot of
+    // the current commit), but this repo's most recent PERSISTED report can still be served instead
+    // of forcing a fresh multi-minute scan — one DB read, zero GitHub/LLM cost, still cache-only
+    // (never scans). Two callers, one read:
+    //   • recent (peek=1&recent=1, the normal /report peek): serve ONLY within the cache-age window
+    //     (scanMaxCacheAgeMs, ~7d). An already-scanned-this-week repo hydrates instantly even when
+    //     its head has merely moved, instead of re-scanning. x-ascent-cache=hit-recent marks it.
+    //   • latest (peek=1&latest=1, the quota-blocked salvage): serve the most recent report at ANY
+    //     age, so a quota wall shows the last reading rather than a dead end.
+    // Both: anonymous public funnel only (token scans are per-tenant), never a private snapshot
+    // (defense-in-depth on the shared store, same gate as the badge). x-ascent-stale flags that the
+    // served report isn't head-fresh, so the report UI's "Re-test" still forces a re-score.
+    if ((opts.recent || opts.latest) && parsed && !token) {
       const last = await getScanReportByCommit(parsed.owner, parsed.repo, {}).catch(() => null);
       if (last && !last.repo.isPrivate) {
-        return NextResponse.json(last, { headers: { ...peekHeaders, "x-ascent-stale": "true" } });
+        const recentHit = opts.recent && isPersistedScanFresh(last.scannedAt);
+        if (recentHit || opts.latest) {
+          const headers: Record<string, string> = { ...peekHeaders, "x-ascent-stale": "true" };
+          if (recentHit) headers["x-ascent-cache"] = "hit-recent";
+          return NextResponse.json(last, { headers });
+        }
       }
     }
     return new NextResponse(null, { status: 204, headers: peekHeaders });
+  }
+
+  // Public sign-in wall — placed AFTER the cache-hit (above) and the peek / latest-salvage returns,
+  // so viewing a SAVED report, a permalink, or the badge stays free; only a REAL new scan (which
+  // spends GitHub + LLM) requires sign-in. In production authGateEnabled() is true; no-op in dev/bypass.
+  if (authGateEnabled() && !(await getViewer())) {
+    return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
   }
 
   // Rate-limit the EXPENSIVE path only — a cache hit / peek above already returned for free. A
@@ -305,10 +325,13 @@ export async function GET(request: Request) {
     const installationId = searchParams.get("installation_id") ?? undefined;
     const fresh = searchParams.get("fresh") === "1" || searchParams.get("fresh") === "true";
     const peek = searchParams.get("peek") === "1" || searchParams.get("peek") === "true";
+    // `recent=1` (peek-only) allows serving the most recent persisted report when it's within the
+    // cache-age window (~7d), even if the head moved — the recency cache that avoids a repeat scan.
+    const recent = searchParams.get("recent") === "1" || searchParams.get("recent") === "true";
     // `latest=1` (peek-only) allows falling back to the most recent persisted report of ANY
     // commit when the head-pinned probe misses — used by the quota-blocked salvage path.
     const latest = searchParams.get("latest") === "1" || searchParams.get("latest") === "true";
-    return await runScan(url, { mock, installationId, fresh, peek, latest, signal: request.signal, req: request });
+    return await runScan(url, { mock, installationId, fresh, peek, recent, latest, signal: request.signal, req: request });
   } catch (err) {
     return handleError(err);
   }

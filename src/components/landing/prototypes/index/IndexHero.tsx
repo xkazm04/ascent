@@ -1,15 +1,16 @@
 "use client";
 
-// The Index hero — an editorial masthead: a dateline rule, an oversized headline, the live ScanForm,
-// and the index ring on the right. Restrained motion, generous whitespace, hairline rules.
+// The Index hero — an editorial masthead: a dateline rule, an oversized headline, the scan dialog
+// (ScanModal) + an org-scan path, and the index ring on the right. Restrained motion, generous
+// whitespace, hairline rules.
 
 import Image from "next/image";
 import Link from "next/link";
-import { ScanForm } from "@/components/ScanForm";
-import { QuotaMeter } from "@/components/QuotaMeter";
 import { Dateline } from "@/components/ui";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { ScoreGauge } from "./ScoreGauge";
+import { ScanModal } from "./ScanModal";
+import { demoOrgHref } from "@/lib/site";
 import type { LandingData } from "../types";
 
 function RuleStat({ value, label }: { value: string; label: string }) {
@@ -21,7 +22,12 @@ function RuleStat({ value, label }: { value: string; label: string }) {
   );
 }
 
-export function IndexHero({ quota, exampleRepos }: LandingData) {
+export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingData) {
+  // A real, already-scored repo to anchor the "see a sample report" link, so it opens a finished report
+  // instead of a hardcoded slug that might not be scanned (which would cold-scan via ColdScanGate).
+  // Falsy when the corpus is empty — the sample-report link is then omitted (the curated org-demo link,
+  // which points at a seeded org, still shows).
+  const sampleRepo = exampleRepos?.[0] ?? null;
   return (
     <section id="hero" className="relative isolate flex min-h-screen snap-start items-center overflow-hidden">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
@@ -49,37 +55,33 @@ export function IndexHero({ quota, exampleRepos }: LandingData) {
               score on a {LEVELS.length}-level ladder across {DIMENSIONS.length} weighted dimensions, with the
               evidence behind every number.
             </p>
-            <div className="mt-8">
-              <ScanForm autoFocus examples={exampleRepos} />
-            </div>
-            {/* Zero-friction path for first-time visitors: one click to a fully-rendered example report
-                (instant when persisted; falls back to a live keyless mock scan otherwise). */}
-            <div className="mt-3">
+            {/* Primary CTA opens the single-repo scan dialog (input + expected output + GitHub connect).
+                The secondary button surfaces the higher-value path — a one-shot whole-org scan + cross-repo
+                rollup — which a cold-start visitor would otherwise only discover after signing in. */}
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <ScanModal examples={exampleRepos} auth={auth} gated={gated} />
               <Link
-                href="/report/vercel/next.js"
+                href="/onboarding"
                 className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-4 py-2 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
               >
-                <span aria-hidden>▸</span> See a sample report — no signup
+                Scan your whole org <span aria-hidden>→</span>
               </Link>
             </div>
-            <QuotaMeter />
-            <p className="mt-4 font-mono text-sm uppercase tracking-widest text-slate-400">
-              {quota ? (
-                <>
-                  <span>{quota.anon} free scans a week — no signup</span>
-                  <span aria-hidden> · </span>
-                  <span>Sign in for {quota.member}</span>
-                </>
-              ) : (
-                <>
-                  <span>Free for public repos</span>
-                  <span aria-hidden> · </span>
-                  <span>No signup</span>
-                  <span aria-hidden> · </span>
-                  <span>Results in under a minute</span>
-                </>
+            {/* Zero-commitment previews — drop a first-time visitor straight into a fully-rendered
+                example before scanning anything. The org dashboard points at the curated demo org (one
+                configurable slug — see lib/site); the sample report points at a real top-scored repo from
+                the live index when one exists (so it opens a finished report, never a cold scan — and is
+                simply omitted until the corpus has a public scan). */}
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-xs uppercase tracking-widest text-slate-400">
+              {sampleRepo && (
+                <Link href={`/report/${sampleRepo}`} className="focus-ring rounded-sm transition hover:text-accent">
+                  <span aria-hidden>▸</span> See a sample report
+                </Link>
               )}
-            </p>
+              <Link href={demoOrgHref()} className="focus-ring rounded-sm transition hover:text-accent">
+                <span aria-hidden>▸</span> See an example org dashboard
+              </Link>
+            </div>
           </div>
 
           <div className="flex justify-center lg:justify-end">

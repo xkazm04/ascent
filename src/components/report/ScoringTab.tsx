@@ -4,13 +4,12 @@ import Link from "next/link";
 import type { ScanReport } from "@/lib/types";
 import type { HistoryPoint } from "@/lib/db/scans";
 import { LevelBadge } from "@/components/LevelBadge";
-import { RadarChart, ScoreRing } from "@/components/report/Charts";
+import { ScoreRing } from "@/components/report/Charts";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { DeltaPill } from "@/components/report/deltas";
 import { PosturePanel } from "@/components/report/PosturePanel";
 import { ScoreWaterfall } from "@/components/report/ScoreWaterfall";
 import { LevelLadder, ListCard } from "@/components/report/ReportCards";
-import { DimensionCard } from "@/components/report/DimensionCard";
 import { Surface } from "@/components/ui";
 
 export function ScoringTab({
@@ -21,8 +20,6 @@ export function ScoringTab({
   histError,
   scans,
   prevPosture,
-  prevDimScores,
-  dimSeries,
 }: {
   report: ScanReport;
   isMock: boolean;
@@ -31,8 +28,6 @@ export function ScoringTab({
   histError: boolean;
   scans: HistoryPoint[];
   prevPosture: { adoption: number; rigor: number } | null;
-  prevDimScores: Map<string, number> | null;
-  dimSeries: Map<string, TrendPoint[]> | null;
 }) {
   const { repo, level } = report;
 
@@ -114,17 +109,8 @@ export function ScoringTab({
         </div>
       )}
 
-      {/* Radar + dimension breakdown */}
-      <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-        <Surface radius="2xl" className="flex items-center justify-center p-4">
-          <RadarChart dimensions={report.dimensions} />
-        </Surface>
-        <div className="space-y-3">
-          {report.dimensions.map((d, i) => (
-            <DimensionCard key={d.id} d={d} index={i} prevScore={prevDimScores?.get(d.id)} series={dimSeries?.get(d.id)} />
-          ))}
-        </div>
-      </div>
+      {/* The radar + per-dimension breakdown moved to its own Dimensions section (DimensionExplorer) —
+          a click-to-explore chart + bars + detail — so Scoring stays focused on the headline score story. */}
     </section>
   );
 }

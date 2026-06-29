@@ -10,6 +10,7 @@ import type {
   PersistedRecommendation,
   RecStatus,
 } from "@/lib/types";
+import { cache } from "react";
 import { Prisma } from "@prisma/client";
 import { getPrisma, withRetry } from "@/lib/db/client";
 
@@ -179,14 +180,19 @@ export function withRepoLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
  * exist. Repo lookups MUST go through this: `fullName` is only unique *within* an org
  * (`@@unique([orgId, fullName])`), so resolving by fullName alone (findFirst) can return
  * another tenant's repo and leak its scores/recommendations across org boundaries.
+ *
+ * Memoized per server request via React `cache()`: a read path commonly resolves the same slug
+ * several times in one request (e.g. the report permalink resolves it in generateMetadata AND the
+ * page body, each via getScanReportByCommit), and this collapses those to a single lookup. Org ids
+ * are immutable, so per-request caching can't go stale within a request.
  */
-export async function resolveOrgId(orgSlug: string): Promise<string | null> {
+export const resolveOrgId = cache(async (orgSlug: string): Promise<string | null> => {
   const org = await getPrisma().organization.findUnique({
     where: { slug: orgSlug },
     select: { id: true },
   });
   return org?.id ?? null;
-}
+});
 
 /**
  * Parse a persisted string-array JSON column (`explore`, `evidence`, `gaps`, …): malformed JSON,

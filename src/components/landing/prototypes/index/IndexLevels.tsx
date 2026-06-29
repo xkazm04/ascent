@@ -4,11 +4,20 @@
 // hairline level cards below (the cards carry every level's name/band/tagline as real text for SEO +
 // a11y). Built on the brand kit (SectionHeading / Surface / HairlineGrid).
 
+import dynamic from "next/dynamic";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
 import { HairlineGrid, SectionHeading, Surface } from "@/components/ui";
-import { TrajectoryChart } from "./TrajectoryChart";
 import type { LevelId } from "@/lib/types";
+
+// Recharts (+ its d3 deps) is the single heaviest dependency that would otherwise ride the homepage's
+// first load — and it powers only this below-the-fold deck section. Load it in its own client chunk
+// (ssr:false, valid here since this is a Client Component) so `/` ships without it; the chart already
+// self-defers rendering until scrolled into view, so the sized placeholder matches its at-rest state.
+const TrajectoryChart = dynamic(() => import("./TrajectoryChart").then((m) => m.TrajectoryChart), {
+  ssr: false,
+  loading: () => <div className="h-[360px] w-full" />,
+});
 
 export function IndexLevels() {
   return (

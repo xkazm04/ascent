@@ -3,6 +3,9 @@ import { IndexLanding } from "@/components/landing/prototypes/IndexLanding";
 import { getPublicScanGallery, isDbConfigured } from "@/lib/db";
 import { publicScanQuotaDisabled, publicScanWeeklyLimit, signedInScanWeeklyLimit } from "@/lib/public-scan-quota";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
+import { isAuthConfigured } from "@/lib/auth";
+import { supabaseAuthConfigured } from "@/lib/env";
+import { authGateEnabled } from "@/lib/access";
 
 // Rendered per-request (the gallery reflects persisted scans; SiteHeader already reads the
 // session cookie, so this route is dynamic regardless).
@@ -71,12 +74,20 @@ export default async function Home() {
       ? { anon: publicScanWeeklyLimit(), member: signedInScanWeeklyLimit() }
       : null;
 
+  // Which GitHub sign-in backend the hero's scan dialog should offer (mirrors SiteHeader's pick):
+  // Supabase OAuth when configured, else the dormant custom OAuth, else none (get-started fallback).
+  const auth = supabaseAuthConfigured() ? "supabase" : isAuthConfigured() ? "github" : null;
+
+  // Whether the login wall is actually enforced here (Supabase configured + bypass off). When true the
+  // hero's scan dialog locks scanning behind sign-in — first sign in, then scan.
+  const gated = authGateEnabled();
+
   return (
     <>
       {/* SHELL-4: FAQ rich-result data. Static rubric/copy-derived strings — safe to inline. */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_LD) }} />
       <SiteHeader />
-      <IndexLanding gallery={gallery} quota={quota} exampleRepos={exampleRepos} />
+      <IndexLanding gallery={gallery} quota={quota} exampleRepos={exampleRepos} auth={auth} gated={gated} />
       {/* snap-end makes the trailing footer its own snap point (aligned to the viewport bottom) so the
           deck can rest on it instead of the last section snapping back over it. */}
       <div className="snap-end">

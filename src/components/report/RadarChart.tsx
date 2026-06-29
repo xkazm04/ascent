@@ -3,12 +3,25 @@
 // Dependency-free SVG charts (keeps the bundle small and the build fast).
 
 import { useId, useState, type PointerEvent } from "react";
-import type { DimensionResult } from "@/lib/types";
+import type { DimensionId, DimensionResult } from "@/lib/types";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { ChartTooltip } from "@/components/report/chartHover";
 
-export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionResult[]; size?: number }) {
+export function RadarChart({
+  dimensions,
+  size = 340,
+  highlightId = null,
+  onSelect,
+}: {
+  dimensions: DimensionResult[];
+  size?: number;
+  /** Persistently ring + emphasise this dimension's vertex (kept in sync with an external selection,
+   *  e.g. the Dimensions explorer's bar list). No-op visual when null / not found. */
+  highlightId?: DimensionId | null;
+  /** When provided, the radar becomes a picker: clicking near a vertex selects that dimension. */
+  onSelect?: (id: DimensionId) => void;
+}) {
   const titleId = useId();
   const descId = useId();
   // Hover: snap to the nearest data vertex (within a small radius) and show its exact
@@ -46,6 +59,7 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
   };
 
   const rings = [0.25, 0.5, 0.75, 1];
+  const highlightIdx = highlightId ? dimensions.findIndex((d) => d.id === highlightId) : -1;
   const dataPts = dimensions.map((d, i) => point(i, Math.max(0.04, d.score / 100)));
   const dataPath = dataPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
@@ -72,9 +86,14 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
         className="h-auto w-full"
         role="img"
         aria-labelledby={`${titleId} ${descId}`}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: "none", cursor: onSelect ? "pointer" : undefined }}
         onPointerMove={onPointerMove}
         onPointerLeave={() => setActive(null)}
+        onClick={() => {
+          // The hover snap already resolved the nearest vertex into `active`; reuse it as the click
+          // target so a tap on the plot selects the closest dimension (desktop pointer only).
+          if (onSelect && active !== null) onSelect(dimensions[active]!.id);
+        }}
       >
         <title id={titleId}>Maturity radar</title>
         <desc id={descId}>
@@ -98,8 +117,12 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
       {/* data polygon */}
       <polygon points={dataPath} fill="rgba(59,158,255,0.22)" stroke="#3b9eff" strokeWidth={2} />
       {dataPts.map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r={i === active ? 4.5 : 3} fill="#7bbcff" />
+        <circle key={i} cx={x} cy={y} r={i === active || i === highlightIdx ? 4.5 : 3} fill="#7bbcff" />
       ))}
+      {/* selected vertex — a persistent ring synced to the external selection (the bar list) */}
+      {highlightIdx >= 0 && (
+        <circle cx={dataPts[highlightIdx]![0]} cy={dataPts[highlightIdx]![1]} r={7} fill="none" stroke={scoreHex(dimensions[highlightIdx]!.score)} strokeWidth={2.5} />
+      )}
       {/* hovered vertex highlight */}
       {active !== null && (
         // safe: active is a valid index into dataPts/dimensions (set from dataPts.forEach, same length)
@@ -109,10 +132,20 @@ export function RadarChart({ dimensions, size = 340 }: { dimensions: DimensionRe
       {dimensions.map((d, i) => {
         const [x, y] = point(i, 1.2);
         const anchor = Math.abs(x - cx) < 8 ? "middle" : x > cx ? "start" : "end";
+        const isHi = i === highlightIdx;
         return (
-          <text key={d.id} x={x} y={y} textAnchor={anchor} dominantBaseline="middle" fontSize={11} className="fill-slate-400">
+          <text
+            key={d.id}
+            x={x}
+            y={y}
+            textAnchor={anchor}
+            dominantBaseline="middle"
+            fontSize={11}
+            fontWeight={isHi ? 700 : undefined}
+            className={isHi ? "fill-slate-100" : "fill-slate-400"}
+          >
             {DIMENSION_SHORT[d.id]}
-            <tspan dx={4} className="fill-slate-500" fontWeight={600}>
+            <tspan dx={4} className={isHi ? "fill-slate-300" : "fill-slate-500"} fontWeight={600}>
               {d.score}
             </tspan>
           </text>

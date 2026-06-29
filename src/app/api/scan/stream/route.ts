@@ -11,11 +11,16 @@ import { recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { authGateEnabled, getViewer } from "@/lib/access";
+import { publicBaseUrl } from "@/lib/site";
+import { reportPermalink } from "@/lib/ui";
+import { dispatchScanCompletionEmail, isValidEmail } from "@/lib/email";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// 300s (Vercel's max on Pro): a live Gemini-Flash scan plus the in-request completion email must fit
+// inside one function invocation. The client backstop (SCAN_CLIENT_TIMEOUT_MS) sits above this.
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
@@ -27,6 +32,10 @@ export async function POST(request: Request) {
     // lookup on the cold-report path. Honored only for anonymous, non-fresh scans.
     headSha?: string;
     headEtag?: string | null;
+    // "Email me when it's done" opt-in. `email` is a custom recipient used ONLY when the signed-in
+    // account has no email; otherwise the trusted viewer email is used (see the send below).
+    notify?: boolean;
+    email?: string;
   };
   if (!body.url || typeof body.url !== "string") {
     return NextResponse.json({ error: "Missing 'url' in request body." }, { status: 400 });
@@ -55,11 +64,23 @@ export async function POST(request: Request) {
   }
   const { token, orgSlug } = await resolveScanAuth(parsed, body.installationId);
 
-  // Supabase login wall — private/org scans only (see /api/scan). A non-public orgSlug is a
-  // private/tenant scan and requires sign-in; public scans stay free. Fail fast before the stream.
-  if (orgSlug !== "public" && authGateEnabled() && !(await getViewer())) {
-    return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
+  // Supabase login wall. In production (Supabase configured + bypass hard-off, via authGateEnabled)
+  // EVERY scan requires a signed-in viewer — LLM cost is easily abused, so the public funnel is gated
+  // too, not just private/org scans. Viewing a SAVED report stays free: the client peeks the cache
+  // (GET /api/scan?peek=1, ungated) first and only reaches this stream for a real new scan. No-op in
+  // dev / when auth is bypassed. Fail fast before the quota + stream.
+  // Resolve the viewer ONCE here, in request scope — next/headers cookies are NOT readable inside the
+  // stream's start() callback below, so getViewer() there would return null. Used for the gate AND the
+  // completion-email recipient.
+  const viewer = await getViewer();
+  if (authGateEnabled() && !viewer) {
+    return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
   }
+  // Completion-email recipient (when opted in): the trusted account email, or a custom address ONLY when
+  // the account has none. Resolved here so the stream closure can use it without re-reading cookies.
+  const notifyTo = body.notify
+    ? viewer?.email ?? (isValidEmail(body.email) ? body.email.trim() : undefined)
+    : undefined;
 
   // Weekly SOFT gate: public scans get a free per-window allowance (shared with /api/scan via
   // consumeScanQuota). The /report flow peeks the cache first (cheap, unconsumed); reaching the stream
@@ -166,6 +187,18 @@ export async function POST(request: Request) {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;
         send("result", report);
+
+        // "Email me when it's done" (opt-in). Sent AFTER the result frame so the report appears
+        // immediately; it still runs inside this (Vercel) invocation before the stream closes. Only
+        // when the report was actually PERSISTED — a degraded/low-coverage scan isn't saved, so its
+        // permalink wouldn't resolve. Recipient is the trusted account email, or the user-supplied
+        // custom address ONLY when the account has none. Best-effort: dispatchScanCompletionEmail
+        // never throws and is time-bounded, so a flaky SES call can't fail or delay-close the scan.
+        if (notifyTo && !degradedToMock && !lowCoverage) {
+          const full = `${report.repo.owner}/${report.repo.name}`;
+          const url = `${publicBaseUrl()}${reportPermalink(full, report.repo.headSha)}`;
+          await dispatchScanCompletionEmail({ to: notifyTo, repoFullName: full, url, report });
+        }
       } catch (err) {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;

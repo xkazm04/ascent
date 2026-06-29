@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
+import { NotifyToggle } from "@/components/scan/NotifyToggle";
+import type { AuthMode } from "@/components/auth/SignInButtonFor";
 
 // Fallback chips when the live index is empty (DB-less MVP, or no scans yet).
 const FALLBACK_EXAMPLES = ["facebook/react", "vercel/next.js", "anthropics/claude-code"];
@@ -45,10 +47,18 @@ export function normalizeRepo(raw: string): string | null {
 export function ScanForm({
   autoFocus = false,
   examples,
+  showExamples = true,
+  auth = null,
 }: {
   autoFocus?: boolean;
   /** Live "Try:" chips (e.g. top-scoring repos from the index); falls back to a static set. */
   examples?: string[];
+  /** Render the "Top scored / Try:" chip rail. Off in the hero scan dialog, which keeps the panel
+   *  focused on the input alone. */
+  showExamples?: boolean;
+  /** The deployment's sign-in backend — forwarded to the notify slot so a signed-out visitor gets a
+   *  "sign in to get emailed" nudge instead of an empty slot (null = no backend, nudge hidden). */
+  auth?: AuthMode;
 }) {
   const router = useRouter();
   // Distinguish live top-scored repos (from the persisted gallery) from the static fallback, so the
@@ -62,6 +72,26 @@ export function ScanForm({
   const errorId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [pendingChip, setPendingChip] = useState<string | null>(null);
+  // Effective viewer (honors the dev auth-bypass, unlike a raw client Supabase call) — drives the
+  // "email me when it's done" opt-in. Null until resolved; the toggle stays hidden for signed-out users.
+  const [viewer, setViewer] = useState<{ signedIn: boolean; email: string | null } | null>(null);
+  const [notifyOn, setNotifyOn] = useState(false);
+  const [customEmail, setCustomEmail] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/viewer")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && d) setViewer({ signedIn: Boolean(d.signedIn), email: d.email ?? null });
+      })
+      .catch(() => {
+        /* no viewer info — the notify toggle simply stays hidden */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Autofocus only on a pointer-precise, wide viewport — on phones a bare autoFocus yanks the
   // keyboard open and scrolls the page past the hero (SP#6).
@@ -95,9 +125,27 @@ export function ScanForm({
       requestAnimationFrame(() => setShake(true));
       return;
     }
+    // "Email me when it's done" opt-in (signed-in only). The flag rides the URL; a custom address —
+    // needed only when the account has no email — goes to sessionStorage so PII stays out of the URL.
+    let notifyQs = "";
+    if (viewer?.signedIn && notifyOn) {
+      if (viewer.email) {
+        try { window.sessionStorage.removeItem("ascent:notify-email"); } catch {}
+      } else {
+        const email = customEmail.trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          setError("Enter a valid email to be notified, or uncheck the box.");
+          setShake(false);
+          requestAnimationFrame(() => setShake(true));
+          return;
+        }
+        try { window.sessionStorage.setItem("ascent:notify-email", email); } catch {}
+      }
+      notifyQs = "&notify=1";
+    }
     setError(null);
     setSubmitting(true);
-    router.push(`/report?repo=${encodeURIComponent(normalized)}`);
+    router.push(`/report?repo=${encodeURIComponent(normalized)}${notifyQs}`);
   }
 
   return (
@@ -186,6 +234,18 @@ export function ScanForm({
         {submitting ? `Scanning ${normalizeRepo(value) ?? value}…` : ""}
       </span>
 
+      {/* "Email me when it's done" — signed-in only; a live scan runs for minutes. */}
+      <NotifyToggle
+        signedIn={Boolean(viewer?.signedIn)}
+        viewerEmail={viewer?.email}
+        notifyOn={notifyOn}
+        onNotifyChange={setNotifyOn}
+        customEmail={customEmail}
+        onCustomEmailChange={setCustomEmail}
+        auth={auth}
+      />
+
+      {showExamples && (
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 font-mono text-sm text-slate-400">
         <span className="uppercase tracking-widest">{liveExamples ? "Top scored:" : "Try:"}</span>
         {chips.map((ex) => {
@@ -218,6 +278,7 @@ export function ScanForm({
           );
         })}
       </div>
+      )}
     </div>
   );
 }

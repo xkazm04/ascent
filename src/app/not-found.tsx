@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { demoOrgHref } from "@/lib/site";
 
 export default function NotFound() {
   return (
@@ -20,13 +21,13 @@ export default function NotFound() {
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href="/"
+            href="/?scan=1"
             className="focus-ring rounded-md bg-accent px-4 py-2 font-medium text-on-accent transition hover:bg-accent-soft"
           >
             Scan a repo
           </Link>
           <Link
-            href="/org/vercel"
+            href={demoOrgHref()}
             className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
           >
             See an org demo

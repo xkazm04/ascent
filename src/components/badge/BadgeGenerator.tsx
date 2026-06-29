@@ -165,7 +165,7 @@ export function BadgeGenerator() {
 
       <p className="text-sm text-slate-500">
         Tip: the badge runs a fast deterministic scan on first request, then caches. For a full
-        AI-scored report, <Link href="/" className="text-accent hover:text-accent-soft">scan the repo</Link> first.
+        AI-scored report, <Link href="/?scan=1" className="text-accent hover:text-accent-soft">scan the repo</Link> first.
       </p>
     </div>
   );

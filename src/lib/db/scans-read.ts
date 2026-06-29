@@ -18,6 +18,7 @@ import type {
   RepoArchetype,
   ScanReport,
 } from "@/lib/types";
+import { unstable_cache } from "next/cache";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getDbMode, type DbMode } from "@/lib/db/mode";
 import { isDimensionId, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
@@ -455,85 +456,126 @@ export interface PublicScanGallery {
   dbMode: DbMode;
 }
 
+// Upper bound on the candidate repos the landing gallery materializes. The page shows only ~12 + ~8
+// cards, but both lists need "latest scan per repo" and are ranked two DIFFERENT ways (recency vs
+// score), so neither ordering can be the single bounded query. We instead pull the most-recently
+// ACTIVE repos and rank within that window — see loadPublicGalleryCards.
+const GALLERY_CANDIDATE_CAP = 200;
+
+/**
+ * The DB-derived half of the public scan gallery, cached across requests with `unstable_cache`. The
+ * landing page is the hottest route and `force-dynamic`, so without this each hit re-ran the corpus
+ * query (and the codebase has no other data cache). The data is session-independent, so a short shared
+ * TTL turns N homepage renders into one DB pass per window. `orgId` is resolved by the caller and passed
+ * in — no request-scoped read runs inside the cache scope — and is part of the cache key. The returned
+ * shape is fully serializable (scannedAt is pre-stringified).
+ */
+const loadPublicGalleryCards = unstable_cache(
+  async (
+    orgId: string,
+    recentLimit: number,
+    topLimit: number,
+  ): Promise<{ recent: PublicRepoCard[]; topAiNative: PublicRepoCard[]; totalRepos: number } | null> => {
+    const prisma = getPrisma();
+    const where = { orgId, isPrivate: false, scans: { some: {} } } as const;
+
+    // Bound what we load: `updatedAt` bumps on every scan upsert, and a public repo is only ever
+    // mutated by scanning, so ordering by it ≈ "most recently scanned" — the right candidate window for
+    // both the recency rail and (within the cap) the leaderboard. `totalRepos` is a separate COUNT so
+    // the displayed corpus size stays exact even though the materialized set is capped.
+    const [repos, totalRepos] = await Promise.all([
+      prisma.repository.findMany({
+        where,
+        orderBy: { updatedAt: "desc" },
+        take: GALLERY_CANDIDATE_CAP,
+        select: {
+          owner: true,
+          name: true,
+          fullName: true,
+          primaryLanguage: true,
+          stars: true,
+          scans: {
+            orderBy: { scannedAt: "desc" },
+            take: 1,
+            select: {
+              headSha: true,
+              overallScore: true,
+              level: true,
+              levelName: true,
+              adoptionScore: true,
+              rigorScore: true,
+              posture: true,
+              scannedAt: true,
+              dimensions: { select: { dimId: true, score: true } },
+            },
+          },
+        },
+      }),
+      prisma.repository.count({ where }),
+    ]);
+
+    const cards: PublicRepoCard[] = [];
+    for (const r of repos) {
+      const s = r.scans[0];
+      if (!s) continue;
+      const dimensions: Partial<Record<DimensionId, number>> = {};
+      for (const d of s.dimensions) {
+        if (isDimensionId(d.dimId)) dimensions[d.dimId] = d.score;
+      }
+      cards.push({
+        owner: r.owner,
+        name: r.name,
+        fullName: r.fullName,
+        level: s.level,
+        levelName: s.levelName,
+        overall: s.overallScore,
+        adoption: s.adoptionScore,
+        rigor: s.rigorScore,
+        dimensions,
+        posture: s.posture,
+        primaryLanguage: r.primaryLanguage ?? null,
+        stars: r.stars,
+        scannedAt: s.scannedAt.toISOString(),
+        href: reportPermalink(r.fullName, s.headSha),
+      });
+    }
+    if (cards.length === 0) return null;
+
+    const recent = [...cards]
+      .sort((a, b) => b.scannedAt.localeCompare(a.scannedAt))
+      .slice(0, recentLimit);
+    const topAiNative = [...cards]
+      .sort((a, b) => b.overall - a.overall || b.scannedAt.localeCompare(a.scannedAt))
+      .slice(0, topLimit);
+
+    return { recent, topAiNative, totalRepos };
+  },
+  ["public-scan-gallery"],
+  { revalidate: 60, tags: ["public-scan-gallery"] },
+);
+
 /**
  * Public scan gallery for the landing page: a "recently scanned" rail and a "most
  * AI-native" leaderboard, both derived from the latest scan of each PUBLIC repo. Returns
  * null when persistence is disabled or the public org has no scans yet, so the landing
- * page can fall back to its static examples.
+ * page can fall back to its static examples. The corpus query itself is bounded + cached
+ * (loadPublicGalleryCards); only the live-backend label is resolved fresh per request.
  */
 export async function getPublicScanGallery(
   opts: { recentLimit?: number; topLimit?: number } = {},
 ): Promise<PublicScanGallery | null> {
   if (!isDbConfigured()) return null;
-  const prisma = getPrisma();
   const recentLimit = Math.max(1, opts.recentLimit ?? 12);
   const topLimit = Math.max(1, opts.topLimit ?? 8);
 
+  // Resolve the public org id OUTSIDE the cache scope (unstable_cache must not wrap request-scoped reads).
   const orgId = await resolveOrgId(DEFAULT_ORG_SLUG);
   if (!orgId) return null;
 
-  // Latest scan per public repo in the public org; repos with no scan are excluded.
-  const repos = await prisma.repository.findMany({
-    where: { orgId, isPrivate: false, scans: { some: {} } },
-    select: {
-      owner: true,
-      name: true,
-      fullName: true,
-      primaryLanguage: true,
-      stars: true,
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: {
-          headSha: true,
-          overallScore: true,
-          level: true,
-          levelName: true,
-          adoptionScore: true,
-          rigorScore: true,
-          posture: true,
-          scannedAt: true,
-          dimensions: { select: { dimId: true, score: true } },
-        },
-      },
-    },
-  });
-
-  const cards: PublicRepoCard[] = [];
-  for (const r of repos) {
-    const s = r.scans[0];
-    if (!s) continue;
-    const dimensions: Partial<Record<DimensionId, number>> = {};
-    for (const d of s.dimensions) {
-      if (isDimensionId(d.dimId)) dimensions[d.dimId] = d.score;
-    }
-    cards.push({
-      owner: r.owner,
-      name: r.name,
-      fullName: r.fullName,
-      level: s.level,
-      levelName: s.levelName,
-      overall: s.overallScore,
-      adoption: s.adoptionScore,
-      rigor: s.rigorScore,
-      dimensions,
-      posture: s.posture,
-      primaryLanguage: r.primaryLanguage ?? null,
-      stars: r.stars,
-      scannedAt: s.scannedAt.toISOString(),
-      href: reportPermalink(r.fullName, s.headSha),
-    });
-  }
-  if (cards.length === 0) return null;
-
-  const recent = [...cards]
-    .sort((a, b) => b.scannedAt.localeCompare(a.scannedAt))
-    .slice(0, recentLimit);
-  const topAiNative = [...cards]
-    .sort((a, b) => b.overall - a.overall || b.scannedAt.localeCompare(a.scannedAt))
-    .slice(0, topLimit);
-
-  return { recent, topAiNative, totalRepos: cards.length, dbMode: getDbMode() };
+  const data = await loadPublicGalleryCards(orgId, recentLimit, topLimit);
+  if (!data) return null;
+  // dbMode reflects the live backend (env/global signals), not cached row data — merge it in per request.
+  return { ...data, dbMode: getDbMode() };
 }
 
 /** Recommendations from the most recent scan of a repo (with ids + trackable status). */

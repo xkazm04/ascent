@@ -241,6 +241,14 @@ export const ARCHETYPE_LABEL: Record<RepoArchetype, string> = {
   org: "Org / platform",
 };
 
+/** One-line glossary for the archetype chip (a tooltip on the report) so a first-time reader knows
+ *  WHY the lens was chosen and what it changes — the chip is otherwise an unexplained label. */
+export const ARCHETYPE_HINT: Record<RepoArchetype, string> = {
+  solo: "Judged as single-author work: org-scale infrastructure (CI, review bots) is down-weighted so the repo isn't penalized for tooling it doesn't need.",
+  team: "Judged as a small team shipping a product: a balanced lens between solo tooling and full org-scale rigor.",
+  org: "Judged at platform/org scale: the full rubric, weighting CI, governance, and agentic review most heavily.",
+};
+
 export function weightsFor(archetype: RepoArchetype): Record<DimensionId, number> {
   return ARCHETYPE_WEIGHTS[archetype] ?? ARCHETYPE_WEIGHTS.org;
 }

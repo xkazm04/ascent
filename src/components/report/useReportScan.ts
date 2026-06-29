@@ -13,7 +13,7 @@ type Stale = { resetAt: number | null; scope: QuotaScope };
 export type ScanState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "error"; message: string; blocked?: { scope: QuotaScope } }
+  | { status: "error"; message: string; blocked?: { scope: QuotaScope }; authRequired?: boolean; notFound?: boolean }
   | { status: "done"; report: ScanReport; stale?: Stale };
 
 /** Free weekly public-scan allowance surfaced from the x-ascent-quota-* response headers. */
@@ -42,7 +42,12 @@ export interface ReportScan {
  * swaps in; on failure the existing one is kept and the error surfaces in the banner. A first load of
  * a repo (no prior report) still uses the full Loading checklist.
  */
-export function useReportScan(repo: string, initialFresh: boolean): ReportScan {
+export function useReportScan(
+  repo: string,
+  initialFresh: boolean,
+  opts: { notify?: boolean; email?: string } = {},
+): ReportScan {
+  const { notify, email } = opts;
   const [state, setState] = useState<ScanState>({ status: "idle" });
   const [progress, setProgress] = useState<Progress>({ message: "Starting…", pct: 0 });
   // Set from the scan response headers when the free weekly public-scan gate counted this scan.
@@ -85,10 +90,15 @@ export function useReportScan(repo: string, initialFresh: boolean): ReportScan {
       setState({ status: "done", report, stale });
       setRescan({ active: false, error: null });
     };
-    const settleError = (message: string, blocked?: { scope: QuotaScope }) => {
+    const settleError = (
+      message: string,
+      blocked?: { scope: QuotaScope },
+      authRequired?: boolean,
+      notFound?: boolean,
+    ) => {
       if (cancelled) return;
       if (rescanMode) setRescan({ active: false, error: message });
-      else setState({ status: "error", message, blocked });
+      else setState({ status: "error", message, blocked, authRequired, notFound });
     };
 
     (async () => {
@@ -97,13 +107,18 @@ export function useReportScan(repo: string, initialFresh: boolean): ReportScan {
       setProgress({ message: "Starting…", pct: 0 });
       setQuota(null);
 
-      // Fast path: hydrate instantly from a persisted snapshot of the repo's current head before
-      // opening a live SSE scan. A fresh re-test skips the peek. On a peek MISS the server hands back
-      // the head sha/etag it resolved; forward them so the stream skips a duplicate head lookup.
+      // Fast path: hydrate instantly from a persisted snapshot before opening a live SSE scan. A
+      // fresh re-test skips the peek. `recent=1` widens the hit beyond the current head: if this repo
+      // was scanned within the cache-age window (~7d) we serve that report immediately even when its
+      // head has since moved, avoiding a repeat multi-minute scan (the report shows its scan age and a
+      // "Re-test" to force a fresh re-score). On a peek MISS the server hands back the head sha/etag it
+      // resolved; forward them so the stream skips a duplicate head lookup.
       let peekHead: { headSha: string; headEtag: string | null } | null = null;
       if (!fresh) {
         try {
-          const peek = await fetch(`/api/scan?url=${encodeURIComponent(repo)}&peek=1`, { signal: controller.signal });
+          const peek = await fetch(`/api/scan?url=${encodeURIComponent(repo)}&peek=1&recent=1`, {
+            signal: controller.signal,
+          });
           if (cancelled) return;
           if (peek.status === 200) {
             const parsed = parseScanReport(await peek.json().catch(() => null));
@@ -131,7 +146,14 @@ export function useReportScan(repo: string, initialFresh: boolean): ReportScan {
         const res = await fetch("/api/scan/stream", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: repo, fresh, ...(peekHead ?? {}) }),
+          // Notify opt-in travels with the FIRST scan only (a re-test of an on-screen report doesn't
+          // re-email). `email` is a custom recipient used only when the account has none (server decides).
+          body: JSON.stringify({
+            url: repo,
+            fresh,
+            ...(notify && retestNonce === 0 ? { notify: true, ...(email ? { email } : {}) } : {}),
+            ...(peekHead ?? {}),
+          }),
           signal: controller.signal,
         });
         if (cancelled) return;
@@ -140,6 +162,12 @@ export function useReportScan(repo: string, initialFresh: boolean): ReportScan {
             | { error?: string; code?: string; resetAt?: number; scope?: QuotaScope }
             | null;
           if (cancelled) return;
+          // Production sign-in wall (see /api/scan/stream): a 401 can't be retried with the same
+          // request — surface the sign-in CTA instead of a generic "scan failed" error.
+          if (res.status === 401 || data?.code === "auth_required") {
+            settleError(data?.error ?? "Sign in to run a scan.", undefined, true);
+            return;
+          }
           // Weekly public-scan gate tripped — an immediate retry can't succeed. Before showing a
           // dead-end, SALVAGE: serve a persisted report of this repo (peek=1&latest=1 never scans)
           // with a stale notice; only when nothing is saved does the full blocked state remain.
@@ -214,7 +242,11 @@ export function useReportScan(repo: string, initialFresh: boolean): ReportScan {
             else settleError(parsed.error);
           } else if (event === "error") {
             settled = true;
-            settleError((data as { error?: string })?.error ?? "Scan failed.");
+            // A 404 (typo, or a private repo with no installation token) carries code NOT_FOUND from the
+            // scan route — forward it so the error surface can offer a "connect a private repo" path
+            // instead of a retry that can't succeed with the same input.
+            const d = (data ?? {}) as { error?: string; code?: string };
+            settleError(d.error ?? "Scan failed.", undefined, undefined, d.code === "NOT_FOUND");
           }
         };
 

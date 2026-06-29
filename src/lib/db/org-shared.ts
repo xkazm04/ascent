@@ -2,6 +2,21 @@
 // through org.ts only where part of the public surface; the helpers here are not. All guarded by
 // DATABASE_URL at the call sites.
 
+import { cache } from "react";
+import { getPrisma } from "@/lib/db/client";
+
+/**
+ * Resolve an org by slug, memoized per server request via React `cache()`. A single dashboard render
+ * fans out many fleet aggregates (rollup, movers, recommendations, benchmark, gaps, goals, …) and each
+ * one used to re-issue the IDENTICAL `organization.findUnique({ where: { slug } })` — ~8–10 redundant
+ * round-trips per page. Routing them all through this collapses them to one lookup per request (the
+ * same per-request memo pattern getViewer uses in lib/access). Returns the full row — callers read
+ * `id` and `plan` — or null when the org doesn't exist. Callers still guard isDbConfigured() first.
+ */
+export const getOrgBySlug = cache((slug: string) => {
+  return getPrisma().organization.findUnique({ where: { slug } });
+});
+
 export const LEVEL_RANK: Record<string, number> = { L1: 1, L2: 2, L3: 3, L4: 4, L5: 5 };
 export const IMPACT_WEIGHT: Record<string, number> = { high: 3, medium: 2, low: 1 };
 

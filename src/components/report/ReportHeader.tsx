@@ -1,5 +1,6 @@
+import Link from "next/link";
 import type { ScanReport } from "@/lib/types";
-import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
+import { ARCHETYPE_HINT, ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { timeAgo } from "@/lib/ui";
 import { Kicker } from "@/components/ui";
 import { FreshnessControl } from "@/components/report/FreshnessControl";
@@ -36,10 +37,21 @@ export function ReportHeader({
           <span>★ {repo.stars.toLocaleString()}</span>
           <span>updated {timeAgo(repo.pushedAt)}</span>
         </div>
+        {/* Orientation for a first-time reader of a novel maturity framework — the levels, dimensions,
+            and archetype lens are explained on the methodology page. */}
+        <Link
+          href="/about"
+          className="focus-ring mt-2 inline-flex items-center gap-1 rounded-sm font-mono text-sm uppercase tracking-widest text-slate-500 transition hover:text-accent"
+        >
+          How scoring works <span aria-hidden>→</span>
+        </Link>
       </div>
       <div className="flex flex-col items-start gap-2 sm:items-end">
         <div className="flex flex-wrap items-center gap-2 text-sm sm:justify-end">
-          <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
+          <span
+            className="cursor-help rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400"
+            title={ARCHETYPE_HINT[report.archetype]}
+          >
             {ARCHETYPE_LABEL[report.archetype]}
           </span>
           {report.aiUsage.detected && (

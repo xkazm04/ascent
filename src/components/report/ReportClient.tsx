@@ -7,6 +7,7 @@ import { Empty, Loading } from "@/components/report/ReportClientStatus";
 import { RescanBanner } from "@/components/report/ReportRescanBanner";
 import { useReportScan } from "@/components/report/useReportScan";
 import { QuotaBanner, QuotaBlocked, QuotaStaleNotice } from "@/components/report/QuotaNotice";
+import { SignInNotice } from "@/components/SignInNotice";
 
 export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   const params = useSearchParams();
@@ -14,7 +15,16 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   // `fresh=1` (from a "Re-test" link) forces a re-score that bypasses the report cache. The
   // ingestion layer still issues conditional requests, so an unchanged repo stays cheap on the wire.
   const initialFresh = params.get("fresh") === "1" || params.get("fresh") === "true";
-  const { state, progress, quota, rescan, attempt, retest, dismissRescan } = useReportScan(repo, initialFresh);
+  // "Email me when it's done" opt-in (set by the scan form). The flag rides the URL; a CUSTOM email
+  // (used only when the signed-in account has none) is stashed in sessionStorage so PII stays out of
+  // a shareable/loggable URL. Read-only feeds the scan request body — no DOM, so no hydration risk.
+  const notify = params.get("notify") === "1";
+  const notifyEmail =
+    typeof window !== "undefined" ? window.sessionStorage.getItem("ascent:notify-email") ?? undefined : undefined;
+  const { state, progress, quota, rescan, attempt, retest, dismissRescan } = useReportScan(repo, initialFresh, {
+    notify,
+    email: notifyEmail,
+  });
 
   const signInNext = `/report?repo=${encodeURIComponent(repo)}`;
 
@@ -25,10 +35,11 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
     return <Loading repo={repo} progress={progress} />;
   }
   if (state.status === "error") {
+    if (state.authRequired) return <SignInNotice next={signInNext} provider="supabase" />;
     return state.blocked ? (
       <QuotaBlocked message={state.message} scope={state.blocked.scope} signInNext={signInNext} />
     ) : (
-      <Empty title="Couldn't scan that repo" message={state.message} repo={repo} />
+      <Empty title="Couldn't scan that repo" message={state.message} repo={repo} connect={state.notFound} />
     );
   }
   return (

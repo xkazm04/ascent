@@ -3,10 +3,9 @@
 // we fall back to a fresh live scan so the link always resolves. The co-located
 // opengraph-image.tsx makes it unfurl richly in Slack / X / GitHub.
 
-import { Suspense } from "react";
 import type { Metadata } from "next";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
-import { ReportClient } from "@/components/report/ReportClient";
+import { ColdScanGate } from "@/components/report/ColdScanGate";
 import { ReportView } from "@/components/report/ReportView";
 import { PassportCard } from "@/components/org/PassportCard";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
@@ -76,9 +75,9 @@ export default async function ReportPermalink({
             )}
           </ReportErrorBoundary>
         ) : (
-          <Suspense fallback={<div className="mx-auto w-full max-w-md py-12 text-center text-sm text-slate-500">Loading…</div>}>
-            <ReportClient repo={ref} />
-          </Suspense>
+          // No persisted snapshot: confirm before launching a multi-minute live scan, so a shared /
+          // example permalink doesn't auto-scan a repo the visitor only meant to view.
+          <ColdScanGate repo={ref} />
         )}
         {skillHistory.length > 0 && <SkillHistorySection rows={skillHistory} />}
       </main>

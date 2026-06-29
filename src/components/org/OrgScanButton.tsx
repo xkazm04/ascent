@@ -5,6 +5,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { readSSE } from "@/lib/sse";
 import { Meter } from "@/components/org/ui";
+import { DEMO_ORG_SLUG } from "@/lib/site";
 
 interface Progress {
   running: boolean;
@@ -77,6 +78,10 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
   }
 
   const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+  // The curated demo org is seeded with synthetic histories, not live-scannable repos — a "Stale only"
+  // rescan there has nothing real to refresh, so hide it (the full "Scan all watched" stays for the
+  // demo walkthrough). Slug is the canonical lower-cased org row casing; DEMO_ORG_SLUG is pre-lowered.
+  const isDemoOrg = org.trim().toLowerCase() === DEMO_ORG_SLUG;
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-2">
@@ -93,15 +98,17 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
               : "Scanning…"
             : `Scan all watched (${watchedCount})`}
         </button>
-        <button
-          type="button"
-          onClick={() => run({ staleOnlyDays: 14 })}
-          disabled={p.running || watchedCount === 0}
-          title="Rescan only repos not scanned in the last 14 days — saves token budget"
-          className="rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Stale only
-        </button>
+        {!isDemoOrg && (
+          <button
+            type="button"
+            onClick={() => run({ staleOnlyDays: 14 })}
+            disabled={p.running || watchedCount === 0}
+            title="Rescan only repos not scanned in the last 14 days — saves token budget"
+            className="rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Stale only
+          </button>
+        )}
       </div>
       {p.running && (
         <div className="w-48">

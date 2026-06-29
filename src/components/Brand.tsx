@@ -6,6 +6,7 @@ import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured } from "@/lib/db";
+import { demoOrgHref } from "@/lib/site";
 
 /** Generated ascending-chevron mark + mono wordmark (Altimeter identity). */
 export function Logo({ className = "", size = 24 }: { className?: string; size?: number }) {
@@ -48,6 +49,9 @@ export async function SiteHeader() {
         <nav className="flex items-center gap-3 font-mono text-sm uppercase tracking-widest text-slate-400 sm:gap-6">
           {/* Page-level nav only — section links (Levels / Method / Pricing) live inside the deck's
               right-edge section nav now, not the topbar. */}
+          <Link href="/leaderboard" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
+            Leaderboard
+          </Link>
           <Link href="/pricing" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
             Pricing
           </Link>
@@ -56,7 +60,7 @@ export async function SiteHeader() {
           </Link>
           {dbOn && (
             <Link
-              href="/org/vercel"
+              href={demoOrgHref()}
               className="focus-ring rounded-md border border-divider px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white"
             >
               Org demo
@@ -120,6 +124,9 @@ export function SiteFooter() {
           The maturity index for AI-native engineering
         </p>
         <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
+          <Link href="/leaderboard" className="focus-ring rounded-sm hover:text-accent">
+            Leaderboard
+          </Link>
           <Link href="/badge" className="focus-ring rounded-sm hover:text-accent">
             Badge
           </Link>

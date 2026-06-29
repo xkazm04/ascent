@@ -234,7 +234,19 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
   );
 }
 
-export function Empty({ title, message, repo }: { title: string; message: string; repo?: string }) {
+export function Empty({
+  title,
+  message,
+  repo,
+  connect,
+}: {
+  title: string;
+  message: string;
+  repo?: string;
+  /** The repo couldn't be read (404 / private) — offer the GitHub App connect path, since a retry with
+   *  the same input can't succeed. */
+  connect?: boolean;
+}) {
   return (
     <EmptyState
       icon="🧭"
@@ -244,6 +256,7 @@ export function Empty({ title, message, repo }: { title: string; message: string
         ...(repo
           ? [{ label: "Try again", href: `/report?repo=${encodeURIComponent(repo)}`, primary: true }]
           : []),
+        ...(connect ? [{ label: "Private repo? Connect GitHub", href: "/connect" }] : []),
         { label: "← Back home", href: "/" },
       ]}
     />
