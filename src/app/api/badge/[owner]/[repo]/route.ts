@@ -24,7 +24,7 @@ import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
 import { rateLimitRequest, BADGE_RATE_LIMIT } from "@/lib/rate-limit";
 import { recordBadgeImpression, recordQuotaEvent } from "@/lib/db";
-import { LEVEL_GLYPH, LEVEL_HEX } from "@/lib/ui";
+import { LEVEL_GLYPH, LEVEL_HEX, relLuminance, rgbOf } from "@/lib/ui";
 import { BADGE_STYLES, type BadgeStyle, badgeReportHref } from "@/lib/badge";
 import type { LevelId } from "@/lib/types";
 
@@ -102,11 +102,10 @@ function readableOn(bg: string): string {
   const h = bg.replace("#", "");
   const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
   if (!/^[0-9a-fA-F]{6}$/.test(full)) return "#fff";
-  const lin = (i: number) => {
-    const v = parseInt(full.slice(i, i + 2), 16) / 255;
-    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-  };
-  const L = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+  // Route the WCAG luminance through the canonical ui.ts primitives (rgbOf + relLuminance) rather
+  // than re-deriving the channel-linearization math here. The badge keeps its OWN contrast pick
+  // (white vs near-black ink) so the chosen color is byte-identical to before.
+  const L = relLuminance(rgbOf(full));
   const contrastWhite = 1.05 / (L + 0.05);
   const contrastInk = (L + 0.05) / 0.05;
   return contrastInk > contrastWhite ? "#04070e" : "#fff";

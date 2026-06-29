@@ -4,12 +4,11 @@
 // parsed.owner === org match — and the error mapping must be regression-netted. The DB / GitHub /
 // authz / write boundaries are mocked.
 //
-// IMPORTANT — the 409 case pins CURRENT behavior, which is a KNOWN BUG: unlike the sibling
-// practices/apply route (which surfaces a 409 "won't overwrite your file" refusal), THIS route maps
-// any non-403/404 AppApiError to a 502 "GitHub rejected the write." So a 409 collision from
-// openDraftPr's base-file guard is reported to the user as a 502 write FAILURE. The test asserts the
-// 502 the route returns TODAY so that fixing it (mapping 409→409 with a "won't overwrite" message)
-// is a deliberate, test-visible change rather than a silent one.
+// 409 mapping (code-refactor 06-29 playbooks #1): this route now routes its catch through the shared
+// `mapPrWriteError` (src/lib/github/pr-route.ts), which closed the prior drift — a base-file collision
+// from openDraftPr's overwrite guard now surfaces as a 409 "won't overwrite" refusal, matching the
+// sibling practices/apply + passport/pr routes (it previously dropped 409 to a 502 "write rejected").
+// The 409 test below asserts that unified 409 behavior.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -134,19 +133,19 @@ describe("POST /api/org/playbooks/[id]/apply — authorized happy path", () => {
   });
 });
 
-describe("POST /api/org/playbooks/[id]/apply — 409 won't-overwrite mapping (CURRENT behavior)", () => {
-  it("surfaces openDraftPr's 409 base-file collision as a 502 today (divergence from practices/apply — pin so a fix is deliberate)", async () => {
+describe("POST /api/org/playbooks/[id]/apply — 409 won't-overwrite mapping", () => {
+  it("surfaces openDraftPr's 409 base-file collision as a 409 'won't overwrite' (unified with practices/apply via mapPrWriteError)", async () => {
     mockDraftPr.mockRejectedValue(
       new AppApiError(409, "docs/playbooks/tighten-ci.md", '"docs/playbooks/tighten-ci.md" already exists on main — refusing to overwrite it with a starter artifact.'),
     );
 
     const res = await apply("acme/repo");
 
-    // KNOWN BUG pinned: the 409 refusal is mapped to a 502 "write rejected" instead of a 409
-    // "won't overwrite". A future fix should flip this assertion to 409 deliberately.
-    expect(res.status).toBe(502);
+    // Drift fixed (code-refactor 06-29): the 409 refusal now maps to 409 (was a 502 "write rejected"),
+    // matching the sibling routes' shared mapper rather than the old per-route omission.
+    expect(res.status).toBe(409);
     const json = (await res.json()) as { error: string };
-    expect(json.error).toBe("GitHub rejected the write. Check the repo and base branch.");
+    expect(json.error).toMatch(/overwrite|already exists/i);
 
     // The token WAS minted and the write WAS attempted (the collision is detected inside the write).
     expect(mockToken).toHaveBeenCalledTimes(1);

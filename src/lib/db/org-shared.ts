@@ -2,8 +2,12 @@
 // through org.ts only where part of the public surface; the helpers here are not. All guarded by
 // DATABASE_URL at the call sites.
 
+import { IMPACT_RANK } from "@/lib/scoring/impact";
+
 export const LEVEL_RANK: Record<string, number> = { L1: 1, L2: 2, L3: 3, L4: 4, L5: 5 };
-export const IMPACT_WEIGHT: Record<string, number> = { high: 3, medium: 2, low: 1 };
+/** The db layer's view of the canonical impact weights (src/lib/scoring/impact.ts). Same map, single
+ *  source — kept under this name so the rollup queries' `IMPACT_WEIGHT[impact] ?? n` reads are untouched. */
+export const IMPACT_WEIGHT: Record<string, number> = IMPACT_RANK;
 
 /**
  * Canonicalize an org slug for a lookup: trim + lower-case. Org rows are PERSISTED lower-cased (the
@@ -52,6 +56,65 @@ export function mean(xs: number[]): number {
  *  — always empty-guarded, so copies that omitted the guard are corrected by routing through here. */
 export function roundedMean(xs: number[]): number {
   return Math.round(mean(xs));
+}
+
+/**
+ * Streaming grouped-mean accumulator: feed `(key, value)` pairs, read back each key's ROUNDED mean.
+ * Single-sources the `{ sum, n }`-per-key → `Math.round(sum / n)` idiom the rollups hand-rolled for
+ * per-dimension / per-day / per-team averages (where {@link roundedMean} only covers the materialized-
+ * array case). Backed by a Map, so `keys()`/`entries()` come back in first-seen insertion order —
+ * callers that need a stable order sort explicitly, exactly as the inlined versions did.
+ */
+export class GroupedMean {
+  private readonly acc = new Map<string, { sum: number; n: number }>();
+
+  /** Add one sample to a key's running total. */
+  add(key: string, value: number): void {
+    const e = this.acc.get(key);
+    if (e) {
+      e.sum += value;
+      e.n += 1;
+    } else {
+      this.acc.set(key, { sum: value, n: 1 });
+    }
+  }
+
+  /** Rounded mean for a key (`Math.round(sum / n)`); 0 when the key was never added. */
+  get(key: string): number {
+    const e = this.acc.get(key);
+    return e ? Math.round(e.sum / e.n) : 0;
+  }
+
+  /** Keys in first-seen insertion order. */
+  keys(): string[] {
+    return [...this.acc.keys()];
+  }
+
+  /** `[key, roundedMean]` pairs in first-seen insertion order. */
+  entries(): [string, number][] {
+    return [...this.acc.entries()].map(([k, e]) => [k, Math.round(e.sum / e.n)] as [string, number]);
+  }
+}
+
+/**
+ * Optional date-range where-fragment for a Prisma date column. Returns `{}` when neither bound is
+ * given (the query stays unbounded), else `{ [field]: { gte?, lte? } }` carrying only the bounds that
+ * are present. Single-sources the windowed `{ ...(start ? { gte } : {}), ...(end ? { lte } : {}) }`
+ * spread the rollup queries hand-rolled per call site; `field` selects the column (`scannedAt` by
+ * default, `createdAt` for the recommendation-event query). Spread the result into a `where` object.
+ */
+export function dateRange<F extends string = "scannedAt">(
+  start?: Date | null,
+  end?: Date | null,
+  field: F = "scannedAt" as F,
+): { [K in F]?: { gte?: Date; lte?: Date } } {
+  const out: { [K in F]?: { gte?: Date; lte?: Date } } = {};
+  if (!start && !end) return out;
+  const range: { gte?: Date; lte?: Date } = {};
+  if (start) range.gte = start;
+  if (end) range.lte = end;
+  out[field] = range;
+  return out;
 }
 
 /** Share (0..100) of a person's commits that are AI-attributed; 0 when they have no commits.

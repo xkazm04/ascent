@@ -5,12 +5,11 @@
 
 import { GoogleGenAI } from "@google/genai";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
-import { validateAssessment } from "@/lib/llm/provider";
+import { finalizeAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
-import { parseJsonLoose } from "@/lib/llm/json";
 import { ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
-import { envNumber, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
 
@@ -43,7 +42,7 @@ export class GeminiProvider implements LLMProvider {
         contents: user,
         config: {
           systemInstruction: system,
-          temperature: envNumber("LLM_TEMPERATURE", 0.2),
+          temperature: llmTemperature(),
           responseMimeType: "application/json",
           // Constrain decoding to the assessment contract (the same JSON Schema Bedrock forces as a
           // tool); parseJsonLoose + validateAssessment below remain the safety net.
@@ -54,10 +53,12 @@ export class GeminiProvider implements LLMProvider {
     } finally {
       clear();
     }
-    const text = response.text;
-    if (!text) throw new Error("Empty response from Gemini.");
     const um = response.usageMetadata;
-    opts.onUsage?.({ inputTokens: um?.promptTokenCount, outputTokens: um?.candidatesTokenCount });
-    return validateAssessment(parseJsonLoose(text));
+    return finalizeAssessment(
+      response.text,
+      { inputTokens: um?.promptTokenCount, outputTokens: um?.candidatesTokenCount },
+      opts,
+      "Gemini",
+    );
   }
 }

@@ -3,19 +3,16 @@
 // Update or remove a maturity goal.
 
 import { NextResponse } from "next/server";
-import { deleteGoal, getGoalOrgSlug, isDbConfigured, updateGoal } from "@/lib/db";
-import { requireOrgAccess } from "@/lib/authz";
+import { deleteGoal, getGoalOrgSlug, updateGoal } from "@/lib/db";
+import { invalidTargetDate, rowGate } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // DB + per-row tenant gate: the goal must exist and the caller must own its org. Returns the
 // blocking response (503/404/401/403), or null when allowed.
-async function gate(id: string): Promise<NextResponse | null> {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Goals require a database." }, { status: 503 });
-  const org = await getGoalOrgSlug(id);
-  if (!org) return NextResponse.json({ error: "Goal not found." }, { status: 404 });
-  return requireOrgAccess(org);
+function gate(id: string): Promise<NextResponse | null> {
+  return rowGate({ resourceLabel: "Goals", notFound: "Goal not found.", getOrgSlug: getGoalOrgSlug, id });
 }
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -23,9 +20,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const blocked = await gate(id);
   if (blocked) return blocked;
   const body = (await request.json().catch(() => ({}))) as { status?: string; target?: number; label?: string; targetDate?: string | null };
-  if (body.targetDate != null && Number.isNaN(Date.parse(body.targetDate))) {
-    return NextResponse.json({ error: "targetDate must be an ISO date (YYYY-MM-DD)." }, { status: 400 });
-  }
+  const badDate = invalidTargetDate(body.targetDate);
+  if (badDate) return badDate;
   try {
     await updateGoal(id, body);
     return NextResponse.json({ ok: true });

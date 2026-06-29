@@ -7,9 +7,7 @@ import type {
   DimensionId,
   DimensionResult,
   Discrepancy,
-  Effort,
   Governance,
-  Impact,
   LevelId,
   LlmRoadmapItem,
   PersistedRecommendation,
@@ -26,11 +24,44 @@ import { stackFitFromLanguage } from "@/lib/analyze/stack-fit";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, type AppPassport } from "@/lib/analyze/passport";
 import { projectedGain } from "@/lib/scoring/engine";
 import { reportPermalink } from "@/lib/ui";
-import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
+import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseJson, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 
 // reportPermalink now lives in @/lib/ui (a client-safe module, so the trend charts can build the
 // same link); re-exported here for the existing @/lib/db barrel + server callers.
 export { reportPermalink };
+
+/**
+ * The tenant-scoped repo resolve shared by every read in this module: resolve `orgSlug` → orgId, then
+ * look up the org-scoped repository via `lookup` (which keeps each caller's precise `select`/`include`
+ * and Prisma's inferred row type). Returns null when the org is unknown or the repo isn't found in it
+ * — the exact short-circuit each site previously stated inline. The `orgId_fullName` lookup is the
+ * single most tenant-sensitive step (`fullName` is unique only *within* an org), so it lives in one
+ * place rather than being re-stated six times.
+ *
+ * `guardPrivate` (default off) additionally REFUSES a private repo served out of the shared public org
+ * — the cross-tenant disclosure backstop: a private repo's data is never served from the anonymous
+ * public read surface. This is byte-for-byte the inline guard
+ * (`orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate`) that getRepositoryHistory / getScanReportByCommit
+ * carried; the other four readers never applied it and still don't (they pass `guardPrivate` off).
+ * Enabling it requires `lookup` to select `isPrivate`.
+ */
+async function resolveScopedRepo<R>(
+  orgSlug: string,
+  lookup: (orgId: string) => Promise<R | null>,
+  opts: { guardPrivate?: boolean } = {},
+): Promise<R | null> {
+  const orgId = await resolveOrgId(orgSlug);
+  if (!orgId) return null;
+  const repo = await lookup(orgId);
+  if (!repo) return null;
+  // Only the guarded callers (getRepositoryHistory / getScanReportByCommit) pass guardPrivate, and
+  // both select the full repo row, so `isPrivate` is always present when this branch runs; the narrow-
+  // select callers never opt in. Read it through a tiny cast since R is the caller's row shape.
+  if (opts.guardPrivate && orgSlug === DEFAULT_ORG_SLUG && (repo as { isPrivate?: boolean }).isPrivate) {
+    return null;
+  }
+  return repo;
+}
 
 /**
  * Deterministic "latest first" ordering for scan reads (scan-persistence-history #3). `scannedAt` is
@@ -103,12 +134,12 @@ export async function getHeadHint(
   return dbReadSafe(async () => {
     const prisma = getPrisma();
     const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
-    const orgId = await resolveOrgId(orgSlug);
-    if (!orgId) return null;
-    const repo = await prisma.repository.findUnique({
-      where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
-      select: { headSha: true, headEtag: true },
-    });
+    const repo = await resolveScopedRepo(orgSlug, (orgId) =>
+      prisma.repository.findUnique({
+        where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
+        select: { headSha: true, headEtag: true },
+      }),
+    );
     if (!repo?.headSha) return null;
     return { headSha: repo.headSha, etag: repo.headEtag ?? null };
   }, null);
@@ -128,12 +159,12 @@ export async function getRepoPassport(
   if (!isDbConfigured()) return null;
   return dbReadSafe(async () => {
     const prisma = getPrisma();
-    const orgId = await resolveOrgId(opts.orgSlug ?? DEFAULT_ORG_SLUG);
-    if (!orgId) return null;
-    const repo = await prisma.repository.findUnique({
-      where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
-      select: { id: true, passportOverridesJson: true },
-    });
+    const repo = await resolveScopedRepo(opts.orgSlug ?? DEFAULT_ORG_SLUG, (orgId) =>
+      prisma.repository.findUnique({
+        where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
+        select: { id: true, passportOverridesJson: true },
+      }),
+    );
     if (!repo) return null;
     const scan = await prisma.scan.findFirst({
       where: { repoId: repo.id, ...(opts.headSha ? { headSha: opts.headSha } : {}) },
@@ -182,6 +213,11 @@ const HISTORY_POINT_SELECT = {
   engineModel: true,
   scannedAt: true,
 } as const;
+
+/** The per-dimension columns the trend/score readers project (dimId + score). Co-located with
+ *  HISTORY_POINT_SELECT so the dimension sub-select stays single-sourced across the read queries that
+ *  chart by dimension (history, comparison list, public gallery, latest recommendations). */
+const DIM_SCORE_SELECT = { dimId: true, score: true } as const;
 
 /** Map a selected Scan row (with optional `dimensions`) to the wire `HistoryPoint`. */
 function historyPointFrom(s: {
@@ -234,15 +270,15 @@ export async function getRepositoryHistory(
   const includeDimensions = opts.includeDimensions ?? true;
   const fullName = canonicalRepoFullName(owner, name);
 
-  const orgId = await resolveOrgId(orgSlug);
-  if (!orgId) return null;
-  const repo = await prisma.repository.findUnique({
-    where: { orgId_fullName: { orgId, fullName } },
-  });
-  if (!repo) return null;
   // Defense-in-depth (cross-tenant disclosure): a private repo's history is never served from the
-  // shared public org (the anonymous read surface). Mirrors the guard in getScanReportByCommit.
-  if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
+  // shared public org (the anonymous read surface). Mirrors the guard in getScanReportByCommit —
+  // applied inside resolveScopedRepo via guardPrivate.
+  const repo = await resolveScopedRepo(
+    orgSlug,
+    (orgId) => prisma.repository.findUnique({ where: { orgId_fullName: { orgId, fullName } } }),
+    { guardPrivate: true },
+  );
+  if (!repo) return null;
 
   // Two statically-typed queries (rather than a dynamic select) so the result type stays precise:
   // the light branch genuinely omits the dimensions join at the DB, not just in the mapping. Each
@@ -253,7 +289,7 @@ export async function getRepositoryHistory(
     ? (
         await prisma.scan.findMany({
           ...args,
-          select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
+          select: { ...HISTORY_POINT_SELECT, dimensions: { select: DIM_SCORE_SELECT } },
         })
       ).map(historyPointFrom)
     : (await prisma.scan.findMany({ ...args, select: HISTORY_POINT_SELECT })).map(historyPointFrom);
@@ -400,11 +436,9 @@ export async function getScanComparison(
   const limit = Math.max(1, Math.min(200, Math.trunc(opts.limit ?? 60) || 60));
   const fullName = canonicalRepoFullName(owner, name);
 
-  const orgId = await resolveOrgId(orgSlug);
-  if (!orgId) return null;
-  const repo = await prisma.repository.findUnique({
-    where: { orgId_fullName: { orgId, fullName } },
-  });
+  const repo = await resolveScopedRepo(orgSlug, (orgId) =>
+    prisma.repository.findUnique({ where: { orgId_fullName: { orgId, fullName } } }),
+  );
   if (!repo) return null;
   // Defense-in-depth (cross-tenant disclosure): never serve a PRIVATE repo's comparison (overall +
   // per-dimension scores, evidence, gaps, recommendations) out of the shared public org — that org is
@@ -417,7 +451,7 @@ export async function getScanComparison(
     where: { repoId: repo.id },
     orderBy: SCAN_ORDER,
     take: limit,
-    select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
+    select: { ...HISTORY_POINT_SELECT, dimensions: { select: DIM_SCORE_SELECT } },
   });
 
   const scans: HistoryPoint[] = list.map(historyPointFrom);
@@ -523,7 +557,7 @@ export async function getPublicScanGallery(
           rigorScore: true,
           posture: true,
           scannedAt: true,
-          dimensions: { select: { dimId: true, score: true } },
+          dimensions: { select: DIM_SCORE_SELECT },
         },
       },
     },
@@ -577,11 +611,9 @@ export async function getLatestRecommendations(
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const fullName = canonicalRepoFullName(owner, name);
 
-  const orgId = await resolveOrgId(orgSlug);
-  if (!orgId) return null;
-  const repo = await prisma.repository.findUnique({
-    where: { orgId_fullName: { orgId, fullName } },
-  });
+  const repo = await resolveScopedRepo(orgSlug, (orgId) =>
+    prisma.repository.findUnique({ where: { orgId_fullName: { orgId, fullName } } }),
+  );
   if (!repo) return null;
 
   const scan = await prisma.scan.findFirst({
@@ -592,7 +624,7 @@ export async function getLatestRecommendations(
       // Dimension scores + archetype feed projectedGain — engine-true "+N pts · unlocks LX" per
       // item, mirroring the live report's PayoffChip on the persisted read path.
       archetype: true,
-      dimensions: { select: { dimId: true, score: true } },
+      dimensions: { select: DIM_SCORE_SELECT },
       recommendations: {
         orderBy: { createdAt: "asc" },
         select: {
@@ -624,16 +656,10 @@ export async function getLatestRecommendations(
 }
 
 // ---- Pinned snapshot reconstruction (shareable permalinks) -------------------
-// parseStringArray now lives in scans-shared (the dependency sink) — imported above.
-
-function parseJson<T>(s: string | null | undefined): T | null {
-  if (!s) return null;
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    return null;
-  }
-}
+// The persisted-column parsers all build on the canonical `parseJson` primitive (scans-shared, the
+// dependency sink), so the raw JSON.parse try/catch exists in exactly one place. `parseStringArray`
+// and `parseJson` are imported above; the object/number/discrepancy parsers below layer their own
+// shape validation on top.
 
 /**
  * Parse persisted JSON that MUST be a plain object. A valid-JSON-but-wrong-shape row (stored as an
@@ -658,18 +684,15 @@ function parseNumberArray(s: string | null | undefined): number[] | null {
   return p.filter((n): n is number => typeof n === "number" && Number.isFinite(n));
 }
 
-/** Parse the persisted `discrepancies` JSON into validated Discrepancy[] (drops malformed rows). */
+/** Parse the persisted `discrepancies` JSON into validated Discrepancy[] (drops malformed rows). Built
+ *  on `parseJson` (null/empty/malformed → null → not an array → `[]`), so the same `[]`-on-bad-input
+ *  fallback is preserved without re-rolling the try/catch. */
 function parseDiscrepancies(s: string | null | undefined): Discrepancy[] {
-  if (!s) return [];
-  try {
-    const p = JSON.parse(s);
-    if (!Array.isArray(p)) return [];
-    return p
-      .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
-      .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
-  } catch {
-    return [];
-  }
+  const p = parseJson<unknown>(s);
+  if (!Array.isArray(p)) return [];
+  return p
+    .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
+    .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
 }
 
 /**
@@ -688,17 +711,20 @@ export async function getScanReportByCommit(
   const headSha = opts.headSha;
   const fullName = canonicalRepoFullName(owner, name);
 
-  const orgId = await resolveOrgId(orgSlug);
-  if (!orgId) return null;
-  const repo = await prisma.repository.findUnique({
-    where: { orgId_fullName: { orgId, fullName } },
-    include: { contributors: { orderBy: { commits: "desc" }, take: 50 } },
-  });
-  if (!repo) return null;
   // Defense-in-depth (cross-tenant disclosure): never serve a PRIVATE repo's report out of the shared
   // public org — that org is the anonymous read surface (the report page / history resolve to it for
   // any visitor without the installation). Backstops a legacy row from before the persist-side guard.
-  if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
+  // Applied inside resolveScopedRepo via guardPrivate.
+  const repo = await resolveScopedRepo(
+    orgSlug,
+    (orgId) =>
+      prisma.repository.findUnique({
+        where: { orgId_fullName: { orgId, fullName } },
+        include: { contributors: { orderBy: { commits: "desc" }, take: 50 } },
+      }),
+    { guardPrivate: true },
+  );
+  if (!repo) return null;
 
   const scan = await prisma.scan.findFirst({
     where: { repoId: repo.id, ...(headSha ? { headSha } : {}) },
@@ -720,15 +746,22 @@ export async function getScanReportByCommit(
     gaps: parseStringArray(d.gaps),
   }));
 
-  const roadmap: LlmRoadmapItem[] = scan.recommendations.map((r) => ({
-    title: r.title,
-    dimension: r.dimId as DimensionId,
-    impact: r.impact as Impact,
-    effort: r.effort as Effort,
-    rationale: r.rationale,
-    explore: parseStringArray(r.explore),
-    levelUnlock: r.levelUnlock ?? undefined,
-  }));
+  // Reuse the canonical Recommendation-row mapper (toPersistedRec) for the shared field decoding
+  // (dimId/impact/effort casts, explore via parseStringArray, levelUnlock ?? undefined), then project
+  // down to the LlmRoadmapItem shape. Byte-identical to the prior inline mapping for these fields; the
+  // extra PersistedRecommendation fields (id/status/assignee/targetDate) are simply not carried over.
+  const roadmap: LlmRoadmapItem[] = scan.recommendations.map((r) => {
+    const rec = toPersistedRec(r);
+    return {
+      title: rec.title,
+      dimension: rec.dimension,
+      impact: rec.impact,
+      effort: rec.effort,
+      rationale: rec.rationale,
+      explore: rec.explore,
+      levelUnlock: rec.levelUnlock,
+    };
+  });
 
   // Contributors are stored as a per-repo LATEST-scan snapshot (persistScanReport replaces them
   // wholesale on every scan), so they describe `scan` ONLY when `scan` is the latest. For an older

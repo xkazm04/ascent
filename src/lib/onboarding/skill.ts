@@ -20,8 +20,6 @@ const ASCENT_URL = "https://ascent.dev";
 export interface GeneratedSkill {
   /** Skill identifier / slash-command name. */
   name: string;
-  /** File name within the skill directory. */
-  fileName: string;
   /** Repo-relative path the file should live at. */
   path: string;
   /** Full SKILL.md body to write. */
@@ -47,7 +45,7 @@ export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts): Gen
     guardrails(),
     footer(report),
   ].join("\n\n"); // blank line between every section so headings/`---` aren't glued to prose
-  return { name: SKILL_NAME, fileName: "SKILL.md", path: `.claude/skills/${SKILL_NAME}/SKILL.md`, body, trackIds: tracks.map((t) => t.id) };
+  return { name: SKILL_NAME, path: `.claude/skills/${SKILL_NAME}/SKILL.md`, body, trackIds: tracks.map((t) => t.id) };
 }
 
 // ---- sections -----------------------------------------------------------------

@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import { Prisma } from "@prisma/client";
 import { getPrisma, withRetry } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 /** The implicit tenant for anonymous/public scans — the shared org every DB-less-MVP scan lands in. */
 export const DEFAULT_ORG_SLUG = "public";
@@ -179,29 +180,44 @@ export function withRepoLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
  * exist. Repo lookups MUST go through this: `fullName` is only unique *within* an org
  * (`@@unique([orgId, fullName])`), so resolving by fullName alone (findFirst) can return
  * another tenant's repo and leak its scores/recommendations across org boundaries.
+ *
+ * Delegates to the canonical {@link getOrgId} (the single source of truth — it normalizes the slug
+ * and guards `isDbConfigured()`) instead of keeping a private copy of the lookup. Behavior is
+ * unchanged for the scan layer: the scan path always resolves with an already-lowercased slug
+ * (the route lowercases the owner; `DEFAULT_ORG_SLUG` is "public"), so the normalization is a no-op,
+ * and every caller already short-circuits on `isDbConfigured()` before reaching here.
  */
 export async function resolveOrgId(orgSlug: string): Promise<string | null> {
-  const org = await getPrisma().organization.findUnique({
-    where: { slug: orgSlug },
-    select: { id: true },
-  });
-  return org?.id ?? null;
+  return getOrgId(orgSlug);
+}
+
+/**
+ * Parse a persisted JSON column to T, or null when the column is null/empty or holds malformed JSON.
+ * The single canonical "JSON.parse with a safe fallback" primitive for the scan persistence layer —
+ * every other persisted-column parser (`parseStringArray` here; `parseJsonObject` / `parseNumberArray`
+ * / `parseDiscrepancies` in scans-read) is built on it, so the raw try/catch exists in exactly one
+ * place and can't drift in edge handling. Lives here (the dependency sink) so scans-read can share it
+ * without an import cycle. Never throws.
+ */
+export function parseJson<T>(s: string | null | undefined): T | null {
+  if (!s) return null;
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Parse a persisted string-array JSON column (`explore`, `evidence`, `gaps`, …): malformed JSON,
  * null/empty, or a non-array all yield `[]`, and non-string entries are dropped. The single canonical
  * parser for stored `string[]` columns — lives here (the dependency sink) so both scans-shared and
- * scans-read use one implementation instead of two that drift in edge handling.
+ * scans-read use one implementation instead of two that drift in edge handling. Built on `parseJson`
+ * so the raw try/catch isn't re-rolled (null/empty/malformed → null → not an array → `[]`).
  */
 export function parseStringArray(s: string | null | undefined): string[] {
-  if (!s) return [];
-  try {
-    const p = JSON.parse(s);
-    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
+  const p = parseJson<unknown>(s);
+  return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
 }
 
 /**

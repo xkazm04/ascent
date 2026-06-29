@@ -8,6 +8,7 @@
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
+import { shortDate, shortDateSafe } from "@/components/ui/format";
 
 /** Free weekly public-scan allowance attribution, from the x-ascent-quota-scope header. */
 export type QuotaScope = "anon" | "user";
@@ -28,7 +29,7 @@ function canOfferSignIn(scope: QuotaScope): boolean {
 /** Human-friendly date a weekly quota window resets on (epoch ms). Coarse — a day is precise enough. */
 export function formatResetAt(resetAt: number | null): string {
   if (!resetAt || !Number.isFinite(resetAt)) return "in a few days";
-  return `on ${new Date(resetAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  return `on ${shortDate(new Date(resetAt))}`;
 }
 
 /**
@@ -136,10 +137,8 @@ export function QuotaStaleNotice({
   scope: QuotaScope;
   signInNext: string;
 }) {
-  const scannedMs = Date.parse(scannedAt);
-  const scannedOn = Number.isFinite(scannedMs)
-    ? ` from ${new Date(scannedMs).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-    : "";
+  const scannedDate = shortDateSafe(scannedAt);
+  const scannedOn = scannedDate ? ` from ${scannedDate}` : "";
   return (
     <QuotaBannerShell tone="warn" cta={quotaCta(scope, signInNext, true)}>
       Showing the last saved scan{scannedOn} — your free weekly limit is used; it resets{" "}

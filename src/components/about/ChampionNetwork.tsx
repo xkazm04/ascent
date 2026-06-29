@@ -1,20 +1,15 @@
 "use client";
 
 // "Spread what works" — the ChampionComposition (practices propagate from champions, healing weak
-// links) played via the shared RemotionStage. See champion/ChampionComposition + champion/graph.
+// links) played via the shared RemotionDiagram. See champion/ChampionComposition + champion/graph.
 
-import { RemotionStage } from "./RemotionStage";
+import { RemotionDiagram } from "./RemotionStage";
 import { ChampionComposition } from "./champion/ChampionComposition";
-import { W, H, FPS, DURATION } from "./champion/graph";
 
 export function ChampionNetwork() {
   return (
-    <RemotionStage
+    <RemotionDiagram
       component={ChampionComposition}
-      durationInFrames={DURATION}
-      fps={FPS}
-      width={W}
-      height={H}
       legend={
         <>
           <span className="flex items-center gap-1.5">

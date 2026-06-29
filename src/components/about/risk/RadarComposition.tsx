@@ -7,8 +7,8 @@
 // count open risks down and mitigations up. Frame-deterministic via useCurrentFrame.
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
-import { W, H, CX, CY, R, BLIPS, WAVE_START, WAVE_END, WAVE_MAX, BEAM_END } from "./radar";
-import { MONO, clamp01, Metric, lerpHex } from "../compositionShared";
+import { CX, CY, R, BLIPS, WAVE_START, WAVE_END, WAVE_MAX, BEAM_END } from "./radar";
+import { MONO, clamp01, Metric, lerpHex, W, H } from "../compositionShared";
 
 const GREEN = "#22c55e";
 

@@ -12,13 +12,14 @@ export interface SSEMessage {
 /** Parse a single SSE frame ("event: …\ndata: …") into its name + JSON payload. */
 export function parseSSE(block: string): SSEMessage {
   let event: string | null = null;
-  // Per the SSE spec, consecutive `data:` lines in one frame are concatenated with a "\n" separator —
-  // accumulate them and join, rather than fusing them with no separator (which would turn a payload
-  // that ever spans multiple lines into invalid JSON and silently drop the frame). Each line has at
-  // most one leading space stripped (the spec's optional single space after the colon); the final
-  // assembled string is trimmed before parsing.
+  // Per the SSE spec, consecutive `data:` lines in one frame are JOINED WITH "\n" (stripping a single
+  // leading space after the colon), then the assembled string is trimmed before parsing. The old per-
+  // line trim()+bare-concat dropped those newlines and the separator, silently corrupting multi-line /
+  // pretty-printed JSON payloads; joining with newlines reassembles a split payload into valid JSON.
   const dataLines: string[] = [];
-  for (const line of block.split("\n")) {
+  for (const raw of block.split("\n")) {
+    // Tolerate CRLF: strip a trailing \r that a proxy may have left on the line.
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
     if (line.startsWith("event:")) event = line.slice(6).trim();
     else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
   }
@@ -34,10 +35,15 @@ export function parseSSE(block: string): SSEMessage {
  * Read an SSE response body to completion, invoking `onMessage` for every "\n\n"-delimited
  * frame as it arrives. Empty keepalive frames (no event and no data) are skipped. Resolves
  * when the stream closes; pass an aborted signal's body to stop early.
+ *
+ * `onChunk` (optional) fires once per successful `reader.read()` — i.e. on every byte of progress,
+ * before its frames are drained — so a caller can re-arm a stall watchdog without re-implementing the
+ * reader/decoder/buffer loop (see src/components/onboarding/importScan.ts).
  */
 export async function readSSE(
   body: ReadableStream<Uint8Array>,
   onMessage: (msg: SSEMessage) => void,
+  onChunk?: () => void,
 ): Promise<void> {
   const reader = body.getReader();
   const dec = new TextDecoder();
@@ -45,6 +51,7 @@ export async function readSSE(
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    onChunk?.();
     buf += dec.decode(value, { stream: true });
     let nl: number;
     while ((nl = buf.indexOf("\n\n")) >= 0) {

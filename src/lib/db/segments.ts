@@ -7,6 +7,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { postureFor } from "@/lib/maturity/model";
 import { getOrgRollup, type OrgRepoRow } from "@/lib/db/org";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { roundedMean } from "@/lib/db/org-shared";
 
 const DEFAULT_COLOR = "#3b9eff";
@@ -32,15 +33,10 @@ export interface SegmentRow {
   createdAt: string;
 }
 
-async function resolveOrgId(slug: string): Promise<string | null> {
-  const org = await getPrisma().organization.findUnique({ where: { slug }, select: { id: true } });
-  return org?.id ?? null;
-}
-
 /** All segments for an org, with live tagged-repo counts, newest first. */
 export async function listSegments(orgSlug: string): Promise<SegmentRow[] | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const segments = await getPrisma().segment.findMany({
     where: { orgId },
@@ -115,7 +111,7 @@ export async function setRepoSegment(
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return false;
   const [segment, repo] = await Promise.all([
     prisma.segment.findFirst({ where: { id: segmentId, orgId }, select: { id: true } }),
@@ -151,7 +147,7 @@ export async function setRepoSegmentsBulk(
 ): Promise<number> {
   if (!isDbConfigured()) return -1;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return -1;
   const segment = await prisma.segment.findFirst({ where: { id: segmentId, orgId }, select: { id: true } });
   if (!segment) return -1;
@@ -178,7 +174,7 @@ export async function getRepoSegmentMap(
   orgSlug: string,
 ): Promise<Record<string, { id: string; name: string; color: string }[]>> {
   if (!isDbConfigured()) return {};
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return {};
   const rows = await getPrisma().repoSegment.findMany({
     where: { segment: { orgId } },
@@ -305,13 +301,22 @@ export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSumm
   });
 }
 
-/** Reduce a segment (or the whole fleet, when `seg` is null) to its headline maturity summary. */
-async function summarizeSegment(orgSlug: string, seg: { id: string; name: string } | null): Promise<SegmentSummary | null> {
-  const rollup = await getOrgRollup(orgSlug, undefined, seg?.id ?? null);
+/**
+ * Shared rollup→summary reducer behind summarizeSegment AND summarizeTechStack (tech-groups.ts):
+ * scope getOrgRollup to a custom segment OR an auto tech-stack group (or neither = whole fleet), then
+ * reduce it to the headline SegmentSummary. Both callers produced an identical mapping — only the
+ * rollup scope and the id/name labels differed — so the reduction lives here once. Passing a null
+ * scope id is equivalent to omitting it (techGroupScope/segmentScope treat null and undefined alike).
+ */
+export async function summarizeScopedRollup(
+  orgSlug: string,
+  opts: { segmentId?: string | null; groupId?: string | null; id: string | null; name: string },
+): Promise<SegmentSummary | null> {
+  const rollup = await getOrgRollup(orgSlug, undefined, opts.segmentId ?? null, opts.groupId ?? null);
   if (!rollup) return null;
   return {
-    id: seg?.id ?? null,
-    name: seg?.name ?? "Whole fleet",
+    id: opts.id,
+    name: opts.name,
     repoCount: rollup.repoCount,
     scannedCount: rollup.scannedCount,
     avgOverall: rollup.avgOverall,
@@ -320,6 +325,11 @@ async function summarizeSegment(orgSlug: string, seg: { id: string; name: string
     posture: postureFor(rollup.avgAdoption, rollup.avgRigor).id,
     dimAverages: rollup.dimAverages,
   };
+}
+
+/** Reduce a segment (or the whole fleet, when `seg` is null) to its headline maturity summary. */
+function summarizeSegment(orgSlug: string, seg: { id: string; name: string } | null): Promise<SegmentSummary | null> {
+  return summarizeScopedRollup(orgSlug, { segmentId: seg?.id ?? null, id: seg?.id ?? null, name: seg?.name ?? "Whole fleet" });
 }
 
 /**
@@ -334,7 +344,7 @@ export async function compareSegments(
   bId: string | null,
 ): Promise<SegmentComparison | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const ids = bId ? [aId, bId] : [aId];
   const segments = await getPrisma().segment.findMany({

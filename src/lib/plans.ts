@@ -18,6 +18,13 @@ export interface PlanFeature {
   seats: number | null;
   /** Scan-history retention in days; null = unlimited/inherit the deployment default. */
   retentionDays: number | null;
+  /** May apply white-label branding to briefings — Team and up (capability flag, data-driven so the
+   *  catalog stays the single source of truth instead of an inline tier comparison). */
+  whiteLabel: boolean;
+  /** May author/manage the Org Skills Library — Team and up (reads stay open; create/edit/archive gated). */
+  skillsLibrary: boolean;
+  /** May connect its own LLM (BYOM / Bedrock) — Enterprise-only. */
+  byom: boolean;
   blurb: string;
   features: string[];
 }
@@ -30,6 +37,9 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     unlimited: false,
     seats: 1,
     retentionDays: 30,
+    whiteLabel: false,
+    skillsLibrary: false,
+    byom: false,
     blurb: "Free public-repo scans, badge, and the full report — plus 10 org scans a month.",
     features: ["10 scans / month included", "Free public-repo scans (fair-use)", "Maturity report + roadmap", "README badge", "1 member"],
   },
@@ -40,6 +50,9 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     unlimited: false,
     seats: 3,
     retentionDays: 180,
+    whiteLabel: false,
+    skillsLibrary: false,
+    byom: false,
     blurb: "Private repos + the org fleet dashboard for a small team.",
     features: ["100 scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "3 members", "180-day history"],
   },
@@ -50,6 +63,9 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     unlimited: false,
     seats: 10,
     retentionDays: 365,
+    whiteLabel: true,
+    skillsLibrary: true,
+    byom: false,
     blurb: "More volume, more seats, and segment-scoped intelligence.",
     features: ["500 scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "10 members", "1-year history"],
   },
@@ -60,6 +76,9 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     unlimited: true,
     seats: null,
     retentionDays: null,
+    whiteLabel: true,
+    skillsLibrary: true,
+    byom: true,
     blurb: "Unlimited scans, SSO-ready access, and custom retention.",
     features: ["Unlimited private scans", "Unlimited members", "Custom retention", "Priority support"],
   },
@@ -69,12 +88,20 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
 export const PLAN_ORDER: PlanId[] = ["free", "pro", "team", "enterprise"];
 
 export function isPlanId(v: string): v is PlanId {
-  return v === "free" || v === "pro" || v === "team" || v === "enterprise";
+  // Derived from the catalog so the valid set has one runtime source (the PLAN_FEATURES keys) instead
+  // of a hand-enumerated list that must be kept in lockstep with the union/order/catalog.
+  return Object.prototype.hasOwnProperty.call(PLAN_FEATURES, v);
+}
+
+/** Coerce an arbitrary plan string to a known PlanId, defaulting unknown/blank to free. The single
+ *  normalizer the catalog lookup and the capability gates share (was open-coded at each site). */
+function normalizePlan(plan: string | null | undefined): PlanId {
+  return plan && isPlanId(plan) ? plan : "free";
 }
 
 /** Resolve a stored plan string to its feature set, defaulting unknown/blank to free. */
 export function planFeatures(plan: string | null | undefined): PlanFeature {
-  return (plan && isPlanId(plan) ? PLAN_FEATURES[plan] : null) ?? PLAN_FEATURES.free;
+  return PLAN_FEATURES[normalizePlan(plan)];
 }
 
 /** Plans whose private scans are included (never consume credits) — now data-driven. */
@@ -128,23 +155,20 @@ export function resolveScanCharge(opts: { plan: string | null | undefined; usage
 /** Plans that include white-label briefing branding — Team and up (was Enterprise-only; opened up so a
  *  Team-tier reseller can brand the reports they hand to clients). */
 export function planAllowsWhiteLabel(plan: string | null | undefined): boolean {
-  const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "team" || id === "enterprise";
+  return planFeatures(plan).whiteLabel;
 }
 
 /** Plans that may author + manage the Org Skills Library (Feature 2) — Team and up, for parity with
  *  Playbooks/Segments (§8.6). Reads stay open to all members; only create/edit/archive is gated. */
 export function planAllowsSkillsLibrary(plan: string | null | undefined): boolean {
-  const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "team" || id === "enterprise";
+  return planFeatures(plan).skillsLibrary;
 }
 
 /** Plans that may connect their own LLM (BYOM / Bedrock — Feature 1) — Enterprise-only (§8.4): it's the
  *  marquee enterprise unlock (inference in the org's own AWS account/bill). A downgrade dormants any
  *  saved config (the provider resolver + settings route both gate on this). */
 export function planAllowsByom(plan: string | null | undefined): boolean {
-  const id = plan && isPlanId(plan) ? plan : "free";
-  return id === "enterprise";
+  return planFeatures(plan).byom;
 }
 
 /**

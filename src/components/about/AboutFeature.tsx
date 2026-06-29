@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Kicker } from "@/components/ui";
 import { Reveal } from "@/components/deck/Reveal";
+import { DeckSection } from "@/components/deck/DeckSection";
 import { GlowBackdrop } from "./GlowBackdrop";
 
 /** One heavy-hitter capability as a full-viewport deck section: editorial copy on one side, a live
@@ -25,7 +26,7 @@ export function AboutFeature({
   children: ReactNode;
 }) {
   return (
-    <section id={id} className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <DeckSection id={id}>
       <div className="mx-auto grid w-full max-w-6xl items-center gap-10 px-5 lg:grid-cols-2">
         <Reveal className={reverse ? "lg:order-last" : ""}>
           <Kicker>{kicker}</Kicker>
@@ -56,6 +57,6 @@ export function AboutFeature({
           </div>
         </Reveal>
       </div>
-    </section>
+    </DeckSection>
   );
 }

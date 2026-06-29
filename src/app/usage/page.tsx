@@ -7,6 +7,7 @@ import { getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTo
 import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { canReadOrg } from "@/lib/authz";
 import { timeAgo } from "@/lib/ui";
+import { providerLabel } from "@/lib/llm/config";
 
 export const metadata = {
   title: "Usage & metering — Ascent",
@@ -45,17 +46,19 @@ function Stat({ label, value, sub }: { label: string; value: string | number; su
   );
 }
 
-// Per-provider label + accent so the "By inference engine" bars are distinguishable at a glance
-// (was every provider in the same azure with its raw id). Unknown ids fall back to accent + the id.
-const PROVIDER_META: Record<string, { label: string; color: string }> = {
-  gemini: { label: "Gemini", color: "#4285f4" },
-  bedrock: { label: "AWS Bedrock", color: "#ff9900" },
-  claude: { label: "Claude", color: "#d97757" },
-  "claude-cli": { label: "Claude CLI", color: "#d97757" },
-  mock: { label: "Mock (deterministic)", color: "#94a3b8" },
+// Per-provider accent so the "By inference engine" bars are distinguishable at a glance (was every
+// provider in the same azure with its raw id). The label half is single-sourced via providerLabel
+// (@/lib/llm/config); only this chart-color overlay is a local UI concern. Unknown ids fall back to
+// accent + the id.
+const PROVIDER_COLOR: Record<string, string> = {
+  gemini: "#4285f4",
+  bedrock: "#ff9900",
+  claude: "#d97757",
+  "claude-cli": "#d97757",
+  mock: "#94a3b8",
 };
 function providerMeta(id: string): { label: string; color: string } {
-  return PROVIDER_META[id] ?? { label: id, color: "var(--color-accent)" };
+  return { label: providerLabel(id), color: PROVIDER_COLOR[id] ?? "var(--color-accent)" };
 }
 
 export default async function UsagePage({

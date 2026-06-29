@@ -3,7 +3,7 @@
 
 export type AboutFeatureId = "xray" | "roi" | "adoption" | "risk";
 
-export interface AboutFeatureData {
+interface AboutFeatureData {
   id: AboutFeatureId;
   kicker: string;
   title: string;

@@ -7,6 +7,7 @@
 // lazily when the popover opens. Server passes the initial balance so the chip paints without a fetch.
 
 import { useEffect, useRef, useState } from "react";
+import type { CreditPack } from "@/lib/polar";
 
 interface LedgerEntry {
   id: string;
@@ -17,13 +18,9 @@ interface LedgerEntry {
   createdAt: string;
 }
 
-/** A purchasable credit pack passed from the server (mirrors lib/polar CreditPack; declared locally so
- *  this client component never bundles the Polar SDK that lib/polar imports). */
-interface Pack {
-  productId: string;
-  credits: number;
-  label: string;
-}
+// The purchasable credit-pack shape is `CreditPack` from @/lib/polar. It's imported type-only, so the
+// TS/SWC compiler fully erases the import — this client component never pulls lib/polar (or the Polar
+// SDK it requires) into its bundle, while the pack shape stays single-sourced with the server.
 
 export function CreditsControl({
   org,
@@ -39,7 +36,7 @@ export function CreditsControl({
   unlimited: boolean;
   grantsEnabled: boolean;
   buyEnabled?: boolean;
-  packs?: Pack[];
+  packs?: CreditPack[];
   /** Free metered scans LEFT in the plan's monthly allowance (from checkScanEntitlement). While this
    *  is > 0, a 0 prepaid balance does NOT pause scanning — the allowance still covers them. */
   allowanceRemaining?: number;

@@ -9,6 +9,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { useInView, useReducedMotion } from "framer-motion";
 import { useMounted } from "@/components/report/chartMotion";
+import { W, H, FPS, DURATION } from "./compositionShared";
 
 export function RemotionStage({
   component,
@@ -106,5 +107,24 @@ export function RemotionStage({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * An /about Remotion diagram on the shared composition frame (W×H / FPS / DURATION from
+ * compositionShared): pass the composition + its legend and the playback envelope is single-sourced,
+ * so the champion network and risk radar can't drift in canvas size or timing. Thin wrapper over
+ * RemotionStage — collapses the two near-identical per-diagram wrappers into one.
+ */
+export function RemotionDiagram({ component, legend }: { component: React.FC; legend?: ReactNode }) {
+  return (
+    <RemotionStage
+      component={component}
+      durationInFrames={DURATION}
+      fps={FPS}
+      width={W}
+      height={H}
+      legend={legend}
+    />
   );
 }

@@ -54,7 +54,7 @@ export default async function OrgDelivery({
 
   // Optional segment + tech-stack scope (bogus id/key → whole fleet) so a leader can read
   // delivery/governance for one business unit or stack; the two filters compose.
-  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
+  const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
 
   const [pr, gov, activity] = await Promise.all([
     getOrgPrSignals(slug, segmentId, techGroupId),
@@ -64,10 +64,7 @@ export default async function OrgDelivery({
 
   const segmentBar = (
     <ScopeFilterBar
-      segments={segments}
-      segmentId={segmentId}
-      techGroups={techGroups}
-      activeStack={activeStack}
+      {...barProps}
       className="flex flex-wrap items-center justify-end gap-2"
       gate={false}
     >

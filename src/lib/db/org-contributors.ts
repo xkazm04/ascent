@@ -2,7 +2,8 @@
 // intelligence (F5). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { aiShareOf, isBot, normalizeOrgSlug, pickChampions, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { aiShareOf, isBot, pickChampions, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 // ── Contributor intelligence (F5) ────────────────────────────────────────────
 // All derived from the stored RepoContributor snapshots (latest scan per repo) — no extra
@@ -48,11 +49,11 @@ export interface ContributorInsights {
 export async function getContributorInsights(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<ContributorInsights | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const rows = await prisma.repoContributor.findMany({
-    where: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
+    where: { repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
     select: {
       login: true,
       name: true,

@@ -1,20 +1,15 @@
 "use client";
 
 // "Catch it early" — the RadarComposition (sweep detects risk blips, then mitigates them; gate flips
-// FAIL → PASS) played via the shared RemotionStage. See risk/RadarComposition + risk/radar.
+// FAIL → PASS) played via the shared RemotionDiagram. See risk/RadarComposition + risk/radar.
 
-import { RemotionStage } from "./RemotionStage";
+import { RemotionDiagram } from "./RemotionStage";
 import { RadarComposition } from "./risk/RadarComposition";
-import { W, H, FPS, DURATION } from "./risk/radar";
 
 export function RiskRadar() {
   return (
-    <RemotionStage
+    <RemotionDiagram
       component={RadarComposition}
-      durationInFrames={DURATION}
-      fps={FPS}
-      width={W}
-      height={H}
       legend={
         <>
           <span className="flex items-center gap-1.5">

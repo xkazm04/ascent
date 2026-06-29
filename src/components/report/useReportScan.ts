@@ -4,7 +4,8 @@ import { parseScanReport } from "@/lib/report/validate";
 import { repoKey } from "@/components/report/repoKey";
 import { SCAN_CLIENT_TIMEOUT_MS } from "@/components/report/scanEstimate";
 import { classifyScanAbort } from "@/components/report/reportTaxonomy";
-import { parseSSE, type Progress } from "@/components/report/ReportClientStatus";
+import { parseSSE } from "@/lib/sse";
+import { type Progress } from "@/components/report/ReportClientStatus";
 import { formatResetAt, type QuotaScope } from "@/components/report/QuotaNotice";
 
 /** A report salvaged from the last persisted scan because the weekly quota blocked a fresh one. */
@@ -193,7 +194,12 @@ export function useReportScan(repo: string, initialFresh: boolean): ReportScan {
         // Dispatch one complete SSE frame. The `result` payload is validated at this trust boundary
         // (parseScanReport) so a malformed/truncated body becomes a clean error, not a render crash.
         const handleFrame = (block: string) => {
-          const { event, data } = parseSSE(block);
+          // Single shared parser (@/lib/sse). Its `data` is typed Record|null for the org consumers;
+          // widen to `unknown` here so this consumer's value-shaped frames (a number, the report
+          // object, an error bag) keep their existing trust-boundary casts.
+          const frame = parseSSE(block);
+          const event = frame.event;
+          const data: unknown = frame.data;
           if (cancelled || !event) return;
           if (event === "progress") {
             const p = (data ?? {}) as Partial<ScanProgress>;

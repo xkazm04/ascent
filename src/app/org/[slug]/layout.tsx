@@ -155,8 +155,7 @@ export default async function OrgLayout({
   const watched = summary.watchedCount;
   const level = levelForScore(summary.avgOverall);
 
-  const grantsEnabled =
-    process.env.ASCENT_ALLOW_CREDIT_GRANTS === "1" || process.env.ASCENT_ALLOW_CREDIT_GRANTS === "true";
+  const grantsEnabled = envBool("ASCENT_ALLOW_CREDIT_GRANTS");
   // Polar credit purchase (CRED-1): show the "Buy credits" packs when billing is configured. The packs
   // are plain serializable data; the SDK stays server-side (CreditsControl declares its own Pack type).
   const buyEnabled = polarEnabled();

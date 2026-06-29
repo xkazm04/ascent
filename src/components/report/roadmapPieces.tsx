@@ -1,7 +1,8 @@
-import type { DimensionId, Effort, Impact, LevelId, LlmRoadmapItem, ScanReport } from "@/lib/types";
+import type { DimensionId, Effort, LevelId, LlmRoadmapItem, ScanReport } from "@/lib/types";
 import { DIMENSION_BY_ID, LEVELS } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, projectDimensionClose } from "@/lib/scoring/engine";
-import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
+import { IMPACT_RANK } from "@/lib/scoring/impact";
+import { EFFORT_CLASS, fastestPathNames, IMPACT_CLASS, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
 import { Kicker, Surface } from "@/components/ui";
 
 /**
@@ -82,9 +83,8 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
   );
 }
 
-const IMPACT_RANK: Record<Impact, number> = { high: 3, medium: 2, low: 1 };
 const EFFORT_RANK: Record<Effort, number> = { low: 1, medium: 2, high: 3 };
-const priorityScore = (it: LlmRoadmapItem) => IMPACT_RANK[it.impact] * 10 - EFFORT_RANK[it.effort];
+const priorityScore = (it: LlmRoadmapItem) => (IMPACT_RANK[it.impact] ?? 0) * 10 - EFFORT_RANK[it.effort];
 const isQuickWin = (it: LlmRoadmapItem) => it.impact === "high" && it.effort !== "high";
 
 /** A what-if payoff chip: the overall-score upside of fully closing this dimension's gap. */
@@ -105,7 +105,7 @@ export function PayoffChip({ report, dim }: { report: ScanReport; dim: Dimension
 export function NextLevelPath({ report }: { report: ScanReport }) {
   const path = cheapestPathToNextLevel(report);
   if (!path.target || !path.reachable || path.steps.length === 0) return null;
-  const names = path.steps.map((s) => DIMENSION_SHORT[s.dimension]).join(" + ");
+  const names = fastestPathNames(path.steps);
   return (
     <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3 text-base">
       <Kicker tone="accent">Fastest path</Kicker>

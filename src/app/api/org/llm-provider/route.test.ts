@@ -21,8 +21,7 @@ const h = vi.hoisted(() => ({
   setOrgLlmConfig: vi.fn(),
   disableOrgLlmConfig: vi.fn(),
   getCreditState: vi.fn(),
-  getOrgId: vi.fn(),
-  recordAudit: vi.fn(),
+  recordOrgAudit: vi.fn(),
   requireOrgRole: vi.fn(),
   getSession: vi.fn(),
   isSameOrigin: vi.fn(),
@@ -35,8 +34,7 @@ vi.mock("@/lib/db", () => ({
   setOrgLlmConfig: h.setOrgLlmConfig,
   disableOrgLlmConfig: h.disableOrgLlmConfig,
   getCreditState: h.getCreditState,
-  getOrgId: h.getOrgId,
-  recordAudit: h.recordAudit,
+  recordOrgAudit: h.recordOrgAudit,
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
 vi.mock("@/lib/auth", () => ({ getSession: h.getSession, isSameOrigin: h.isSameOrigin }));
@@ -57,8 +55,7 @@ beforeEach(() => {
   h.isEncryptionConfigured.mockReturnValue(true);
   h.setOrgLlmConfig.mockResolvedValue({ ok: true });
   h.getOrgLlmConfig.mockResolvedValue(null);
-  h.getOrgId.mockResolvedValue("org_acme");
-  h.recordAudit.mockResolvedValue(undefined);
+  h.recordOrgAudit.mockResolvedValue(undefined);
   h.getSession.mockResolvedValue({ login: "alice" });
 });
 
@@ -116,10 +113,11 @@ describe("POST /api/org/llm-provider — gate chain + order", () => {
     const res = await POST(post(valid));
     expect(res.status).toBe(200);
     expect(h.setOrgLlmConfig).toHaveBeenCalledTimes(1);
-    expect(h.recordAudit.mock.calls[0][0]).toBe("org.llm_provider.updated");
+    // recordOrgAudit(action, slug, meta, actorId) — meta is the 3rd positional arg.
+    expect(h.recordOrgAudit.mock.calls[0][0]).toBe("org.llm_provider.updated");
     // the audit meta must not carry the secret OR the access key
-    expect(JSON.stringify(h.recordAudit.mock.calls[0][1])).not.toContain("AKIAEXAMPLE");
-    expect(JSON.stringify(h.recordAudit.mock.calls[0][1])).not.toContain("SUPERSECRETVALUE");
+    expect(JSON.stringify(h.recordOrgAudit.mock.calls[0][2])).not.toContain("AKIAEXAMPLE");
+    expect(JSON.stringify(h.recordOrgAudit.mock.calls[0][2])).not.toContain("SUPERSECRETVALUE");
   });
   it("propagates a setOrgLlmConfig validation error as 400", async () => {
     h.setOrgLlmConfig.mockResolvedValue({ ok: false, error: "bad" });
@@ -132,7 +130,7 @@ describe("DELETE /api/org/llm-provider", () => {
     const res = await DELETE(del({ org: "acme" }));
     expect(res.status).toBe(200);
     expect(h.disableOrgLlmConfig).toHaveBeenCalledWith("acme");
-    expect(h.recordAudit.mock.calls[0][0]).toBe("org.llm_provider.disabled");
+    expect(h.recordOrgAudit.mock.calls[0][0]).toBe("org.llm_provider.disabled");
   });
   it("denies a non-owner", async () => {
     h.requireOrgRole.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));

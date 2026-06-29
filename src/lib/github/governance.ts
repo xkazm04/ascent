@@ -6,7 +6,7 @@
 //   - `/stats/commit_activity` — 52 weeks of commit volume (may 202 on first call → one retry).
 
 import type { Governance } from "@/lib/types";
-import { fetchWithTimeout, ghHeaders, githubApiBase } from "@/lib/github/host";
+import { ghFetch, githubApiBase } from "@/lib/github/host";
 
 const API = githubApiBase();
 const TIMEOUT_MS = 10_000;
@@ -16,7 +16,8 @@ async function getJson(
   token: string,
   signal?: AbortSignal,
 ): Promise<{ status: number; body: unknown }> {
-  const res = await fetchWithTimeout(url, { headers: ghHeaders(token) }, TIMEOUT_MS, signal);
+  // No `cache` option (the framework default) — preserved from the prior bare fetchWithTimeout call.
+  const res = await ghFetch(url, { token, signal, timeoutMs: TIMEOUT_MS });
   const body = res.status === 204 ? null : await res.json().catch(() => null);
   return { status: res.status, body };
 }

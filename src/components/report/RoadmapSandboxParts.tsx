@@ -9,6 +9,7 @@ import { DIMENSION_BY_ID, LEVEL_BY_ID, LEVELS } from "@/lib/maturity/model";
 import type { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
 import {
   DIMENSION_SHORT,
+  fastestPathNames,
   LEVEL_CLASSES,
   LEVEL_GLYPH,
   scoreGlyph,
@@ -188,7 +189,7 @@ export function NextLevelBanner({
   }
 
   const gap = Math.max(0, target.score - proj.overall.overallScore);
-  const names = path.steps.map((s) => DIMENSION_SHORT[s.dimension]).join(" + ");
+  const names = fastestPathNames(path.steps);
   const applyPath = () =>
     onSimulate((o) => {
       const next = { ...o };

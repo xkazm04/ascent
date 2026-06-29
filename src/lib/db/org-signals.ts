@@ -3,6 +3,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { getOrgId } from "@/lib/db/org-rollup";
 import type { PrStats } from "@/lib/types";
 
 export interface OrgPrSignals {
@@ -21,11 +22,11 @@ export interface OrgPrSignals {
 export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPrSignals | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { prStats: true } } },
   });
 
@@ -42,7 +43,9 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
   }
   if (!stats.length) return null;
 
-  const mean = roundedMean;
+  // `avg` = the rounded mean (matches the alias the rest of the rollup family uses); the SHARED
+  // `mean` export is the genuinely-different UNROUNDED mean, so don't shadow it here.
+  const avg = roundedMean;
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
   const governed = stats.map((s) => s.aiGovernedRate).filter((x): x is number => x != null);
   const reviewed = stats.map((s) => s.reviewedRate).filter((x): x is number => x != null);
@@ -52,11 +55,11 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
   return {
     repos: stats.length,
     totalPrs: stats.reduce((a, s) => a + s.analyzed, 0),
-    avgMergeRate: mean(stats.map((s) => s.mergeRate)),
-    avgReviewedRate: reviewed.length ? mean(reviewed) : null,
-    avgSmallPrRate: mean(stats.map((s) => s.smallPrRate)),
-    avgAiInvolvedRate: mean(stats.map((s) => s.aiInvolvedRate)),
-    avgAiGovernedRate: governed.length ? mean(governed) : null,
+    avgMergeRate: avg(stats.map((s) => s.mergeRate)),
+    avgReviewedRate: reviewed.length ? avg(reviewed) : null,
+    avgSmallPrRate: avg(stats.map((s) => s.smallPrRate)),
+    avgAiInvolvedRate: avg(stats.map((s) => s.aiInvolvedRate)),
+    avgAiGovernedRate: governed.length ? avg(governed) : null,
     typicalHoursToMerge: ttm.length ? Math.round((ttm.reduce((a, b) => a + b, 0) / ttm.length) * 10) / 10 : null,
     tools: [...toolMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
   };
@@ -88,11 +91,11 @@ export interface OrgGovernance {
 export async function getOrgGovernance(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgGovernance | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: { fullName: true, name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { governance: true } } },
   });
 
@@ -177,11 +180,11 @@ function weekIndex(ms: number): number {
 export async function getOrgActivity(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgActivity | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     // scannedAt anchors each trailing weekly series to a real calendar week (its last element is the
     // week of the scan), so different-cadence repos sum the SAME week, not the same array index.
     select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { commitActivity: true, scannedAt: true } } },

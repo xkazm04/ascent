@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
+import { BAND_EDGES, CHART_INK, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { scoreHex } from "@/lib/ui";
 
@@ -114,20 +114,18 @@ export function DimLine({
         }}
       >
         {/* Shaded maturity bands — same strata as the overall chart, so both read on one frame. */}
-        {LEVEL_BANDS.map((band, i) => {
-          const top = y(i === 0 ? 100 : LEVEL_BANDS[i - 1]!.min); // safe: i > 0 here, i-1 in-bounds
-          const bottom = y(band.min);
-          return <rect key={band.min} x={0} y={top} width={W} height={Math.max(0, bottom - top)} fill={band.color} />;
-        })}
+        {levelBandRects(y).map((band) => (
+          <rect key={band.min} x={0} y={band.top} width={W} height={band.height} fill={band.color} />
+        ))}
         {BAND_EDGES.filter((e) => e > 0 && e < 100).map((b) => (
-          <line key={b} x1={0} x2={W} y1={y(b)} y2={y(b)} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 4" />
+          <line key={b} x1={0} x2={W} y1={y(b)} y2={y(b)} stroke={CHART_INK.grid} strokeWidth={1} strokeDasharray="2 4" />
         ))}
         {/* One mid-scale reference so the sparkline reads as a quantitative chart, not a floating
             squiggle — the L4 "Integrated" threshold (65) anchors the otherwise-unlabeled bands. */}
         <text x={3} y={y(65) - 2} fontSize={8} className="fill-slate-600">
           65
         </text>
-        {act && <line x1={x(act.i)} x2={x(act.i)} y1={0} y2={H} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />}
+        {act && <line x1={x(act.i)} x2={x(act.i)} y1={0} y2={H} stroke={CHART_INK.crosshair} strokeWidth={1} strokeDasharray="3 3" />}
         {drawnCount > 1 && <path d={path.trim()} fill="none" stroke={scoreHex(lastReal)} strokeWidth={2.25} />}
         {values.map((v, i) =>
           v === null ? null : (

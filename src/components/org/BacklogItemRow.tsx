@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { REC_STATUSES, type RecEvent } from "@/lib/types";
+import { type RecEvent, type RecStatus } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
-import { EVENT_LABEL, STATUS_ACCENT, STATUS_LABEL, dueLabel, eventValue } from "@/components/org/backlogShared";
+import { EVENT_LABEL, STATUS_ACCENT, dueLabel, eventValue } from "@/components/org/backlogShared";
+import { StatusSelect } from "@/components/org/recStatusUi";
 
 /**
  * Volatile per-row interaction state that must survive a regroup. The backlog re-parents rows into a
@@ -175,20 +176,12 @@ export function BacklogItemRow({
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
         <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           status
-          <select
-            value={item.status}
+          <StatusSelect
+            value={item.status as RecStatus}
             disabled={saving}
-            onChange={(e) => patchAndRefresh(item.id, { status: e.target.value })}
+            onChange={(status) => patchAndRefresh(item.id, { status })}
             aria-label="Status"
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-            style={{ color: STATUS_ACCENT[item.status] }}
-          >
-            {REC_STATUSES.map((s) => (
-              <option key={s} value={s} className="text-slate-200">
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
+          />
         </label>
 
         <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">

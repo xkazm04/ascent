@@ -11,7 +11,8 @@ import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
-import { aiShareOf, isBot, normalizeOrgSlug, pickChampions, roundedMean } from "@/lib/db/org-shared";
+import { GroupedMean, aiShareOf, isBot, pickChampions, roundedMean } from "@/lib/db/org-shared";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 const TEAM_STRONG = 65; // a team "exemplifies" a dimension at/above this (a mentor candidate)
 const TEAM_WEAK = 50; // a team could grow a dimension below this (a learner candidate)
@@ -122,7 +123,7 @@ interface TeamAcc {
   repos: TeamRepoScore[];
   totalOwned: number;
   defaultOwnerCount: number;
-  dim: Map<string, { sum: number; n: number }>;
+  dim: GroupedMean;
   deltas: number[];
   people: Map<string, { login: string; name: string | null; commits: number; aiCommits: number }>;
 }
@@ -153,7 +154,7 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
     for (const t of r.teams) {
       const a: TeamAcc =
         acc.get(t.slug) ??
-        { slug: t.slug, repos: [], totalOwned: 0, defaultOwnerCount: 0, dim: new Map(), deltas: [], people: new Map() };
+        { slug: t.slug, repos: [], totalOwned: 0, defaultOwnerCount: 0, dim: new GroupedMean(), deltas: [], people: new Map() };
       a.totalOwned += 1;
       if (t.isDefaultOwner) a.defaultOwnerCount += 1;
 
@@ -168,12 +169,7 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
           posture: latest.posture,
           isDefaultOwner: t.isDefaultOwner,
         });
-        for (const d of latest.dimensions) {
-          const e = a.dim.get(d.dimId) ?? { sum: 0, n: 0 };
-          e.sum += d.score;
-          e.n += 1;
-          a.dim.set(d.dimId, e);
-        }
+        for (const d of latest.dimensions) a.dim.add(d.dimId, d.score);
         if (prev) a.deltas.push(latest.overallScore - prev.overallScore);
         // Merge the repo's contributors into the team (humans only; a person across N of the team's
         // repos is one team member with summed commits).
@@ -196,11 +192,12 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
       const avgOverall = avg(teamRepos.map((r) => r.overall));
       const avgAdoption = avg(teamRepos.map((r) => r.adoption));
       const avgRigor = avg(teamRepos.map((r) => r.rigor));
-      const dimAverages: TeamDimAvg[] = [...a.dim.entries()]
-        .map(([dimId, { sum, n }]) => ({
+      const dimAverages: TeamDimAvg[] = a.dim
+        .entries()
+        .map(([dimId, avg]) => ({
           dimId,
           label: DIMENSION_BY_ID[dimId as DimensionId]?.name ?? dimId,
-          avg: Math.round(sum / n),
+          avg,
         }))
         .sort((x, y) => x.dimId.localeCompare(y.dimId));
       const byScore = [...dimAverages].sort((x, y) => y.avg - x.avg);
@@ -323,11 +320,11 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
 export async function getOrgTeamRollup(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgTeamRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       fullName: true,
       name: true,

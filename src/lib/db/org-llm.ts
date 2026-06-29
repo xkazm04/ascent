@@ -7,6 +7,7 @@
 
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { getCreditState } from "@/lib/db/credits";
 import { decryptSecret, encryptSecret, isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { planAllowsByom } from "@/lib/plans";
@@ -80,9 +81,9 @@ function toPublic(c: {
 export async function getOrgLlmConfig(orgSlug: string): Promise<OrgLlmConfigPublic | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return null;
-  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId: org.id } });
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId } });
   return c ? toPublic(c) : null;
 }
 
@@ -98,8 +99,8 @@ export async function setOrgLlmConfig(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isDbConfigured()) return { ok: false, error: "Database not configured." };
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return { ok: false, error: "Unknown organization." };
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return { ok: false, error: "Unknown organization." };
 
   // Encrypt creds when BOTH are supplied. Either-only is a partial credential → reject.
   let credentialsEncrypted: string | undefined;
@@ -134,10 +135,10 @@ export async function setOrgLlmConfig(
     ...(credentialsEncrypted ? { credentialsEncrypted, lastValidatedAt: null, lastValidationError: null } : {}),
   };
   await prisma.orgLlmConfig.upsert({
-    where: { orgId: org.id },
+    where: { orgId },
     update,
     create: {
-      orgId: org.id,
+      orgId,
       provider: base.provider,
       modelId: base.modelId,
       region: base.region,
@@ -154,10 +155,10 @@ export async function setOrgLlmConfig(
 export async function disableOrgLlmConfig(orgSlug: string): Promise<void> {
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return;
   await prisma.orgLlmConfig.updateMany({
-    where: { orgId: org.id },
+    where: { orgId },
     data: { enabled: false, credentialsEncrypted: null, lastValidatedAt: null, lastValidationError: null },
   });
 }
@@ -166,10 +167,10 @@ export async function disableOrgLlmConfig(orgSlug: string): Promise<void> {
 export async function recordOrgLlmValidation(orgSlug: string, ok: boolean, error?: string | null): Promise<void> {
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return;
   await prisma.orgLlmConfig.updateMany({
-    where: { orgId: org.id },
+    where: { orgId },
     data: { lastValidatedAt: ok ? new Date() : null, lastValidationError: ok ? null : (error ?? "Validation failed").slice(0, 500) },
   });
 }
@@ -180,9 +181,9 @@ export async function recordOrgLlmValidation(orgSlug: string, ok: boolean, error
 export async function getStoredByomCredentials(orgSlug: string): Promise<ByomStaticCredentials | null> {
   if (!isDbConfigured() || !isEncryptionConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return null;
-  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId: org.id }, select: { credentialsEncrypted: true } });
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId }, select: { credentialsEncrypted: true } });
   if (!c?.credentialsEncrypted) return null;
   try {
     const creds = JSON.parse(decryptSecret(c.credentialsEncrypted)) as Partial<ByomStaticCredentials>;
@@ -200,10 +201,10 @@ export async function isByomActive(orgSlug: string): Promise<boolean> {
   if (!isDbConfigured() || !isEncryptionConfigured()) return false;
   if (orgSlug === "public") return false;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return false;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
   const c = await prisma.orgLlmConfig.findUnique({
-    where: { orgId: org.id },
+    where: { orgId },
     select: { enabled: true, credentialsEncrypted: true },
   });
   if (!c?.enabled || !c.credentialsEncrypted) return false;
@@ -219,9 +220,9 @@ export async function isByomActive(orgSlug: string): Promise<boolean> {
 export async function resolveByomProvider(orgSlug: string): Promise<ByomProviderParams | null> {
   if (!(await isByomActive(orgSlug))) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return null;
-  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId: org.id } });
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId } });
   if (!c?.credentialsEncrypted || c.provider !== "bedrock") return null;
   try {
     const creds = JSON.parse(decryptSecret(c.credentialsEncrypted)) as Partial<ByomStaticCredentials>;

@@ -8,11 +8,10 @@
 // for Azure / self-hosted; default https://api.openai.com/v1). Select with LLM_PROVIDER=openai.
 
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
-import { validateAssessment } from "@/lib/llm/provider";
+import { finalizeAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
-import { parseJsonLoose } from "@/lib/llm/json";
-import { envNumber, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { envNumber, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -44,7 +43,7 @@ export class OpenAiProvider implements LLMProvider {
         headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
         body: JSON.stringify({
           model: this.model,
-          temperature: envNumber("LLM_TEMPERATURE", 0.2),
+          temperature: llmTemperature(),
           // Give the reply room to complete the multi-KB assessment JSON. The OpenAI-compatible self-
           // hosted targets this module supports (vLLM, Ollama, LM Studio) often default to a SMALL
           // completion cap (Ollama's num_predict ≈ 128), which truncates the JSON mid-object →
@@ -70,10 +69,12 @@ export class OpenAiProvider implements LLMProvider {
         choices?: { message?: { content?: string } }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
-      const text = data.choices?.[0]?.message?.content;
-      if (!text) throw new Error("Empty response from OpenAI.");
-      opts.onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens });
-      return validateAssessment(parseJsonLoose(text));
+      return finalizeAssessment(
+        data.choices?.[0]?.message?.content,
+        { inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens },
+        opts,
+        "OpenAI",
+      );
     } finally {
       clear();
     }

@@ -11,4 +11,4 @@ export { HairlineGrid } from "./HairlineGrid";
 export { Dateline } from "./Dateline";
 export { SideNav } from "./SideNav";
 export type { SideNavItem, SideNavGroup } from "./SideNav";
-export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE, toneFor } from "./format";
+export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE } from "./format";

@@ -17,6 +17,19 @@ export const DIMENSION_SHORT: Record<DimensionId, string> = {
   D9: "Security",
 };
 
+/** DIMENSION_SHORT lookup for a dimension id that arrives as a plain `string` (not a typed
+ *  `DimensionId`): the cast-plus-raw-fallback every such call site spelled out by hand
+ *  (`DIMENSION_SHORT[id as keyof typeof DIMENSION_SHORT] ?? id`), in one place. Byte-identical to
+ *  the inline form for every input — an unknown id falls back to itself. */
+export const dimShort = (id: string): string => DIMENSION_SHORT[id as keyof typeof DIMENSION_SHORT] ?? id;
+
+/** The "fastest path" dimension names joined for display ("Testing + CI/CD") — the shared name-join
+ *  behind the roadmap's NextLevelPath callout and the sandbox's NextLevelBanner. Identical output in
+ *  both: each step's dimension mapped through DIMENSION_SHORT and joined with " + ". */
+export function fastestPathNames(steps: { dimension: DimensionId }[]): string {
+  return steps.map((s) => DIMENSION_SHORT[s.dimension]).join(" + ");
+}
+
 /** Stable permalink to a repo's report, pinned to a commit when one is known
  *  (`/report/{owner}/{repo}` or `/report/{owner}/{repo}@{sha}`). Lives in this client-safe
  *  module so both server callers and the client trend charts build the identical link
@@ -106,15 +119,16 @@ export function scoreHex(score: number): string {
   return LEVEL_HEX[levelForScore(score).id];
 }
 
-/** Parse #rrggbb / #rgb → [r, g, b] (0..255). */
-function rgbOf(hex: string): [number, number, number] {
+/** Parse #rrggbb / #rgb → [r, g, b] (0..255). The canonical WCAG-math primitive — the public badge
+ *  route's contrast picker reuses it (and relLuminance) instead of re-deriving the channel math. */
+export function rgbOf(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
   const f = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
   return [parseInt(f.slice(0, 2), 16), parseInt(f.slice(2, 4), 16), parseInt(f.slice(4, 6), 16)];
 }
 
 /** WCAG relative luminance of an [r, g, b] triple. */
-function relLuminance([r, g, b]: [number, number, number]): number {
+export function relLuminance([r, g, b]: [number, number, number]): number {
   const ch = (v: number) => {
     const s = v / 255;
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);

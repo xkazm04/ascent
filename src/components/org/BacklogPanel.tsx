@@ -5,9 +5,9 @@ import { Card } from "@/components/org/ui";
 import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
 import { OwnerHeader, SummaryStrip } from "@/components/org/BacklogSummary";
 import { BacklogItemRow, type BacklogRowState } from "@/components/org/BacklogItemRow";
-
-// Impact-word tiebreak ranking for the "Projected points" cross-repo sort.
-const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+import { useSavingIds } from "@/components/org/recStatusUi";
+// Impact-word tiebreak ranking for the "Projected points" cross-repo sort (canonical map).
+import { IMPACT_RANK } from "@/lib/scoring/impact";
 
 /**
  * The org-wide recommendation backlog: a stat strip, a By owner / By due date toggle, and inline
@@ -18,8 +18,7 @@ const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
 export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBacklog }) {
   const [backlog, setBacklog] = useState<OrgBacklog>(initial);
   const [view, setView] = useState<"owner" | "due" | "points">("owner");
-  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { savingIds, errors, setSaving, setError, clearError } = useSavingIds<string>();
   // Volatile per-row state (PR result, expanded history, promote flag) lifted out of BacklogItemRow and
   // keyed by item id, so it SURVIVES the remount that happens when an edit re-groups a row into a
   // different owner/due Card. Keeping it in the row dropped the just-opened PR link on a routine edit
@@ -33,14 +32,6 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
   // server re-read that wholesale-replaces the backlog; without sequencing, a slower-arriving OLDER
   // snapshot can clobber a newer one when two items are edited in quick succession (lost edit).
   const refreshSeq = useRef(0);
-
-  const setSaving = (id: string, on: boolean) =>
-    setSavingIds((cur) => {
-      const next = new Set(cur);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
 
   const refresh = useCallback(async () => {
     const seq = ++refreshSeq.current;
@@ -56,12 +47,7 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
   const patch = useCallback(
     async (id: string, body: Record<string, unknown>) => {
       setSaving(id, true);
-      setErrors((e) => {
-        if (!e[id]) return e;
-        const next = { ...e };
-        delete next[id];
-        return next;
-      });
+      clearError(id);
       try {
         const res = await fetch(`/api/recommendations/${id}`, {
           method: "PATCH",
@@ -70,7 +56,7 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
         });
         if (!res.ok) {
           const msg = (await res.json().catch(() => ({})))?.error ?? "Couldn’t save that change.";
-          setErrors((e) => ({ ...e, [id]: msg }));
+          setError(id, msg);
           // On a 409 optimistic-lock conflict, pull the authoritative current state so the user sees
           // what actually persisted (and the reverted control reflects it) before retrying.
           if (res.status === 409) await refresh();
@@ -78,12 +64,12 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
         }
         await refresh();
       } catch {
-        setErrors((e) => ({ ...e, [id]: "Network error — check your connection and retry." }));
+        setError(id, "Network error — check your connection and retry.");
       } finally {
         setSaving(id, false);
       }
     },
-    [refresh],
+    [refresh, setSaving, setError, clearError],
   );
 
   const groups: { key: string; header: React.ReactNode; items: BacklogItem[] }[] =

@@ -13,7 +13,7 @@
 //   • rankDiscoveredOrgs / selectSuggestedOrgLogins / selectSeedTarget — pure transforms over the
 //     fetched data, with no I/O.
 
-import { fetchWithTimeout, ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+import { ghFetch, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
 import { nextPageUrl } from "@/lib/github/list";
 
 // A slow GitHub (TCP accepted but the response stalls — a common partial-outage/throttle mode) must
@@ -73,14 +73,15 @@ interface GhRepo extends GhRepoRow {
 /**
  * Fetch a paginated GitHub list endpoint, following the `Link` header's rel="next" up to MAX_PAGES and
  * concatenating the rows. The first `path` is resolved against the API base; subsequent pages use the
- * absolute URLs GitHub returns in the Link header. Best-effort: callers catch failures.
+ * absolute URLs GitHub returns in the Link header. Routed through the shared ghFetch (canonical headers
+ * + per-call timeout); githubApiBase() is resolved per-call so a late GITHUB_API_URL override is
+ * honored. Best-effort: callers catch failures.
  */
 async function ghUserPaged<T>(path: string, token: string, signal?: AbortSignal): Promise<T[]> {
-  const headers = ghHeaders(token, { userAgent: "ascent-org-discovery" });
   const out: T[] = [];
   let url: string | null = `${githubApiBase()}${path}`;
   for (let page = 0; page < MAX_PAGES && url; page++) {
-    const res = await fetchWithTimeout(url, { headers, cache: "no-store" }, TIMEOUT_MS, signal);
+    const res = await ghFetch(url, { token, userAgent: "ascent-org-discovery", cache: "no-store", timeoutMs: TIMEOUT_MS, signal });
     if (!res.ok) throw new Error(`GitHub ${res.status} on ${path}`);
     const rows = (await res.json()) as T[];
     out.push(...rows);

@@ -13,10 +13,9 @@
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
-import { validateAssessment } from "@/lib/llm/provider";
+import { parseAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
-import { parseJsonLoose } from "@/lib/llm/json";
 
 export const DEFAULT_CLAUDE_MODEL = "sonnet";
 const CLI_TIMEOUT_MS = Number(process.env.CLAUDE_CLI_TIMEOUT_MS) || 150_000;
@@ -55,7 +54,7 @@ export class ClaudeCliProvider implements LLMProvider {
       const detail = typeof outer.result === "string" ? outer.result : raw;
       throw new Error(`Claude CLI returned an error (${outer.subtype ?? "unknown"}): ${detail.slice(0, 300)}`);
     }
-    return validateAssessment(parseJsonLoose(outer.result));
+    return parseAssessment(outer.result);
   }
 }
 

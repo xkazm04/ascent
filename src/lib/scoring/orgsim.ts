@@ -8,7 +8,7 @@
 // there you simulate one repo's gaps; here you simulate a fix landing across the fleet.
 
 import type { DimensionId, Posture, RepoArchetype } from "@/lib/types";
-import { DIMENSIONS, axisScore, clamp, levelForScore, postureFor, weightsFor } from "@/lib/maturity/model";
+import { DIMENSIONS, axisScore, clamp, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
 
 /** A repo reduced to what the simulator needs: its archetype lens + per-dimension scores. */
 export interface RepoDims {
@@ -63,14 +63,16 @@ export function recomputeRepo(
   dims: Record<string, number>,
   archetype: RepoArchetype,
 ): { overall: number; adoption: number; rigor: number } {
-  const lensW = weightsFor(archetype);
   const scoreFor = (id: DimensionId) => dims[id] ?? 0;
   const isPresent = (id: DimensionId) => dims[id] != null;
-  // Renormalized weighted mean over the dimensions actually present — mirrors assembleReport.
+  // Overall = the canonical renormalized, archetype-weighted mean over the dimensions actually
+  // PRESENT — delegated to overallScoreFor (model.ts), the documented single source the live engine
+  // uses for the headline, so a projection can never silently diverge from the real roll-up. (The
+  // axis half already delegates to axisScore; this finishes the job for the overall.)
   const present = DIMENSIONS.filter((d) => dims[d.id] != null);
-  const wsum = present.reduce((a, d) => a + (lensW[d.id] ?? 0), 0);
-  const overall = clamp(
-    wsum > 0 ? Math.round(present.reduce((a, d) => a + scoreFor(d.id) * (lensW[d.id] ?? 0), 0) / wsum) : 0,
+  const overall = overallScoreFor(
+    present.map((d) => ({ id: d.id, score: scoreFor(d.id) })),
+    archetype,
   );
   return {
     overall,

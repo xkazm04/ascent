@@ -1,8 +1,9 @@
 "use client";
 
-// Status surfaces + SSE parsing for ReportClient: the loading checklist (provider-aware), the
-// empty/error state, and the SSE frame parser. Split out of ReportClient so the client component
-// stays focused on the scan lifecycle. The shared progress helpers (headline, elapsed clock,
+// Status surfaces for ReportClient: the loading checklist (provider-aware) and the empty/error
+// state. Split out of ReportClient so the client component stays focused on the scan lifecycle. The
+// SSE frame parser now lives in the single shared `@/lib/sse` (parseSSE). The shared progress
+// helpers (headline, elapsed clock,
 // time-smoothed percentage) are exported so the in-place re-scan banner (ReportRescanBanner) reads
 // identically to the full Loading view.
 
@@ -19,27 +20,6 @@ export interface Progress {
   provider?: ProviderName;
   region?: string;
   fallback?: boolean;
-}
-
-export function parseSSE(block: string): { event: string | null; data: unknown } {
-  let event: string | null = null;
-  const dataLines: string[] = [];
-  for (const raw of block.split("\n")) {
-    // Tolerate CRLF: strip a trailing \r that a proxy may have left on the line.
-    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-    if (line.startsWith("event:")) event = line.slice(6).trim();
-    // Per the SSE spec, multiple `data:` lines are JOINED WITH "\n" (with a single leading
-    // space after the colon stripped). The old per-line trim()+concat corrupted multi-line
-    // JSON; join with newlines so a pretty-printed payload still parses.
-    else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
-  }
-  let data: unknown = null;
-  try {
-    data = dataLines.length ? JSON.parse(dataLines.join("\n")) : null;
-  } catch {
-    /* ignore malformed */
-  }
-  return { event, data };
 }
 
 // Ordered scan stages, shown as a determinate-feeling checklist. The score step's label is

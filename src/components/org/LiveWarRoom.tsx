@@ -22,8 +22,6 @@ import { Leaderboard } from "@/components/org/LiveWarRoomLeaderboard";
 import { MoversTicker, PostureMix } from "@/components/org/LiveWarRoomPanels";
 import { Celebrations } from "@/components/org/LiveWarRoomCelebrations";
 
-export type { LiveRepoSeed };
-
 export function LiveWarRoom({
   slug,
   watchedCount,

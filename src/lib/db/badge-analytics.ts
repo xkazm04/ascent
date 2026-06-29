@@ -24,7 +24,6 @@ const MAX_HOSTS_PER_REPO = (() => {
 
 /** Best-effort: bump the (repo, host) tally. Swallows every error — analytics must never break a badge. */
 export async function recordBadgeImpression(repoFullName: string, refererHost: string): Promise<void> {
-  if (!isDbConfigured()) return;
   const repo = repoFullName.toLowerCase().slice(0, 200);
   const host = (refererHost || "direct").toLowerCase().slice(0, 100);
   if (!repo.includes("/")) return;

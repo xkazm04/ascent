@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
-import { publicBaseUrl } from "@/lib/site";
+import { publicBaseUrl, siteDescription, SITE_TAGLINE } from "@/lib/site";
 import { DevInspector } from "./_dev-inspector/DevInspector";
 import "./globals.css";
 
@@ -15,7 +14,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const SITE_DESCRIPTION = `Score how AI-native your engineering org is from a GitHub repo: a ${LEVELS.length}-level maturity ladder across ${DIMENSIONS.length} dimensions, with evidence and a roadmap to the next level.`;
+const SITE_DESCRIPTION = siteDescription();
 const BASE_URL = publicBaseUrl();
 
 export const metadata: Metadata = {
@@ -23,7 +22,7 @@ export const metadata: Metadata = {
   // ABSOLUTE urls, which unfurlers require. Only set when a public origin is configured (else Next
   // warns and falls back to a relative base) — SHELL-4.
   ...(BASE_URL ? { metadataBase: new URL(BASE_URL) } : {}),
-  title: "Ascent — the maturity index for AI-native engineering",
+  title: `Ascent — ${SITE_TAGLINE}`,
   // Built from the canonical rubric so the share/search snippet can never drift from the model
   // (it previously hardcoded "7 dimensions" while the model defines 9 and the hero rendered 9).
   description: SITE_DESCRIPTION,

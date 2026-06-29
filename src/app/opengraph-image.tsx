@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
-import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
+import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE, BRAND_ACCENT, BRAND_WHITE, BRAND_MUTED } from "@/lib/og/og-brand";
+import { DIMENSION_COUNT, LEVEL_COUNT, SITE_TAGLINE, SITE_TAGLINE_TITLE } from "@/lib/site";
 import { LEVELS } from "@/lib/maturity/model";
 
 // Default social card for the site (homepage + any route without its own opengraph-image). Pages
@@ -7,7 +8,7 @@ import { LEVELS } from "@/lib/maturity/model";
 // unfurl blank — this is the fallback that keeps every link rich. Rendered with next/og's built-in
 // fonts (no external fetch) so it can't fail at build/request time.
 
-export const alt = "Ascent — the maturity index for AI-native engineering";
+export const alt = `Ascent — ${SITE_TAGLINE}`;
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
 
@@ -18,12 +19,11 @@ export default function OpengraphImage() {
         <Brand />
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div style={{ fontSize: 66, fontWeight: 700, lineHeight: 1.08, color: "#ffffff" }}>
-            The maturity index for AI-native engineering
+          <div style={{ fontSize: 66, fontWeight: 700, lineHeight: 1.08, color: BRAND_WHITE }}>
+            {SITE_TAGLINE_TITLE}
           </div>
-          <div style={{ fontSize: 30, lineHeight: 1.35, color: "#94a3b8" }}>
-            Score any GitHub repo on a 5-level ladder across 9 dimensions — with evidence and a route
-            to the next level.
+          <div style={{ fontSize: 30, lineHeight: 1.35, color: BRAND_MUTED }}>
+            {`Score any GitHub repo on a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions — with evidence and a route to the next level.`}
           </div>
         </div>
 
@@ -38,7 +38,7 @@ export default function OpengraphImage() {
                 padding: "8px 20px",
                 borderRadius: 999,
                 border: "1px solid #1e293b",
-                color: "#3b9eff",
+                color: BRAND_ACCENT,
                 fontSize: 26,
                 fontFamily: "monospace",
               }}

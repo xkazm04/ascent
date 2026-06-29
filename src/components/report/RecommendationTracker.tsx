@@ -5,6 +5,7 @@ import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types
 import { ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/roadmapPieces";
 import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
 import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/backlogShared";
+import { StatusSelect, useSavingIds } from "@/components/org/recStatusUi";
 import { Surface } from "@/components/ui";
 
 /** A per-row save failure: the change the user attempted, and whether it's recoverable. */
@@ -36,22 +37,13 @@ export function RecommendationTracker({
   const [items, setItems] = useState(initial);
   // Per-id saving set (not a single shared string) so overlapping in-flight PATCHes each
   // disable only their own row instead of one freezing/clobbering another.
-  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
-  const [errors, setErrors] = useState<Record<string, RowError>>({});
+  const { savingIds, errors, setSaving, setError, clearError } = useSavingIds<RowError>();
   // Per-id announcement (not one shared string feeding a single live region): a single scalar meant
   // two rows resolving close together overwrote each other before the screen reader voiced the first
   // (and identical strings never re-announce), silently dropping a save success/failure for AT users.
   // Each row now owns its own role="status" region so overlapping saves are announced independently.
   const [announcements, setAnnouncements] = useState<Record<string, string>>({});
   const announce = (id: string, msg: string) => setAnnouncements((a) => ({ ...a, [id]: msg }));
-
-  const setSaving = (id: string, on: boolean) =>
-    setSavingIds((cur) => {
-      const next = new Set(cur);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
 
   const total = items.length;
   const done = items.filter((i) => i.status === "done").length;
@@ -61,15 +53,6 @@ export function RecommendationTracker({
   // 100% forever, so a completed backlog read as perpetually incomplete.
   const actionable = total - dismissed;
   const pct = actionable ? Math.round((done / actionable) * 100) : 100;
-
-  function clearError(id: string) {
-    setErrors((e) => {
-      if (!e[id]) return e;
-      const next = { ...e };
-      delete next[id];
-      return next;
-    });
-  }
 
   async function setStatus(id: string, status: RecStatus) {
     const row = items.find((i) => i.id === id);
@@ -100,7 +83,7 @@ export function RecommendationTracker({
               ? "This recommendation changed elsewhere. Reload to see the latest, then retry."
               : "Couldn’t save that change. Check your connection and retry.";
         rollback(); // revert ONLY this row
-        setErrors((e) => ({ ...e, [id]: { status, kind, message } }));
+        setError(id, { status, kind, message });
         announce(id, `Couldn’t update “${title}”: ${message}`);
         return;
       }
@@ -112,10 +95,7 @@ export function RecommendationTracker({
       announce(id, `“${title}” marked ${STATUS_LABEL[status]}.`);
     } catch {
       rollback();
-      setErrors((e) => ({
-        ...e,
-        [id]: { status, kind: "transient", message: "Couldn’t save that change. Check your connection and retry." },
-      }));
+      setError(id, { status, kind: "transient", message: "Couldn’t save that change. Check your connection and retry." });
       announce(id, `Couldn’t update “${title}”: network error.`);
     } finally {
       setSaving(id, false);
@@ -162,22 +142,12 @@ export function RecommendationTracker({
                 <RoadmapMeta item={item} />
                 <PayoffChip report={report} dim={item.dimension} />
                 {saving && <RowSpinner />}
-                <select
+                <StatusSelect
                   value={item.status}
                   disabled={saving}
-                  onChange={(e) => setStatus(item.id, e.target.value as RecStatus)}
+                  onChange={(status) => setStatus(item.id, status)}
                   aria-label="Recommendation status"
-                  // Render in a high-contrast token rather than the status accent: the dark accents
-                  // (Open #64748b, Dismissed #475569) on bg-slate-950 fell to ~2.4:1, below WCAG
-                  // 1.4.3. The accent still cues status via the row's left-edge bar above.
-                  className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-                >
-                  {(Object.keys(STATUS_LABEL) as RecStatus[]).map((s) => (
-                    <option key={s} value={s} className="text-slate-200">
-                      {STATUS_LABEL[s]}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             </div>
             {item.rationale && <p className="mt-2 text-base leading-relaxed text-slate-400">{item.rationale}</p>}

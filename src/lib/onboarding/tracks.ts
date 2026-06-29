@@ -16,6 +16,7 @@ import type { DimensionId, Effort, Impact, ScanReport } from "@/lib/types";
 import { PRACTICES, type PracticeDef } from "@/lib/practices";
 import { commandsFor, type LangCommands } from "@/lib/practice-artifact";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { IMPACT_RANK } from "@/lib/scoring/impact";
 
 /** Where a control is primarily enforced. */
 export type ControlLayer = "pre-push" | "ci-hard-pass" | "both";
@@ -285,12 +286,12 @@ const PRACTICE_BY_DIM: Record<DimensionId, PracticeDef | undefined> = Object.fro
 /** A dimension at or above this blended score is treated as a strength, not an onboarding gap. */
 export const WEAK_THRESHOLD = 70;
 
-const IMPACT_RANK: Record<Impact, number> = { high: 3, medium: 2, low: 1 };
+// Effort ranking is INVERTED vs the roadmap's (here lower effort = higher leverage), so it stays local.
 const EFFORT_RANK: Record<Effort, number> = { low: 3, medium: 2, high: 1 };
 
 /** Leverage = impact (weighted) + ease. Higher sorts first. */
 function leverage(t: OnboardingTrack): number {
-  return IMPACT_RANK[t.impact] * 2 + EFFORT_RANK[t.effort];
+  return (IMPACT_RANK[t.impact] ?? 0) * 2 + EFFORT_RANK[t.effort];
 }
 
 type CiKind = LangCommands["ci"];
@@ -327,15 +328,18 @@ function langDeliverable(
   if (dimId !== "D2" && dimId !== "D3") return null;
   const cmd = commandsFor(language);
   if (cmd.ci === "generic") return null; // unknown stack → keep the nicer generic static text
+  // Only the `path` is language-aware; the `summary` is the same promise as the static control, so
+  // pull it from the source of truth (CONTROL) rather than re-stating the literal — editing the D2/D3
+  // summary in CONTROL now flows into the language-aware path too, which is the common case.
   if (dimId === "D2") {
     return {
       path: `${COVERAGE[cmd.ci]} + a coverage step in your existing hook, with a CI floor`,
-      summary: "make coverage visible to the agent locally, then enforce a minimum as a CI backstop",
+      summary: CONTROL.D2.deliverable.summary,
     };
   }
   return {
     path: `.github/workflows/ci.yml (${CI_SETUP[cmd.ci]} → ${cmd.install} → ${cmd.lint} → ${cmd.test}) gated on merge + the same checks pre-push`,
-    summary: "the same lint/typecheck/test checks run locally before push and enforced on merge",
+    summary: CONTROL.D3.deliverable.summary,
   };
 }
 

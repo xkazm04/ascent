@@ -5,12 +5,13 @@
 // gated on a session when auth is configured and every apply is audit-logged.
 
 import { NextResponse } from "next/server";
-import { GitHubError, parseRepoUrl } from "@/lib/github/source";
+import { parseRepoUrl } from "@/lib/github/source";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
-import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { getInstallationIdForOwner, getOrgId, isDbConfigured } from "@/lib/db";
+import { isAppConfigured } from "@/lib/github/app";
+import { getOrgId } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
+import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,18 +42,12 @@ export async function POST(request: Request) {
   const denied = await requireOrgAccess(parsed.owner);
   if (denied) return denied;
 
-  const installId = isDbConfigured() ? await getInstallationIdForOwner(parsed.owner).catch(() => null) : null;
-  if (!installId) {
-    return NextResponse.json(
-      { error: `Ascent isn't installed on ${parsed.owner}. Install the GitHub App (with write access) to open PRs.` },
-      { status: 403 },
-    );
-  }
-
   try {
-    const token = await getInstallationToken(installId);
+    // Install presence (403) + installation-token mint, single-sourced across the PR-write routes.
+    const ctx = await requirePrWriteContext(parsed.owner);
+    if (ctx instanceof Response) return ctx;
     const orgId = (await getOrgId(parsed.owner.toLowerCase()).catch(() => null)) ?? undefined;
-    const result = await applyPracticeToRepo(token, parsed, body.practiceId, body.base, {
+    const result = await applyPracticeToRepo(ctx.token, parsed, body.practiceId, body.base, {
       orgId,
       actorId: session?.login,
     });
@@ -62,21 +57,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ...result.pr, path: result.artifact.path });
   } catch (err) {
-    if (err instanceof AppApiError) {
-      // 403 → installation lacks write scope; 404 → repo/branch gone; 409 → the target file already
-      // exists on the base branch (we refuse to overwrite real content with a starter). Surface clearly.
-      const status =
-        err.status === 403 || err.status === 404 || err.status === 409 ? err.status : 502;
-      const hint =
-        err.status === 403
-          ? "The installation lacks contents/PR write access — update the GitHub App's permissions."
-          : err.status === 409
-            ? "That file already exists in the repo — Ascent won't overwrite it with a starter. Edit the existing file instead."
-            : "GitHub rejected the write. Check the repo and base branch.";
-      return NextResponse.json({ error: hint }, { status });
-    }
-    if (err instanceof GitHubError) return NextResponse.json({ error: err.message }, { status: err.status ?? 502 });
-    console.error("[practices/apply] failed", err);
-    return NextResponse.json({ error: "Failed to open the starter PR." }, { status: 500 });
+    return mapPrWriteError(err, { tag: "practices/apply", genericError: "Failed to open the starter PR." });
   }
 }

@@ -30,6 +30,19 @@ export function scheduledRunsPerMonth(
 }
 
 /**
+ * Will the readable prepaid balance cover under a month of the estimated autoscan draw? True only on a
+ * metered (non-unlimited) org with a known balance and a positive monthly estimate the balance can't
+ * meet. Pure — shared by the connect / onboarding watch-cost disclosure so the "covers under a month"
+ * warning fires identically on both surfaces.
+ */
+export function isUnderAMonth(
+  credit: { balance: number; unlimited: boolean } | null,
+  monthlyCredits: number,
+): boolean {
+  return credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
+}
+
+/**
  * Upper-bound prepaid credits/month the given watch+schedule states will draw, AFTER the plan's
  * remaining free monthly allowance. A metered scan is FREE until the org exceeds its monthly allowance
  * (Free 10, Pro 100, Team 500), so the raw run count overstates the credit spend by that free band —

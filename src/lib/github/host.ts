@@ -83,6 +83,70 @@ export async function fetchWithTimeout(
   }
 }
 
+/** Default timeout for a shared GitHub REST GET (matches the REST source/metadata budget). */
+export const DEFAULT_GET_TIMEOUT_MS = 12_000;
+
+/**
+ * Knobs for the shared GitHub REST GET helpers ({@link ghFetch} / {@link ghGetJson}). Each maps to a
+ * per-module value the four call sites previously hand-rolled, so routing through the helpers is
+ * behavior-preserving:
+ *  - `token`     — bearer auth (omitted for keyless public reads).
+ *  - `signal`    — caller abort signal, merged with the timeout inside {@link fetchWithTimeout}.
+ *  - `timeoutMs` — per-call timeout (defaults to {@link DEFAULT_GET_TIMEOUT_MS}).
+ *  - `userAgent` / `accept` / `extra` — forwarded to {@link ghHeaders}.
+ *  - `cache`     — applied ONLY when set, so a caller that previously omitted `cache` keeps the
+ *                  framework default (governance / the org listing) while no-store callers pass it.
+ */
+export interface GhFetchOpts {
+  token?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  userAgent?: string;
+  accept?: string;
+  extra?: Record<string, string>;
+  cache?: RequestCache;
+}
+
+/**
+ * The single GitHub REST GET path: canonical {@link ghHeaders} + {@link fetchWithTimeout}, returning
+ * the raw `Response` so each caller layers its own status→error mapping / body parsing on top. The
+ * shared core the four per-module helpers (source `ghJson`, governance `getJson`, discover `ghUser`,
+ * the list pagination loop) route through — header/timeout policy lives in ONE place, and the two
+ * callers that previously used a bare `fetch()` gain the abort/timeout protection for free.
+ */
+export function ghFetch(url: string, opts: GhFetchOpts = {}): Promise<Response> {
+  const { token, signal, timeoutMs = DEFAULT_GET_TIMEOUT_MS, userAgent, accept, extra, cache } = opts;
+  const init: RequestInit = { headers: ghHeaders(token, { userAgent, accept, extra }) };
+  if (cache) init.cache = cache;
+  return fetchWithTimeout(url, init, timeoutMs, signal);
+}
+
+/**
+ * Shared GitHub REST GET that returns parsed JSON, throwing a generic `Error` carrying the status on a
+ * non-2xx. The common case for callers with no per-status taxonomy (org discovery); callers that map
+ * specific statuses to typed errors (source / list) or need the raw status/headers (governance / list)
+ * call {@link ghFetch} and shape the `Response` themselves.
+ */
+export async function ghGetJson<T>(url: string, opts: GhFetchOpts = {}): Promise<T> {
+  const res = await ghFetch(url, opts);
+  if (!res.ok) throw new Error(`GitHub ${res.status} on ${url}`);
+  return (await res.json()) as T;
+}
+
+/**
+ * Percent-encode a slash-delimited GitHub path or git ref while PRESERVING the slashes between its
+ * segments (names like `release/1.2`, `feature/x`, or a nested file path `src/a b/c.ts`). A whole-string
+ * `encodeURIComponent(ref)` would turn `release/1.2` into the single literal token `release%2F1.2`, which
+ * the trees/contents APIs and the raw host treat as a branch/path that doesn't exist — every read 404s
+ * and a scan silently degrades to a content-less report. Encoding each segment but joining on a raw `/`
+ * keeps the value valid both as a URL path and as a query value (a literal `/` is allowed in the query
+ * component). The single source for this encoding — used for refs (trees/commits) AND file paths
+ * (contents/raw/write) so the rationale can't be silently re-implemented and drift across call sites.
+ */
+export function encodePathSegments(s: string): string {
+  return s.split("/").map(encodeURIComponent).join("/");
+}
+
 /**
  * The common fields of a GitHub `/…/repos` response row that BOTH repo-listing surfaces read (the
  * public org/user listing in list.ts and the post-OAuth user-repo discovery in discover.ts). Each

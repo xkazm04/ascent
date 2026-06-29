@@ -196,14 +196,6 @@ body {
   animation: ascent-meter-fill 0.6s ease-out both;
 }
 
-/* Stagger-reveal: sections start hidden, then fade-up when scrolled into view. Only hide
-   up front when motion is allowed, so reduced-motion users always see content immediately. */
-@media (prefers-reduced-motion: no-preference) {
-  .reveal-pre {
-    opacity: 0;
-  }
-}
-
 /* ── Mission Control: post-login fleet star-map (/launch) ────────────
    A cinematic entrance — each org is a constellation, each repo a star
    that brightens with its maturity and twinkles as scan data streams in. */

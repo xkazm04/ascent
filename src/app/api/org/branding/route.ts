@@ -6,19 +6,16 @@
 import { NextResponse } from "next/server";
 import { getCreditState, isDbConfigured, setOrgBranding } from "@/lib/db";
 import { planAllowsWhiteLabel } from "@/lib/plans";
-import { requireOrgRole } from "@/lib/authz";
-import { isSameOrigin } from "@/lib/auth";
+import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Branding requires a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as { org?: string; brandName?: string; brandColor?: string; logoUrl?: string };
-  if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "owner");
-  if (denied) return denied;
+  const gate = await requireOrgOwnerPost<{ brandName?: string; brandColor?: string; logoUrl?: string }>(request);
+  if (gate instanceof NextResponse) return gate;
+  const { org, body } = gate;
 
   // Entitlement: briefing white-label is a Team-and-up feature (so a reseller on Team can brand the
   // reports they hand to clients), not Enterprise-only. Distinguish "couldn't determine the plan"
@@ -27,7 +24,7 @@ export async function POST(request: Request) {
   // so a read failure returns a retryable 503 instead.
   let credit;
   try {
-    credit = await getCreditState(body.org);
+    credit = await getCreditState(org);
   } catch {
     return NextResponse.json({ error: "Couldn’t verify your plan right now — please try again." }, { status: 503 });
   }
@@ -38,7 +35,7 @@ export async function POST(request: Request) {
   // Echo the NORMALIZED values actually stored so the client can warn about anything the validator
   // discarded (a non-https/private logo → null) or truncated (an >80-char name) instead of showing
   // unconditional success while the value was silently dropped.
-  const stored = await setOrgBranding(body.org, {
+  const stored = await setOrgBranding(org, {
     brandName: body.brandName ?? null,
     brandColor: body.brandColor ?? null,
     logoUrl: body.logoUrl ?? null,

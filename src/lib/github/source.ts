@@ -12,7 +12,14 @@ import type {
   RepoSnapshot,
   ScanProgress,
 } from "@/lib/types";
-import { fetchWithTimeout, ghHeaders, githubApiBase, githubRawBase } from "@/lib/github/host";
+import {
+  encodePathSegments,
+  fetchWithTimeout,
+  ghFetch,
+  ghHeaders,
+  githubApiBase,
+  githubRawBase,
+} from "@/lib/github/host";
 
 export type ProgressFn = (p: ScanProgress) => void;
 export interface FetchOptions {
@@ -117,18 +124,6 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
 }
 
 /**
- * Encode a git ref for use in a URL while PRESERVING the slashes inside names like `release/1.2`,
- * `feature/x`, or any PR head ref. `encodeURIComponent(ref)` turns the whole ref into a single
- * literal token (`release%2F1.2`), which the trees API and raw host treat as a branch name that
- * doesn't exist — every tree/file read then 404s and the scan silently degrades to a content-less
- * report. Encoding each slash-separated segment but joining on raw `/` keeps the ref valid both as
- * a path segment and as a query value (a literal `/` is allowed in the query component).
- */
-function encodeRef(ref: string): string {
-  return ref.split("/").map(encodeURIComponent).join("/");
-}
-
-/**
  * Outcome of a conditional head lookup:
  *  - `ok`         — GitHub returned the current head (200); `sha` + the response `etag`.
  *  - `unmodified` — the supplied ETag still matches (304). GitHub does NOT count a 304 against
@@ -226,7 +221,7 @@ async function pool<T, R>(
 async function ghJson<T>(url: string, token?: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
-    res = await fetchWithTimeout(url, { headers: ghHeaders(token), cache: "no-store" }, TIMEOUT_API_MS, signal);
+    res = await ghFetch(url, { token, signal, timeoutMs: TIMEOUT_API_MS, cache: "no-store" });
   } catch (e) {
     const msg =
       (e as Error)?.name === "AbortError"
@@ -349,7 +344,7 @@ export class GitHubPublicSource implements RepoSource {
     // REST round-trip for it. Without a pinned ref we must learn the default branch from metadata
     // first, so that path stays serial.
     const treeReq = (r: string) =>
-      ghJson<GhTreeResponse>(`${API}/repos/${owner}/${repo}/git/trees/${encodeRef(r)}?recursive=1`, token, signal);
+      ghJson<GhTreeResponse>(`${API}/repos/${owner}/${repo}/git/trees/${encodePathSegments(r)}?recursive=1`, token, signal);
     const commitsReq = (q: string) =>
       ghJson<GhCommitResponse[]>(
         `${API}/repos/${owner}/${repo}/commits?per_page=${COMMIT_COUNT}${q}`,
@@ -364,7 +359,7 @@ export class GitHubPublicSource implements RepoSource {
       [repoMeta, treeRes, commitsRes] = await Promise.all([
         metaPromise.then(mapGhRepo),
         treeReq(opts.ref),
-        commitsReq(`&sha=${encodeRef(opts.ref)}`),
+        commitsReq(`&sha=${encodePathSegments(opts.ref)}`),
       ]);
     } else {
       repoMeta = mapGhRepo(await metaPromise);
@@ -480,8 +475,8 @@ async function fetchContents(
   token: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const encoded = path.split("/").map(encodeURIComponent).join("/");
-  const url = `${API}/repos/${owner}/${repo}/contents/${encoded}?ref=${encodeRef(branch)}`;
+  const encoded = encodePathSegments(path);
+  const url = `${API}/repos/${owner}/${repo}/contents/${encoded}?ref=${encodePathSegments(branch)}`;
   try {
     const res = await fetchWithTimeout(url, { headers: ghHeaders(token), cache: "no-store" }, TIMEOUT_FILE_MS, signal);
     if (!res.ok) return null;
@@ -500,10 +495,7 @@ async function fetchRaw(
   path: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const url = `${RAW}/${owner}/${repo}/${encodeRef(branch)}/${path
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/")}`;
+  const url = `${RAW}/${owner}/${repo}/${encodePathSegments(branch)}/${encodePathSegments(path)}`;
   try {
     const res = await fetchWithTimeout(
       url,

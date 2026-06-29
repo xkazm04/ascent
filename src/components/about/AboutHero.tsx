@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { DeckSection } from "@/components/deck/DeckSection";
 import { ScoreGauge } from "@/components/landing/prototypes/index/ScoreGauge";
 import { LEVELS, DIMENSIONS } from "@/lib/maturity/model";
 import { useCountUp } from "@/components/landing/prototypes/shared/useCountUp";
@@ -27,7 +28,7 @@ function StatNum({ target, label }: { target: number; label: string }) {
  *  count-up stat tiles. A restrained generated backdrop sits behind at low opacity for depth. */
 export function AboutHero({ bg }: { bg?: string }) {
   return (
-    <section id="hero" className="relative isolate flex min-h-screen snap-start items-center overflow-hidden">
+    <DeckSection id="hero" variant="hero">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="strata absolute inset-0 opacity-40" />
         {bg && <Image src={bg} alt="" fill priority sizes="100vw" className="object-cover object-center opacity-20" />}
@@ -77,6 +78,6 @@ export function AboutHero({ bg }: { bg?: string }) {
           <ScoreGauge size={300} className="max-w-full" />
         </div>
       </div>
-    </section>
+    </DeckSection>
   );
 }
