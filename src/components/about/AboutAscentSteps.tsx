@@ -7,6 +7,7 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
+import { gatedReveal } from "./motionReveal";
 
 const X0 = 70;
 const STEP_W = 168;
@@ -51,29 +52,20 @@ export function AboutAscentSteps() {
               <motion.line
                 x1={s.x} y1={steps[i - 1]!.y} x2={s.x} y2={s.y}
                 stroke={color} strokeWidth={2} strokeDasharray="3 4"
-                initial={reduced ? false : { opacity: 0 }}
-                animate={reduced ? { opacity: 0.45 } : undefined}
-                whileInView={reduced ? undefined : { opacity: 0.45 }}
+                {...gatedReveal(reduced, { initial: { opacity: 0 }, final: { opacity: 0.45 }, transition: { duration: 0.3, delay: 0.1 + i * 0.16 } })}
                 viewport={{ once: false, margin: "-80px" }}
-                transition={reduced ? { duration: 0 } : { duration: 0.3, delay: 0.1 + i * 0.16 }}
               />
             )}
             <motion.line
               x1={s.x} y1={s.y} x2={s.x + STEP_W} y2={s.y}
               stroke={color} strokeWidth={5} strokeLinecap="round"
-              initial={reduced ? false : { pathLength: 0, opacity: 0 }}
-              animate={reduced ? { pathLength: 1, opacity: 1 } : undefined}
-              whileInView={reduced ? undefined : { pathLength: 1, opacity: 1 }}
+              {...gatedReveal(reduced, { initial: { pathLength: 0, opacity: 0 }, final: { pathLength: 1, opacity: 1 }, transition: { duration: 0.45, ease: "easeOut", delay: 0.15 + i * 0.16 } })}
               viewport={{ once: false, margin: "-80px" }}
-              transition={reduced ? { duration: 0 } : { duration: 0.45, ease: "easeOut", delay: 0.15 + i * 0.16 }}
             />
             <motion.circle
               cx={mid} cy={s.y} r={6} fill={color}
-              initial={reduced ? false : { scale: 0 }}
-              animate={reduced ? { scale: 1 } : undefined}
-              whileInView={reduced ? undefined : { scale: 1 }}
+              {...gatedReveal(reduced, { initial: { scale: 0 }, final: { scale: 1 }, transition: { type: "spring", stiffness: 280, damping: 16, delay: 0.25 + i * 0.16 } })}
               viewport={{ once: false, margin: "-80px" }}
-              transition={reduced ? { duration: 0 } : { type: "spring", stiffness: 280, damping: 16, delay: 0.25 + i * 0.16 }}
               style={{ transformOrigin: `${mid}px ${s.y}px` }}
             />
             <text x={mid} y={s.y - 16} textAnchor="middle" className="fill-white font-mono" fontSize={17} fontWeight={700}>
@@ -92,11 +84,13 @@ export function AboutAscentSteps() {
           it parked at the summit (final keyframe) with no travel. */}
       <motion.circle
         r={7} fill="#fff" stroke="#3b9eff" strokeWidth={2.5}
-        initial={reduced ? false : { cx: cx[0], cy: cy[0] }}
-        animate={reduced ? { cx: cx[cx.length - 1], cy: cy[cy.length - 1] } : undefined}
-        whileInView={reduced ? undefined : { cx, cy }}
+        {...gatedReveal(reduced, {
+          initial: { cx: cx[0], cy: cy[0] },
+          final: { cx, cy },
+          reducedTo: { cx: cx[cx.length - 1], cy: cy[cy.length - 1] },
+          transition: { duration: 2.4, ease: "easeInOut", delay: 0.4 },
+        })}
         viewport={{ once: false, margin: "-80px" }}
-        transition={reduced ? { duration: 0 } : { duration: 2.4, ease: "easeInOut", delay: 0.4 }}
       />
     </svg>
   );

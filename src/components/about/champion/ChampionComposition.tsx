@@ -6,8 +6,8 @@
 // live metrics count weak links down and adoption up. Frame-deterministic via useCurrentFrame.
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
-import { NODES, GLINKS, NODE_ADOPT, W, H, HEAL } from "./graph";
-import { MONO, clamp01, Metric, lerpHex } from "../compositionShared";
+import { NODES, GLINKS, NODE_ADOPT, HEAL } from "./graph";
+import { MONO, clamp01, Metric, lerpHex, W, H } from "../compositionShared";
 
 // Weak (#f87171) → strong (#3b9eff) link color, via the shared channel-wise lerp.
 const mix = (t: number): string => lerpHex("#f87171", "#3b9eff", t);
