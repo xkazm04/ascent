@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { Webhooks } from "@polar-sh/nextjs";
-import { grantCredits } from "@/lib/db";
+import { grantCredits, sumRefundClawback } from "@/lib/db";
 import { creditsForProduct } from "@/lib/polar";
 
 export const runtime = "nodejs";
@@ -44,14 +44,14 @@ export const POST = secret
           return;
         }
         const org = orderOrg(order);
-        // A real, paid credit pack that can't be fulfilled YET must be RETRIED, not silently dropped:
-        // the @polar-sh adapter responds 200 on a normal return (telling Polar "delivered"), so any
-        // `return` here permanently loses the purchase. Throw instead — the adapter surfaces a non-2xx
-        // and Polar redelivers under its at-least-once guarantee. The grant is idempotent on
-        // `polar:${order.id}`, so a later successful retry can't double-credit. Causes: the order.paid
-        // webhook racing ahead of org-row creation, or a transient DB blip resolving the org.
+        // PERMANENT failure: the order carries no org binding at all (neither customer.externalId nor
+        // metadata.org). A redelivery has the identical payload, so throwing would only spin Polar's
+        // at-least-once retries forever against a result that can never change. Log loudly (the
+        // dead-letter signal for an unfulfillable-but-paid order) and ACK so the retry storm stops.
+        // Contrast `balance === null` below, which IS retried (the org row may simply not exist YET).
         if (!org) {
-          throw new Error(`[billing/webhook] order ${order.id}: no org bound — ${credits} credits unfulfilled, will retry`);
+          console.error(`[billing/webhook] order ${order.id}: no org bound — ${credits} credits UNFULFILLED (paid, not retried; needs manual reconciliation)`);
+          return;
         }
         const balance = await grantCredits(org, credits, {
           reason: "polar",
@@ -66,11 +66,12 @@ export const POST = secret
       // REVERSAL: an order.paid grant is append-only, so without this a buyer could purchase a pack,
       // spend the credits, then refund/charge back the Polar order and KEEP the credits (and the scans
       // they paid for) for free. Claw the granted credits back PROPORTIONALLY to the amount refunded —
-      // a full refund reverses the whole pack; a partial refund reverses its share. Idempotent on the
-      // order id so a redelivery can't double-claw. grantCredits clamps at zero, so an already-spent
-      // balance simply absorbs what remains. NOTE: multiple SEPARATE partial refunds on one order only
-      // reverse the first increment (the idempotency key is the order id); the full-refund case this
-      // closes reverses the whole pack.
+      // a full refund reverses the whole pack; a partial refund reverses its share. Handles MULTIPLE
+      // separate partial refunds on one order (Polar's `refundedAmount` is cumulative): we compute the
+      // TARGET total clawback at this refund level and reverse only the INCREMENTAL share not already
+      // clawed, keyed per cumulative amount so a redelivery is idempotent. (The old code keyed
+      // idempotency on the order id alone, so every refund after the first was silently dropped.)
+      // grantCredits clamps at zero, so an already-spent balance simply absorbs what remains.
       onOrderRefunded: async (payload) => {
         const order = payload.data;
         const packCredits = creditsForProduct(order.productId);
@@ -82,20 +83,27 @@ export const POST = secret
           console.warn(`[billing/webhook] refund for order ${order.id}: no org bound; cannot claw back ${packCredits} credits`);
           return;
         }
-        const gross = order.netAmount > 0 ? order.netAmount : order.totalAmount;
-        const fraction = gross > 0 ? Math.min(1, Math.max(0, order.refundedAmount / gross)) : 1;
-        const clawback = Math.round(packCredits * fraction);
-        if (clawback <= 0) return;
-        const balance = await grantCredits(org, -clawback, {
+        // Use the SAME money basis for numerator and denominator: `refundedAmount` is measured against the
+        // amount CHARGED (`totalAmount`, incl. tax/fees), so divide by `totalAmount` — not `netAmount`
+        // (net-of-fees), which over/under-clawed on every taxed partial refund.
+        const basis = order.totalAmount > 0 ? order.totalAmount : order.netAmount;
+        const fraction = basis > 0 ? Math.min(1, Math.max(0, order.refundedAmount / basis)) : 1;
+        const target = Math.round(packCredits * fraction); // total credits to have clawed at this cumulative level
+        const already = await sumRefundClawback(org, order.id); // credits already reversed for this order
+        const delta = target - already; // only the incremental share for THIS refund
+        if (delta <= 0) return; // nothing new to reverse (or an idempotent redelivery of the same level)
+        const balance = await grantCredits(org, -delta, {
           reason: "polar-refund",
           actor: "polar",
-          externalId: `polar-refund:${order.id}`,
+          // Per cumulative refund amount: a redelivery of the same level no-ops; a further partial refund
+          // (larger cumulative `refundedAmount`) gets its own key and reverses only its incremental delta.
+          externalId: `polar-refund:${order.id}:${order.refundedAmount}`,
         });
         if (balance === null) {
           console.warn(`[billing/webhook] refund for order ${order.id}: org "${org}" not found`);
           return;
         }
-        console.info(`[billing/webhook] refund for order ${order.id}: -${clawback} credits from "${org}" (balance ${balance})`);
+        console.info(`[billing/webhook] refund for order ${order.id}: -${delta} credits from "${org}" (target ${target}, prior ${already}, balance ${balance})`);
       },
     })
   : async () => NextResponse.json({ error: "Billing webhook is not configured." }, { status: 503 });
