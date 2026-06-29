@@ -12,13 +12,19 @@ export interface SSEMessage {
 /** Parse a single SSE frame ("event: …\ndata: …") into its name + JSON payload. */
 export function parseSSE(block: string): SSEMessage {
   let event: string | null = null;
-  let dataStr = "";
-  for (const line of block.split("\n")) {
+  const dataLines: string[] = [];
+  for (const raw of block.split("\n")) {
+    // Tolerate CRLF: strip a trailing \r that a proxy may have left on the line.
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
     if (line.startsWith("event:")) event = line.slice(6).trim();
-    else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
+    // Per the SSE spec, multiple `data:` lines are JOINED WITH "\n" (stripping a single leading
+    // space after the colon). The old per-line trim()+bare-concat dropped those newlines and the
+    // separator, silently corrupting multi-line / pretty-printed JSON payloads; join with newlines
+    // so a payload split across `data:` lines still reassembles to valid JSON.
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
   }
   try {
-    return { event, data: dataStr ? JSON.parse(dataStr) : null };
+    return { event, data: dataLines.length ? JSON.parse(dataLines.join("\n")) : null };
   } catch {
     return { event, data: null };
   }

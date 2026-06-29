@@ -37,10 +37,24 @@ describe("parseSSE — single frame", () => {
     expect(parseSSE("event: ping")).toEqual({ event: "ping", data: null });
   });
 
-  it("concatenates multi-line data: fields before JSON.parse", () => {
-    // The terminal stream chunks a payload across several data: lines.
+  it("joins multi-line data: with \\n per the SSE spec before JSON.parse", () => {
+    // A payload chunked across several data: lines (proxy split / pretty-print) must reassemble.
     const block = 'event: result\ndata: {"a":1,\ndata: "b":2}';
     expect(parseSSE(block)).toEqual({ event: "result", data: { a: 1, b: 2 } });
+  });
+
+  it("reassembles a pretty-printed (indented) multi-line data: payload", () => {
+    // JSON.stringify(obj, null, 2)-shaped frame, one object line per data: line. The spec join keeps
+    // it valid; the old trim()+bare-concat would collapse the structure.
+    const block = ["event: result", "data: {", 'data:   "score": 88,', 'data:   "ok": true', "data: }"].join("\n");
+    expect(parseSSE(block)).toEqual({ event: "result", data: { score: 88, ok: true } });
+  });
+
+  it("does NOT glue split tokens across data: lines (the old concat fabricated a value)", () => {
+    // The OLD parser concatenated data: lines with no separator: `1` + `2` → `12` (a fabricated
+    // number). The spec join produces `1\n2`, which is not valid JSON, so the malformed multi-line
+    // frame is rejected (data:null) rather than silently mis-parsed.
+    expect(parseSSE("data: 1\ndata: 2")).toEqual({ event: null, data: null });
   });
 
   it("does not throw on malformed JSON — yields data:null but keeps the event", () => {
