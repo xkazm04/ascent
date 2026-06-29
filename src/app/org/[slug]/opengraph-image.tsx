@@ -5,6 +5,7 @@ import { levelForScore } from "@/lib/maturity/model";
 import { LEVEL_HEX, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import { Brand, SHELL, OG_SIZE, OG_CONTENT_TYPE, FallbackOgCard } from "@/lib/og/og-brand";
+import { DIMENSION_COUNT, LEVEL_COUNT } from "@/lib/site";
 
 // SHELL-2: fleet social card for the org dashboard. Mirrors the per-repo report OG. Real numbers are
 // drawn ONLY when the org is publicly readable (canReadOrg — true for the shared public org, and for a
@@ -95,7 +96,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
       <FallbackOgCard
         eyebrow="Fleet maturity"
         title={slug}
-        tagline="AI-native engineering maturity across the fleet — a 5-level ladder across 9 dimensions, with evidence."
+        tagline={`AI-native engineering maturity across the fleet — a ${LEVEL_COUNT}-level ladder across ${DIMENSION_COUNT} dimensions, with evidence.`}
       />
     ),
     { ...size },
