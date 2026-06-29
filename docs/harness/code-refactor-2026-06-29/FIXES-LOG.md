@@ -153,6 +153,20 @@ The full suite shows **1 failure: `client.test.ts` "still fails when no client e
 
 ---
 
+## Wave 13 — Shared UI primitives: DeltaTag (Stat deferred) (Theme H)
+
+**1 commit · score-charts #1 (H) partially closed · design-system #2 (H) DEFERRED · gate: tsc 0 · vitest 2643 pass + 1 env.**
+
+| Commit | What |
+|---|---|
+| `8332cef` | `DimensionCard` inline ▲/▼ delta → canonical `<DeltaTag hideZero/>`. **Deliberate (flagged):** adds `tabular-nums` the inline copy lacked. |
+
+**Left (correctly):** DeltaTag in chartHover `PointTooltip` (bespoke "since prior" suffix + first-scan/no-change states) and ScoreWaterfall (SVG `<text>` + decimal `fmtPts` + ±0.05 neutral band) — a DOM `DeltaTag` can't express these without new props.
+
+**DEFERRED — design-system #2 (Stat ×5):** the canonical `ui/Stat` hardcodes a Kicker label style and exposes no label-style prop; the 5 inline copies diverge in rendered classes (older `text-sm tracking-widest` label, value-first order, pill `<span>`, responsive sizing + count-up). Adopting would change visuals — out of scope for a visual-preserving refactor. Needs a `Stat` API extension (label-style prop) first → logged as a deferred enhancement, not done.
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -169,3 +183,4 @@ The full suite shows **1 failure: `client.test.ts` "still fails when no client e
 12. **Wholesale route-test mocks block helper adoption.** A route whose test does `vi.mock("@/lib/authz")` wholesale breaks if you move its guard into a new module the test doesn't mock. Leave such a handler inline unless you deliberately update the mock — same root cause as the "new `@/lib/db` export missing from a route-test mock" regression class.
 13. **Drift = a missing validation, not just duplicate code.** A duplicated block had drifted by OMISSION (targetDate validation present on goals, absent on initiatives → bad dates silently coerced to null). De-duplicating a validation often means *adding* the missing copy — a deliberate behavior change worth flagging + testing, not a pure no-op refactor.
 14. **Junctioned node_modules can fail HEAD's tests environmentally.** A worktree junctioning the main checkout's `node_modules` inherits its (possibly WIP-installed) deps. A test asserting an optional dep is ABSENT (`@aws-sdk/dsql-signer`) fails when the junction physically contains it, even though HEAD's `package.json` doesn't declare it. Diagnose, don't fix: `git log c8e04c3..HEAD -- <file> package.json` (untouched) + `grep dsql-signer package.json` (absent) ⇒ environmental, not a regression.
+15. **A "re-implemented canonical component" finding can overestimate consolidation safety.** The scan said 5 inline `Stat` copies were "all expressible via className", but `className` governs only the wrapper — the canonical hardcodes a label style and the copies diverge in rendered classes, so adoption would change visuals. Verify the canonical's actual API/markup before adopting; if it can't reproduce a copy without an API extension, that's a (deferred) enhancement, not a pure refactor.
