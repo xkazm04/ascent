@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { scoreHex } from "@/lib/ui";
 import { levelForScore } from "@/lib/maturity/model";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
-import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
+import { BAND_EDGES, CHART_INK, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
 import { shortDateSafe } from "@/components/ui/format";
 
 export interface TrendPoint {
@@ -60,7 +60,7 @@ export function Sparkline({
         onPointerLeave={hover.onPointerLeave}
       >
         {/* Reference line at the L4 (Advanced) threshold — a real band edge, not an arbitrary 50. */}
-        <line x1={0} x2={width} y1={y(65)} y2={y(65)} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 3" />
+        <line x1={0} x2={width} y1={y(65)} y2={y(65)} stroke={CHART_INK.grid} strokeWidth={1} strokeDasharray="2 3" />
         {points.length > 1 && <path d={path} fill="none" stroke={scoreHex(last)} strokeWidth={1.75} />}
         {points.map((p, i) => (
           <circle
@@ -73,8 +73,8 @@ export function Sparkline({
         ))}
         {a !== null && (
           <g>
-            <line x1={x(a)} x2={x(a)} y1={0} y2={height} stroke="#475569" strokeWidth={1} strokeDasharray="2 2" />
-            <circle cx={x(a)} cy={y(points[a]!.score)} r={3.25} fill={scoreHex(points[a]!.score)} stroke="#020617" strokeWidth={1.25} />
+            <line x1={x(a)} x2={x(a)} y1={0} y2={height} stroke={CHART_INK.crosshair} strokeWidth={1} strokeDasharray="2 2" />
+            <circle cx={x(a)} cy={y(points[a]!.score)} r={3.25} fill={scoreHex(points[a]!.score)} stroke={CHART_INK.pointStroke} strokeWidth={1.25} />
           </g>
         )}
         <rect x={0} y={0} width={width} height={height} fill="transparent" />
@@ -103,6 +103,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
 
   const yFor = vScale(H, m.top, m.bottom);
   const xFor = xScale(points.length, m.left, innerW);
+  const bands = levelBandRects(yFor);
 
   const hover = useChartHover(points.map((_, i) => xFor(i)), W);
   const a = hover.active;
@@ -144,22 +145,18 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
       >
         {/* level bands + their L-id labels — a non-color cue so each shaded range is identifiable
             (the bands previously carried meaning in near-invisible fill opacity alone) */}
-        {LEVEL_BANDS.map((b, i) => {
-          const top = yFor(i === 0 ? 100 : LEVEL_BANDS[i - 1]!.min); // safe: i > 0 here, i-1 in-bounds
-          const bottom = yFor(b.min);
-          return (
-            <g key={b.min}>
-              <rect x={m.left} y={top} width={innerW} height={Math.max(0, bottom - top)} fill={b.color} />
-              <text x={m.left + innerW + 5} y={(top + bottom) / 2 + 3} fontSize={8} className="fill-slate-600">
-                {`L${LEVEL_BANDS.length - i}`}
-              </text>
-            </g>
-          );
-        })}
+        {bands.map((b, i) => (
+          <g key={b.min}>
+            <rect x={m.left} y={b.top} width={innerW} height={b.height} fill={b.color} />
+            <text x={m.left + innerW + 5} y={b.top + b.height / 2 + 3} fontSize={8} className="fill-slate-600">
+              {`L${bands.length - i}`}
+            </text>
+          </g>
+        ))}
         {/* y gridlines / labels at band edges */}
         {BAND_EDGES.map((v) => (
           <g key={v}>
-            <line x1={m.left} x2={m.left + innerW} y1={yFor(v)} y2={yFor(v)} stroke="#1e293b" strokeWidth={1} />
+            <line x1={m.left} x2={m.left + innerW} y1={yFor(v)} y2={yFor(v)} stroke={CHART_INK.grid} strokeWidth={1} />
             <text x={m.left - 6} y={yFor(v) + 3} textAnchor="end" fontSize={9} className="fill-slate-600">
               {v}
             </text>
@@ -167,7 +164,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         ))}
         {/* crosshair at the hovered scan */}
         {a !== null && (
-          <line x1={xFor(a)} x2={xFor(a)} y1={m.top} y2={m.top + innerH} stroke="#475569" strokeWidth={1} strokeDasharray="3 3" />
+          <line x1={xFor(a)} x2={xFor(a)} y1={m.top} y2={m.top + innerH} stroke={CHART_INK.crosshair} strokeWidth={1} strokeDasharray="3 3" />
         )}
         {/* line + points */}
         {/* Line color follows the latest score (red→green ramp), matching DimLine + Sparkline. */}
@@ -191,7 +188,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         )}
         {points.map((p, i) => (
           <g key={i}>
-            <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke="#020617" strokeWidth={1.5} />
+            <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke={CHART_INK.pointStroke} strokeWidth={1.5} />
             {showDateLabel(i) && (
               <text x={xFor(i)} y={H - 8} textAnchor="middle" fontSize={9} className="fill-slate-500">
                 {shortDateSafe(p.at)}

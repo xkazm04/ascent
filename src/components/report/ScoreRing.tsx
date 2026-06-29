@@ -5,7 +5,7 @@
 import { useId } from "react";
 import type { MaturityLevel } from "@/lib/types";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
-import { clamp01to100 } from "@/components/report/chartScale";
+import { CHART_INK, clamp01to100 } from "@/components/report/chartScale";
 
 export function ScoreRing({
   score,
@@ -40,7 +40,7 @@ export function ScoreRing({
       {/* Screen-reader title/desc — the arc length already encodes the score without color. */}
       <title id={titleId}>Overall maturity score</title>
       <desc id={descId}>{`Score ${score} of 100. Level ${level.id} ${level.name}.`}</desc>
-      <circle cx={cx} cy={cx} r={r} fill="none" stroke="#1e293b" strokeWidth={stroke} />
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke={CHART_INK.grid} strokeWidth={stroke} />
       <circle
         cx={cx}
         cy={cx}

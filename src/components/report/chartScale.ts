@@ -60,3 +60,35 @@ export function linScale(domainMax: number, rangeStart: number, rangeLen: number
 export function xScale(count: number, left: number, width: number): (i: number) => number {
   return (i) => (count < 2 ? left + width / 2 : left + (width * i) / (count - 1));
 }
+
+/**
+ * Per-band rect geometry for the shaded maturity bands, derived from a chart's y-scale. A band's top
+ * edge is the previous (higher) band's floor — or 100 for the topmost — and it runs down to its own
+ * `min`; the height is clamped at 0 so a degenerate scale can't produce a negative rect. Returned in
+ * the same top→bottom order as `LEVEL_BANDS` (so callers can still index for an L-id label). Both
+ * TrendChart and DimLine map over this for their own `<rect>` (their own x/width, optional labels),
+ * keeping the fiddly `i === 0 ? 100 : prev.min` "top of band" math in lockstep across charts.
+ */
+export function levelBandRects(
+  y: (v: number) => number,
+): { min: number; top: number; height: number; color: string }[] {
+  return LEVEL_BANDS.map((band, i) => {
+    const top = y(i === 0 ? 100 : LEVEL_BANDS[i - 1]!.min); // safe: i > 0 here, i-1 in-bounds
+    const bottom = y(band.min);
+    return { min: band.min, top, height: Math.max(0, bottom - top), color: band.color };
+  });
+}
+
+/**
+ * Chart-chrome ink — the non-data stroke/fill colors shared across the dependency-free SVG charts
+ * (gridlines, hover crosshair, point outlines, the dark canvas behind a point). Centralized so a
+ * palette retune happens in one place instead of drifting across ~10 chart files. Data colors (the
+ * red→green score ramp via `scoreHex`, the level bands) live elsewhere; these are chrome only.
+ */
+export const CHART_INK = {
+  grid: "#1e293b", // gridlines / ring track / axis + plot-frame / baseline-track stroke (slate-800 · --color-divider)
+  crosshair: "#475569", // hover crosshair stroke (slate-600)
+  crosshairDash: "#334155", // dashed threshold crosshair (slate-700)
+  pointStroke: "#020617", // point outline on the dark canvas (slate-950 · --color-surface-strong)
+  canvas: "#0b1322", // the dark canvas/surface behind a point (matches ui.ts heatCell background)
+} as const;
