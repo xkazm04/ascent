@@ -9,7 +9,7 @@
 // from a 400 to a 403), which is observable behaviour we must preserve.
 
 import { NextResponse } from "next/server";
-import { isSameOrigin } from "@/lib/auth";
+import { requireSameOrigin } from "@/lib/auth";
 import { requireOrgRole } from "@/lib/authz";
 
 /**
@@ -28,9 +28,8 @@ export async function requireOrgOwnerPost<T = unknown>(
   request: Request,
   opts?: { missingOrgError?: string },
 ): Promise<{ org: string; body: T & { org?: string } } | NextResponse> {
-  if (!isSameOrigin(request)) {
-    return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
-  }
+  const crossOrigin = requireSameOrigin(request);
+  if (crossOrigin) return crossOrigin;
   const body = (await request.json().catch(() => ({}))) as T & { org?: string };
   if (!body.org) {
     return NextResponse.json({ error: opts?.missingOrgError ?? "Provide { org }." }, { status: 400 });

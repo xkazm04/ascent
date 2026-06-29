@@ -7,6 +7,7 @@
 // Server-only module (uses next/headers); never import from a client component.
 
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import { isDbConfigured } from "@/lib/db/client";
 import { bumpSessionVersion, getSessionVersion } from "@/lib/db/sessions";
@@ -393,6 +394,19 @@ export function isSameOrigin(request: Request): boolean {
     }
   }
   return request.headers.get("sec-fetch-site") === "same-origin";
+}
+
+/**
+ * Reject-or-null CSRF guard wrapping {@link isSameOrigin}: returns a ready-to-return 403
+ * `NextResponse` (the canonical `Cross-origin request rejected.` body + status) when the request is
+ * cross-origin, or `null` to proceed. Single-sources that exact 403 so a mutating handler can guard
+ * with `const xo = requireSameOrigin(request); if (xo) return xo;` instead of re-typing the response.
+ * Adopt only where this is the FIRST check in a handler, so substitution can't reorder which failure
+ * a request hits.
+ */
+export function requireSameOrigin(request: Request): NextResponse | null {
+  if (isSameOrigin(request)) return null;
+  return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
 }
 
 /**
