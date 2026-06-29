@@ -327,15 +327,18 @@ function langDeliverable(
   if (dimId !== "D2" && dimId !== "D3") return null;
   const cmd = commandsFor(language);
   if (cmd.ci === "generic") return null; // unknown stack → keep the nicer generic static text
+  // Only the `path` is language-aware; the `summary` is the same promise as the static control, so
+  // pull it from the source of truth (CONTROL) rather than re-stating the literal — editing the D2/D3
+  // summary in CONTROL now flows into the language-aware path too, which is the common case.
   if (dimId === "D2") {
     return {
       path: `${COVERAGE[cmd.ci]} + a coverage step in your existing hook, with a CI floor`,
-      summary: "make coverage visible to the agent locally, then enforce a minimum as a CI backstop",
+      summary: CONTROL.D2.deliverable.summary,
     };
   }
   return {
     path: `.github/workflows/ci.yml (${CI_SETUP[cmd.ci]} → ${cmd.install} → ${cmd.lint} → ${cmd.test}) gated on merge + the same checks pre-push`,
-    summary: "the same lint/typecheck/test checks run locally before push and enforced on merge",
+    summary: CONTROL.D3.deliverable.summary,
   };
 }
 
