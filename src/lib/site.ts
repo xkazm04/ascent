@@ -34,3 +34,9 @@ export const DIMENSION_COUNT = DIMENSIONS.length;
 export function siteDescription(): string {
   return `Score how AI-native your engineering org is from a GitHub repo: a ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap to the next level.`;
 }
+
+// ---- Demo org -------------------------------------------------------------------------------------
+/** The showcase org behind the "Org demo" links — a product decision, kept in one place. */
+export const DEMO_ORG_SLUG = "vercel";
+/** Href for the demo org dashboard. */
+export const DEMO_ORG_HREF = `/org/${DEMO_ORG_SLUG}`;

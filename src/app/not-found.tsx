@@ -3,6 +3,7 @@
 
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { DEMO_ORG_HREF } from "@/lib/site";
 
 export default function NotFound() {
   return (
@@ -26,7 +27,7 @@ export default function NotFound() {
             Scan a repo
           </Link>
           <Link
-            href="/org/vercel"
+            href={DEMO_ORG_HREF}
             className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
           >
             See an org demo

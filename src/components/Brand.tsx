@@ -6,7 +6,7 @@ import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured } from "@/lib/db";
-import { SITE_TAGLINE_TITLE } from "@/lib/site";
+import { DEMO_ORG_HREF, SITE_TAGLINE_TITLE } from "@/lib/site";
 
 /** Generated ascending-chevron mark + mono wordmark (Altimeter identity). */
 export function Logo({ className = "", size = 24 }: { className?: string; size?: number }) {
@@ -57,7 +57,7 @@ export async function SiteHeader() {
           </Link>
           {dbOn && (
             <Link
-              href="/org/vercel"
+              href={DEMO_ORG_HREF}
               className="focus-ring rounded-md border border-divider px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white"
             >
               Org demo
