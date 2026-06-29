@@ -8,6 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { isUnlimitedPlan, resolveScanCharge } from "@/lib/plans";
 
 export interface CreditState {
@@ -154,12 +155,12 @@ export async function grantCredits(
 export async function countMeteredScansThisMonth(orgSlug: string): Promise<number> {
   if (!isDbConfigured()) return 0;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return 0;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return 0;
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   return prisma.scan.count({
-    where: { repo: { orgId: org.id }, scannedAt: { gte: monthStart }, engineProvider: { not: "mock" } },
+    where: { repo: { orgId }, scannedAt: { gte: monthStart }, engineProvider: { not: "mock" } },
   });
 }
 
@@ -245,10 +246,10 @@ export async function setOrgPlan(orgSlug: string, plan: string): Promise<boolean
 export async function getCreditLedger(orgSlug: string, limit = 50): Promise<CreditLedgerEntry[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
   return prisma.creditLedger.findMany({
-    where: { orgId: org.id },
+    where: { orgId },
     orderBy: { createdAt: "desc" },
     take: Math.max(1, Math.min(200, limit)),
     select: {
@@ -273,8 +274,8 @@ export async function getCreditLedger(orgSlug: string, limit = 50): Promise<Cred
 export async function getCreditReconciliation(orgSlug: string, days: number): Promise<CreditReconciliation | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
   // Aggregate over the FULL window, NOT the recent-200 list. The old code reused
   // getCreditLedger(orgSlug, 200) — capped at the newest 200 rows — as its source, so a busy fleet
   // (daily autoscans write 20-40 ledger rows/day) silently lost every row beyond the most-recent 200
@@ -282,7 +283,7 @@ export async function getCreditReconciliation(orgSlug: string, days: number): Pr
   // Select only the two fields the reconciliation needs, for all rows inside the window.
   const cutoff = new Date(Date.now() - Math.max(1, days) * 86_400_000);
   const rows = await prisma.creditLedger.findMany({
-    where: { orgId: org.id, createdAt: { gte: cutoff } },
+    where: { orgId, createdAt: { gte: cutoff } },
     select: { delta: true, reason: true },
   });
   const sum = (pred: (e: { delta: number; reason: string }) => boolean, abs = false) =>
