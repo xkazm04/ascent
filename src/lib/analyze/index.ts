@@ -269,7 +269,15 @@ const d2: Detector = (idx) => {
     s.add(8, "Contract testing (Pact)");
   if (/\bk6\b|locust|artillery|gatling|jmeter|lighthouse-ci|\blhci\b/.test(adv))
     s.add(6, "Performance/load smoke tests");
-  if (/axe-core|jest-axe|\bpa11y\b|cypress-axe|@axe-core|\ba11y\b|accessibility/.test(adv))
+  // Anchor to real a11y EVIDENCE, not a concept word in any tree path (maturity-model-scoring-engine #2):
+  // a tool dep/config (axe-core/jest-axe/pa11y/cypress-axe), the term in the manifest/CI (`frameworks`),
+  // or a path that is itself a TEST artifact (e.g. tests/a11y.spec.ts). Matching bare `accessibility`/
+  // `a11y` against ALL paths credited a plain `AccessibilityMenu.tsx` (zero a11y tests) a false +6.
+  if (
+    /axe-core|jest-axe|\bpa11y\b|cypress-axe|@axe-core/.test(adv) ||
+    /\ba11y\b|accessibility/.test(frameworks) ||
+    testFiles.some((p) => /\ba11y\b|accessibility/.test(p))
+  )
     s.add(6, "Accessibility tests");
   if (/schemathesis|\bdredd\b|@stoplight\/spectral|\bspectral\b|openapi.*(validate|lint)|\bprism\b/.test(adv))
     s.add(6, "API-schema validation");
@@ -570,7 +578,11 @@ const d8: Detector = (idx) => {
   if (
     idx.has(/(^|\/)(evals?|\.?promptfoo|golden)\//) ||
     idx.has(/(^|\/)promptfoo\.(ya?ml|json)$/) ||
-    /promptfoo|llm[\s-]?eval|golden[\s-]?test|\bevals?\b/.test(blob)
+    // Anchor to real eval EVIDENCE (maturity-model-scoring-engine #2): a dedicated evals//golden/ dir or
+    // promptfoo config (checked above), or a SPECIFIC eval-tool token. The bare `\bevals?\b` was DROPPED
+    // — against all tree paths it credited a plain `src/eval.ts` (or a `json-eval` dep) a 30-point lift
+    // from a filename: the single biggest false signal on the keyless/mock demo path.
+    /promptfoo|llm[\s-]?eval|golden[\s-]?test/.test(blob)
   )
     s.add(30, "AI-output eval / golden-test harness");
 

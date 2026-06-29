@@ -39,12 +39,14 @@ export default async function OrgAdoption({ params }: { params: Promise<{ slug: 
       </div>
 
       <div className={TILE_GRID}>
-        <Tile label="Org AI commit share" value={`${a.orgAiShare}%`} color={scoreHex(a.orgAiShare)} sub="commit-weighted" />
+        {/* Adoption metrics use a neutral accent hue, not the red→green maturity ramp: low adoption
+            here is an expected early baseline, not a defect, so scoreHex would read 8% as alarm-red. */}
+        <Tile label="Org AI commit share" value={`${a.orgAiShare}%`} color={BAND.some} sub="commit-weighted" />
         <Tile
           label="AI-active contributors"
           value={`${a.contributors.aiActive}/${a.contributors.total}`}
           sub={`${a.contributors.aiActiveShare}% of contributors`}
-          color={scoreHex(a.contributors.aiActiveShare)}
+          color={BAND.some}
         />
         <Tile label="Typical PR merge time" value={d?.typicalHoursToMerge != null ? `${d.typicalHoursToMerge}h` : "—"} sub={d ? `${d.prs} PRs` : "no PR data"} />
         <Tile label="AI-involved PRs" value={d ? `${d.aiInvolvedRate}%` : "—"} color={d ? scoreHex(d.aiInvolvedRate) : undefined} />

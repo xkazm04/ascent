@@ -309,8 +309,16 @@ export function projectSandbox(
   );
   const scoreById = new Map(dimensions.map((d) => [d.id, d.score]));
   const scoreFor = (id: DimensionId) => scoreById.get(id) ?? 0;
-  const adoptionScore = axisScore("adoption", scoreFor, report.archetype);
-  const rigorScore = axisScore("rigor", scoreFor, report.archetype);
+  // Bug-fix (maturity-model-scoring-engine #1): pass the SAME present-id predicate assembleReport uses
+  // (overallScoreFor / axisScore renormalize over present dims only). Without it, a partial report — a
+  // dropped/failed detector leaves <9 dimensions — charged the absent dimension 0 at full weight on
+  // these axis paths only, deflating adoption/rigor and potentially flipping the posture quadrant, so
+  // the Sandbox baseline silently disagreed with the report header (projectScore/overall stayed correct
+  // because it routes through overallScoreFor). With every dimension present the predicate is always
+  // true, so a full report reproduces the report's own numbers exactly — the documented invariant.
+  const present = new Set(dimensions.map((d) => d.id));
+  const adoptionScore = axisScore("adoption", scoreFor, report.archetype, (id) => present.has(id));
+  const rigorScore = axisScore("rigor", scoreFor, report.archetype, (id) => present.has(id));
   return {
     dimensions,
     overall: projectScore(report, clamped),

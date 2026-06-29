@@ -8,6 +8,7 @@
 // claim a large credit grant. The webhook and the "Buy credits" UI both read this single catalog.
 
 import { Polar } from "@polar-sh/sdk";
+import { isPlanId, type PlanId } from "@/lib/plans";
 
 export type PolarServer = "sandbox" | "production";
 
@@ -52,6 +53,39 @@ export function creditPacks(): CreditPack[] {
 export function creditsForProduct(productId: string | null | undefined): number {
   if (!productId) return 0;
   return creditPacks().find((p) => p.productId === productId)?.credits ?? 0;
+}
+
+/** A purchasable plan-tier upgrade: a Polar product id mapped to the plan tier it grants. */
+export interface PlanProduct {
+  productId: string;
+  plan: PlanId;
+}
+
+/**
+ * The plan-tier product catalog, parsed from POLAR_PLAN_PRODUCTS — a comma-separated list of
+ * `<productId>=<planId>` pairs (e.g. "prod_pro=pro,prod_team=team,prod_ent=enterprise"). This is the
+ * server-authoritative binding from a paid Polar product to the entitlement tier the buyer receives;
+ * entries whose plan isn't a known PlanId (see lib/plans) are skipped. Unset → no product upgrades a
+ * tier (billing stays credit-only, the prior behaviour). Mirrors the POLAR_CREDIT_PACKS convention.
+ */
+export function planProducts(): PlanProduct[] {
+  const raw = process.env.POLAR_PLAN_PRODUCTS?.trim();
+  if (!raw) return [];
+  const products: PlanProduct[] = [];
+  for (const part of raw.split(",")) {
+    const [id, plan] = part.split("=").map((s) => s.trim());
+    if (!id || !plan || !isPlanId(plan)) continue;
+    products.push({ productId: id, plan });
+  }
+  return products;
+}
+
+/** The plan tier a purchased product id grants (server-authoritative), or null when it's not a known
+ *  plan product. A single product can be BOTH a plan product and a credit pack (an upgrade that also
+ *  seeds credits); the webhook applies whichever mappings match. */
+export function planForProduct(productId: string | null | undefined): PlanId | null {
+  if (!productId) return null;
+  return planProducts().find((p) => p.productId === productId)?.plan ?? null;
 }
 
 /** True when a Polar checkout can run: a token is set AND at least one pack is configured to sell. */

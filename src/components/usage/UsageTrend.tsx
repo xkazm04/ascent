@@ -82,12 +82,18 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
               );
             })}
           </div>
-          <div className="mt-2 flex justify-between font-mono text-sm text-slate-600">
-            {daily
-              .filter((_, i) => i % labelEvery === 0 || i === daily.length - 1)
-              .map((d) => (
-                <span key={d.date}>{d.date.slice(5)}</span>
-              ))}
+          {/* One flex-1 slot per day, mirroring the bar grid above, so each shown label stays under
+              its own bar. (A justify-between over only the filtered labels spread them evenly across
+              the full width, detaching them from the fixed per-day bar positions.) */}
+          <div className="mt-2 flex gap-px font-mono text-sm text-slate-600">
+            {daily.map((d, i) => {
+              const show = i % labelEvery === 0 || i === daily.length - 1;
+              return (
+                <span key={d.date} className="flex-1 text-center">
+                  {show ? d.date.slice(5) : " "}
+                </span>
+              );
+            })}
           </div>
         </>
       )}

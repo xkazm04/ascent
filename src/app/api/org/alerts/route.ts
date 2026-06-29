@@ -58,15 +58,32 @@ export async function POST(request: Request) {
   const denied = await requireOrgRole(body.org, "admin");
   if (denied) return denied;
 
-  // Test-send: build a sample alert and POST it to the org's resolved sink so an admin can confirm
-  // delivery now instead of waiting for a real regression days later.
+  // Test-send: the popover's whole job is to validate the CANDIDATE webhook the admin is still
+  // editing, so when the request carries a non-empty `webhookUrl` we validate it and dispatch to
+  // THAT url — not the previously-stored sink (which would falsely report a typo'd new URL as
+  // "delivered ✓" via a stored/global fallback). A blank field still tests the org's resolved sink.
   if (body.test === true) {
-    const orgUrl = await getOrgAlertWebhook(body.org);
-    const delivered = await dispatchAlert(buildTestAlertMessage(body.org), { webhookUrl: orgUrl });
+    let testUrl: string | null;
+    let candidate = false;
+    if (typeof body.webhookUrl === "string" && body.webhookUrl.trim() !== "") {
+      const v = validateAlertWebhookUrl(body.webhookUrl);
+      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+      testUrl = v.url;
+      candidate = true;
+    } else {
+      testUrl = await getOrgAlertWebhook(body.org);
+    }
+    const delivered = await dispatchAlert(buildTestAlertMessage(body.org), { webhookUrl: testUrl });
     return NextResponse.json({
       ok: true,
       delivered,
-      ...(delivered ? {} : { error: "No alert sink is configured (set a webhook, or the global ALERT_WEBHOOK_URL)." }),
+      ...(delivered
+        ? {}
+        : {
+            error: candidate
+              ? "Couldn't deliver to that webhook URL — check it's a live incoming webhook."
+              : "No alert sink is configured (set a webhook, or the global ALERT_WEBHOOK_URL).",
+          }),
     });
   }
 

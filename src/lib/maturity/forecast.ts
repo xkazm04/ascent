@@ -177,7 +177,12 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90): For
 /** The first band boundary the projection ray crosses, anchored at `current` with slope `perDay`. */
 function etaToNextLevel(current: number, perDay: number, lastT: number): LevelEta | null {
   if (perDay === 0) return null;
-  const idx = LEVELS.findIndex((l) => current >= l.band[0] && current <= l.band[1]);
+  // Bucket on the SAME rounded+clamped score levelForScore/currentLevel use (bands are contiguous
+  // integers, so a fractional `current` like 64.7 sits in no band → findIndex -1 → defaulted to L1,
+  // producing a null/contradictory ETA whose fromLevel disagreed with currentLevel). Rounding once at
+  // entry keeps band-bucketing consistent with the rest of the module. (investment-simulator-forecast #4)
+  const score = clamp(Math.round(current));
+  const idx = LEVELS.findIndex((l) => score >= l.band[0] && score <= l.band[1]);
   const i = idx < 0 ? 0 : idx;
   const rising = perDay > 0;
 
@@ -193,7 +198,7 @@ function etaToNextLevel(current: number, perDay: number, lastT: number): LevelEt
     toLevel = LEVELS[i - 1]!.id; // safe: i-1 >= 0, guarded above
   }
 
-  const exactDays = (boundary - current) / perDay;
+  const exactDays = (boundary - score) / perDay;
   if (!Number.isFinite(exactDays) || exactDays <= 0 || exactDays > MAX_ETA_DAYS) return null;
   const days = Math.round(exactDays);
 

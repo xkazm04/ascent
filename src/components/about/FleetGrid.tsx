@@ -57,21 +57,32 @@ export function FleetGrid() {
         <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}>
           {REPOS.map((r, i) => {
             const dim = seg !== "All" && r.segment !== seg;
+            const isPinned = pinned && inspect?.name === r.name;
             const col = i % COLS;
             const row = Math.floor(i / COLS);
             return (
               <motion.button
                 key={i}
                 type="button"
-                className="focus-ring aspect-square rounded-[3px]"
+                // Off-slice (dimmed) cells are not part of the active filter: take them out of the
+                // keyboard tab order and the accessibility tree so focus + SR announcements match the
+                // visible slice (the count strip) instead of reporting all 40 maturity values.
+                disabled={dim}
+                tabIndex={dim ? -1 : undefined}
+                aria-hidden={dim || undefined}
+                aria-pressed={isPinned || undefined}
+                className={`focus-ring aspect-square rounded-[3px]${
+                  isPinned ? " ring-2 ring-accent ring-offset-2 ring-offset-ink" : ""
+                }`}
                 style={{ backgroundColor: scoreHex(r.score) }}
                 initial={{ opacity: 0, scale: 0.4 }}
                 animate={inView ? { opacity: dim ? 0.1 : 0.92, scale: 1 } : { opacity: 0, scale: 0.4 }}
                 transition={{ duration: 0.35, delay: (col + row) * 0.025, ease: "easeOut" }}
-                whileHover={{ scale: 1.16, opacity: 1 }}
-                onHoverStart={() => !pinned && setInspect(r)}
-                onHoverEnd={() => !pinned && setInspect(null)}
+                whileHover={dim ? undefined : { scale: 1.16, opacity: 1 }}
+                onHoverStart={() => !dim && !pinned && setInspect(r)}
+                onHoverEnd={() => !dim && !pinned && setInspect(null)}
                 onClick={() => {
+                  if (dim) return;
                   if (pinned && inspect?.name === r.name) {
                     setPinned(false);
                     setInspect(null);

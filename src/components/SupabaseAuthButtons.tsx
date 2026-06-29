@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { GitHubMark, Spinner, SIGN_IN_VARIANTS, type SignInButtonVariant } from "@/components/auth/buttonChrome";
+import { SignInButtonChrome, signInBoxClass, SIGN_IN_VARIANTS, type SignInButtonVariant } from "@/components/auth/buttonChrome";
 
 type Variant = SignInButtonVariant;
 
@@ -51,22 +51,9 @@ export function SupabaseSignInButton({
       aria-label={idleLabel}
       aria-busy={pending}
       disabled={pending}
-      className={`focus-ring inline-flex items-center justify-center gap-2 transition ${v.box} ${
-        pending ? "cursor-wait opacity-70" : ""
-      } ${className}`}
+      className={signInBoxClass(variant, pending, className)}
     >
-      <span className="relative inline-flex items-center justify-center" style={{ width: v.icon, height: v.icon }}>
-        <span className={`absolute inline-flex transition-opacity duration-150 ${pending ? "opacity-0" : "opacity-100"}`}>
-          <GitHubMark size={v.icon} />
-        </span>
-        <span className={`absolute inline-flex transition-opacity duration-150 ${pending ? "opacity-100" : "opacity-0"}`}>
-          <Spinner size={v.icon} />
-        </span>
-      </span>
-      <span>{pending ? v.busy : idleLabel}</span>
-      <span role="status" aria-live="polite" className="sr-only">
-        {pending ? v.busy : ""}
-      </span>
+      <SignInButtonChrome pending={pending} idleLabel={idleLabel} busyLabel={v.busy} variant={variant} />
     </button>
   );
 }
@@ -78,20 +65,37 @@ export function SignOutButton({ className = "" }: { className?: string }) {
   async function signOut() {
     if (pending) return;
     setPending(true);
-    const supabase = createSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    router.refresh();
-    router.push("/");
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        // The sign-out didn't complete (network blip / auth-server hiccup) — surface it and let the user
+        // retry instead of navigating home as if signed out (the cookies may still be set: success theater
+        // on a shared machine). Mirrors the sibling sign-in button's { error } check.
+        console.error("[auth] sign-out failed", error.message);
+        return;
+      }
+      router.refresh();
+      router.push("/");
+    } finally {
+      // Always clear pending — a thrown rejection used to leave the button stuck on "Signing out…" forever
+      // (navigation never ran, no finally), permanently disabling sign-out.
+      setPending(false);
+    }
   }
 
   return (
     <button
       type="button"
       onClick={signOut}
+      aria-busy={pending}
       disabled={pending}
       className={`focus-ring rounded-sm hover:text-white ${pending ? "cursor-wait opacity-70" : ""} ${className}`}
     >
       {pending ? "Signing out…" : "Sign out"}
+      <span role="status" aria-live="polite" className="sr-only">
+        {pending ? "Signing out…" : ""}
+      </span>
     </button>
   );
 }

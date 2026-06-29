@@ -4,8 +4,10 @@
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { DEMO_ORG_HREF } from "@/lib/site";
+import { isDbConfigured } from "@/lib/db";
 
 export default function NotFound() {
+  const dbOn = isDbConfigured();
   return (
     <>
       <SiteHeader />
@@ -26,12 +28,24 @@ export default function NotFound() {
           >
             Scan a repo
           </Link>
-          <Link
-            href={DEMO_ORG_HREF}
-            className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
-          >
-            See an org demo
-          </Link>
+          {/* The org demo dashboard needs a DB; on the supported no-DB MVP deploy the header hides it
+              (Brand.tsx gates on isDbConfigured), so the 404 must too - otherwise it funnels a lost
+              visitor to an empty org page. Fall back to the always-valid pricing page instead. */}
+          {dbOn ? (
+            <Link
+              href={DEMO_ORG_HREF}
+              className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
+            >
+              See an org demo
+            </Link>
+          ) : (
+            <Link
+              href="/pricing"
+              className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
+            >
+              See pricing
+            </Link>
+          )}
         </div>
       </main>
       <SiteFooter />

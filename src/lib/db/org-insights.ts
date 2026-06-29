@@ -7,8 +7,8 @@ import { DIMENSION_BY_ID, weightsFor } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
-import { IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
-import { getOrgId, type OrgWindow } from "@/lib/db/org-rollup";
+import { IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import type { OrgWindow } from "@/lib/db/org-rollup";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
 
@@ -70,8 +70,8 @@ function buildMove(fullName: string, name: string, now: ScanLite, prev: ScanLite
 export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgMovers | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
+  if (!org) return null;
 
   const start = window?.start ?? null;
   const end = window?.end ?? null;
@@ -79,10 +79,15 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
   const moves: RepoMove[] = [];
 
   if (start) {
-    // Windowed: fetch every in-window scan (one lightweight query), group per repo, then pick the
-    // latest as "now" and the latest STRICTLY before `start` as the baseline (half-open, like rollup).
-    const rows = await prisma.scan.findMany({
-      where: { repo: { orgId, ...seg }, ...(end ? { scannedAt: { lte: end } } : {}) },
+    // Windowed. The function only needs, per repo, the latest scan ≤ end ("now") and the latest scan
+    // strictly < start (the half-open baseline) — so bound BOTH queries to the period instead of pulling
+    // the org's entire scan history into memory (which scaled with fleet age, not the period: an org
+    // scanned daily across hundreds of repos for a year+ dragged tens of thousands of rows into Node on
+    // every executive/briefing/live render). The in-window query is bounded on both sides; the baseline
+    // query takes only the latest pre-start scan PER REPO (distinct) so it stays one row per repo.
+    const repoScope = { orgId: org.id, ...seg };
+    const inWindow = await prisma.scan.findMany({
+      where: { repo: repoScope, scannedAt: { gte: start, ...(end ? { lte: end } : {}) } },
       select: {
         repoId: true,
         overallScore: true,
@@ -95,28 +100,49 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       },
       orderBy: { scannedAt: "desc" },
     });
-    const byRepo = new Map<string, typeof rows>();
-    for (const r of rows) {
+    // Latest scan STRICTLY before `start`, one per repo (matches getOrgRollup's half-open `lt: start`
+    // cohort). `distinct` bounds this to a single row per repo at the DB; we still pick the first (latest,
+    // desc) per repo in code so the baseline is correct regardless of the driver's distinct support.
+    const preStart = await prisma.scan.findMany({
+      where: { repo: repoScope, scannedAt: { lt: start } },
+      select: {
+        repoId: true,
+        overallScore: true,
+        adoptionScore: true,
+        rigorScore: true,
+        level: true,
+        posture: true,
+        scannedAt: true,
+        repo: { select: { fullName: true, name: true } },
+      },
+      orderBy: { scannedAt: "desc" },
+      distinct: ["repoId"],
+    });
+    const byRepo = new Map<string, typeof inWindow>();
+    for (const r of inWindow) {
       const arr = byRepo.get(r.repoId) ?? [];
       arr.push(r);
       byRepo.set(r.repoId, arr);
     }
-    for (const arr of byRepo.values()) {
-      const now = arr[0]; // latest (rows are scannedAt desc)
-      // Baseline = latest scan STRICTLY before the window start, matching getOrgRollup's half-open
-      // `lt: start` cohort so a scan exactly at `start` is classified IDENTICALLY by both surfaces (it
-      // belongs to the current window, not the baseline) — the movers panel and the headline period-delta
-      // tiles agree on the boundary. A repo ONBOARDED mid-period has no scan before `start`, so fall back
-      // to its EARLIEST in-window scan (arr is desc, so the last element) rather than dropping it from
-      // movers entirely — it genuinely moved (first score → now) within the window. A repo with a single
-      // in-window scan collapses to prev === now and is skipped below.
-      const prev = arr.find((s) => s.scannedAt < start) ?? arr[arr.length - 1];
+    const baselineByRepo = new Map<string, (typeof inWindow)[number]>();
+    for (const r of preStart) if (!baselineByRepo.has(r.repoId)) baselineByRepo.set(r.repoId, r); // first = latest (desc)
+
+    for (const [repoId, arr] of byRepo) {
+      const now = arr[0]; // latest in-window (rows are scannedAt desc)
+      // Baseline = latest scan STRICTLY before the window start, so a scan exactly at `start` is
+      // classified IDENTICALLY by both surfaces (it belongs to the current window, not the baseline) —
+      // the movers panel and the headline period-delta tiles agree on the boundary. A repo ONBOARDED
+      // mid-period has no scan before `start`, so fall back to its EARLIEST in-window scan (arr is desc,
+      // so the last element) rather than dropping it from movers entirely — it genuinely moved (first
+      // score → now) within the window. A repo with a single in-window scan and no baseline collapses to
+      // prev === now and is skipped below.
+      const prev = baselineByRepo.get(repoId) ?? arr[arr.length - 1];
       if (!now || !prev || prev === now) continue; // no baseline, or nothing moved within the window
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev));
     }
   } else {
     const repos = await prisma.repository.findMany({
-      where: { orgId, ...seg },
+      where: { orgId: org.id, ...seg },
       select: {
         fullName: true,
         name: true,
@@ -163,11 +189,11 @@ export interface OrgRec {
 export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRec[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
+  if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       name: true,
       scans: {
@@ -351,11 +377,11 @@ export interface OrgBacklog extends BacklogCounts {
 export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, now: Date = new Date(), techGroupId?: string | null): Promise<OrgBacklog | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
+  if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
       fullName: true,
       name: true,
@@ -389,7 +415,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
 
   // Distinct human logins across the fleet's contributor snapshots — the assignee picker options.
   const contributorRows = await prisma.repoContributor.findMany({
-    where: { repo: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
+    where: { repo: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) } },
     select: { login: true },
     distinct: ["login"],
   });
@@ -557,13 +583,13 @@ export function percentileOf(xs: readonly number[], v: number, min = 1): number 
 export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
+  if (!org) return null;
 
   // Latest scan + primary language per repo, for every repo NOT in this org. `orgId` is carried so the
   // percentile comparison can be done org-vs-org (like-for-like), not org-mean-vs-repo-distribution.
   const repos = await prisma.repository.findMany({
-    where: { orgId: { not: orgId } },
+    where: { orgId: { not: org.id } },
     select: {
       orgId: true,
       primaryLanguage: true,
@@ -581,7 +607,7 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   // This org's averages + dominant language (latest scan per repo).
   const mine = await prisma.repository.findMany({
-    where: { orgId },
+    where: { orgId: org.id },
     select: {
       primaryLanguage: true,
       scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true, adoptionScore: true } },
@@ -648,58 +674,6 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
   };
 }
 
-// ── Shared loader: latest-scan dimension scores, indexed by dimension and by repo ─────────────
-
-/** One repo's score on one dimension, carrying its display + full name — the row shape both the
- *  practice library and the gap analysis index per dimension. */
-interface DimScoreRow {
-  name: string;
-  fullName: string;
-  score: number;
-}
-
-/**
- * Shared loader behind getOrgPractices + getOrgGapAnalysis: pull each repo's latest-scan dimension
- * scores (segment / tech-group scoped) and index them two ways — `byDim` (per-dimension
- * `[{ repo, score }]`) and `perRepo` (each repo's `dimId → score` map). Both views read the SAME
- * "latest-scan dimensions per repo" shape, so they share one query + one pass here. A repo whose
- * latest scan has no dimension rows is skipped (it contributes to neither index).
- */
-async function loadRepoDimScores(
-  prisma: ReturnType<typeof getPrisma>,
-  orgId: string,
-  segmentId?: string | null,
-  techGroupId?: string | null,
-): Promise<{
-  byDim: Map<string, DimScoreRow[]>;
-  perRepo: { name: string; fullName: string; dims: Record<string, number> }[];
-}> {
-  const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      name: true,
-      fullName: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
-    },
-  });
-
-  const byDim = new Map<string, DimScoreRow[]>();
-  const perRepo: { name: string; fullName: string; dims: Record<string, number> }[] = [];
-  for (const r of repos) {
-    const dims = r.scans[0]?.dimensions;
-    if (!dims?.length) continue;
-    const map: Record<string, number> = {};
-    for (const d of dims) {
-      map[d.dimId] = d.score;
-      const arr = byDim.get(d.dimId) ?? [];
-      arr.push({ name: r.name, fullName: r.fullName, score: d.score });
-      byDim.set(d.dimId, arr);
-    }
-    perRepo.push({ name: r.name, fullName: r.fullName, dims: map });
-  }
-  return { byDim, perRepo };
-}
-
 // ── P2: Practice Library — capture & reuse best practices across the org ──────
 
 export interface OrgPractice {
@@ -722,10 +696,29 @@ const GAP = 40;
 export async function getOrgPractices(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPractice[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
+  if (!org) return null;
 
-  const { byDim } = await loadRepoDimScores(prisma, orgId, segmentId, techGroupId);
+  const repos = await prisma.repository.findMany({
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    select: {
+      name: true,
+      fullName: true,
+      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
+    },
+  });
+
+  // Per-dimension list of {repo, score} from each repo's latest scan.
+  const byDim = new Map<string, { name: string; fullName: string; score: number }[]>();
+  for (const r of repos) {
+    const dims = r.scans[0]?.dimensions;
+    if (!dims) continue;
+    for (const d of dims) {
+      const arr = byDim.get(d.dimId) ?? [];
+      arr.push({ name: r.name, fullName: r.fullName, score: d.score });
+      byDim.set(d.dimId, arr);
+    }
+  }
   if (byDim.size === 0) return null;
 
   const practices: OrgPractice[] = PRACTICES.map((p) => {
@@ -794,11 +787,33 @@ const HEALTHY_AVG = 50; // …while the org generally handles that dimension
 export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgGapAnalysis | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
+  if (!org) return null;
 
-  // Per dimension: [{repo, score}]. Per repo: its dim→score map. (Shared with getOrgPractices.)
-  const { byDim, perRepo } = await loadRepoDimScores(prisma, orgId, segmentId, techGroupId);
+  const repos = await prisma.repository.findMany({
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    select: {
+      name: true,
+      fullName: true,
+      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
+    },
+  });
+
+  // Per dimension: [{repo, score}]. Per repo: its dim→score map.
+  const byDim = new Map<string, { name: string; fullName: string; score: number }[]>();
+  const perRepo: { name: string; fullName: string; dims: Record<string, number> }[] = [];
+  for (const r of repos) {
+    const dims = r.scans[0]?.dimensions;
+    if (!dims?.length) continue;
+    const map: Record<string, number> = {};
+    for (const d of dims) {
+      map[d.dimId] = d.score;
+      const arr = byDim.get(d.dimId) ?? [];
+      arr.push({ name: r.name, fullName: r.fullName, score: d.score });
+      byDim.set(d.dimId, arr);
+    }
+    perRepo.push({ name: r.name, fullName: r.fullName, dims: map });
+  }
   const scanned = perRepo.length;
   if (scanned === 0) return null;
 
@@ -871,11 +886,11 @@ export interface OrgDiscrepancies {
 export async function getOrgDiscrepancies(orgSlug: string): Promise<OrgDiscrepancies | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) } });
+  if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId },
+    where: { orgId: org.id },
     select: { name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { discrepancies: true } } },
   });
 

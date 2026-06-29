@@ -223,8 +223,6 @@ describe("isDbUnavailableError", () => {
 
   it("matches the Prisma connection SQLSTATEs", () => {
     expect(isDbUnavailableError({ code: "P1001" })).toBe(true); // can't reach
-    expect(isDbUnavailableError({ code: "P1002" })).toBe(true); // reach timeout
-    expect(isDbUnavailableError({ code: "P1008" })).toBe(true); // op timeout
     expect(isDbUnavailableError({ code: "P1011" })).toBe(true); // TLS
     expect(isDbUnavailableError({ code: "P1017" })).toBe(true); // server closed
     expect(isDbUnavailableError({ meta: { code: "P1001" } })).toBe(true);
@@ -242,6 +240,16 @@ describe("isDbUnavailableError", () => {
     expect(isDbUnavailableError({ code: "P2002" })).toBe(false); // unique constraint — a real bug
     expect(isDbUnavailableError({ code: "23505" })).toBe(false);
     expect(isDbUnavailableError(new Error("unique constraint violated"))).toBe(false);
+  });
+
+  it("does NOT classify a query/connection TIMEOUT as unavailable (database-client-schema #3)", () => {
+    // P1008 (op timeout) and P1002 (reached-but-timed-out) fire on a LIVE-but-slow DB, not a dead one.
+    // Treating them as "unavailable" let dbReadSafe degrade a slow read to empty data (success theater);
+    // they must surface/retry instead. (These two assertions previously expected true — that pinned the
+    // bug.)
+    expect(isDbUnavailableError({ code: "P1008" })).toBe(false);
+    expect(isDbUnavailableError({ code: "P1002" })).toBe(false);
+    expect(isDbUnavailableError(new Error("The database server was reached but timed out"))).toBe(false);
   });
 });
 
@@ -268,6 +276,16 @@ describe("dbReadSafe", () => {
         throw { code: "P2002", message: "Unique constraint failed" };
       }, null),
     ).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("re-throws a query TIMEOUT instead of degrading to empty data (database-client-schema #3)", async () => {
+    // P1008 fires on a live-but-slow DB (heavy query, pool saturation, DSQL latency). Degrading it to
+    // the empty fallback renders plausible-but-wrong "no data"; it must surface, not be swallowed.
+    await expect(
+      dbReadSafe(async () => {
+        throw { code: "P1008", message: "Operations timed out" };
+      }, null),
+    ).rejects.toMatchObject({ code: "P1008" });
   });
 });
 
@@ -670,6 +688,38 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
     const res = await dbHealthCheck();
     expect(res).toEqual({ ok: false, reconnected: false, error: "persistence disabled" });
     expect(constructed).toHaveLength(0); // short-circuits before constructing any client
+  });
+
+  // ── dbReadSafe: auth-expiry recovery on the READ surface (database-client-schema #1) ────────
+  it("dbReadSafe recovers a READ from an auth-expiry: reconnects with a fresh client and retries once", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    let calls = 0;
+    const result = await dbReadSafe(async () => {
+      calls++;
+      const c = getPrisma() as unknown as FakeClient; // reads the CURRENT cached client
+      if (calls === 1) throw { code: "28P01", message: "token expired" }; // first attempt: stale token
+      return c.id;
+    }, -1);
+    // reconnectDb rebuilt the client (static mode) and the read succeeded against the fresh client.
+    expect(calls).toBe(2);
+    expect(constructed).toHaveLength(2);
+    expect(result).toBe(constructed[1].id);
+    expect(g.__ascentPrisma?.client).toBe(constructed[1]);
+  });
+
+  it("dbReadSafe degrades to the fallback when the post-reconnect retry hits an unreachable DB", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+    const unreachable = Object.assign(new Error("Can't reach database server"), {
+      name: "PrismaClientInitializationError",
+    });
+    let calls = 0;
+    const result = await dbReadSafe<string>(async () => {
+      calls++;
+      if (calls === 1) throw { code: "28P01", message: "token expired" }; // auth-expiry → reconnect+retry
+      throw unreachable; // the retry then finds the DB unreachable → degrade
+    }, "fallback");
+    expect(calls).toBe(2);
+    expect(result).toBe("fallback");
   });
 
   // ── reconnectDb: re-establishes the client ────────────────────────────────────────────────

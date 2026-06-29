@@ -6,23 +6,37 @@ import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
-function ActivityChart({ series }: { series: number[] }) {
+/** YYYY-MM-DD → "Mon D" (UTC, so a date-only string isn't shifted a day by the server's local zone). */
+function fmtWeek(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function ActivityChart({ series, oldestWeekIso, latestWeekIso }: { series: number[]; oldestWeekIso: string; latestWeekIso: string }) {
   const max = Math.max(1, ...series);
+  // The bars carry their magnitude only as fill height + a hover title — invisible to keyboard/SR users.
+  // Give the chart a role="img" with a text summary so non-visual users get the series, not just the
+  // heading. (The bar divs are decorative once the summary exists.)
+  const total = series.reduce((a, b) => a + b, 0);
+  const peak = Math.max(0, ...series);
+  const ariaLabel = `Weekly fleet commit activity, week of ${fmtWeek(oldestWeekIso)} to week of ${fmtWeek(latestWeekIso)}: ${total.toLocaleString()} commits over ${series.length} week${series.length === 1 ? "" : "s"}, peak ${peak.toLocaleString()} in a week.`;
   return (
     <div>
-      <div className="flex h-28 items-end gap-1">
+      <div className="flex h-28 items-end gap-1" role="img" aria-label={ariaLabel}>
         {series.map((v, i) => (
           <div
             key={i}
+            aria-hidden
             className="flex-1 rounded-t bg-accent/70 transition-all hover:bg-accent"
             style={{ height: `${Math.max(2, (v / max) * 100)}%` }}
             title={`${v} commits`}
           />
         ))}
       </div>
+      {/* The grid is anchored to the most recent scan and zero-fills gaps, so label the real week dates
+          rather than "this week" (which can be weeks stale) / an off-by-one "{length} weeks ago". */}
       <div className="mt-2 flex justify-between font-mono text-sm uppercase tracking-widest text-slate-600">
-        <span>{series.length} weeks ago</span>
-        <span>this week</span>
+        <span>wk of {fmtWeek(oldestWeekIso)}</span>
+        <span>wk of {fmtWeek(latestWeekIso)}</span>
       </div>
     </div>
   );
@@ -181,7 +195,7 @@ export default async function OrgDelivery({
             }
           />
           <div className="mt-4">
-            <ActivityChart series={activity.series} />
+            <ActivityChart series={activity.series} oldestWeekIso={activity.oldestWeekIso} latestWeekIso={activity.latestWeekIso} />
           </div>
         </Card>
       )}

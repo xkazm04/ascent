@@ -33,6 +33,24 @@ export function MembersPanel({
   const [busy, setBusy] = useState<string | null>(null); // login currently mutating
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null); // login awaiting inline remove confirm
+  const [confirmDowngrade, setConfirmDowngrade] = useState<{ login: string; role: OrgRole } | null>(null); // self-demotion awaiting confirm
+
+  // ROLES is ordered highest→lowest privilege, so a HIGHER index is a LOWER role.
+  const isDowngrade = (from: OrgRole, to: OrgRole) => ROLES.indexOf(to) > ROLES.indexOf(from);
+
+  // Gate the role <select>: demoting YOUR OWN role below its current level locks you out of this
+  // owner-only surface with no self-recovery (only another owner can restore you), so require an
+  // explicit confirm first — mirroring the deliberate two-step inline confirm Remove already has. Any
+  // other change (a downgrade of someone else, or any upgrade) commits immediately as before.
+  function onRoleSelect(m: Member, role: OrgRole) {
+    if (role === m.role) return;
+    if (m.login === selfLogin && isDowngrade(m.role, role)) {
+      setConfirmRemove(null);
+      setConfirmDowngrade({ login: m.login, role });
+      return;
+    }
+    void changeRole(m.login, role);
+  }
 
   async function changeRole(login: string, role: OrgRole) {
     const prev = members;
@@ -124,7 +142,7 @@ export function MembersPanel({
                   <select
                     value={m.role}
                     disabled={busy === m.login}
-                    onChange={(e) => changeRole(m.login, e.target.value as OrgRole)}
+                    onChange={(e) => onRoleSelect(m, e.target.value as OrgRole)}
                     aria-label={`Role for ${m.login}`}
                     title={ROLE_HINT[m.role]}
                     className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
@@ -135,6 +153,31 @@ export function MembersPanel({
                       </option>
                     ))}
                   </select>
+                  {confirmDowngrade?.login === m.login && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 font-mono text-sm">
+                      <span className="text-orange-300">
+                        Demote yourself to {confirmDowngrade.role}? You&apos;ll lose owner access to this page.
+                      </span>
+                      <button
+                        onClick={() => {
+                          const next = confirmDowngrade.role;
+                          setConfirmDowngrade(null);
+                          void changeRole(m.login, next);
+                        }}
+                        disabled={busy === m.login}
+                        className="font-medium text-danger-soft transition hover:text-danger disabled:opacity-50"
+                      >
+                        confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmDowngrade(null)}
+                        disabled={busy === m.login}
+                        className="text-slate-500 transition hover:text-white disabled:opacity-50"
+                      >
+                        cancel
+                      </button>
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-2.5 font-mono text-sm text-slate-500">
                   {new Date(m.createdAt).toLocaleDateString()}

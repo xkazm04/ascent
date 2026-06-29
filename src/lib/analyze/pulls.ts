@@ -266,7 +266,9 @@ export function applyGovernanceSignals(
   });
 }
 
-/** Fetch + summarize a repo's recent PRs. Returns null only on transport failure. */
+/** Fetch + summarize a repo's recent PRs. THROWS on transport failure (the underlying
+ *  `fetchPullRequests` rejects) — it never resolves to null; the return type is non-nullable.
+ *  Callers that want to degrade PR-less must wrap the call (see scan.ts: `.catch(() => null)`). */
 export async function fetchPrStats(
   owner: string,
   repo: string,

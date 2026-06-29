@@ -13,11 +13,11 @@ export function Leaderboard({ repos, className = "" }: { repos: LiveRepo[]; clas
       {shown.length === 0 ? (
         <p className="mt-4 text-base text-slate-500">No scans yet — launch the live scan to populate the board.</p>
       ) : (
-        <div className="relative mt-3" style={{ height: shown.length * ROW_H }}>
+        <ol className="relative mt-3 list-none" style={{ height: shown.length * ROW_H }}>
           {shown.map((r, i) => {
             const color = scoreHex(r.overall!);
             return (
-              <div
+              <li
                 key={r.fullName}
                 className="absolute inset-x-0 flex h-10 items-center gap-3 rounded-lg px-2 transition-all duration-500 ease-out motion-reduce:transition-none"
                 style={{ top: i * ROW_H }}
@@ -38,10 +38,10 @@ export function Leaderboard({ repos, className = "" }: { repos: LiveRepo[]; clas
                 <span className="w-8 shrink-0 text-right font-mono text-base font-bold tabular-nums" style={{ color }}>
                   {r.overall}
                 </span>
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ol>
       )}
       {overflow > 0 && <p className="mt-3 font-mono text-sm text-slate-500">+{overflow} more repos</p>}
     </div>

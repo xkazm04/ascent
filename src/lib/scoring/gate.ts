@@ -326,34 +326,34 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
 export function policyFromParams(params: URLSearchParams, archetype: RepoArchetype): GatePolicy {
   const base = defaultGatePolicy(archetype);
   const minLevel = params.get("min_level");
-  const minOverall = Number(params.get("min_overall"));
-  const minDimension = Number(params.get("min_dimension"));
   const noUngoverned = params.get("no_ungoverned");
   const requireProtection = params.get("require_protection");
 
+  // A query-param floor must satisfy the SAME numeric contract as sanitizeGatePolicy's floorScore:
+  // finite, truncated to an int, and 0 < n <= 100. Anything else (empty/0/NaN/fractional/out-of-range
+  // like ?min_overall=150 or ?min_security=999) is "not a usable floor" → undefined, so the caller falls
+  // back to the archetype default rather than installing an always-pass (<=0) or unreachable (>100)
+  // floor that silently turns the gate into an always-pass or always-fail wall. (ci-gate-status-checks #5)
+  const floorParam = (name: string): number | undefined => {
+    if (params.get(name) == null) return undefined;
+    const n = Number(params.get(name));
+    return Number.isFinite(n) && n > 0 && n <= 100 ? Math.trunc(n) : undefined;
+  };
+
   // Security gate: `?security=1` (default D9 floor) or `?min_security=N` (explicit floor). Both pin a
   // per-dimension floor on Security (D9) AND forbid the "ungoverned" posture — the security policy.
-  const minSecurity = Number(params.get("min_security"));
-  // Require a POSITIVE floor: `?min_security=` (empty → Number("")=0) and `?min_security=0` both parse
-  // to a finite 0, which used to read as "security floor requested, floor=0" — an always-pass gate that
-  // still LOOKED like a security gate. Treat empty/0/absent as "not requested" (a real floor is > 0).
-  const hasMinSecurity = Number.isFinite(minSecurity) && minSecurity > 0;
-  const wantSecurity = params.get("security") === "1" || params.get("security") === "true" || hasMinSecurity;
-  const securityFloor = hasMinSecurity ? minSecurity : DEFAULT_SECURITY_MIN;
+  // An out-of-range/empty/0 min_security is dropped (undefined) so it neither requests an impossible
+  // floor nor is mistaken for "floor=0"; `?security=1` still falls back to DEFAULT_SECURITY_MIN.
+  const minSecurity = floorParam("min_security");
+  const wantSecurity = params.get("security") === "1" || params.get("security") === "true" || minSecurity !== undefined;
+  const securityFloor = minSecurity ?? DEFAULT_SECURITY_MIN;
 
   return {
     minLevel: isLevelId(minLevel) ? minLevel : base.minLevel,
-    // Require a POSITIVE floor (like min_security): `?min_overall=` (Number("")=0) and `?min_overall=0`
-    // both parse to a finite 0, which would install an always-pass gate that silently disarms CI
-    // protection. A <=0 / invalid value falls back to the archetype default rather than weakening the gate.
-    minOverall:
-      Number.isFinite(minOverall) && minOverall > 0 && params.get("min_overall") != null
-        ? minOverall
-        : base.minOverall,
-    minDimension:
-      Number.isFinite(minDimension) && minDimension > 0 && params.get("min_dimension") != null
-        ? minDimension
-        : base.minDimension,
+    // A <=0 / >100 / fractional / invalid value falls back to the archetype default rather than
+    // installing an always-pass (<=0) or unreachable (>100) floor.
+    minOverall: floorParam("min_overall") ?? base.minOverall,
+    minDimension: floorParam("min_dimension") ?? base.minDimension,
     minDimensionFor: wantSecurity ? { [SECURITY_DIM]: securityFloor } : base.minDimensionFor,
     forbidPostures:
       noUngoverned === "1" || noUngoverned === "true" || wantSecurity ? ["ungoverned"] : base.forbidPostures,

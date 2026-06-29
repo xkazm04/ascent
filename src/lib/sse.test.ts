@@ -57,6 +57,15 @@ describe("parseSSE — single frame", () => {
     expect(parseSSE("data: 1\ndata: 2")).toEqual({ event: null, data: null });
   });
 
+  it("concatenates multi-line data: fields (spec join) so a split JSON payload still parses", () => {
+    // Per the SSE spec, consecutive data: lines in one frame are joined with "\n". A producer may
+    // split a single JSON payload across two data: lines at a structural boundary; the parser must
+    // reassemble them (the "\n" is inter-token whitespace JSON ignores) rather than keeping only the
+    // last line or dropping the frame as data:null. (scan-pipeline #4)
+    const block = 'event: result\ndata: {"a": 1,\ndata: "b": 2}';
+    expect(parseSSE(block)).toEqual({ event: "result", data: { a: 1, b: 2 } });
+  });
+
   it("does not throw on malformed JSON — yields data:null but keeps the event", () => {
     expect(parseSSE("event: oops\ndata: {not json")).toEqual({ event: "oops", data: null });
   });

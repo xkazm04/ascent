@@ -82,6 +82,27 @@ function parseDay(s: string | undefined): Date | null {
 
 const first = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
 
+/** Format a Date as the local-calendar `yyyy-mm-dd` the custom-range inputs use (round-trips parseDay). */
+function toDayInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * The trailing-week window as `?range=custom&from=&to=` params, snapped to LOCAL CALENDAR DAYS so it
+ * shares the dashboard's boundary semantics instead of a raw rolling 168h offset. `from` is 6 days
+ * before today (inclusive) and `to` is today, i.e. a 7-day inclusive span. Feeding these through
+ * resolveWindow (or the executive URL) makes a "this week" push and the page it links to agree on the
+ * exact same period boundaries. (fleet-alerts-digests #5)
+ */
+export function weekRangeParams(now: Date = new Date()): { range: "custom"; from: string; to: string } {
+  const today = startOfDay(now);
+  const from = new Date(today.getTime() - 6 * DAY);
+  return { range: "custom", from: toDayInput(from), to: toDayInput(today) };
+}
+
 /**
  * Resolve the `?range=…&from=…&to=…` search params into a concrete window. Unknown ranges fall
  * back to the default. `now` is injectable for testing; callers pass nothing in production.
@@ -107,10 +128,18 @@ export function resolveWindow(
     case "all":
       return { key, start: null, end: null, title: "All time", comparisonLabel: "", reviewTitle: "All-time review" };
     case "custom": {
-      const from = first(params.from);
-      const to = first(params.to);
-      const start = parseDay(from);
-      const toDay = parseDay(to);
+      let from = first(params.from);
+      let to = first(params.to);
+      let start = parseDay(from);
+      let toDay = parseDay(to);
+      // Guard a reversed range: when BOTH bounds parse and from > to, swap them rather than yielding
+      // start > end — which downstream matches no rows (blank trend/forecast) while the baseline query
+      // (lt: start) still returns an incoherent, end-bounded "current" snapshot that predates start.
+      // Swapping keeps the user's two dates and presents a coherent period instead of empty data. (fleet-rollups-insights #5)
+      if (start && toDay && start.getTime() > toDay.getTime()) {
+        [start, toDay] = [toDay, start];
+        [from, to] = [to, from];
+      }
       // Make `to` inclusive of its whole day; an absent `to` leaves the window open-ended (now).
       const end = toDay ? new Date(toDay.getTime() + DAY - 1) : null;
       return {

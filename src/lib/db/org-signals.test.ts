@@ -370,6 +370,11 @@ describe("getOrgActivity blob resilience and calendar-week alignment", () => {
     expect(res!.series).toEqual([1, 2, 13, 24]);
     expect(res!.total).toBe(40);
     expect(res!.repos).toBe(2);
+    // Axis labels: the span between oldest and latest week is exactly series.length - 1 weeks (the old
+    // "{length} weeks ago" was off by one), and both are real YYYY-MM-DD week-start dates.
+    const WK = 7 * 86_400_000;
+    expect((Date.parse(res!.latestWeekIso) - Date.parse(res!.oldestWeekIso)) / WK).toBe(res!.series.length - 1);
+    expect(res!.latestWeekIso).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("aligns DIFFERENT-cadence repos by absolute calendar week, not array index (regression: fleet-rollups-insights #1)", async () => {

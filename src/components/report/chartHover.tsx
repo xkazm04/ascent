@@ -4,8 +4,39 @@
 // this adds a pointer→nearest-point mapping (using the chart's own viewBox X coordinates)
 // plus a floating HTML tooltip and a crosshair, without pulling in a charting library.
 
-import { useState, type PointerEvent, type ReactNode } from "react";
+import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { scoreHex } from "@/lib/ui";
+
+/**
+ * Touch-safe activation for the charts' "tap a point → open its report" deep link. On a fine
+ * pointer (mouse/pen) a click opens immediately, preserving the desktop hover→click model. On a
+ * COARSE pointer (touch) there is no hover phase, so the first tap on a point only REVEALS it
+ * (arms it, returning false) and a second tap on the SAME point opens it — otherwise every tap to
+ * inspect a point's tooltip would also navigate away. Spread `notePointer` onto the svg's
+ * onPointerDown/onPointerMove so the pointer kind is known by click time.
+ */
+export function useCoarseTapToOpen() {
+  const coarse = useRef(false);
+  const armed = useRef<number | null>(null);
+
+  const notePointer = (e: { pointerType: string }) => {
+    coarse.current = e.pointerType === "touch";
+  };
+
+  /** True when this click on `active` should open the link (and clears the armed point). */
+  const shouldOpen = (active: number | null): boolean => {
+    if (active == null) return false;
+    if (!coarse.current) return true; // fine pointer → open on first click
+    if (armed.current === active) {
+      armed.current = null;
+      return true; // second tap on the same point → open
+    }
+    armed.current = active; // first tap → reveal only
+    return false;
+  };
+
+  return { notePointer, shouldOpen };
+}
 
 /**
  * Map a pointer's X to the nearest data index using the chart's own viewBox X positions —

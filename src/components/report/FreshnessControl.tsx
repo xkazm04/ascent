@@ -30,7 +30,13 @@ export function FreshnessControl({
     return () => clearInterval(id);
   }, []);
 
-  const retestHref = `/report?repo=${encodeURIComponent(report.repo.url)}&fresh=1`;
+  // Build the re-test target from the canonical `owner/name[@headSha]` ref (matching the PDF/skill
+  // links in ReportHeader) rather than the full repo.url. The full-URL form relied on `?repo=`
+  // URL-normalization AND silently dropped the pinned commit, so "Re-test" on a pinned permalink
+  // abandoned the historical sha the user was viewing and rescanned HEAD. Preserving `@headSha` keeps
+  // the re-test pinned to the same commit (with `fresh=1` forcing a re-check of that exact sha).
+  const repoRef = `${report.repo.owner}/${report.repo.name}${report.repo.headSha ? `@${report.repo.headSha}` : ""}`;
+  const retestHref = `/report?repo=${encodeURIComponent(repoRef)}&fresh=1`;
   const retestClass = pillClass();
   const refreshIcon = (
     <svg aria-hidden viewBox="0 0 16 16" className="h-3 w-3 shrink-0" fill="none">

@@ -11,7 +11,7 @@ import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provid
 import { finalizeAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
-import { llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { envNumber, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -44,6 +44,14 @@ export class OpenAiProvider implements LLMProvider {
         body: JSON.stringify({
           model: this.model,
           temperature: llmTemperature(),
+          // Give the reply room to complete the multi-KB assessment JSON. The OpenAI-compatible self-
+          // hosted targets this module supports (vLLM, Ollama, LM Studio) often default to a SMALL
+          // completion cap (Ollama's num_predict ≈ 128), which truncates the JSON mid-object →
+          // parseJsonLoose recovers nothing usable → isAssessmentUsable falls below coverage → the scan
+          // silently degrades to the mock floor under the "openai" provider name. Bedrock sets a budget
+          // explicitly and Gemini relies on a high native default; OpenAI alone set none. Mirror
+          // BEDROCK_MAX_TOKENS with an env-overridable default. (llm-provider-abstraction #2)
+          max_tokens: Math.round(envNumber("OPENAI_MAX_TOKENS", 4096)),
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: system },

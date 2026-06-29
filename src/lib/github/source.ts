@@ -63,6 +63,9 @@ export class GitHubError extends Error {
       | "EMPTY",
     message: string,
     public readonly status?: number,
+    /** Seconds to wait before retrying — set from a GitHub Retry-After on a (secondary) rate limit so
+     *  callers can back off instead of hammering. Undefined when the response carried no Retry-After. */
+    public readonly retryAfterSec?: number,
   ) {
     super(message);
     this.name = "GitHubError";
@@ -231,11 +234,22 @@ async function ghJson<T>(url: string, token?: string, signal?: AbortSignal): Pro
   }
   if (res.status === 403 || res.status === 429) {
     const remaining = res.headers.get("x-ratelimit-remaining");
-    if (remaining === "0" || res.status === 429) {
+    const retryAfter = Number(res.headers.get("retry-after")) || undefined;
+    // GitHub's SECONDARY (abuse) rate limit returns 403 (sometimes 429) with a Retry-After header but
+    // leaves x-ratelimit-remaining > 0 — so keying solely on remaining===0 misreported it as a generic
+    // UPSTREAM "GitHub returned 403." with no back-off guidance. Classify a present Retry-After (or a
+    // "secondary rate limit" body) as rate-limited too, and surface Retry-After. (github-repo-data-access #2)
+    let secondary = false;
+    if (res.status === 403 && remaining !== "0" && retryAfter === undefined) {
+      const body = await res.text().catch(() => "");
+      secondary = /secondary rate limit/i.test(body);
+    }
+    if (remaining === "0" || res.status === 429 || retryAfter !== undefined || secondary) {
       throw new GitHubError(
         "RATE_LIMITED",
         "GitHub API rate limit hit. Add a GITHUB_TOKEN to raise the limit, or try again later.",
         res.status,
+        retryAfter,
       );
     }
     throw new GitHubError("UPSTREAM", `GitHub returned ${res.status}.`, res.status);

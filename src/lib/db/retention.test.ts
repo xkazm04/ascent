@@ -900,4 +900,141 @@ describe("purgeExpiredData — fleet-wide opt-in safety (a misconfig can't silen
       expect.objectContaining({ orgId: "org_on" }),
     );
   });
+
+  it("pages the repo enumeration with an id cursor instead of one unbounded findMany (finding #5)", async () => {
+    // A fleet org's repo list must never be pulled all at once. Simulate >1 page: the mock honors
+    // take + cursor so a full first page (matching REPO_PAGE_SIZE=500) forces a second fetch that
+    // returns a short page, ending the loop. We assert findMany was called more than once and that the
+    // second call carried a cursor positioned past the first page's last id.
+    const PAGE = 500;
+    const page1 = Array.from({ length: PAGE }, (_, i) => ({ id: `repo_${String(i).padStart(4, "0")}` }));
+    const page2 = [{ id: "repo_0500" }]; // short page → terminates
+    const repoCalls: Array<{ cursor?: string; take?: number }> = [];
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_on", slug: "on", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: {
+        findMany: vi.fn(
+          async (args: { take?: number; cursor?: { id: string } }) => {
+            repoCalls.push({ cursor: args.cursor?.id, take: args.take });
+            return args.cursor ? page2 : page1;
+          },
+        ),
+      },
+      scan: { findMany: vi.fn(async () => []) }, // no stale scans → no deletes, just exercising paging
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await purgeExpiredData();
+
+    // More than one page was fetched, the second positioned by a cursor past page1's last id.
+    expect(repoCalls.length).toBe(2);
+    expect(repoCalls[0]!.cursor).toBeUndefined();
+    expect(repoCalls[0]!.take).toBe(PAGE);
+    expect(repoCalls[1]!.cursor).toBe("repo_0499"); // last id of the full first page
+  });
+
+  it("a configured org with nothing currently expired writes NO audit entry (finding #4)", async () => {
+    // org_on has a real policy, but no repos/scans are stale this tick → zero deletes. Previously the
+    // job wrote an all-zero `retention.purged` AuditLog row for it every cron tick, forever — audit
+    // noise in an audit product. The recordAudit is now gated on totalDeleted > 0.
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_on", slug: "on", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => [{ id: "repo_on" }]) },
+      scan: { findMany: vi.fn(async () => []) }, // nothing stale → nothing to delete
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary).not.toBeNull();
+    expect(summary!.scansDeleted).toBe(0);
+    // The org was still visited/processed (the summary reflects the run), but no zero-count audit row.
+    expect(summary!.orgsProcessed).toBe(1);
+    expect(vi.mocked(recordAudit)).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// purgeExpiredData — tail-org starvation guard (finding #2). A large fleet that
+// can't drain in one 300s tick used to die at the same prefix every run (stable
+// org order), so late-ordered orgs were NEVER reached. The fix rotates the order
+// each tick and stops cleanly on a wall-clock budget, surfacing the unreached
+// count (which the route turns into a non-2xx, finding #1).
+// ---------------------------------------------------------------------------
+
+describe("purgeExpiredData — wall-clock budget + rotation (tail-org starvation, finding #2)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+    delete process.env.RETENTION_TIME_BUDGET_MS;
+    vi.mocked(recordAudit).mockClear();
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("stops cleanly when the time budget is exhausted, leaving the rest for the next tick", async () => {
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "a", retentionMaxScans: 1, retentionAuditDays: 0 },
+          { id: "org_2", slug: "b", retentionMaxScans: 1, retentionAuditDays: 0 },
+          { id: "org_3", slug: "c", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) }, // nothing to prune; the org is still "processed"
+      scan: { findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // now() sequence: startedAt=0, iter-0 check=0 (under the 100ms budget → process one org), iter-1
+    // check=999 (over budget → stop), then the error-message read=999. random()=0 → deterministic shuffle.
+    const clock = [0, 0, 999, 999];
+    let t = 0;
+    const summary = await purgeExpiredData({
+      timeBudgetMs: 100,
+      now: () => clock[Math.min(t++, clock.length - 1)]!,
+      random: () => 0,
+    });
+
+    expect(summary).not.toBeNull();
+    expect(summary!.stoppedEarly).toBe(true);
+    expect(summary!.orgsRemaining).toBe(2); // 3 orgs − 1 processed this tick
+    expect(summary!.orgsProcessed).toBe(1);
+    // Surfaced as an error so the route returns a non-2xx (finding #1) and cron alerting trips.
+    expect(summary!.errors.some((e) => e.startsWith("(budget):"))).toBe(true);
+  });
+
+  it("processes every org and reports stoppedEarly:false when the budget is ample", async () => {
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "a", retentionMaxScans: 1, retentionAuditDays: 0 },
+          { id: "org_2", slug: "b", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) },
+      scan: { findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ timeBudgetMs: 1_000_000, now: () => 0, random: () => 0 });
+
+    expect(summary!.stoppedEarly).toBe(false);
+    expect(summary!.orgsRemaining).toBe(0);
+    expect(summary!.orgsProcessed).toBe(2);
+    expect(summary!.errors).toEqual([]);
+  });
 });

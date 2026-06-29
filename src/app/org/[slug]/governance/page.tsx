@@ -125,6 +125,18 @@ export default async function OrgGovernance({ params }: { params: Promise<{ slug
             ))}
           </div>
         )}
+        {/* The headline "Failing" tile is the untruncated total (g.failing), but this list is capped
+            server-side. Say so — otherwise the count and the list read as inconsistent ("where are the
+            other repos?"). */}
+        {g.failing > g.failures.length && (
+          <p className="mt-3 font-mono text-sm text-slate-500">
+            Showing the worst {g.failures.length} of {g.failing} failing repos — see the{" "}
+            <Link href={`/org/${slug}/repositories`} className="text-accent hover:text-white">
+              Repositories
+            </Link>{" "}
+            tab for the full list.
+          </p>
+        )}
       </Card>
 
       {g.closestToGreen.length > 0 && (
@@ -178,6 +190,13 @@ export default async function OrgGovernance({ params }: { params: Promise<{ slug
               </div>
             ))}
           </div>
+          {/* Every failing repo is a green-path candidate, so the full count is g.failing; this list is
+              capped to the closest. Communicate the cap so it reconciles with the Failing tile. */}
+          {g.failing > g.closestToGreen.length && (
+            <p className="mt-3 font-mono text-sm text-slate-500">
+              Showing the {g.closestToGreen.length} closest of {g.failing} failing repos.
+            </p>
+          )}
         </Card>
       )}
 

@@ -15,6 +15,7 @@ export function SectionHeading({
   intro,
   right,
   size = "lg",
+  as: Heading = "h2",
   id,
   className = "",
   introClassName = "",
@@ -25,6 +26,9 @@ export function SectionHeading({
   intro?: React.ReactNode;
   right?: React.ReactNode;
   size?: "page" | "lg" | "sm";
+  /** Semantic heading level — decoupled from the purely-visual `size`. Default `h2`. Set this to keep
+   *  document heading order sequential (no skipped levels) when reusing the primitive. */
+  as?: "h1" | "h2" | "h3" | "h4";
   id?: string;
   className?: string;
   introClassName?: string;
@@ -39,9 +43,9 @@ export function SectionHeading({
   const heading = (
     <div>
       {kicker != null && <Kicker tone={kickerTone}>{kicker}</Kicker>}
-      <h2 id={id} className={`${kicker != null ? "mt-2" : ""} ${titleCls}`}>
+      <Heading id={id} className={`${kicker != null ? "mt-2" : ""} ${titleCls}`}>
         {title}
-      </h2>
+      </Heading>
       {intro != null && <p className={`mt-2 max-w-2xl text-base text-slate-400 ${introClassName}`}>{intro}</p>}
     </div>
   );

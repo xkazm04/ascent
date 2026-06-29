@@ -122,11 +122,15 @@ export function simulateFleet(
   const after = repos.map((r) => {
     let dims = r.dims;
     let moved = false;
-    // Apply each leg only when the repo is in scope AND currently below that leg's target.
+    // Apply each leg only when the repo is in scope AND the dimension is PRESENT and below target.
+    // An absent dimension is left absent: recomputeRepo renormalizes over present dims, so force-
+    // adding a never-measured dim at the target would shrink the renormalized overall (a "raise"
+    // could LOWER a partial-scan repo and read as a negative mover). "Absent" ≠ "currently low".
+    // (investment-simulator-forecast #2)
     if (inScope.has(r.fullName)) {
       for (const f of fixes) {
         const cur = dims[f.dimId];
-        if (cur == null || cur < f.target) {
+        if (cur != null && cur < f.target) {
           dims = { ...dims, [f.dimId]: f.target };
           moved = true;
         }

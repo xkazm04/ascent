@@ -10,6 +10,9 @@ interface RepoRef {
 interface Artifact {
   path: string;
   body: string;
+  /** The repo this artifact was previewed for. Apply must target THIS repo, not whatever the dropdown
+   *  reads now — otherwise a stale preview response can be applied to a different repo (see preview()). */
+  repo: string;
 }
 
 interface BatchResult {
@@ -19,6 +22,11 @@ interface BatchResult {
   reused?: boolean;
   error?: string;
 }
+
+// Mirror the server's per-batch cap (src/app/api/practices/apply-batch/route.ts MAX_BATCH). The route
+// truncates to the FIRST MAX_BATCH repos it receives and returns the over-cap count as `skipped`, so we
+// (a) send the neediest repos first and (b) surface `skipped` instead of implying full coverage.
+const MAX_BATCH = 25;
 
 /**
  * The "systematic apply" action on a practice card: pick a gap repo, preview the leak-free
@@ -38,6 +46,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   const [selected, setSelected] = useState<Set<string>>(() => new Set(gapRepos.map((r) => r.fullName)));
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
+  const [batchSummary, setBatchSummary] = useState<{ attempted: number; skipped: number } | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
 
   if (gapRepos.length === 0) return null;
@@ -52,11 +61,18 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   }
 
   async function applyBatch() {
-    const repos = [...selected];
+    // gapRepos is ordered highest-score-first (least needy), so the repos most in need of remediation
+    // are LAST. The server keeps the first MAX_BATCH repos it receives when truncating, so send the
+    // neediest first — otherwise the cap would silently drop exactly the repos the rollout should fix.
+    const repos = gapRepos
+      .filter((r) => selected.has(r.fullName))
+      .map((r) => r.fullName)
+      .reverse();
     if (repos.length === 0) return;
     setBatchBusy(true);
     setBatchError(null);
     setBatchResults(null);
+    setBatchSummary(null);
     try {
       const res = await fetch("/api/practices/apply-batch", {
         method: "POST",
@@ -65,7 +81,12 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PRs.");
-      setBatchResults(data.results as BatchResult[]);
+      const results = data.results as BatchResult[];
+      setBatchResults(results);
+      setBatchSummary({
+        attempted: typeof data.attempted === "number" ? data.attempted : results.length,
+        skipped: typeof data.skipped === "number" ? data.skipped : 0,
+      });
     } catch (e) {
       setBatchError(e instanceof Error ? e.message : "Failed to open PRs.");
     } finally {
@@ -77,15 +98,17 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
     setBusy("preview");
     setError(null);
     setPr(null);
+    const target = repo; // capture: ignore a response that arrives after the selection changed
     try {
       const res = await fetch("/api/practices/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo, practiceId }),
+        body: JSON.stringify({ repo: target, practiceId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to generate.");
-      setArtifact(data.artifact);
+      // Stamp the artifact with the repo it was generated for, so apply can't post a different one.
+      setArtifact({ path: data.artifact.path, body: data.artifact.body, repo: target });
       setOpen(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate.");
@@ -95,13 +118,18 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   }
 
   async function apply() {
+    // Apply the repo we actually PREVIEWED, never whatever the dropdown reads now — the previewed
+    // artifact (commands/description) is repo-specific, so opening a PR in a different repo would land
+    // content the user never reviewed.
+    const target = artifact?.repo;
+    if (!target) return;
     setBusy("apply");
     setError(null);
     try {
       const res = await fetch("/api/practices/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo, practiceId }),
+        body: JSON.stringify({ repo: target, practiceId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
@@ -119,13 +147,20 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
           value={repo}
+          // Programmatic name for the control: it has no visible <label> (the "Apply to a repo" heading is
+          // a styled <div>), so a screen reader would otherwise announce only "combobox" on a control that
+          // drives a write to a customer repo (WCAG 4.1.2 / 1.3.1).
+          aria-label="Repository to apply this practice to"
+          // Disabled during a preview/apply so the selection can't change out from under an in-flight
+          // request — the core fix for the stale-preview-applied-to-the-wrong-repo race.
+          disabled={busy !== null}
           onChange={(e) => {
             setRepo(e.target.value);
             setArtifact(null);
             setPr(null);
             setError(null);
           }}
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 disabled:opacity-50"
         >
           {gapRepos.map((r) => (
             <option key={r.fullName} value={r.fullName}>
@@ -140,7 +175,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
         >
           {busy === "preview" ? "Generating…" : "Preview starter"}
         </button>
-        {artifact && (
+        {artifact && artifact.repo === repo && (
           <button
             onClick={apply}
             disabled={busy !== null}
@@ -163,7 +198,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
 
       {artifact && (
         <div className="mt-3">
-          <button onClick={() => setOpen((o) => !o)} className="font-mono text-sm text-slate-400 hover:text-white">
+          <button onClick={() => setOpen((o) => !o)} aria-expanded={open} className="font-mono text-sm text-slate-400 hover:text-white">
             {open ? "▾" : "▸"} {artifact.path}
           </button>
           {open && (
@@ -178,6 +213,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
         <div className="mt-3 border-t border-slate-800 pt-3">
           <button
             onClick={() => setShowBatch((s) => !s)}
+            aria-expanded={showBatch}
             className="font-mono text-sm uppercase tracking-widest text-accent hover:text-white"
           >
             {showBatch ? "▾" : "▸"} Roll out to the fleet ({gapRepos.length} repos)
@@ -216,6 +252,12 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
                   : `Open draft PRs across ${selected.size} repo${selected.size === 1 ? "" : "s"} →`}
               </button>
               {batchError && <p className="mt-2 text-sm text-orange-300">{batchError}</p>}
+              {batchSummary && batchSummary.skipped > 0 && (
+                <p className="mt-2 text-sm text-amber-300">
+                  Opened {batchSummary.attempted} of {batchSummary.attempted + batchSummary.skipped} —{" "}
+                  {batchSummary.skipped} over the per-batch cap of {MAX_BATCH} (neediest repos first). Re-run to open the rest.
+                </p>
+              )}
               {batchResults && (
                 <ul className="mt-2 space-y-1">
                   {batchResults.map((res) => (

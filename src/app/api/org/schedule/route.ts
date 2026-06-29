@@ -41,9 +41,11 @@ export async function POST(request: Request) {
       await setRepoSchedule(body.org, body.fullName, body.schedule);
       return NextResponse.json({ ok: true, fullName: body.fullName, schedule: body.schedule });
     }
-    // No fullName → fleet-level cadence over the whole watched set (optionally a segment).
-    const updated = await setWatchedSchedule(body.org, body.schedule, body.segmentId ?? null);
-    return NextResponse.json({ ok: true, schedule: body.schedule, updated });
+    // No fullName → fleet-level cadence over the whole watched set (optionally a segment). Return the
+    // exact fullNames persisted (not just a count) so the client can revert any optimistically-patched
+    // row the server didn't actually save (e.g. a watch toggle that was still in flight or rolled back).
+    const fullNames = await setWatchedSchedule(body.org, body.schedule, body.segmentId ?? null);
+    return NextResponse.json({ ok: true, schedule: body.schedule, updated: fullNames.length, fullNames });
   } catch (err) {
     console.error("[org/schedule] failed", err);
     return NextResponse.json({ error: "Failed to update schedule." }, { status: 500 });

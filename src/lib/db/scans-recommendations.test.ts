@@ -120,10 +120,11 @@ describe("updateRecommendation — atomic mutation + audit", () => {
     // The bare client must NOT carry the audit write (that would be a non-atomic post-tx regression).
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
 
-    // The conditional update applies only the changed field AND keys on the read pre-image of every
-    // editable field (optimistic lock) so a concurrent edit invalidates this write.
+    // The conditional update applies only the changed field AND keys the optimistic lock on the read
+    // pre-image of ONLY the fields this patch writes (here: status) — NOT the whole editable tuple,
+    // so a concurrent edit to an UNTOUCHED field (assignee/due-date) doesn't raise a false conflict.
     expect(tx.recommendation.updateMany).toHaveBeenCalledWith({
-      where: { id: "rec_1", status: "open", assigneeLogin: null, targetDate: null },
+      where: { id: "rec_1", status: "open" },
       data: { status: "in_progress" },
     });
   });

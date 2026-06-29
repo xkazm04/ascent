@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { creditPacks, creditsForProduct, polarEnabled, polarServer } from "./polar";
+import { creditPacks, creditsForProduct, planForProduct, planProducts, polarEnabled, polarServer } from "./polar";
 
 const PACKS = process.env.POLAR_CREDIT_PACKS;
+const PLAN_PRODUCTS = process.env.POLAR_PLAN_PRODUCTS;
 const SERVER = process.env.POLAR_SERVER;
 const TOKEN = process.env.POLAR_ACCESS_TOKEN;
 
@@ -9,6 +10,7 @@ afterEach(() => {
   // Restore whatever the runner started with (delete = was unset).
   for (const [k, v] of [
     ["POLAR_CREDIT_PACKS", PACKS],
+    ["POLAR_PLAN_PRODUCTS", PLAN_PRODUCTS],
     ["POLAR_SERVER", SERVER],
     ["POLAR_ACCESS_TOKEN", TOKEN],
   ] as const) {
@@ -46,6 +48,38 @@ describe("creditsForProduct", () => {
     expect(creditsForProduct("nope")).toBe(0);
     expect(creditsForProduct(null)).toBe(0);
     expect(creditsForProduct(undefined)).toBe(0);
+  });
+});
+
+describe("planProducts", () => {
+  it("parses <productId>=<planId> pairs, trims whitespace, preserves order", () => {
+    process.env.POLAR_PLAN_PRODUCTS = "prod_pro=pro, prod_team=team , prod_ent=enterprise";
+    expect(planProducts()).toEqual([
+      { productId: "prod_pro", plan: "pro" },
+      { productId: "prod_team", plan: "team" },
+      { productId: "prod_ent", plan: "enterprise" },
+    ]);
+  });
+
+  it("skips entries whose plan isn't a known PlanId", () => {
+    process.env.POLAR_PLAN_PRODUCTS = "bad,prod_x=gold,prod_y=,=team,prod_ok=pro";
+    expect(planProducts().map((p) => p.productId)).toEqual(["prod_ok"]);
+  });
+
+  it("is empty when unset", () => {
+    delete process.env.POLAR_PLAN_PRODUCTS;
+    expect(planProducts()).toEqual([]);
+  });
+});
+
+describe("planForProduct", () => {
+  it("maps a known product to its plan tier, else null", () => {
+    process.env.POLAR_PLAN_PRODUCTS = "prod_pro=pro,prod_team=team";
+    expect(planForProduct("prod_pro")).toBe("pro");
+    expect(planForProduct("prod_team")).toBe("team");
+    expect(planForProduct("nope")).toBeNull();
+    expect(planForProduct(null)).toBeNull();
+    expect(planForProduct(undefined)).toBeNull();
   });
 });
 

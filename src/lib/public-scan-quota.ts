@@ -89,10 +89,20 @@ export function hashIp(ip: string): string {
 function bucketContext(
   req: Request,
   identity: QuotaIdentity,
-): { signedIn: boolean; ipHash: string; scope: "anon" | "user" } {
+): { signedIn: boolean; ipHash: string; scope: "anon" | "user"; unidentifiable: boolean } {
   const signedIn = Boolean(identity.viewerId);
-  const ipHash = signedIn ? hashKey(`u:${identity.viewerId}`) : hashIp(clientIp(req));
-  return { signedIn, ipHash, scope: signedIn ? "user" : "anon" };
+  if (signedIn) {
+    return { signedIn, ipHash: hashKey(`u:${identity.viewerId}`), scope: "user", unidentifiable: false };
+  }
+  // When neither x-real-ip nor x-forwarded-for reaches the app, clientIp returns the literal "unknown"
+  // sentinel — a SINGLE shared bucket. That's the right fail-CLOSED choice for the per-minute burst
+  // limiter (bounded blast radius), but in this 7-day persistent quota it would collapse EVERY anonymous
+  // visitor into ONE weekly bucket: after the first few public scans the whole free funnel is locked out
+  // for a week (looks like an outage, not a quota). So flag it unidentifiable; the long-horizon gate then
+  // treats it as unenforceable (fail-OPEN, like the DB-unconfigured path) rather than bucketing on the
+  // shared sentinel — matching the module's stated fail-open-on-uncertainty intent.
+  const ip = clientIp(req);
+  return { signedIn, ipHash: hashIp(ip), scope: "anon", unidentifiable: ip === "unknown" };
 }
 
 /** Parse the stored JSON number[] of hit timestamps, tolerating null/garbage as an empty window. */
@@ -192,9 +202,11 @@ export async function consumePublicScanQuota(
   req: Request,
   identity: QuotaIdentity = {},
 ): Promise<QuotaResult> {
-  const { signedIn, ipHash } = bucketContext(req, identity);
+  const { signedIn, ipHash, unidentifiable } = bucketContext(req, identity);
   const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
-  if (!isDbConfigured() || publicScanQuotaDisabled()) {
+  // `unidentifiable` (anonymous caller with no usable client IP) can't be bucketed without collapsing
+  // every such visitor into one shared weekly bucket, so the weekly gate is unenforceable here — allow.
+  if (!isDbConfigured() || publicScanQuotaDisabled() || unidentifiable) {
     return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
 
@@ -265,9 +277,11 @@ export interface QuotaPeek {
  * unconfigured / disabled / errors, exactly like consume.
  */
 export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<QuotaPeek> {
-  const { signedIn, ipHash, scope } = bucketContext(req, identity);
+  const { signedIn, ipHash, scope, unidentifiable } = bucketContext(req, identity);
   const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
-  if (!isDbConfigured() || publicScanQuotaDisabled()) {
+  // Same carve-out as consume: an anonymous caller with no usable client IP isn't gated weekly (the
+  // meter reports the full allowance) rather than reading a shared "unknown" bucket's depleted count.
+  if (!isDbConfigured() || publicScanQuotaDisabled() || unidentifiable) {
     return { enforced: false, remaining: limit, limit, resetAt: null, scope };
   }
   const now = Date.now();
@@ -318,9 +332,11 @@ export function removeHit(hits: number[], ts: number): number[] {
  * overstate usage by the one refunded slot — acceptable staleness for a soft gate.
  *
  * Pass `chargedAt` (the `QuotaResult.chargedAt` from the matching consume) so the refund removes the
- * EXACT slot this request charged. Without it the refund falls back to "drop the newest hit", which two
- * concurrent refunds on a shared/coalesced scan use to each peel off a different sibling's slot —
- * removing more slots than were consumed and bypassing the weekly budget (CRITICAL race).
+ * EXACT slot this request charged. It is REQUIRED for any refund to occur: the value-keyed `removeHit`
+ * is the only safe path. The old "drop the newest hit" fallback is gone — two concurrent refunds on a
+ * shared/coalesced scan would each peel off a different sibling's still-live slot, removing more slots
+ * than were consumed and bypassing the weekly budget (CRITICAL race). A refund called without a
+ * `chargedAt` (an allowed consume always yields one) is a NO-OP rather than a silent unsafe fallback.
  */
 export async function refundPublicScanQuota(
   req: Request,
@@ -328,7 +344,13 @@ export async function refundPublicScanQuota(
   chargedAt?: number | null,
 ): Promise<void> {
   if (!isDbConfigured() || publicScanQuotaDisabled()) return;
-  const { ipHash } = bucketContext(req, identity);
+  // Refund is value-keyed ONLY: without the exact charged timestamp there is no safe slot to remove
+  // (the racy "drop newest" fallback was removed), so an absent chargedAt is a no-op, never a guess.
+  if (typeof chargedAt !== "number") return;
+  const { ipHash, unidentifiable } = bucketContext(req, identity);
+  // An unidentifiable caller was never charged (consume returned enforced:false / chargedAt:null), so
+  // there's nothing to refund — and touching the shared "unknown" bucket here could drop a real slot.
+  if (unidentifiable) return;
   try {
     await withDb((db) =>
       withRetry(
@@ -339,9 +361,8 @@ export async function refundPublicScanQuota(
             const row = await tx.publicScanQuota.findUnique({ where: { ipHash } });
             const prior = parseHits(row?.hits);
             if (!row || prior.length === 0) return;
-            // Value-keyed when we know the exact charged timestamp (idempotent if already absent);
-            // legacy "drop newest" only when a caller didn't thread it through.
-            const next = typeof chargedAt === "number" ? removeHit(prior, chargedAt) : removeNewestHit(prior);
+            // Value-keyed by the exact charged timestamp (idempotent if already absent / aged out).
+            const next = removeHit(prior, chargedAt);
             await tx.publicScanQuota.update({
               where: { ipHash },
               data: { hits: JSON.stringify(next) },

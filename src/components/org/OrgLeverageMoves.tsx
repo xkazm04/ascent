@@ -26,6 +26,7 @@ export function OrgLeverageMoves({ recs, slug }: { recs: OrgRec[]; slug: string 
       <SectionHeader
         title="The move to make next"
         description="The single highest-leverage fix across the fleet — ranked by reach × impact × dimension weight, with its engine-true projected maturity gain."
+        right={<span className="font-mono text-sm uppercase tracking-widest text-slate-600">current state · not period-scoped</span>}
       />
       {top && (
         <div className="mt-3 rounded-xl border border-accent/40 bg-accent/5 p-4">

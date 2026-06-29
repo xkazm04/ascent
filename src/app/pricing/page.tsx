@@ -20,6 +20,26 @@ const PRICE: Record<PlanId, { amount: string; note: string }> = {
   enterprise: { amount: "Custom", note: "contact us" },
 };
 
+// Each tier's primary CTA points at its REAL destination, labeled to match. The previous single
+// `href={id === "free" ? "/" : "/connect"}` ternary sent Pro/Team AND Enterprise to /connect (the
+// repo-watch page): "Contact us" dead-ended with no way to reach anyone, and "Get started" landed on a
+// screen that is neither a checkout nor a plan upgrade. Free → run a scan; Pro/Team → the onboarding
+// funnel (the app's canonical "get started", where watches/credits are set up); Enterprise → a real
+// contact mailto when one is configured, else the About page (labeled honestly as "Learn more").
+const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim();
+const CTA_CLASS =
+  "mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20";
+
+function ctaFor(id: PlanId): { href: string; label: string } {
+  if (id === "free") return { href: "/", label: "Scan a repo free" };
+  if (id === "enterprise") {
+    return CONTACT_EMAIL
+      ? { href: `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Ascent Enterprise enquiry")}`, label: "Contact us" }
+      : { href: "/about", label: "Learn more" };
+  }
+  return { href: "/onboarding", label: "Get started" };
+}
+
 export const dynamic = "force-dynamic";
 
 export const metadata = {
@@ -48,6 +68,7 @@ export default function PricingPage() {
           {PLAN_ORDER.map((id) => {
             const p = PLAN_FEATURES[id];
             const highlight = id === "team";
+            const cta = ctaFor(id);
             return (
               <div
                 key={id}
@@ -55,6 +76,11 @@ export default function PricingPage() {
                   highlight ? "border-accent/50 ring-1 ring-accent/20" : "border-slate-800"
                 }`}
               >
+                {highlight && (
+                  <span className="mb-2 inline-flex w-fit rounded-full bg-accent/20 px-2 py-0.5 text-xs font-semibold text-accent">
+                    Most popular
+                  </span>
+                )}
                 <h2 className="text-lg font-semibold text-white">{p.label}</h2>
                 <p className="mt-2">
                   <span className="text-3xl font-bold text-white">{PRICE[id].amount}</span>{" "}
@@ -67,17 +93,20 @@ export default function PricingPage() {
                 <ul className="mt-3 flex-1 space-y-1.5 text-sm text-slate-300">
                   {p.features.map((f) => (
                     <li key={f} className="flex gap-2">
-                      <span className="select-none text-accent">✓</span>
+                      <span aria-hidden="true" className="select-none text-accent">✓</span>
                       <span>{f}</span>
                     </li>
                   ))}
                 </ul>
-                <Link
-                  href={id === "free" ? "/" : "/connect"}
-                  className="mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20"
-                >
-                  {id === "free" ? "Scan a repo free" : id === "enterprise" ? "Contact us" : "Get started"}
-                </Link>
+                {cta.href.startsWith("mailto:") ? (
+                  <a href={cta.href} className={CTA_CLASS}>
+                    {cta.label}
+                  </a>
+                ) : (
+                  <Link href={cta.href} className={CTA_CLASS}>
+                    {cta.label}
+                  </Link>
+                )}
               </div>
             );
           })}

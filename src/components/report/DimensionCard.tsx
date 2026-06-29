@@ -7,7 +7,6 @@ import { scoreGlyph, scoreHex } from "@/lib/ui";
 import { fillBarStyle, useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { CHART_INK, linScale } from "@/components/report/chartScale";
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
-import { DeltaTag } from "@/components/report/deltas";
 import { Surface } from "@/components/ui";
 
 export function DimensionCard({
@@ -44,7 +43,15 @@ export function DimensionCard({
       >
         <span className="font-mono text-sm text-slate-500">{d.id}</span>
         <span className="flex-1 font-semibold text-white">{d.name}</span>
-        {delta !== null && <DeltaTag delta={delta} hideZero />}
+        {delta !== null && delta !== 0 && (
+          <span className={`text-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {delta > 0 ? "▲+" : "▼"}
+            {/* Absolute value after the arrow — the ▼ glyph already encodes the sign, so the raw
+                signed delta rendered "▼-3" (a down-arrow next to a minus), inconsistent with
+                ScoreWaterfall/PointTooltip which use ▼{Math.abs(...)}. */}
+            {Math.abs(delta)}
+          </span>
+        )}
         <span className="text-sm text-slate-500">{Math.round(d.weight * 100)}%</span>
         <span className="flex w-14 items-center justify-end gap-1 text-lg font-bold" style={{ color }}>
           <span aria-hidden className="text-sm">{scoreGlyph(d.score)}</span>

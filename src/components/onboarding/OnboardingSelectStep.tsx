@@ -85,10 +85,14 @@ export function SelectStep({
               <button
                 key={r.fullName}
                 type="button"
-                disabled={capped}
+                // aria-disabled (not native `disabled`) so a keyboard/SR user at the cap can still Tab
+                // onto the row and hear the "limit reached" reason + swap hint; the click is no-op'd
+                // below. A native `disabled` button is unfocusable, hiding the constraint entirely.
                 aria-disabled={capped}
                 title={capped ? `Limit reached — deselect one to swap (max ${maxSelect})` : undefined}
-                onClick={() => onToggle(r.fullName)}
+                onClick={() => {
+                  if (!capped) onToggle(r.fullName);
+                }}
                 className={`focus-ring flex w-full items-center gap-3 rounded-lg border px-4 py-2.5 text-left transition ${
                   checked
                     ? "border-accent bg-accent/10"
@@ -134,18 +138,26 @@ export function SelectStep({
               Back
             </button>
           </div>
-          {/* Cost disclosure AT the commitment button: scanning also schedules a recurring,
-              credit-metered autoscan — say so (with the balance when readable) instead of letting
-              the cron's insufficient-credit skips reveal it weeks later. */}
-          {selected.size > 0 && (
-            <p className="mt-3 max-w-xl text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
-              Scanning also watches {selected.size === 1 ? "this repo" : `these ${selected.size} repos`} with a{" "}
-              {IMPORT_WATCH_SCHEDULE} autoscan ≈{" "}
-              <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
-              {monthlyCredits === 1 ? "" : "s"}/month
-              <WatchCostTail credit={credit} monthlyCredits={monthlyCredits} />. Adjust or turn off anytime on Connect.
-            </p>
-          )}
+          {/* Cost disclosure AT the commitment button — but ONLY on the metered App path. Scanning a
+              public handle (no installation) forces a preview (mock): it sets no credit account and is
+              never metered, so quoting "~N prepaid credits/month" there is money confusion that scares
+              users off the free top-of-funnel. Show the prepaid figure only when sourceInstallId is
+              present; otherwise reassure that the preview is free. */}
+          {selected.size > 0 &&
+            (sourceInstallId ? (
+              <p className="mt-3 max-w-xl text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
+                Scanning also watches {selected.size === 1 ? "this repo" : `these ${selected.size} repos`} with a{" "}
+                {IMPORT_WATCH_SCHEDULE} autoscan ≈{" "}
+                <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
+                {monthlyCredits === 1 ? "" : "s"}/month
+                <WatchCostTail credit={credit} monthlyCredits={monthlyCredits} />. Adjust or turn off anytime on Connect.
+              </p>
+            ) : (
+              <p className="mt-3 max-w-xl text-sm text-slate-500">
+                Free preview — no prepaid credits are used. Install the GitHub App to run metered live
+                scans on your own public &amp; private repos.
+              </p>
+            ))}
         </>
       )}
     </div>

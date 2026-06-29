@@ -24,7 +24,7 @@ CREATE TABLE "Organization" (
     "alertWebhookUrl" TEXT,
     "alertOverallDrop" INTEGER,
     "alertDimensionDrop" INTEGER,
-    "gatePolicy" JSONB,
+    "gatePolicy" TEXT,
     "brandName" TEXT,
     "brandColor" TEXT,
     "logoUrl" TEXT,
@@ -661,6 +661,22 @@ CREATE TABLE "OrgLlmConfig" (
 
 -- CreateIndex
 CREATE UNIQUE INDEX "OrgLlmConfig_orgId_key" ON "OrgLlmConfig"("orgId");
+
+
+-- CreateTable: cross-instance webhook replay/idempotency store (github-app-installation-webhooks #3).
+-- Backs the webhook route's in-memory replay Map with a shared claim keyed on X-GitHub-Delivery, so a
+-- replay routed to a different serverless instance is still deduped. A row is the "claimed" mark; deleted
+-- on a deferred-processing failure so a redelivery can retry; swept past expiresAt.
+CREATE TABLE "WebhookDelivery" (
+    "id" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "WebhookDelivery_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "WebhookDelivery_expiresAt_idx" ON "WebhookDelivery"("expiresAt");
 
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so

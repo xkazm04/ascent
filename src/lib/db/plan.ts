@@ -247,9 +247,14 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
   ]);
   const series = await metricSeries(orgId, new Set(goals.map((g) => g.metric)));
   const now = Date.now();
-  // GOAL-4: a goal that first reaches its target is stamped achieved (status + achievedAt) exactly
-  // once — collected here, persisted after the map. Idempotent: a goal already "achieved" is skipped.
+  // GOAL-4: the achieved transition is SYMMETRIC. A goal that first reaches its target is stamped
+  // achieved (status + achievedAt) exactly once; a goal already "achieved" whose live value has since
+  // regressed below target is reverted to "active" (achievedAt cleared) so the board reflects the
+  // backslide instead of latching a false "🎉 Achieved" forever. Both are collected here and
+  // persisted (best-effort) after the map. Idempotent: an already-achieved goal still at/above target
+  // triggers no write.
   const justAchieved: string[] = [];
+  const justRegressed: string[] = [];
   const out = goals.map((g) => {
     const current = currentFor(g.metric, snap);
     const targetDate = g.targetDate ? g.targetDate.toISOString().slice(0, 10) : null;
@@ -261,8 +266,17 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       .map((r) => ({ ...r, gap: g.target - r.value }));
     const reached = current >= g.target;
     const newlyAchieved = reached && g.status === "active";
+    const regressed = !reached && g.status === "achieved";
     if (newlyAchieved) justAchieved.push(g.id);
-    const achievedAt = newlyAchieved ? new Date(now).toISOString() : g.achievedAt ? g.achievedAt.toISOString() : null;
+    if (regressed) justRegressed.push(g.id);
+    const status = newlyAchieved ? "achieved" : regressed ? "active" : g.status;
+    const achievedAt = newlyAchieved
+      ? new Date(now).toISOString()
+      : regressed
+        ? null
+        : g.achievedAt
+          ? g.achievedAt.toISOString()
+          : null;
     return {
       id: g.id,
       label: g.label,
@@ -272,7 +286,7 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       current,
       pct: g.target > 0 ? Math.max(0, Math.min(100, Math.round((current / g.target) * 100))) : 100,
       achieved: reached,
-      status: newlyAchieved ? "achieved" : g.status,
+      status,
       achievedAt,
       createdAt: g.createdAt.toISOString(),
       targetDate,
@@ -287,12 +301,14 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       belowCount: below.length,
     };
   });
-  // Best-effort persistence of the transition — a failed write just re-marks on the next load.
-  if (justAchieved.length) {
+  // Best-effort persistence of the transition (both directions) — a failed write just re-marks on the
+  // next load.
+  if (justAchieved.length || justRegressed.length) {
     const at = new Date(now);
-    await Promise.all(
-      justAchieved.map((id) => prisma.goal.update({ where: { id }, data: { status: "achieved", achievedAt: at } }).catch(() => {})),
-    );
+    await Promise.all([
+      ...justAchieved.map((id) => prisma.goal.update({ where: { id }, data: { status: "achieved", achievedAt: at } }).catch(() => {})),
+      ...justRegressed.map((id) => prisma.goal.update({ where: { id }, data: { status: "active", achievedAt: null } }).catch(() => {})),
+    ]);
   }
   return out;
 }
@@ -394,10 +410,25 @@ export async function createInitiative(
     update: {},
     create: { slug: orgSlug, name: orgSlug === "public" ? "Public Scans" : orgSlug },
   });
+  const title = input.title.slice(0, 200);
+  // Idempotency (backlog-management #1): promoting the same backlog gap — or re-tracking the same fleet
+  // move — must not spawn duplicate initiatives. The only previous guard was a transient client-side
+  // `promoted` flag that resets on reload / row remount, so each click POSTed another identical row. Reuse
+  // an existing initiative on the same (org, title, dimension) and merge any newly-scoped repos into it
+  // instead of inserting a second one, making the create idempotent at the source.
+  const existing = await prisma.initiative.findFirst({
+    where: { orgId: org.id, title, dimId: input.dimId },
+    select: { id: true, repos: true },
+  });
+  if (existing) {
+    const mergedRepos = Array.from(new Set([...parseRepos(existing.repos), ...input.repos])).slice(0, 200);
+    await prisma.initiative.update({ where: { id: existing.id }, data: { repos: JSON.stringify(mergedRepos) } });
+    return { id: existing.id };
+  }
   const created = await prisma.initiative.create({
     data: {
       orgId: org.id,
-      title: input.title.slice(0, 200),
+      title,
       dimId: input.dimId,
       practiceId: input.practiceId ?? null,
       targetScore: Math.max(0, Math.min(100, Math.round(input.targetScore ?? 70))),

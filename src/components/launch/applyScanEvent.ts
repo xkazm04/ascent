@@ -23,9 +23,18 @@ export function applyScanEvent(
   const overall = Number(data.overall);
   if (!Number.isFinite(overall)) return constellations;
   const level = data.level != null ? String(data.level) : null;
+  // A live scan carries the new absolute score but no recomputed 30-day window delta, so the old
+  // `dOverall` is now inconsistent with the fresh `overall`. Null it out here so the stale directional
+  // "mover" ring/tooltip (ConstellationField: `Math.abs(r.dOverall) >= 1`) disappears until the next
+  // authoritative `/api/app/repos` refresh supplies a delta that matches the new score.
   return constellations.map((c) =>
     c.login === login && c.status === "done"
-      ? { ...c, repos: c.repos.map((r) => (r.fullName === fullName ? { ...r, overall, level } : r)) }
+      ? {
+          ...c,
+          repos: c.repos.map((r) =>
+            r.fullName === fullName ? { ...r, overall, level, dOverall: null } : r,
+          ),
+        }
       : c,
   );
 }

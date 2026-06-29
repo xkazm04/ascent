@@ -5,7 +5,7 @@
 
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { ReportShell } from "@/components/report/ReportShell";
 import { ReportClient } from "@/components/report/ReportClient";
 import { ReportView } from "@/components/report/ReportView";
 import { PassportCard } from "@/components/org/PassportCard";
@@ -63,27 +63,23 @@ export default async function ReportPermalink({
   const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
 
   return (
-    <>
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl px-5 py-10">
-        {pinned ? (
-          <ReportErrorBoundary>
-            <ReportView report={pinned} />
-            {passport && (
-              <div className="mt-8">
-                <PassportCard passport={passport} repo={ref} canEdit={canEditPassport} />
-              </div>
-            )}
-          </ReportErrorBoundary>
-        ) : (
-          <Suspense fallback={<div className="mx-auto w-full max-w-md py-12 text-center text-sm text-slate-500">Loading…</div>}>
-            <ReportClient repo={ref} />
-          </Suspense>
-        )}
-        {skillHistory.length > 0 && <SkillHistorySection rows={skillHistory} />}
-      </main>
-      <SiteFooter />
-    </>
+    <ReportShell>
+      {pinned ? (
+        <ReportErrorBoundary>
+          <ReportView report={pinned} />
+          {passport && (
+            <div className="mt-8">
+              <PassportCard passport={passport} repo={ref} canEdit={canEditPassport} />
+            </div>
+          )}
+        </ReportErrorBoundary>
+      ) : (
+        <Suspense fallback={<div className="mx-auto w-full max-w-md py-12 text-center text-sm text-slate-500">Loading…</div>}>
+          <ReportClient repo={ref} />
+        </Suspense>
+      )}
+      {skillHistory.length > 0 && <SkillHistorySection rows={skillHistory} />}
+    </ReportShell>
   );
 }
 

@@ -12,19 +12,20 @@ export interface SSEMessage {
 /** Parse a single SSE frame ("event: …\ndata: …") into its name + JSON payload. */
 export function parseSSE(block: string): SSEMessage {
   let event: string | null = null;
+  // Per the SSE spec, consecutive `data:` lines in one frame are JOINED WITH "\n" (stripping a single
+  // leading space after the colon), then the assembled string is trimmed before parsing. The old per-
+  // line trim()+bare-concat dropped those newlines and the separator, silently corrupting multi-line /
+  // pretty-printed JSON payloads; joining with newlines reassembles a split payload into valid JSON.
   const dataLines: string[] = [];
   for (const raw of block.split("\n")) {
     // Tolerate CRLF: strip a trailing \r that a proxy may have left on the line.
     const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
     if (line.startsWith("event:")) event = line.slice(6).trim();
-    // Per the SSE spec, multiple `data:` lines are JOINED WITH "\n" (stripping a single leading
-    // space after the colon). The old per-line trim()+bare-concat dropped those newlines and the
-    // separator, silently corrupting multi-line / pretty-printed JSON payloads; join with newlines
-    // so a payload split across `data:` lines still reassembles to valid JSON.
     else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
   }
+  const dataStr = dataLines.length ? dataLines.join("\n").trim() : "";
   try {
-    return { event, data: dataLines.length ? JSON.parse(dataLines.join("\n")) : null };
+    return { event, data: dataStr ? JSON.parse(dataStr) : null };
   } catch {
     return { event, data: null };
   }

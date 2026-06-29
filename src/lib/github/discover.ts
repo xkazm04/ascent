@@ -13,7 +13,20 @@
 //   • rankDiscoveredOrgs / selectSuggestedOrgLogins / selectSeedTarget — pure transforms over the
 //     fetched data, with no I/O.
 
-import { ghGetJson, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+import { ghFetch, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+import { nextPageUrl } from "@/lib/github/list";
+
+// A slow GitHub (TCP accepted but the response stalls — a common partial-outage/throttle mode) must
+// not hang the post-OAuth login callback. Every discovery call is bounded by this per-request timeout
+// (github-repo-data-access #1), so a stall rejects (and the best-effort caller degrades) instead of
+// blocking sign-in until the serverless function is force-killed (504).
+const TIMEOUT_MS = 10_000;
+
+// Follow the Link header across a few pages so a heavy user with 100+ recently-pushed repos (or 100+
+// org memberships) isn't truncated to the first page — which could drop their actually-most-active org
+// when it's discovered only via repo ownership (github-repo-data-access #5). Bounded like list.ts's
+// MAX_LIST_PAGES so a pathological account can't fan out unboundedly during the login callback.
+const MAX_PAGES = 5;
 
 // BUG (github-repo-data-access #1): this module was the only github layer hardcoding api.github.com,
 // so org auto-discovery ignored the GHES `GITHUB_API_URL` override and broke (firewalled/401) on
@@ -57,16 +70,29 @@ interface GhRepo extends GhRepoRow {
   pushed_at: string | null;
 }
 
-async function ghUser<T>(path: string, token: string): Promise<T> {
-  // Route through the shared ghGetJson (canonical headers + fetchWithTimeout): this previously used a
-  // bare fetch() with no timeout. githubApiBase() is still resolved per-call so a late GITHUB_API_URL
-  // override is honored.
-  return ghGetJson<T>(`${githubApiBase()}${path}`, { token, userAgent: "ascent-org-discovery", cache: "no-store" });
+/**
+ * Fetch a paginated GitHub list endpoint, following the `Link` header's rel="next" up to MAX_PAGES and
+ * concatenating the rows. The first `path` is resolved against the API base; subsequent pages use the
+ * absolute URLs GitHub returns in the Link header. Routed through the shared ghFetch (canonical headers
+ * + per-call timeout); githubApiBase() is resolved per-call so a late GITHUB_API_URL override is
+ * honored. Best-effort: callers catch failures.
+ */
+async function ghUserPaged<T>(path: string, token: string, signal?: AbortSignal): Promise<T[]> {
+  const out: T[] = [];
+  let url: string | null = `${githubApiBase()}${path}`;
+  for (let page = 0; page < MAX_PAGES && url; page++) {
+    const res = await ghFetch(url, { token, userAgent: "ascent-org-discovery", cache: "no-store", timeoutMs: TIMEOUT_MS, signal });
+    if (!res.ok) throw new Error(`GitHub ${res.status} on ${path}`);
+    const rows = (await res.json()) as T[];
+    out.push(...rows);
+    url = nextPageUrl(res.headers.get("link"));
+  }
+  return out;
 }
 
 /** Org logins the user is a member of (GET /user/orgs). Best-effort: the caller catches failures. */
-export async function fetchUserOrgs(token: string): Promise<string[]> {
-  const data = await ghUser<{ login: string }[]>("/user/orgs?per_page=100", token);
+export async function fetchUserOrgs(token: string, signal?: AbortSignal): Promise<string[]> {
+  const data = await ghUserPaged<{ login: string }>("/user/orgs?per_page=100", token, signal);
   return data.map((o) => o.login).filter(Boolean);
 }
 
@@ -76,10 +102,11 @@ export async function fetchUserOrgs(token: string): Promise<string[]> {
  * want to seed them) via the shared isListableRepo predicate (github/host.ts), the same rule the
  * public listing in github/list.ts uses.
  */
-export async function fetchUserRepos(token: string, perPage = 100): Promise<UserRepo[]> {
-  const data = await ghUser<GhRepo[]>(
+export async function fetchUserRepos(token: string, perPage = 100, signal?: AbortSignal): Promise<UserRepo[]> {
+  const data = await ghUserPaged<GhRepo>(
     `/user/repos?sort=pushed&direction=desc&per_page=${Math.min(100, Math.max(1, perPage))}`,
     token,
+    signal,
   );
   return data
     .filter(isListableRepo)

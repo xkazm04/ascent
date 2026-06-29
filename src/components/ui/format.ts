@@ -26,6 +26,15 @@ export const DIRECTION_TONE = {
 } as const;
 
 /**
+ * Classify a numeric delta into a direction-tone key. A within-noise non-zero delta
+ * (|d| <= SCORE_NOISE_BAND) maps to "flat" so it never wears the confident rising/falling tone of a
+ * real move — matching the noise mute that `deltaHex`/`fmtDelta` already enforce.
+ */
+export function toneFor(delta: number): keyof typeof DIRECTION_TONE {
+  return isWithinNoise(delta) ? "flat" : delta > 0 ? "rising" : "falling";
+}
+
+/**
  * "▲+8" / "▼-5" / "≈+1" / "→0" — arrowed delta badge. Within-noise non-zero deltas use "≈" (held,
  * within the scan-to-scan noise band) instead of ▲/▼, so a small wobble is not shown as real movement.
  */

@@ -376,7 +376,7 @@ export interface PrStats {
   botAuthoredRate: number; // any bot/automation authored
   aiInvolvedRate: number; // AI agent authored OR AI markers in title/body/labels
   /** Of the AI-involved PRs, the share that got an approving review — "is AI work governed?".
-   * Null when too few AI PRs to be meaningful (sample < 3). The systematic-AI signal. */
+   * Null when too few AI PRs to be meaningful (sample < 5). The systematic-AI signal. */
   aiGovernedRate: number | null;
   revertRate: number; // titles starting with "Revert"
   draftRate: number;

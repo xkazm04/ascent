@@ -159,6 +159,20 @@ export function heatCell(score: number, alpha: number): { fill: string; text: st
   return { fill: `rgba(${fg[0]}, ${fg[1]}, ${fg[2]}, ${alpha})`, text };
 }
 
+/**
+ * Pick a readable foreground for text drawn directly on a solid `hex` fill (e.g. a user-chosen segment
+ * color): near-black ink for light fills, light text for dark fills, chosen by WCAG contrast the same
+ * way `heatCell` does. A malformed hex yields the light fallback. Prevents invisible labels when the
+ * fill is dark.
+ */
+export function readableTextOn(hex: string): string {
+  const le = relLuminance(rgbOf(hex));
+  if (!Number.isFinite(le)) return "#e2e8f0";
+  const contrastLight = 0.8 / (le + 0.05);
+  const contrastInk = (le + 0.05) / 0.05;
+  return contrastInk >= contrastLight ? "#04070e" : "#e2e8f0";
+}
+
 export const IMPACT_CLASS: Record<string, string> = {
   high: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
   medium: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",

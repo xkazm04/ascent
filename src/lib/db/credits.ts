@@ -11,6 +11,29 @@ import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isUnlimitedPlan, resolveScanCharge } from "@/lib/plans";
 
+/**
+ * Canonical CreditLedger `reason` values. The refund WRITERS (scan-credit.refundScanCredit and the
+ * /api/scan inline refund) and the reconciliation READER (getCreditReconciliation) must agree on the
+ * refund marker: the prior free-text `/refund/i` substring would mis-bucket any refund stamped with a
+ * reason lacking the word "refund" (e.g. "dedup"/"reverted") as a fresh GRANT — overstating grants and
+ * understating refunds on the money-facing /usage reconciliation, while `net` stayed correct so nothing
+ * looked broken. Binding both sides to ONE constant makes that drift structurally impossible.
+ */
+export const CREDIT_REASON = {
+  SCAN: "scan",
+  GRANT: "grant",
+  ADJUSTMENT: "adjustment",
+  REFUND: "refund",
+  POLAR_REFUND: "polar-refund",
+} as const;
+
+/** True iff a (positive-delta) ledger reason marks a scan-credit refund — an EXACT match on the shared
+ *  CREDIT_REASON.REFUND constant (trim/case-tolerant), not a substring, so only a genuine refund row
+ *  lands in the reconciliation's `refunded` bucket and a non-refund reason can never leak into it. */
+export function isRefundReason(reason: string | null | undefined): boolean {
+  return (reason ?? "").trim().toLowerCase() === CREDIT_REASON.REFUND;
+}
+
 export interface CreditState {
   balance: number;
   plan: string;
@@ -127,7 +150,7 @@ export async function grantCredits(
             orgId: org.id,
             delta: appliedDelta,
             balanceAfter,
-            reason: opts.reason ?? (delta > 0 ? "grant" : "adjustment"),
+            reason: opts.reason ?? (delta > 0 ? CREDIT_REASON.GRANT : CREDIT_REASON.ADJUSTMENT),
             actor: opts.actor ?? null,
             externalId,
           },
@@ -140,6 +163,81 @@ export async function grantCredits(
     // back (the increment too). Treat it as already-applied rather than surfacing an error. Covers
     // both a caller-supplied externalId (webhook redelivery) and the synthesized per-invocation id
     // (commit-ambiguity retry of a refund/grant), so neither can double-apply.
+    if (isDuplicateExternalId(err)) {
+      return (await getCreditState(slug)).balance;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Idempotently claw back credits for a (partially or fully) refunded Polar order. Polar's
+ * `order.refundedAmount` is CUMULATIVE — one order can emit several refund events with a growing
+ * amount — so the caller passes the CUMULATIVE TARGET clawback (round(packCredits · refundedFraction))
+ * and this applies only the MARGINAL share not yet reversed for the order. All of an order's refund
+ * clawbacks share the `polar-refund:<orderId>:` externalId prefix; their sum is the already-clawed
+ * total, and `eventKey` (the cumulative refunded amount) makes each refund EVENT idempotent — a webhook
+ * redelivery of the same event collapses on the unique externalId, while a later, larger refund applies
+ * its own increment. The stored balance is clamped at zero. Returns the new balance, or null when the
+ * org doesn't exist / no DB.
+ *
+ * This replaces a per-ORDER idempotency key (`polar-refund:<orderId>`) that collapsed every refund
+ * event into the first — so a partial-then-full (or any N>1) refund only reversed the first increment
+ * and the buyer kept the rest of the pack for free.
+ */
+export async function clawbackOrderRefund(
+  orgSlug: string,
+  orderId: string,
+  targetClawback: number,
+  opts: { eventKey: string; actor?: string },
+): Promise<number | null> {
+  if (!isDbConfigured()) return null;
+  const slug = orgSlug.toLowerCase(); // canonical-casing contract (see getCreditState)
+  const target = Math.max(0, Math.trunc(targetClawback));
+  const prisma = getPrisma();
+  const prefix = `polar-refund:${orderId}:`;
+  const externalId = `${prefix}${opts.eventKey}`;
+  // Fast path: this exact refund event already landed (a webhook redelivery) — don't re-apply.
+  const seen = await prisma.creditLedger
+    .findUnique({ where: { externalId }, select: { id: true } })
+    .catch(() => null);
+  if (seen) return (await getCreditState(slug)).balance;
+  try {
+    return await withRetry(() =>
+      prisma.$transaction(async (tx) => {
+        const org = await tx.organization.findUnique({ where: { slug }, select: { id: true, scanCredits: true } });
+        if (!org) return null;
+        // How much has ALREADY been clawed back for THIS order across prior refund events.
+        const prior = await tx.creditLedger.aggregate({
+          where: { orgId: org.id, externalId: { startsWith: prefix } },
+          _sum: { delta: true },
+        });
+        const alreadyClawed = Math.abs(prior._sum.delta ?? 0);
+        const marginal = target - alreadyClawed;
+        if (marginal <= 0) return org.scanCredits; // nothing new to reverse for this cumulative amount
+        const appliedDelta = Math.max(-marginal, -org.scanCredits); // clamp: never drive balance negative
+        if (appliedDelta === 0) return org.scanCredits; // balance already spent — nothing left to claw
+        const updated = await tx.organization.update({
+          where: { id: org.id },
+          data: { scanCredits: { increment: appliedDelta } },
+          select: { scanCredits: true },
+        });
+        await tx.creditLedger.create({
+          data: {
+            orgId: org.id,
+            delta: appliedDelta,
+            balanceAfter: updated.scanCredits,
+            reason: CREDIT_REASON.POLAR_REFUND,
+            actor: opts.actor ?? "polar",
+            externalId,
+          },
+        });
+        return updated.scanCredits;
+      }),
+    );
+  } catch (err) {
+    // A redelivery lost the race to the unique externalId; its insert rolled the whole clawback back.
+    // Treat it as already-applied (report the current balance) rather than surfacing an error.
     if (isDuplicateExternalId(err)) {
       return (await getCreditState(slug)).balance;
     }
@@ -199,40 +297,69 @@ export async function consumeScanCredit(
   if (charge === "denied") return { ok: false, balance: org0.scanCredits, unlimited: false, charged: false };
 
   // Overflow → debit one credit, atomically and balance-clamped.
-  return withRetry(() =>
-    prisma.$transaction(async (tx) => {
-      const org = await tx.organization.findUnique({
-        where: { slug },
-        select: { id: true, scanCredits: true },
-      });
-      if (!org) return { ok: false, balance: 0, unlimited: false, charged: false };
-      const dec = await tx.organization.updateMany({
-        where: { slug, scanCredits: { gt: 0 } },
-        data: { scanCredits: { decrement: 1 } },
-      });
-      if (dec.count === 0) return { ok: false, balance: org.scanCredits, unlimited: false, charged: false };
-      // Re-read AFTER the decrement (same tx) so the ledger stamps the real post-debit balance.
-      // Deriving it from the initial read races with concurrent debits: under READ COMMITTED each
-      // tx's stale snapshot would stamp the same balanceAfter, corrupting the reconciliation trail.
-      const after = await tx.organization.findUniqueOrThrow({
-        where: { id: org.id },
-        select: { scanCredits: true },
-      });
-      const balanceAfter = after.scanCredits;
-      await tx.creditLedger.create({
-        data: {
-          orgId: org.id,
-          delta: -1,
-          balanceAfter,
-          reason: "scan",
-          repoFullName: ctx.repoFullName ?? null,
-          scanId: ctx.scanId ?? null,
-          actor: ctx.actor ?? null,
-        },
-      });
-      return { ok: true, balance: balanceAfter, unlimited: false, charged: true };
-    }),
-  );
+  //
+  // Idempotency key, STABLE across retries of THIS invocation (synthesized ONCE, outside withRetry).
+  // The grant path defends against a withRetry re-application via a unique externalId; the symmetric
+  // -1 debit did NOT, so a commit-ambiguity blip (the COMMIT acked-lost, then retried) re-ran the whole
+  // closure: a SECOND decrement + a SECOND `delta:-1` row → the org charged twice for one scan; and at
+  // balance=1 the retry's conditional decrement found 0 and reported a PAID scan as denied. A scanId
+  // gives a natural key; otherwise synthesize a per-invocation id (mirrors grantCredits).
+  const externalId = ctx.scanId ? `scan:${ctx.scanId}` : `auto:${randomUUID()}`;
+  try {
+    return await withRetry(() =>
+      prisma.$transaction(async (tx) => {
+        const org = await tx.organization.findUnique({
+          where: { slug },
+          select: { id: true, scanCredits: true },
+        });
+        if (!org) return { ok: false, balance: 0, unlimited: false, charged: false };
+        const dec = await tx.organization.updateMany({
+          where: { slug, scanCredits: { gt: 0 } },
+          data: { scanCredits: { decrement: 1 } },
+        });
+        if (dec.count === 0) {
+          // Either genuinely out of credits, OR a prior (acked-lost) attempt of THIS invocation already
+          // debited + committed and we're re-running. Distinguish via the deterministic externalId so a
+          // retry of a scan that WAS paid isn't mis-reported as denied (and later wrongly re-charged).
+          const prior = await tx.creditLedger
+            .findUnique({ where: { externalId }, select: { id: true } })
+            .catch(() => null);
+          if (prior) return { ok: true, balance: org.scanCredits, unlimited: false, charged: true };
+          return { ok: false, balance: org.scanCredits, unlimited: false, charged: false };
+        }
+        // Re-read AFTER the decrement (same tx) so the ledger stamps the real post-debit balance.
+        // Deriving it from the initial read races with concurrent debits: under READ COMMITTED each
+        // tx's stale snapshot would stamp the same balanceAfter, corrupting the reconciliation trail.
+        const after = await tx.organization.findUniqueOrThrow({
+          where: { id: org.id },
+          select: { scanCredits: true },
+        });
+        const balanceAfter = after.scanCredits;
+        await tx.creditLedger.create({
+          data: {
+            orgId: org.id,
+            delta: -1,
+            balanceAfter,
+            reason: CREDIT_REASON.SCAN,
+            repoFullName: ctx.repoFullName ?? null,
+            scanId: ctx.scanId ?? null,
+            actor: ctx.actor ?? null,
+            externalId,
+          },
+        });
+        return { ok: true, balance: balanceAfter, unlimited: false, charged: true };
+      }),
+    );
+  } catch (err) {
+    // A retry lost the race to the unique externalId — the duplicate insert rolled the whole debit
+    // (the decrement too) back, so the credit was charged exactly once by the winning attempt. Report
+    // the post-debit balance as a successful, charged debit rather than surfacing the error.
+    if (isDuplicateExternalId(err)) {
+      const state = await getCreditState(slug);
+      return { ok: true, balance: state.balance, unlimited: false, charged: true };
+    }
+    throw err;
+  }
 }
 
 /** Set an org's plan tier (owner-gated at the route). Returns false for an unknown org / no DB. */
@@ -290,8 +417,10 @@ export async function getCreditReconciliation(orgSlug: string, days: number): Pr
     rows.filter(pred).reduce((a, e) => a + (abs ? Math.abs(e.delta) : e.delta), 0);
   return {
     debited: sum((e) => e.delta < 0, true),
-    refunded: sum((e) => e.delta > 0 && /refund/i.test(e.reason)),
-    granted: sum((e) => e.delta > 0 && !/refund/i.test(e.reason)),
+    // Classify on the shared CREDIT_REASON.REFUND constant (see isRefundReason), NOT a free-text
+    // substring, so a refund stamped with any other reason can't silently land in `granted`.
+    refunded: sum((e) => e.delta > 0 && isRefundReason(e.reason)),
+    granted: sum((e) => e.delta > 0 && !isRefundReason(e.reason)),
     net: rows.reduce((a, e) => a + e.delta, 0),
     entries: rows.length,
   };

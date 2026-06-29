@@ -90,16 +90,21 @@ export function RemotionStage({
 
       <div className="mt-3 flex items-center justify-between gap-3 font-mono text-xs text-slate-500">
         <span className="flex items-center gap-4">{legend}</span>
-        <button
-          type="button"
-          onClick={() => {
-            playerRef.current?.seekTo(0);
-            playerRef.current?.play();
-          }}
-          className="focus-ring rounded-md px-2 py-1 uppercase tracking-wider transition hover:text-white"
-        >
-          ↻ replay
-        </button>
+        {/* Honor the reduced-motion contract the rest of the stage upholds: a reduced-motion user only
+            ever sees the static last frame, so replaying would abruptly play the full animation the page
+            otherwise suppresses for them. Hide the control entirely in that mode. */}
+        {!reduced && (
+          <button
+            type="button"
+            onClick={() => {
+              playerRef.current?.seekTo(0);
+              playerRef.current?.play();
+            }}
+            className="focus-ring rounded-md px-2 py-1 uppercase tracking-wider transition hover:text-white"
+          >
+            ↻ replay
+          </button>
+        )}
       </div>
     </div>
   );

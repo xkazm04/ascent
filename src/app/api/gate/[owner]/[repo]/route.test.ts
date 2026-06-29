@@ -65,6 +65,7 @@ vi.mock("@/lib/rate-limit", () => ({
     }),
   ),
   SCAN_RATE_LIMIT: {},
+  GATE_RATE_LIMIT: {},
 }));
 
 import { GET } from "./route";

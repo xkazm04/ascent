@@ -10,7 +10,6 @@ import { dbModeLabel } from "@/lib/db/mode";
 import type { DimensionId } from "@/lib/types";
 import { scoreHex, timeAgo, DIMENSION_SHORT } from "@/lib/ui";
 import { Kicker } from "@/components/ui";
-import { DeckSection } from "@/components/deck/DeckSection";
 
 // The five headline dimensions surfaced as register columns — the highest-weighted signals in the
 // rubric (AI Tooling, Testing, CI/CD, Agentic, AI Process). The sixth column is the overall average.
@@ -38,7 +37,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
   const board = topAiNative.length > 0 ? topAiNative : recent;
   const latestScannedAt = recent[0]?.scannedAt;
   return (
-    <DeckSection id="gallery">
+    <section id="gallery" className="flex min-h-screen snap-start flex-col justify-start pb-10 pt-14 lg:justify-center">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
         <div>
           <Kicker>Live from the index</Kicker>
@@ -115,6 +114,6 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
           </Link>
         </div>
       </div>
-    </DeckSection>
+    </section>
   );
 }

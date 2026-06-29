@@ -14,19 +14,26 @@ export interface DeckSectionRef {
 export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
   const [active, setActive] = useState(sections[0]?.id ?? "");
 
+  // Depend on a derived stable key (the section ids) rather than the array identity. A caller passing
+  // an inline `sections` literal produces a new array every render; keying the effect on `[sections]`
+  // would disconnect/rebuild the observer each render and momentarily drop the active-dot highlight.
+  // Keying on the id signature rebuilds only when the actual sections change.
+  const sectionKey = sections.map((s) => s.id).join("|");
+
   useEffect(() => {
+    const ids = sectionKey ? sectionKey.split("|") : [];
     const observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) if (e.isIntersecting) setActive(e.target.id);
       },
       { rootMargin: "-45% 0px -45% 0px" }, // active once a section crosses the viewport middle
     );
-    for (const s of sections) {
-      const el = document.getElementById(s.id);
+    for (const id of ids) {
+      const el = document.getElementById(id);
       if (el) observer.observe(el);
     }
     return () => observer.disconnect();
-  }, [sections]);
+  }, [sectionKey]);
 
   return (
     <nav aria-label="Page sections" className="fixed right-4 top-1/2 z-30 hidden -translate-y-1/2 flex-col gap-3 lg:flex">
@@ -36,7 +43,7 @@ export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
         // destination label on focus (not just hover) so a focused dot announces where it jumps.
         return (
           <a key={s.id} href={`#${s.id}`} aria-label={s.label} aria-current={on ? "true" : undefined} className="focus-ring group flex items-center justify-end gap-2 rounded-full">
-            <span className={`font-mono text-xs uppercase tracking-wider transition ${on ? "text-accent opacity-100" : "text-slate-500 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"}`}>
+            <span className={`font-mono text-xs uppercase tracking-[0.22em] transition ${on ? "text-accent opacity-100" : "text-slate-500 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"}`}>
               {s.label}
             </span>
             <span className={`h-2 w-2 rounded-full border transition ${on ? "border-accent bg-accent" : "border-slate-600 group-hover:border-slate-400"}`} />

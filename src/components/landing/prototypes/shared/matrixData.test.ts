@@ -3,6 +3,7 @@ import { DIMENSIONS, ARCHETYPE_WEIGHTS } from "@/lib/maturity/model";
 import {
   buildMatrixRows,
   MAX_WEIGHT,
+  TRACK_MAX,
   pct,
   ARCHETYPE_COLUMNS,
 } from "./matrixData";
@@ -30,6 +31,11 @@ describe("matrixData", () => {
   it("MAX_WEIGHT is the largest single lens weight", () => {
     const all = rows.flatMap((r) => [r.solo, r.team, r.org]);
     expect(MAX_WEIGHT).toBe(Math.max(...all));
+  });
+
+  it("TRACK_MAX is the heaviest weight rounded up to a 5% boundary, so bars stay proportional to the printed percent", () => {
+    expect(TRACK_MAX).toBeGreaterThanOrEqual(MAX_WEIGHT); // never clips the heaviest bar
+    expect(Math.round(TRACK_MAX * 20)).toBeCloseTo(TRACK_MAX * 20, 9); // a multiple of 0.05 (5%)
   });
 
   it("formats weights as whole-number percents", () => {

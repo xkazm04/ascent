@@ -47,6 +47,7 @@ const REASON: Record<string, { title: string; body: string }> = {
   expired: { title: "Invite expired", body: "This invitation has expired. Ask an owner to send a fresh one." },
   used: { title: "Invite already used", body: "This invitation was already accepted or revoked." },
   wrong_user: { title: "Wrong account", body: "This invitation was issued to a different GitHub account. Sign in as that user to accept it." },
+  wrong_email: { title: "Wrong email", body: "This invitation is bound to a specific email address. Accept it while signed in with that verified email." },
   db: { title: "Couldn't accept the invite", body: "Something went wrong applying the invitation. Try again, or ask an owner to re-send." },
 };
 
@@ -88,9 +89,12 @@ export default async function AcceptInvitePage({ params }: { params: Promise<{ t
   // Surface a pinned-login mismatch up front (acceptInvite still enforces it server-side).
   const mismatch =
     peek.pinnedLogin && peek.pinnedLogin !== session.login.trim().toLowerCase() ? peek.pinnedLogin : null;
+  // An email-pinned invite (no login pin) carries no login-mismatch signal, so hint the required email
+  // up front — switching GitHub accounts can't satisfy it, so the generic login guidance would mislead.
+  const pinnedEmail = peek.pinnedLogin ? null : peek.pinnedEmail;
   return (
     <Frame>
-      <AcceptInviteForm token={token} org={peek.org} role={peek.role} mismatch={mismatch} />
+      <AcceptInviteForm token={token} org={peek.org} role={peek.role} mismatch={mismatch} pinnedEmail={pinnedEmail} />
     </Frame>
   );
 }

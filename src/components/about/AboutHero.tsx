@@ -7,6 +7,7 @@ import { DeckSection } from "@/components/deck/DeckSection";
 import { ScoreGauge } from "@/components/landing/prototypes/index/ScoreGauge";
 import { LEVELS, DIMENSIONS } from "@/lib/maturity/model";
 import { useCountUp } from "@/components/landing/prototypes/shared/useCountUp";
+import { demoOrgHref } from "@/lib/site";
 
 const INTRO =
   "Ascent turns your organization's scattered AI adoption into one comparable index, then shows the highest-ROI path from manual development to a fully LLM-based, governed engineering org.";
@@ -56,7 +57,7 @@ export function AboutHero({ bg }: { bg?: string }) {
               Scan your org
             </Link>
             <Link
-              href="/org/vercel"
+              href={demoOrgHref()}
               className="rounded-xl border border-divider px-5 py-2.5 font-medium text-slate-200 transition hover:border-accent hover:text-white"
             >
               Explore the live demo →

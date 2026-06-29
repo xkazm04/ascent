@@ -26,6 +26,7 @@ vi.mock("@/lib/cache", () => ({
 // the original cache-poisoning describe keeps it false. consumeScanCredit/grantCredits/getScanReportByCommit
 // are spies the metered-path tests assert against.
 vi.mock("@/lib/db", () => ({
+  CREDIT_REASON: { SCAN: "scan", GRANT: "grant", ADJUSTMENT: "adjustment", REFUND: "refund", POLAR_REFUND: "polar-refund" },
   isDbConfigured: vi.fn(() => false),
   persistScanReport: vi.fn(),
   consumeScanCredit: vi.fn(),

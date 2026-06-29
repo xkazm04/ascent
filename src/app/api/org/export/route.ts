@@ -36,12 +36,21 @@ export async function GET(request: Request) {
   let rows: unknown[][];
   if (kind === "contributors") {
     const insights = await getContributorInsights(org, segmentId);
+    // A `null` result means the lookup itself failed/was unavailable — distinct from an org that
+    // legitimately has zero contributors (a present object with an empty array). Returning a
+    // header-only 200 in the null case is success theater, so surface it as a 404 instead.
+    if (!insights) {
+      return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
+    }
     header = ["login", "name", "commits", "aiCommits", "aiSharePct", "repos", "lastActiveAt"];
-    rows = (insights?.contributors ?? []).map((c) => [c.login, c.name ?? "", c.commits, c.aiCommits, c.aiShare, c.repos, c.lastActiveAt ?? ""]);
+    rows = insights.contributors.map((c) => [c.login, c.name ?? "", c.commits, c.aiCommits, c.aiShare, c.repos, c.lastActiveAt ?? ""]);
   } else {
     const gov = await getOrgGovernance(org, segmentId);
+    if (!gov) {
+      return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
+    }
     header = ["repo", "name", "protected", "requiresPullRequest", "requiredApprovals", "requiresStatusChecks", "requiresSignatures", "ruleCount"];
-    rows = (gov?.perRepo ?? []).map((r) => [
+    rows = gov.perRepo.map((r) => [
       r.fullName,
       r.name,
       r.protected,
@@ -58,8 +67,9 @@ export async function GET(request: Request) {
       headers: {
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}.csv"`,
+        "cache-control": "private, no-store",
       },
     });
   }
-  return NextResponse.json({ org, kind, header, rows });
+  return NextResponse.json({ org, kind, header, rows }, { headers: { "cache-control": "private, no-store" } });
 }

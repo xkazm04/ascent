@@ -31,6 +31,8 @@ vi.mock("@/lib/github/app", () => ({
   verifyWebhook: () => true,
 }));
 vi.mock("@/lib/db", () => ({
+  claimWebhookDelivery: vi.fn(async () => true),
+  releaseWebhookDelivery: vi.fn(async () => {}),
   getInstallationIdForOwner: vi.fn(),
   getOrgGatePolicy: vi.fn(),
   getOrgId: vi.fn(),
@@ -40,6 +42,8 @@ vi.mock("@/lib/db", () => ({
   persistScanReport: vi.fn(),
   reconcileWatchedRepos: vi.fn(async () => 0),
   removeInstallation: vi.fn(),
+  suspendInstallation: vi.fn(),
+  resumeInstallation: vi.fn(),
   reportPermalink: vi.fn(() => "/report/x"),
   upsertInstallation: vi.fn(),
 }));
@@ -62,6 +66,8 @@ import {
   persistScanReport,
   reconcileWatchedRepos,
   removeInstallation,
+  resumeInstallation,
+  suspendInstallation,
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
@@ -75,6 +81,8 @@ const mockGetInstallation = vi.mocked(getInstallation);
 const mockGetToken = vi.mocked(getInstallationToken);
 const mockUpsert = vi.mocked(upsertInstallation);
 const mockRemove = vi.mocked(removeInstallation);
+const mockSuspend = vi.mocked(suspendInstallation);
+const mockResume = vi.mocked(resumeInstallation);
 const mockAfter = vi.mocked(after);
 const mockListReposResult = vi.mocked(listInstallationReposResult);
 
@@ -201,6 +209,37 @@ describe("POST /api/app/webhook — installation lifecycle redelivery net (defer
     expect(second.duplicate).toBeUndefined();
     await runDeferred();
     expect(mockRemove).toHaveBeenCalledTimes(2);
+  });
+});
+
+// github-app-installation-webhooks #1: suspend is a REVERSIBLE pause, not a permanent uninstall, so it
+// must NOT run the full removeInstallation teardown (which unwatched everything and never restored it),
+// and unsuspend must resume the paused schedules.
+describe("POST /api/app/webhook — suspend is a non-destructive pause; unsuspend resumes", () => {
+  it("pauses (suspendInstallation) on a GitHub-confirmed suspend — never removeInstallation", async () => {
+    // GitHub confirms the suspension (suspendedAt set) → pause, do not tear down.
+    mockGetInstallation.mockResolvedValue(installation({ suspendedAt: "2026-06-25T00:00:00Z" }));
+    await post("installation", "del-suspend-ok", { action: "suspend", installation: { id: 42 } });
+    await runDeferred();
+    expect(mockSuspend).toHaveBeenCalledWith(42);
+    expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  it("does not pause an unconfirmed (forged) suspend GitHub says is still active", async () => {
+    mockGetInstallation.mockResolvedValue(installation({ suspendedAt: null }));
+    await post("installation", "del-suspend-forged", { action: "suspend", installation: { id: 42 } });
+    await runDeferred();
+    expect(mockSuspend).not.toHaveBeenCalled();
+    expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  it("re-arms schedules (resumeInstallation) on unsuspend, after re-confirming the mapping", async () => {
+    mockGetInstallation.mockResolvedValue(installation());
+    await post("installation", "del-unsuspend-ok", { action: "unsuspend", installation: { id: 42 } });
+    await runDeferred();
+    expect(mockUpsert).toHaveBeenCalledWith({ login: "acme", installationId: 42 });
+    expect(mockResume).toHaveBeenCalledWith(42);
+    expect(mockRemove).not.toHaveBeenCalled();
   });
 });
 
@@ -334,6 +373,9 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     expect(mockGetInstallation).toHaveBeenCalledWith(77);
     expect(mockGetToken).toHaveBeenCalledTimes(1);
     expect(mockGetToken).toHaveBeenCalledWith(77);
+    // The GitHub-confirmed pairing is persisted so subsequent events take the stronger stored-mapping
+    // path instead of re-confirming live with GitHub each time.
+    expect(mockUpsert).toHaveBeenCalledWith({ login: "NewOrg", installationId: 77 });
   });
 
   it("REJECTS (no mint) for an UNKNOWN owner when GitHub's account does NOT match the payload owner", async () => {
@@ -375,7 +417,8 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     await runDeferred();
     expect(mockGetToken).not.toHaveBeenCalled();
     expect(mockScan).not.toHaveBeenCalled();
-    // The gate is checked BEFORE the watch check / mint, so no rescan side effects fire.
+    // Both the watch check and the cross-tenant gate front the mint; the forged pairing fails the gate,
+    // so no rescan side effects fire regardless of their order.
     expect(mockCheckRegression).not.toHaveBeenCalled();
   });
 

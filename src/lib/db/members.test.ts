@@ -133,14 +133,16 @@ describe("setMembershipRole last-owner guard", () => {
     expect(writes).toEqual([{ op: "upsert", role: "owner" }]);
   });
 
-  it("returns 'error' (and writes nothing) when the transaction throws", async () => {
+  it("returns 'db_error' (and writes nothing) when the transaction throws", async () => {
     const { prisma, writes, tx } = fakePrisma({ existingRole: "owner", ownerCount: 2 });
     tx.membership.upsert.mockRejectedValueOnce(new Error("db down"));
     mockGetPrisma.mockReturnValue(prisma);
 
     const res = await setMembershipRole("acme", "alice", "member");
 
-    expect(res).toBe("error");
+    // Transient transaction failure is distinct from a missing org (which returns "error" → 404);
+    // the route maps "db_error" to a 503 retry instead of a misleading "Unknown organization".
+    expect(res).toBe("db_error");
     expect(writes).toHaveLength(0);
   });
 });
@@ -305,14 +307,16 @@ describe("canonical-identifier audit invariant", () => {
       expect(writes).toHaveLength(0); // nothing to audit
     });
 
-    it("setMembershipRole transaction failure ('error') leaves no membership write to audit", async () => {
+    it("setMembershipRole transaction failure ('db_error') leaves no membership write to audit", async () => {
       const { prisma, writes, tx } = tracePrisma({ existingRole: "member", ownerCount: 2 });
       tx.membership.upsert.mockRejectedValueOnce(new Error("db down"));
       mockGetPrisma.mockReturnValue(prisma);
 
       const res = await setMembershipRole("acme", "alice", "member");
 
-      expect(res).toBe("error"); // route maps this to 404 and skips recordAudit
+      // A transient write failure is now distinct from "unknown org": the route maps it to 503
+      // ("try again"), not a misleading 404 "Unknown organization". Either way: no write to audit.
+      expect(res).toBe("db_error");
       expect(writes).toHaveLength(0);
     });
 

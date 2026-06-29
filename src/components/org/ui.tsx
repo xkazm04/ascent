@@ -5,18 +5,19 @@
 import { EmptyState } from "@/components/EmptyState";
 import { Surface, Stat, SectionHeading } from "@/components/ui";
 import { DIMENSION_SHORT } from "@/lib/ui";
+import { POSTURE_META } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
 
 // Re-exported from the brand kit so existing `@/components/org/ui` importers keep resolving them.
 export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE } from "@/components/ui";
 
-export const POSTURE_LABEL: Record<string, string> = {
-  "ai-native": "AI-Native",
-  ungoverned: "Fast & Ungoverned",
-  manual: "Solid but Manual",
-  early: "Getting Started",
-};
-export const POSTURE_ORDER = ["ai-native", "ungoverned", "manual", "early"];
+// Derived from the canonical, ordered posture taxonomy (maturity/model) so a new/renamed posture
+// flows through automatically — mirrors how DIMS is derived from DIMENSION_SHORT. Previously these
+// were hand-maintained duplicates that would silently drop any posture added in postureFor().
+export const POSTURE_LABEL: Record<string, string> = Object.fromEntries(
+  POSTURE_META.map((p) => [p.id, p.label]),
+);
+export const POSTURE_ORDER = POSTURE_META.map((p) => p.id);
 
 /**
  * POSTURE_LABEL lookup with a safe fallback for an unknown/legacy posture id (a new or renamed posture
