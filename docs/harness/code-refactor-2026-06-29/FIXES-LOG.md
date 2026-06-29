@@ -70,6 +70,19 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 6 — SSE parser consolidation (Theme E)
+
+**2 commits · 2 High (SSE fragmentation ×4) closed · gate: tsc 0 · vitest 2640/2640 (+2 SSE tests).**
+
+| Commit | What |
+|---|---|
+| `dcd1aa8` | `lib/sse.ts parseSSE` rewritten to join multi-line `data:` with `\n` (spec) + CRLF-tolerant; was gluing split tokens into fabricated values. Added multi-line + split-token tests. |
+| `8c8a1c5` | `ReportClientStatus` deleted its local (correct) `parseSSE`; `useReportScan` now imports the lib parser. Both consumers keep their own reader loops (tail-flush / stall-watchdog). |
+
+`readSSE` + its 5 org consumers untouched (single-line frames parse identically). **Loose end:** `onboarding/importScan.ts` still has its own framing loop (not converted this wave) — candidate for the mop-up.
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -79,3 +92,4 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 5. **"Adopt the canonical resolver" has boundary cases.** When mass-adopting a resolver, leave the sites it can't serve: upsert/create-if-missing (resolver returns null on missing), transaction-scoped client reads, and reads that need columns beyond the resolved id. Adopt only the pure id-read sites; deduping the rest would change behavior.
 6. **Multi-doc theme extraction with per-doc overrides.** Don't flatten when hoisting shared style/theme constants across N documents — diff all N first, hoist only identical values, keep per-doc overrides where they differ. Flattening silently changes output (no snapshot test will catch a PDF).
 7. **Shared crypto codec, per-caller parameters.** Deduping HMAC sign/verify across share flows: parameterize the legitimately-different bits (secret env var, TTL) and keep each caller building its own payload, so JSON key order → token bytes stay identical and already-issued tokens still verify.
+8. **The "shared" helper can be the buggy fork.** Four SSE parsers existed; the one in the shared lib silently corrupted multi-line `data:` while a component kept a correct private copy. When consolidating, adopt the *correct* implementation as the single source (not whichever is labeled "shared"), and add a test for the bug it fixes.
