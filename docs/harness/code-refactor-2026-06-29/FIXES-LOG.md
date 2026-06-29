@@ -130,6 +130,14 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 11 — Goals/initiatives CRUD preamble (Theme A6)
+
+**1 commit · goals #1 (H) + goals #2 (M) closed · gate: tsc 0 · vitest 2644/2644 (+3).**
+
+`ad67d44` — new `src/lib/api/orgPlan.ts`: `dbGuard`, `invalidTargetDate`, `listOrgRoute`, `createdResponse`, `rowGate`; `plan.ts` twin `get*OrgSlug` now delegate to one private `ownerOrgSlug`. Folded all order-safe pieces; left each route's resource-specific 400s (missing-field / `isGoalMetric` / `isDimensionId` / status whitelist) inline to preserve 400-vs-403 order. **Deliberate change (flagged):** `invalidTargetDate` now runs on initiatives POST+PATCH (`targetDate` is `DateTime?`); bad dates that were silently coerced to null are now rejected — 3 tests added.
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -144,3 +152,4 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 10. **"Single source of truth" comments are drift detectors.** Three Highs were values a comment explicitly claimed were single-sourced but weren't (`overallScoreFor`, AI-vocab, GatePolicy). Grep for "single source"/"keep in sync"/"must match" comments — they mark exactly the spots that have silently forked. Unify toward the *correct/complete* copy and flag the resulting output change.
 11. **Load-bearing guard order.** When folding a route preamble (config 503 → session 401 → tenant 403 → install 403), the ORDER and per-check messages are observable — folding an earlier check into a shared helper changes which failure a request hits first (a signed-out request would get the tenant message instead of 401). Keep order-sensitive checks inline; only extract the tail that's truly common + order-independent (e.g. install-gate + token-mint + error mapping).
 12. **Wholesale route-test mocks block helper adoption.** A route whose test does `vi.mock("@/lib/authz")` wholesale breaks if you move its guard into a new module the test doesn't mock. Leave such a handler inline unless you deliberately update the mock — same root cause as the "new `@/lib/db` export missing from a route-test mock" regression class.
+13. **Drift = a missing validation, not just duplicate code.** A duplicated block had drifted by OMISSION (targetDate validation present on goals, absent on initiatives → bad dates silently coerced to null). De-duplicating a validation often means *adding* the missing copy — a deliberate behavior change worth flagging + testing, not a pure no-op refactor.
