@@ -5,10 +5,9 @@
 // (techGroupsFor, src/lib/org/tech-stack.ts) so the badge a user sees and the group they filter match.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getOrgId, getOrgRollup } from "@/lib/db/org-rollup";
-import { buildSegmentComparison, type SegmentComparison, type SegmentSummary } from "@/lib/db/segments";
+import { getOrgId } from "@/lib/db/org-rollup";
+import { buildSegmentComparison, summarizeScopedRollup, type SegmentComparison, type SegmentSummary } from "@/lib/db/segments";
 import { techGroupsFor } from "@/lib/org/tech-stack";
-import { postureFor } from "@/lib/maturity/model";
 import type { TechStack } from "@/lib/types";
 
 export interface TechGroupSummary {
@@ -107,24 +106,14 @@ export async function listTechStackGroups(orgSlug: string): Promise<TechGroupSum
 // the stack comparison stays a single source of truth with every other scoped view. SegmentSummary.id
 // here carries the stack KEY (or null = whole fleet); name carries the display label.
 
-/** Reduce a tech-stack group (or the whole fleet, when `group` is null) to its headline summary. */
-async function summarizeTechStack(
+/** Reduce a tech-stack group (or the whole fleet, when `group` is null) to its headline summary.
+ *  Shares the rollup→summary reduction with summarizeSegment; here the summary id carries the stack
+ *  KEY (the stable `?stack=` value) and the name carries the display label. */
+function summarizeTechStack(
   orgSlug: string,
   group: { id: string; key: string; label: string } | null,
 ): Promise<SegmentSummary | null> {
-  const rollup = await getOrgRollup(orgSlug, undefined, null, group?.id ?? null);
-  if (!rollup) return null;
-  return {
-    id: group?.key ?? null,
-    name: group?.label ?? "Whole fleet",
-    repoCount: rollup.repoCount,
-    scannedCount: rollup.scannedCount,
-    avgOverall: rollup.avgOverall,
-    avgAdoption: rollup.avgAdoption,
-    avgRigor: rollup.avgRigor,
-    posture: postureFor(rollup.avgAdoption, rollup.avgRigor).id,
-    dimAverages: rollup.dimAverages,
-  };
+  return summarizeScopedRollup(orgSlug, { groupId: group?.id ?? null, id: group?.key ?? null, name: group?.label ?? "Whole fleet" });
 }
 
 /** Headline summary for every non-empty tech group of an org — the per-stack rollup strip on the

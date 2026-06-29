@@ -247,13 +247,22 @@ export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSumm
   return out;
 }
 
-/** Reduce a segment (or the whole fleet, when `seg` is null) to its headline maturity summary. */
-async function summarizeSegment(orgSlug: string, seg: { id: string; name: string } | null): Promise<SegmentSummary | null> {
-  const rollup = await getOrgRollup(orgSlug, undefined, seg?.id ?? null);
+/**
+ * Shared rollup→summary reducer behind summarizeSegment AND summarizeTechStack (tech-groups.ts):
+ * scope getOrgRollup to a custom segment OR an auto tech-stack group (or neither = whole fleet), then
+ * reduce it to the headline SegmentSummary. Both callers produced an identical mapping — only the
+ * rollup scope and the id/name labels differed — so the reduction lives here once. Passing a null
+ * scope id is equivalent to omitting it (techGroupScope/segmentScope treat null and undefined alike).
+ */
+export async function summarizeScopedRollup(
+  orgSlug: string,
+  opts: { segmentId?: string | null; groupId?: string | null; id: string | null; name: string },
+): Promise<SegmentSummary | null> {
+  const rollup = await getOrgRollup(orgSlug, undefined, opts.segmentId ?? null, opts.groupId ?? null);
   if (!rollup) return null;
   return {
-    id: seg?.id ?? null,
-    name: seg?.name ?? "Whole fleet",
+    id: opts.id,
+    name: opts.name,
     repoCount: rollup.repoCount,
     scannedCount: rollup.scannedCount,
     avgOverall: rollup.avgOverall,
@@ -262,6 +271,11 @@ async function summarizeSegment(orgSlug: string, seg: { id: string; name: string
     posture: postureFor(rollup.avgAdoption, rollup.avgRigor).id,
     dimAverages: rollup.dimAverages,
   };
+}
+
+/** Reduce a segment (or the whole fleet, when `seg` is null) to its headline maturity summary. */
+function summarizeSegment(orgSlug: string, seg: { id: string; name: string } | null): Promise<SegmentSummary | null> {
+  return summarizeScopedRollup(orgSlug, { segmentId: seg?.id ?? null, id: seg?.id ?? null, name: seg?.name ?? "Whole fleet" });
 }
 
 /**
