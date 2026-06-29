@@ -28,6 +28,19 @@ export interface OrgScope extends StackScope {
   activeSegment: SegmentRow | null;
   /** The resolved segment id, or null. */
   segmentId: string | null;
+  /**
+   * The four `ScopeFilterBar` props pre-bundled for a spread — `<ScopeFilterBar {...barProps} />` —
+   * so each scoped page stops re-listing the same `segments` / `segmentId` / `techGroups` /
+   * `activeStack` quartet by hand (the wiring that had drifted across call sites). Carries only the
+   * bar's required render props; per-page `className` / `gate` / children are still passed at the
+   * call site.
+   */
+  barProps: {
+    segments: SegmentRow[];
+    segmentId: string | null;
+    techGroups: TechGroupSummary[];
+    activeStack: TechGroupSummary | null;
+  };
 }
 
 /** Resolve just the tech-stack scope (Feature 3b) from the URL. */
@@ -44,5 +57,12 @@ export async function resolveOrgScope(slug: string, sp: SearchParams): Promise<O
     resolveStackScope(slug, sp),
   ]);
   const activeSegment = segments.find((s) => s.id === first(sp.segment)) ?? null;
-  return { segments, activeSegment, segmentId: activeSegment?.id ?? null, ...stack };
+  const segmentId = activeSegment?.id ?? null;
+  return {
+    segments,
+    activeSegment,
+    segmentId,
+    ...stack,
+    barProps: { segments, segmentId, techGroups: stack.techGroups, activeStack: stack.activeStack },
+  };
 }

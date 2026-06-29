@@ -127,19 +127,11 @@ export default async function TeamsPage({
   const sp = await searchParams;
 
   // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
-  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
+  const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
 
   const rollup = await getOrgTeamRollup(slug, segmentId, techGroupId);
 
-  const segmentBar = (
-    <ScopeFilterBar
-      segments={segments}
-      segmentId={segmentId}
-      techGroups={techGroups}
-      activeStack={activeStack}
-      className="mb-4 flex flex-wrap justify-end gap-2"
-    />
-  );
+  const segmentBar = <ScopeFilterBar {...barProps} className="mb-4 flex flex-wrap justify-end gap-2" />;
 
   if (!rollup || rollup.teams.length === 0) {
     return (

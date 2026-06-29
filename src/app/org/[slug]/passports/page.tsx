@@ -5,8 +5,7 @@
 // dashboard. Passports come from scans (P1), so a never-scanned / pre-passport repo simply isn't listed.
 
 import { SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
-import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { PassportScatter, type ScatterPoint } from "@/components/org/PassportScatter";
 import { PassportTable, type PassportRow } from "@/components/org/PassportTable";
 import { getOrgRollup } from "@/lib/db";
@@ -23,7 +22,7 @@ export default async function OrgPassports({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
+  const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
   const rollup = await getOrgRollup(slug, undefined, segmentId, techGroupId);
 
   const withPassport = (rollup?.repos ?? []).filter((r) => r.passport);
@@ -49,12 +48,9 @@ export default async function OrgPassports({
   const gap = rows.filter((r) => r.autoScore >= 65 && r.prodScore < 65).length; // automatable, not prod-ready
   const noObs = rows.filter((r) => r.observability === "none").length;
 
-  const scopeBar = (
-    <div className="flex flex-wrap items-center gap-2">
-      {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
-      <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
-    </div>
-  );
+  // `gate={false}` keeps the bar's wrapper rendering even when neither selector has options, matching
+  // the previous inline markup exactly (the default className is ScopeFilterBar's own default).
+  const scopeBar = <ScopeFilterBar {...barProps} gate={false} />;
 
   return (
     <div className="space-y-6">
