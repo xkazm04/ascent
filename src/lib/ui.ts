@@ -23,6 +23,13 @@ export const DIMENSION_SHORT: Record<DimensionId, string> = {
  *  the inline form for every input — an unknown id falls back to itself. */
 export const dimShort = (id: string): string => DIMENSION_SHORT[id as keyof typeof DIMENSION_SHORT] ?? id;
 
+/** The "fastest path" dimension names joined for display ("Testing + CI/CD") — the shared name-join
+ *  behind the roadmap's NextLevelPath callout and the sandbox's NextLevelBanner. Identical output in
+ *  both: each step's dimension mapped through DIMENSION_SHORT and joined with " + ". */
+export function fastestPathNames(steps: { dimension: DimensionId }[]): string {
+  return steps.map((s) => DIMENSION_SHORT[s.dimension]).join(" + ");
+}
+
 /** Stable permalink to a repo's report, pinned to a commit when one is known
  *  (`/report/{owner}/{repo}` or `/report/{owner}/{repo}@{sha}`). Lives in this client-safe
  *  module so both server callers and the client trend charts build the identical link
