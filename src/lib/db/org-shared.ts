@@ -2,8 +2,12 @@
 // through org.ts only where part of the public surface; the helpers here are not. All guarded by
 // DATABASE_URL at the call sites.
 
+import { IMPACT_RANK } from "@/lib/scoring/impact";
+
 export const LEVEL_RANK: Record<string, number> = { L1: 1, L2: 2, L3: 3, L4: 4, L5: 5 };
-export const IMPACT_WEIGHT: Record<string, number> = { high: 3, medium: 2, low: 1 };
+/** The db layer's view of the canonical impact weights (src/lib/scoring/impact.ts). Same map, single
+ *  source — kept under this name so the rollup queries' `IMPACT_WEIGHT[impact] ?? n` reads are untouched. */
+export const IMPACT_WEIGHT: Record<string, number> = IMPACT_RANK;
 
 /**
  * Repo-level where-fragment that scopes an aggregate to a custom segment (a user-defined tag on

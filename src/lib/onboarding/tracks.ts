@@ -16,6 +16,7 @@ import type { DimensionId, Effort, Impact, ScanReport } from "@/lib/types";
 import { PRACTICES, type PracticeDef } from "@/lib/practices";
 import { commandsFor, type LangCommands } from "@/lib/practice-artifact";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { IMPACT_RANK } from "@/lib/scoring/impact";
 
 /** Where a control is primarily enforced. */
 export type ControlLayer = "pre-push" | "ci-hard-pass" | "both";
@@ -285,12 +286,12 @@ const PRACTICE_BY_DIM: Record<DimensionId, PracticeDef | undefined> = Object.fro
 /** A dimension at or above this blended score is treated as a strength, not an onboarding gap. */
 export const WEAK_THRESHOLD = 70;
 
-const IMPACT_RANK: Record<Impact, number> = { high: 3, medium: 2, low: 1 };
+// Effort ranking is INVERTED vs the roadmap's (here lower effort = higher leverage), so it stays local.
 const EFFORT_RANK: Record<Effort, number> = { low: 3, medium: 2, high: 1 };
 
 /** Leverage = impact (weighted) + ease. Higher sorts first. */
 function leverage(t: OnboardingTrack): number {
-  return IMPACT_RANK[t.impact] * 2 + EFFORT_RANK[t.effort];
+  return (IMPACT_RANK[t.impact] ?? 0) * 2 + EFFORT_RANK[t.effort];
 }
 
 type CiKind = LangCommands["ci"];

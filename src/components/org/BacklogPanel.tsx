@@ -6,9 +6,8 @@ import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
 import { OwnerHeader, SummaryStrip } from "@/components/org/BacklogSummary";
 import { BacklogItemRow } from "@/components/org/BacklogItemRow";
 import { useSavingIds } from "@/components/org/recStatusUi";
-
-// Impact-word tiebreak ranking for the "Projected points" cross-repo sort.
-const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+// Impact-word tiebreak ranking for the "Projected points" cross-repo sort (canonical map).
+import { IMPACT_RANK } from "@/lib/scoring/impact";
 
 /**
  * The org-wide recommendation backlog: a stat strip, a By owner / By due date toggle, and inline
