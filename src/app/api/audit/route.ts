@@ -50,16 +50,29 @@ async function exportCsv(
     cursor = page.nextCursor;
   } while (cursor && total < CSV_MAX_ROWS);
 
+  // TRUNCATION HONESTY: the loop also exits at CSV_MAX_ROWS (newest-first, so the OLDEST evidence is
+  // dropped). The SHA below signs whatever bytes we emit, so a truncated file would otherwise be filed
+  // as complete compliance evidence with a valid integrity hash — false confidence. A still-set cursor
+  // means more rows remained, so flag it explicitly (header + a -PARTIAL filename) and tell the operator
+  // to narrow the filters to export the rest. The integrity hash still certifies the bytes delivered.
+  const truncated = cursor != null;
+  if (truncated) {
+    console.warn(`[audit] csv export for "${org}" truncated at ${CSV_MAX_ROWS} rows — older entries omitted`);
+  }
   const stamp = new Date().toISOString().slice(0, 10);
   const body = lines.join("\n") + "\n";
   return new Response(body, {
     headers: {
       "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="ascent-audit-${org}-${stamp}.csv"`,
+      "content-disposition": `attachment; filename="ascent-audit-${org}-${stamp}${truncated ? "-PARTIAL" : ""}.csv"`,
       "cache-control": "no-store",
       // File-level integrity for the filed evidence (recompute SHA-256 over the bytes to verify). Each
       // row also carries its own HMAC `_sig` in the meta cell, so individual rows are tamper-evident too.
       "x-ascent-content-sha256": sha256Hex(body),
+      // Make completeness explicit so a capped export can't be mistaken for the full trail.
+      "x-ascent-row-count": String(total),
+      "x-ascent-truncated": String(truncated),
+      ...(truncated ? { "x-ascent-row-cap": String(CSV_MAX_ROWS) } : {}),
     },
   });
 }
