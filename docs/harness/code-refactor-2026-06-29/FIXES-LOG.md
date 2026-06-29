@@ -122,6 +122,14 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 
 ---
 
+## Wave 10 — Owner-gated POST preamble (Theme A3)
+
+**1 commit · org-branding #1 (H) closed · gate: tsc 0 · vitest 2641/2641.**
+
+`d27d668` — new `src/lib/api/orgPost.ts` `requireOrgOwnerPost<T>(request, opts?)` (same-origin → parse → require `org` → `requireOrgRole(org,"owner")`, byte-identical responses). **Adopted (5 verbatim handlers):** branding, briefing/share, live-share, llm-provider/test, gate-policy POST. **Left inline (correctly):** plan/members/invites/credits-grant/llm-provider POST interleave field validation *before* the role check (folding would reorder 400-vs-403); alerts uses `admin` not `owner`; llm-provider DELETE's test wholesale-mocks `@/lib/authz`. No test edits.
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
@@ -135,3 +143,4 @@ Verified `getOrgId` semantics: `isDbConfigured()` guard → `trim().toLowerCase(
 9. **Consolidate the transport, keep per-call error taxonomies.** Four GitHub JSON fetchers shared a body but had genuinely divergent status→error mappings (one parsed `retry-after` / had a 401 case another collapsed). Extract the transport (headers+timeout+fetch) into one helper, but let callers keep their own typed error mapping — don't merge error classes that have provably diverged.
 10. **"Single source of truth" comments are drift detectors.** Three Highs were values a comment explicitly claimed were single-sourced but weren't (`overallScoreFor`, AI-vocab, GatePolicy). Grep for "single source"/"keep in sync"/"must match" comments — they mark exactly the spots that have silently forked. Unify toward the *correct/complete* copy and flag the resulting output change.
 11. **Load-bearing guard order.** When folding a route preamble (config 503 → session 401 → tenant 403 → install 403), the ORDER and per-check messages are observable — folding an earlier check into a shared helper changes which failure a request hits first (a signed-out request would get the tenant message instead of 401). Keep order-sensitive checks inline; only extract the tail that's truly common + order-independent (e.g. install-gate + token-mint + error mapping).
+12. **Wholesale route-test mocks block helper adoption.** A route whose test does `vi.mock("@/lib/authz")` wholesale breaks if you move its guard into a new module the test doesn't mock. Leave such a handler inline unless you deliberately update the mock — same root cause as the "new `@/lib/db` export missing from a route-test mock" regression class.
