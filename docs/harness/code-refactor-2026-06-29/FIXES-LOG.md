@@ -167,6 +167,17 @@ The full suite shows **1 failure: `client.test.ts` "still fails when no client e
 
 ---
 
+## Wave 14 — Shared UI extraction: status-edit + comparison view (Theme H)
+
+**2 commits · backlog #1 (H) + repositories #1 (H) closed · gate: tsc 0 · vitest 2643 pass + 1 env.**
+
+| Commit | What |
+|---|---|
+| `73af161` | New `src/components/org/recStatusUi.tsx`: `useSavingIds<E>()` hook + `<StatusSelect>` (option list parameterized). Adopted in BacklogPanel, BacklogItemRow, RecommendationTracker. Status lists `Object.keys(STATUS_LABEL)` vs `REC_STATUSES` were content-identical (no drift) → single-sourced on `REC_STATUSES`. Optimistic update / rollback / 409-refresh preserved. |
+| `a8569e7` | New `src/components/org/SegmentComparisonView.tsx` (+ `MetricRow`/`first()`); rendered by segments + tech-stacks pages (only empty-state noun parameterized). Markup/classes identical. |
+
+---
+
 ## Pattern catalogue (durable — grep these shapes proactively in future audits)
 
 1. **Triplicated fail-closed auth gate.** A security check (cron secret, CSRF, role) copy-pasted across sibling routes drifts — one ascent cron route had historically fail-opened. Fix: extract `requireX(request): Response | null` (reject-or-null) and adopt at every site so the policy lives once.
