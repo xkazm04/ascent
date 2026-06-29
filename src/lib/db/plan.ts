@@ -8,7 +8,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
+import { meanPerDayKey, projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
 import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims, type SimFix } from "@/lib/scoring/orgsim";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 
@@ -106,20 +106,14 @@ function repoValueFor(metric: string, r: SnapshotRepo): number {
   return r.dims[metric] ?? 0;
 }
 
-/** Collapse timestamped observations to one per-day mean — the shape forecastTrajectory fits. */
+/** Collapse timestamped observations to one per-day mean — the shape forecastTrajectory fits. Shares
+ *  the per-day-mean accumulation with forecastTrajectory via meanPerDayKey (keyed by ISO `YYYY-MM-DD`),
+ *  then rounds each day's mean to an int. */
 function dailyAvg(points: { at: Date; value: number }[]): SeriesPoint[] {
-  const byDay: Record<string, { sum: number; n: number }> = {};
-  for (const p of points) {
-    const day = p.at.toISOString().slice(0, 10);
-    (byDay[day] ||= { sum: 0, n: 0 }).sum += p.value;
-    byDay[day].n += 1;
-  }
-  return Object.keys(byDay)
+  const byDay = meanPerDayKey(points, (p) => p.at.toISOString().slice(0, 10));
+  return [...byDay.keys()]
     .sort()
-    .map((date) => {
-      const entry = byDay[date]!; // safe: date comes from Object.keys(byDay)
-      return { date, value: Math.round(entry.sum / entry.n) };
-    });
+    .map((date) => ({ date, value: Math.round(byDay.get(date)!) })); // safe: date ∈ byDay.keys()
 }
 
 /**
