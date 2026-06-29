@@ -1,11 +1,14 @@
 // Provider selection via the LLM_PROVIDER env flag.
 //
-//   LLM_PROVIDER=gemini   -> Gemini (local dev & testing default). Falls back to mock
-//                            if no GEMINI_API_KEY is set.
-//   LLM_PROVIDER=bedrock  -> AWS Bedrock / Claude Sonnet (Phase 2, enterprise privacy).
-//   LLM_PROVIDER=mock     -> deterministic, keyless.
-//   LLM_PROVIDER=auto     -> (default) Gemini if a key is present, else mock. Never
-//                            silently selects Bedrock — that's opt-in via the flag.
+//   LLM_PROVIDER=gemini     -> Gemini (local dev & testing default). Falls back to mock
+//                              if no GEMINI_API_KEY is set.
+//   LLM_PROVIDER=openai     -> OpenAI / Azure-OpenAI / OpenAI-compatible (vLLM, Ollama, …).
+//   LLM_PROVIDER=bedrock    -> AWS Bedrock / Claude Sonnet (Phase 2, enterprise privacy).
+//   LLM_PROVIDER=claude-cli -> local `claude` CLI under your subscription (LOCAL-DEV-ONLY;
+//                              throws in production builds).
+//   LLM_PROVIDER=mock       -> deterministic, keyless.
+//   LLM_PROVIDER=auto       -> (default) Gemini if a key is present, else mock. Never
+//                              silently selects Bedrock — that's opt-in via the flag.
 //
 // Keep Gemini local: set LLM_PROVIDER=gemini in .env.local. Switch to Bedrock in
 // production by setting LLM_PROVIDER=bedrock + AWS credentials/region.
@@ -106,13 +109,10 @@ export function providerAvailable(name: ProviderName): boolean {
           process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI,
       );
     case "claude-cli":
-      // BUG (llm-provider-abstraction #1): availability MUST use the SAME condition LazyClaudeCli
-      // .assess() enforces. assess() throws whenever NODE_ENV === "production" (the dynamic import is
-      // dead-code-pruned by the prod build), but this gate used to key on VERCEL — so a non-Vercel
-      // production host (Docker/ECS/plain `next start`) reported available=true yet ALWAYS threw,
-      // silently degrading every scan to mock and defeating the failover skip. Gate on the same
-      // NODE_ENV signal so an unavailable claude-cli is correctly false-negatived (picker degrades to
-      // mock cleanly, providerByName failover skips it) instead of selecting a guaranteed-throw provider.
+      // Mirror LazyClaudeCliProvider.assess(): it throws whenever NODE_ENV === "production" (the
+      // dynamic import is dead-code-pruned by the prod build), so availability must gate on the SAME
+      // NODE_ENV signal — not VERCEL, which false-positived non-Vercel prod hosts (Docker/ECS/plain
+      // `next start`) into selecting a guaranteed-throw provider that silently degraded every scan to mock.
       return process.env.NODE_ENV !== "production";
     case "mock":
       return true;

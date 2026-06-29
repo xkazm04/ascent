@@ -12,16 +12,21 @@
 // The AWS SDK is imported lazily so the Gemini/mock paths never load it.
 
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
-import { validateAssessment } from "@/lib/llm/provider";
+import { parseAssessment, validateAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
-import { parseJsonLoose } from "@/lib/llm/json";
 import {
   ASSESSMENT_JSON_SCHEMA,
   ASSESSMENT_TOOL_DESCRIPTION,
   ASSESSMENT_TOOL_NAME,
 } from "@/lib/llm/schema";
-import { envNumber, llmTimeoutMs, thinkingBudgetTokens, withLlmTimeout } from "@/lib/llm/config";
+import {
+  envNumber,
+  llmTemperature,
+  llmTimeoutMs,
+  thinkingBudgetTokens,
+  withLlmTimeout,
+} from "@/lib/llm/config";
 
 export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
 export const DEFAULT_BEDROCK_REGION = "us-east-1";
@@ -104,7 +109,7 @@ export class BedrockProvider implements LLMProvider {
           messages: [{ role: "user", content: [{ text: user }] }],
           inferenceConfig: {
             // Extended thinking requires temperature 1; otherwise honor the configured determinism knob.
-            temperature: thinking > 0 ? 1 : envNumber("LLM_TEMPERATURE", 0.2),
+            temperature: thinking > 0 ? 1 : llmTemperature(),
             maxTokens,
           },
           // Enable extended thinking when budgeted. It is INCOMPATIBLE with forced tool choice, so when
@@ -159,7 +164,7 @@ export class BedrockProvider implements LLMProvider {
         // degrading a recoverable answer to the mock floor — the opposite of "fall through to the text
         // path." Swallow the repair failure so the text block still gets a chance.
         try {
-          return validateAssessment(parseJsonLoose(input));
+          return parseAssessment(input);
         } catch {
           /* malformed tool-input string — fall through to the text path */
         }
@@ -168,10 +173,12 @@ export class BedrockProvider implements LLMProvider {
     }
 
     // Safety net: a model/region that ignores forced tool use may still answer
-    // with text — fall back to tolerant parsing.
+    // with text — fall back to tolerant parsing. (Usage was already metered above, before the tool
+    // loop, so it's reported for the empty-response throw + the tool paths too — hence the inline
+    // empty-check here rather than finalizeAssessment, which would meter at this single return only.)
     const text = blocks.map((part) => (part as { text?: string }).text ?? "").join("");
     if (!text) throw new Error("Empty response from Bedrock.");
-    return validateAssessment(parseJsonLoose(text));
+    return parseAssessment(text);
   }
 }
 
@@ -191,8 +198,9 @@ export async function testBedrockConnection(opts: {
   try {
     const { BedrockRuntimeClient, ConverseCommand } = await import("@aws-sdk/client-bedrock-runtime");
     const client = new BedrockRuntimeClient(bedrockClientConfig(region, opts.credentials));
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(new Error("Bedrock test timed out.")), 15_000);
+    // Same cancellation wiring as assess() — a short timeout via the shared helper (no caller signal),
+    // which owns the timer/clear so the test path can't drift from the real call it validates.
+    const { signal: abortSignal, clear } = withLlmTimeout(undefined, 15_000, "Bedrock test timed out.");
     try {
       await client.send(
         new ConverseCommand({
@@ -200,10 +208,10 @@ export async function testBedrockConnection(opts: {
           messages: [{ role: "user", content: [{ text: "ping" }] }],
           inferenceConfig: { maxTokens: 1, temperature: 0 },
         }),
-        { abortSignal: ctrl.signal },
+        { abortSignal },
       );
     } finally {
-      clearTimeout(timer);
+      clear();
     }
     return { ok: true };
   } catch (err) {

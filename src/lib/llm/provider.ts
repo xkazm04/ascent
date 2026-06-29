@@ -1,7 +1,9 @@
 // LLM provider abstraction. The same scan pipeline runs against any provider:
-//   - GeminiProvider  (MVP / public repos)         -> src/lib/llm/gemini.ts
-//   - BedrockProvider (enterprise / private repos)  -> Phase 2 (see docs/ARCHITECTURE)
-//   - MockProvider    (keyless demo & CI)           -> src/lib/llm/mock.ts
+//   - GeminiProvider    (MVP / public repos)            -> src/lib/llm/gemini.ts
+//   - OpenAiProvider    (OpenAI / Azure / compatible)   -> src/lib/llm/openai.ts
+//   - BedrockProvider   (enterprise / private repos)    -> src/lib/llm/bedrock.ts (Phase 2)
+//   - ClaudeCliProvider (local dev / eval only)         -> src/lib/llm/claude-cli.ts
+//   - MockProvider      (keyless demo & CI)             -> src/lib/llm/mock.ts
 // Swapping providers is a config change, never a rewrite.
 
 import type {
@@ -22,6 +24,7 @@ import type {
 } from "@/lib/types";
 import { DIMENSIONS, clamp } from "@/lib/maturity/model";
 import { IMPACT_LEVELS } from "@/lib/llm/schema";
+import { parseJsonLoose } from "@/lib/llm/json";
 import type { StackFit } from "@/lib/analyze/stack-fit";
 
 export interface LlmScoreInput {
@@ -194,6 +197,33 @@ export function validateAssessment(raw: unknown): LlmAssessment {
     roadmap: roadmap.slice(0, 6),
     discrepancies: discrepancies.slice(0, 8),
   };
+}
+
+/**
+ * Repair-parse the model's JSON text and coerce it to a valid assessment — the terminal step shared
+ * by every provider path (gemini/openai text, bedrock text + tool-string, claude-cli). Single-sourced
+ * so a change to the parse/validate contract lands in one place.
+ */
+export function parseAssessment(text: string): LlmAssessment {
+  return validateAssessment(parseJsonLoose(text));
+}
+
+/**
+ * The shared epilogue of a text-completion provider's assess(): reject an empty/blank reply with the
+ * provider-labelled error, meter the call's token usage, then parse + validate. Folds the copy-pasted
+ * `if (!text) throw "Empty response from <X>." → opts.onUsage?.(…) → validateAssessment(parseJsonLoose(text))`
+ * tail of gemini/openai (and bedrock's text path) into one place. The empty-check runs BEFORE metering,
+ * so an empty response attributes no usage — preserving each provider's prior ordering exactly.
+ */
+export function finalizeAssessment(
+  text: string | null | undefined,
+  usage: TokenUsage,
+  opts: AssessOptions,
+  providerLabel: string,
+): LlmAssessment {
+  if (!text) throw new Error(`Empty response from ${providerLabel}.`);
+  opts.onUsage?.(usage);
+  return parseAssessment(text);
 }
 
 /**

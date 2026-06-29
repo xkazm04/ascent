@@ -24,6 +24,16 @@ export function llmTimeoutMs(): number {
 }
 
 /**
+ * Per-call sampling temperature (the determinism knob) — the single source the real providers
+ * (gemini/openai/bedrock) read, mirroring llmTimeoutMs so the env name and the `0.2` default live in
+ * one place instead of being re-inlined per provider. Read at CALL time via envNumber (same parsing:
+ * blank → fallback, Number.isFinite-guarded). Default 0.2.
+ */
+export function llmTemperature(): number {
+  return envNumber("LLM_TEMPERATURE", 0.2);
+}
+
+/**
  * Compose a per-call LLM cancellation signal: a timeout AbortController that fires after `ms` with
  * `new Error(message)` as the reason, combined with the caller's `signal` (a client disconnect) via
  * AbortSignal.any so whichever fires first cancels the request. Returns the combined `signal` to pass
