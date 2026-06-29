@@ -10,14 +10,14 @@ import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { OrgStanding } from "@/components/org/OrgStanding";
 import { OrgGapsSection } from "@/components/org/OrgGapsSection";
 import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
-import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER, DIRECTION_TONE } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, MeterRow, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER, DIRECTION_TONE } from "@/components/org/ui";
 import { CollapsibleSection, OVERVIEW_COLLAPSE_COOKIE } from "@/components/org/CollapsibleSection";
 import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { canReadOrg } from "@/lib/authz";
 import { cookies } from "next/headers";
 import { levelForScore } from "@/lib/maturity/model";
-import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
+import { dimShort, scoreHex } from "@/lib/ui";
 import { resolveOrgWindow } from "@/lib/org/period";
 import type { RepoMove } from "@/lib/db";
 import { GOAL_PACE_TONE } from "@/components/org/plan/goalView";
@@ -259,13 +259,18 @@ export default async function OrgOverview({
           <SectionHeader size="sm" title="Dimension averages" />
           <div className="mt-3 space-y-1.5">
             {rollup.dimAverages.map((d) => (
-              <div key={d.dimId} className="flex items-center gap-3 text-sm">
-                <span className="w-20 shrink-0 text-slate-400">{DIMENSION_SHORT[d.dimId as keyof typeof DIMENSION_SHORT] ?? d.dimId}</span>
-                <Meter className="flex-1" value={d.avg} color={scoreHex(d.avg)} />
-                <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.avg) }}>
-                  {d.avg}
-                </span>
-              </div>
+              <MeterRow
+                key={d.dimId}
+                layout="labelled"
+                label={dimShort(d.dimId)}
+                value={d.avg}
+                color={scoreHex(d.avg)}
+                meterSize="md"
+                meterClassName="flex-1"
+                labelClassName="w-20 shrink-0 text-slate-400"
+                valueClassName="w-7 text-right font-mono tabular-nums"
+                valueColor={scoreHex(d.avg)}
+              />
             ))}
           </div>
         </Card>
