@@ -1,5 +1,5 @@
 import { Card, Meter, SectionHeader, Tile, POSTURE_LABEL, deltaHex, fmtDelta } from "@/components/org/ui";
-import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
+import { dimShort, scoreHex } from "@/lib/ui";
 import type { SegmentComparison } from "@/lib/db";
 
 /** Pull the first value of a (possibly repeated) searchParam — the A/B selection arrives as
@@ -76,7 +76,7 @@ export function SegmentComparisonView({
           <div className="mt-4 space-y-2">
             {comparison.dimDeltas.map((d) => (
               <div key={d.dimId} className="flex items-center gap-2 text-sm">
-                <span className="w-16 shrink-0 text-slate-400">{DIMENSION_SHORT[d.dimId as keyof typeof DIMENSION_SHORT] ?? d.dimId}</span>
+                <span className="w-16 shrink-0 text-slate-400">{dimShort(d.dimId)}</span>
                 <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.a) }}>{d.a}</span>
                 <Meter className="flex-1" size="sm" value={d.a} color={scoreHex(d.a)} />
                 <Meter className="flex-1" size="sm" value={d.b} color={scoreHex(d.b)} />

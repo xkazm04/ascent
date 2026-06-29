@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { SectionHeader } from "@/components/org/ui";
-import { DIMENSION_SHORT, IMPACT_CLASS } from "@/lib/ui";
+import { dimShort, IMPACT_CLASS } from "@/lib/ui";
 import type { OrgRec } from "@/lib/db";
 
 /** Engine-true projected-gain phrase for the headline move, or null when no affected repo had
@@ -33,7 +33,7 @@ export function OrgLeverageMoves({ recs, slug }: { recs: OrgRec[]; slug: string 
             <span className="rounded-full bg-accent/20 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-accent">Start here</span>
             <span className="font-semibold text-white">{top.title}</span>
             <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
-              {DIMENSION_SHORT[top.dimId as keyof typeof DIMENSION_SHORT] ?? top.dimId}
+              {dimShort(top.dimId)}
             </span>
           </div>
           {gainPhrase(top) && <div className="mt-1.5 text-sm font-medium text-emerald-300">{gainPhrase(top)}</div>}
@@ -49,7 +49,7 @@ export function OrgLeverageMoves({ recs, slug }: { recs: OrgRec[]; slug: string 
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-white">{rec.title}</span>
                   <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
-                    {DIMENSION_SHORT[rec.dimId as keyof typeof DIMENSION_SHORT] ?? rec.dimId}
+                    {dimShort(rec.dimId)}
                   </span>
                   <span className={`rounded border px-1.5 py-0.5 font-mono text-sm ${IMPACT_CLASS[rec.impact] ?? "border-slate-700 text-slate-400"}`}>
                     {rec.impact} impact

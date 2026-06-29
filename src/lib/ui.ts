@@ -17,6 +17,12 @@ export const DIMENSION_SHORT: Record<DimensionId, string> = {
   D9: "Security",
 };
 
+/** DIMENSION_SHORT lookup for a dimension id that arrives as a plain `string` (not a typed
+ *  `DimensionId`): the cast-plus-raw-fallback every such call site spelled out by hand
+ *  (`DIMENSION_SHORT[id as keyof typeof DIMENSION_SHORT] ?? id`), in one place. Byte-identical to
+ *  the inline form for every input — an unknown id falls back to itself. */
+export const dimShort = (id: string): string => DIMENSION_SHORT[id as keyof typeof DIMENSION_SHORT] ?? id;
+
 /** Stable permalink to a repo's report, pinned to a commit when one is known
  *  (`/report/{owner}/{repo}` or `/report/{owner}/{repo}@{sha}`). Lives in this client-safe
  *  module so both server callers and the client trend charts build the identical link
