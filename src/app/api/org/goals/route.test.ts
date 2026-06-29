@@ -26,6 +26,8 @@ vi.mock("@/lib/db", () => ({
   deleteGoal: vi.fn(async () => {}),
   getInitiativeOrgSlug: vi.fn(async () => "acme"),
   updateInitiative: vi.fn(async () => {}),
+  createInitiative: vi.fn(async () => ({ id: "init-new" })),
+  listInitiatives: vi.fn(async () => []),
 }));
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
@@ -35,6 +37,7 @@ vi.mock("@/lib/authz", () => ({
 import { POST } from "./route";
 import { PATCH as GOAL_PATCH, DELETE as GOAL_DELETE } from "./[id]/route";
 import { PATCH as INIT_PATCH } from "../initiatives/[id]/route";
+import { POST as INIT_POST } from "../initiatives/route";
 import { requireOrgAccess } from "@/lib/authz";
 import {
   createGoal,
@@ -43,6 +46,7 @@ import {
   deleteGoal,
   getInitiativeOrgSlug,
   updateInitiative,
+  createInitiative,
 } from "@/lib/db";
 
 const mockAccess = vi.mocked(requireOrgAccess);
@@ -52,6 +56,7 @@ const mockUpdate = vi.mocked(updateGoal);
 const mockDelete = vi.mocked(deleteGoal);
 const mockInitOrg = vi.mocked(getInitiativeOrgSlug);
 const mockInitUpdate = vi.mocked(updateInitiative);
+const mockInitCreate = vi.mocked(createInitiative);
 
 const FORBIDDEN = () => Response.json({ error: "You don't have access to this organization." }, { status: 403 });
 
@@ -89,6 +94,15 @@ function patchInitiative(id: string, body: Record<string, unknown>) {
     { params: Promise.resolve({ id }) },
   );
 }
+function postInitiatives(body: Record<string, unknown>) {
+  return INIT_POST(
+    new Request("http://localhost/api/org/initiatives", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -99,6 +113,7 @@ beforeEach(() => {
   mockDelete.mockResolvedValue(undefined as Awaited<ReturnType<typeof deleteGoal>>);
   mockInitOrg.mockResolvedValue("acme");
   mockInitUpdate.mockResolvedValue(undefined as Awaited<ReturnType<typeof updateInitiative>>);
+  mockInitCreate.mockResolvedValue({ id: "init-new" } as Awaited<ReturnType<typeof createInitiative>>);
 });
 
 describe("POST /api/org/goals — authz gate then validation", () => {
@@ -217,6 +232,14 @@ describe("PATCH /api/org/initiatives/:id — gate keys on the initiative's true 
     expect(mockInitUpdate).not.toHaveBeenCalled();
   });
 
+  // Drift fix (goals-and-initiatives #1): the shared targetDate ISO check is now applied to
+  // initiatives too — a bad value used to be silently coerced to null by parseTargetDate.
+  it("rejects a non-ISO targetDate with 400 after the gate, DB untouched (drift fix)", async () => {
+    const res = await patchInitiative("init-1", { targetDate: "nonsense" });
+    expect(res.status).toBe(400);
+    expect(mockInitUpdate).not.toHaveBeenCalled();
+  });
+
   it("maps a Prisma P2025 to 404 (not 500)", async () => {
     mockInitUpdate.mockRejectedValue(Object.assign(new Error("not found"), { code: "P2025" }));
     const res = await patchInitiative("init-1", { status: "done" });
@@ -228,5 +251,23 @@ describe("PATCH /api/org/initiatives/:id — gate keys on the initiative's true 
     expect(res.status).toBe(200);
     expect(mockInitUpdate).toHaveBeenCalledTimes(1);
     expect(mockInitUpdate.mock.calls[0][0]).toBe("init-1");
+  });
+});
+
+describe("POST /api/org/initiatives — targetDate is now validated (drift fix)", () => {
+  // Previously the initiatives create path skipped the targetDate ISO check the goals path enforced;
+  // the Initiative.targetDate column is a DateTime, so a bad value was silently stored as null.
+  it("rejects a non-ISO targetDate with 400 after the gate, DB untouched (drift fix)", async () => {
+    const res = await postInitiatives({ org: "acme", title: "x", dimId: "D2", repos: [], targetDate: "nonsense" });
+    expect(res.status).toBe(400);
+    expect(mockAccess).toHaveBeenCalledWith("acme"); // gate ran first
+    expect(mockInitCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates with a valid ISO targetDate", async () => {
+    const res = await postInitiatives({ org: "acme", title: "x", dimId: "D2", repos: [], targetDate: "2026-12-01" });
+    expect(res.status).toBe(200);
+    expect(mockInitCreate).toHaveBeenCalledTimes(1);
+    expect(mockInitCreate.mock.calls[0][0]).toBe("acme");
   });
 });

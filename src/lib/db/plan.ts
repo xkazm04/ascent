@@ -326,11 +326,20 @@ export async function deleteGoal(id: string): Promise<boolean> {
   return true;
 }
 
-/** The owning org's slug for a goal id (for the per-row tenant gate on /api/org/goals/:id). Null = unknown id. */
-export async function getGoalOrgSlug(id: string): Promise<string | null> {
+/**
+ * Resolve the owning org's slug for a planning row via a delegate-specific findUnique thunk. Shared by
+ * the goal/initiative per-row tenant gates so the "no DB ⇒ null / unknown id ⇒ null" contract is
+ * single-sourced. Null = persistence unconfigured or id unknown.
+ */
+async function ownerOrgSlug(find: () => Promise<{ org: { slug: string } } | null>): Promise<string | null> {
   if (!isDbConfigured()) return null;
-  const g = await getPrisma().goal.findUnique({ where: { id }, select: { org: { select: { slug: true } } } });
-  return g?.org.slug ?? null;
+  const row = await find();
+  return row?.org.slug ?? null;
+}
+
+/** The owning org's slug for a goal id (for the per-row tenant gate on /api/org/goals/:id). Null = unknown id. */
+export function getGoalOrgSlug(id: string): Promise<string | null> {
+  return ownerOrgSlug(() => getPrisma().goal.findUnique({ where: { id }, select: { org: { select: { slug: true } } } }));
 }
 
 // ── Initiatives ──────────────────────────────────────────────────────────────
@@ -467,10 +476,8 @@ export async function updateInitiative(
 }
 
 /** The owning org's slug for an initiative id (per-row tenant gate on /api/org/initiatives/:id). Null = unknown id. */
-export async function getInitiativeOrgSlug(id: string): Promise<string | null> {
-  if (!isDbConfigured()) return null;
-  const i = await getPrisma().initiative.findUnique({ where: { id }, select: { org: { select: { slug: true } } } });
-  return i?.org.slug ?? null;
+export function getInitiativeOrgSlug(id: string): Promise<string | null> {
+  return ownerOrgSlug(() => getPrisma().initiative.findUnique({ where: { id }, select: { org: { select: { slug: true } } } }));
 }
 
 // ── What-if simulator ──────────────────────────────────────────────────────
