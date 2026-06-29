@@ -2,7 +2,7 @@
 // bulk import (/api/org/import). Lists a public org's (falling back to a user's) repos,
 // most-recently-pushed first, filtering out forks and archived repos.
 
-import { ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+import { ghFetch, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
 
 export interface OrgRepoListItem {
   owner: string;
@@ -71,10 +71,6 @@ export async function listOrgRepos(org: string, count: number, token?: string): 
   if (!VALID_HANDLE.test(org)) {
     throw new GitHubListError(`Invalid GitHub org/user handle: "${org}"`, "NOT_FOUND");
   }
-  // Canonical header set (TitleCase keys — HTTP header names are case-insensitive on the wire, so
-  // this is equivalent to the lowercase variant this listing previously sent). Authorization is
-  // added only when a token is present.
-  const headers = ghHeaders(token, { userAgent: "ascent-org-listing" });
   const map = (r: GhRepo): OrgRepoListItem => ({
     owner: r.owner.login,
     name: r.name,
@@ -96,7 +92,10 @@ export async function listOrgRepos(org: string, count: number, token?: string): 
     let url: string | null = `${base}?sort=pushed&direction=desc&type=public&per_page=100`;
     let probed = false; // have we gotten a successful first page from this base?
     for (let page = 0; page < MAX_LIST_PAGES && url; page++) {
-      const res = await fetch(url, { headers });
+      // Shared GitHub GET (canonical headers + fetchWithTimeout): this previously used a bare fetch()
+      // with no timeout. The canonical TitleCase header keys are equivalent on the wire to the
+      // lowercase set this listing previously sent; Authorization is added only when a token is present.
+      const res = await ghFetch(url, { token, userAgent: "ascent-org-listing" });
       if (res.status === 404 && !probed) break; // not an org → try the /users/ base
       // Don't mask a rate limit / auth failure as "not found": surface a typed error so the route can
       // return 429/502 with a Retry-After instead of a misleading 404 for a real account.

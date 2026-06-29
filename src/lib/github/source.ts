@@ -12,7 +12,7 @@ import type {
   RepoSnapshot,
   ScanProgress,
 } from "@/lib/types";
-import { fetchWithTimeout, ghHeaders, githubApiBase, githubRawBase } from "@/lib/github/host";
+import { fetchWithTimeout, ghFetch, ghHeaders, githubApiBase, githubRawBase } from "@/lib/github/host";
 
 export type ProgressFn = (p: ScanProgress) => void;
 export interface FetchOptions {
@@ -223,7 +223,7 @@ async function pool<T, R>(
 async function ghJson<T>(url: string, token?: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
-    res = await fetchWithTimeout(url, { headers: ghHeaders(token), cache: "no-store" }, TIMEOUT_API_MS, signal);
+    res = await ghFetch(url, { token, signal, timeoutMs: TIMEOUT_API_MS, cache: "no-store" });
   } catch (e) {
     const msg =
       (e as Error)?.name === "AbortError"

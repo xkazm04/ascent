@@ -13,7 +13,7 @@
 //   • rankDiscoveredOrgs / selectSuggestedOrgLogins / selectSeedTarget — pure transforms over the
 //     fetched data, with no I/O.
 
-import { ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+import { ghGetJson, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
 
 // BUG (github-repo-data-access #1): this module was the only github layer hardcoding api.github.com,
 // so org auto-discovery ignored the GHES `GITHUB_API_URL` override and broke (firewalled/401) on
@@ -58,12 +58,10 @@ interface GhRepo extends GhRepoRow {
 }
 
 async function ghUser<T>(path: string, token: string): Promise<T> {
-  const res = await fetch(`${githubApiBase()}${path}`, {
-    headers: ghHeaders(token, { userAgent: "ascent-org-discovery" }),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`GitHub ${res.status} on ${path}`);
-  return (await res.json()) as T;
+  // Route through the shared ghGetJson (canonical headers + fetchWithTimeout): this previously used a
+  // bare fetch() with no timeout. githubApiBase() is still resolved per-call so a late GITHUB_API_URL
+  // override is honored.
+  return ghGetJson<T>(`${githubApiBase()}${path}`, { token, userAgent: "ascent-org-discovery", cache: "no-store" });
 }
 
 /** Org logins the user is a member of (GET /user/orgs). Best-effort: the caller catches failures. */
