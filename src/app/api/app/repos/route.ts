@@ -5,7 +5,8 @@ import { NextResponse } from "next/server";
 import { isAppConfigured, listInstallationRepos } from "@/lib/github/app";
 import { getInstallationIdForOwner, getOrgMovers, getRepoStates, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
-import { sessionHasInstallation } from "@/lib/authz";
+import { authGateEnabled } from "@/lib/access";
+import { requireOrgRead, sessionHasInstallation } from "@/lib/authz";
 
 const MOVERS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30-day movement window for the fleet-map deltas
 
@@ -21,25 +22,41 @@ export async function GET(request: Request) {
   }
   const { searchParams } = new URL(request.url);
   let installationId = searchParams.get("installation_id") ?? undefined;
-  const org = searchParams.get("org");
-  if (!installationId && org) {
+  const org = (searchParams.get("org") ?? "").trim();
+
+  // Authorize BEFORE minting a token + listing PRIVATE repos: this endpoint returns an
+  // installation's full repo list (including private rows), so an unauthorized caller is a
+  // cross-tenant IDOR.
+  if (authGateEnabled()) {
+    // Supabase login wall (the ACTIVE prod auth). The old guard keyed off isAuthConfigured() — the
+    // DORMANT custom OAuth — which is inert under the Supabase wall, so requireOrgRead/sessionHas*
+    // never fired and ANY caller could list a victim org's private repos (the same IDOR the rest of
+    // authz.ts was hardened against). Require a viewer with read standing on the org, then derive the
+    // installation FROM the authorized org — a client-supplied ?installation_id= is IGNORED here, so a
+    // caller can't pair their own ?org= with a victim's ?installation_id=. All real callers
+    // (connect/onboarding/fleet-map) pass ?org=.
+    if (!org) {
+      return NextResponse.json({ error: "Provide ?org=<login>." }, { status: 400 });
+    }
+    const gate = await requireOrgRead(org);
+    if (gate) return gate;
     installationId = (await getInstallationIdForOwner(org)) ?? undefined;
+  } else {
+    // Dormant custom OAuth / fully auth-off (local/demo). Resolve the effective installation id and,
+    // when custom OAuth IS configured, gate on it being in the session (not the ?org= param), so a
+    // caller can't pair their own ?org= with a victim's ?installation_id=.
+    if (!installationId && org) {
+      installationId = (await getInstallationIdForOwner(org)) ?? undefined;
+    }
+    if (installationId && isAuthConfigured() && !(await sessionHasInstallation(installationId))) {
+      return NextResponse.json(
+        { error: "You don't have access to this installation." },
+        { status: 403 },
+      );
+    }
   }
   if (!installationId) {
     return NextResponse.json({ error: "No installation found for that org." }, { status: 404 });
-  }
-
-  // Authorize BEFORE minting a token + listing PRIVATE repos: this endpoint returns an
-  // installation's full repo list (including private rows), so an unauthorized caller would be a
-  // cross-tenant IDOR. Gate on the EFFECTIVE installation id (not the ?org= param), so a caller
-  // can't pair their own ?org= with a victim's ?installation_id= — the id is what's actually used.
-  // The connect UI only lists repos for installations already in the session; a just-installed org
-  // re-syncs first (see /connect). Auth-off deploys stay open (local/demo), per the authz model.
-  if (isAuthConfigured() && !(await sessionHasInstallation(installationId))) {
-    return NextResponse.json(
-      { error: "You don't have access to this installation." },
-      { status: 403 },
-    );
   }
 
   try {
@@ -47,7 +64,7 @@ export async function GET(request: Request) {
     repos.sort((a, b) => Number(b.private) - Number(a.private) || a.fullName.localeCompare(b.fullName));
     // Merge stored watch/schedule/level state + a 30-day per-repo overall delta (MAP-3, for the
     // fleet-map movers overlay) — both only when DB + we can resolve the org login.
-    const orgLogin = org ?? repos[0]?.owner;
+    const orgLogin = org || repos[0]?.owner;
     const states = isDbConfigured() && orgLogin ? await getRepoStates(orgLogin) : {};
     const movers =
       isDbConfigured() && orgLogin
