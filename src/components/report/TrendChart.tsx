@@ -10,6 +10,7 @@ import { scoreHex } from "@/lib/ui";
 import { levelForScore } from "@/lib/maturity/model";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
+import { shortDateSafe } from "@/components/ui/format";
 
 export interface TrendPoint {
   score: number;
@@ -91,12 +92,6 @@ export function Sparkline({
       )}
     </div>
   );
-}
-
-function shortDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 export function TrendChart({ points }: { points: TrendPoint[] }) {
@@ -199,7 +194,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke="#020617" strokeWidth={1.5} />
             {showDateLabel(i) && (
               <text x={xFor(i)} y={H - 8} textAnchor="middle" fontSize={9} className="fill-slate-500">
-                {shortDate(p.at)}
+                {shortDateSafe(p.at)}
               </text>
             )}
           </g>
@@ -262,7 +257,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             const lvl = levelForScore(p.score);
             return (
               <tr key={i}>
-                <td>{shortDate(p.at)}</td>
+                <td>{shortDateSafe(p.at)}</td>
                 <td>{p.score}</td>
                 <td>
                   {lvl.id} {lvl.name}
