@@ -112,15 +112,16 @@ export function scoreHex(score: number): string {
   return LEVEL_HEX[levelForScore(score).id];
 }
 
-/** Parse #rrggbb / #rgb → [r, g, b] (0..255). */
-function rgbOf(hex: string): [number, number, number] {
+/** Parse #rrggbb / #rgb → [r, g, b] (0..255). The canonical WCAG-math primitive — the public badge
+ *  route's contrast picker reuses it (and relLuminance) instead of re-deriving the channel math. */
+export function rgbOf(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
   const f = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
   return [parseInt(f.slice(0, 2), 16), parseInt(f.slice(2, 4), 16), parseInt(f.slice(4, 6), 16)];
 }
 
 /** WCAG relative luminance of an [r, g, b] triple. */
-function relLuminance([r, g, b]: [number, number, number]): number {
+export function relLuminance([r, g, b]: [number, number, number]): number {
   const ch = (v: number) => {
     const s = v / 255;
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
