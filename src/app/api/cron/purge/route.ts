@@ -33,7 +33,13 @@ export async function GET(request: Request) {
   try {
     const summary = await purgeExpiredData();
     if (summary && summary.errors.length > 0) {
-      console.warn("[cron/purge] completed with errors", { errors: summary.errors });
+      // A non-empty errors[] means deletes ran but at least one org lost its compliance/audit trace (or
+      // an org's prune threw). For an audit product that is a PARTIAL FAILURE, not an informational note:
+      // return a non-2xx so Vercel Cron / uptime monitoring records a failed run and alerts — instead of
+      // a green 200 that hides the failure in a buried console line. The summary body is still returned
+      // so an operator can see exactly what partially succeeded and which orgs failed.
+      console.error("[cron/purge] completed with errors", { errors: summary.errors });
+      return NextResponse.json({ ...summary, ok: false }, { status: 500 });
     }
     return NextResponse.json(summary ?? { skipped: "Database required." });
   } catch (err) {

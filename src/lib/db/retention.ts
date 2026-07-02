@@ -33,6 +33,12 @@ const DAY_MS = 86_400_000;
 export const RETENTION_DEFAULT_BATCH_SIZE = 500;
 const RETENTION_MAX_BATCH_SIZE = 5000;
 
+// Soft wall-clock budget for a single purge run. The /api/cron/purge function caps at maxDuration=300s,
+// so stop cleanly a bit before that: a large fleet then returns a proper (partial) summary that records
+// where it stopped, instead of being hard-killed mid-delete with no throw and no summary log. Override
+// via RETENTION_TIME_BUDGET_MS (ms). Governs the per-org loop and the trailing sweeps.
+export const RETENTION_DEFAULT_TIME_BUDGET_MS = 250_000;
+
 /** An effective retention policy. A window of `0` means "keep everything" (disabled). */
 export interface RetentionPolicy {
   /** Keep only the newest N scans per repo; 0 = unlimited. */
@@ -211,6 +217,29 @@ export interface PurgeSummary {
   auditDeleted: number;
   results: OrgPurgeResult[];
   errors: string[];
+  /** True when the run hit its soft time budget before finishing every org/sweep (a partial run). */
+  stoppedEarly: boolean;
+  /** Orgs left unprocessed when the run stopped early (0 on a complete run) — the resume tail. */
+  orgsRemaining: number;
+}
+
+/** Resolve the soft per-run time budget (ms), overridable via RETENTION_TIME_BUDGET_MS. */
+function retentionTimeBudgetMs(): number {
+  const n = parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS);
+  return n && n > 0 ? n : RETENTION_DEFAULT_TIME_BUDGET_MS;
+}
+
+/**
+ * Rotate a stably-ordered list so a different element starts each run, keyed on the run's day. A purge
+ * that can't finish within its time budget would otherwise re-process the same head of the list every
+ * run and perpetually starve the tail; rotating the start means every org is eventually reached across
+ * consecutive daily runs. Stateless — needs no persisted cursor.
+ */
+function rotateByRun<T>(items: T[]): T[] {
+  if (items.length <= 1) return items;
+  const dayIndex = Math.floor(Date.now() / DAY_MS);
+  const offset = ((dayIndex % items.length) + items.length) % items.length;
+  return offset === 0 ? items : [...items.slice(offset), ...items.slice(0, offset)];
 }
 
 /**
@@ -227,12 +256,33 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
 
   const orgs = await prisma.organization.findMany({
     select: { id: true, slug: true, retentionMaxScans: true, retentionAuditDays: true },
+    // Stable ordering so the run is deterministic and the per-run rotation below has a fixed point to
+    // rotate from; without an explicit orderBy the DB row order is undefined (no cursor to resume from).
+    orderBy: { createdAt: "asc" },
   });
 
   const results: OrgPurgeResult[] = [];
   const errors: string[] = [];
 
-  for (const org of orgs) {
+  // Rotate the starting org each run so a job that repeatedly can't finish within its time budget doesn't
+  // perpetually starve the same tail; over consecutive daily runs the start advances past every org.
+  const orgQueue = rotateByRun(orgs);
+  const startedAt = Date.now();
+  const timeBudgetMs = retentionTimeBudgetMs();
+  const overBudget = () => Date.now() - startedAt >= timeBudgetMs;
+  let stoppedEarly = false;
+  let orgsRemaining = 0;
+
+  for (let i = 0; i < orgQueue.length; i++) {
+    // Soft wall-clock budget: bail cleanly BEFORE the platform hard-kills the function at maxDuration, so
+    // this run returns a partial (but visible + resumable) summary instead of dying mid-delete with no
+    // log. Committed batches survive; the rotated start processes the unreached tail first next run.
+    if (overBudget()) {
+      stoppedEarly = true;
+      orgsRemaining = orgQueue.length - i;
+      break;
+    }
+    const org = orgQueue[i]!; // safe: i < orgQueue.length
     const policy = resolveRetention(defaults, org);
     // Nothing to enforce for this org — skip (don't write a no-op audit entry).
     if (policy.maxScansPerRepo <= 0 && policy.auditDays <= 0) continue;
@@ -297,7 +347,10 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
 
   // Org-less audit entries (e.g. anonymous public scans) can't carry a per-org policy — sweep
   // them under the global default window so AuditLog can't grow unbounded from that path.
-  if (defaults.auditDays > 0) {
+  // Skipped when the run is already over its time budget (it runs on the next scheduled pass).
+  if (defaults.auditDays > 0 && overBudget()) {
+    stoppedEarly = true;
+  } else if (defaults.auditDays > 0) {
     try {
       const cutoff = new Date(Date.now() - defaults.auditDays * DAY_MS);
       const auditDeleted = await pruneAudit(prisma, { orgId: null, at: { lt: cutoff } }, defaults.batchSize);
@@ -323,11 +376,16 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
 
   // Sweep PublicScanQuota rows whose rolling window has fully aged out — they carry no live state
   // (only a re-grantable full allowance), so the IP-keyed table can't be allowed to grow unbounded.
-  // Always runs (it's not governed by a per-org retention window); best-effort.
-  try {
-    await purgeStalePublicScanQuota();
-  } catch (err) {
-    errors.push(`(public-scan-quota): ${err instanceof Error ? err.message : "purge failed"}`);
+  // Runs on every pass (it's not governed by a per-org retention window) unless the run is already
+  // over its time budget, in which case it's deferred to the next pass; best-effort.
+  if (overBudget()) {
+    stoppedEarly = true;
+  } else {
+    try {
+      await purgeStalePublicScanQuota();
+    } catch (err) {
+      errors.push(`(public-scan-quota): ${err instanceof Error ? err.message : "purge failed"}`);
+    }
   }
 
   return {
@@ -339,5 +397,7 @@ export async function purgeExpiredData(opts: { actorId?: string } = {}): Promise
     auditDeleted: results.reduce((a, r) => a + r.auditDeleted, 0),
     results,
     errors,
+    stoppedEarly,
+    orgsRemaining,
   };
 }

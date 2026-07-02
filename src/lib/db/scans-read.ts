@@ -18,6 +18,7 @@ import type {
   RepoArchetype,
   ScanReport,
 } from "@/lib/types";
+import { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getDbMode, type DbMode } from "@/lib/db/mode";
@@ -40,7 +41,9 @@ export async function findScanByCommit(
   if (!isDbConfigured()) return null;
   return getPrisma().scan.findFirst({
     where: { repoId, headSha },
-    orderBy: { scannedAt: "desc" },
+    // `scannedAt` isn't unique (two re-scores can share a timestamp; backfills) — mirror the write
+    // side's [scannedAt, createdAt, id] tie-break so "the latest" resolves deterministically on a tie.
+    orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     select: { id: true },
   });
 }
@@ -123,7 +126,8 @@ export async function getRepoPassport(
     if (!repo) return null;
     const scan = await prisma.scan.findFirst({
       where: { repoId: repo.id, ...(opts.headSha ? { headSha: opts.headSha } : {}) },
-      orderBy: { scannedAt: "desc" },
+      // Deterministic latest-pick on a scannedAt tie (see the write-side ordering in scans-persist).
+      orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       select: { passportJson: true },
     });
     const pp = parsePassportJson(scan?.passportJson);
@@ -456,11 +460,67 @@ export interface PublicScanGallery {
   dbMode: DbMode;
 }
 
-// Upper bound on the candidate repos the landing gallery materializes. The page shows only ~12 + ~8
-// cards, but both lists need "latest scan per repo" and are ranked two DIFFERENT ways (recency vs
-// score), so neither ordering can be the single bounded query. We instead pull the most-recently
-// ACTIVE repos and rank within that window — see loadPublicGalleryCards.
+// Upper bound on the candidate repos EACH gallery rail materializes. The page shows only ~12 + ~8
+// cards, but the two rails are ranked DIFFERENTLY (recency vs score), so they need two independent
+// bounded candidate windows — see loadPublicGalleryCards. Reusing a single recency-capped window for
+// both made the leaderboard silently mean "top within the recently-touched N" once the public corpus
+// grew past the cap: a genuinely high-scoring repo that hadn't been re-scanned lately fell outside it.
 const GALLERY_CANDIDATE_CAP = 200;
+
+// Repository projection shared by both candidate windows so the two queries stay byte-identical and the
+// card builder sees one type. `id` backs the cross-window dedup; the nested `scans` pick is the latest
+// scan per repo (tie-broken beyond bare scannedAt — see scans-persist — so it's deterministic on a tie).
+const GALLERY_REPO_SELECT = Prisma.validator<Prisma.RepositorySelect>()({
+  id: true,
+  owner: true,
+  name: true,
+  fullName: true,
+  primaryLanguage: true,
+  stars: true,
+  scans: {
+    orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+    take: 1,
+    select: {
+      headSha: true,
+      overallScore: true,
+      level: true,
+      levelName: true,
+      adoptionScore: true,
+      rigorScore: true,
+      posture: true,
+      scannedAt: true,
+      dimensions: { select: { dimId: true, score: true } },
+    },
+  },
+});
+
+type GalleryRepoRow = Prisma.RepositoryGetPayload<{ select: typeof GALLERY_REPO_SELECT }>;
+
+/** Project a repo + its latest scan into a gallery card; null when the repo has no scan row. */
+function galleryCardFrom(r: GalleryRepoRow): PublicRepoCard | null {
+  const s = r.scans[0];
+  if (!s) return null;
+  const dimensions: Partial<Record<DimensionId, number>> = {};
+  for (const d of s.dimensions) {
+    if (isDimensionId(d.dimId)) dimensions[d.dimId] = d.score;
+  }
+  return {
+    owner: r.owner,
+    name: r.name,
+    fullName: r.fullName,
+    level: s.level,
+    levelName: s.levelName,
+    overall: s.overallScore,
+    adoption: s.adoptionScore,
+    rigor: s.rigorScore,
+    dimensions,
+    posture: s.posture,
+    primaryLanguage: r.primaryLanguage ?? null,
+    stars: r.stars,
+    scannedAt: s.scannedAt.toISOString(),
+    href: reportPermalink(r.fullName, s.headSha),
+  };
+}
 
 /**
  * The DB-derived half of the public scan gallery, cached across requests with `unstable_cache`. The
@@ -479,68 +539,45 @@ const loadPublicGalleryCards = unstable_cache(
     const prisma = getPrisma();
     const where = { orgId, isPrivate: false, scans: { some: {} } } as const;
 
-    // Bound what we load: `updatedAt` bumps on every scan upsert, and a public repo is only ever
-    // mutated by scanning, so ordering by it ≈ "most recently scanned" — the right candidate window for
-    // both the recency rail and (within the cap) the leaderboard. `totalRepos` is a separate COUNT so
-    // the displayed corpus size stays exact even though the materialized set is capped.
-    const [repos, totalRepos] = await Promise.all([
+    // Two INDEPENDENT candidate windows, one per rail (a single recency-capped window can't serve both):
+    //  - recency rail: the CAP most-recently-active repos. `updatedAt` bumps on every scan upsert, and a
+    //    public repo is only ever mutated by scanning, so ordering by it ≈ "most recently scanned".
+    //  - leaderboard: the CAP highest-scoring public SCANS, reduced to their repos — so a high-scoring
+    //    repo that hasn't been re-scanned lately still qualifies, independent of recency. We rank by each
+    //    repo's actual LATEST scan below, so a stale high score is corrected (and typically drops off).
+    // `totalRepos` is a separate COUNT so the displayed corpus size stays exact despite the caps.
+    const [recentRepos, topScoreScans, totalRepos] = await Promise.all([
       prisma.repository.findMany({
         where,
         orderBy: { updatedAt: "desc" },
         take: GALLERY_CANDIDATE_CAP,
-        select: {
-          owner: true,
-          name: true,
-          fullName: true,
-          primaryLanguage: true,
-          stars: true,
-          scans: {
-            orderBy: { scannedAt: "desc" },
-            take: 1,
-            select: {
-              headSha: true,
-              overallScore: true,
-              level: true,
-              levelName: true,
-              adoptionScore: true,
-              rigorScore: true,
-              posture: true,
-              scannedAt: true,
-              dimensions: { select: { dimId: true, score: true } },
-            },
-          },
-        },
+        select: GALLERY_REPO_SELECT,
+      }),
+      prisma.scan.findMany({
+        where: { repo: { orgId, isPrivate: false } },
+        orderBy: [{ overallScore: "desc" }, { scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        take: GALLERY_CANDIDATE_CAP,
+        select: { repoId: true },
       }),
       prisma.repository.count({ where }),
     ]);
 
+    // Materialize the leaderboard candidates NOT already loaded by the recency window (dedup by id).
+    const recentIds = new Set(recentRepos.map((r) => r.id));
+    const extraIds = Array.from(new Set(topScoreScans.map((s) => s.repoId))).filter((id) => !recentIds.has(id));
+    const extraRepos = extraIds.length
+      ? await prisma.repository.findMany({ where: { id: { in: extraIds } }, select: GALLERY_REPO_SELECT })
+      : [];
+
     const cards: PublicRepoCard[] = [];
-    for (const r of repos) {
-      const s = r.scans[0];
-      if (!s) continue;
-      const dimensions: Partial<Record<DimensionId, number>> = {};
-      for (const d of s.dimensions) {
-        if (isDimensionId(d.dimId)) dimensions[d.dimId] = d.score;
-      }
-      cards.push({
-        owner: r.owner,
-        name: r.name,
-        fullName: r.fullName,
-        level: s.level,
-        levelName: s.levelName,
-        overall: s.overallScore,
-        adoption: s.adoptionScore,
-        rigor: s.rigorScore,
-        dimensions,
-        posture: s.posture,
-        primaryLanguage: r.primaryLanguage ?? null,
-        stars: r.stars,
-        scannedAt: s.scannedAt.toISOString(),
-        href: reportPermalink(r.fullName, s.headSha),
-      });
+    for (const r of [...recentRepos, ...extraRepos]) {
+      const card = galleryCardFrom(r);
+      if (card) cards.push(card);
     }
     if (cards.length === 0) return null;
 
+    // Recency rail sorts the full pool by scannedAt; the extra (leaderboard-only) repos are older than
+    // the recency window by construction, so they can't intrude on the top of the recency slice.
     const recent = [...cards]
       .sort((a, b) => b.scannedAt.localeCompare(a.scannedAt))
       .slice(0, recentLimit);
@@ -598,7 +635,9 @@ export async function getLatestRecommendations(
 
   const scan = await prisma.scan.findFirst({
     where: { repoId: repo.id },
-    orderBy: { scannedAt: "desc" },
+    // Deterministic latest-pick on a scannedAt tie (mirrors the write-side ordering in scans-persist),
+    // so the recommendations read agrees with the report page instead of resolving an arbitrary row.
+    orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
       // Dimension scores + archetype feed projectedGain — engine-true "+N pts · unlocks LX" per
@@ -714,7 +753,9 @@ export async function getScanReportByCommit(
 
   const scan = await prisma.scan.findFirst({
     where: { repoId: repo.id, ...(headSha ? { headSha } : {}) },
-    orderBy: { scannedAt: "desc" },
+    // Deterministic latest-pick on a scannedAt tie (mirrors the write-side ordering in scans-persist),
+    // so the sha-less public report page resolves the same row on every reload instead of flip-flopping.
+    orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     include: { dimensions: true, recommendations: { orderBy: { createdAt: "asc" } } },
   });
   if (!scan) return null;
