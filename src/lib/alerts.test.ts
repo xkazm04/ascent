@@ -280,7 +280,7 @@ describe("dispatchAlert (the one real side-effect: 2xx/non-2xx/throw outcome map
     expect(JSON.parse(init.body as string)).toEqual({ text: msg.text, blocks: msg.blocks });
   });
 
-  it("threads opts.signal through to fetch (abortable with the surrounding work)", async () => {
+  it("threads opts.signal through to fetch (abortable with the surrounding work), composed with the per-request timeout", async () => {
     const fetchMock = stubFetch(() => Promise.resolve({ ok: true, status: 201 }));
     const controller = new AbortController();
 
@@ -288,7 +288,13 @@ describe("dispatchAlert (the one real side-effect: 2xx/non-2xx/throw outcome map
 
     expect(ok).toBe(true); // 201 is 2xx
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(init.signal).toBe(controller.signal);
+    // dispatchAlert now composes the caller signal with a per-request timeout (AbortSignal.any), so
+    // fetch receives the COMPOSED signal, not the raw controller.signal. Verify the caller can still
+    // cancel the in-flight webhook: aborting the caller's controller aborts the signal fetch received.
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal!.aborted).toBe(false);
+    controller.abort();
+    expect(init.signal!.aborted).toBe(true);
   });
 
   it("non-2xx (4xx/5xx) ⇒ returns false (never falsely claims delivered) and does NOT throw", async () => {

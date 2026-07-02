@@ -14,6 +14,13 @@ export function AlertsControl({ org }: { org: string }) {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [overallDrop, setOverallDrop] = useState(""); // "" = inherit the default (5)
   const [dimensionDrop, setDimensionDrop] = useState(""); // "" = inherit the default (15)
+  // The values loaded from the server, so we can tell what the admin actually changed. Thresholds are
+  // an independent, backend-supported payload from the webhook — an org on the global sink must be able
+  // to tune sensitivity WITHOUT typing a webhook, and an untouched webhook must not be resent (a
+  // present webhookUrl is an authoritative set/clear on the API).
+  const [initialWebhook, setInitialWebhook] = useState("");
+  const [initialOverallDrop, setInitialOverallDrop] = useState("");
+  const [initialDimensionDrop, setInitialDimensionDrop] = useState("");
   const [configured, setConfigured] = useState(false);
   const [denied, setDenied] = useState(false);
   const [busy, setBusy] = useState<"save" | "clear" | "test" | null>(null);
@@ -46,10 +53,15 @@ export function AlertsControl({ org }: { org: string }) {
         }
         const d = await r.json().catch(() => ({}));
         const url = typeof d.webhookUrl === "string" ? d.webhookUrl : "";
+        const od = typeof d.overallDrop === "number" ? String(d.overallDrop) : "";
+        const dd = typeof d.dimensionDrop === "number" ? String(d.dimensionDrop) : "";
         setWebhookUrl(url);
+        setInitialWebhook(url);
         setConfigured(!!url);
-        setOverallDrop(typeof d.overallDrop === "number" ? String(d.overallDrop) : "");
-        setDimensionDrop(typeof d.dimensionDrop === "number" ? String(d.dimensionDrop) : "");
+        setOverallDrop(od);
+        setInitialOverallDrop(od);
+        setDimensionDrop(dd);
+        setInitialDimensionDrop(dd);
       })
       .catch(() => setError("Couldn't load alert settings."))
       .finally(() => setLoaded(true));
@@ -76,17 +88,28 @@ export function AlertsControl({ org }: { org: string }) {
     }
   }
 
+  // Save is meaningful when there's a webhook to store OR a threshold field changed (thresholds save
+  // independently of the sink — the fix that lets a global-sink org tune sensitivity with no webhook).
+  const webhookTouched = webhookUrl.trim() !== initialWebhook.trim();
+  const thresholdsChanged = overallDrop !== initialOverallDrop || dimensionDrop !== initialDimensionDrop;
+  const canSave = webhookUrl.trim() !== "" || thresholdsChanged;
+
   async function save() {
-    const d = await post(
-      {
-        webhookUrl,
-        overallDrop: overallDrop.trim() === "" ? null : Number(overallDrop),
-        dimensionDrop: dimensionDrop.trim() === "" ? null : Number(dimensionDrop),
-      },
-      "save",
-    );
+    const payload: Record<string, unknown> = {
+      overallDrop: overallDrop.trim() === "" ? null : Number(overallDrop),
+      dimensionDrop: dimensionDrop.trim() === "" ? null : Number(dimensionDrop),
+    };
+    // Only send webhookUrl when the field actually changed. A present webhookUrl is an authoritative
+    // set/clear on the API, so resending an untouched (often empty, global-sink) value would clear the
+    // override on every threshold-only save — the reason a webhook-less org couldn't tune sensitivity.
+    if (webhookTouched) payload.webhookUrl = webhookUrl.trim() === "" ? null : webhookUrl;
+    const d = await post(payload, "save");
     if (d) {
-      setConfigured(!!d.webhookUrl);
+      if (webhookTouched) setConfigured(!!d.webhookUrl);
+      // Sync the baseline so the form is no longer "dirty" after a successful save.
+      setInitialWebhook(webhookUrl);
+      setInitialOverallDrop(overallDrop);
+      setInitialDimensionDrop(dimensionDrop);
       setNotice("Saved.");
     }
   }
@@ -94,6 +117,7 @@ export function AlertsControl({ org }: { org: string }) {
     const d = await post({ webhookUrl: null }, "clear");
     if (d) {
       setWebhookUrl("");
+      setInitialWebhook("");
       setConfigured(false);
       setNotice("Cleared — alerts fall back to the global sink (if any).");
     }
@@ -173,7 +197,7 @@ export function AlertsControl({ org }: { org: string }) {
                 <button
                   type="button"
                   onClick={save}
-                  disabled={busy !== null || !webhookUrl.trim()}
+                  disabled={busy !== null || !canSave}
                   className="focus-ring rounded-md bg-accent px-2.5 py-1.5 text-sm font-medium text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
                 >
                   {busy === "save" ? "Saving…" : "Save"}

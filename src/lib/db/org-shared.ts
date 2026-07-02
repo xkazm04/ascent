@@ -12,9 +12,15 @@ import { getPrisma } from "@/lib/db/client";
  * round-trips per page. Routing them all through this collapses them to one lookup per request (the
  * same per-request memo pattern getViewer uses in lib/access). Returns the full row — callers read
  * `id` and `plan` — or null when the org doesn't exist. Callers still guard isDbConfigured() first.
+ *
+ * Canonicalizes the slug (trim + lowercase) before the lookup: org rows are PERSISTED lower-cased (the
+ * GitHub-App install flow lowercases), and this is the single resolver the whole rollup family funnels
+ * through, yet most callers passed the raw slug. A mixed-case URL (`/org/MyOrg`) then passed auth (which
+ * resolves via getOrgId → already normalized) but returned null/empty from every aggregate. Normalizing
+ * here makes this the one canonicalization point for the family, so auth and data agree on identity.
  */
 export const getOrgBySlug = cache((slug: string) => {
-  return getPrisma().organization.findUnique({ where: { slug } });
+  return getPrisma().organization.findUnique({ where: { slug: slug.trim().toLowerCase() } });
 });
 
 export const LEVEL_RANK: Record<string, number> = { L1: 1, L2: 2, L3: 3, L4: 4, L5: 5 };

@@ -346,11 +346,19 @@ export function validateAlertWebhookUrl(raw: string): { ok: true; url: string } 
   return { ok: true, url: parsed.toString() };
 }
 
+/** Per-POST deadline for an alert dispatch. A hung sink (a black-holed webhook, a Slack incident, a
+ *  sink behind a firewall that never RSTs) must not block the caller indefinitely — this is critical
+ *  for the weekly-digest loop, which dispatches to many orgs' sinks in one run and would otherwise let
+ *  one slow tenant starve the rest until the socket dies. */
+const DISPATCH_TIMEOUT_MS = 8000;
+
 /**
  * POST an alert to its sink (Slack incoming-webhook compatible): `opts.webhookUrl` (the org's own
  * sink) when set, falling back to the global ALERT_WEBHOOK_URL. Returns true on a 2xx, false on any
  * failure or when no sink is configured — never throws, so a flaky webhook can't fail the scan that
- * produced the alert. `signal` lets a caller abort with the surrounding work.
+ * produced the alert. The POST is bounded by DISPATCH_TIMEOUT_MS so a hung sink aborts (→ false)
+ * rather than blocking; `signal` lets a caller abort with the surrounding work, composed with the
+ * timeout so whichever fires first wins.
  */
 export async function dispatchAlert(
   message: AlertMessage,
@@ -358,12 +366,14 @@ export async function dispatchAlert(
 ): Promise<boolean> {
   const url = resolveAlertWebhook(opts.webhookUrl);
   if (!url) return false;
+  const timeout = AbortSignal.timeout(DISPATCH_TIMEOUT_MS);
+  const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: message.text, blocks: message.blocks }),
-      signal: opts.signal,
+      signal,
     });
     if (!res.ok) {
       console.error("[alerts] dispatch failed", { status: res.status });

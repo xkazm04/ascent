@@ -25,7 +25,11 @@ export async function POST(request: Request) {
     repos?: string[];
     staleOnlyDays?: number;
   };
-  const org = body.org;
+  // Canonicalize like the import route (body.org?.trim().toLowerCase()): the access gate normalizes
+  // internally, but listWatchedRepos / getInstallationIdForOwner / checkScanEntitlement query the raw
+  // slug — so a mixed-case `org` passed the gate yet found zero watched repos against the lower-cased
+  // org row, returning a misleading "No watched repositories" for a fully-populated watchlist.
+  const org = body.org?.trim().toLowerCase();
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   // Authorize before minting the org's installation token: a non-member must not be able to trigger
   // a bulk scan that reads the org's (possibly private) watched repos and spends its token budget.

@@ -22,6 +22,7 @@ import {
   type OrgWindow,
 } from "@/lib/db";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { mapPool } from "@/lib/pool";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isWithinNoise } from "@/lib/maturity/noise";
 import { levelForScore } from "@/lib/maturity/model";
@@ -30,6 +31,15 @@ import { forecastHeadline } from "@/lib/maturity/forecast";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+// Dispatch orgs with bounded concurrency (not strictly serially) so one slow tenant's rollup work +
+// webhook POST can't starve every org behind it. `dispatchAlert` itself is deadline-bounded, so a hung
+// sink can't wedge a lane.
+const DIGEST_CONCURRENCY = 4;
+// Soft deadline under maxDuration (300s): past this, lanes stop starting new orgs and count them as
+// `remaining`, so a truncated run is OBSERVABLE in the response rather than silently dropping its tail
+// when the platform kills the function.
+const SOFT_DEADLINE_MS = 270_000;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -51,10 +61,20 @@ export async function GET(request: Request) {
   const win: OrgWindow = { start: new Date(Date.now() - 7 * 86_400_000), end: null };
 
   let sent = 0;
+  let failed = 0;
   let skippedNoSink = 0;
   let skippedFlat = 0;
+  let remaining = 0;
   const errors: string[] = [];
-  for (const org of orgs) {
+  const startedAt = Date.now();
+  await mapPool(orgs, DIGEST_CONCURRENCY, async (org) => {
+    // Time budget exhausted — stop starting new orgs and count the untouched tail. Each org round-trips
+    // the DB several times (rollup + movers + recs + benchmark + credit), so a large fleet can outrun
+    // the function ceiling; surfacing `remaining` makes a truncated run visible instead of silent.
+    if (Date.now() - startedAt > SOFT_DEADLINE_MS) {
+      remaining += 1;
+      return;
+    }
     try {
       // Per-tenant routing: the org's own webhook wins; the global env is the single-tenant
       // fallback. No sink resolvable for this org → skip before doing any rollup work (the old
@@ -62,10 +82,10 @@ export async function GET(request: Request) {
       const webhookUrl = await getOrgAlertWebhook(org).catch(() => null);
       if (!isAlertConfigured(webhookUrl)) {
         skippedNoSink += 1;
-        continue;
+        return;
       }
       const rollup = await getOrgRollup(org, win);
-      if (!rollup || rollup.scannedCount === 0) continue; // nothing to report on yet
+      if (!rollup || rollup.scannedCount === 0) return; // nothing to report on yet
       const [movers, recs, benchmark, credit] = await Promise.all([
         getOrgMovers(org, win).catch(() => null),
         getOrgRecommendations(org, 1).catch(() => null),
@@ -92,7 +112,7 @@ export async function GET(request: Request) {
       });
       if (!hasSignal) {
         skippedFlat += 1;
-        continue;
+        return;
       }
       const level = levelForScore(rollup.avgOverall);
       const top = recs?.[0];
@@ -119,10 +139,11 @@ export async function GET(request: Request) {
         creditsRemaining: creditLow && credit ? credit.balance : null,
       });
       if (await dispatchAlert(msg, { webhookUrl })) sent += 1;
+      else failed += 1; // sink unresolvable at send time, non-2xx, or the deadline aborted the POST
     } catch (err) {
       errors.push(`${org}: ${err instanceof Error ? err.message : "failed"}`);
     }
-  }
+  });
 
-  return NextResponse.json({ orgs: orgs.length, sent, skippedNoSink, skippedFlat, errors });
+  return NextResponse.json({ orgs: orgs.length, sent, failed, skippedNoSink, skippedFlat, remaining, errors });
 }

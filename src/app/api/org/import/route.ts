@@ -43,6 +43,13 @@ export const maxDuration = 300; // bulk runs are long
 
 const SCHEDULES = new Set<string>(SCAN_SCHEDULES);
 
+// Hard cap on a single import's fan-out. The `count` (listing) path is already Math.min(100, …), but an
+// explicit `repos[]` list bypassed that entirely — a caller could POST thousands of coordinates and fan
+// out that many GitHub ingests/scans (even mock scans fetch the real snapshot) inside one function,
+// hammering GitHub/the box. Mirror the listing cap (and the watch route's MAX_BULK) so both intake paths
+// are bounded; a truncated batch is surfaced via a `notice`.
+const MAX_IMPORT = 100;
+
 export async function POST(request: Request) {
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "Org import requires a database (DATABASE_URL)." }, { status: 503 });
@@ -164,6 +171,13 @@ export async function POST(request: Request) {
             send("error", { error: `Invalid repository "${bad.fullName}". Use owner/name with valid GitHub names.` });
             return;
           }
+          // Cap the explicit list to the same ceiling as the listing path so one request can't launch
+          // thousands of scans; tell the client what was dropped.
+          if (fullNames.length > MAX_IMPORT) {
+            const dropped = fullNames.length - MAX_IMPORT;
+            fullNames = fullNames.slice(0, MAX_IMPORT);
+            send("notice", { reason: "batch_capped", scanning: MAX_IMPORT, dropped });
+          }
         } else {
           send("progress", { stage: "list", message: `Listing public repos for ${org}…` });
           const repos = await listOrgRepos(org, count, token);
@@ -218,8 +232,25 @@ export async function POST(request: Request) {
             // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
             // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
             if (shouldRefundScan(report, persisted)) await refundCredit();
-            if (watch) await setRepoWatch(org, r, true);
-            if (watch && schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
+            // Watch/schedule are best-effort bookkeeping AFTER a successful, persisted, already-billed
+            // scan. A failure here — notably the lazy Organization upsert in setRepoWatch→ensureOrg
+            // racing itself when the first wave of lanes imports a BRAND-NEW org (the watch route
+            // serializes precisely to dodge this; the pool reintroduces the concurrency) — must NOT
+            // fall through to the outer catch, which would refund a credit for a scan that succeeded
+            // AND report the repo as "failed". Isolate it: log and continue, so the repo is reported
+            // scanned (it may just be left unwatched until the next toggle) with its credit intact.
+            if (watch) {
+              try {
+                await setRepoWatch(org, r, true);
+                if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
+              } catch (watchErr) {
+                console.error(
+                  "[org/import] watch/schedule bookkeeping failed",
+                  r.fullName,
+                  watchErr instanceof Error ? watchErr.message : watchErr,
+                );
+              }
+            }
             send("repo", {
               repo: r.fullName,
               level: report.level.id,

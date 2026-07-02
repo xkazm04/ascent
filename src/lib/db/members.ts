@@ -86,7 +86,13 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
   const org = await prisma.organization.upsert({
     where: { slug: orgSlug },
     update: {},
-    create: { slug: orgSlug, name: orgSlug },
+    // Set `plan` to the canonical schema default ("free"; see prisma Organization.plan @default) rather
+    // than leaving it implicit. The owner-seed path used to create a plan-less org, so whether the watch
+    // path or this one won the create race decided the org's effective plan (retentionCutoff reads it) —
+    // pin it here so first-touch is deterministic and a future schema-default change can't silently
+    // repoint new orgs. (org-watch's ensureOrg still uses a legacy "private" string, which planFeatures
+    // also resolves to the free tier — reconciling that outlier + backfilling old rows is out of scope.)
+    create: { slug: orgSlug, name: orgSlug, plan: "free" },
     select: { id: true },
   });
   await prisma.membership.upsert({
