@@ -9,7 +9,22 @@ import { scanRepository } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+
+// Query params that select/override the gate policy. When ANY is present the caller is explicitly
+// driving the policy, so params win; when NONE is present we honor the owner's saved org policy (the
+// documented README-badge / `curl --fail` CI path, which passes no params) instead of silently
+// falling back to the archetype default.
+const GATE_POLICY_PARAMS = [
+  "min_level",
+  "min_overall",
+  "min_dimension",
+  "no_ungoverned",
+  "require_protection",
+  "security",
+  "min_security",
+] as const;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,7 +82,20 @@ export async function GET(
       }
     }
 
-    const gate = evaluateGate(report, policyFromParams(searchParams, report.archetype));
+    // Resolve the policy to enforce. Explicit query params always take precedence (the caller is
+    // driving the gate). With NO policy params — the documented badge/`curl --fail` CI invocation —
+    // honor the owner's SAVED org gate policy so a configured security floor (e.g. D9≥70) is actually
+    // enforced here, not just on the App-mode Check Run. The org slug is the repo owner (parity with
+    // the webhook's getOrgGatePolicy(owner)); best-effort + no-op-safe (null without a DB / unknown
+    // org), falling back to the archetype default exactly as before.
+    let policy;
+    if (GATE_POLICY_PARAMS.some((k) => searchParams.has(k))) {
+      policy = policyFromParams(searchParams, report.archetype);
+    } else {
+      const savedPolicy = await getOrgGatePolicy(ownerN).catch(() => null);
+      policy = savedPolicy ?? policyFromParams(searchParams, report.archetype);
+    }
+    const gate = evaluateGate(report, policy);
     return NextResponse.json(
       {
         repo: `${ownerN}/${repoN}`,

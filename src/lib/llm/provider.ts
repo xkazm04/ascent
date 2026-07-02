@@ -70,7 +70,28 @@ const IMPACTS: Set<string> = new Set(IMPACT_LEVELS);
 // prompt-injected payload) yields a "valid" assessment that bloats the persisted DB row, the SSE
 // payload, and UI rendering. Bound field size like field count.
 const MAX_FIELD_LEN = 2000;
-const cap = (s: string): string => (s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN) : s);
+
+// Neutralize UNTRUSTED model text before it reaches public surfaces. The repo's own files / README /
+// commit messages are fed verbatim into the prompt, so a malicious repo can prompt-inject arbitrary
+// prose into headline / strengths / risks / roadmap[].title|rationale / discrepancies[].claim — text
+// that flows into the shareable public report and the PR comment under the Ascent name. cap() bounds
+// SIZE and validateAssessment bounds SHAPE, but neither bounds CONTENT TRUST. So here we (1) strip
+// control sequences — ASCII control chars (ANSI escapes, NUL, backspace…) plus Unicode bidi overrides
+// (the Trojan-Source class) and the BOM — and (2) defuse the HTML-comment marker `<!--`, which could
+// otherwise forge the sticky PR-comment marker (gate-comment's GATE_COMMENT_MARKER) or hide injected
+// content in rendered markdown. Mirrors gate-comment.ts's defuseComment so EVERY consumer — not just
+// the gate table — gets sanitized text. Render sites must still treat these fields as untrusted
+// (never dangerouslySetInnerHTML). Newlines (\n), CR (\r), and tabs (\t) are preserved as legit prose.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+const sanitizeText = (s: string): string => s.replace(CONTROL_CHARS, "").replace(/<!--/g, "&lt;!--");
+
+// Sanitize BEFORE the hard length cap so the `<!--`→`&lt;!--` expansion can never push the result over
+// MAX_FIELD_LEN (the final slice is the last word on size).
+const cap = (s: string): string => {
+  const clean = sanitizeText(s);
+  return clean.length > MAX_FIELD_LEN ? clean.slice(0, MAX_FIELD_LEN) : clean;
+};
 
 function asStringArray(v: unknown, max = 6): string[] {
   if (!Array.isArray(v)) return [];

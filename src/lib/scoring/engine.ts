@@ -309,8 +309,15 @@ export function projectSandbox(
   );
   const scoreById = new Map(dimensions.map((d) => [d.id, d.score]));
   const scoreFor = (id: DimensionId) => scoreById.get(id) ?? 0;
-  const adoptionScore = axisScore("adoption", scoreFor, report.archetype);
-  const rigorScore = axisScore("rigor", scoreFor, report.archetype);
+  // Pass the same present-dimension predicate assembleReport uses (its axisScore calls + overallScoreFor
+  // iterate only present dims). Without it a dropped dimension (a failed detector / partial scan) is
+  // charged at 0 with full weight on the axis path only, deflating the axis and flipping the posture
+  // quadrant vs the report — so projectSandbox(report, {}) no longer reproduced the report's own
+  // adoption/rigor/posture byte-for-byte. When every dimension is present this always returns true, so
+  // a full scan is unchanged; it only corrects the partial-scan baseline. (maturity-model-scoring #1.)
+  const present = new Set(dimensions.map((d) => d.id));
+  const adoptionScore = axisScore("adoption", scoreFor, report.archetype, (id) => present.has(id));
+  const rigorScore = axisScore("rigor", scoreFor, report.archetype, (id) => present.has(id));
   return {
     dimensions,
     overall: projectScore(report, clamped),

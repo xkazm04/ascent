@@ -8,7 +8,7 @@
 // for Azure / self-hosted; default https://api.openai.com/v1). Select with LLM_PROVIDER=openai.
 
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
-import { validateAssessment } from "@/lib/llm/provider";
+import { validateAssessment, isAssessmentUsable } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
@@ -65,7 +65,28 @@ export class OpenAiProvider implements LLMProvider {
       const text = data.choices?.[0]?.message?.content;
       if (!text) throw new Error("Empty response from OpenAI.");
       opts.onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens });
-      return validateAssessment(parseJsonLoose(text));
+
+      // `response_format: json_object` guarantees VALID JSON, not the assessment SHAPE (unlike Gemini's
+      // responseJsonSchema / Bedrock's forced tool schema). An OpenAI-compatible endpoint (vLLM / Ollama
+      // / LM Studio) can therefore return parseable-but-wrong output. Guard the shape here so a
+      // fundamentally wrong reply (a JSON string/number/array, or `{ "error": … }`) surfaces as a clear
+      // LLM failure — which scan.ts logs and degrades-to-mock on — instead of validateAssessment silently
+      // coercing it to an empty assessment that reads as a real (deterministic-floor) scan.
+      const parsed = parseJsonLoose(text);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("OpenAI returned JSON that is not an assessment object.");
+      }
+      const assessment = validateAssessment(parsed);
+      // A valid-but-thin object (few/no dimensions scored) will make the engine fall back to the
+      // deterministic floor (isAssessmentUsable). Log WHY at the provider level so a BYO-OpenAI operator
+      // can see their endpoint under-graded, rather than only inferring it from the "mock" engine chip.
+      if (!isAssessmentUsable(assessment, input.signals.length)) {
+        console.warn(
+          `[llm/openai] model "${this.model}" scored only ${assessment.dimensions.length}/${input.signals.length} ` +
+            `dimensions — the scan will lean on deterministic signals. Verify the endpoint honors JSON output.`,
+        );
+      }
+      return assessment;
     } finally {
       clear();
     }

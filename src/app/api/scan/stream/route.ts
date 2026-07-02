@@ -28,8 +28,10 @@ export async function POST(request: Request) {
     mock?: boolean;
     installationId?: string;
     fresh?: boolean;
-    // Head sha/etag the /report peek already resolved, passed back to skip a duplicate head
-    // lookup on the cold-report path. Honored only for anonymous, non-fresh scans.
+    // Head sha/etag the /report peek resolved. Accepted for backward-compat with older clients but NO
+    // LONGER USED for ingestion: the head is re-resolved server-side (see below) so a client-supplied
+    // sha can't pin/stamp/persist the scored commit. Kept in the type so clients still sending them
+    // don't fail validation.
     headSha?: string;
     headEtag?: string | null;
     // "Email me when it's done" opt-in. `email` is a custom recipient used ONLY when the signed-in
@@ -130,14 +132,15 @@ export async function POST(request: Request) {
         // result. A failed head lookup degrades to a SHA-less best-effort key inside the helper.
         let lookup: ScanCacheLookup | null = null;
         if (parsed && !token) {
-          // Reuse the head the /report peek already resolved (passed back by the client) to skip a
-          // second conditional head request. Only for non-fresh scans; a fresh re-test bypasses the
-          // peek entirely so no sha is sent.
-          const preResolved =
-            !fresh && typeof body.headSha === "string" && body.headSha
-              ? { headSha: body.headSha, etag: typeof body.headEtag === "string" ? body.headEtag : null }
-              : undefined;
-          lookup = await lookupCachedScan({ parsed, useLLM: !mock, orgSlug: "public", fresh, preResolved });
+          // Resolve the head SERVER-SIDE (a conditional head request — a free 304 when unchanged),
+          // never from the client-supplied body.headSha. The peek→stream handoff previously fed that
+          // sha in as `preResolved` to skip this request, but lookupCachedScan returns it as
+          // lookup.headSha, which then PINS ingestion (scan.ts: pinnedRef = ref ?? headSha) and is
+          // STAMPED + PERSISTED as the report's commit identity — so a caller could pass any historical
+          // / cherry-picked SHA and have a flattering commit scored, saved, and later served as the
+          // repo's "most recent" public report. The client sha must never drive the scored ref; the
+          // (cheap, mostly-304) re-resolve here keys, scores, and persists the true head. [security]
+          lookup = await lookupCachedScan({ parsed, useLLM: !mock, orgSlug: "public", fresh });
           if (lookup.cached) {
             // The JSON route serves cache hits BEFORE its quota block; the stream consumes first
             // (the cache probe lives inside start()), so refund the slot — a cached report is
