@@ -247,7 +247,10 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         </ChartTooltip>
       )}
       {/* Screen-reader equivalent of the chart — the bands/points convey meaning visually, so mirror
-          the series as a table referenced by the svg's aria-describedby (matches the radar chart). */}
+          the series as a table referenced by the svg's aria-describedby (matches the radar chart).
+          The plot's click→report / shift-click→commit deep-links are pointer-only, so the table's
+          last column carries them as real, focusable links — keyboard/SR users reach the same
+          per-scan reports (WCAG 2.1.1). Points without an href (org rollups) simply show no link. */}
       <table id={tableId} className="sr-only">
         <caption>Overall maturity score over time</caption>
         <thead>
@@ -255,6 +258,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             <th>Scan date</th>
             <th>Score</th>
             <th>Level</th>
+            <th>Links</th>
           </tr>
         </thead>
         <tbody>
@@ -266,6 +270,15 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
                 <td>{p.score}</td>
                 <td>
                   {lvl.id} {lvl.name}
+                </td>
+                <td>
+                  {p.href && <a href={p.href}>Open report</a>}
+                  {p.href && p.commitUrl && " "}
+                  {p.commitUrl && (
+                    <a href={p.commitUrl} target="_blank" rel="noopener noreferrer">
+                      View commit{p.sha ? ` ${p.sha}` : ""}
+                    </a>
+                  )}
                 </td>
               </tr>
             );

@@ -132,6 +132,29 @@ export function DimLine({
           />
         </ChartTooltip>
       )}
+      {/* The point onClick above (point → report, shift-click → commit) is pointer-only, so mirror the
+          per-scan deep-links as a focusable sr-only list — keyboard/SR users reach the same reports
+          (WCAG 2.1.1). Only present points with metadata get links; gaps and inert points are omitted. */}
+      {present.some((p) => meta[p.i]?.href || meta[p.i]?.commitUrl) && (
+        <ul className="sr-only">
+          {present.map((p) => {
+            const m = meta[p.i];
+            if (!m || (!m.href && !m.commitUrl)) return null;
+            const when = m.at ? m.at.slice(0, 10) : `scan ${p.i + 1}`;
+            const label = `${name ? `${name} ` : ""}score ${p.v} on ${when}`;
+            return (
+              <li key={p.i}>
+                {m.href ? <a href={m.href}>{label} — open report</a> : <span>{label}</span>}
+                {m.commitUrl && (
+                  <a href={m.commitUrl} target="_blank" rel="noopener noreferrer">
+                    {" "}view commit{m.sha ? ` ${m.sha}` : ""}
+                  </a>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

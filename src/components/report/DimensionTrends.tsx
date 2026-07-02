@@ -31,8 +31,15 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
     serverHasDims ? "done" : "idle",
   );
   const dimRef = useRef<HTMLDivElement | null>(null);
+  // Tracks the in-flight dimension fetch so a repo change / unmount (or a rapid retry) can abort it —
+  // otherwise a slow response for the previous repo can resolve after a new one mounts and paint A's
+  // series under B's header (plus a set-state-on-unmounted warning).
+  const abortRef = useRef<AbortController | null>(null);
 
   const loadDimensions = useCallback(async () => {
+    abortRef.current?.abort(); // supersede any earlier in-flight load
+    const controller = new AbortController();
+    abortRef.current = controller;
     setDimState("loading");
     try {
       // Match the overall series' length (history.scans) so the per-dimension sections plot the SAME
@@ -42,14 +49,22 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
       const limit = Math.max(1, history.scans.length);
       const res = await fetch(
         `/api/history?repo=${encodeURIComponent(history.repo.fullName)}&limit=${limit}`,
+        { signal: controller.signal },
       );
       if (!res.ok) throw new Error(`history ${res.status}`);
-      setFull(parseRepositoryHistory(await res.json()));
+      const parsed = parseRepositoryHistory(await res.json());
+      if (controller.signal.aborted) return; // superseded during parse — don't paint stale data
+      setFull(parsed);
       setDimState("done");
-    } catch {
+    } catch (err) {
+      // An abort (repo change / unmount / newer load) isn't a real failure — leave the state alone.
+      if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
       setDimState("error");
     }
   }, [history.repo.fullName, history.scans.length]);
+
+  // Abort any in-flight dimension fetch on unmount so its response can't land on a gone component.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   // Fetch the per-dimension data once its section nears the viewport (or immediately where there's
   // no IntersectionObserver, e.g. a test/SSR-less env).

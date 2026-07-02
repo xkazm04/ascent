@@ -48,6 +48,9 @@ export function RecommendationTracker({
       return next;
     });
 
+  // Repo ref for the concurrent-edit (409) refetch below — re-seeds a row from the server before Retry.
+  const repoRef = `${report.repo.owner}/${report.repo.name}`;
+
   const total = items.length;
   const done = items.filter((i) => i.status === "done").length;
   const dismissed = items.filter((i) => i.status === "dismissed").length;
@@ -64,6 +67,21 @@ export function RecommendationTracker({
       delete next[id];
       return next;
     });
+  }
+
+  /** After a concurrent-edit 409, pull this row's current server value and re-seed it locally so the
+   *  displayed status — and the Retry — rebase on the latest state instead of the user's stale
+   *  pre-image (which would just conflict again). Best-effort: on failure the error + Retry remain. */
+  async function refreshRow(id: string) {
+    try {
+      const res = await fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`);
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as { items?: PersistedRecommendation[] } | null;
+      const fresh = data?.items?.find((i) => i.id === id);
+      if (fresh?.status) setItems((cur) => applyOptimisticStatus(cur, id, fresh.status));
+    } catch {
+      // Network error while refreshing — leave the rolled-back row as-is; the transient error offers Retry.
+    }
   }
 
   async function setStatus(id: string, status: RecStatus) {
@@ -92,9 +110,13 @@ export function RecommendationTracker({
           kind === "config"
             ? "Progress tracking isn’t available here — it needs a connected database, so this change can’t be saved."
             : res.status === 409
-              ? "This recommendation changed elsewhere. Reload to see the latest, then retry."
+              ? "This recommendation changed elsewhere — showing the latest. Retry to reapply your change."
               : "Couldn’t save that change. Check your connection and retry.";
         rollback(); // revert ONLY this row
+        // A 409 means a concurrent edit landed since this row loaded; pull the current server value and
+        // re-seed the row so the display (and a Retry) rebase on the latest, instead of resubmitting the
+        // same stale change that just conflicts again.
+        if (res.status === 409) await refreshRow(id);
         setErrors((e) => ({ ...e, [id]: { status, kind, message } }));
         setAnnouncement(`Couldn’t update “${title}”: ${message}`);
         return;

@@ -53,11 +53,14 @@ export default async function ReportPermalink({
   const ref = `${owner}/${name}`;
   const orgSlug = await readableOrgForOwner(owner);
   const pinned = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug }).catch(() => null);
-  // STD-6: onboarding-skill generation history for this repo (only meaningful for a persisted report).
-  const skillHistory = pinned ? await getSkillHistory(ref).catch(() => []) : [];
-  // App Readiness Passport (P2): the persisted scorecard for this repo's pinned scan. Gated identically
-  // to the report (getScanReportByCommit above used the same orgSlug), so a private passport never leaks.
-  const passport = pinned ? await getRepoPassport(owner, name, { orgSlug, headSha: sha }).catch(() => null) : null;
+  // STD-6 skill history + the App Readiness Passport (P2) are independent of each other, so fetch them
+  // concurrently instead of in series — this force-dynamic permalink is the most-shared URL, where TTFB
+  // (unfurl / first paint) matters most. Both are gated identically to the report via the same orgSlug,
+  // so a private passport never leaks. canEditPassport still awaits after, as it depends on `passport`.
+  const [skillHistory, passport] = await Promise.all([
+    pinned ? getSkillHistory(ref).catch(() => []) : Promise.resolve([]),
+    pinned ? getRepoPassport(owner, name, { orgSlug, headSha: sha }).catch(() => null) : Promise.resolve(null),
+  ]);
   // Owner-only passport controls (P4): editable only for a non-public org-owned repo by an owner.
   const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
 

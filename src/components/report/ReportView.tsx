@@ -95,7 +95,10 @@ export function ReportView({
     return () => {
       active = false;
     };
-  }, [repo.owner, repo.name]);
+    // Include report.scannedAt: an in-place Re-test swaps in a new report for the SAME owner/name, so
+    // keying only on owner/name never refires — the history + recommendations panels (and the "N scans
+    // tracked" count) would keep showing pre-rescan data until a full reload.
+  }, [repo.owner, repo.name, report.scannedAt]);
 
   // Reconcile the live report with persisted history. `history.scans` is newest-first and
   // MAY already include the scan being viewed (it can be persisted mid-stream) — or may not,
