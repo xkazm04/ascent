@@ -34,6 +34,11 @@ export async function POST(request: Request) {
   if (!parsed || !body.practiceId) {
     return NextResponse.json({ error: "Provide { repo: 'owner/name', practiceId }." }, { status: 400 });
   }
+  // Normalize the owner ONCE (lower-case). Org slugs + memberships are stored lower-cased, so the
+  // tenant gate, the installation lookup, and the audit `orgId` must all key off the SAME value — a
+  // mixed-case `MyOrg/Repo` would otherwise let the gate/install resolve differently from getOrgId
+  // (a lost audit FK, or a mis-passed/mis-failed gate vs the installation).
+  parsed.owner = parsed.owner.toLowerCase();
 
   // Tenant gate: this opens a PR (a WRITE) using the org's installation token, so require the caller
   // to OWN that org — not merely be signed in. Without this, any signed-in user could open a draft PR
@@ -51,7 +56,7 @@ export async function POST(request: Request) {
 
   try {
     const token = await getInstallationToken(installId);
-    const orgId = (await getOrgId(parsed.owner.toLowerCase()).catch(() => null)) ?? undefined;
+    const orgId = (await getOrgId(parsed.owner).catch(() => null)) ?? undefined;
     const result = await applyPracticeToRepo(token, parsed, body.practiceId, body.base, {
       orgId,
       actorId: session?.login,

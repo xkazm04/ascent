@@ -61,13 +61,13 @@ export async function createSegment(
 ): Promise<{ id: string } | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.upsert({
-    where: { slug: orgSlug },
-    update: {},
-    create: { slug: orgSlug, name: orgSlug === "public" ? "Public Scans" : orgSlug },
-  });
+  // Resolve an EXISTING org — never upsert one into being. On auth-off deployments the route's access
+  // gate is permissive, so upserting here let any caller materialize a junk org row (with name=slug)
+  // for an arbitrary slug. Match every sibling function's "unknown org → no-op" contract instead.
+  const orgId = await resolveOrgId(orgSlug);
+  if (!orgId) return null;
   const created = await prisma.segment.create({
-    data: { orgId: org.id, name: normalizeSegmentName(input.name), color: normalizeColor(input.color) },
+    data: { orgId, name: normalizeSegmentName(input.name), color: normalizeColor(input.color) },
     select: { id: true },
   });
   return created;
@@ -237,18 +237,32 @@ export function buildSegmentComparison(a: SegmentSummary, b: SegmentSummary): Se
   };
 }
 
+/** Resolve `mapper` over `items` with at most `limit` promises in flight, preserving input order.
+ *  Bounds the fan-out so a many-segment org doesn't open N concurrent rollups (each 2-3 DB round
+ *  trips) at once and exhaust the connection pool. */
+async function mapPool<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    for (let i = next++; i < items.length; i = next++) {
+      out[i] = await mapper(items[i]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 /** Headline maturity summary for every segment of an org (each scoped via getOrgRollup), newest
- *  first — the per-segment rollup strip on the comparison page. Sequential since N is small. */
+ *  first — the per-segment rollup strip on the comparison page. */
 export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSummary[] | null> {
   if (!isDbConfigured()) return null;
   const segs = await listSegments(orgSlug);
   if (!segs) return null;
-  const out: SegmentSummary[] = [];
-  for (const s of segs) {
-    const sum = await summarizeSegment(orgSlug, { id: s.id, name: s.name });
-    if (sum) out.push(sum);
-  }
-  return out;
+  // Bounded-concurrency fan-out (was a sequential await-loop): each segment's rollup is 2-3 DB round
+  // trips and segment count is user-created / unbounded, so an org with 30-50 segments serialized
+  // 30-50 full rollups on the Segments tab's TTFB. Parallelize with a cap to avoid pool exhaustion.
+  const sums = await mapPool(segs, 6, (s) => summarizeSegment(orgSlug, { id: s.id, name: s.name }));
+  return sums.filter((s): s is SegmentSummary => s !== null);
 }
 
 /** Reduce a segment (or the whole fleet, when `seg` is null) to its headline maturity summary. */

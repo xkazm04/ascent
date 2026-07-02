@@ -35,16 +35,37 @@ function isSafeLogoUrl(raw: string): boolean {
   return isSafePublicHttpsUrl(raw);
 }
 
+/** A branding field the caller SENT but that failed validation and was stored as null. Lets the API
+ *  route / settings form warn "logo URL ignored — must be an https image URL" instead of a blanket
+ *  "saved" that hides the drop. (brandName is truncated, never rejected, so it isn't listed here.) */
+export type RejectedBrandingField = "brandColor" | "logoUrl";
+
+export interface SetBrandingResult {
+  /** The values actually persisted after normalization — echo these so the form reflects what really
+   *  landed rather than what was submitted. */
+  branding: OrgBranding;
+  /** Non-empty fields whose value was malformed and dropped to null (bad hex / unsafe-or-non-https
+   *  logo URL). Empty → everything the caller sent was applied verbatim. */
+  rejected: RejectedBrandingField[];
+}
+
 /** Validate + persist branding. A malformed colour/URL is stored as null rather than rejected, so the
- *  PDF always renders. Returns false when persistence is off / the org is unknown. */
-export async function setOrgBranding(orgSlug: string, input: OrgBranding): Promise<boolean> {
-  if (!isDbConfigured()) return false;
+ *  PDF always renders — but the dropped fields are reported in `rejected` so the caller can tell the
+ *  user which inputs were ignored instead of claiming an unconditional success. Returns null when
+ *  persistence is off / the org is unknown. */
+export async function setOrgBranding(orgSlug: string, input: OrgBranding): Promise<SetBrandingResult | null> {
+  if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return false;
+  if (!org) return null;
   const brandName = input.brandName?.trim().slice(0, 80) || null;
   const brandColor = input.brandColor && HEX_COLOR_RE.test(input.brandColor.trim()) ? input.brandColor.trim().toLowerCase() : null;
   const logoUrl = input.logoUrl && isSafeLogoUrl(input.logoUrl.trim()) ? input.logoUrl.trim().slice(0, 500) : null;
+  // A field the caller actually filled in but that normalized away to null was REJECTED (bad hex, or a
+  // non-https / unsafe logo URL). An empty/whitespace value is a deliberate clear, not a rejection.
+  const rejected: RejectedBrandingField[] = [];
+  if (input.brandColor?.trim() && !brandColor) rejected.push("brandColor");
+  if (input.logoUrl?.trim() && !logoUrl) rejected.push("logoUrl");
   await prisma.organization.update({ where: { id: org.id }, data: { brandName, brandColor, logoUrl } });
-  return true;
+  return { branding: { brandName, brandColor, logoUrl }, rejected };
 }
