@@ -35,6 +35,14 @@ const RAW = githubRawBase();
 // Ingestion budgets — keep prompts small and avoid hammering hosts.
 const MAX_FILES = 32;
 const MAX_FILE_BYTES = 14_000; // truncate any single file to this many bytes
+// CODEOWNERS is not prompt fodder — codeowners.ts parses it as an EXACT structured file for team
+// attribution (RepoTeam / getOrgTeamRollup). Truncating it to the LLM byte budget silently drops any
+// team defined past the cutoff on a large monorepo (and can mis-attribute the primary owner if the `*`
+// catch-all sits late), so give this one high-signal file a much larger per-file cap.
+const MAX_CODEOWNERS_BYTES = 60_000;
+// The three locations GitHub honors CODEOWNERS (root, .github/, docs/) — mirrors codeowners.ts's
+// CODEOWNERS_PATH_RE and the exact names pickFilesToFetch requests, matched case-insensitively.
+const CODEOWNERS_PATH_RE = /^(?:\.github\/|docs\/)?codeowners$/i;
 const MAX_TOTAL_BYTES = 180_000; // total content budget across all files
 const COMMIT_COUNT = 30;
 const TIMEOUT_API_MS = 12_000; // GitHub REST (metadata/tree/commits)
@@ -420,7 +428,11 @@ export class GitHubPublicSource implements RepoSource {
           releaseClaim(); // release the unused claim
           return;
         }
-        const truncated = content.slice(0, MAX_FILE_BYTES);
+        // CODEOWNERS is parsed exactly (not just fed to the prompt), so it gets a larger cap than
+        // the flat LLM budget. The optimistic claim was MAX_FILE_BYTES; the reconcile below uses the
+        // ACTUAL kept length, so the total-byte accounting stays correct regardless of the per-file cap.
+        const cap = CODEOWNERS_PATH_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
+        const truncated = content.slice(0, cap);
         totalBytes += truncated.length - MAX_FILE_BYTES; // reconcile claim → actual
         claimed = false; // reconciled — no longer holding the flat optimistic claim
         files.push({ path, content: truncated, bytes: content.length });

@@ -383,11 +383,15 @@ export async function getActiveOrg(session?: Session | null): Promise<string> {
  * fetch-metadata. Single-sourced here so the handlers can't drift apart.
  */
 export function isSameOrigin(request: Request): boolean {
-  const host = request.headers.get("host");
   const origin = request.headers.get("origin");
   if (origin) {
     try {
-      return new URL(origin).host === host;
+      // Compare the browser's Origin against the EXTERNAL host the rest of the auth layer trusts
+      // (x-forwarded-host, validated, else the request host) — NOT the raw `Host` header. Behind a
+      // TLS-terminating proxy the raw `Host` can be the INTERNAL host, which never matches the
+      // browser's Origin, so keying off it would 403 every legitimate logout/revoke. Single-sourced
+      // with publicOriginForRequest so this guard and redirect_uri resolve host identically.
+      return new URL(origin).host === new URL(publicOriginForRequest(request)).host;
     } catch {
       return false;
     }
@@ -571,7 +575,13 @@ export function buildSession(
   // Build the candidate session for the current trim state. The discovered-org fields are the
   // only ones besides installations that vary in size, so they're folded in here (and omitted
   // when empty so a discovery-free login round-trips to exactly the legacy shape).
-  let kept = installations;
+  //
+  // Trim from a DETERMINISTIC order so the SAME orgs survive across logins. GitHub's
+  // /user/installations response order is not guaranteed stable, so an un-sorted tail-drop could
+  // silently keep a DIFFERENT subset of a power user's orgs on each sign-in (an org readable one
+  // day, "public" — dropped, unauthorized — the next). Sort by installation id (immutable + stable)
+  // before capping, so the kept prefix is reproducible and the dropped set is at least consistent.
+  let kept = [...installations].sort((a, b) => a.id - b.id);
   let suggestedOrgs = (discovery.suggestedOrgs ?? []).slice(0, MAX_SESSION_SUGGESTED_ORGS);
   let seededOrg = discovery.seededOrg;
   const assemble = (): Session => ({

@@ -13,7 +13,7 @@
 //   • rankDiscoveredOrgs / selectSuggestedOrgLogins / selectSeedTarget — pure transforms over the
 //     fetched data, with no I/O.
 
-import { ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
+import { fetchWithTimeout, ghHeaders, githubApiBase, isListableRepo, type GhRepoRow } from "@/lib/github/host";
 
 // BUG (github-repo-data-access #1): this module was the only github layer hardcoding api.github.com,
 // so org auto-discovery ignored the GHES `GITHUB_API_URL` override and broke (firewalled/401) on
@@ -57,11 +57,22 @@ interface GhRepo extends GhRepoRow {
   pushed_at: string | null;
 }
 
+// Discovery runs on the login critical path (the callback awaits discoverOrgs before redirecting),
+// exactly when GitHub API pressure peaks. A bare fetch has no timeout, so a hung /user/orgs or
+// /user/repos would stall the redirect until the platform function timeout — and the caller's
+// `.catch` can't intercept a HANG (only an error). Route through fetchWithTimeout like the rest of
+// the layer so a slow GitHub aborts and degrades to "no suggestions" via that same `.catch`.
+const DISCOVERY_TIMEOUT_MS = 10_000;
+
 async function ghUser<T>(path: string, token: string): Promise<T> {
-  const res = await fetch(`${githubApiBase()}${path}`, {
-    headers: ghHeaders(token, { userAgent: "ascent-org-discovery" }),
-    cache: "no-store",
-  });
+  const res = await fetchWithTimeout(
+    `${githubApiBase()}${path}`,
+    {
+      headers: ghHeaders(token, { userAgent: "ascent-org-discovery" }),
+      cache: "no-store",
+    },
+    DISCOVERY_TIMEOUT_MS,
+  );
   if (!res.ok) throw new Error(`GitHub ${res.status} on ${path}`);
   return (await res.json()) as T;
 }

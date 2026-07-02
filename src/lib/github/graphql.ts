@@ -36,6 +36,14 @@ export interface PrNode {
 export interface PullRequestsResult {
   totalCount: number;
   nodes: PrNode[];
+  /**
+   * True when GitHub returned `data` alongside `errors` on at least one page (some PR nodes failed
+   * to resolve), so `nodes` is a silently-incomplete slice of the repo while `totalCount` still
+   * reports the true repo-wide count. Omitted when the result is complete. Downstream (the maturity
+   * scorer / report + the scan cache) should annotate "based on partial data" and skip caching a
+   * partial result rather than presenting an under-stated score as authoritative.
+   */
+  partial?: boolean;
 }
 
 async function githubGraphql<T>(
@@ -43,7 +51,7 @@ async function githubGraphql<T>(
   query: string,
   variables: Record<string, unknown>,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<{ data: T; partial: boolean }> {
   const res = await fetchWithTimeout(
     GRAPHQL,
     {
@@ -63,16 +71,18 @@ async function githubGraphql<T>(
   // GitHub GraphQL can return BOTH partial `data` AND `errors` (e.g. one PR node failed to
   // resolve). Discarding the whole response on any error throws away usable PR signals and fails
   // the scan over one bad node. Prefer partial data: throw only when there is NO data at all;
-  // otherwise log the errors and return what resolved.
+  // otherwise log the errors, flag the result as partial, and return what resolved so callers can
+  // surface the gap instead of treating a degraded slice as complete.
   if (!json.data) {
     throw new Error(
       json.errors?.length ? json.errors.map((e) => e.message).join("; ") : "GraphQL returned no data",
     );
   }
-  if (json.errors?.length) {
-    console.warn(`[graphql] partial result with errors: ${json.errors.map((e) => e.message).join("; ")}`);
+  const partial = Boolean(json.errors?.length);
+  if (partial) {
+    console.warn(`[graphql] partial result with errors: ${json.errors!.map((e) => e.message).join("; ")}`);
   }
-  return json.data;
+  return { data: json.data, partial };
 }
 
 const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!,$after:String){
@@ -92,8 +102,17 @@ const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!,$after:String
   }
 }`;
 
-interface PrPage extends PullRequestsResult {
+// One raw page of the GraphQL `pullRequests` connection. Kept independent of PullRequestsResult (the
+// aggregated return) so the connection's shape doesn't inherit the derived `partial` flag.
+interface PrPage {
+  totalCount: number;
+  nodes: PrNode[];
   pageInfo: { hasNextPage: boolean; endCursor: string | null };
+}
+
+/** Shape of the PR_QUERY GraphQL `data` payload (named so the generic arg isn't an inline literal). */
+interface PrQueryData {
+  repository: { pullRequests: PrPage } | null;
 }
 
 /**
@@ -117,16 +136,18 @@ export async function fetchPullRequests(
   const nodes: PrNode[] = [];
   let totalCount = 0;
   let after: string | null = null;
+  let partial = false; // any page came back with `errors` alongside `data`
 
   for (let page = 0; page < MAX_PAGES && nodes.length < target; page++) {
     const num = Math.min(PER_PAGE, target - nodes.length);
-    const data: { repository: { pullRequests: PrPage } | null } = await githubGraphql(
+    const resp: { data: PrQueryData; partial: boolean } = await githubGraphql<PrQueryData>(
       token,
       PR_QUERY,
       { owner, repo, num, after },
       signal,
     );
-    const pr: PrPage | undefined = data.repository?.pullRequests;
+    partial ||= resp.partial;
+    const pr: PrPage | undefined = resp.data.repository?.pullRequests;
     if (!pr) break;
     totalCount = pr.totalCount;
     nodes.push(...pr.nodes);
@@ -134,5 +155,7 @@ export async function fetchPullRequests(
     after = pr.pageInfo.endCursor;
   }
 
-  return { totalCount, nodes };
+  // Only carry the flag when the result is actually degraded so a complete result round-trips to the
+  // legacy `{ totalCount, nodes }` shape.
+  return partial ? { totalCount, nodes, partial } : { totalCount, nodes };
 }
