@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { SiteHeader } from "@/components/Brand";
 import { AboutLanding } from "@/components/about/AboutLanding";
 
@@ -10,16 +8,18 @@ export const metadata: Metadata = {
     "Ascent scores your organization's AI-development maturity and shows the highest-ROI path from manual development to a fully LLM-based, governed engineering org.",
 };
 
-// The hero's generated backdrop is optional depth — only pass it when the file exists, so the hero
-// degrades to its CSS strata/glow instead of a broken image.
+// The hero's generated backdrop is optional depth. It's a committed public asset, so Next serves and
+// optimizes it in every environment — render it unconditionally rather than probing the dev filesystem
+// with existsSync(), which returns false on bundled/serverless prod targets (where public/ is served by
+// the CDN, not under the server bundle's cwd) and would silently drop the backdrop in prod only. If it
+// ever fails to load, AboutHero degrades to its CSS strata/glow via the <Image> onError handler.
 const HERO_BG = "/brand/proto/about-hero-bg.png";
 
 export default function AboutPage() {
-  const bg = existsSync(join(process.cwd(), "public", HERO_BG)) ? HERO_BG : undefined;
   return (
     <>
       <SiteHeader />
-      <AboutLanding heroBg={bg} />
+      <AboutLanding heroBg={HERO_BG} />
     </>
   );
 }

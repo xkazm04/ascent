@@ -8,7 +8,7 @@
 //    enforced before any scan can run (first sign in, then scan).
 // Replaces the inline hero input so the masthead stays clean and the promise is front-and-centre on open.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ScanForm } from "@/components/ScanForm";
@@ -83,17 +83,40 @@ function AuthCta({ auth, consent }: { auth: AuthMode; consent: boolean }) {
   return <SignInButton auth={auth} next="/connect" label="Continue with GitHub" />;
 }
 
-export function ScanModal({
-  examples,
-  auth,
-  gated = false,
-}: {
+interface ScanModalProps {
   examples?: string[];
   auth: AuthMode;
   /** Whether the login wall is enforced on this deployment. When true, a scan requires a signed-in
    *  viewer — the dialog locks the scan form behind sign-in until one is present. */
   gated?: boolean;
-}) {
+}
+
+/** Static stand-in shown while the Suspense boundary resolves during prerender — visually identical to
+ *  the real trigger so the primary CTA is present in the cached HTML; hydration swaps in the live modal. */
+function ScanTriggerFallback() {
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      className="focus-ring inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3 text-base font-semibold text-on-accent shadow-2xl shadow-black/40 transition hover:bg-accent-soft"
+    >
+      Scan a repository <span aria-hidden>→</span>
+    </button>
+  );
+}
+
+/** `ScanModalInner` reads `?scan=1` via `useSearchParams`; that de-opts any statically-optimizable page
+ *  it's mounted on (the marketing homepage) unless it sits under a Suspense boundary. Isolate it here so
+ *  the rest of the landing stays statically prerendered while the deep-link param resolves on the client. */
+export function ScanModal(props: ScanModalProps) {
+  return (
+    <Suspense fallback={<ScanTriggerFallback />}>
+      <ScanModalInner {...props} />
+    </Suspense>
+  );
+}
+
+function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
   // `open` is DERIVED (below): the trigger toggles `manualOpen`, and a `?scan=1` deep-link opens it too.
   // Deriving instead of opening in an effect avoids a setState-in-effect cascade and any open-flash.
   const [manualOpen, setManualOpen] = useState(false);

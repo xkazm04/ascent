@@ -10,7 +10,11 @@ import { LEVEL_HEX } from "@/lib/ui";
 
 const X0 = 70;
 const STEP_W = 168;
-const YS = [300, 250, 200, 150, 100]; // platform top per step, rising left→right
+// Platform tops span a fixed vertical band, rising left→right. Derived from LEVELS.length (like
+// ScoreGauge/DimensionMatrix/TrajectoryChart) instead of a hardcoded per-step array, so adding a level
+// to the rubric can't produce an undefined Y → NaN SVG coords → a silently broken staircase.
+const Y_BOTTOM = 300; // lowest level's platform
+const Y_TOP = 100; // highest level's platform
 const UNLOCK: Record<string, string> = {
   L1: "ad-hoc AI",
   L2: "tools adopted",
@@ -24,7 +28,8 @@ export function AboutAscentSteps() {
   // `pathLength`/opacity — none of which reducedMotion="user" degrades. Gate them on reduced motion
   // and render the final/static staircase + climber-at-summit state instead.
   const reduced = useReducedMotion();
-  const steps = LEVELS.map((l, i) => ({ id: l.id, name: l.name, x: X0 + i * STEP_W, y: YS[i]! }));
+  const rise = LEVELS.length > 1 ? (Y_BOTTOM - Y_TOP) / (LEVELS.length - 1) : 0;
+  const steps = LEVELS.map((l, i) => ({ id: l.id, name: l.name, x: X0 + i * STEP_W, y: Y_BOTTOM - i * rise }));
   // Climber keyframes: trace the staircase corners (platform, riser-up, platform, …).
   const cx: number[] = [];
   const cy: number[] = [];
