@@ -313,7 +313,17 @@ export async function GET(
     // awaited, never throws into this hot, CDN-fronted path. Counts only ORIGIN hits for a real public
     // badge (reached here past the validation / negative-cache / rate-limit / private gates), so it's a
     // lower bound on true views (most are served from the camo/CDN cache and never reach the origin).
-    void recordBadgeImpression(`${ownerN}/${repoN}`, refererHost(req)).catch(() => {});
+    //
+    // ONLY tally on the CANONICAL, CDN-cacheable path (no query params). A customized request is served
+    // `private` (CACHE_CUSTOM) and never absorbed by the shared CDN, so EVERY hit reaches the origin — an
+    // attacker could hit `?x=<rand>` with a unique forged `Referer` each time and mint an unbounded
+    // (repo,host) row on this unauthenticated endpoint. The canonical badge is the one real READMEs embed
+    // and the one the s-maxage CDN actually collapses, so restricting to it both bounds the write and
+    // keeps the panel an honest lower-bound from cacheable traffic. (recordBadgeImpression additionally
+    // normalizes junk hosts and caps distinct hosts/repo as defense-in-depth against direct-origin floods.)
+    if (!customized) {
+      void recordBadgeImpression(`${ownerN}/${repoN}`, refererHost(req)).catch(() => {});
+    }
 
     // Be honest when the level/score/gate verdict came from the deterministic mock rubric (no LLM)
     // rather than a real AI scan: mark the badge "· demo" so a README badge can't present the

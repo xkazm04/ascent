@@ -14,6 +14,14 @@ export interface CreditState {
   balance: number;
   plan: string;
   unlimited: boolean;
+  /**
+   * `false` ONLY when a DB is configured and NO org row matched the slug (deletion / casing / typo);
+   * `true` when the org resolved (or persistence is off, where scans aren't metered). Lets a caller
+   * distinguish an UNKNOWN organization (should be a 404 / own error code) from a real out-of-credits
+   * paywall (402) instead of coalescing both into the same $0/free/denied state. Optional so existing
+   * callers / mocks that don't care are unaffected; treat `orgExists === false` as "confirmed missing".
+   */
+  orgExists?: boolean;
 }
 
 export interface CreditLedgerEntry {
@@ -41,17 +49,22 @@ export interface CreditReconciliation {
   entries: number;
 }
 
-/** Current balance + plan for an org. Missing org / no DB => zero balance on the free plan. */
+/**
+ * Current balance + plan for an org. No DB => zero balance on the free plan (scans aren't metered, so
+ * `orgExists: true`). A configured DB with NO matching org row returns the same zero/free shape but
+ * `orgExists: false`, so a caller can 404 a typo'd/deleted slug instead of showing a bogus paywall.
+ */
 export async function getCreditState(orgSlug: string): Promise<CreditState> {
-  if (!isDbConfigured()) return { balance: 0, plan: "free", unlimited: false };
+  if (!isDbConfigured()) return { balance: 0, plan: "free", unlimited: false, orgExists: true };
   const org = await getPrisma().organization.findUnique({
     // Org slugs are canonically lowercase (authz + setOrgPlan normalize); the credit paths didn't, so
     // a mixed-case slug read $0/free and wrongly paywalled a paid org (or made debits silent no-ops).
     where: { slug: orgSlug.toLowerCase() },
     select: { scanCredits: true, plan: true },
   });
-  const plan = org?.plan ?? "free";
-  return { balance: org?.scanCredits ?? 0, plan, unlimited: isUnlimitedPlan(plan) };
+  if (!org) return { balance: 0, plan: "free", unlimited: false, orgExists: false };
+  const plan = org.plan ?? "free";
+  return { balance: org.scanCredits ?? 0, plan, unlimited: isUnlimitedPlan(plan), orgExists: true };
 }
 
 /** Prisma "unique constraint failed" (P2002) — here, a duplicate externalId from a webhook redelivery. */
@@ -180,14 +193,16 @@ export async function countMeteredScansThisMonth(orgSlug: string): Promise<numbe
 export async function consumeScanCredit(
   orgSlug: string,
   ctx: { repoFullName?: string; scanId?: string; actor?: string } = {},
-): Promise<{ ok: boolean; balance: number; unlimited: boolean; charged: boolean }> {
-  if (!isDbConfigured()) return { ok: true, balance: 0, unlimited: false, charged: false };
+): Promise<{ ok: boolean; balance: number; unlimited: boolean; charged: boolean; orgExists?: boolean }> {
+  if (!isDbConfigured()) return { ok: true, balance: 0, unlimited: false, charged: false, orgExists: true };
   const prisma = getPrisma();
   const slug = orgSlug.toLowerCase(); // canonical-casing contract (see getCreditState)
 
   // Allowance gate (reads): unlimited or under the monthly allowance → free, no debit.
   const org0 = await prisma.organization.findUnique({ where: { slug }, select: { plan: true, scanCredits: true } });
-  if (!org0) return { ok: false, balance: 0, unlimited: false, charged: false };
+  // A configured DB with no matching org row is a distinct "unknown organization" outcome (deletion /
+  // casing / typo), NOT an out-of-credits paywall — surface it so the caller can 404 instead of 402.
+  if (!org0) return { ok: false, balance: 0, unlimited: false, charged: false, orgExists: false };
   if (isUnlimitedPlan(org0.plan)) return { ok: true, balance: org0.scanCredits, unlimited: true, charged: false };
   const charge = resolveScanCharge({
     plan: org0.plan,
@@ -204,7 +219,8 @@ export async function consumeScanCredit(
         where: { slug },
         select: { id: true, scanCredits: true },
       });
-      if (!org) return { ok: false, balance: 0, unlimited: false, charged: false };
+      // Org vanished between the allowance read and the debit tx (rare deletion race) — unknown org, not paywall.
+      if (!org) return { ok: false, balance: 0, unlimited: false, charged: false, orgExists: false };
       const dec = await tx.organization.updateMany({
         where: { slug, scanCredits: { gt: 0 } },
         data: { scanCredits: { decrement: 1 } },

@@ -11,17 +11,42 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 
+// A plausible hostname (labels of [a-z0-9-] joined by dots, optional :port). The referer host is
+// attacker-controlled on this unauthenticated endpoint, so anything that isn't hostname-shaped is
+// bucketed into a single "other" row rather than minting a fresh, arbitrary row per forged value.
+const HOST_RE = /^[a-z0-9.-]+(?::\d{1,5})?$/;
+// Hard ceiling on DISTINCT hosts tallied per repo. Real embeds concentrate on a handful of hosts
+// (github.com, gitlab.com, a few docs sites); past this cap, further NEW hosts fold into "other" so a
+// forged-referer flood can't grow the table without bound. The panel is documented as a lower bound.
+const MAX_HOSTS_PER_REPO = 50;
+
 /** Best-effort: bump the (repo, host) tally. Swallows every error — analytics must never break a badge. */
 export async function recordBadgeImpression(repoFullName: string, refererHost: string): Promise<void> {
   if (!isDbConfigured()) return;
   const repo = repoFullName.toLowerCase().slice(0, 200);
-  const host = (refererHost || "direct").toLowerCase().slice(0, 100);
   if (!repo.includes("/")) return;
+  const raw = (refererHost || "").toLowerCase().trim().slice(0, 100);
+  // Normalize: empty → the "direct" sentinel; non-hostname junk → a single "other" bucket.
+  const host = raw === "" ? "direct" : HOST_RE.test(raw) ? raw : "other";
   try {
-    await getPrisma().badgeImpression.upsert({
-      where: { repoFullName_refererHost: { repoFullName: repo, refererHost: host } },
+    const prisma = getPrisma();
+    // Cap distinct hosts per repo: if this exact (repo,host) pair is NEW and the repo already carries
+    // MAX_HOSTS_PER_REPO rows, funnel the impression into the shared "other" bucket instead of creating
+    // yet another row. Bounds row growth per repo against a forged-Referer flood while still counting it.
+    let bucketHost = host;
+    if (host !== "other") {
+      const exists = await prisma.badgeImpression.findUnique({
+        where: { repoFullName_refererHost: { repoFullName: repo, refererHost: host } },
+        select: { repoFullName: true },
+      });
+      if (!exists && (await prisma.badgeImpression.count({ where: { repoFullName: repo } })) >= MAX_HOSTS_PER_REPO) {
+        bucketHost = "other";
+      }
+    }
+    await prisma.badgeImpression.upsert({
+      where: { repoFullName_refererHost: { repoFullName: repo, refererHost: bucketHost } },
       update: { count: { increment: 1 }, lastSeen: new Date() },
-      create: { repoFullName: repo, refererHost: host, count: 1 },
+      create: { repoFullName: repo, refererHost: bucketHost, count: 1 },
     });
   } catch {
     /* best-effort tally — never surface to the public badge path */

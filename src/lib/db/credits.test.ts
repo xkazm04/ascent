@@ -472,7 +472,9 @@ describe("consumeScanCredit plan-resolution + casing contract", () => {
     const res = await consumeScanCredit("ghost");
 
     // Per the real code: org === null short-circuits to a denial; no decrement attempt, no ledger row.
-    expect(res).toEqual({ ok: false, balance: 0, unlimited: false, charged: false });
+    // orgExists:false distinguishes an UNKNOWN organization (deletion/casing/typo → caller can 404) from
+    // a real out-of-credits paywall (402), instead of coalescing both into the same denied shape.
+    expect(res).toEqual({ ok: false, balance: 0, unlimited: false, charged: false, orgExists: false });
     expect(updateMany).not.toHaveBeenCalled();
     expect(ledger).toHaveLength(0);
   });

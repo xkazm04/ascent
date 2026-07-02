@@ -69,9 +69,14 @@ export async function getUsageSummary(
 ): Promise<UsageSummary | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
+  // Org slugs are canonically lowercase (authz + setOrgPlan/credits.ts normalize). `/usage` and
+  // `/api/usage` pass the raw `?org=` through, so a mixed-case slug (`?org=Facebook`) found no org and
+  // returned the all-zero `empty` summary even for a real org with scans — inconsistent with the credit
+  // panel on the same page, which DOES lowercase. Canonicalize here too, and echo the canonical slug.
+  const slug = orgSlug.toLowerCase();
 
   const empty: UsageSummary = {
-    org: orgSlug,
+    org: slug,
     periodDays,
     totalScans: 0,
     periodScans: 0,
@@ -89,7 +94,7 @@ export async function getUsageSummary(
     lastScanAt: null,
   };
 
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
+  const org = await prisma.organization.findUnique({ where: { slug } });
   if (!org) return empty;
 
   // Anchor the window to UTC calendar days. `since` is the START of the oldest day shown on the
@@ -174,7 +179,7 @@ export async function getUsageSummary(
   }));
 
   return {
-    org: orgSlug,
+    org: slug,
     periodDays,
     totalScans: total,
     periodScans: period,
