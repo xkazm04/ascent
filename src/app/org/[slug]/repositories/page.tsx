@@ -1,11 +1,11 @@
 import { DIMS, OrgEmpty, SectionHeader } from "@/components/org/ui";
 import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
 import { RepoLeaderboard } from "@/components/org/RepoLeaderboard";
+import { RepoDimensionHeatmap } from "@/components/org/RepoDimensionHeatmap";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
-import { DIMENSION_SHORT, heatCell } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -75,54 +75,24 @@ export default async function OrgRepositories({
         <RepoLeaderboard slug={slug} rows={leaderboard} segments={segments} schedulable={schedulable} />
       </div>
 
-      {/* Heatmap */}
+      {/* Heatmap — cells are clickable; a click opens the per-repo, per-dimension detail modal. */}
       {rollup.scannedCount > 0 && (
         <div>
           <SectionHeader
             title="Repo × dimension heatmap"
-            description={`Where each repo is strong or weak across all ${DIMS.length} dimensions.`}
+            description={`Where each repo is strong or weak across all ${DIMS.length} dimensions — click a cell for its score, evaluation, and next steps.`}
           />
-          <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800 p-4">
-            <table className="min-w-[640px]">
-              <thead>
-                <tr className="font-mono text-sm uppercase tracking-widest text-slate-500">
-                  <th className="px-2 py-1 text-left" />
-                  {DIMS.map((d) => (
-                    <th key={d} scope="col" className="px-2 py-1 text-center">
-                      {DIMENSION_SHORT[d as keyof typeof DIMENSION_SHORT]}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {leaderboard
-                  .filter((r) => r.latest)
-                  .map((r) => {
-                    const byId = Object.fromEntries(r.latest!.dims.map((d) => [d.dimId, d.score]));
-                    return (
-                      <tr key={r.fullName}>
-                        <th scope="row" className="px-2 py-1 text-left font-mono text-sm font-normal text-slate-300">{r.name}</th>
-                        {DIMS.map((d) => {
-                          const v = byId[d] ?? 0;
-                          const cell = heatCell(v, 0.25 + (v / 100) * 0.75);
-                          return (
-                            <td key={d} className="px-1 py-1">
-                              <div
-                                className="mx-auto flex h-7 w-9 items-center justify-center rounded font-mono text-sm"
-                                style={{ backgroundColor: cell.fill, color: cell.text }}
-                                title={`${d}: ${v}`}
-                              >
-                                {v}
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
+          <RepoDimensionHeatmap
+            org={slug}
+            dims={DIMS}
+            rows={leaderboard
+              .filter((r) => r.latest)
+              .map((r) => ({
+                name: r.name,
+                fullName: r.fullName,
+                dims: r.latest!.dims.map((d) => ({ dimId: d.dimId, score: d.score })),
+              }))}
+          />
         </div>
       )}
     </div>

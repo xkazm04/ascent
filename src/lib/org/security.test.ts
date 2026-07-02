@@ -19,6 +19,7 @@ const fixture: SecurityOverview = {
   generatedOn: "2026-06-09",
   dimLabel: "Supply Chain & Security",
   avgSecurity: 48,
+  securityDelta: null,
   scanned: 10,
   band: { critical: 2, weak: 3, ok: 4, strong: 1 },
   weakest: [
@@ -33,6 +34,10 @@ const fixture: SecurityOverview = {
     failing: 5,
     failingRepos: [{ name: "legacy-api", fullName: "acme/legacy-api", score: 22, reason: "Security 22 < 50" }],
   },
+  register: [
+    { name: "legacy-api", fullName: "acme/legacy-api", score: 22, gateReason: "Security 22 < 50", rules: { protected: false, review: false, checks: false, signed: false } },
+    { name: "web", fullName: "acme/web", score: 51, gateReason: null, rules: { protected: true, review: true, checks: false, signed: false } },
+  ],
 };
 
 describe("securityMarkdown", () => {
@@ -260,5 +265,42 @@ describe("buildSecurityOverview — security gate verdict (THE judgment)", () =>
     mockRollup.mockResolvedValue(rollup([repo("a", 70)]));
     const o = (await buildSecurityOverview("acme"))!;
     expect(o.dimLabel).toBe(DIMENSION_BY_ID.D9?.name ?? "Security");
+  });
+});
+
+describe("buildSecurityOverview — risk register", () => {
+  it("covers every scanned repo, gate-failing first then weakest-first, and agrees with the gate", async () => {
+    mockRollup.mockResolvedValue(
+      rollup([
+        repo("strong", 90), // passes — sorts last
+        repo("edge", 50), // passes (== min)
+        repo("low", 30), // fails: score
+        repo("ungov", 88, "ungoverned"), // fails: posture — after "low" (weakest-first within failing)
+      ]),
+    );
+    const o = (await buildSecurityOverview("acme"))!;
+    expect(o.register.map((r) => r.name)).toEqual(["low", "ungov", "edge", "strong"]);
+    expect(o.register.filter((r) => r.gateReason).length).toBe(o.securityGate.failing);
+    expect(o.register[0].gateReason).toBe(`Security 30 < ${DEFAULT_SECURITY_MIN}`);
+    expect(o.register[1].gateReason).toBe("ungoverned posture");
+  });
+
+  it("joins per-repo governance rules (approval-required semantics) and degrades to null when unreadable", async () => {
+    mockRollup.mockResolvedValue(rollup([repo("a", 70), repo("b", 60)]));
+    mockGov.mockResolvedValue({
+      repos: 1,
+      protectedRate: 100,
+      requireReviewRate: 0,
+      requireChecksRate: 100,
+      signedRate: 0,
+      perRepo: [
+        // requiredApprovals 0 must read as review:false even with requiresPullRequest semantics upstream.
+        { fullName: "acme/a", name: "a", protected: true, requiresPullRequest: true, requiredApprovals: 0, requiresStatusChecks: true, requiresSignatures: false, ruleCount: 2 },
+      ],
+    });
+    const o = (await buildSecurityOverview("acme"))!;
+    const byName = Object.fromEntries(o.register.map((r) => [r.name, r]));
+    expect(byName.a.rules).toEqual({ protected: true, review: false, checks: true, signed: false });
+    expect(byName.b.rules).toBeNull(); // no governance row for b — unknown, not "all off"
   });
 });

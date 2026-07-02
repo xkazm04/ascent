@@ -146,6 +146,7 @@ export {
   type RepoConcentration,
   type ContributorInsights,
   type OrgPrSignals,
+  type PrRepoRow,
   type OrgGovernance,
   type RepoGovernance,
   type OrgActivity,

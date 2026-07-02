@@ -1,31 +1,62 @@
 // The "Adoption" tab (Direction #1 phase 1) — AI-adoption intelligence: how much of the org's work is
-// AI-assisted, the champions, and the delivery health it sits alongside. Assembled from existing
-// contributor AI-attribution + PR signals (no new ingestion). Delivery is shown as honest context.
+// AI-assisted, the champions, the teams carrying (or missing) the habits, who to enable next, and the
+// delivery health it sits alongside. Assembled from existing contributor AI-attribution + PR signals
+// (no new ingestion). Delivery is shown as honest context. Every reading ends in a follow-up: a
+// deep-link, a cross-tab jump, or a concrete pairing/enablement move.
 
+import Link from "next/link";
 import { buildAdoptionOverview, adoptionMarkdown } from "@/lib/org/adoption";
-import { Card, InlineEmpty, Meter, MeterRow, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { Surface, Kicker } from "@/components/ui";
+import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
+import { AdoptionSpectrum } from "./AdoptionSpectrum";
+import { ChampionsCard } from "./ChampionsCard";
+import { TeamAdoption } from "./TeamAdoption";
+import { EnablementTargets } from "./EnablementTargets";
+import { DeliveryStrip } from "./DeliveryStrip";
 
 export const dynamic = "force-dynamic";
 
-const BAND = { high: "#16a34a", some: "#3b9eff", none: "#64748b" } as const;
-
-export default async function OrgAdoption({ params }: { params: Promise<{ slug: string }> }) {
+export default async function OrgAdoption({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { slug } = await params;
-  const a = await buildAdoptionOverview(slug);
+  const sp = await searchParams;
+
+  // Optional segment + tech-stack scope (bogus id/key → whole fleet) — a per-client / per-stack
+  // adoption read for orgs that segment their fleet; the two filters compose.
+  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
+  const a = await buildAdoptionOverview(slug, segmentId, techGroupId);
+
+  const filterBar = (
+    <ScopeFilterBar segments={segments} segmentId={segmentId} techGroups={techGroups} activeStack={activeStack} />
+  );
 
   if (!a) {
     return (
-      <SectionEmpty>
-        No contributor data yet — scan some of this org&apos;s repositories (with a GitHub token for commit history) to measure AI adoption.
-      </SectionEmpty>
+      <div>
+        <div className="mb-4 flex justify-end">{filterBar}</div>
+        <SectionEmpty>
+          No contributor data {segmentId || activeStack ? "for this filter" : "yet"} — scan some of this org&apos;s repositories (with a
+          GitHub token for commit history) to measure AI adoption.
+        </SectionEmpty>
+      </div>
     );
   }
 
   const md = adoptionMarkdown(a);
   const d = a.delivery;
+  // Same small-population guard as champions: naming low-AI individuals in a tiny org is a ranking,
+  // not an enablement plan.
+  const showEnablement = a.enablement.length > 0 && a.contributors.total >= CHAMPION_MIN_POP;
 
   return (
     <div className="space-y-6">
@@ -35,7 +66,10 @@ export default async function OrgAdoption({ params }: { params: Promise<{ slug: 
           title="AI adoption"
           description="How AI-native the org's engineering actually is — commit-level AI attribution, the champions carrying the culture, and the delivery health it sits beside. Copy the brief into Claude Code for an enablement plan."
         />
-        <CopyForLlm text={md} label="Copy adoption brief for LLM" />
+        <div className="flex flex-wrap items-center gap-2">
+          {filterBar}
+          <CopyForLlm text={md} label="Copy adoption brief for LLM" />
+        </div>
       </div>
 
       <div className={TILE_GRID}>
@@ -46,85 +80,71 @@ export default async function OrgAdoption({ params }: { params: Promise<{ slug: 
           sub={`${a.contributors.aiActiveShare}% of contributors`}
           color={scoreHex(a.contributors.aiActiveShare)}
         />
-        <Tile label="Typical PR merge time" value={d?.typicalHoursToMerge != null ? `${d.typicalHoursToMerge}h` : "—"} sub={d ? `${d.prs} PRs` : "no PR data"} />
-        <Tile label="AI-involved PRs" value={d ? `${d.aiInvolvedRate}%` : "—"} color={d ? scoreHex(d.aiInvolvedRate) : undefined} />
+        <Tile
+          label="AI-involved PRs"
+          value={d ? `${d.aiInvolvedRate}%` : "—"}
+          sub={d ? `${d.prs} PRs analyzed` : "no PR data"}
+          color={d ? scoreHex(d.aiInvolvedRate) : undefined}
+        />
+        <Tile
+          label="AI PRs human-reviewed"
+          value={d?.aiGovernedRate != null ? `${d.aiGovernedRate}%` : "—"}
+          sub="governance on AI-involved PRs"
+          color={d?.aiGovernedRate != null ? scoreHex(d.aiGovernedRate) : undefined}
+        />
       </div>
 
-      <Card>
-        <SectionHeader size="sm" title="Adoption spread" description="Contributors by how much of their own work is AI-attributed." />
-        <div className="mt-3 grid grid-cols-3 gap-3">
-          {(["high", "some", "none"] as const).map((k) => (
-            <div key={k} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-              <div className="font-mono text-2xl font-bold tabular-nums" style={{ color: BAND[k] }}>{a.distribution[k]}</div>
-              <div className="mt-0.5 font-mono text-sm text-slate-400">
-                {k === "high" ? "heavy (≥50%)" : k === "some" ? "partial (1–49%)" : "none (0%)"}
-              </div>
-            </div>
-          ))}
-        </div>
-        {a.knowledgeLeader && (
-          <p className="mt-3 font-mono text-sm text-slate-500">
-            Most AI-attributed team: <span className="text-slate-300">{a.knowledgeLeader.name}</span> · {a.knowledgeLeader.aiCommitShare}% AI commit share
-          </p>
-        )}
-      </Card>
+      <AdoptionSpectrum
+        distribution={a.distribution}
+        total={a.contributors.total}
+        knowledgeLeader={a.knowledgeLeader}
+        slug={slug}
+        showEnablementLink={showEnablement}
+      />
+
+      {a.tools.length > 0 && <ToolFootprint tools={a.tools} />}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <SectionHeader size="sm" title="AI champions" description="Culture carriers — high AI adoption across real volume." />
-          {a.contributors.total < CHAMPION_MIN_POP ? (
-            // Same small-population guard as the Contributors tab: below the floor, one AI user reads as a
-            // celebrated "#1" — a ranking, not a culture signal. Suppress consistently across tabs.
-            <InlineEmpty>Too few contributors to surface champions without it reading as a ranking.</InlineEmpty>
-          ) : a.champions.length === 0 ? (
-            <InlineEmpty>No AI-attributed contributors yet.</InlineEmpty>
-          ) : (
-            <div className="mt-3 space-y-1.5">
-              {a.champions.map((c) => (
-                <div key={c.login} className="flex items-center gap-3 text-sm">
-                  <span className="w-36 shrink-0 truncate font-mono text-slate-200" title={c.login}>{c.login}</span>
-                  <Meter className="flex-1" value={c.aiShare} color={scoreHex(c.aiShare)} />
-                  <span className="w-28 shrink-0 text-right font-mono text-sm text-slate-400">
-                    {c.aiShare}% · {c.aiCommits}/{c.commits}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <Card>
-          <SectionHeader size="sm" title="Delivery (context)" description="Shown beside adoption — not a causal claim." />
-          {!d ? (
-            <InlineEmpty>No pull-request data — connect a GitHub token/App to read PR signals.</InlineEmpty>
-          ) : (
-            <div className="mt-3 space-y-2">
-              {d.reviewedRate != null && <DeliveryRow label="Reviewed PRs" value={`${d.reviewedRate}%`} rate={d.reviewedRate} />}
-              <DeliveryRow label="Merge rate" value={`${d.mergeRate}%`} rate={d.mergeRate} />
-              <DeliveryRow label="AI-involved PRs" value={`${d.aiInvolvedRate}%`} rate={d.aiInvolvedRate} />
-              <div className="flex items-center justify-between border-t border-slate-800 pt-2 text-sm">
-                <span className="text-slate-400">Typical merge time</span>
-                <span className="font-mono text-slate-300">{d.typicalHoursToMerge != null ? `${d.typicalHoursToMerge}h` : "—"}</span>
-              </div>
-            </div>
-          )}
-        </Card>
+        <ChampionsCard champions={a.champions} totalContributors={a.contributors.total} slug={slug} />
+        <TeamAdoption teams={a.teams} pairing={a.teamPairing} slug={slug} />
       </div>
+
+      {showEnablement && <EnablementTargets targets={a.enablement} nonePool={a.distribution.none} />}
+
+      {d ? (
+        <DeliveryStrip delivery={d} slug={slug} />
+      ) : (
+        <Surface radius="xl" className="px-5 py-4">
+          <Kicker tone="muted">Delivery · context</Kicker>
+          <p className="mt-1 text-sm text-slate-500">
+            No pull-request data yet — connect a GitHub token or the GitHub App to read PR signals alongside adoption.{" "}
+            <Link href={`/org/${slug}/settings`} className="font-mono text-xs uppercase tracking-widest transition hover:text-accent">
+              Settings →
+            </Link>
+          </p>
+        </Surface>
+      )}
+
+      <p className="font-mono text-sm text-slate-600">
+        Metrics reflect the recent-activity commit window captured at scan time; AI attribution reads co-authorship and tool markers
+        on commits and PRs. Team rollups use CODEOWNERS attribution — see the{" "}
+        <Link href={`/org/${slug}/teams`} className="text-slate-500 transition hover:text-accent">Teams</Link> tab.
+      </p>
     </div>
   );
 }
 
-function DeliveryRow({ label, value, rate }: { label: string; value: string; rate: number }) {
+/** The AI tools already in the fleet's PRs — evidence of what's in use, one slim chip band. */
+function ToolFootprint({ tools }: { tools: { name: string; count: number }[] }) {
   return (
-    <MeterRow
-      layout="labelled"
-      label={label}
-      value={rate}
-      display={value}
-      color={scoreHex(rate)}
-      meterSize="md"
-      meterClassName="flex-1"
-      valueClassName="w-12 shrink-0 text-right font-mono text-slate-300"
-    />
+    <Surface radius="xl" className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3">
+      <Kicker tone="muted" className="mr-1">AI tooling in PRs</Kicker>
+      {tools.map((t) => (
+        <span key={t.name} className="rounded border border-slate-700 px-2 py-0.5 font-mono text-sm text-slate-300">
+          {t.name} <span className="text-slate-500">×{t.count}</span>
+        </span>
+      ))}
+      <span className="text-sm text-slate-600">detected via PR co-authorship / body markers</span>
+    </Surface>
   );
 }

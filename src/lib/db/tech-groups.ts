@@ -127,12 +127,20 @@ async function summarizeTechStack(
   };
 }
 
-/** Headline summary for every non-empty tech group of an org — the per-stack rollup strip on the
- *  comparison page. Sequential since N is small. */
-export async function listTechStackSummaries(orgSlug: string): Promise<SegmentSummary[] | null> {
+/** Headline summary for every non-empty tech group of an org — the per-stack matrix on the
+ *  comparison page. `includeFleet` prepends the whole-fleet baseline (id null, name "Whole fleet")
+ *  so per-stack numbers can be anchored against the org average. Sequential since N is small. */
+export async function listTechStackSummaries(
+  orgSlug: string,
+  opts?: { includeFleet?: boolean },
+): Promise<SegmentSummary[] | null> {
   if (!isDbConfigured()) return null;
   const groups = await listTechStackGroups(orgSlug);
   const out: SegmentSummary[] = [];
+  if (opts?.includeFleet) {
+    const fleet = await summarizeTechStack(orgSlug, null);
+    if (fleet) out.push(fleet);
+  }
   for (const g of groups) {
     const sum = await summarizeTechStack(orgSlug, g);
     if (sum) out.push(sum);

@@ -146,6 +146,9 @@ export interface OrgRollup {
    * Measured only over repos present on BOTH sides of the window, so onboarding repos mid-period
    * reads as growth, not fabricated score movement. Null without a baseline (or no overlap). */
   deltas: { overall: number; adoption: number; rigor: number } | null;
+  /** Cohort-matched per-dimension movement over the window (computeDimDeltas) — e.g. the Security
+   * tab's "D9 vs 90d ago" tile delta. Null without a baseline (or no overlap). */
+  dimDeltas: { dimId: string; delta: number }[] | null;
 }
 
 /** One repo's score snapshot on one side of the window — input to `computeWindowDeltas`. */
@@ -179,6 +182,50 @@ export function computeWindowDeltas(
     adoption: avg(now.map((c) => c.adoption)) - avg(before.map((b) => b.adoption)),
     rigor: avg(now.map((c) => c.rigor)) - avg(before.map((b) => b.rigor)),
   };
+}
+
+/** One repo's per-dimension scores on one side of the window — input to `computeDimDeltas`. */
+export interface RepoDimSnap {
+  repoId: string;
+  dims: { dimId: string; score: number }[];
+}
+
+/**
+ * Cohort-matched per-DIMENSION movement over the window — the same cohort semantics as
+ * computeWindowDeltas (only repos present on both sides count), applied per dimId so a tab can show
+ * "Security (D9) +6 vs 90d ago" without composition change bleeding into the number. Each side is
+ * averaged over the matched repos that carry that dimension (an old scan predating a new dimension
+ * simply doesn't vote); dimensions present on only one side are omitted. Null when cohorts don't overlap.
+ */
+export function computeDimDeltas(
+  current: readonly RepoDimSnap[],
+  baseline: readonly RepoDimSnap[],
+): { dimId: string; delta: number }[] | null {
+  const currentIds = new Set(current.map((c) => c.repoId));
+  const before = baseline.filter((b) => currentIds.has(b.repoId));
+  const beforeIds = new Set(before.map((b) => b.repoId));
+  const now = current.filter((c) => beforeIds.has(c.repoId));
+  if (!before.length || !now.length) return null;
+
+  const avgByDim = (snaps: readonly RepoDimSnap[]) => {
+    const acc: Record<string, { sum: number; n: number }> = {};
+    for (const s of snaps)
+      for (const d of s.dims) {
+        const entry = (acc[d.dimId] = acc[d.dimId] || { sum: 0, n: 0 });
+        entry.sum += d.score;
+        entry.n += 1;
+      }
+    return acc;
+  };
+  const a = avgByDim(now);
+  const b = avgByDim(before);
+  return Object.keys(a)
+    .filter((dimId) => b[dimId])
+    .sort()
+    .map((dimId) => ({
+      dimId,
+      delta: Math.round(a[dimId]!.sum / a[dimId]!.n) - Math.round(b[dimId]!.sum / b[dimId]!.n),
+    }));
 }
 
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
@@ -307,6 +354,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   // movement number compares only repos that exist on both sides of the window.
   let baseline: OrgRollup["baseline"] = null;
   let deltas: OrgRollup["deltas"] = null;
+  let dimDeltas: OrgRollup["dimDeltas"] = null;
   if (start) {
     const priorScans = await prisma.scan.findMany({
       // Half-open window: the baseline is scans STRICTLY before `start`, while the in-window trend uses
@@ -314,7 +362,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       // clean local midnight) previously counted as BOTH the baseline and the first in-window point —
       // comparing it against itself for a spurious 0-delta. `lt` makes each scan land on one side only.
       where: { repo: { orgId: org.id, ...seg }, scannedAt: { lt: start } },
-      select: { repoId: true, overallScore: true, adoptionScore: true, rigorScore: true },
+      select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true },
       orderBy: { scannedAt: "desc" },
     });
     const seen = new Set<string>();
@@ -344,6 +392,22 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
         currentSnaps,
         latestPerRepo.map((s) => ({ repoId: s.repoId, overall: s.overallScore, adoption: s.adoptionScore, rigor: s.rigorScore })),
       );
+      // Per-dimension movement needs the baseline scans' dimension rows — fetched for ONLY the deduped
+      // latest-per-repo scan ids (bounded at one scan per repo), not every prior scan in the org.
+      const priorDims = await prisma.scanDimension.findMany({
+        where: { scanId: { in: latestPerRepo.map((s) => s.id) } },
+        select: { scanId: true, dimId: true, score: true },
+      });
+      const dimsByScan = new Map<string, { dimId: string; score: number }[]>();
+      for (const d of priorDims) {
+        const list = dimsByScan.get(d.scanId) ?? [];
+        list.push({ dimId: d.dimId, score: d.score });
+        dimsByScan.set(d.scanId, list);
+      }
+      dimDeltas = computeDimDeltas(
+        repos.filter((r) => r.scans[0]).map((r) => ({ repoId: r.id, dims: r.scans[0]!.dimensions })),
+        latestPerRepo.map((s) => ({ repoId: s.repoId, dims: dimsByScan.get(s.id) ?? [] })),
+      );
     }
   }
 
@@ -361,6 +425,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     forecast,
     baseline,
     deltas,
+    dimDeltas,
   };
 }
 

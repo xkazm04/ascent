@@ -5,7 +5,7 @@ import Link from "next/link";
 import { shortName } from "@/components/org/liveWarRoomShared";
 import { Meter } from "@/components/org/ui";
 import { PaceChip, type GoalProgressView } from "@/components/org/plan/goalView";
-import { scoreHex } from "@/lib/ui";
+import { freshness, scoreHex } from "@/lib/ui";
 
 /** Fullscreen the wall + keep the screen awake (best-effort; both fail silently if unsupported). */
 async function enterTvMode() {
@@ -44,6 +44,7 @@ export function WarRoomHeader({
   onLaunch,
   goal = null,
   campaignDelta = null,
+  fleetScannedAt = null,
   autoLoop = false,
   onToggleLoop,
   sound = false,
@@ -64,6 +65,8 @@ export function WarRoomHeader({
   onLaunch: () => void;
   goal?: GoalProgressView | null;
   campaignDelta?: number | null;
+  /** ISO of the fleet's most recent scan — the idle caption's "fleet scanned Xh ago" freshness. */
+  fleetScannedAt?: string | null;
   autoLoop?: boolean;
   onToggleLoop?: () => void;
   /** Opt-in celebration sound (default off). */
@@ -156,10 +159,17 @@ export function WarRoomHeader({
             (watchedCount === 0 ? (
               <p className="font-mono text-sm text-slate-500">Watch some repos on /connect to scan.</p>
             ) : (
-              <p className="font-mono text-sm text-slate-500" aria-live="polite">
-                {running ? `${progress.done}/${progress.total} repos` : `${watchedCount} watched`}
+              <p className="font-mono text-sm text-slate-500" aria-live="polite" suppressHydrationWarning>
+                {running
+                  ? `${progress.done}/${progress.total} repos`
+                  : `${watchedCount} watched${fleetScannedAt ? ` · scanned ${freshness(fleetScannedAt)}` : ""}`}
               </p>
             ))}
+          {readOnly && fleetScannedAt && (
+            <p className="font-mono text-sm text-slate-500" suppressHydrationWarning>
+              fleet scanned {freshness(fleetScannedAt)}
+            </p>
+          )}
           {!readOnly && onToggleLoop && watchedCount > 0 && (
             <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500" title="Re-run the live scan automatically for an unattended wall display">
               <input type="checkbox" checked={autoLoop} onChange={onToggleLoop} className="accent-accent" />

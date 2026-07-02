@@ -1,120 +1,13 @@
-import { Card, MeterRow, POSTURE_LABEL, SectionEmpty, SectionHeader, Tile, deltaHex, fmtDelta } from "@/components/org/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/champions";
+import { DIMS, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
-import { getOrgTeamRollup, type TeamRollup } from "@/lib/db";
+import { TeamsMatrix } from "@/components/org/TeamsMatrix";
+import { TeamsSignals } from "@/components/org/TeamsSignals";
+import { TeamsUnowned } from "@/components/org/TeamsUnowned";
+import { getOrgTeamRollup } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
-
-function MetricBar({ label, value }: { label: string; value: number }) {
-  return (
-    <MeterRow
-      layout="stacked"
-      label={label}
-      value={value}
-      color={scoreHex(value)}
-      valueColor={scoreHex(value)}
-      threshold={50}
-    />
-  );
-}
-
-function TeamCard({ team }: { team: TeamRollup }) {
-  const level = levelForScore(team.avgOverall);
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-base text-white">{team.slug}</span>
-            <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm" style={{ color: scoreHex(team.avgOverall) }}>
-              {level.id} · {team.avgOverall}
-            </span>
-          </div>
-          <div className="mt-1 font-mono text-sm text-slate-500">
-            {team.repoCount} repo{team.repoCount === 1 ? "" : "s"}
-            {team.totalOwned > team.repoCount && ` (${team.totalOwned} owned)`}
-            {team.defaultOwnerCount > 0 && ` · primary owner of ${team.defaultOwnerCount}`}
-            {" · "}
-            {POSTURE_LABEL[team.posture] ?? team.posture}
-          </div>
-        </div>
-        {team.comparedRepos > 0 && (
-          <div className="text-right">
-            <div className="font-mono text-sm uppercase tracking-widest text-slate-500">since last scan</div>
-            <div className="mt-0.5 font-mono text-base" style={{ color: deltaHex(team.avgDelta) }}>
-              {fmtDelta(team.avgDelta)}
-            </div>
-            <div className="font-mono text-sm text-slate-600">
-              ▲{team.improving} ▼{team.declining}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <MetricBar label="Overall" value={team.avgOverall} />
-        <MetricBar label="Adoption" value={team.avgAdoption} />
-        <MetricBar label="Rigor" value={team.avgRigor} />
-      </div>
-
-      {/* AI knowledge + strongest/weakest dimension */}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">AI knowledge</div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="font-mono text-xl font-bold" style={{ color: scoreHex(team.aiCommitShare) }}>
-              {team.aiCommitShare}%
-            </span>
-            <span className="text-sm text-slate-500">of recent commits · {team.aiContributors}/{team.contributors} AI-active</span>
-          </div>
-          {team.contributors >= CHAMPION_MIN_POP && team.champions.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {team.champions.map((c) => (
-                <span key={c.login} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-accent" title={`${c.aiCommits} AI commits · ${c.aiShare}% AI`}>
-                  {c.login} · {c.aiShare}%
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Dimension shape</div>
-          <div className="mt-1.5 space-y-1.5 text-sm">
-            {team.strongest && (
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-slate-400">Strongest · {team.strongest.label}</span>
-                <span className="font-mono" style={{ color: scoreHex(team.strongest.avg) }}>{team.strongest.avg}</span>
-              </div>
-            )}
-            {team.weakest && team.weakest.dimId !== team.strongest?.dimId && (
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-slate-400">Could grow · {team.weakest.label}</span>
-                <span className="font-mono" style={{ color: scoreHex(team.weakest.avg) }}>{team.weakest.avg}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Owned repos */}
-      <div className="mt-4 flex flex-wrap gap-1.5">
-        {team.repos.map((r) => (
-          <span
-            key={r.fullName}
-            className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400"
-            title={`${r.fullName} · overall ${r.overall}${r.isDefaultOwner ? " · primary owner" : ""}`}
-          >
-            {r.name}
-            <span className="ml-1" style={{ color: scoreHex(r.overall) }}>{r.overall}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default async function TeamsPage({
   params,
@@ -131,110 +24,74 @@ export default async function TeamsPage({
 
   const rollup = await getOrgTeamRollup(slug, segmentId, techGroupId);
 
-  const segmentBar = (
-    <ScopeFilterBar
-      segments={segments}
-      segmentId={segmentId}
-      techGroups={techGroups}
-      activeStack={activeStack}
-      className="mb-4 flex flex-wrap justify-end gap-2"
-    />
+  const hasFilters = segments.length > 0 || techGroups.length > 0;
+  const filterBar = hasFilters && (
+    <ScopeFilterBar segments={segments} segmentId={segmentId} techGroups={techGroups} activeStack={activeStack} />
   );
 
   if (!rollup || rollup.teams.length === 0) {
     return (
       <div>
-        {segmentBar}
+        {filterBar && <div className="mb-4 flex justify-end">{filterBar}</div>}
         <SectionEmpty>
           {segmentId
             ? "No team attribution for this segment — pick another segment, or add CODEOWNERS team owners to its repos and re-scan."
             : "No team attribution yet. Teams are parsed from each repo's CODEOWNERS file at scan time — add a CODEOWNERS that assigns paths to @org/team owners, then re-scan and this view fills in."}
         </SectionEmpty>
+        {/* The fix-it list: exactly which scanned repos need a CODEOWNERS owner, with the snippet. */}
+        {rollup && <TeamsUnowned slug={slug} unowned={rollup.unowned} />}
       </div>
     );
   }
 
   return (
     <div>
-      {segmentBar}
-      <p className="max-w-3xl text-base text-slate-400">
-        Your fleet, rolled up by the teams that own it (from each repo&apos;s <span className="font-mono text-slate-300">CODEOWNERS</span>).
-        Inputs to explore how AI capability is distributed across the org — which team carries the most institutional AI
-        knowledge, and where a pairing could spread it. Not a ranking, and not a to-do list for anyone.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-3xl text-base text-slate-400">
+          The fleet rolled up by the teams that own it (from each repo&apos;s{" "}
+          <span className="font-mono text-slate-300">CODEOWNERS</span>) — where institutional AI knowledge sits and where a
+          pairing could spread it. Inputs to explore, not a ranking.
+        </p>
+        {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
+      </div>
 
       {/* Summary tiles */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className={`mt-6 ${TILE_GRID}`}>
         <Tile label="Teams" value={rollup.teamCount} sub="from CODEOWNERS" />
-        <Tile label="Attributed repos" value={rollup.attributedRepos} sub="scanned repos with a team owner" />
+        <Tile label="Attributed repos" value={rollup.attributedRepos} sub="scanned, with a team owner" />
         <Tile
           label="Unowned repos"
           value={rollup.unownedRepos}
-          sub="scanned, no CODEOWNERS team"
-          color={rollup.unownedRepos > 0 ? "#f97316" : "#fff"}
+          sub={rollup.unownedRepos > 0 ? "no CODEOWNERS team — fix list below" : "every scanned repo has an owner"}
+          color={rollup.unownedRepos > 0 ? "var(--color-warn)" : undefined}
         />
         <Tile
           label="Knowledge leader"
           value={rollup.knowledgeLeader ? `${rollup.knowledgeLeader.aiCommitShare}%` : "—"}
-          sub={rollup.knowledgeLeader ? rollup.knowledgeLeader.name : "no AI activity yet"}
-          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.knowledgeScore) : "#fff"}
+          sub={rollup.knowledgeLeader ? rollup.knowledgeLeader.name : "no AI-attributed activity yet"}
+          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.knowledgeScore) : undefined}
         />
       </div>
 
-      {/* Headline inputs: knowledge leader + suggested pairing */}
-      {(rollup.knowledgeLeader || rollup.pairing) && (
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          {rollup.knowledgeLeader && (
-            <Card>
-              <div className="font-mono text-sm uppercase tracking-widest text-accent">🧠 Most institutional AI knowledge</div>
-              <div className="mt-2 font-mono text-lg text-white">{rollup.knowledgeLeader.slug}</div>
-              <p className="mt-2 text-base text-slate-400">
-                <span className="text-slate-200">{rollup.knowledgeLeader.aiCommitShare}%</span> of this team&apos;s recent commits are
-                AI-attributed and its repos average <span className="text-slate-200">{rollup.knowledgeLeader.avgAdoption}</span> on
-                adoption — a natural place to source patterns others could borrow. An input, not a verdict.
-              </p>
-            </Card>
-          )}
-          {rollup.pairing && (
-            <Card>
-              <div className="font-mono text-sm uppercase tracking-widest text-accent">🤝 A pairing to consider</div>
-              <div className="mt-2 text-base text-slate-300">
-                <span className="font-mono text-white">{rollup.pairing.mentorSlug}</span> is strong on{" "}
-                <span className="text-slate-200">{rollup.pairing.label}</span> ({rollup.pairing.mentorScore}), where{" "}
-                <span className="font-mono text-white">{rollup.pairing.learnerSlug}</span> sits at {rollup.pairing.learnerScore} — a{" "}
-                <span style={{ color: deltaHex(rollup.pairing.gap) }}>{rollup.pairing.gap}-point</span> gap on the same dimension.
-              </div>
-              <p className="mt-2 text-sm text-slate-500">
-                The biggest learnable gap across teams — an invitation to pair, never a directive. People decide what to pick up.
-              </p>
-            </Card>
-          )}
-        </div>
-      )}
+      {/* Headline signals: knowledge leader + top pairing opportunities, linked into the matrix. */}
+      <TeamsSignals slug={slug} leader={rollup.knowledgeLeader} pairings={rollup.pairings} />
 
-      {/* Per-team rollups */}
+      {/* The matrix — every team × every dimension, sortable, rows expand to repos/champions. */}
       <div className="mt-8">
         <SectionHeader
-          title="Teams"
-          description="Each team's Adoption × Rigor, AI-commit knowledge, dimension shape, and movement since the last scan — across the repos it owns."
+          title="Teams × dimensions"
+          description="Each team's maturity, AI knowledge, movement, and per-dimension averages in one grid — click a header to sort, a team to open its repos and champions."
+          right={<ExportCsvLink org={slug} kind="teams" segmentId={segmentId} className="shrink-0" />}
         />
-        <div className="mt-3 grid gap-4">
-          {rollup.teams.map((t) => (
-            <TeamCard key={t.slug} team={t} />
-          ))}
-        </div>
+        <TeamsMatrix teams={rollup.teams} dims={DIMS} leaderSlug={rollup.knowledgeLeader?.slug ?? null} />
       </div>
 
-      <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-base text-slate-400">
-        <span className="text-slate-300">How to read this:</span> a repo is attributed to every team named in its CODEOWNERS, so a
-        team&apos;s numbers reflect the repos it&apos;s responsible for. These are inputs to explore where AI capability could spread —
-        a strong team&apos;s approach is a pattern others can borrow, and a soft dimension is where a pairing could help. The aim is
-        to map the fleet to how the org actually works, not to rank teams.
-      </p>
-      <p className="mt-4 font-mono text-sm text-slate-600">
-        Team attribution is parsed from CODEOWNERS at scan time ({rollup.attributedRepos} attributed ·{" "}
-        {rollup.unownedRepos} unowned). Movers compare each repo&apos;s two most recent scans. GitHub Teams (GraphQL) attribution is
-        still on the roadmap.
+      <TeamsUnowned slug={slug} unowned={rollup.unowned} />
+
+      <p className="mt-6 max-w-3xl font-mono text-sm text-slate-600">
+        Attribution parses CODEOWNERS at scan time; a repo counts toward every team that owns part of it, so numbers reflect
+        responsibility, never a ranking. Δ compares each repo&apos;s two latest scans. GitHub Teams (GraphQL) attribution is
+        on the roadmap.
       </p>
     </div>
   );

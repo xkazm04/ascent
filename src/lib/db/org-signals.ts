@@ -2,8 +2,21 @@
 // governance, and commit-activity trend (Deepen-F3). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { getOrgBySlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import type { PrStats } from "@/lib/types";
+
+/** One repo's PR-signal row for the delivery drill-down table. */
+export interface PrRepoRow {
+  fullName: string;
+  name: string;
+  analyzed: number;
+  mergeRate: number;
+  reviewedRate: number | null;
+  smallPrRate: number;
+  aiInvolvedRate: number;
+  aiGovernedRate: number | null;
+  medianHoursToMerge: number | null;
+}
 
 export interface OrgPrSignals {
   repos: number; // repos that have PR data
@@ -15,32 +28,57 @@ export interface OrgPrSignals {
   avgAiGovernedRate: number | null; // mean of repo aiGovernedRate (where it has a sample)
   typicalHoursToMerge: number | null; // mean of per-repo medians
   tools: { name: string; count: number }[];
+  perRepo: PrRepoRow[]; // sorted riskiest first: lowest review coverage, then slowest merges
 }
 
 /** Fleet-level pull-request signals — aggregated from each repo's latest scan's prStats. */
 export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPrSignals | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
+  // Resolve through the shared cached resolver so a mixed-case slug canonicalizes (same identity the
+  // auth gate uses) instead of missing the lower-cased org row and returning empty fleet data.
+  const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { prStats: true } } },
+    select: { fullName: true, name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { prStats: true } } },
   });
 
   const stats: PrStats[] = [];
+  const perRepo: PrRepoRow[] = [];
   for (const r of repos) {
     const raw = r.scans[0]?.prStats;
     if (!raw) continue;
     try {
       const p = JSON.parse(raw) as PrStats;
-      if (p.analyzed > 0) stats.push(p);
+      if (p.analyzed > 0) {
+        stats.push(p);
+        perRepo.push({
+          fullName: r.fullName,
+          name: r.name,
+          analyzed: p.analyzed,
+          mergeRate: p.mergeRate,
+          reviewedRate: p.reviewedRate,
+          smallPrRate: p.smallPrRate,
+          aiInvolvedRate: p.aiInvolvedRate,
+          aiGovernedRate: p.aiGovernedRate,
+          medianHoursToMerge: p.medianHoursToMerge,
+        });
+      }
     } catch {
       /* ignore malformed */
     }
   }
   if (!stats.length) return null;
+  // Riskiest first, mirroring governance's risk-first sort: lowest review coverage leads, slowest
+  // merges break ties. A null reviewedRate means "no human-merged sample" — not measured risk — so
+  // those rows sort after every measured one instead of masquerading as 0% coverage.
+  perRepo.sort(
+    (a, b) =>
+      (a.reviewedRate ?? Infinity) - (b.reviewedRate ?? Infinity) ||
+      (b.medianHoursToMerge ?? -1) - (a.medianHoursToMerge ?? -1),
+  );
 
   const mean = roundedMean;
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
@@ -59,6 +97,7 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     avgAiGovernedRate: governed.length ? mean(governed) : null,
     typicalHoursToMerge: ttm.length ? Math.round((ttm.reduce((a, b) => a + b, 0) / ttm.length) * 10) / 10 : null,
     tools: [...toolMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+    perRepo,
   };
 }
 
@@ -88,7 +127,9 @@ export interface OrgGovernance {
 export async function getOrgGovernance(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgGovernance | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
+  // Resolve through the shared cached resolver so a mixed-case slug canonicalizes (same identity the
+  // auth gate uses) instead of missing the lower-cased org row and returning empty fleet data.
+  const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
@@ -148,16 +189,34 @@ export interface OrgActivity {
   series: number[]; // fleet weekly commit totals (sum across repos), oldest→newest
   total: number;
   repos: number;
+  /** UTC ms of the Sunday that starts the NEWEST bucket (series[series.length - 1]); each earlier
+   *  element is exactly one WEEK_MS before it. Lets the chart label buckets with real dates. */
+  endWeekStartMs: number;
 }
 
-const WEEK_MS = 7 * 86_400_000;
+const DAY_MS = 86_400_000;
+const WEEK_MS = 7 * DAY_MS;
 
-/** Whole-week index (weeks since the Unix epoch) of an instant. GitHub's commit_activity buckets are
- *  weekly, so two repos' series elements only belong in the same fleet bucket if they fall in the same
- *  absolute week — this maps an instant to that integer week so series can be aligned by calendar week
- *  rather than by array position. */
+/** Sunday-aligned whole-week index of an instant. GitHub's commit_activity buckets are Sunday-aligned
+ *  weeks, so two repos' series elements only belong in the same fleet bucket if they fall in the same
+ *  Sunday–Saturday week. A naive `floor(ms / WEEK_MS)` bins on the Unix-epoch 7-day grid, which is
+ *  anchored on a THURSDAY — so two scans on opposite sides of a Thursday-00:00-UTC boundary WITHIN the
+ *  same GitHub week land one bucket apart and their series sum out of phase. Instead, floor the instant
+ *  to its Sunday 00:00 UTC first, then index; consecutive Sundays are 7 days apart, so the result stays
+ *  a clean incrementing integer that different-cadence repos can be summed by. */
 function weekIndex(ms: number): number {
-  return Math.floor(ms / WEEK_MS);
+  const d = new Date(ms);
+  const utcMidnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const sundayMs = utcMidnight - d.getUTCDay() * DAY_MS; // getUTCDay(): 0 = Sunday
+  return Math.floor(sundayMs / WEEK_MS);
+}
+
+/** Inverse of `weekIndex`: the UTC ms of the Sunday that starts week `wk`. Every Sunday-midnight
+ *  since the epoch is (3 + 7k) days (Jan 1 1970 was a Thursday; the first Sunday was Jan 4 = day 3),
+ *  so `weekIndex` maps it to k and this exact offset recovers the Sunday, not the epoch-grid Thursday. */
+const SUNDAY_EPOCH_OFFSET_MS = 3 * DAY_MS;
+function weekStartMs(wk: number): number {
+  return wk * WEEK_MS + SUNDAY_EPOCH_OFFSET_MS;
 }
 
 /** Fleet commit-activity trend — sum of each repo's latest weekly series, aligned by absolute
@@ -165,7 +224,9 @@ function weekIndex(ms: number): number {
 export async function getOrgActivity(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgActivity | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
+  // Resolve through the shared cached resolver so a mixed-case slug canonicalizes (same identity the
+  // auth gate uses) instead of missing the lower-cased org row and returning empty fleet data.
+  const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
   const repos = await prisma.repository.findMany({
@@ -212,5 +273,11 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
   const maxWk = Math.max(...weeksPresent);
   const series: number[] = [];
   for (let wk = minWk; wk <= maxWk; wk++) series.push(byWeek.get(wk) ?? 0);
-  return { weeks: series.length, series, total: series.reduce((a, b) => a + b, 0), repos: repoCount };
+  return {
+    weeks: series.length,
+    series,
+    total: series.reduce((a, b) => a + b, 0),
+    repos: repoCount,
+    endWeekStartMs: weekStartMs(maxWk),
+  };
 }

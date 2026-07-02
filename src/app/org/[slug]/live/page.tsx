@@ -44,6 +44,16 @@ export default async function OrgLivePage({
   // so the wall doesn't animate out-of-stack repos. Undefined = scan the whole watched fleet (default).
   const scanRepos = activeStack ? rollup.repos.map((r) => r.fullName) : undefined;
 
+  // Freshness for the header caption: the most recent scan anywhere in the (scoped) fleet.
+  const fleetScannedAt = rollup.repos.reduce<string | null>((acc, r) => {
+    const at = r.latest?.scannedAt ?? null;
+    return at && (!acc || at > acc) ? at : acc;
+  }, null);
+  // Watched repos whose last scan attempt failed — the wall's needs-attention strip.
+  const attention = rollup.repos
+    .filter((r) => r.watched && r.lastScanStatus === "error")
+    .map((r) => ({ fullName: r.fullName, name: r.name, error: r.lastScanError }));
+
   return (
     <div className="space-y-4">
       {techGroups.length > 0 && (
@@ -60,7 +70,10 @@ export default async function OrgLivePage({
         seed={seed}
         scanRepos={scanRepos}
         goal={(goal as GoalProgressView | null) ?? null}
-        campaignDelta={goal ? rollup.deltas?.overall ?? null : null}
+        campaignDeltas={goal ? rollup.deltas ?? null : null}
+        trend={rollup.trend}
+        fleetScannedAt={fleetScannedAt}
+        attention={attention}
         canShare={canShare}
       />
     </div>

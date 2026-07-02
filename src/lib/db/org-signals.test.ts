@@ -182,6 +182,54 @@ describe("getOrgPrSignals blob resilience", () => {
   });
 });
 
+// ── getOrgPrSignals: per-repo drill-down rows ─────────────────────────────────
+//
+// The delivery tab's "By repository" table reads perRepo. Pin that rows carry the repo identity
+// (fullName/name from the query, not the blob), that ordering is riskiest-first (lowest measured
+// review coverage leads; a null "no human-merged sample" sorts AFTER every measured rate — it is
+// absence, not 0% coverage), and that slower merges break ties.
+
+describe("getOrgPrSignals perRepo rows", () => {
+  it("builds identity-carrying rows sorted riskiest-first (nulls after measured, hours break ties)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "prStats",
+        [
+          prStats({ reviewedRate: 90, medianHoursToMerge: 5 }),
+          prStats({ reviewedRate: null, medianHoursToMerge: 99 }), // no sample → last, despite slow merges
+          prStats({ reviewedRate: 40, medianHoursToMerge: 10 }),
+          prStats({ reviewedRate: 40, medianHoursToMerge: 30 }), // ties with row above → slower first
+        ],
+        { extra: (i) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` }) },
+      ),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.perRepo.map((r) => r.name)).toEqual(["repo-3", "repo-2", "repo-0", "repo-1"]);
+    expect(res!.perRepo[0]).toMatchObject({
+      fullName: "acme/repo-3",
+      analyzed: 10,
+      mergeRate: 80,
+      reviewedRate: 40,
+      medianHoursToMerge: 30,
+    });
+  });
+
+  it("skips malformed/zero-PR blobs in perRepo exactly like the aggregate does", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [prStats(), "{bad", prStats({ analyzed: 0 }), null], {
+        extra: (i) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` }),
+      }),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    expect(res!.perRepo).toHaveLength(1);
+    expect(res!.perRepo[0].fullName).toBe("acme/repo-0");
+  });
+});
+
 // ── getOrgPrSignals: null-vs-zero "no sample" semantics ───────────────────────
 //
 // The dashboard must distinguish "we have NO data for this metric" (render a dash) from
@@ -428,6 +476,27 @@ describe("getOrgActivity blob resilience and calendar-week alignment", () => {
 
     mockGetPrisma.mockReturnValue(fakePrisma("commitActivity", []));
     await expect(getOrgActivity("acme")).resolves.toBeNull();
+  });
+
+  it("endWeekStartMs is the Sunday 00:00 UTC starting the NEWEST bucket (weekIndex round-trip)", async () => {
+    // Default scannedAt is Wed 2026-06-17 → its Sunday-aligned week starts Sun 2026-06-14.
+    mockGetPrisma.mockReturnValue(fakePrisma("commitActivity", [JSON.stringify([1, 2, 3])]));
+
+    const res = await getOrgActivity("acme");
+
+    expect(res!.endWeekStartMs).toBe(Date.UTC(2026, 5, 14));
+    // Anchor stays on the LATEST scan's week when cadences differ (series[last] = that week).
+    const thisWeek = new Date("2026-06-17T00:00:00Z");
+    const twoWeeksAgo = new Date("2026-06-03T00:00:00Z");
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("commitActivity", [JSON.stringify([5, 6, 7]), JSON.stringify([100, 200])], {
+        scannedAt: (i) => (i === 0 ? thisWeek : twoWeeksAgo),
+      }),
+    );
+    const mixed = await getOrgActivity("acme");
+    expect(mixed!.endWeekStartMs).toBe(Date.UTC(2026, 5, 14));
+    // Oldest bucket = endWeekStartMs - (weeks-1) * 7d, matching the zero-filled grid the chart draws.
+    expect(mixed!.weeks).toBe(4);
   });
 });
 

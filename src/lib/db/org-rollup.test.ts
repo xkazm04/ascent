@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db/client", () => ({ getPrisma: vi.fn(), isDbConfigured: () => false }));
 
-import { computeWindowDeltas, type RepoScoreSnap } from "@/lib/db/org-rollup";
+import { computeWindowDeltas, computeDimDeltas, type RepoScoreSnap, type RepoDimSnap } from "@/lib/db/org-rollup";
 
 /** Terse snapshot builder: same overall/adoption/rigor unless overridden. */
 function snap(repoId: string, overall: number, adoption = overall, rigor = overall): RepoScoreSnap {
@@ -120,5 +120,58 @@ describe("computeWindowDeltas — rounding", () => {
     const current = [snap("A", 70), snap("B", 71)];
     const baseline = [snap("A", 60), snap("B", 61)];
     expect(computeWindowDeltas(current, baseline)!.overall).toBe(10);
+  });
+});
+
+// ── computeDimDeltas — the per-dimension sibling (Security tab's "D9 vs 90d ago") ──────────────
+// Same cohort-intersection invariant as computeWindowDeltas, plus two dim-specific rules:
+// a dimension present on only ONE side is omitted (no fake movement when D9 is introduced
+// mid-window), and within the cohort a repo missing a dim simply doesn't vote on it.
+
+/** Terse dim-snapshot builder: dims as [dimId, score] pairs. */
+function dsnap(repoId: string, ...dims: [string, number][]): RepoDimSnap {
+  return { repoId, dims: dims.map(([dimId, score]) => ({ dimId, score })) };
+}
+
+describe("computeDimDeltas — cohort matching per dimension", () => {
+  it("measures only repos present in BOTH windows, per dimId", () => {
+    // Cohort A,B: D1 moves avg(80,90)=85 - avg(70,80)=75 = +10; D9 moves avg(40,60)=50 - avg(20,40)=30 = +20.
+    // C is after-only and must not vote.
+    const current = [dsnap("A", ["D1", 80], ["D9", 40]), dsnap("B", ["D1", 90], ["D9", 60]), dsnap("C", ["D1", 10], ["D9", 5])];
+    const baseline = [dsnap("A", ["D1", 70], ["D9", 20]), dsnap("B", ["D1", 80], ["D9", 40])];
+    expect(computeDimDeltas(current, baseline)).toEqual([
+      { dimId: "D1", delta: 10 },
+      { dimId: "D9", delta: 20 },
+    ]);
+  });
+
+  it("omits a dimension that exists on only one side (introduced mid-window)", () => {
+    // D9 was added to the rubric after the baseline scans — no before-side, so no movement claim.
+    const current = [dsnap("A", ["D1", 80], ["D9", 50])];
+    const baseline = [dsnap("A", ["D1", 70])];
+    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D1", delta: 10 }]);
+  });
+
+  it("a cohort repo missing a dim doesn't vote on it (no zero-fill drag)", () => {
+    // B has no D9 on either side; D9's delta is A's alone: 60-20 = +40 (not averaged against a fake 0).
+    const current = [dsnap("A", ["D9", 60]), dsnap("B", ["D1", 80])];
+    const baseline = [dsnap("A", ["D9", 20]), dsnap("B", ["D1", 80])];
+    expect(computeDimDeltas(current, baseline)).toEqual([
+      { dimId: "D1", delta: 0 },
+      { dimId: "D9", delta: 40 },
+    ]);
+  });
+
+  it("returns null when the cohorts don't overlap (and on empty sides)", () => {
+    expect(computeDimDeltas([dsnap("C", ["D1", 50])], [dsnap("A", ["D1", 70])])).toBeNull();
+    expect(computeDimDeltas([], [dsnap("A", ["D1", 70])])).toBeNull();
+    expect(computeDimDeltas([dsnap("A", ["D1", 70])], [])).toBeNull();
+  });
+
+  it("rounds each side's average independently before differencing (mirrors computeWindowDeltas)", () => {
+    // now avg(70,71)=70.5->71 ; before avg(70,70)=70 ; delta +1.
+    const current = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 71])];
+    const baseline = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 70])];
+    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D9", delta: 1 }]);
   });
 });

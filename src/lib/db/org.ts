@@ -55,6 +55,7 @@ export {
   getOrgGovernance,
   getOrgActivity,
   type OrgPrSignals,
+  type PrRepoRow,
   type RepoGovernance,
   type OrgGovernance,
   type OrgActivity,

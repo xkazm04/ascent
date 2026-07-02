@@ -2,8 +2,9 @@
 
 // The A-vs-B selector on the tech-stacks comparison page (3b-P2). Each dropdown writes `?a=`/`?b=`
 // (stack keys) to the URL; the server page reads them back and runs compareTechStacks. Side B offers
-// "Whole fleet" (empty value) so a single stack can be compared against the org baseline. URL-as-state
-// keeps a given comparison shareable. Mirrors SegmentComparePicker.
+// "Whole fleet", written as the explicit sentinel `b=fleet` — a MISSING `b` means "default" (first
+// other stack) on the server, so deleting the param would snap the selection back to a stack and make
+// the fleet baseline unpickable. URL-as-state keeps a given comparison shareable.
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -20,8 +21,7 @@ export function TechStackComparePicker({ options, a, b }: { options: Opt[]; a: s
   function navigate(next: { a: string; b: string | null }) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("a", next.a);
-    if (next.b) params.set("b", next.b);
-    else params.delete("b");
+    params.set("b", next.b ?? "fleet");
     router.push(`${pathname}?${params.toString()}`);
   }
 

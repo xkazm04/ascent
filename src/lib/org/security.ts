@@ -15,12 +15,25 @@ export interface SecurityRepo {
   protected: boolean; // default-branch protection
 }
 
+/** One risk-register row: a scanned repo's D9 score, gate verdict, and governance rule detail. */
+export interface SecurityRegisterRow {
+  name: string;
+  fullName: string;
+  score: number; // D9 score 0..100
+  /** Why the repo fails the security gate, or null when it passes. */
+  gateReason: string | null;
+  /** Default-branch rule detail from the latest scan, or null when governance wasn't readable. */
+  rules: { protected: boolean; review: boolean; checks: boolean; signed: boolean } | null;
+}
+
 export interface SecurityOverview {
   org: string;
   periodTitle: string;
   generatedOn: string;
   dimLabel: string; // D9 display name (e.g. "Supply Chain & Security")
   avgSecurity: number | null; // org D9 average
+  /** Cohort-matched D9 movement over the window (rollup dimDeltas), or null (all-time / no overlap). */
+  securityDelta: number | null;
   scanned: number;
   /** Repo counts by D9 band: critical <40, weak 40–59, ok 60–79, strong 80+. */
   band: { critical: number; weak: number; ok: number; strong: number };
@@ -29,6 +42,8 @@ export interface SecurityOverview {
   unprotected: { name: string; fullName: string }[]; // repos with no default-branch protection
   /** Fleet status against the default security gate: Security (D9) >= minSecurity AND not "ungoverned". */
   securityGate: { minSecurity: number; passing: number; failing: number; failingRepos: { name: string; fullName: string; score: number; reason: string }[] };
+  /** Every scanned repo as a risk-register row — gate-failing first, then lowest D9 first. */
+  register: SecurityRegisterRow[];
 }
 
 export async function buildSecurityOverview(
@@ -45,6 +60,8 @@ export async function buildSecurityOverview(
 
   const dimLabel = DIMENSION_BY_ID.D9?.name ?? "Security";
   const avgSecurity = rollup.dimAverages.find((d) => d.dimId === "D9")?.avg ?? null;
+  // `?.` on dimDeltas: older callers/fixtures may hand a rollup predating the field.
+  const securityDelta = rollup.dimDeltas?.find((d) => d.dimId === "D9")?.delta ?? null;
   const govByRepo = new Map((gov?.perRepo ?? []).map((g) => [g.fullName, g]));
 
   // All scanned repos with their Security (D9) score, posture, and branch-protection state.
@@ -68,16 +85,26 @@ export async function buildSecurityOverview(
   }
 
   // Fleet security gate: Security (D9) >= minSecurity AND posture is not "ungoverned" (mirrors the CI
-  // gate's `?security=1` policy). Repos are already sorted weakest-first.
+  // gate's `?security=1` policy). The register carries the verdict per repo; the gate summary and
+  // failing list are derived from it so the predicate lives in exactly one place.
   const minSecurity = DEFAULT_SECURITY_MIN;
-  const failing = repos
-    .filter((r) => r.score < minSecurity || r.posture === "ungoverned")
-    .map((r) => ({
-      name: r.name,
-      fullName: r.fullName,
-      score: r.score,
-      reason: r.score < minSecurity ? `Security ${r.score} < ${minSecurity}` : "ungoverned posture",
-    }));
+  const register: SecurityRegisterRow[] = repos
+    .map((r) => {
+      const g = govByRepo.get(r.fullName);
+      return {
+        name: r.name,
+        fullName: r.fullName,
+        score: r.score,
+        gateReason:
+          r.score < minSecurity ? `Security ${r.score} < ${minSecurity}` : r.posture === "ungoverned" ? "ungoverned posture" : null,
+        rules: g ? { protected: g.protected, review: g.requiredApprovals >= 1, checks: g.requiresStatusChecks, signed: g.requiresSignatures } : null,
+      };
+    })
+    // Stable sort over the score-ascending input: failing repos first, each group weakest-first.
+    .sort((a, b) => Number(!a.gateReason) - Number(!b.gateReason));
+  const failing = register
+    .filter((r) => r.gateReason)
+    .map((r) => ({ name: r.name, fullName: r.fullName, score: r.score, reason: r.gateReason! }));
 
   return {
     org: orgSlug,
@@ -85,6 +112,7 @@ export async function buildSecurityOverview(
     generatedOn: new Date().toISOString().slice(0, 10),
     dimLabel,
     avgSecurity,
+    securityDelta,
     scanned: repos.length,
     band,
     weakest: repos.slice(0, 8).map((r) => ({ name: r.name, fullName: r.fullName, score: r.score, protected: r.protected })),
@@ -104,6 +132,7 @@ export async function buildSecurityOverview(
       failing: failing.length,
       failingRepos: failing.slice(0, 8),
     },
+    register,
   };
 }
 

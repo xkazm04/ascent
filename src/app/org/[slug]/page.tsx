@@ -2,18 +2,16 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import { Trajectory } from "@/components/org/Trajectory";
-import { GoalsOverview } from "@/components/org/GoalsOverview";
+import { OrgScoreBadges, type ScoreBadge } from "@/components/org/OrgScoreBadges";
 import { PeriodSummary } from "@/components/org/PeriodSummary";
 import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { OrgStanding } from "@/components/org/OrgStanding";
 import { OrgGapsSection } from "@/components/org/OrgGapsSection";
-import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
-import { DimensionAverages } from "@/components/org/DimensionAverages";
-import { Card, InlineEmpty, Meter, OrgEmpty, SectionHeader, Tile, TILE_GRID, postureLabel, POSTURE_ORDER, DIRECTION_TONE } from "@/components/org/ui";
+import { PostureDimensionsPanel } from "@/components/org/PostureDimensionsPanel";
+import { Card, InlineEmpty, OrgEmpty, SectionHeader, DIRECTION_TONE } from "@/components/org/ui";
 import { CollapsibleSection, OVERVIEW_COLLAPSE_COOKIE } from "@/components/org/CollapsibleSection";
-import { getOrgBenchmark, getOrgGapAnalysis, getOrgMovers, getOrgRecommendations, getOrgRollup, listGoals } from "@/lib/db";
+import { getOrgGapAnalysis, getOrgMovers, getOrgRollup, listGoals } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { canReadOrg } from "@/lib/authz";
 import { cookies } from "next/headers";
@@ -58,7 +56,14 @@ function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "u
         <div className="mt-3 space-y-2">
           {moves.map((m) => (
             <div key={m.fullName} className="flex items-center justify-between gap-3 text-base">
-              <span className="min-w-0 truncate font-mono text-sm text-slate-200">{m.name}</span>
+              {/* GA: a mover is a lead, not just a stat — open its stored report to see WHAT moved. */}
+              <Link
+                href={`/report/${m.fullName}`}
+                title={`Open ${m.fullName}'s report`}
+                className="focus-ring min-w-0 truncate font-mono text-sm text-slate-200 transition hover:text-accent"
+              >
+                {m.name}
+              </Link>
               <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
                 {/* Show the level pair only when its direction AGREES with the score tone (gainer→up,
                     regresser→down). A repo can gain score while its level dropped (or vice versa); the
@@ -105,17 +110,18 @@ export default async function OrgOverview({
   // below is scoped to the same repos, and the two filters compose.
   const { segments, activeSegment, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
-  // The six section queries are independent of each other — only `segmentId` (validated from
-  // `listSegments` above) feeds them — so fetch concurrently rather than as a ~6-stage await
-  // waterfall (each helper is itself 2-3 DB round trips; serialized they dominated the landing
-  // tab's TTFB). The sibling tabs (practices/plan/delivery) already use Promise.all.
-  const [rollup, movers, orgRecs, benchmark, gaps, goals] = await Promise.all([
+  // The section queries are independent of each other — only `segmentId` (validated from
+  // `listSegments` above) feeds them — so fetch concurrently rather than as an await waterfall (each
+  // helper is itself 2-3 DB round trips; serialized they dominated the landing tab's TTFB). The
+  // sibling tabs (practices/plan/delivery) already use Promise.all. `goals` (goal chips) is PERIPHERAL
+  // — a transient failure must not reject the whole Promise.all and throw the entire dashboard to
+  // error.tsx over a non-core widget, so it degrades individually via `.catch(() => null)` (the same
+  // way generateMetadata already tolerates a failed rollup). The core fetches stay all-or-nothing.
+  const [rollup, movers, gaps, goals] = await Promise.all([
     getOrgRollup(slug, win, segmentId, techGroupId),
     getOrgMovers(slug, win, segmentId, techGroupId),
-    getOrgRecommendations(slug, 5, segmentId, techGroupId),
-    getOrgBenchmark(slug),
     getOrgGapAnalysis(slug, segmentId, techGroupId),
-    listGoals(slug),
+    listGoals(slug).catch(() => null),
   ]);
   // The layout decides whether to render the org shell at all (org exists + has data); reaching here
   // with a null rollup means this view's scoped query (period + segment) found nothing where the
@@ -151,13 +157,20 @@ export default async function OrgOverview({
   };
 
   const trend: TrendPoint[] = rollup.trend.map((t) => ({ score: t.avg, at: t.date }));
-  const maxPosture = Math.max(1, ...POSTURE_ORDER.map((p) => rollup.postureCounts[p] ?? 0));
-  const regressionCount = movers?.regressers.length ?? 0;
   const moversEmpty = period.start ? "None this period." : "None since last scan.";
+
+  // Headline numbers as compact header badges (replacing the large Tile grid). Deltas + goal verdicts
+  // are derived here so their palette stays single-sourced with the rest of the page.
+  const badges: ScoreBadge[] = [
+    { label: "Org maturity", value: rollup.avgOverall, sub: `${level.id} · ${level.name}`, color: scoreHex(rollup.avgOverall), delta: rollup.deltas?.overall, goal: goalNote("overall") },
+    { label: "AI Adoption", value: rollup.avgAdoption, color: scoreHex(rollup.avgAdoption), delta: rollup.deltas?.adoption, goal: goalNote("adoption") },
+    { label: "Engineering Rigor", value: rollup.avgRigor, color: scoreHex(rollup.avgRigor), delta: rollup.deltas?.rigor, goal: goalNote("rigor") },
+    { label: "Repos scanned", value: `${rollup.scannedCount}/${rollup.repoCount}` },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Period + segment controls — drive the tiles' deltas, the trend, and the movers below */}
+      {/* Period + segment controls — drive the badges' deltas, the trend, and the movers below */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
           Showing · {period.title}
@@ -173,6 +186,15 @@ export default async function OrgOverview({
               <span className="text-accent">{activeStack.label}</span> stack
             </>
           )}
+          {/* GB: the compare-segments link rides the controls line instead of its own block. */}
+          {segments.length > 0 && (
+            <>
+              {" · "}
+              <Link href={`/org/${slug}/segments`} className="focus-ring text-slate-500 transition hover:text-accent">
+                compare segments →
+              </Link>
+            </>
+          )}
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <SegmentSelector segments={segments} active={segmentId} />
@@ -180,85 +202,25 @@ export default async function OrgOverview({
           <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
         </div>
       </div>
-      {segments.length > 0 && (
-        <div className="-mt-3">
-          <Link href={`/org/${slug}/segments`} className="font-mono text-sm text-slate-500 hover:text-accent">
-            Compare segments side by side →
-          </Link>
-        </div>
-      )}
+
+      {/* Headline numbers — compact header panel (was the large Tile grid) */}
+      <OrgScoreBadges badges={badges} />
+
+      {/* Posture + dimension averages — one panel: composition bar + practice-linked dim grid */}
+      <CollapsibleSection id="posture" title="Posture & dimensions" defaultOpen={sectionOpen("posture")}>
+        <PostureDimensionsPanel slug={slug} postureCounts={rollup.postureCounts} dims={rollup.dimAverages} />
+      </CollapsibleSection>
 
       {/* Period-in-review banner — auto-summary of net fleet movement over the window */}
       <PeriodSummary window={period} rollup={rollup} movers={movers} />
 
-      {/* Tiles */}
-      <div className={TILE_GRID}>
-        <Tile
-          label="Org maturity"
-          value={rollup.avgOverall}
-          sub={`${level.id} · ${level.name}`}
-          color={scoreHex(rollup.avgOverall)}
-          delta={rollup.deltas?.overall}
-          deltaLabel={period.comparisonLabel}
-          goal={goalNote("overall")}
-        />
-        <Tile
-          label="AI Adoption"
-          value={rollup.avgAdoption}
-          color={scoreHex(rollup.avgAdoption)}
-          delta={rollup.deltas?.adoption}
-          deltaLabel={period.comparisonLabel}
-          goal={goalNote("adoption")}
-        />
-        <Tile
-          label="Engineering Rigor"
-          value={rollup.avgRigor}
-          color={scoreHex(rollup.avgRigor)}
-          delta={rollup.deltas?.rigor}
-          deltaLabel={period.comparisonLabel}
-          goal={goalNote("rigor")}
-        />
-        <Tile label="Repos scanned" value={`${rollup.scannedCount}/${rollup.repoCount}`} />
-      </div>
-
       {/* Trajectory — forward-looking GPS over the maturity trend */}
       {rollup.forecast && <Trajectory forecast={rollup.forecast} />}
-
-      {/* Goals & standing */}
-      <CollapsibleSection id="goals" title="Goals & standing" defaultOpen={sectionOpen("goals")}>
-        <div className="grid gap-6 lg:grid-cols-2">
-          <GoalsOverview slug={slug} goals={goals ?? []} />
-          <OrgStanding benchmark={benchmark} regressionCount={regressionCount} comparedRepos={movers?.comparedRepos ?? 0} periodStart={Boolean(period.start)} />
-        </div>
-      </CollapsibleSection>
 
       {/* Where the gaps live — common org gaps vs repo-specific */}
       {gaps && (gaps.commonGaps.length > 0 || gaps.repoSpecific.length > 0) && (
         <OrgGapsSection gaps={gaps} slug={slug} />
       )}
-
-      {/* Posture + dimension averages */}
-      <CollapsibleSection id="posture" title="Posture & dimensions" defaultOpen={sectionOpen("posture")}>
-        <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <SectionHeader size="sm" title="Posture distribution" />
-          <div className="mt-3 space-y-2">
-            {POSTURE_ORDER.map((p) => {
-              const n = rollup.postureCounts[p] ?? 0;
-              return (
-                <div key={p} className="flex items-center gap-3 text-base">
-                  <span className="w-36 shrink-0 text-slate-300">{postureLabel(p)}</span>
-                  <Meter className="flex-1" value={(n / maxPosture) * 100} />
-                  <span className="w-6 text-right font-mono tabular-nums text-slate-400">{n}</span>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-
-        <DimensionAverages slug={slug} dims={rollup.dimAverages} />
-        </div>
-      </CollapsibleSection>
 
       {/* Trend */}
       {trend.length >= 1 && (
@@ -279,9 +241,6 @@ export default async function OrgOverview({
           </div>
         </CollapsibleSection>
       )}
-
-      {/* Highest-leverage moves */}
-      {orgRecs && orgRecs.length > 0 && <OrgLeverageMoves recs={orgRecs} slug={slug} />}
     </div>
   );
 }

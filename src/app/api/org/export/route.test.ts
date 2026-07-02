@@ -28,17 +28,21 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(),
   getContributorInsights: vi.fn(),
   getOrgGovernance: vi.fn(),
+  getOrgRollup: vi.fn(),
+  getOrgTeamRollup: vi.fn(),
   listSegments: vi.fn(),
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
 
 import { GET } from "./route";
-import { isDbConfigured, getContributorInsights, getOrgGovernance, listSegments } from "@/lib/db";
+import { isDbConfigured, getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, listSegments } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
 const mockGetContributorInsights = vi.mocked(getContributorInsights);
 const mockGetOrgGovernance = vi.mocked(getOrgGovernance);
+const mockGetOrgRollup = vi.mocked(getOrgRollup);
+const mockGetOrgTeamRollup = vi.mocked(getOrgTeamRollup);
 const mockListSegments = vi.mocked(listSegments);
 const mockRequireOrgRead = vi.mocked(requireOrgRead);
 
@@ -66,6 +70,8 @@ beforeEach(() => {
   mockListSegments.mockResolvedValue([]);
   mockGetContributorInsights.mockResolvedValue({ contributors: [contributor()] } as never);
   mockGetOrgGovernance.mockResolvedValue({ perRepo: [] } as never);
+  mockGetOrgRollup.mockResolvedValue({ repos: [] } as never);
+  mockGetOrgTeamRollup.mockResolvedValue({ teams: [] } as never);
 });
 
 describe("GET /api/org/export — tenant gate (cross-tenant PII exfiltration guard)", () => {
@@ -159,6 +165,42 @@ describe("GET /api/org/export — authorized export", () => {
     expect(body.org).toBe("acme");
     expect(body.kind).toBe("contributors");
     expect(body.header).toContain("login");
+  });
+
+  it("reads the team rollup (not contributors/governance) for kind=teams", async () => {
+    mockGetOrgTeamRollup.mockResolvedValue({
+      teams: [
+        {
+          slug: "@acme/frontend",
+          name: "frontend",
+          repoCount: 3,
+          totalOwned: 4,
+          defaultOwnerCount: 2,
+          avgOverall: 78,
+          avgAdoption: 82,
+          avgRigor: 74,
+          posture: "ai-native",
+          contributors: 5,
+          aiContributors: 4,
+          aiCommitShare: 61,
+          comparedRepos: 2,
+          improving: 2,
+          declining: 0,
+          avgDelta: 6,
+        },
+      ],
+    } as never);
+
+    const res = await get("?org=acme&kind=teams&format=csv");
+
+    expect(res.status).toBe(200);
+    expect(mockGetOrgTeamRollup).toHaveBeenCalledTimes(1);
+    expect(mockGetOrgTeamRollup.mock.calls[0][0]).toBe("acme");
+    expect(mockGetContributorInsights).not.toHaveBeenCalled();
+    expect(mockGetOrgGovernance).not.toHaveBeenCalled();
+    const body = await res.text();
+    expect(body).toContain("team,name,reposScanned");
+    expect(body).toContain("@acme/frontend");
   });
 
   it("reads governance (not contributors) for kind=delivery", async () => {

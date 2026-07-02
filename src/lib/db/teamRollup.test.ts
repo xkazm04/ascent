@@ -71,6 +71,10 @@ describe("rollupTeams", () => {
     expect(out.teamCount).toBe(2);
   });
 
+  it("lists the unowned scanned repos weakest-first (the CODEOWNERS follow-up list)", () => {
+    expect(out.unowned).toEqual([{ fullName: "acme/infra", name: "infra", overall: 50 }]);
+  });
+
   it("sorts teams by repo count then maturity", () => {
     // both teams own 1 scored repo, so the more mature (frontend, 80) leads
     expect(out.teams.map((t) => t.slug)).toEqual(["@acme/frontend", "@acme/data"]);
@@ -122,6 +126,12 @@ describe("rollupTeams", () => {
       gap: 55,
     });
   });
+
+  it("ranks one pairing per qualifying dimension, biggest gap first, headline = pairings[0]", () => {
+    // D1 (85→30) and D8 (80→25) both qualify with a 55 gap (tie → dimId order); D2 doesn't (learner 55 ≥ TEAM_WEAK).
+    expect(out.pairings.map((p) => p.dimId)).toEqual(["D1", "D8"]);
+    expect(out.pairings[0]).toEqual(out.pairing);
+  });
 });
 
 describe("rollupTeams — empty / no-team fleets", () => {
@@ -133,6 +143,7 @@ describe("rollupTeams — empty / no-team fleets", () => {
     expect(out.unownedRepos).toBe(1);
     expect(out.knowledgeLeader).toBeNull();
     expect(out.pairing).toBeNull();
+    expect(out.pairings).toEqual([]);
   });
 
   it("yields no pairing when only one team exists", () => {

@@ -468,6 +468,8 @@
           "filePaths": [
             "src/app/org/[slug]/security/page.tsx",
             "src/app/org/[slug]/audit/page.tsx",
+            "src/components/org/SecurityRiskRegister.tsx",
+            "src/components/org/SecurityBandSpectrum.tsx",
             "src/lib/org/security.ts",
             "src/lib/org/security.test.ts",
             "src/lib/security/supply-chain.ts",
@@ -502,7 +504,15 @@
             "src/app/api/org/repositories/route.ts",
             "src/app/api/org/segments/[id]/repos/bulk/route.ts",
             "src/components/org/SegmentActions.tsx",
-            "src/components/org/RepoLeaderboard.tsx"
+            "src/components/org/RepoLeaderboard.tsx",
+            "src/app/org/[slug]/tech-stacks/page.tsx",
+            "src/lib/db/tech-groups.ts",
+            "src/lib/db/tech-groups.test.ts",
+            "src/lib/db/tech-groups-compare.test.ts",
+            "src/components/org/TechStackComparePicker.tsx",
+            "src/components/org/StackMatrix.tsx",
+            "src/components/org/StackSignals.tsx",
+            "src/components/org/StackComparePanel.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -545,7 +555,11 @@
           "filePaths": [
             "src/app/org/[slug]/contributors/page.tsx",
             "src/app/org/[slug]/teams/page.tsx",
-            "src/app/org/[slug]/delivery/page.tsx"
+            "src/app/org/[slug]/delivery/page.tsx",
+            "src/components/org/delivery/DeliveryPriorities.tsx",
+            "src/components/org/delivery/PrRepoTable.tsx",
+            "src/components/org/delivery/GovernanceTable.tsx",
+            "src/components/org/delivery/DeliveryActivityChart.tsx"
           ],
           "target": null,
           "apiRoutes": []
@@ -616,6 +630,7 @@
             "src/components/org/LiveWarRoomLeaderboard.tsx",
             "src/components/org/LiveWarRoomPanels.tsx",
             "src/components/org/LiveWarRoomStat.tsx",
+            "src/components/org/useLiveWarRoom.ts",
             "src/components/org/liveWarRoomShared.ts",
             "src/components/org/liveWarRoomShared.test.ts",
             "src/app/api/org/live-share/route.ts",

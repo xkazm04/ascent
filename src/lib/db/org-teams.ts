@@ -86,6 +86,9 @@ export interface OrgTeamRollup {
   teamCount: number;
   attributedRepos: number; // scanned repos with ≥1 CODEOWNERS team
   unownedRepos: number; // scanned repos with no CODEOWNERS team
+  /** The scanned repos behind `unownedRepos`, weakest overall first — the concrete CODEOWNERS
+   *  follow-up list (which repos to attribute, starting where attention is most needed). */
+  unowned: { fullName: string; name: string; overall: number }[];
   teams: TeamRollup[]; // sorted: most repos first, then maturity
   /** The team whose recent work is most AI-attributed and whose repos are most AI-native — an input
    *  for "who could mentor", never a ranking. Null when no team shows AI activity. */
@@ -96,8 +99,10 @@ export interface OrgTeamRollup {
     avgAdoption: number;
     knowledgeScore: number;
   } | null;
-  /** The single highest-leverage cross-team pairing. An invitation to pair, not a directive. Null
-   *  when no clear strong→weak gap exists on any shared dimension. */
+  /** The highest-leverage cross-team pairings (best strong→weak gap per dimension, biggest gaps
+   *  first, at most 3). Invitations to pair, not directives. Empty when no clear gap exists. */
+  pairings: TeamPairing[];
+  /** The single best pairing — `pairings[0]`, kept for existing callers. */
   pairing: TeamPairing | null;
 }
 
@@ -138,7 +143,7 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
 
   const acc = new Map<string, TeamAcc>();
   let attributedRepos = 0;
-  let unownedRepos = 0;
+  const unowned: OrgTeamRollup["unowned"] = [];
 
   for (const r of repos) {
     const latest = r.scans[0];
@@ -146,7 +151,7 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
     const hasTeams = r.teams.length > 0;
     if (latest) {
       if (hasTeams) attributedRepos += 1;
-      else unownedRepos += 1;
+      else unowned.push({ fullName: r.fullName, name: r.name, overall: latest.overallScore });
     }
     if (!hasTeams) continue; // unowned repos belong to no team
 
@@ -259,13 +264,13 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
       .filter((t) => t.aiContributors > 0)
       .sort((a, b) => b.knowledgeScore - a.knowledgeScore || b.aiCommitShare - a.aiCommitShare)[0] ?? null;
 
-  // Pairing: the biggest learnable gap on a single shared dimension — a strong team next to a weak
-  // one. Surfaces "who to pair next" as an invitation, scanning every dimension any team is scored on.
-  let pairing: TeamPairing | null = null;
+  // Pairings: the biggest learnable gaps, one per shared dimension — a strong team next to a weak
+  // one. Surfaces "who to pair next" as invitations, scanning every dimension any team is scored on;
+  // the top gap stays the headline `pairing`.
+  const candidates: TeamPairing[] = [];
   if (teams.length >= 2) {
     const allDims = new Set<string>();
     for (const t of teams) for (const d of t.dimAverages) allDims.add(d.dimId);
-    let best: TeamPairing | null = null;
     for (const dimId of allDims) {
       const scored = teams
         .map((t) => ({ t, d: t.dimAverages.find((x) => x.dimId === dimId) }))
@@ -276,30 +281,30 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
       const learner = sorted[sorted.length - 1]!; // safe: scored.length >= 2 checked above
       if (mentor.t.slug === learner.t.slug) continue;
       if (mentor.d.avg < TEAM_STRONG || learner.d.avg >= TEAM_WEAK) continue; // need a real strong→weak gap
-      const gap = mentor.d.avg - learner.d.avg;
-      if (!best || gap > best.gap) {
-        best = {
-          mentorSlug: mentor.t.slug,
-          mentorName: mentor.t.name,
-          learnerSlug: learner.t.slug,
-          learnerName: learner.t.name,
-          dimId,
-          label: mentor.d.label,
-          mentorScore: mentor.d.avg,
-          learnerScore: learner.d.avg,
-          gap,
-        };
-      }
+      candidates.push({
+        mentorSlug: mentor.t.slug,
+        mentorName: mentor.t.name,
+        learnerSlug: learner.t.slug,
+        learnerName: learner.t.name,
+        dimId,
+        label: mentor.d.label,
+        mentorScore: mentor.d.avg,
+        learnerScore: learner.d.avg,
+        gap: mentor.d.avg - learner.d.avg,
+      });
     }
-    pairing = best;
   }
+  const pairings = candidates.sort((a, b) => b.gap - a.gap || a.dimId.localeCompare(b.dimId)).slice(0, 3);
+
+  unowned.sort((a, b) => a.overall - b.overall || a.fullName.localeCompare(b.fullName));
 
   return {
     org: orgSlug,
     source: "codeowners",
     teamCount: teams.length,
     attributedRepos,
-    unownedRepos,
+    unownedRepos: unowned.length,
+    unowned,
     teams,
     knowledgeLeader: knowledgeLeader
       ? {
@@ -310,7 +315,8 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
           knowledgeScore: knowledgeLeader.knowledgeScore,
         }
       : null,
-    pairing,
+    pairings,
+    pairing: pairings[0] ?? null,
   };
 }
 

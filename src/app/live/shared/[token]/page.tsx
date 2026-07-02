@@ -35,9 +35,22 @@ export default async function SharedLivePage({ params }: { params: Promise<{ tok
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }
   const seed = toLiveRepoSeeds(rollup.repos);
+  // Display-only extras the kiosk can safely show: the org trend spark + fleet freshness
+  // (both come from the same rollup the wall already exposes — no session-gated links).
+  const fleetScannedAt = rollup.repos.reduce<string | null>((acc, r) => {
+    const at = r.latest?.scannedAt ?? null;
+    return at && (!acc || at > acc) ? at : acc;
+  }, null);
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-8">
-      <LiveWarRoom slug={verified.org} watchedCount={rollup.repos.filter((r) => r.watched).length} seed={seed} readOnly />
+      <LiveWarRoom
+        slug={verified.org}
+        watchedCount={rollup.repos.filter((r) => r.watched).length}
+        seed={seed}
+        trend={rollup.trend}
+        fleetScannedAt={fleetScannedAt}
+        readOnly
+      />
     </main>
   );
 }

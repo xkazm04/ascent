@@ -2,15 +2,17 @@
 // movement and goals into one board-ready narrative, with a "Copy briefing for LLM" action that emits
 // a markdown brief to paste into Claude Code (Direction #5 + the #6 LLM-consumption baseline).
 
+import Link from "next/link";
 import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, valueRealizedLine } from "@/lib/org/briefing";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID, DIRECTION_TONE } from "@/components/org/ui";
-import { DimRow, PriorPeriodGrid } from "@/components/org/briefingShared";
+import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { DimRow, MoveRow, PriorPeriodGrid, practiceHref } from "@/components/org/briefingShared";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { BriefingShareButton } from "@/components/org/BriefingShareButton";
 import { BrandingSettings } from "@/components/org/BrandingSettings";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
 import { briefingShareEnabled } from "@/lib/briefing-share";
-import { getCreditState, getOrgBranding } from "@/lib/db";
+import { getCreditState, getOrgBranding, getOrgRecommendations } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
@@ -42,6 +44,11 @@ export default async function OrgExecutive({
       </SectionEmpty>
     );
   }
+
+  // Highest-leverage fleet moves — the ranked, projected-gain recommendations. Moved here from the
+  // Overview so the Briefing owns the "what to do next" narrative (it supersedes the old single
+  // "Recommended next move" line below). Scoped to the same segment/stack as the rest of the briefing.
+  const orgRecs = await getOrgRecommendations(slug, 5, segmentId, techGroupId).catch(() => null);
 
   const md = briefingMarkdown(briefing);
   const { maturity, benchmark } = briefing;
@@ -105,41 +112,39 @@ export default async function OrgExecutive({
         </div>
       )}
 
-      {(briefing.adoptionRate != null || briefing.movement.compared > 0) && (
-        <p className="font-mono text-sm text-slate-500">
+      {/* GB: fleet signals as ONE wrap-row strip instead of three stacked <p> lines. */}
+      {(briefing.adoptionRate != null ||
+        briefing.movement.compared > 0 ||
+        benchmark?.cohort?.overallPercentile != null ||
+        briefing.engineMix.length > 0) && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-sm text-slate-500">
           {briefing.adoptionRate != null && (
-            <>
+            <span>
               Fleet adoption <span className="text-slate-300">{briefing.adoptionRate}%</span> at high-adoption posture
-            </>
-          )}
-          {briefing.movement.compared > 0 && (
-            <>
-              {briefing.adoptionRate != null ? " · " : ""}
-              <span className="text-slate-300">{briefing.movement.up + briefing.movement.down}</span> of{" "}
-              {briefing.movement.compared} repos moved ({briefing.movement.up}▲ / {briefing.movement.down}▼)
-            </>
-          )}
-        </p>
-      )}
-
-      {benchmark?.cohort?.overallPercentile != null && (
-        <p className="-mt-2 font-mono text-sm text-slate-500">
-          Peer cohort:{" "}
-          <span className="text-slate-300">{benchmark.cohort.overallPercentile}th percentile</span> vs{" "}
-          {benchmark.cohort.repos} {benchmark.cohort.language} repos
-          {benchmark.cohort.adoptionPercentile != null ? ` · ${benchmark.cohort.adoptionPercentile}th on AI adoption` : ""}
-        </p>
-      )}
-
-      {briefing.engineMix.length > 0 && (
-        <p className="font-mono text-sm text-slate-500">
-          Scored by {engineMixLabel(briefing.engineMix)}
-          {engineMixDegraded(briefing.engineMix) && (
-            <span className="text-warn">
-              {" "}· ⚠ some scores this period used the deterministic mock engine, not the live model
             </span>
           )}
-        </p>
+          {briefing.movement.compared > 0 && (
+            <span>
+              <span className="text-slate-300">{briefing.movement.up + briefing.movement.down}</span> of{" "}
+              {briefing.movement.compared} repos moved ({briefing.movement.up}▲ / {briefing.movement.down}▼)
+            </span>
+          )}
+          {benchmark?.cohort?.overallPercentile != null && (
+            <span>
+              Peer cohort <span className="text-slate-300">{benchmark.cohort.overallPercentile}th percentile</span> vs{" "}
+              {benchmark.cohort.repos} {benchmark.cohort.language} repos
+              {benchmark.cohort.adoptionPercentile != null ? ` · ${benchmark.cohort.adoptionPercentile}th on AI adoption` : ""}
+            </span>
+          )}
+          {briefing.engineMix.length > 0 && (
+            <span>
+              Scored by {engineMixLabel(briefing.engineMix)}
+              {engineMixDegraded(briefing.engineMix) && (
+                <span className="text-warn"> · ⚠ some scores used the deterministic mock engine</span>
+              )}
+            </span>
+          )}
+        </div>
       )}
 
       {(briefing.forecastHeadline || briefing.regressionCount > 0) && (
@@ -169,43 +174,32 @@ export default async function OrgExecutive({
         </Card>
       )}
 
-      {(briefing.risks[0] ?? briefing.security) && (
-        <Card>
-          <SectionHeader size="sm" title="Recommended next move" />
-          {(() => {
-            const focus = briefing.risks[0] ?? briefing.security!;
-            return (
-              <p className="mt-2 text-base text-slate-300">
-                Raise{" "}
-                <span className="font-semibold text-white">
-                  {focus.dimId} {focus.label}
-                </span>{" "}
-                — the fleet&apos;s weakest dimension at{" "}
-                <span style={{ color: scoreHex(focus.avg) }}>{focus.avg}/100</span>. It carries the most
-                headroom, so closing it is the highest-leverage lift toward the next maturity level.
-              </p>
-            );
-          })()}
-        </Card>
-      )}
+      {/* Highest-leverage moves — the ranked "what to do next", replacing the old single-line
+          "Recommended next move" (which named only the weakest dimension). */}
+      {orgRecs && orgRecs.length > 0 && <OrgLeverageMoves recs={orgRecs} slug={slug} />}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <SectionHeader size="sm" title="Strengths" />
           <div className="mt-3 space-y-1.5">
             {briefing.strengths.map((d) => (
-              <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} />
+              <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} href={practiceHref(slug, d.dimId)} />
             ))}
           </div>
         </Card>
         <Card>
-          <SectionHeader size="sm" title="Weakest dimensions" />
+          <SectionHeader size="sm" title="Weakest dimensions" right={<span className="font-mono text-sm text-slate-500">→ practices</span>} />
           <div className="mt-3 space-y-1.5">
             {briefing.risks.map((d) => (
-              <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} />
+              <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} href={practiceHref(slug, d.dimId)} />
             ))}
             {briefing.security && briefing.risks.every((r) => r.dimId !== "D9") && (
-              <DimRow dimId={briefing.security.dimId} label={`${briefing.security.label} (security)`} avg={briefing.security.avg} />
+              <DimRow
+                dimId={briefing.security.dimId}
+                label={`${briefing.security.label} (security)`}
+                avg={briefing.security.avg}
+                href={practiceHref(slug, briefing.security.dimId)}
+              />
             )}
           </div>
         </Card>
@@ -216,17 +210,25 @@ export default async function OrgExecutive({
           <SectionHeader size="sm" title="Movement this period" />
           <div className="mt-3 space-y-1.5">
             {briefing.topGainers.map((m) => (
-              <MoveRow key={`g-${m.name}`} tone="up" name={m.name} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
+              <MoveRow key={`g-${m.name}`} tone="up" name={m.name} fullName={m.fullName} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
             ))}
             {briefing.topRegressions.map((m) => (
-              <MoveRow key={`r-${m.name}`} tone="down" name={m.name} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
+              <MoveRow key={`r-${m.name}`} tone="down" name={m.name} fullName={m.fullName} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
             ))}
           </div>
         </Card>
       )}
 
       <Card>
-        <SectionHeader size="sm" title="Goals" />
+        <SectionHeader
+          size="sm"
+          title="Goals"
+          right={
+            <Link href={`/org/${slug}/plan`} className="focus-ring font-mono text-sm text-slate-500 transition hover:text-accent">
+              Manage goals →
+            </Link>
+          }
+        />
         {briefing.goals.length === 0 ? (
           <InlineEmpty>No goals set — define maturity targets on the Plan tab to track progress here.</InlineEmpty>
         ) : (
@@ -250,17 +252,3 @@ export default async function OrgExecutive({
   );
 }
 
-function MoveRow({ tone, name, d, from, to }: { tone: "up" | "down"; name: string; d: number; from: string; to: string }) {
-  const { arrow, color } = DIRECTION_TONE[tone === "up" ? "rising" : "falling"];
-  return (
-    <div className="flex items-center justify-between gap-3 text-base">
-      <span className="min-w-0 truncate font-mono text-sm text-slate-200">{name}</span>
-      <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
-        {from !== to && <span className="text-slate-500">{from}→{to}</span>}
-        <span style={{ color }}>
-          {arrow} {Math.abs(d)}
-        </span>
-      </span>
-    </div>
-  );
-}

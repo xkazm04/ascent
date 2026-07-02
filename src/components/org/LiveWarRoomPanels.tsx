@@ -1,43 +1,85 @@
+import Link from "next/link";
 import { POSTURE_LABEL } from "@/components/org/ui";
-import { scoreHex } from "@/lib/ui";
+import { reportPermalink, scoreHex } from "@/lib/ui";
 import { POSTURE_HEX, POSTURE_ORDER, postureBarPct, type Mover } from "@/components/org/liveWarRoomShared";
 
-export function PostureMix({ counts, scored }: { counts: Record<string, number>; scored: number }) {
-  // Bar widths scale to the TOTAL scored fleet, not the largest bucket — see postureBarPct. Scaling
-  // to the max made the LEADING posture always render as a full 100% bar regardless of its real share,
-  // overstating the dominant posture's prevalence on a projected war-room wall.
+export function PostureMix({
+  counts,
+  scored,
+  slug,
+  readOnly = false,
+}: {
+  counts: Record<string, number>;
+  scored: number;
+  slug: string;
+  /** Kiosk/TV view: the repositories link needs a session, so the header stays plain. */
+  readOnly?: boolean;
+}) {
+  // One 100%-stacked band instead of four separate meter rows: the mix reads at a glance and the
+  // panel drops two rows of chrome. Segment widths are each posture's TRUE share of the scored
+  // fleet (postureBarPct — never max-normalized); the flex gaps let the track show through as the
+  // segment separator, and the legend below carries identity + counts so color is never the only channel.
+  const shares = POSTURE_ORDER.map((p) => ({
+    posture: p,
+    n: counts[p] ?? 0,
+    pct: postureBarPct(counts[p] ?? 0, scored, counts),
+    color: POSTURE_HEX[p] ?? "#64748b",
+  }));
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Posture distribution</h3>
-      <div className="mt-3 space-y-2.5">
-        {POSTURE_ORDER.map((p) => {
-          const n = counts[p] ?? 0;
-          const color = POSTURE_HEX[p] ?? "#64748b";
-          const isNative = p === "ai-native";
+      <div className="flex items-center justify-between">
+        <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Posture mix</h3>
+        {readOnly ? (
+          <span className="font-mono text-sm text-slate-500">{scored} scored</span>
+        ) : (
+          <Link href={`/org/${slug}/repositories`} className="font-mono text-sm text-slate-500 transition hover:text-accent">
+            {scored} scored →
+          </Link>
+        )}
+      </div>
+      <div className="mt-3 flex h-3 gap-0.5 overflow-hidden rounded-full bg-slate-800">
+        {shares
+          .filter((s) => s.n > 0)
+          .map((s) => (
+            <div
+              key={s.posture}
+              className="h-full rounded-sm transition-all duration-700 ease-out motion-reduce:transition-none"
+              style={{ width: `${s.pct}%`, backgroundColor: s.color }}
+              title={`${POSTURE_LABEL[s.posture]}: ${s.n} (${Math.round(s.pct)}%)`}
+            />
+          ))}
+      </div>
+      <dl className="mt-3 space-y-1.5">
+        {shares.map((s) => {
+          const isNative = s.posture === "ai-native";
           return (
-            <div key={p} className="flex items-center gap-3 text-base">
-              <span className={`w-32 shrink-0 truncate ${isNative ? "font-medium text-white" : "text-slate-300"}`}>
-                {POSTURE_LABEL[p]}
-              </span>
-              <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full rounded-full transition-all duration-700 ease-out motion-reduce:transition-none"
-                  style={{ width: `${postureBarPct(n, scored, counts)}%`, backgroundColor: color }}
-                />
-              </div>
-              <span className="w-6 text-right font-mono tabular-nums" style={{ color: n > 0 ? color : "#64748b" }}>
-                {n}
-              </span>
+            <div key={s.posture} className="flex items-center gap-2 text-base">
+              <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: s.color }} />
+              <dt className={`min-w-0 flex-1 truncate ${isNative ? "font-medium text-white" : "text-slate-300"}`}>
+                {POSTURE_LABEL[s.posture]}
+              </dt>
+              <dd className="font-mono text-sm tabular-nums" style={{ color: s.n > 0 ? s.color : "#64748b" }}>
+                {s.n}
+                {s.n > 0 && <span className="text-slate-500"> · {Math.round(s.pct)}%</span>}
+              </dd>
             </div>
           );
         })}
-      </div>
-      <p className="mt-3 font-mono text-sm text-slate-500">{scored} repo{scored === 1 ? "" : "s"} scored</p>
+      </dl>
     </div>
   );
 }
 
-export function MoversTicker({ ticker, running }: { ticker: Mover[]; running: boolean }) {
+export function MoversTicker({
+  ticker,
+  running,
+  readOnly = false,
+}: {
+  ticker: Mover[];
+  running: boolean;
+  /** Kiosk/TV view: report links need a session, so names stay plain text. */
+  readOnly?: boolean;
+}) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
       <div className="flex items-center justify-between">
@@ -52,9 +94,20 @@ export function MoversTicker({ ticker, running }: { ticker: Mover[]; running: bo
         <ul className="mt-3 space-y-1.5" aria-live="polite">
           {ticker.map((m) => (
             <li key={m.id} className="animate-pop-in flex items-center justify-between gap-3 rounded-md px-1 text-base">
-              <span className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200" title={m.fullName}>
-                {m.name}
-              </span>
+              {/* Each mover jumps to its report — a fresh result begs "what changed?", the report answers. */}
+              {readOnly ? (
+                <span className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200" title={m.fullName}>
+                  {m.name}
+                </span>
+              ) : (
+                <Link
+                  href={reportPermalink(m.fullName)}
+                  title={m.fullName}
+                  className="min-w-0 flex-1 truncate font-mono text-sm text-slate-200 underline-offset-2 hover:text-accent hover:underline"
+                >
+                  {m.name}
+                </Link>
+              )}
               {m.failed ? (
                 <span className="shrink-0 font-mono text-sm text-orange-400">scan failed</span>
               ) : m.skipped ? (

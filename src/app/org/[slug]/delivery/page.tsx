@@ -1,32 +1,14 @@
-import { Card, ExportCsvLink, OrgTable, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
+import { Card, ExportCsvLink, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
 import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
+import { DeliveryPriorities } from "@/components/org/delivery/DeliveryPriorities";
+import { PrRepoTable } from "@/components/org/delivery/PrRepoTable";
+import { GovernanceTable } from "@/components/org/delivery/GovernanceTable";
+import { DeliveryActivityChart } from "@/components/org/delivery/DeliveryActivityChart";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
-
-function ActivityChart({ series }: { series: number[] }) {
-  const max = Math.max(1, ...series);
-  return (
-    <div>
-      <div className="flex h-28 items-end gap-1">
-        {series.map((v, i) => (
-          <div
-            key={i}
-            className="flex-1 rounded-t bg-accent/70 transition-all hover:bg-accent"
-            style={{ height: `${Math.max(2, (v / max) * 100)}%` }}
-            title={`${v} commits`}
-          />
-        ))}
-      </div>
-      <div className="mt-2 flex justify-between font-mono text-sm uppercase tracking-widest text-slate-600">
-        <span>{series.length} weeks ago</span>
-        <span>this week</span>
-      </div>
-    </div>
-  );
-}
 
 export default async function OrgDelivery({
   params,
@@ -77,6 +59,10 @@ export default async function OrgDelivery({
   return (
     <div className="space-y-6">
       {segmentBar}
+
+      {/* Fix first — the derived punch list; every priority links to the evidence below. */}
+      {(pr || gov) && <DeliveryPriorities pr={pr} gov={gov} />}
+
       {/* Pull request signals */}
       {pr && (
         <div>
@@ -100,77 +86,57 @@ export default async function OrgDelivery({
             <Tile
               label="Review coverage"
               value={pr.avgReviewedRate == null ? "—" : `${pr.avgReviewedRate}%`}
-              sub={pr.avgReviewedRate == null ? "no human-merged PRs" : undefined}
+              sub={pr.avgReviewedRate == null ? "no human-merged PRs" : "target ≥80%"}
               color={pr.avgReviewedRate == null ? "#fff" : scoreHex(pr.avgReviewedRate)}
             />
             <Tile label="Merge rate" value={`${pr.avgMergeRate}%`} color={scoreHex(pr.avgMergeRate)} />
-            <Tile label="Small PRs" value={`${pr.avgSmallPrRate}%`} color={scoreHex(pr.avgSmallPrRate)} />
+            <Tile label="Small PRs" value={`${pr.avgSmallPrRate}%`} sub="≤200 changed lines" color={scoreHex(pr.avgSmallPrRate)} />
             <Tile label="AI-involved PRs" value={`${pr.avgAiInvolvedRate}%`} color={scoreHex(pr.avgAiInvolvedRate)} />
             <Tile
               label="AI PRs reviewed"
               value={pr.avgAiGovernedRate == null ? "—" : `${pr.avgAiGovernedRate}%`}
-              sub="governed AI"
+              sub={pr.avgAiGovernedRate == null ? "sample too small" : "governed AI"}
               color={pr.avgAiGovernedRate == null ? "#fff" : scoreHex(pr.avgAiGovernedRate)}
             />
             <Tile label="Typical time-to-merge" value={fmtHours(pr.typicalHoursToMerge)} />
           </div>
+
+          {/* The averages above are only readable with the spread behind them: who drags the mean. */}
+          {pr.perRepo.length > 0 && (
+            <div id="per-repo" className="mt-5 scroll-mt-24">
+              <SectionHeader
+                size="sm"
+                title="By repository"
+                description="Riskiest first — lowest review coverage, then slowest merges. Click a repo for its full report."
+              />
+              <div className="mt-3">
+                <PrRepoTable rows={pr.perRepo} />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Branch governance */}
       {gov && (
-        <div>
+        <div id="governance" className="scroll-mt-24">
           <SectionHeader
             title="Branch governance"
-            description={`Guardrails on the default branch — from branch protection & rulesets, across ${gov.repos} repos.`}
+            description={`Guardrails on the default branch — from branch protection & rulesets, across ${gov.repos} repos. Gaps first; the governed tail is folded.`}
           />
           <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Tile label="Protect main" value={`${gov.protectedRate}%`} color={scoreHex(gov.protectedRate)} />
-            <Tile label="Require review" value={`${gov.requireReviewRate}%`} color={scoreHex(gov.requireReviewRate)} />
+            <Tile label="Require review" value={`${gov.requireReviewRate}%`} sub="≥1 approving review" color={scoreHex(gov.requireReviewRate)} />
             <Tile label="Require checks" value={`${gov.requireChecksRate}%`} color={scoreHex(gov.requireChecksRate)} />
             <Tile label="Signed commits" value={`${gov.signedRate}%`} color={scoreHex(gov.signedRate)} />
           </div>
-          <OrgTable
-            className="mt-3"
-            caption="Delivery and governance metrics by repository"
-            head={
-              <tr>
-                <th className="px-4 py-2 text-left">Repo</th>
-                <th className="px-3 py-2 text-center">Protected</th>
-                <th className="px-3 py-2 text-center">Reviews</th>
-                <th className="px-3 py-2 text-center">Checks</th>
-                <th className="px-3 py-2 text-center">Signed</th>
-                <th className="px-3 py-2 text-right">Rules</th>
-              </tr>
-            }
-          >
-            {gov.perRepo.map((r) => {
-                  const yes = (b: boolean) => (b ? <span className="text-lime-400">✓</span> : <span className="text-slate-600">—</span>);
-                  return (
-                    <tr key={r.fullName} className="text-slate-300">
-                      <td className="px-4 py-2 font-mono text-sm text-white">
-                        {r.name}
-                        {!r.protected && (
-                          <span className="ml-2 rounded border border-orange-500/40 bg-orange-500/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-orange-300">
-                            unprotected
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-center">{yes(r.protected)}</td>
-                      <td className="px-3 py-2 text-center font-mono text-sm">
-                        {r.requiresPullRequest ? <span className="text-lime-400">{r.requiredApprovals > 0 ? `✓ ${r.requiredApprovals}` : "✓"}</span> : yes(false)}
-                      </td>
-                      <td className="px-3 py-2 text-center">{yes(r.requiresStatusChecks)}</td>
-                      <td className="px-3 py-2 text-center">{yes(r.requiresSignatures)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{r.ruleCount}</td>
-                    </tr>
-                  );
-                })}
-          </OrgTable>
+          <div className="mt-3">
+            <GovernanceTable gov={gov} />
+          </div>
         </div>
       )}
 
-      {/* Commit activity (real) */}
+      {/* Commit activity (real, from GitHub) */}
       {activity && (
         <Card>
           <SectionHeader
@@ -184,7 +150,7 @@ export default async function OrgDelivery({
             }
           />
           <div className="mt-4">
-            <ActivityChart series={activity.series} />
+            <DeliveryActivityChart series={activity.series} endWeekStartMs={activity.endWeekStartMs} />
           </div>
         </Card>
       )}

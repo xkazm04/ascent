@@ -61,6 +61,9 @@ export interface BriefingDim {
 }
 export interface BriefingMove {
   name: string;
+  /** owner/name, so the exec page can link the row to the repo's report permalink. Optional — older
+   *  fixtures/serialized briefings without it degrade to a static row, never a dead link. */
+  fullName?: string;
   dOverall: number;
   levelFrom: string;
   levelTo: string;
@@ -145,6 +148,7 @@ const named = (d: { dimId: string; avg: number }): BriefingDim => ({
 });
 const moveRow = (m: RepoMove): BriefingMove => ({
   name: m.name,
+  fullName: m.fullName,
   dOverall: m.dOverall,
   levelFrom: m.levelFrom,
   levelTo: m.levelTo,

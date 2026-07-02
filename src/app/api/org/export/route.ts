@@ -1,10 +1,11 @@
-// GET /api/org/export?org=<slug>&kind=contributors|delivery[&segment=<id>][&format=csv]
+// GET /api/org/export?org=<slug>&kind=contributors|delivery|passports|teams[&segment=<id>][&format=csv]
 // Export the org analytics tables as data — JSON by default, or a CSV download (format=csv). Read-only,
 // gated to a readable org, and segment-scoped like the pages. Reuses getContributorInsights /
-// getOrgGovernance so the export reflects exactly what the Contributors / Delivery tabs show.
+// getOrgGovernance / getOrgRollup / getOrgTeamRollup so the export reflects exactly what the
+// Contributors / Delivery / Passports / Teams tabs show.
 
 import { NextResponse } from "next/server";
-import { getContributorInsights, getOrgGovernance, isDbConfigured, listSegments } from "@/lib/db";
+import { getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, isDbConfigured, listSegments } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { csvField } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
@@ -22,8 +23,8 @@ export async function GET(request: Request) {
   const org = searchParams.get("org");
   const kind = searchParams.get("kind");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
-  if (kind !== "contributors" && kind !== "delivery") {
-    return NextResponse.json({ error: "kind must be contributors | delivery." }, { status: 400 });
+  if (kind !== "contributors" && kind !== "delivery" && kind !== "passports" && kind !== "teams") {
+    return NextResponse.json({ error: "kind must be contributors | delivery | passports | teams." }, { status: 400 });
   }
   const denied = await requireOrgRead(org);
   if (denied) return denied;
@@ -38,6 +39,40 @@ export async function GET(request: Request) {
     const insights = await getContributorInsights(org, segmentId);
     header = ["login", "name", "commits", "aiCommits", "aiSharePct", "repos", "lastActiveAt"];
     rows = (insights?.contributors ?? []).map((c) => [c.login, c.name ?? "", c.commits, c.aiCommits, c.aiShare, c.repos, c.lastActiveAt ?? ""]);
+  } else if (kind === "passports") {
+    // One row per passport — the Passports tab's table plus the row-detail facts (blockers joined
+    // with "; " so the CSV stays one-line-per-repo).
+    const rollup = await getOrgRollup(org, undefined, segmentId);
+    header = [
+      "repo", "name", "automationLevel", "automationScore", "productionBand", "productionScore",
+      "ci", "ciProvider", "tests", "coveragePct", "security", "observability",
+      "migrations", "iac", "rollback", "automationBlockers", "productionBlockers",
+    ];
+    rows = (rollup?.repos ?? [])
+      .filter((r) => r.passport)
+      .map((r) => {
+        const auto = r.passport!.automationReadiness;
+        const prod = r.passport!.productionReadiness;
+        return [
+          r.fullName, r.name, auto.level, auto.score, prod.band, prod.score,
+          prod.ci.level, prod.ci.provider ?? "", prod.tests.level, prod.tests.coveragePct ?? "",
+          prod.security.level, prod.observability.level,
+          prod.delivery.migrations, prod.delivery.iac, prod.delivery.rollback,
+          auto.blockers.join("; "), prod.blockers.join("; "),
+        ];
+      });
+  } else if (kind === "teams") {
+    // One row per CODEOWNERS team — the Teams tab's matrix rollup (maturity averages, AI knowledge,
+    // and since-last-scan movement).
+    const rollup = await getOrgTeamRollup(org, segmentId);
+    header = [
+      "team", "name", "reposScanned", "reposOwned", "primaryOwnerOf", "avgOverall", "avgAdoption", "avgRigor",
+      "posture", "contributors", "aiContributors", "aiCommitSharePct", "comparedRepos", "improving", "declining", "avgDelta",
+    ];
+    rows = (rollup?.teams ?? []).map((t) => [
+      t.slug, t.name, t.repoCount, t.totalOwned, t.defaultOwnerCount, t.avgOverall, t.avgAdoption, t.avgRigor,
+      t.posture, t.contributors, t.aiContributors, t.aiCommitShare, t.comparedRepos, t.improving, t.declining, t.avgDelta,
+    ]);
   } else {
     const gov = await getOrgGovernance(org, segmentId);
     header = ["repo", "name", "protected", "requiresPullRequest", "requiredApprovals", "requiresStatusChecks", "requiresSignatures", "ruleCount"];
