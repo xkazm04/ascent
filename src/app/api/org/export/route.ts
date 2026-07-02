@@ -37,8 +37,14 @@ export async function GET(request: Request) {
   let rows: unknown[][];
   if (kind === "contributors") {
     const insights = await getContributorInsights(org, segmentId);
+    // A `null` result means the lookup itself failed/was unavailable — distinct from an org that
+    // legitimately has zero contributors (a present object with an empty array). Returning a
+    // header-only 200 in the null case is success theater, so surface it as a 404 instead.
+    if (!insights) {
+      return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
+    }
     header = ["login", "name", "commits", "aiCommits", "aiSharePct", "repos", "lastActiveAt"];
-    rows = (insights?.contributors ?? []).map((c) => [c.login, c.name ?? "", c.commits, c.aiCommits, c.aiShare, c.repos, c.lastActiveAt ?? ""]);
+    rows = insights.contributors.map((c) => [c.login, c.name ?? "", c.commits, c.aiCommits, c.aiShare, c.repos, c.lastActiveAt ?? ""]);
   } else if (kind === "passports") {
     // One row per passport — the Passports tab's table plus the row-detail facts (blockers joined
     // with "; " so the CSV stays one-line-per-repo).
@@ -65,18 +71,26 @@ export async function GET(request: Request) {
     // One row per CODEOWNERS team — the Teams tab's matrix rollup (maturity averages, AI knowledge,
     // and since-last-scan movement).
     const rollup = await getOrgTeamRollup(org, segmentId);
+    // Same null contract as contributors/delivery: null = unknown org / lookup unavailable → 404,
+    // distinct from an org that legitimately has zero teams (a present shape with `teams: []`).
+    if (!rollup) {
+      return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
+    }
     header = [
       "team", "name", "reposScanned", "reposOwned", "primaryOwnerOf", "avgOverall", "avgAdoption", "avgRigor",
       "posture", "contributors", "aiContributors", "aiCommitSharePct", "comparedRepos", "improving", "declining", "avgDelta",
     ];
-    rows = (rollup?.teams ?? []).map((t) => [
+    rows = rollup.teams.map((t) => [
       t.slug, t.name, t.repoCount, t.totalOwned, t.defaultOwnerCount, t.avgOverall, t.avgAdoption, t.avgRigor,
       t.posture, t.contributors, t.aiContributors, t.aiCommitShare, t.comparedRepos, t.improving, t.declining, t.avgDelta,
     ]);
   } else {
     const gov = await getOrgGovernance(org, segmentId);
+    if (!gov) {
+      return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
+    }
     header = ["repo", "name", "protected", "requiresPullRequest", "requiredApprovals", "requiresStatusChecks", "requiresSignatures", "ruleCount"];
-    rows = (gov?.perRepo ?? []).map((r) => [
+    rows = gov.perRepo.map((r) => [
       r.fullName,
       r.name,
       r.protected,
@@ -93,8 +107,9 @@ export async function GET(request: Request) {
       headers: {
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}.csv"`,
+        "cache-control": "private, no-store",
       },
     });
   }
-  return NextResponse.json({ org, kind, header, rows });
+  return NextResponse.json({ org, kind, header, rows }, { headers: { "cache-control": "private, no-store" } });
 }

@@ -145,14 +145,33 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
   out.push("");
   out.push("## Security standing");
   out.push(`- Average Security (${o.dimLabel}, D9): ${o.avgSecurity ?? "—"}/100 across ${o.scanned} repos`);
+  if (o.securityDelta != null) out.push(`- Movement: ${o.securityDelta >= 0 ? "+" : ""}${o.securityDelta} D9 over ${o.periodTitle} (cohort-matched)`);
   out.push(`- Distribution: ${o.band.critical} critical (<40) · ${o.band.weak} weak (40–59) · ${o.band.ok} ok (60–79) · ${o.band.strong} strong (80+)`);
   if (o.governance) {
     const g = o.governance;
     out.push(`- Branch protection: ${g.protectedRate}% protected · ${g.requireReviewRate}% require review · ${g.requireChecksRate}% require checks · ${g.signedRate}% signed`);
   }
   out.push("");
-  out.push("## Weakest repos (lowest security)");
-  for (const r of o.weakest) out.push(`- ${r.name}: ${r.score}/100${r.protected ? "" : " (no branch protection)"}`);
+  // The risk register as a markdown table — score, gate verdict, and the enabled branch rules per
+  // repo (plus advisories when supply-chain scanning is on), so the ASK below can reason about the
+  // WHOLE posture of each repo instead of a bare weakest-scores list.
+  const REGISTER_CAP = 15;
+  const advByRepo = supply && supply.scanned > 0 ? new Map(supply.repos.map((r) => [r.fullName, r])) : null;
+  out.push("## Risk register (worst first)");
+  out.push(`| repo | security (D9) | gate | branch rules |${advByRepo ? " advisories |" : ""}`);
+  out.push(`| --- | --- | --- | --- |${advByRepo ? " --- |" : ""}`);
+  for (const r of o.register.slice(0, REGISTER_CAP)) {
+    const rules = r.rules
+      ? [r.rules.protected && "protected", r.rules.review && "review", r.rules.checks && "checks", r.rules.signed && "signed"]
+          .filter(Boolean)
+          .join(", ") || "none"
+      : "unreadable";
+    const gate = r.gateReason ? `FAIL — ${r.gateReason}` : "pass";
+    const a = advByRepo?.get(r.fullName);
+    const adv = advByRepo ? (a ? (a.total > 0 ? `${a.critical} critical / ${a.high} high / ${a.total} total` : "0") : "—") : null;
+    out.push(`| ${r.name} | ${r.score}/100 | ${gate} | ${rules} |${adv != null ? ` ${adv} |` : ""}`);
+  }
+  if (o.register.length > REGISTER_CAP) out.push(`…and ${o.register.length - REGISTER_CAP} more repos (see the dashboard's risk register).`);
   if (o.unprotected.length) {
     out.push("");
     out.push("## Repos with no default-branch protection");

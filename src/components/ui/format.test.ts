@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deltaHex, signedDelta, fmtDelta } from "./format";
+import { deltaHex, signedDelta, fmtDelta, toneFor } from "./format";
 
 describe("delta formatters (noise-aware)", () => {
   it("deltaHex mutes flat + within-noise deltas to slate", () => {
@@ -22,5 +22,13 @@ describe("delta formatters (noise-aware)", () => {
     expect(fmtDelta(-2)).toBe("≈-2");
     expect(fmtDelta(8)).toBe("▲+8");
     expect(fmtDelta(-5)).toBe("▼-5");
+  });
+
+  it("toneFor mutes flat + within-noise deltas to 'flat' like its sibling formatters", () => {
+    expect(toneFor(0)).toBe("flat");
+    expect(toneFor(1)).toBe("flat");
+    expect(toneFor(-2)).toBe("flat");
+    expect(toneFor(8)).toBe("rising");
+    expect(toneFor(-5)).toBe("falling");
   });
 });

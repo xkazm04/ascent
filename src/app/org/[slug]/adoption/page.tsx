@@ -21,6 +21,11 @@ import { DeliveryStrip } from "./DeliveryStrip";
 
 export const dynamic = "force-dynamic";
 
+// Adoption-band hues (neutral accent, not the red→green maturity ramp — low adoption is an expected
+// early baseline, not a defect). Restored from the origin/master side of the 2026-07-02 merge, whose
+// resolution kept the BAND.some Tile colors but dropped this constant.
+const BAND = { high: "#16a34a", some: "#3b9eff", none: "#64748b" } as const;
+
 export default async function OrgAdoption({
   params,
   searchParams,
@@ -73,12 +78,14 @@ export default async function OrgAdoption({
       </div>
 
       <div className={TILE_GRID}>
-        <Tile label="Org AI commit share" value={`${a.orgAiShare}%`} color={scoreHex(a.orgAiShare)} sub="commit-weighted" />
+        {/* Adoption metrics use a neutral accent hue, not the red→green maturity ramp: low adoption
+            here is an expected early baseline, not a defect, so scoreHex would read 8% as alarm-red. */}
+        <Tile label="Org AI commit share" value={`${a.orgAiShare}%`} color={BAND.some} sub="commit-weighted" />
         <Tile
           label="AI-active contributors"
           value={`${a.contributors.aiActive}/${a.contributors.total}`}
           sub={`${a.contributors.aiActiveShare}% of contributors`}
-          color={scoreHex(a.contributors.aiActiveShare)}
+          color={BAND.some}
         />
         <Tile
           label="AI-involved PRs"

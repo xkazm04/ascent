@@ -49,6 +49,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [trackError, setTrackError] = useState<string | null>(null);
   const [ranking, setRanking] = useState<InvestmentRank[] | null>(null);
   const [rankBusy, setRankBusy] = useState(false);
+  const [rankError, setRankError] = useState<string | null>(null);
   // SIM-5: client-only saved scenarios + a 2-up compare. No backend — a scratchpad for "what if".
   const [saved, setSaved] = useState<SavedScenario[]>([]);
   const [compare, setCompare] = useState<number[]>([]);
@@ -75,16 +76,22 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   // SIM-3: ask the engine which dimension yields the biggest fleet lift, instead of guessing.
   async function suggestMoves() {
     setRankBusy(true);
+    setRankError(null);
     try {
       const res = await fetch("/api/org/simulate", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org: slug, rank: true, target, repos: [...scope] }),
       });
-      const data = await res.json();
-      if (res.ok) setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0).slice(0, 5));
-    } catch {
-      /* leave the manual simulator usable */
+      const data = await res.json().catch(() => ({}));
+      // Previously a non-ok response (404 "no scanned repos", 503 "requires a database", 401/403, or a
+      // network throw with an empty catch) cleared the spinner and changed nothing, so a failed request
+      // looked identical to "no suggestions" — the user re-clicked with no idea why. Surface the reason.
+      // (investment-simulator-forecast #3)
+      if (!res.ok) throw new Error(data.error ?? "Couldn't rank moves.");
+      setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0).slice(0, 5));
+    } catch (e) {
+      setRankError(e instanceof Error ? e.message : "Couldn't rank moves.");
     } finally {
       setRankBusy(false);
     }
@@ -136,27 +143,34 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     }
   }
 
-  // Commit the simulated scenario as a tracked Initiative — closes the "insight → plan" loop.
-  // /api/org/initiatives takes the exact { dimId, targetScore, repos } shape the sim already holds.
+  // Commit the simulated scenario as tracked Initiative(s) — closes the "insight → plan" loop.
+  // /api/org/initiatives is single-dimension ({ dimId, targetScore, repos }), so drive it from the
+  // FULL set of legs the projection was computed from (result.fixes), one initiative per leg —
+  // NOT just the live primary dimId/target. Sourcing from result.fixes (the immutable snapshot that
+  // produced the on-screen projection) instead of the mutable form state also means editing the
+  // dropdown after simulating, or building a multi-leg scenario, no longer silently drops legs or
+  // tracks a target that disagrees with what leadership reviewed.
   async function trackAsInitiative() {
-    if (!result) return;
+    if (!result || result.fixes.length === 0) return;
     setTracking(true);
     setTrackError(null);
     // Use the explicit selection, or the concrete repos the projection covered when scope = "all".
     const initRepos = scope.size > 0 ? [...scope] : result.repos.map((r) => r.fullName);
-    const dimLabel = dims.find((d) => d.id === dimId)?.label ?? dimId;
-    const title = `Raise ${dimId} · ${dimLabel} to ${target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
-    const practiceId = PRACTICES.find((p) => p.dimId === dimId)?.id ?? null; // GOAL-3: carry the starter shape
     try {
-      const res = await fetch("/api/org/initiatives", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, title, dimId, practiceId, targetScore: target, repos: initRepos }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
+      for (const fix of result.fixes) {
+        const dimLabel = dims.find((d) => d.id === fix.dimId)?.label ?? fix.dimId;
+        const title = `Raise ${fix.dimId} · ${dimLabel} to ${fix.target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
+        const practiceId = PRACTICES.find((p) => p.dimId === fix.dimId)?.id ?? null; // GOAL-3: carry the starter shape
+        const res = await fetch("/api/org/initiatives", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ org: slug, title, dimId: fix.dimId, practiceId, targetScore: fix.target, repos: initRepos }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
+      }
       setTracked(true);
-      router.refresh(); // surface the new initiative in the Initiatives panel on this page
+      router.refresh(); // surface the new initiative(s) in the Initiatives panel on this page
     } catch (e) {
       setTrackError(e instanceof Error ? e.message : "Failed to create initiative.");
     } finally {
@@ -186,6 +200,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
             {rankBusy ? "Ranking…" : ranking ? "Refresh" : `Suggest (→ ${target})`}
           </button>
         </div>
+        {rankError && <p className="mt-2 font-mono text-sm text-orange-300">{rankError}</p>}
         {ranking &&
           (ranking.length === 0 ? (
             <p className="mt-2 font-mono text-sm text-slate-500">No dimension moves the fleet average at this target/scope.</p>
@@ -219,7 +234,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <span className="font-mono text-sm text-slate-500">Raise</span>
-        <select value={dimId} onChange={(e) => setDimId(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
+        <select aria-label="Dimension to raise" value={dimId} onChange={(e) => setDimId(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
           {dims.map((d) => (
             <option key={d.id} value={d.id}>
               {d.id} · {d.label} (avg {d.avg})
@@ -227,7 +242,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
           ))}
         </select>
         <span className="font-mono text-sm text-slate-500">to</span>
-        <input type="number" min={0} max={100} value={target} onChange={(e) => setTarget(Number(e.target.value))} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
+        <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => setTarget(Number(e.target.value))} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
         <span className="font-mono text-sm text-slate-500">across</span>
         <button onClick={() => setShowRepos((s) => !s)} className="rounded-lg border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white">
           {scopeLabel} ▾
@@ -242,6 +257,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         <div key={idx} className="mt-2 flex flex-wrap items-center gap-2">
           <span className="font-mono text-sm text-slate-500">and</span>
           <select
+            aria-label={`Additional dimension ${idx + 2} to raise`}
             value={e.dimId}
             onChange={(ev) => updateExtra(idx, { dimId: ev.target.value })}
             className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
@@ -256,6 +272,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
           </select>
           <span className="font-mono text-sm text-slate-500">to</span>
           <input
+            aria-label={`Target score for dimension ${idx + 2}`}
             type="number"
             min={0}
             max={100}

@@ -4,7 +4,7 @@
 // opengraph-image.tsx makes it unfurl richly in Slack / X / GitHub.
 
 import type { Metadata } from "next";
-import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { ReportShell } from "@/components/report/ReportShell";
 import { ColdScanGate } from "@/components/report/ColdScanGate";
 import { ReportView } from "@/components/report/ReportView";
 import { PassportCard } from "@/components/org/PassportCard";
@@ -65,27 +65,23 @@ export default async function ReportPermalink({
   const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
 
   return (
-    <>
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl px-5 py-10">
-        {pinned ? (
-          <ReportErrorBoundary>
-            <ReportView report={pinned} />
-            {passport && (
-              <div className="mt-8">
-                <PassportCard passport={passport} repo={ref} canEdit={canEditPassport} />
-              </div>
-            )}
-          </ReportErrorBoundary>
-        ) : (
-          // No persisted snapshot: confirm before launching a multi-minute live scan, so a shared /
-          // example permalink doesn't auto-scan a repo the visitor only meant to view.
-          <ColdScanGate repo={ref} />
-        )}
-        {skillHistory.length > 0 && <SkillHistorySection rows={skillHistory} />}
-      </main>
-      <SiteFooter />
-    </>
+    <ReportShell>
+      {pinned ? (
+        <ReportErrorBoundary>
+          <ReportView report={pinned} />
+          {passport && (
+            <div className="mt-8">
+              <PassportCard passport={passport} repo={ref} canEdit={canEditPassport} />
+            </div>
+          )}
+        </ReportErrorBoundary>
+      ) : (
+        // No persisted snapshot: confirm before launching a multi-minute live scan, so a shared /
+        // example permalink doesn't auto-scan a repo the visitor only meant to view.
+        <ColdScanGate repo={ref} />
+      )}
+      {skillHistory.length > 0 && <SkillHistorySection rows={skillHistory} />}
+    </ReportShell>
   );
 }
 

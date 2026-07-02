@@ -40,6 +40,14 @@ export async function fetchBranchGovernance(
       getJson(`${API}/repos/${owner}/${repo}/rules/branches/${encodeURIComponent(branch)}`, token, signal),
     ]);
 
+    // The branch read carries the `protected` flag and is the ONLY authority for a "not protected"
+    // verdict. If it was denied (403/404 — a restricted token, or a just-renamed default branch) we
+    // cannot tell protected from unprotected: deriving `protected:false` from its absence would falsely
+    // report a repo that actually ENFORCES protection as wide open, understating its maturity score.
+    // Treat a failed protection-bearing read as "protection unknown" and omit governance (null) rather
+    // than emitting a confident false negative — even if the rulesets call succeeded. (github-repo-data-access #4)
+    if (branchRes.status !== 200) return null;
+
     const isProtected = Boolean((branchRes.body as { protected?: boolean } | null)?.protected);
     const rules: Rule[] = Array.isArray(rulesRes.body) ? (rulesRes.body as Rule[]) : [];
     const byType = (t: string) => rules.find((r) => r.type === t);
@@ -49,9 +57,6 @@ export async function fetchBranchGovernance(
       required_approving_review_count?: number;
       require_code_owner_review?: boolean;
     };
-
-    const readable = branchRes.status === 200 || rulesRes.status === 200;
-    if (!readable) return null;
 
     return {
       defaultBranch: branch,

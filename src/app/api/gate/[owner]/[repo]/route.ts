@@ -10,12 +10,15 @@ import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
-import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
-// Query params that select/override the gate policy. When ANY is present the caller is explicitly
-// driving the policy, so params win; when NONE is present we honor the owner's saved org policy (the
-// documented README-badge / `curl --fail` CI path, which passes no params) instead of silently
-// falling back to the archetype default.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 120;
+
+// Query params that explicitly configure the gate policy on the URL (all consumed by policyFromParams).
+// When ANY is present the caller is overriding the policy per-request; when NONE is, the endpoint falls
+// back to the org's persisted gate policy (ci-gate-status-checks #2).
 const GATE_POLICY_PARAMS = [
   "min_level",
   "min_overall",
@@ -25,10 +28,6 @@ const GATE_POLICY_PARAMS = [
   "security",
   "min_security",
 ] as const;
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const maxDuration = 120;
 
 export async function GET(
   req: Request,
@@ -45,14 +44,15 @@ export async function GET(
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
-  // Rate-limit the paths that spend real budget OR bypass the cache:
-  //   • the real-LLM path (?mock=0) — every uncached scan is an LLM completion ($); and
-  //   • any ref-scoped scan (?ref=…) — a ref bypasses the per-commit cache (see below), so an
-  //     attacker spamming ?ref=<unique> forces a fresh GitHub ingest on the shared GITHUB_TOKEN every
-  //     call, an unbounded unauthenticated cost/quota-amplification DoS.
-  // The default no-ref mock gate stays unthrottled for CI: it shares the per-commit cache, so repeated
-  // calls for the same repo are free after the first (cache-bounded, not amplifiable).
-  if (!mock || ref) {
+  // Rate-limiting strategy (denial-of-wallet defense that still lets real CI through):
+  //  - The real-LLM path (?mock=0) is always throttled up-front with the strict SCAN_RATE_LIMIT — it
+  //    spends both LLM budget and a full GitHub ingest.
+  //  - The default (mock) path is not free either, but the cost is in the GitHub ingest, not the LLM:
+  //    a CACHE MISS or a ?ref scan runs a full repo ingest against the operator PAT, so those
+  //    GitHub-touching branches get a generous GATE_RATE_LIMIT (real CI calls once per PR event and
+  //    never trips). A warm cache HIT only does a cheap conditional head-resolve (free 304) and stays
+  //    unthrottled, preserving the deterministic-CI contract that a cache-hit gate is effectively free.
+  if (!mock) {
     const rl = rateLimitRequest(req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
   }
@@ -60,7 +60,11 @@ export async function GET(
     let report;
     if (ref) {
       // Ref-scoped: bypass the default-branch cache (keyed by the default head sha) and score the
-      // requested ref directly. Cheap enough — CI calls this once per PR event.
+      // requested ref directly. This always ingests from GitHub, so throttle the default path here too.
+      if (mock) {
+        const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
+        if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+      }
       report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref });
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
@@ -77,24 +81,27 @@ export async function GET(
       const key = makeCacheKey(ownerN, repoN, !mock, sha);
       report = cacheGet(key);
       if (!report) {
+        // Cache miss → about to run a full GitHub ingest; throttle the default path before spending it.
+        if (mock) {
+          const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
+          if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+        }
         report = await scanRepository(`${ownerN}/${repoN}`, { mock });
         cacheSet(key, report);
       }
     }
 
-    // Resolve the policy to enforce. Explicit query params always take precedence (the caller is
-    // driving the gate). With NO policy params — the documented badge/`curl --fail` CI invocation —
-    // honor the owner's SAVED org gate policy so a configured security floor (e.g. D9≥70) is actually
-    // enforced here, not just on the App-mode Check Run. The org slug is the repo owner (parity with
-    // the webhook's getOrgGatePolicy(owner)); best-effort + no-op-safe (null without a DB / unknown
-    // org), falling back to the archetype default exactly as before.
-    let policy;
-    if (GATE_POLICY_PARAMS.some((k) => searchParams.has(k))) {
-      policy = policyFromParams(searchParams, report.archetype);
-    } else {
-      const savedPolicy = await getOrgGatePolicy(ownerN).catch(() => null);
-      policy = savedPolicy ?? policyFromParams(searchParams, report.archetype);
-    }
+    // Policy precedence (ci-gate-status-checks #2): explicit query params override; else the org's
+    // PERSISTED gate policy — the SAME bar the App-mode Check Run + governance fleet view enforce via
+    // getOrgGatePolicy; else the archetype default. Before this, the HTTP gate built its policy ONLY
+    // from query params + archetype default and never consulted the configured org bar, so a team that
+    // saved a strict policy in GatePolicyEditor and wired `curl --fail /api/gate/...` into CI had that
+    // bar silently ignored here while the App check enforced it (the two surfaces disagreeing on the
+    // same repo). DB-less / unknown org / a read error all resolve to null → archetype default.
+    const hasPolicyParams = GATE_POLICY_PARAMS.some((k) => searchParams.has(k));
+    const policy = hasPolicyParams
+      ? policyFromParams(searchParams, report.archetype)
+      : (await getOrgGatePolicy(ownerN).catch(() => null)) ?? policyFromParams(searchParams, report.archetype);
     const gate = evaluateGate(report, policy);
     return NextResponse.json(
       {

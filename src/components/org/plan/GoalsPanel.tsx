@@ -46,7 +46,14 @@ export function GoalsPanel({
 
   async function refresh() {
     const res = await fetch(`/api/org/goals?org=${encodeURIComponent(slug)}`);
-    if (res.ok) setGoals((await res.json()).goals ?? []);
+    if (!res.ok) return;
+    const next: GoalProgressView[] = (await res.json()).goals ?? [];
+    setGoals(next);
+    // Reconcile the client-side suggestion list: drop any "+ Lift Dx" chip whose metric is now covered
+    // by an active goal. Otherwise a metric just added via the form/another suggestion still shows its
+    // chip, and clicking it creates a duplicate goal (the API has no per-metric uniqueness check).
+    const covered = new Set(next.map((g) => g.metric));
+    setPicks((ps) => ps.filter((p) => !covered.has(p.metric)));
   }
 
   async function create() {
@@ -71,17 +78,18 @@ export function GoalsPanel({
   }
 
   async function remove(id: string) {
-    // Mirror PlaybooksPanel.remove: the delete can 4xx (non-admin / gone) or the network can drop, so
-    // an unchecked response silently dropped the goal from the UI while it survived in the DB (a
-    // data-loss illusion that reappeared on the next load). Snapshot, optimistically remove, then
-    // restore + surface the error on any failure.
+    // Optimistic delete WITH a failure path: a 403 (lost session) / 404 / network error used to leave the
+    // goal gone from the UI but alive in the DB, shown as success. Snapshot first, then restore + surface
+    // the error if the DELETE didn't actually persist (goals-initiatives #2).
     const prev = goals;
-    setError(null);
     setGoals((g) => g.filter((x) => x.id !== id));
-    const res = await fetch(`/api/org/goals/${id}`, { method: "DELETE" }).catch(() => null);
-    if (!res || !res.ok) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/org/goals/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to delete goal.");
+    } catch (e) {
       setGoals(prev);
-      setError((await res?.json().catch(() => ({})))?.error ?? "Couldn't delete the goal.");
+      setError(e instanceof Error ? e.message : "Failed to delete goal.");
     }
   }
 
@@ -182,9 +190,10 @@ export function GoalsPanel({
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="e.g. Reach AI-Native by Q3"
+          aria-label="Goal name"
           className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
         />
-        <select value={metric} onChange={(e) => setMetric(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
+        <select value={metric} onChange={(e) => setMetric(e.target.value)} aria-label="Goal metric" className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
           {metricOptions.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}

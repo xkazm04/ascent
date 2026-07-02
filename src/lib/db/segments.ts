@@ -6,7 +6,8 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { postureFor } from "@/lib/maturity/model";
-import { getOrgRollup } from "@/lib/db/org";
+import { getOrgRollup, type OrgRepoRow } from "@/lib/db/org";
+import { roundedMean } from "@/lib/db/org-shared";
 
 const DEFAULT_COLOR = "#3b9eff";
 const NAME_MAX = 60;
@@ -237,32 +238,72 @@ export function buildSegmentComparison(a: SegmentSummary, b: SegmentSummary): Se
   };
 }
 
-/** Resolve `mapper` over `items` with at most `limit` promises in flight, preserving input order.
- *  Bounds the fan-out so a many-segment org doesn't open N concurrent rollups (each 2-3 DB round
- *  trips) at once and exhaust the connection pool. */
-async function mapPool<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  const worker = async () => {
-    for (let i = next++; i < items.length; i = next++) {
-      out[i] = await mapper(items[i]!);
+/**
+ * Reduce an in-memory set of a segment's repos (already filtered out of ONE fleet rollup) to its
+ * headline maturity summary — the same arithmetic summarizeSegment derives from a scoped getOrgRollup,
+ * but without issuing a per-segment fleet query. The repo set must be the fleet rollup's rows
+ * (`watched OR has-scans`) filtered by segment membership, which is exactly what a segment-scoped
+ * getOrgRollup would return, so the numbers match the A/B comparison.
+ */
+function summarizeSegmentFromRepos(seg: { id: string; name: string }, repos: OrgRepoRow[]): SegmentSummary {
+  const scanned = repos.filter((r) => r.latest);
+  const dimSum: Record<string, { sum: number; n: number }> = {};
+  for (const r of scanned)
+    for (const d of r.latest!.dims) {
+      const entry = (dimSum[d.dimId] = dimSum[d.dimId] || { sum: 0, n: 0 });
+      entry.sum += d.score;
+      entry.n += 1;
     }
+  const dimAverages = Object.keys(dimSum)
+    .sort()
+    .map((dimId) => {
+      const entry = dimSum[dimId]!; // safe: dimId comes from Object.keys(dimSum)
+      return { dimId, avg: Math.round(entry.sum / entry.n) };
+    });
+  const avgAdoption = roundedMean(scanned.map((r) => r.latest!.adoption));
+  const avgRigor = roundedMean(scanned.map((r) => r.latest!.rigor));
+  return {
+    id: seg.id,
+    name: seg.name,
+    repoCount: repos.length,
+    scannedCount: scanned.length,
+    avgOverall: roundedMean(scanned.map((r) => r.latest!.overall)),
+    avgAdoption,
+    avgRigor,
+    posture: postureFor(avgAdoption, avgRigor).id,
+    dimAverages,
   };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
 }
 
-/** Headline maturity summary for every segment of an org (each scoped via getOrgRollup), newest
- *  first — the per-segment rollup strip on the comparison page. */
+/** Headline maturity summary for every segment of an org, newest first — the per-segment rollup strip
+ *  on the comparison page. Fetches ONE fleet rollup + the repo→segment map, then derives each summary
+ *  in memory by filtering the already-loaded repos — previously this ran a full getOrgRollup PER segment
+ *  (K+ complete fleet-table scans on one page load, each 2-3 DB round trips, growing linearly with the
+ *  user-created — so unbounded — segment count: a connection-pool / TTFB hazard on the Segments tab).
+ *  The single A/B comparison (compareSegments) still uses the scoped getOrgRollup. */
 export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSummary[] | null> {
   if (!isDbConfigured()) return null;
-  const segs = await listSegments(orgSlug);
+  const [segs, rollup, segMap] = await Promise.all([
+    listSegments(orgSlug),
+    getOrgRollup(orgSlug),
+    getRepoSegmentMap(orgSlug),
+  ]);
   if (!segs) return null;
-  // Bounded-concurrency fan-out (was a sequential await-loop): each segment's rollup is 2-3 DB round
-  // trips and segment count is user-created / unbounded, so an org with 30-50 segments serialized
-  // 30-50 full rollups on the Segments tab's TTFB. Parallelize with a cap to avoid pool exhaustion.
-  const sums = await mapPool(segs, 6, (s) => summarizeSegment(orgSlug, { id: s.id, name: s.name }));
-  return sums.filter((s): s is SegmentSummary => s !== null);
+  if (!rollup) return []; // org missing / nothing to roll up — match the prior empty-out behaviour
+  // Invert fullName → segments[] into segmentId → set of member fullNames.
+  const membersBySeg = new Map<string, Set<string>>();
+  for (const [fullName, list] of Object.entries(segMap)) {
+    for (const s of list) {
+      let set = membersBySeg.get(s.id);
+      if (!set) membersBySeg.set(s.id, (set = new Set()));
+      set.add(fullName);
+    }
+  }
+  return segs.map((s) => {
+    const members = membersBySeg.get(s.id);
+    const repos = members ? rollup.repos.filter((r) => members.has(r.fullName)) : [];
+    return summarizeSegmentFromRepos({ id: s.id, name: s.name }, repos);
+  });
 }
 
 /** Reduce a segment (or the whole fleet, when `seg` is null) to its headline maturity summary. */

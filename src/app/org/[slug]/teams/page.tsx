@@ -69,7 +69,10 @@ export default async function TeamsPage({
           label="Knowledge leader"
           value={rollup.knowledgeLeader ? `${rollup.knowledgeLeader.aiCommitShare}%` : "—"}
           sub={rollup.knowledgeLeader ? rollup.knowledgeLeader.name : "no AI-attributed activity yet"}
-          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.knowledgeScore) : undefined}
+          // Color by the metric SHOWN (AI commit share), not the ranking knowledgeScore — otherwise a
+          // team with low AI share but high adoption rendered its "30%" tinted green, disagreeing with
+          // both the number it sits on and the matrix rows (which color by aiCommitShare).
+          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.aiCommitShare) : undefined}
         />
       </div>
 

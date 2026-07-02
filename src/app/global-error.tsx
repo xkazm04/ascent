@@ -15,17 +15,10 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  useEffect(() => {
-    // Bounded telemetry for the highest-severity boundary (a root-layout failure). A structured,
-    // greppable console.error is the one reporter that works here — the router/app shell may be dead —
-    // and the production log drain (Vercel captures console.error) can alert on it instead of the team
-    // learning about a shell outage from users.
-    console.error("[ascent] global-shell-error", {
-      digest: error.digest,
-      message: error.message,
-      stack: error.stack,
-    });
-  }, [error]);
+  // Mirror error.tsx's breadcrumb. This is the rarest + highest-severity failure (the whole app
+  // shell is down), so it's the one error we must not swallow silently: log it so console breadcrumbs
+  // and error reporters (Sentry-style) hooked into this effect record the digest correlation handle.
+  useEffect(() => console.error("[global-error]", error), [error]);
 
   return (
     <html lang="en">

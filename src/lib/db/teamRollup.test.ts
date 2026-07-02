@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { rollupTeams, type TeamRollupRepoInput } from "@/lib/db/org";
+// Import the concrete module (not the org barrel) so this pure-transform test doesn't pull in the
+// whole db family it never touches.
+import { rollupTeams, type TeamRollupRepoInput } from "@/lib/db/org-teams";
 
 // Pure aggregation behind getOrgTeamRollup — buckets repos into their CODEOWNERS teams and rolls
 // each up (maturity, dimension shape, AI-knowledge, movers) with no DB. Mirrors discover.test's

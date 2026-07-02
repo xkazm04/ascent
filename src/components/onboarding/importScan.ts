@@ -24,17 +24,22 @@ export interface ImportScanRequest {
 }
 
 export interface ImportScanCallbacks {
-  /** A repo result landed: update its row. */
+  /** A repo result landed: update its row. `skipped` is set (e.g. "insufficient_credits") when the
+   *  server deferred this repo rather than scanning it — a terminal row state, not a failure. */
   onRepo: (data: {
     repo: string;
     level?: LevelId;
     overall?: number;
     error?: string;
+    skipped?: string;
   }) => void;
   /** The stream finished successfully (terminal `result` event). */
   onResult: () => void;
   /** The stream reported an error event. */
   onError: (message: string) => void;
+  /** A non-fatal `notice` (e.g. a credit shortfall capped the batch) — optional so existing callers
+   *  needn't handle it. Forwarded so the reason isn't silently swallowed. */
+  onNotice?: (data: { reason: string; scanning: number; skipped: number }) => void;
 }
 
 /**
@@ -104,6 +109,13 @@ export async function runImportScan(
             level: data.level as LevelId | undefined,
             overall: typeof data.overall === "number" ? data.overall : undefined,
             error: typeof data.error === "string" ? data.error : undefined,
+            skipped: typeof data.skipped === "string" ? data.skipped : undefined,
+          });
+        } else if (event === "notice") {
+          cb.onNotice?.({
+            reason: String(data.reason ?? ""),
+            scanning: typeof data.scanning === "number" ? data.scanning : 0,
+            skipped: typeof data.skipped === "number" ? data.skipped : 0,
           });
         } else if (event === "result") {
           cb.onResult();

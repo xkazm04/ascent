@@ -106,6 +106,12 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[]) {
     organization: {
       findUnique: vi.fn(async () => ({ id: orgId, slug: "acme" })),
     },
+    // The rollup's baseline path fetches the baseline scans' dimension rows (dimDeltas). These
+    // movers-vs-rollup tests only assert the overall/adoption/rigor deltas, so an empty dim set
+    // (dimDeltas: []) is the honest minimal stub.
+    scanDimension: {
+      findMany: vi.fn(async () => []),
+    },
     scan: {
       findMany: vi.fn(async (args: any) => {
         const t = args?.where?.scannedAt;

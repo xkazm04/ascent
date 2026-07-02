@@ -148,7 +148,20 @@ export async function fetchPullRequests(
     );
     partial ||= resp.partial;
     const pr: PrPage | undefined = resp.data.repository?.pullRequests;
-    if (!pr) break;
+    if (!pr) {
+      // Distinguish "can't see this repo's PRs" from "repo genuinely has zero PRs". GraphQL nulls
+      // `repository` (or `pullRequests`) when the token lacks access to the repo, or a node-level error
+      // blanked it. On the FIRST page that is NOT an empty repo: returning {totalCount:0,nodes:[]} here
+      // would make the scorer treat an unreadable repo as one with zero PRs and understate its
+      // review/collaboration dimension. Fail loudly so the caller (scan.ts) drops the PR-derived signals
+      // (prStats=null → those dimensions are omitted) instead of scoring them as a real zero. A null on a
+      // LATER page (we already accumulated nodes) just ends pagination with what we have.
+      // (github-repo-data-access #3)
+      if (page === 0) {
+        throw new Error("GitHub GraphQL: repository PRs not readable (no access or a node-level error)");
+      }
+      break;
+    }
     totalCount = pr.totalCount;
     nodes.push(...pr.nodes);
     if (!pr.pageInfo?.hasNextPage || pr.nodes.length === 0) break; // last (or short) page

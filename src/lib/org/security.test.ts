@@ -1,5 +1,6 @@
 // The security "Copy for LLM" brief is a product contract — lock its shape: standing, distribution,
-// governance coverage, the weakest repos (with a no-protection flag), and a trailing remediation ASK.
+// governance coverage, the risk-register table (score, gate verdict, enabled branch rules per repo),
+// and a trailing remediation ASK.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { securityMarkdown, type SecurityOverview } from "./security";
@@ -49,10 +50,13 @@ describe("securityMarkdown", () => {
     expect(md).toContain("Branch protection: 60% protected · 50% require review · 40% require checks · 10% signed");
   });
 
-  it("lists the weakest repos and flags missing branch protection", () => {
-    expect(md).toContain("legacy-api: 22/100 (no branch protection)");
-    expect(md).toContain("web: 51/100");
-    expect(md).not.toContain("web: 51/100 (no branch protection)");
+  it("renders the risk register table with gate verdict and enabled branch rules per repo", () => {
+    expect(md).toContain("## Risk register (worst first)");
+    expect(md).toContain("| legacy-api | 22/100 | FAIL — Security 22 < 50 | none |");
+    expect(md).toContain("| web | 51/100 | pass | protected, review |");
+    // No supply passed → no advisories column in the header.
+    expect(md).toContain("| repo | security (D9) | gate | branch rules |");
+    expect(md).not.toContain("advisories");
     expect(md).toContain("## Repos with no default-branch protection");
   });
 

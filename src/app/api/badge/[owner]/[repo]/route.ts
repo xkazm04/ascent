@@ -54,6 +54,14 @@ const RASTER_LOGO_RE = /^data:image\/(png|jpe?g|gif|webp)[;,]/i;
 // ---- short negative cache for unknown repos --------------------------------
 
 const NEG_TTL_MS = 5 * 60_000;
+// Hard cap on the negative cache. It's a lazy delete-on-read TTL map on a PUBLIC, crawler-hammered
+// endpoint: a crawler hitting endless unique non-existent owner/repo paths (all passing validName) each
+// add a key that's never re-queried, so delete-on-read never fires and the map grows without bound (slow
+// memory leak → OOM on a long-lived instance). Bounding it makes that impossible. Env-overridable.
+const NEG_MAX = (() => {
+  const n = Number(process.env.BADGE_NEG_CACHE_MAX);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5000;
+})();
 const negCache = new Map<string, number>(); // key -> expiry
 function negGet(key: string): boolean {
   const exp = negCache.get(key);
@@ -65,6 +73,17 @@ function negGet(key: string): boolean {
   return true;
 }
 function negSet(key: string): void {
+  // Sweep expired entries (and, if still at the cap, evict oldest-inserted ≈ LRU) BEFORE inserting, so
+  // the map can never exceed NEG_MAX regardless of how many unique misses a crawler throws at it.
+  if (negCache.size >= NEG_MAX) {
+    const now = Date.now();
+    for (const [k, exp] of negCache) if (now > exp) negCache.delete(k);
+    while (negCache.size >= NEG_MAX) {
+      const oldest = negCache.keys().next().value; // Map preserves insertion order
+      if (oldest === undefined) break;
+      negCache.delete(oldest);
+    }
+  }
   negCache.set(key, Date.now() + NEG_TTL_MS);
 }
 

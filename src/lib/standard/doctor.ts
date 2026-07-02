@@ -20,7 +20,7 @@ const DOCTOR = `#!/usr/bin/env node
 //   --json  prints a JSON summary and (when ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN are
 //           set, e.g. in CI) POSTs it to Ascent — closing the adopt->verify->re-score loop.
 // Contract: docs/AI_MANIFEST_SPEC.md. Reimplement freely; the checks are what matter, not this runner.
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
 const ROOT = process.cwd();
@@ -114,10 +114,18 @@ if (!existsSync(path)) {
   const hasCi = existsSync('.github/workflows') && readdirSync('.github/workflows').length > 0;
   if (ciHard.length && !hasCi) add('warn', 'ciHardPass controls declared but no CI workflows found');
 
-  // 5. freshness
+  // 5. freshness - compare each source file's last COMMIT date against generatedAt, NOT its mtime.
+  // A git checkout/clone (e.g. actions/checkout in CI, the doctor's primary runtime) rewrites every
+  // file's mtime to "now", so an mtime check warns "stale" on every CI run regardless of real drift.
+  // Commit dates survive checkouts. If git or the file's history is unavailable (e.g. a shallow clone
+  // that didn't fetch the commit that last touched it), commitDate returns '' and we skip the file
+  // rather than false-warn.
   const gen = kv(text, 'generatedAt');
+  const commitDate = (f) => { try { return execSync('git log -1 --format=%cs -- "' + f + '"', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } };
   for (const f of flow(text, 'generatedFrom')) {
-    if (existsSync(f) && gen && statSync(f).mtime.toISOString().slice(0, 10) > gen)
+    if (!existsSync(f) || !gen) continue;
+    const cd = commitDate(f);
+    if (cd && cd > gen)
       add('warn', 'manifest may be stale: ' + f + ' changed after generatedAt (' + gen + ') - regenerate');
   }
   if (existsSync(ctxIndex)) {
@@ -148,12 +156,19 @@ if (process.argv.includes('--json')) {
   const reportRepo = process.env.GITHUB_REPOSITORY;
   if (reportUrl && reportTok && reportRepo && typeof fetch === 'function') {
     try {
-      await fetch(reportUrl, {
+      const res = await fetch(reportUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: 'Bearer ' + reportTok },
         body: JSON.stringify({ repo: reportRepo, headSha: process.env.GITHUB_SHA || null, score: score, fails: fails, warns: warns }),
       });
-      console.log('Reported conformance to Ascent.');
+      // fetch only rejects on a network error, never on an HTTP error status - so inspect res.ok and
+      // the body. A 401 (bad token), 503 (Ascent DB off), or a 200 with { recorded:false } (repo not
+      // watched under its org yet) must NOT print success, or the maintainer believes the adopt->verify
+      // loop is closed while the dashboard silently never updates.
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) console.error('Conformance report rejected: HTTP ' + res.status + (data && data.error ? ' - ' + data.error : ''));
+      else if (data && data.recorded === false) console.error('Conformance report accepted but NOT recorded: this repo is not watched under its org in Ascent yet - watch it, then re-report.');
+      else console.log('Reported conformance to Ascent.');
     } catch (err) {
       console.error('Conformance report failed:', err && err.message);
     }

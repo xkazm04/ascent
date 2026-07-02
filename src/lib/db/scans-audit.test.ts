@@ -121,7 +121,23 @@ describe("getAuditLog org-scoping (cross-tenant isolation)", () => {
     expect(where.actorId).toBe("actor_9");
     const at = where.at as Prisma.DateTimeFilter;
     expect(at.gte).toEqual(new Date("2026-01-01T00:00:00.000Z")); // inclusive lower bound
-    expect(at.lte).toEqual(new Date("2026-02-01T00:00:00.000Z")); // inclusive upper bound
+    expect(at.lte).toEqual(new Date("2026-02-01T00:00:00.000Z")); // explicit-timestamp upper bound is verbatim
+  });
+
+  it("treats a date-only `until` as an INCLUSIVE end-of-day bound (no lost final day in the trail/CSV)", async () => {
+    const { prisma, findManyCalls } = fakePrisma({ slugToId: { acme: "org_acme" } });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // The <input type="date"> control yields a bare "YYYY-MM-DD" string for both bounds.
+    await getAuditLog("acme", { since: "2026-06-01", until: "2026-06-25" });
+
+    const where = findManyCalls[0].where as Prisma.AuditLogWhereInput;
+    const at = where.at as Prisma.DateTimeFilter;
+    // since: start-of-day is the correct lower bound (unchanged).
+    expect(at.gte).toEqual(new Date("2026-06-01"));
+    // until: resolved to the END of June 25 so the whole final day is included — previously this was
+    // start-of-day UTC, which excluded every entry recorded after midnight on the asked-for last day.
+    expect(at.lte).toEqual(new Date("2026-06-25T23:59:59.999Z"));
   });
 });
 

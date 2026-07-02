@@ -26,6 +26,11 @@ const POSTURES: { id: string; label: string }[] = [
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
+  // The slug is a raw route param drawn at 60px with no wrapping; a long unbroken name would overflow
+  // the fixed 1200x630 card or collide with the score column. Cap it with an ellipsis (mirrors the
+  // header's truncate discipline) so the share image stays intact for orgs with long names.
+  const displaySlug = slug.length > 28 ? slug.slice(0, 27) + "…" : slug;
+
   const rollup = await (async () => {
     try {
       return (await canReadOrg(slug)) ? await getOrgRollup(slug) : null;
@@ -61,7 +66,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
               <div style={{ display: "flex", fontSize: 26, letterSpacing: 4, textTransform: "uppercase", color: "#3b9eff", fontFamily: "monospace" }}>
                 Fleet maturity
               </div>
-              <div style={{ display: "flex", fontSize: 60, fontWeight: 700, lineHeight: 1.05, color: "#ffffff" }}>{slug}</div>
+              <div style={{ display: "flex", fontSize: 60, fontWeight: 700, lineHeight: 1.05, color: "#ffffff" }}>{displaySlug}</div>
               <div style={{ display: "flex", fontSize: 26, color: "#94a3b8" }}>
                 Adoption {rollup.avgAdoption} · Rigor {rollup.avgRigor} — {rollup.scannedCount}/{rollup.repoCount} repos scanned.
               </div>
@@ -94,7 +99,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
     (
       <FallbackOgCard
         eyebrow="Fleet maturity"
-        title={slug}
+        title={displaySlug}
         tagline="AI-native engineering maturity across the fleet — a 5-level ladder across 9 dimensions, with evidence."
       />
     ),

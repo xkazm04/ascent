@@ -70,12 +70,14 @@ export function ReportView({
   useEffect(() => {
     const repoRef = `${repo.owner}/${repo.name}`;
     let active = true;
+    // History and recommendations are two independent sources fetched in parallel but settled
+    // SEPARATELY — a recommendations failure must NOT pollute the history disposition. Previously
+    // both shared one Promise.all + try/catch + the `histError` flag, so a malformed/non-JSON recs
+    // payload (or a recs-only network fail) flipped the Trend panel to "Couldn't load history" even
+    // though history loaded fine, while the genuine recs failure was swallowed with no signal.
     (async () => {
       try {
-        const [h, r] = await Promise.all([
-          fetch(`/api/history?repo=${encodeURIComponent(repoRef)}`),
-          fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`),
-        ]);
+        const h = await fetch(`/api/history?repo=${encodeURIComponent(repoRef)}`);
         // A non-OK history response is a FAILURE, not "no history yet" — without this branch an
         // HTTP 500 (e.g. a transient DB token expiry) silently rendered "Baseline established"
         // over months of real history. 503 (persistence off) and 401 (signed-out viewer) are
@@ -85,19 +87,27 @@ export function ReportView({
           if (disposition === "ok") setHistory(parseRepositoryHistory(await h.json()));
           else if (disposition === "error") setHistError(true);
         }
-        if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
       } catch {
         // Couldn't reach the history endpoint (offline / transient). Surface it in the trend panel
         // instead of silently degrading to a misleading "Baseline established".
         if (active) setHistError(true);
       }
     })();
+    (async () => {
+      try {
+        const r = await fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`);
+        if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
+      } catch {
+        // A recommendations failure leaves the read-only roadmap fallback (recs stays null); it is
+        // deliberately NOT folded into histError, which is solely about the history/trend panel.
+      }
+    })();
     return () => {
       active = false;
     };
-    // Include report.scannedAt: an in-place Re-test swaps in a new report for the SAME owner/name, so
-    // keying only on owner/name never refires — the history + recommendations panels (and the "N scans
-    // tracked" count) would keep showing pre-rescan data until a full reload.
+    // report.scannedAt changes after an in-place re-test (owner/name don't), so include it to
+    // re-fetch history + recommendations for the fresh scan — otherwise the Roadmap tab keeps
+    // rendering the previous scan's recommendations and stale compare/"what changed" affordances.
   }, [repo.owner, repo.name, report.scannedAt]);
 
   // Reconcile the live report with persisted history. `history.scans` is newest-first and
@@ -223,6 +233,15 @@ export function ReportView({
     { id: "sandbox", label: "Sandbox" },
   ];
   if (showActivity) tabs.push({ id: "contributors", label: "Contributors" });
+  // After an in-place re-test the new report may drop a tab the user was on (e.g. the fresh scan
+  // surfaces no activity, removing "Contributors"). The selection would then point at a tab that
+  // no longer renders, leaving a blank panel with nothing active. Clamp back to Scoring whenever
+  // the active tab isn't in the current set.
+  useEffect(() => {
+    if (!tabs.some((t) => t.id === tab)) setTab("scoring");
+    // showActivity fully determines which tabs exist; re-check when it or the selection changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, showActivity]);
   const navGroups: SideNavGroup[] = [
     { label: "Sections", items: tabs.map((t) => ({ label: t.label, active: tab === t.id, onSelect: () => setTab(t.id) })) },
   ];

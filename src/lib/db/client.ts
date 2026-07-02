@@ -11,7 +11,8 @@
 //     one client built from DATABASE_URL, never expires.
 //   • DSQL mode (DSQL_ENDPOINT set): the connection URL is rebuilt from a freshly minted IAM
 //     token. getPrisma() proactively kicks a background refresh before the token's TTL
-//     elapses, and withDb()/dbHealthCheck() reactively reconnect on an auth-expiry error.
+//     elapses, and withDb()/dbReadSafe()/dbHealthCheck() reactively reconnect on an auth-expiry
+//     error — so both the write path (withDb) and the read surface (dbReadSafe) self-heal.
 //
 // Token minting uses @aws-sdk/dsql-signer, imported lazily so the static/local path never
 // pulls in the AWS SDK and the build works without the package installed. See
@@ -179,9 +180,16 @@ export function isSerializationConflictError(err: unknown): boolean {
  * PrismaClientInitializationError at connect time ("Can't reach database server at localhost:5432").
  * Left unhandled that crashes every DB-reading page/route the moment the local Postgres (or a prod
  * DB during an outage) isn't up. Matches that error class by name, the Prisma connection SQLSTATEs
- * (P1001 can't-reach, P1002 reach-timeout, P1008 op-timeout, P1011 TLS, P1017 server-closed), and the
- * connection-refused messages. Pure + exported for unit testing. Distinct from isAuthExpiryError (a
- * live server rejecting credentials) and isSerializationConflictError (a live server's OCC abort).
+ * (P1001 can't-reach, P1011 TLS, P1017 server-closed), and the connection-refused messages. Pure +
+ * exported for unit testing. Distinct from isAuthExpiryError (a live server rejecting credentials) and
+ * isSerializationConflictError (a live server's OCC abort).
+ *
+ * NOT included (database-client-schema #3): a query/connection TIMEOUT — P1008 ("Operations timed
+ * out") and P1002 ("server was reached but timed out"). Those fire routinely on a LIVE-but-slow DB (a
+ * heavy org rollup, pool saturation under a fleet scan, DSQL latency), not only when the server is
+ * down. Classifying them as "unavailable" let {@link dbReadSafe} degrade a slow read to its empty
+ * fallback — rendering plausible-but-wrong "no data" (success theater) instead of surfacing the error
+ * or retrying. A timeout is "this query was too slow", not "the server is gone", so it must propagate.
  */
 export function isDbUnavailableError(err: unknown): boolean {
   if (err == null) return false;
@@ -189,7 +197,7 @@ export function isDbUnavailableError(err: unknown): boolean {
     typeof err === "object" && "name" in err ? (err as { name?: unknown }).name : undefined;
   if (name === "PrismaClientInitializationError") return true;
   const { code, message } = errorInfo(err);
-  if (code && (code === "P1001" || code === "P1002" || code === "P1008" || code === "P1011" || code === "P1017")) {
+  if (code && (code === "P1001" || code === "P1011" || code === "P1017")) {
     return true;
   }
   const m = message.toLowerCase();
@@ -197,8 +205,7 @@ export function isDbUnavailableError(err: unknown): boolean {
     m.includes("can't reach database server") ||
     m.includes("cannot reach database server") ||
     m.includes("connection refused") ||
-    m.includes("econnrefused") ||
-    m.includes("the database server was reached but timed out")
+    m.includes("econnrefused")
   );
 }
 
@@ -208,11 +215,33 @@ export function isDbUnavailableError(err: unknown): boolean {
  * when persistence is unconfigured (isDbConfigured() === false). Lets a DB-less *and* a DB-down
  * deployment render the keyless MVP instead of 500-ing. A query error against a LIVE database (bad
  * SQL, a constraint violation, a genuine bug) is NOT swallowed — it re-throws unchanged.
+ *
+ * Auth-expiry recovery (database-client-schema #1): the reactive reconnect used to be reachable only
+ * through {@link withDb} (one production caller), while the entire read surface flows through this
+ * wrapper on a raw getPrisma() client. On a DSQL short-lived-IAM-token lapse (cold thaw, or a
+ * token-mint stall that outlasts the proactive refresh margin) that read would throw an auth-expiry
+ * error and 500 instead of self-healing. So before degrading, an auth-expiry is recovered exactly
+ * like {@link runWithReconnect}: reconnect with a fresh token and retry the read ONCE. The retry's
+ * `fn` re-invokes getPrisma() internally, so it transparently picks up the reconnected client.
  */
 export async function dbReadSafe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await fn();
   } catch (err) {
+    if (isAuthExpiryError(err)) {
+      try {
+        await reconnectDb();
+        return await fn();
+      } catch (retryErr) {
+        // Reconnect or the retried read still failed: degrade only when the DB is genuinely
+        // unreachable; a live-DB query error after a successful reconnect re-throws unchanged.
+        if (isDbUnavailableError(retryErr)) {
+          console.warn("[db] read degraded — database unreachable:", errorInfo(retryErr).message);
+          return fallback;
+        }
+        throw retryErr;
+      }
+    }
     if (isDbUnavailableError(err)) {
       console.warn("[db] read degraded — database unreachable:", errorInfo(err).message);
       return fallback;
@@ -356,14 +385,38 @@ function newClient(url?: string): PrismaClient {
   });
 }
 
-/** Mint a fresh token, build a client with it, and atomically swap it in (disconnecting the old). */
+/** Grace period before retiring a swapped-out client. Covers the longest plausible in-flight request
+ *  (the cron's maxDuration is 300s) so a query holding the old reference can drain before disconnect. */
+const RETIRE_CLIENT_GRACE_MS = 300_000;
+
+/**
+ * Lazily retire a swapped-out Prisma client (database-client-schema #2). getPrisma() returns the cached
+ * client SYNCHRONOUSLY and hands the OLD reference to concurrent callers microseconds before a refresh
+ * swaps it; Prisma's $disconnect() tears down the query engine/pool without a documented guarantee of
+ * draining in-flight work — so disconnecting the outgoing client immediately can abort queries that are
+ * mid-`await` on a token that was still VALID (the rotation recurs every ~TTL−margin under load). Defer
+ * the disconnect past the longest plausible request instead. The timer is unref()'d so it never keeps
+ * the process/event loop alive (clean serverless freeze).
+ */
+function retireClient(previous: PrismaClient): void {
+  const timer = setTimeout(() => {
+    void previous.$disconnect().catch(() => {});
+  }, RETIRE_CLIENT_GRACE_MS);
+  (timer as unknown as { unref?: () => void }).unref?.();
+}
+
+/** Mint a fresh token, build a client with it, and atomically swap it in (retiring the old lazily). */
 async function doRefresh(cfg: DsqlConfig): Promise<PrismaClient> {
   const token = await mintDsqlToken(cfg);
   const next = newClient(buildDsqlUrl(cfg, token));
   const previous = g.__ascentPrisma?.client;
   g.__ascentPrisma = { client: next, expiresAt: Date.now() + cfg.ttlSeconds * 1000 };
   if (previous && previous !== next) {
-    void previous.$disconnect().catch(() => {});
+    // Both the proactive background refresh (getPrisma/withDb) and the reactive reconnect funnel here.
+    // The proactive path swaps a STILL-VALID client out from under in-flight callers, so retire it
+    // lazily rather than disconnecting eagerly; harmless for the reactive path too (the old client is
+    // already broken — it simply disconnects a little later).
+    retireClient(previous);
   }
   return next;
 }

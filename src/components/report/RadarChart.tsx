@@ -47,6 +47,12 @@ export function RadarChart({
   const cx = size / 2;
   const cy = size / 2;
   const radius = size / 2 - 56;
+  // Horizontal bleed in the viewBox so the side axis labels (textAnchor start/end at frac 1.2 — e.g.
+  // the west "AI Process") can't be clipped at the left/right edges, where the SVG root would crop
+  // them. Symmetric around cx so the plot stays centered (and circular under uniform scaling); the
+  // pointer + tooltip math below account for the shifted -labelPadX origin.
+  const labelPadX = 48;
+  const vbWidth = size + labelPadX * 2;
   const n = dimensions.length;
   const angleFor = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
 
@@ -61,11 +67,18 @@ export function RadarChart({
   const rings = [0.25, 0.5, 0.75, 1];
   const highlightIdx = highlightId ? dimensions.findIndex((d) => d.id === highlightId) : -1;
   const dataPts = dimensions.map((d, i) => point(i, Math.max(0.04, d.score / 100)));
+  // Validate `active` against the CURRENT arrays before use: it persists across renders but is only
+  // checked at set-time, so if a parent swaps `dimensions` for a shorter (non-empty) array while a
+  // vertex tooltip is open, `dataPts[active]` is undefined and `undefined![0]` would throw mid-render.
+  // Resolve to a concrete point/dim once and gate the ring + tooltip on them (the DimLine pattern),
+  // dropping the non-null assertions.
+  const actPt = active != null ? dataPts[active] : undefined;
+  const actDim = active != null ? dimensions[active] : undefined;
   const dataPath = dataPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
-    const vx = ((e.clientX - rect.left) / rect.width) * size;
+    const vx = -labelPadX + ((e.clientX - rect.left) / rect.width) * vbWidth;
     const vy = ((e.clientY - rect.top) / rect.height) * size;
     let best = -1;
     let bestDist = Infinity;
@@ -82,7 +95,7 @@ export function RadarChart({
   return (
     <div className="relative mx-auto w-full max-w-[340px]">
       <svg
-        viewBox={`0 0 ${size} ${size}`}
+        viewBox={`${-labelPadX} 0 ${vbWidth} ${size}`}
         className="h-auto w-full"
         role="img"
         aria-labelledby={`${titleId} ${descId}`}
@@ -124,9 +137,8 @@ export function RadarChart({
         <circle cx={dataPts[highlightIdx]![0]} cy={dataPts[highlightIdx]![1]} r={7} fill="none" stroke={scoreHex(dimensions[highlightIdx]!.score)} strokeWidth={2.5} />
       )}
       {/* hovered vertex highlight */}
-      {active !== null && (
-        // safe: active is a valid index into dataPts/dimensions (set from dataPts.forEach, same length)
-        <circle cx={dataPts[active]![0]} cy={dataPts[active]![1]} r={8} fill="none" stroke={scoreHex(dimensions[active]!.score)} strokeWidth={2} />
+      {actPt && actDim && (
+        <circle cx={actPt[0]} cy={actPt[1]} r={8} fill="none" stroke={scoreHex(actDim.score)} strokeWidth={2} />
       )}
       {/* labels */}
       {dimensions.map((d, i) => {
@@ -152,19 +164,18 @@ export function RadarChart({
         );
       })}
       {/* transparent capture layer so pointer moves register across the whole plot */}
-      <rect x={0} y={0} width={size} height={size} fill="transparent" />
+      <rect x={-labelPadX} y={0} width={vbWidth} height={size} fill="transparent" />
       </svg>
-      {active !== null && (
-        // safe: active is a valid index into dataPts/dimensions (set from dataPts.forEach, same length)
-        <ChartTooltip xFrac={dataPts[active]![0] / size} yFrac={dataPts[active]![1] / size}>
+      {actPt && actDim && (
+        <ChartTooltip xFrac={(actPt[0] + labelPadX) / vbWidth} yFrac={actPt[1] / size}>
           <div className="text-sm">
-            <div className="font-semibold text-white">{dimensions[active]!.name}</div>
+            <div className="font-semibold text-white">{actDim.name}</div>
             <div className="mt-0.5 flex items-baseline gap-1.5">
-              <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(dimensions[active]!.score) }}>
-                {dimensions[active]!.score}
+              <span className="font-mono text-base font-bold tabular-nums" style={{ color: scoreHex(actDim.score) }}>
+                {actDim.score}
               </span>
               <span className="text-sm text-slate-400">
-                {levelForScore(dimensions[active]!.score).id} {levelForScore(dimensions[active]!.score).name}
+                {levelForScore(actDim.score).id} {levelForScore(actDim.score).name}
               </span>
             </div>
           </div>

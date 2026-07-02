@@ -3,7 +3,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
-import { getOrgBySlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
@@ -33,8 +33,7 @@ function parseGovernanceLite(raw: string | null | undefined): { readable: boolea
  */
 export async function getOrgId(slug: string): Promise<string | null> {
   if (!isDbConfigured()) return null;
-  const normalized = slug.trim().toLowerCase();
-  return (await getOrgBySlug(normalized))?.id ?? null;
+  return (await getOrgBySlug(slug))?.id ?? null;
 }
 
 export interface RepoState {
@@ -426,6 +425,40 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     baseline,
     deltas,
     dimDeltas,
+  };
+}
+
+/** A lightweight org header summary — repo/scan/watch counts + avg maturity. The org shell wraps EVERY
+ *  tab but consumes only these four fields (header chip + the has-data guard), so running the full
+ *  getOrgRollup there (all repos + latest scans + per-dim rows + governance/passport parsing, then
+ *  trend/forecast/deltas) inflated TTFB on every dashboard view to throw most of it away — and ran it
+ *  TWICE on the Overview tab (unscoped here + scoped in the page). This mirrors the rollup's repo set
+ *  (watched OR has-scans) and avg-of-latest-overall math, but as one cheap query. */
+export interface OrgHeaderSummary {
+  repoCount: number;
+  scannedCount: number;
+  watchedCount: number;
+  avgOverall: number;
+}
+
+export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSummary | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true } });
+  if (!org) return null;
+  const repos = await prisma.repository.findMany({
+    where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] },
+    select: {
+      watched: true,
+      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { overallScore: true } },
+    },
+  });
+  const scannedScores = repos.map((r) => r.scans[0]?.overallScore).filter((s): s is number => s != null);
+  return {
+    repoCount: repos.length,
+    scannedCount: scannedScores.length,
+    watchedCount: repos.filter((r) => r.watched).length,
+    avgOverall: roundedMean(scannedScores),
   };
 }
 

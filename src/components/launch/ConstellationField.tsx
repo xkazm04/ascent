@@ -30,8 +30,8 @@ export function ConstellationField({
   onScan?: () => void;
   scanning?: boolean;
   scanDisabled?: boolean;
-  /** Message from a failed manual scan of this org (MAP-2) — surfaced so the button doesn't just
-   *  silently re-enable on a 402/403/500/network failure. */
+  /** A manual-scan failure (quota/permission/server/network) for this org — shown inline so a blocked
+   *  scan reports a reason instead of silently reverting, while keeping the stars + Scan button. */
   scanError?: string;
   /** When set, stars that fail the predicate are dimmed (not removed) — the fleet filter (MAP-4). */
   matcher?: (r: RepoStar) => boolean;
@@ -198,9 +198,7 @@ export function ConstellationField({
         {c.status === "error" ? (
           <span className="text-amber-400/80">{c.message}</span>
         ) : scanError ? (
-          <span role="alert" className="text-amber-400/80">
-            {scanError}
-          </span>
+          <span role="alert" className="text-amber-400/80">{scanError}</span>
         ) : (
           <span className="text-slate-500">{overflow > 0 ? `+${overflow} more stars` : " "}</span>
         )}

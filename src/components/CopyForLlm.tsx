@@ -5,34 +5,55 @@
 // (briefings, reports, gap analyses, security findings) can hand a dev a ready-to-paste brief. Uses
 // the async Clipboard API with a legacy execCommand fallback for non-secure contexts.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { attemptCopy, nextCopyState } from "./copy-for-llm.logic";
 
 export function CopyForLlm({
   text,
   label = "Copy for LLM",
+  ariaLabel,
   className = "",
   onCopied,
 }: {
   text: string;
   label?: string;
+  /** Distinct accessible name when the visible label is generic (e.g. several "Copy" chips on one page). Defaults to label. */
+  ariaLabel?: string;
   className?: string;
   /** Fired once when a copy succeeds — e.g. to count a "use" (Org Skills Library, §8.7). Best-effort. */
   onCopied?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Re-entrancy guard: a second click while a copy is still in flight is ignored, so a rapid
+  // double-click can't double-fire `onCopied` (which inflates the best-effort "use" count, §8.7).
+  const inFlight = useRef(false);
+  // Track the pending auto-reset so a fresh attempt cancels the previous one — otherwise an earlier
+  // timer flips the button back to idle 500ms after a later successful copy.
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function copy() {
-    const ok = await attemptCopy(text, navigator.clipboard, legacyCopy);
-    const { next, resetMs } = nextCopyState(ok);
-    if (next === "copied") {
-      setCopied(true);
-      onCopied?.();
-      setTimeout(() => setCopied(false), resetMs);
-    } else {
-      setFailed(true);
-      setTimeout(() => setFailed(false), resetMs);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const ok = await attemptCopy(text, navigator.clipboard, legacyCopy);
+      const { next, resetMs } = nextCopyState(ok);
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      if (next === "copied") {
+        setFailed(false);
+        setCopied(true);
+        onCopied?.();
+      } else {
+        setCopied(false);
+        setFailed(true);
+      }
+      resetTimer.current = setTimeout(() => {
+        setCopied(false);
+        setFailed(false);
+        resetTimer.current = null;
+      }, resetMs);
+    } finally {
+      inFlight.current = false;
     }
   }
 
@@ -41,6 +62,7 @@ export function CopyForLlm({
       type="button"
       onClick={copy}
       title="Copy a markdown briefing to paste into Claude Code or another LLM"
+      aria-label={ariaLabel ?? label}
       aria-live="polite"
       className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
         copied

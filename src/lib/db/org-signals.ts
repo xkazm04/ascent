@@ -192,6 +192,12 @@ export interface OrgActivity {
   /** UTC ms of the Sunday that starts the NEWEST bucket (series[series.length - 1]); each earlier
    *  element is exactly one WEEK_MS before it. Lets the chart label buckets with real dates. */
   endWeekStartMs: number;
+  /** ISO date (YYYY-MM-DD) of the start of the most-recent / oldest week in `series`. The grid is
+   *  anchored to the most recent SCAN (not the current calendar week) and zero-fills gaps, so axis
+   *  labels must use these real week dates — the old "this week" / "{length} weeks ago" mislabelled a
+   *  stale right edge and was off by one on the left. */
+  latestWeekIso: string;
+  oldestWeekIso: string;
 }
 
 const DAY_MS = 86_400_000;
@@ -273,11 +279,17 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
   const maxWk = Math.max(...weeksPresent);
   const series: number[] = [];
   for (let wk = minWk; wk <= maxWk; wk++) series.push(byWeek.get(wk) ?? 0);
+  // Week index → ISO date of that week's start (via weekStartMs, the Sunday-anchored inverse of
+  // weekIndex), so the chart can label the real span instead of a literal "this week" (the grid's
+  // right edge is the latest SCAN week, possibly stale).
+  const weekStartIso = (wk: number) => new Date(weekStartMs(wk)).toISOString().slice(0, 10);
   return {
     weeks: series.length,
     series,
     total: series.reduce((a, b) => a + b, 0),
     repos: repoCount,
     endWeekStartMs: weekStartMs(maxWk),
+    latestWeekIso: weekStartIso(maxWk),
+    oldestWeekIso: weekStartIso(minWk),
   };
 }

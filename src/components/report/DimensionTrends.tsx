@@ -162,7 +162,13 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
           <div ref={dimRef}>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">By dimension</h2>
-              <Kicker tone="muted">{overallChrono.length} scans</Kicker>
+              {/* Count the series ACTUALLY plotted here (dimChrono, from the lazy /api/history `full`
+                  payload), not the overall series — they can differ in length if a scan lands
+                  between SSR and the dim-fetch or the DB clamps the limit differently. Fall back to
+                  the overall count only while the dimension data is still loading. */}
+              <Kicker tone="muted">
+                {(dimState === "done" ? dimChrono.length : overallChrono.length)} scans
+              </Kicker>
             </div>
 
             {dimState === "done" ? (

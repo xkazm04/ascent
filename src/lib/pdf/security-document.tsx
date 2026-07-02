@@ -33,6 +33,13 @@ const styles = StyleSheet.create({
   sectionH: { fontSize: 12, fontFamily: "Helvetica-Bold", marginBottom: 6 },
   row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 3 },
   muted: { color: MUTED },
+  // Risk-register table columns — fixed score column, flexed repo/gate/rules.
+  regRow: { flexDirection: "row", gap: 8, marginBottom: 3 },
+  regHead: { fontSize: 8, letterSpacing: 1.5, color: FAINT, textTransform: "uppercase" },
+  regRepo: { flexBasis: 130, flexShrink: 0 },
+  regScore: { flexBasis: 28, flexShrink: 0, textAlign: "right" },
+  regGate: { flexGrow: 1 },
+  regRules: { flexBasis: 140, flexShrink: 0 },
   footer: { position: "absolute", bottom: 24, left: 48, right: 48, flexDirection: "row", justifyContent: "space-between", fontSize: 8, color: FAINT, borderTopWidth: 1, borderTopColor: LINE, paddingTop: 8 },
 });
 
@@ -73,29 +80,33 @@ export function SecurityDocument({ overview }: { overview: SecurityOverview }) {
           </Text>
         ) : null}
 
-        {o.weakest.length > 0 && (
+        {o.register.length > 0 && (
           <View>
             <View style={styles.rule} />
-            <Text style={styles.sectionH}>Weakest repositories (Security D9)</Text>
-            {o.weakest.slice(0, 12).map((r) => (
-              <View key={r.fullName} style={styles.row} wrap={false}>
-                <Text>{r.fullName}</Text>
-                <Text style={{ fontFamily: "Helvetica-Bold", color: scoreColor(r.score) }}>{r.score}/100</Text>
+            <Text style={styles.sectionH}>Risk register (worst first)</Text>
+            <View style={styles.regRow} wrap={false}>
+              <Text style={{ ...styles.regRepo, ...styles.regHead }}>Repo</Text>
+              <Text style={{ ...styles.regScore, ...styles.regHead }}>D9</Text>
+              <Text style={{ ...styles.regGate, ...styles.regHead }}>Gate</Text>
+              <Text style={{ ...styles.regRules, ...styles.regHead }}>Branch rules</Text>
+            </View>
+            {o.register.slice(0, 20).map((r) => (
+              <View key={r.fullName} style={styles.regRow} wrap={false}>
+                <Text style={styles.regRepo}>{r.name}</Text>
+                <Text style={{ ...styles.regScore, fontFamily: "Helvetica-Bold", color: scoreColor(r.score) }}>{r.score}</Text>
+                <Text style={{ ...styles.regGate, color: r.gateReason ? "#dc2626" : "#16a34a" }}>
+                  {r.gateReason ? `FAIL — ${r.gateReason}` : "pass"}
+                </Text>
+                <Text style={{ ...styles.regRules, ...styles.muted }}>
+                  {r.rules
+                    ? [r.rules.protected && "protected", r.rules.review && "review", r.rules.checks && "checks", r.rules.signed && "signed"]
+                        .filter(Boolean)
+                        .join(", ") || "none"
+                    : "unreadable"}
+                </Text>
               </View>
             ))}
-          </View>
-        )}
-
-        {gate.failingRepos.length > 0 && (
-          <View>
-            <View style={styles.rule} />
-            <Text style={styles.sectionH}>Failing the security gate</Text>
-            {gate.failingRepos.slice(0, 12).map((r) => (
-              <View key={r.fullName} style={styles.row} wrap={false}>
-                <Text>{r.fullName}</Text>
-                <Text style={styles.muted}>{r.reason}</Text>
-              </View>
-            ))}
+            {o.register.length > 20 ? <Text style={styles.muted}>…and {o.register.length - 20} more repos.</Text> : null}
           </View>
         )}
 

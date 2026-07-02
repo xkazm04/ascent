@@ -96,6 +96,8 @@ function CrumbRow({
     <button
       type="button"
       onClick={() => onCopy(entry.loc)}
+      aria-label={`Copy ${entry.loc}`}
+      className="focus-ring"
       style={{
         display: "flex",
         gap: 2,

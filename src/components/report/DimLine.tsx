@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { BAND_EDGES, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
-import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
+import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { scoreHex } from "@/lib/ui";
 
 /** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips + deep links). */
@@ -46,6 +46,7 @@ export function DimLine({
     .filter((p): p is { v: number; i: number } => p.v !== null);
   const hover = useChartHover(present.map((p) => x(p.i)), W);
   const a = hover.active;
+  const tap = useCoarseTapToOpen();
 
   // Build the path in segments, breaking it wherever a value is missing so the line never
   // dives through 0 to bridge a gap.
@@ -74,6 +75,15 @@ export function DimLine({
   const router = useRouter();
   const actMeta = act ? meta[act.i] : undefined;
 
+  // Short date for the screen-reader link list below (the svg has no visible date axis).
+  const srDate = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  // Present points that deep-link somewhere — exposed as real focusable links so keyboard / SR users
+  // can reach the same per-point report the pointer-only svg (role="img" + onClick) opens.
+  const linkedPoints = present.filter((p) => meta[p.i]?.href);
+
   return (
     <div className="relative mt-2">
       <svg
@@ -86,11 +96,21 @@ export function DimLine({
             : "Dimension trend"
         }
         style={{ touchAction: "none", cursor: actMeta?.href || actMeta?.commitUrl ? "pointer" : undefined }}
-        onPointerMove={hover.onPointerMove}
+        onPointerMove={(e) => {
+          tap.notePointer(e);
+          hover.onPointerMove(e);
+        }}
+        // Also snap on pointer-down so a stationary touch tap (which may not fire pointermove) still
+        // reveals the nearest point before the click is evaluated.
+        onPointerDown={(e) => {
+          tap.notePointer(e);
+          hover.onPointerMove(e);
+        }}
         onPointerLeave={hover.onPointerLeave}
         onClick={(e) => {
           if (e.shiftKey && actMeta?.commitUrl) window.open(actMeta.commitUrl, "_blank", "noopener");
-          else if (actMeta?.href) router.push(actMeta.href);
+          // On touch the first tap only reveals the point's tooltip; a second tap on it navigates.
+          else if (actMeta?.href && tap.shouldOpen(a)) router.push(actMeta.href);
         }}
       >
         {/* Shaded maturity bands — same strata as the overall chart, so both read on one frame. */}
@@ -132,24 +152,16 @@ export function DimLine({
           />
         </ChartTooltip>
       )}
-      {/* The point onClick above (point → report, shift-click → commit) is pointer-only, so mirror the
-          per-scan deep-links as a focusable sr-only list — keyboard/SR users reach the same reports
-          (WCAG 2.1.1). Only present points with metadata get links; gaps and inert points are omitted. */}
-      {present.some((p) => meta[p.i]?.href || meta[p.i]?.commitUrl) && (
+      {linkedPoints.length > 0 && (
         <ul className="sr-only">
-          {present.map((p) => {
-            const m = meta[p.i];
-            if (!m || (!m.href && !m.commitUrl)) return null;
-            const when = m.at ? m.at.slice(0, 10) : `scan ${p.i + 1}`;
-            const label = `${name ? `${name} ` : ""}score ${p.v} on ${when}`;
+          {linkedPoints.map((p) => {
+            const mp = meta[p.i]!; // filtered to href-bearing points above
+            const when = srDate(mp.at);
             return (
               <li key={p.i}>
-                {m.href ? <a href={m.href}>{label} — open report</a> : <span>{label}</span>}
-                {m.commitUrl && (
-                  <a href={m.commitUrl} target="_blank" rel="noopener noreferrer">
-                    {" "}view commit{m.sha ? ` ${m.sha}` : ""}
-                  </a>
-                )}
+                <a href={mp.href}>
+                  {`${name ? name + " " : ""}${p.v} of 100${when ? ` on ${when}` : ""} — open this scan's report`}
+                </a>
               </li>
             );
           })}

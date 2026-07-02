@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { Card } from "@/components/org/ui";
 import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
 import { OwnerHeader, SummaryStrip } from "@/components/org/BacklogSummary";
-import { BacklogItemRow } from "@/components/org/BacklogItemRow";
+import { BacklogItemRow, type BacklogRowState } from "@/components/org/BacklogItemRow";
 
 // Impact-word tiebreak ranking for the "Projected points" cross-repo sort.
 const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -20,6 +20,15 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
   const [view, setView] = useState<"owner" | "due" | "points">("owner");
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Volatile per-row state (PR result, expanded history, promote flag) lifted out of BacklogItemRow and
+  // keyed by item id, so it SURVIVES the remount that happens when an edit re-groups a row into a
+  // different owner/due Card. Keeping it in the row dropped the just-opened PR link on a routine edit
+  // (backlog-management #2).
+  const [rowStates, setRowStates] = useState<Record<string, BacklogRowState>>({});
+  const setRowState = useCallback(
+    (id: string, patch: BacklogRowState) => setRowStates((cur) => ({ ...cur, [id]: { ...cur[id], ...patch } })),
+    [],
+  );
   // Monotonic token so only the LATEST refresh's response is applied. Each edit triggers a full
   // server re-read that wholesale-replaces the backlog; without sequencing, a slower-arriving OLDER
   // snapshot can clobber a newer one when two items are edited in quick succession (lost edit).
@@ -121,12 +130,13 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
     <div className="space-y-5">
       <SummaryStrip b={backlog} />
 
-      <div className="flex items-center gap-1 text-sm">
+      <div role="group" aria-label="Group backlog by" className="flex items-center gap-1 text-sm">
         <span className="mr-1 font-mono text-sm uppercase tracking-widest text-slate-500">Group by</span>
         {(["owner", "due", "points"] as const).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
+            aria-pressed={view === v}
             className={`rounded-lg border px-3 py-1.5 font-medium transition ${
               view === v ? "border-accent/50 bg-accent/10 text-white" : "border-slate-700 text-slate-400 hover:text-white"
             }`}
@@ -156,6 +166,8 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
                     assignees={backlog.assignees}
                     saving={savingIds.has(item.id)}
                     error={errors[item.id]}
+                    state={rowStates[item.id]}
+                    onState={(patch) => setRowState(item.id, patch)}
                     onPatch={patch}
                   />
                 ))}

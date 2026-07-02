@@ -14,6 +14,13 @@ import { getSession, isSameOrigin } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Same shape contract as /api/org/members so an invite can't pin a garbage/typo'd login (which would
+// only ever sit un-acceptable in the pending list — acceptInvite requires the pin to match a real
+// logged-in identity). GitHub logins are 1–39 chars of alphanumerics and single hyphens.
+const GITHUB_LOGIN = /^[A-Za-z0-9-]{1,39}$/;
+// Minimal email shape: a single @ with non-empty, space-free local and domain parts (the domain has a dot).
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
   const org = new URL(request.url).searchParams.get("org");
@@ -39,8 +46,18 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  if (!body.email?.trim() && !body.githubLogin?.trim()) {
+  const githubLogin = body.githubLogin?.trim();
+  const email = body.email?.trim();
+  if (!email && !githubLogin) {
     return NextResponse.json({ error: "Provide an email or a GitHub login to invite." }, { status: 400 });
+  }
+  // Validate the target shape (mirrors /api/org/members) so a typo'd login/email can't be stored as a
+  // permanently un-acceptable ghost invite that pollutes the owner's pending list.
+  if (githubLogin && !GITHUB_LOGIN.test(githubLogin)) {
+    return NextResponse.json({ error: "githubLogin must be a valid GitHub login." }, { status: 400 });
+  }
+  if (email && !EMAIL_SHAPE.test(email)) {
+    return NextResponse.json({ error: "email must be a valid email address." }, { status: 400 });
   }
   const denied = await requireOrgRole(body.org, "owner");
   if (denied) return denied;

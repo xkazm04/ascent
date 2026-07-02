@@ -31,7 +31,7 @@ export function Leaderboard({
       {shown.length === 0 ? (
         <p className="mt-4 text-base text-slate-500">No scans yet — launch the live scan to populate the board.</p>
       ) : (
-        <div className="relative mt-3" style={{ height: shown.length * ROW_H }}>
+        <ol className="relative mt-3 list-none" style={{ height: shown.length * ROW_H }}>
           {shown.map((r, i) => {
             const color = scoreHex(r.overall!);
             const row = (
@@ -74,7 +74,7 @@ export function Leaderboard({
               </Link>
             );
           })}
-        </div>
+        </ol>
       )}
       {overflow > 0 && <p className="mt-3 font-mono text-sm text-slate-500">+{overflow} more repos</p>}
     </div>

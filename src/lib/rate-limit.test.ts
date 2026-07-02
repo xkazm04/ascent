@@ -218,6 +218,31 @@ describe("rateLimitRequest — enforce-and-trip (critical #1)", () => {
     expect(rateLimitRequest(reqFromIp("203.0.113.54"), cfg).ok).toBe(false);
   });
 
+  it("retryAfter tracks the sliding edge: a trip partway through the window reports the remaining wait, not a full window", () => {
+    // Sliding-window correctness: the slot frees when the OLDEST in-window hit ages out
+    // (recent[0] + windowMs), not after a fixed full window from the trip. A caller whose oldest hit
+    // is already 58s old should be told ~2s, not 60s.
+    const cfg = makeConfig({ perIp: 1, global: 1000, windowMs: WINDOW_MS });
+    const req = reqFromIp("203.0.113.77");
+    expect(rateLimitRequest(req, cfg).ok).toBe(true); // hit 1 @ t0 fills per-IP(1)
+
+    vi.advanceTimersByTime(WINDOW_MS - 2000); // 58s later, the t0 hit ages out in 2s
+    const tripped = rateLimitRequest(req, cfg);
+    expect(tripped.ok).toBe(false);
+    expect(tripped.retryAfterSec).toBe(2); // ceil((t0 + 60000 - (t0+58000)) / 1000) = 2, NOT 60
+  });
+
+  it("retryAfter is clamped to at least 1s even when the oldest hit is on the verge of aging out", () => {
+    const cfg = makeConfig({ perIp: 1, global: 1000, windowMs: WINDOW_MS });
+    const req = reqFromIp("203.0.113.78");
+    expect(rateLimitRequest(req, cfg).ok).toBe(true); // hit 1 @ t0
+
+    vi.advanceTimersByTime(WINDOW_MS - 1); // 1ms before the t0 hit ages out
+    const tripped = rateLimitRequest(req, cfg);
+    expect(tripped.ok).toBe(false);
+    expect(tripped.retryAfterSec).toBe(1); // max(1, ceil(1/1000)) = 1, never 0 on a trip
+  });
+
   it("reports the larger retryAfter when both windows are tripped simultaneously", () => {
     const cfg = makeConfig({ perIp: 1, global: 1, windowMs: WINDOW_MS });
     const req = reqFromIp("203.0.113.9");

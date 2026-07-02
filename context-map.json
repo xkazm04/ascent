@@ -555,6 +555,11 @@
           "filePaths": [
             "src/app/org/[slug]/contributors/page.tsx",
             "src/app/org/[slug]/teams/page.tsx",
+            "src/components/org/TeamsMatrix.tsx",
+            "src/components/org/TeamsMatrixDetail.tsx",
+            "src/components/org/TeamsSignals.tsx",
+            "src/components/org/TeamsUnowned.tsx",
+            "src/components/org/teamsShared.ts",
             "src/app/org/[slug]/delivery/page.tsx",
             "src/components/org/delivery/DeliveryPriorities.tsx",
             "src/components/org/delivery/PrRepoTable.tsx",

@@ -69,11 +69,12 @@ export async function getUsageSummary(
 ): Promise<UsageSummary | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  // Org slugs are canonically lowercase (authz + setOrgPlan/credits.ts normalize). `/usage` and
-  // `/api/usage` pass the raw `?org=` through, so a mixed-case slug (`?org=Facebook`) found no org and
-  // returned the all-zero `empty` summary even for a real org with scans — inconsistent with the credit
-  // panel on the same page, which DOES lowercase. Canonicalize here too, and echo the canonical slug.
-  const slug = orgSlug.toLowerCase();
+  // Canonicalize the slug ONCE up front. Org slugs are canonically lowercase (authz + setOrgPlan /
+  // credits.ts / the cap-panel logic on /usage all normalize), but this lookup used the raw `?org=`
+  // value — so `/usage?org=Public` was treated as the public org by the page yet missed the `public`
+  // row here and rendered an empty "no scans metered yet" summary despite real data. Normalize so the
+  // DB lookup agrees with every downstream check; /api/usage shares this path, so it's fixed too.
+  const slug = orgSlug.trim().toLowerCase();
 
   const empty: UsageSummary = {
     org: slug,

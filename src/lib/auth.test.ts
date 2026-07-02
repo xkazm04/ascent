@@ -410,6 +410,26 @@ describe("isSameOrigin — CSRF guard", () => {
   it("REJECTS a request with neither Origin nor fetch metadata (fail closed)", () => {
     expect(isSameOrigin(reqWith({ host: "app.example.com" }))).toBe(false);
   });
+
+  it("ACCEPTS a same-origin Origin behind a Host-rewriting proxy via x-forwarded-host (#2)", () => {
+    // TLS-terminating proxy: request.url + raw Host are the INTERNAL upstream; the browser's Origin is the
+    // EXTERNAL host, advertised through x-forwarded-host. The guard must compare against the forwarded host
+    // (the same one publicOriginForRequest derives) — comparing against the raw internal Host would 403 a
+    // legitimate logout/revoke. x-forwarded-host is a proxy hop header a cross-site caller cannot set.
+    const req = new Request("http://10.0.0.5:3000/api/auth/logout", {
+      method: "POST",
+      headers: { host: "10.0.0.5:3000", "x-forwarded-host": "app.example.com", origin: "https://app.example.com" },
+    });
+    expect(isSameOrigin(req)).toBe(true);
+  });
+
+  it("still REJECTS a cross-site Origin even when a forwarded host is present (#2)", () => {
+    const req = new Request("http://10.0.0.5:3000/api/auth/logout", {
+      method: "POST",
+      headers: { host: "10.0.0.5:3000", "x-forwarded-host": "app.example.com", origin: "https://evil.com" },
+    });
+    expect(isSameOrigin(req)).toBe(false);
+  });
 });
 
 describe("getSessionState — revocation + fail-open state machine", () => {

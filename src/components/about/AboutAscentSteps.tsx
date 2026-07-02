@@ -10,11 +10,12 @@ import { LEVEL_HEX } from "@/lib/ui";
 
 const X0 = 70;
 const STEP_W = 168;
-// Platform tops span a fixed vertical band, rising left→right. Derived from LEVELS.length (like
-// ScoreGauge/DimensionMatrix/TrajectoryChart) instead of a hardcoded per-step array, so adding a level
-// to the rubric can't produce an undefined Y → NaN SVG coords → a silently broken staircase.
-const Y_BOTTOM = 300; // lowest level's platform
-const Y_TOP = 100; // highest level's platform
+// Platform-top geometry is derived from LEVELS.length, not a fixed table: the lowest (first) step sits
+// at BOTTOM_Y and the highest (last) at TOP_Y, interpolated evenly across the rungs. Adding a maturity
+// level to the model now reshapes the staircase automatically (no NaN coords from a missing YS slot).
+const TOP_Y = 100;
+const BOTTOM_Y = 300;
+const RIGHT_PAD = 50;
 const UNLOCK: Record<string, string> = {
   L1: "ad-hoc AI",
   L2: "tools adopted",
@@ -28,8 +29,10 @@ export function AboutAscentSteps() {
   // `pathLength`/opacity — none of which reducedMotion="user" degrades. Gate them on reduced motion
   // and render the final/static staircase + climber-at-summit state instead.
   const reduced = useReducedMotion();
-  const rise = LEVELS.length > 1 ? (Y_BOTTOM - Y_TOP) / (LEVELS.length - 1) : 0;
-  const steps = LEVELS.map((l, i) => ({ id: l.id, name: l.name, x: X0 + i * STEP_W, y: Y_BOTTOM - i * rise }));
+  const n = LEVELS.length;
+  const yFor = (i: number) => (n > 1 ? BOTTOM_Y - ((BOTTOM_Y - TOP_Y) * i) / (n - 1) : BOTTOM_Y);
+  const steps = LEVELS.map((l, i) => ({ id: l.id, name: l.name, x: X0 + i * STEP_W, y: yFor(i) }));
+  const vbWidth = X0 + n * STEP_W + RIGHT_PAD;
   // Climber keyframes: trace the staircase corners (platform, riser-up, platform, …).
   const cx: number[] = [];
   const cy: number[] = [];
@@ -46,7 +49,7 @@ export function AboutAscentSteps() {
   });
 
   return (
-    <svg viewBox="0 0 960 360" className="h-auto w-full" role="img" aria-label="The five-level ascent from manual to autonomous, governed delivery.">
+    <svg viewBox={`0 0 ${vbWidth} 360`} className="h-auto w-full" role="img" aria-label={`The ${n}-level ascent from manual to autonomous, governed delivery.`}>
       {steps.map((s, i) => {
         const color = LEVEL_HEX[s.id];
         const mid = s.x + STEP_W / 2;

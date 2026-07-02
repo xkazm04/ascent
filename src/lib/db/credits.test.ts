@@ -344,7 +344,7 @@ function fakePrismaForReconciliation(rows: Array<{ delta: number; reason: string
   return { prisma, getArgs: () => lastFindManyArgs };
 }
 
-import { getCreditReconciliation } from "./credits";
+import { getCreditReconciliation, CREDIT_REASON, isRefundReason } from "./credits";
 
 /**
  * Fake prisma for consumeScanCredit's plan-resolution + casing contract. Unlike `fakePrisma` (which
@@ -487,9 +487,9 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
   it("classifies a refund as refunded (NOT granted) and a grant as granted — over a mixed ledger", async () => {
     // A 30-day window: one scan debit (-1), one refund (+1), one top-up grant (+50).
     const { prisma } = fakePrismaForReconciliation([
-      { delta: -1, reason: "scan", createdAt: daysAgo(1) },
-      { delta: 1, reason: "refund: deduped scan", createdAt: daysAgo(2) },
-      { delta: 50, reason: "grant", createdAt: daysAgo(3) },
+      { delta: -1, reason: CREDIT_REASON.SCAN, createdAt: daysAgo(1) },
+      { delta: 1, reason: CREDIT_REASON.REFUND, createdAt: daysAgo(2) },
+      { delta: 50, reason: CREDIT_REASON.GRANT, createdAt: daysAgo(3) },
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
@@ -512,20 +512,44 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
   });
 
   it("a refund never inflates `granted` even when several refunds and grants coexist", async () => {
+    // Refund rows carry the canonical CREDIT_REASON.REFUND the producers actually write; everything
+    // else is a grant. Classification is now an EXACT match on that constant (not a free-text /refund/i
+    // substring), so a non-refund positive can never leak into `refunded` and vice-versa.
     const { prisma } = fakePrismaForReconciliation([
-      { delta: 2, reason: "REFUND (failed scan)", createdAt: daysAgo(1) }, // case-insensitive /refund/i
-      { delta: 3, reason: "scan refund", createdAt: daysAgo(1) },
+      { delta: 2, reason: CREDIT_REASON.REFUND, createdAt: daysAgo(1) },
+      { delta: 3, reason: CREDIT_REASON.REFUND, createdAt: daysAgo(1) },
       { delta: 100, reason: "topup", createdAt: daysAgo(1) },
-      { delta: 25, reason: "grant", createdAt: daysAgo(1) },
+      { delta: 25, reason: CREDIT_REASON.GRANT, createdAt: daysAgo(1) },
     ]);
     mockGetPrisma.mockReturnValue(prisma);
 
     const rec = await getCreditReconciliation("acme", 30);
 
-    expect(rec!.refunded).toBe(5); // 2 + 3, matched case-insensitively
+    expect(rec!.refunded).toBe(5); // 2 + 3, the canonical-refund positives only
     expect(rec!.granted).toBe(125); // 100 + 25, the non-refund positives only
     expect(rec!.refunded + rec!.granted).toBe(130); // == sum of all positive deltas
     expect(rec!.net).toBe(130);
+  });
+
+  it("classifies by the shared CREDIT_REASON.REFUND constant, NOT a substring (producer↔reader contract)", async () => {
+    // The refund WRITERS stamp exactly CREDIT_REASON.REFUND, so the reader must accept that and reject
+    // look-alikes: a refund mistakenly stamped "dedup"/"scan refund" must NOT be silently counted, and
+    // a non-refund reason that merely contains the word must NOT land in `refunded`.
+    expect(isRefundReason(CREDIT_REASON.REFUND)).toBe(true);
+    expect(isRefundReason("REFUND")).toBe(true); // trim/case-tolerant
+    expect(isRefundReason("scan refund")).toBe(false); // substring no longer matches
+    expect(isRefundReason("dedup")).toBe(false);
+    expect(isRefundReason(CREDIT_REASON.POLAR_REFUND)).toBe(false);
+
+    const { prisma } = fakePrismaForReconciliation([
+      { delta: 4, reason: CREDIT_REASON.REFUND, createdAt: daysAgo(1) }, // a real refund → refunded
+      { delta: 7, reason: "reverted", createdAt: daysAgo(1) }, // a non-canonical positive → granted
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const rec = await getCreditReconciliation("acme", 30);
+    expect(rec!.refunded).toBe(4);
+    expect(rec!.granted).toBe(7);
   });
 
   it("a negative/adjustment delta is bucketed into `debited` (abs), never into granted/refunded", async () => {

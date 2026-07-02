@@ -10,8 +10,8 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
 import { isPersistedScanFresh, lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
-import { consumeScanCredit, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
-import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT } from "@/lib/rate-limit";
+import { consumeScanCredit, CREDIT_REASON, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
+import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { checkScanEntitlement, isMeteredScan, paymentRequired } from "@/lib/entitlement";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";
@@ -51,6 +51,21 @@ async function runScan(
   // and no-signup. No-op when the gate is disabled (Supabase unconfigured / dev bypass).
   if (orgSlug !== "public" && authGateEnabled() && !(await getViewer())) {
     return NextResponse.json({ error: "Sign in to run a private scan." }, { status: 401 });
+  }
+
+  // Throttle the cache-only "peek" hydration probe too. The cache lookup below issues a GitHub head
+  // request — a REAL, non-304 one for a never-before-seen repo — against the operator PAT, plus 1-2 DB
+  // reads, before the peek returns 204. That is cheap per request but an anonymous client looping
+  // distinct repo URLs can exhaust the shared GitHub budget at no cost to itself. Cap the peek path on
+  // its own generous budget (PEEK_RATE_LIMIT) WITHOUT consuming the weekly free-scan quota; the
+  // expensive full-scan path keeps its stricter limiter + quota below. Must run BEFORE the cache lookup
+  // so the head request itself is rate-limited, not just the 204.
+  if (opts.peek && opts.req) {
+    const rl = rateLimitRequest(opts.req, PEEK_RATE_LIMIT);
+    if (!rl.ok) {
+      void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // observability on the throttled peek path
+      return tooManyRequests(rl.retryAfterSec);
+    }
   }
 
   // Only cache anonymous (tokenless) scans — installation scans are per-tenant. The shared
@@ -170,7 +185,7 @@ async function runScan(
   const refundCredit = async () => {
     if (creditReserved) {
       creditReserved = false;
-      const bal = await grantCredits(orgSlug, 1, { reason: "refund", actor: "system" }).catch(() => null);
+      const bal = await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: "system" }).catch(() => null);
       if (typeof bal === "number") creditsRemaining = bal;
     }
   };
@@ -272,9 +287,12 @@ async function runScan(
 
 function handleError(err: unknown) {
   if (err instanceof GitHubError) {
+    // Surface GitHub's Retry-After on a (secondary) rate limit so the client can back off instead of
+    // hammering — paired with the secondary-limit classification in ghJson (github-repo-data-access #2).
+    const headers = err.retryAfterSec ? { "retry-after": String(err.retryAfterSec) } : undefined;
     return NextResponse.json(
       { error: err.message, code: err.code },
-      { status: STATUS[err.code] ?? 500 },
+      { status: STATUS[err.code] ?? 500, headers },
     );
   }
   // Client disconnected mid-scan — the scan aborted as intended (no work wasted), and no one is

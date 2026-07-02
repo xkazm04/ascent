@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LEVEL_CLASSES, LEVEL_GLYPH, timeAgo } from "@/lib/ui";
+import { LEVEL_CLASSES, LEVEL_GLYPH, readableTextOn, timeAgo } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import { type AppRepo, SCHEDULES } from "./installationRepoTypes";
 
@@ -11,6 +11,7 @@ export function RepoRow({
   onToggleWatch,
   onChangeSchedule,
   bulkBusy = false,
+  watchPending = false,
   segments = [],
   segmentIds = [],
   onToggleSegment,
@@ -22,6 +23,10 @@ export function RepoRow({
   /** A bulk watch/schedule op is in flight — disable per-row controls so a concurrent single-row
    *  change can't be clobbered by the bulk path's partial-failure revert. */
   bulkBusy?: boolean;
+  /** This row's watch mutation is in flight — the repo is only OPTIMISTICALLY watched, not yet
+   *  confirmed by the server, so the schedule select stays disabled to avoid scheduling a repo whose
+   *  watch may still fail and roll back (which would orphan the cadence). */
+  watchPending?: boolean;
   /** The org's segments + this repo's current membership, for tag-as-you-select (watched repos only). */
   segments?: { id: string; name: string; color: string }[];
   segmentIds?: string[];
@@ -69,7 +74,7 @@ export function RepoRow({
         <select
           value={st?.scanSchedule ?? "off"}
           onChange={(e) => onChangeSchedule(r, e.target.value)}
-          disabled={!st?.watched || bulkBusy}
+          disabled={!st?.watched || bulkBusy || watchPending}
           aria-label="Autoscan schedule"
           className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-40"
         >
@@ -100,8 +105,10 @@ export function RepoRow({
                 type="button"
                 onClick={() => onToggleSegment(r, s.id)}
                 aria-pressed={on}
-                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-sm transition"
-                style={on ? { backgroundColor: s.color, borderColor: s.color, color: "#04070e" } : { borderColor: "#334155", color: "#94a3b8" }}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-sm transition ${
+                  on ? "" : "border-slate-700 text-slate-400"
+                }`}
+                style={on ? { backgroundColor: s.color, borderColor: s.color, color: readableTextOn(s.color) } : undefined}
               >
                 {!on && <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />}
                 {s.name}

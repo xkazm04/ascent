@@ -203,6 +203,44 @@ describe("GET /api/org/export — authorized export", () => {
     expect(body).toContain("@acme/frontend");
   });
 
+  it("returns 404 when the team rollup lookup itself returns null (unknown org, not zero teams)", async () => {
+    mockGetOrgTeamRollup.mockResolvedValue(null as never);
+
+    const res = await get("?org=acme&kind=teams&format=csv");
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("returns 404 (not a header-only 200) when the contributor lookup itself returns null", async () => {
+    // null = the lookup failed / was unavailable; an org with genuinely zero contributors returns a
+    // present object with an empty array (still 200). Don't let a backend miss masquerade as success.
+    mockGetContributorInsights.mockResolvedValue(null as never);
+
+    const res = await get("?org=acme&kind=contributors&format=csv");
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("returns 404 when the governance lookup itself returns null", async () => {
+    mockGetOrgGovernance.mockResolvedValue(null as never);
+
+    const res = await get("?org=acme&kind=delivery");
+
+    expect(res.status).toBe(404);
+  });
+
+  it("still serves a header-only 200 for a genuinely empty (non-null) dataset", async () => {
+    mockGetContributorInsights.mockResolvedValue({ contributors: [] } as never);
+
+    const res = await get("?org=acme&kind=contributors&format=csv");
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("login,name,commits,aiCommits,aiSharePct,repos,lastActiveAt");
+  });
+
   it("reads governance (not contributors) for kind=delivery", async () => {
     mockGetOrgGovernance.mockResolvedValue({
       perRepo: [

@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHmac, generateKeyPairSync } from "crypto";
 import {
   verifyWebhook,
+  getInstallation,
   getInstallationToken,
   listInstallationRepos,
   listInstallationReposResult,
@@ -214,6 +215,32 @@ describe("getInstallationToken — mint, cache, expiry-skew + NaN guard", () => 
     invalidateInstallationToken(INSTALL_ID);
     expect(await getInstallationToken(INSTALL_ID)).toBe("tok-y");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getInstallation — null account is surfaced as a typed AppApiError, not a TypeError", () => {
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_APP_ID", "123456");
+    vi.stubEnv("GITHUB_APP_PRIVATE_KEY", TEST_PRIVATE_KEY);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("resolves account/type/suspendedAt for a normal installation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(ghRes({ id: INSTALL_ID, account: { login: "acme", type: "Organization" }, suspended_at: null })),
+    );
+    const info = await getInstallation(INSTALL_ID);
+    expect(info).toEqual({ id: INSTALL_ID, account: "acme", type: "Organization", suspendedAt: null });
+  });
+
+  it("throws AppApiError(404) when GitHub returns a null account (gone account), so revocation callers branch deterministically", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ghRes({ id: INSTALL_ID, account: null, suspended_at: null })));
+    await expect(getInstallation(INSTALL_ID)).rejects.toMatchObject({ name: "AppApiError", status: 404 });
+    await expect(getInstallation(INSTALL_ID)).rejects.toBeInstanceOf(AppApiError);
   });
 });
 

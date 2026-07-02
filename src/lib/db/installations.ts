@@ -86,6 +86,57 @@ export async function removeInstallation(installationId: number | string): Promi
 }
 
 /**
+ * PAUSE (do NOT tear down) an installation on a GitHub `installation.suspend` — a REVERSIBLE state
+ * (billing lapse, an admin "Suspend" toggle). Drops the cached token (it can't be minted while
+ * suspended) and pauses scheduled rescans by clearing `nextScanAt` for the org(s) this installation
+ * backs, so listDueRescans stops returning them (and the cron doesn't burn doomed 401 token mints).
+ * DELIBERATELY KEEPS `watched`, the per-repo `scanSchedule`, and `githubInstallId` intact, and does NOT
+ * bump session versions — a temporary suspension must be fully recoverable, which {@link resumeInstallation}
+ * (on `unsuspend`) does by re-arming the schedules. Contrast {@link removeInstallation}, the permanent
+ * uninstall teardown that unwatches everything, nulls the install id, and revokes sessions. No-op without
+ * a DB (the App can run DB-less).
+ */
+export async function suspendInstallation(installationId: number | string): Promise<void> {
+  invalidateInstallationToken(installationId);
+  if (!isDbConfigured()) return;
+  const prisma = getPrisma();
+  const orgs = await prisma.organization.findMany({
+    where: { githubInstallId: String(installationId) },
+    select: { id: true },
+  });
+  if (!orgs.length) return;
+  // Pause without losing cadence: a null nextScanAt drops out of listDueRescans (which requires
+  // nextScanAt <= now), while `watched` and `scanSchedule` are preserved for resume.
+  await prisma.repository.updateMany({
+    where: { orgId: { in: orgs.map((o) => o.id) }, scanSchedule: { not: "off" } },
+    data: { nextScanAt: null },
+  });
+}
+
+/**
+ * RESUME autoscans after a GitHub `installation.unsuspend` lifts a suspension — the inverse of
+ * {@link suspendInstallation}. The watch flags and per-repo schedules were preserved by suspend, so the
+ * only thing to restore is the paused `nextScanAt`: mark every watched, non-"off" repo of the
+ * installation's org(s) due now, so the autoscan cron picks them up on its next pass (claimRescan then
+ * re-phases each to its own cadence). Scanning them promptly is also correct — push webhooks were
+ * suppressed during the suspension, so watched repos may have drifted and want a catch-up scan. No-op
+ * without a DB.
+ */
+export async function resumeInstallation(installationId: number | string): Promise<void> {
+  if (!isDbConfigured()) return;
+  const prisma = getPrisma();
+  const orgs = await prisma.organization.findMany({
+    where: { githubInstallId: String(installationId) },
+    select: { id: true },
+  });
+  if (!orgs.length) return;
+  await prisma.repository.updateMany({
+    where: { orgId: { in: orgs.map((o) => o.id) }, watched: true, scanSchedule: { not: "off" } },
+    data: { nextScanAt: new Date() },
+  });
+}
+
+/**
  * Reconcile the watched set against an installation's CURRENT accessible repos (the live set from
  * listInstallationRepos). Unwatches any WATCHED repo for the installation's org(s) that is no longer in
  * that set — catching access changes GitHub does NOT itemize as explicit "removed" rows: a

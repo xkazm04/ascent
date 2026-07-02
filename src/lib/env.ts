@@ -31,3 +31,14 @@ export function authBypassEnabled(): boolean {
   if (process.env.NODE_ENV === "production") return false;
   return envBool("ASCENT_AUTH_BYPASS");
 }
+
+/**
+ * Whether the login wall is actually enforced right now: Supabase configured AND the dev bypass off.
+ * The COMPOSED predicate lives here (next/headers-free) alongside its two operands so the server gate
+ * (src/lib/access.ts, which re-exports it) and the proxy's cookie-refresh decision (src/proxy.ts) share
+ * ONE definition. Previously the proxy re-implemented this composition by hand, so adding a condition
+ * here would silently diverge the two — the drift this consolidation exists to prevent.
+ */
+export function authGateEnabled(): boolean {
+  return supabaseAuthConfigured() && !authBypassEnabled();
+}

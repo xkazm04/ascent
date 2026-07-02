@@ -50,9 +50,10 @@ export interface SetBrandingResult {
 }
 
 /** Validate + persist branding. A malformed colour/URL is stored as null rather than rejected, so the
- *  PDF always renders — but the dropped fields are reported in `rejected` so the caller can tell the
- *  user which inputs were ignored instead of claiming an unconditional success. Returns null when
- *  persistence is off / the org is unknown. */
+ *  PDF always renders. Returns the NORMALIZED values actually stored (in `branding`, so the caller/UI
+ *  can tell what was discarded or truncated instead of reporting blanket success) plus the dropped
+ *  fields in `rejected`, so the caller can tell the user which inputs were ignored instead of claiming
+ *  an unconditional success. Returns null when persistence is off / the org is unknown. */
 export async function setOrgBranding(orgSlug: string, input: OrgBranding): Promise<SetBrandingResult | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();

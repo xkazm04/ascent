@@ -79,10 +79,14 @@ export function WarRoomHeader({
 }) {
   const countdown = goal ? daysUntil(goal.targetDate) : null;
   const toGoal = goal ? Math.max(0, goal.target - goal.current) : 0;
-  const [share, setShare] = useState<{ busy: boolean; copied: boolean; error: string | null }>({ busy: false, copied: false, error: null });
+  const [share, setShare] = useState<{ busy: boolean; copied: boolean; error: string | null; manualUrl: string | null }>(
+    { busy: false, copied: false, error: null, manualUrl: null },
+  );
 
   async function shareTvLink() {
-    setShare({ busy: true, copied: false, error: null });
+    setShare({ busy: true, copied: false, error: null, manualUrl: null });
+    // Step 1 — mint the link. A failure here means there is no link to show.
+    let url: string;
     try {
       const res = await fetch("/api/org/live-share", {
         method: "POST",
@@ -91,11 +95,21 @@ export function WarRoomHeader({
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.path) throw new Error(d.error ?? "Couldn't create a share link.");
-      await navigator.clipboard.writeText(`${window.location.origin}${d.path}`);
-      setShare({ busy: false, copied: true, error: null });
-      setTimeout(() => setShare((s) => ({ ...s, copied: false })), 2500);
+      url = `${window.location.origin}${d.path}`;
     } catch (e) {
-      setShare({ busy: false, copied: false, error: e instanceof Error ? e.message : "Share failed." });
+      setShare({ busy: false, copied: false, error: e instanceof Error ? e.message : "Couldn't create a share link.", manualUrl: null });
+      return;
+    }
+    // Step 2 — the link EXISTS server-side now; auto-copy is a convenience that fails on non-secure
+    // contexts / denied permission / kiosk browsers. Don't conflate that with "couldn't create a
+    // link": on copy failure keep the URL on screen for manual copy instead of discarding it with a
+    // misleading "Share failed." (live-war-room #3)
+    try {
+      await navigator.clipboard.writeText(url);
+      setShare({ busy: false, copied: true, error: null, manualUrl: null });
+      setTimeout(() => setShare((s) => ({ ...s, copied: false })), 2500);
+    } catch {
+      setShare({ busy: false, copied: false, error: null, manualUrl: url });
     }
   }
 
@@ -183,6 +197,19 @@ export function WarRoomHeader({
             </label>
           )}
           {share.error && <p className="font-mono text-sm text-orange-300">{share.error}</p>}
+          {share.manualUrl && (
+            <div className="flex flex-col items-end gap-1">
+              <span className="font-mono text-sm text-amber-300">Couldn&apos;t auto-copy — copy this link:</span>
+              <input
+                type="text"
+                readOnly
+                value={share.manualUrl}
+                aria-label="TV share link"
+                onFocus={(e) => e.currentTarget.select()}
+                className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
+              />
+            </div>
+          )}
         </div>
       </header>
 
@@ -229,7 +256,15 @@ export function WarRoomHeader({
       {/* run progress bar + currently-scanning caption */}
       {running && (
         <div className="mt-4">
-          <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div
+            className="h-1.5 overflow-hidden rounded-full bg-slate-800"
+            role="progressbar"
+            aria-label="Scan progress"
+            aria-valuenow={pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuetext={`${progress.done} of ${progress.total} repos scanned`}
+          >
             <div className="h-full rounded-full bg-accent transition-all motion-reduce:transition-none" style={{ width: `${Math.max(3, pct)}%` }} />
           </div>
           {progress.current && (

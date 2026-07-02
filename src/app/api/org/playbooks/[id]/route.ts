@@ -14,8 +14,6 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const gated = await resolvePlaybookOrg(id);
-  if (gated instanceof Response) return gated;
   const body = (await request.json().catch(() => ({}))) as {
     title?: string;
     dimId?: string;
@@ -23,6 +21,13 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     steps?: string[];
     archived?: boolean;
   };
+  // `archived` is a destructive soft-delete, not ordinary editable content: listPlaybooks hides
+  // archived rows and there is no member-facing un-archive, so toggling it removes (or restores) an
+  // org standard for everyone — the same outcome the hard DELETE guards. Require the SAME admin role
+  // when the body touches `archived` (either direction); a plain content edit stays member-level.
+  const min = body.archived !== undefined ? "admin" : "member";
+  const gated = await resolvePlaybookOrg(id, min);
+  if (gated instanceof Response) return gated;
   if (body.dimId !== undefined && !isDimensionId(body.dimId)) {
     return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
   }

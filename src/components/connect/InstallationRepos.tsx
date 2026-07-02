@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
-import { CREDIT_ESTIMATE_NOTE, estimateMonthlyCredits } from "@/lib/credit-estimate";
+import { CREDIT_ESTIMATE_NOTE, estimateMonthlyCredits, scheduledRunsPerMonth } from "@/lib/credit-estimate";
 import { appConfigureUrl } from "@/lib/ui";
 import { RepoFilterBar } from "./RepoFilterBar";
 import { RepoListSkeleton } from "./RepoListSkeleton";
@@ -19,11 +19,18 @@ type View =
 interface CreditInfo {
   balance: number;
   unlimited: boolean;
+  /** Included free monthly scans still available — the estimate nets these out before charging credits. */
+  allowanceRemaining: number;
 }
 
 export function InstallationRepos({ org, installationId }: { org: string; installationId?: string }) {
   const [view, setView] = useState<View>({ status: "loading" });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Rows with a watch mutation currently in flight. The schedule control is gated on this so a user
+  // can't set a cadence on a repo that is only OPTIMISTICALLY watched — if the watch POST then fails
+  // and rolls back, an independent schedule write would otherwise leave an orphaned cadence on an
+  // unwatched repo (cron won't scan it, yet the row renders a stale "daily").
+  const [watchPending, setWatchPending] = useState<Record<string, boolean>>({});
   // Prepaid-credit context for the commitment moment: every scheduled autoscan on this org draws
   // one credit per run, so the header shows what the current watch/schedule choices cost against
   // the balance. Best-effort — a failed read (DB-less deploy, no access) just hides the strip.
@@ -83,7 +90,11 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (active && d && typeof d.balance === "number") {
-          setCredit({ balance: d.balance, unlimited: Boolean(d.unlimited) });
+          setCredit({
+            balance: d.balance,
+            unlimited: Boolean(d.unlimited),
+            allowanceRemaining: typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : 0,
+          });
         }
       })
       .catch(() => {});
@@ -207,6 +218,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     const seq = (watchSeq.current[r.fullName] = (watchSeq.current[r.fullName] ?? 0) + 1);
     patchOptimistic(r.fullName, { watched });
     setRowError(r.fullName, null);
+    setWatchPending((p) => ({ ...p, [r.fullName]: true }));
     try {
       const res = await fetch("/api/org/watch", {
         method: "POST",
@@ -222,10 +234,19 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       if (watchSeq.current[r.fullName] !== seq) return; // superseded — don't roll back a newer change
       patchRollback(r.fullName, { watched: prevWatched });
       setRowError(r.fullName, "Network error — change not saved. Try again.");
+    } finally {
+      setWatchPending((p) => {
+        const next = { ...p };
+        delete next[r.fullName];
+        return next;
+      });
     }
   }
 
   async function changeSchedule(r: AppRepo, schedule: string) {
+    // Defense in depth: never persist a cadence while this row's watch is still in flight (the select
+    // is also disabled then) — an orphaned schedule on an unwatched repo would result if the watch fails.
+    if (watchPending[r.fullName]) return;
     const prevSchedule = r.state?.scanSchedule ?? "off";
     const seq = (scheduleSeq.current[r.fullName] = (scheduleSeq.current[r.fullName] ?? 0) + 1);
     patchOptimistic(r.fullName, { scanSchedule: schedule });
@@ -311,14 +332,30 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, schedule }),
       });
-      const d = (await res.json().catch(() => ({}))) as { updated?: number; error?: string };
+      const d = (await res.json().catch(() => ({}))) as { updated?: number; fullNames?: string[]; error?: string };
       if (!res.ok) {
         prev.forEach((s, fn) => patch(fn, { scanSchedule: s }));
         setBulkMsg({ kind: "error", text: d.error ?? "Failed to set schedule." });
         return;
       }
-      const n = d.updated ?? watchedRepos.length;
-      setBulkMsg({ kind: "note", text: `Set ${schedule} cadence for ${n} watched repo${n === 1 ? "" : "s"}.` });
+      // Reconcile against exactly the rows the server persisted. The DB only schedules repos watched
+      // IN THE DB; if the client's optimistic watched set is larger (a per-row watch still in flight or
+      // silently rolled back), those rows weren't saved. Revert any optimistically-patched row the
+      // server didn't confirm so it can't show a cadence that will never run (no success theater).
+      const confirmed = new Set(
+        Array.isArray(d.fullNames) ? d.fullNames : watchedRepos.map((r) => r.fullName),
+      );
+      const unconfirmed = watchedRepos.filter((r) => !confirmed.has(r.fullName));
+      unconfirmed.forEach((r) => patch(r.fullName, { scanSchedule: prev.get(r.fullName) ?? "off" }));
+      const n = watchedRepos.length - unconfirmed.length;
+      if (unconfirmed.length > 0) {
+        setBulkMsg({
+          kind: "error",
+          text: `Set ${schedule} for ${n} of ${watchedRepos.length} repo${watchedRepos.length === 1 ? "" : "s"} — ${unconfirmed.length} weren't watched on the server and were reverted. Refresh, then retry.`,
+        });
+      } else {
+        setBulkMsg({ kind: "note", text: `Set ${schedule} cadence for ${n} watched repo${n === 1 ? "" : "s"}.` });
+      }
     } catch {
       prev.forEach((s, fn) => patch(fn, { scanSchedule: s }));
       setBulkMsg({ kind: "error", text: "Network error — schedule not saved." });
@@ -357,9 +394,13 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   const scheduledCount = view.repos.filter(
     (r) => r.state?.watched && (r.state?.scanSchedule ?? "off") !== "off",
   ).length;
-  const monthlyCredits = estimateMonthlyCredits(
-    view.repos.map((r) => ({ watched: r.state?.watched, schedule: r.state?.scanSchedule })),
-  );
+  const repoStates = view.repos.map((r) => ({ watched: r.state?.watched, schedule: r.state?.scanSchedule }));
+  // Raw scheduled runs vs the prepaid credits they actually DRAW: a metered scan is free until the org
+  // exceeds its monthly allowance, so subtract the org's remaining free scans (0 when unknown) — the
+  // figure no longer overstates the spend for an org whose allowance still covers the schedule.
+  const scheduledRuns = scheduledRunsPerMonth(repoStates);
+  const allowanceRemaining = credit && !credit.unlimited ? Math.max(0, credit.allowanceRemaining) : 0;
+  const monthlyCredits = estimateMonthlyCredits(repoStates, allowanceRemaining);
   const underAMonth =
     credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
 
@@ -380,16 +421,21 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       {/* Cost/quota context at the moment of commitment: schedules below are billable units, so
           say what they add up to — and what's in the tank — before the cron finds out. Hidden
           when nothing is scheduled and no balance could be read (e.g. DB-less local). */}
-      {(monthlyCredits > 0 || (credit != null && !credit.unlimited)) && (
+      {(scheduledRuns > 0 || (credit != null && !credit.unlimited)) && (
         <p className="-mt-2 mb-3 text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
           {scheduledCount > 0 ? (
             <>
               {scheduledCount} scheduled autoscan{scheduledCount === 1 ? "" : "s"} ≈{" "}
+              <span className="font-mono text-slate-300">{scheduledRuns}</span> run
+              {scheduledRuns === 1 ? "" : "s"}/month →{" "}
               <span className="font-mono text-slate-300">{monthlyCredits}</span> credit
               {monthlyCredits === 1 ? "" : "s"}/month
+              {allowanceRemaining > 0 && (
+                <> (after {allowanceRemaining} free scan{allowanceRemaining === 1 ? "" : "s"} left this month)</>
+              )}
             </>
           ) : (
-            <>Each scheduled autoscan run draws 1 prepaid credit</>
+            <>Each scheduled autoscan run draws 1 prepaid credit beyond your free monthly allowance</>
           )}
           {credit != null &&
             (credit.unlimited ? (
@@ -438,7 +484,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
           <span
             role={bulkMsg.kind === "error" ? "alert" : "status"}
             aria-live={bulkMsg.kind === "error" ? "assertive" : "polite"}
-            className={`font-mono text-sm ${bulkMsg.kind === "error" ? "text-orange-300" : "text-slate-500"}`}
+            className={`font-mono text-sm ${bulkMsg.kind === "error" ? "text-danger" : "text-slate-500"}`}
           >
             {bulkMsg.text}
           </span>
@@ -470,6 +516,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
               onToggleWatch={toggleWatch}
               onChangeSchedule={changeSchedule}
               bulkBusy={bulkBusy}
+              watchPending={Boolean(watchPending[r.fullName])}
               segments={segments}
               segmentIds={segMembership[r.fullName] ?? []}
               onToggleSegment={toggleSegment}

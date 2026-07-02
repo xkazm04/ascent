@@ -327,4 +327,22 @@ describe("policyFromParams — min_overall / min_dimension threshold parsing", (
     const res = evaluateGate(report({ d9: 80, overall: 0 }), pol);
     expect(res.failures.some((f) => f.code === "overall")).toBe(false);
   });
+
+  // --- out-of-range / fractional floors now share sanitizeGatePolicy's contract (>100 dropped, truncated) ---
+  it("?min_overall=150 is out of range (>100) -> falls back to the default, not an unreachable always-fail floor", () => {
+    expect(policyFromParams(new URLSearchParams("min_overall=150"), "org").minOverall).toBe(ORG_DEFAULT.minOverall);
+  });
+
+  it("?min_dimension=999 is out of range (>100) -> falls back to the archetype default floor", () => {
+    expect(policyFromParams(new URLSearchParams("min_dimension=999"), "org").minDimension).toBe(ORG_DEFAULT.minDimension);
+  });
+
+  it("?min_security=999 is out of range (>100) -> dropped, security gate uses DEFAULT_SECURITY_MIN", () => {
+    const pol = policyFromParams(new URLSearchParams("security=1&min_security=999"), "org");
+    expect(pol.minDimensionFor?.D9).toBe(DEFAULT_SECURITY_MIN);
+  });
+
+  it("?min_dimension=39.9 is truncated to an int floor (parity with sanitizeGatePolicy)", () => {
+    expect(policyFromParams(new URLSearchParams("min_dimension=39.9"), "org").minDimension).toBe(39);
+  });
 });

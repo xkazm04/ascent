@@ -3,7 +3,7 @@
 // a markdown brief to paste into Claude Code (Direction #5 + the #6 LLM-consumption baseline).
 
 import Link from "next/link";
-import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, valueRealizedLine } from "@/lib/org/briefing";
+import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
 import { DimRow, MoveRow, PriorPeriodGrid, practiceHref } from "@/components/org/briefingShared";
 import { CopyForLlm } from "@/components/CopyForLlm";
@@ -153,10 +153,8 @@ export default async function OrgExecutive({
           <p className="mt-2 text-base text-slate-300">
             {briefing.forecastHeadline ?? "Not enough history yet to project a trajectory."}
           </p>
-          {briefing.forecastHeadline && briefing.forecastConfidence != null && (
-            <p className="mt-1 font-mono text-sm text-slate-500">
-              trend confidence {briefing.forecastConfidence}%{briefing.forecastConfidence < 50 ? " · noisy" : ""}
-            </p>
+          {briefing.forecastHeadline && forecastConfidenceNote(briefing.forecastConfidence) && (
+            <p className="mt-1 font-mono text-sm text-slate-500">{forecastConfidenceNote(briefing.forecastConfidence)}</p>
           )}
           {briefing.regressionCount > 0 && (
             <p className="mt-1 font-mono text-sm text-orange-300">
@@ -193,14 +191,19 @@ export default async function OrgExecutive({
             {briefing.risks.map((d) => (
               <DimRow key={d.dimId} dimId={d.dimId} label={d.label} avg={d.avg} href={practiceHref(slug, d.dimId)} />
             ))}
-            {briefing.security && briefing.risks.every((r) => r.dimId !== "D9") && (
-              <DimRow
-                dimId={briefing.security.dimId}
-                label={`${briefing.security.label} (security)`}
-                avg={briefing.security.avg}
-                href={practiceHref(slug, briefing.security.dimId)}
-              />
-            )}
+            {/* Surface the security dim here only when it isn't ALREADY shown — neither in the risk list
+                nor (executive-briefing #4) in Strengths — so a security dim that ranks as a top strength
+                isn't simultaneously rendered under "Weakest dimensions". */}
+            {briefing.security &&
+              briefing.risks.every((r) => r.dimId !== briefing.security!.dimId) &&
+              briefing.strengths.every((s) => s.dimId !== briefing.security!.dimId) && (
+                <DimRow
+                  dimId={briefing.security.dimId}
+                  label={`${briefing.security.label} (security)`}
+                  avg={briefing.security.avg}
+                  href={practiceHref(slug, briefing.security.dimId)}
+                />
+              )}
           </div>
         </Card>
       </div>

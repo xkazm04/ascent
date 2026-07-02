@@ -329,6 +329,18 @@ export function postureFor(adoption: number, rigor: number): Posture {
   };
 }
 
+/**
+ * Canonical, ordered posture taxonomy (id + display label), best→worst.
+ * One source of truth for any UI that enumerates postures (e.g. the Posture distribution),
+ * so adding/renaming a posture here automatically flows through instead of silently dropping it.
+ */
+export const POSTURE_META: ReadonlyArray<{ id: Posture["id"]; label: string }> = [
+  { id: "ai-native", label: "AI-Native" },
+  { id: "ungoverned", label: "Fast & Ungoverned" },
+  { id: "manual", label: "Solid but Manual" },
+  { id: "early", label: "Getting Started" },
+];
+
 // ---- Startup invariant --------------------------------------------------------
 // Fail loudly at module load (dev/test only) if any weight set is misconfigured. The engine
 // renormalizes defensively so a bad set can't silently deflate scores, but a set that doesn't

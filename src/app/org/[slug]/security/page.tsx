@@ -31,7 +31,7 @@ export default async function OrgSecurity({
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const [sec, supply] = await Promise.all([
     buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title, techGroupId),
-    getOrgSupplyChain(slug),
+    getOrgSupplyChain(slug, techGroupId),
   ]);
 
   if (!sec) {
@@ -189,6 +189,14 @@ export default async function OrgSecurity({
                 </ul>
               )}
             </>
+          ) : supply?.degraded ? (
+            /* Degraded: a github-mode run couldn't authenticate (no install / token mint failed).
+               scanned:0 here means "couldn't reach GitHub", NOT "clean / not enabled" — say so
+               explicitly so a transient blip isn't read as an all-clear. */
+            <InlineEmpty>
+              Couldn’t load Dependabot advisories right now — the GitHub App installation or token was
+              unavailable for this request. This is NOT an all-clear; reload in a minute to retry.
+            </InlineEmpty>
           ) : (
             /* When supply-chain scanning is OFF (or no advisory data yet) say so — the tab must not
                look like it simply lacks the feature (Nadia). A separate signal from the D9 score. */

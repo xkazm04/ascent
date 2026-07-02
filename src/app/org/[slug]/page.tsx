@@ -222,8 +222,8 @@ export default async function OrgOverview({
         <OrgGapsSection gaps={gaps} slug={slug} />
       )}
 
-      {/* Trend */}
-      {trend.length >= 1 && (
+      {/* Trend — needs at least two points; a single rollup is just a lone dot in an empty axis. */}
+      {trend.length >= 2 && (
         <Card>
           <SectionHeader size="sm" title="Org maturity over time" right={<span className="font-mono text-sm text-slate-500">{period.title}</span>} />
           <div className="mt-3">

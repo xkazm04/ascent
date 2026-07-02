@@ -46,11 +46,15 @@ export function FleetMap({
   );
   // Org login currently scanning from the map (MAP-2) + an abort handle for cleanup.
   const [scanning, setScanning] = useState<string | null>(null);
-  const scanCtrl = useRef<AbortController | null>(null);
-  useEffect(() => () => scanCtrl.current?.abort(), []);
-  // Per-org message for a scan that failed (402/403/500/network) — surfaced on the card instead of
-  // the button silently re-enabling with no feedback (MAP-2 silent failure).
+  // Per-org manual-scan error (quota/permission/server/network), shown inline without destroying the
+  // constellation's stars or its Scan button — so the user learns WHY a scan didn't run and can retry.
   const [scanError, setScanError] = useState<Record<string, string>>({});
+  const scanCtrl = useRef<AbortController | null>(null);
+  // Bumped each time a manual scan begins. The auto-refresh captures it at fetch start and discards
+  // its result if it changed — covering the case where a scan starts AND finishes during the refresh's
+  // network round-trip (then scanCtrl.current is null again, so the abort-handle check alone misses it).
+  const scanGen = useRef(0);
+  useEffect(() => () => scanCtrl.current?.abort(), []);
   // Completion time of the most recent successful scan per org, so the live refresh can defer that
   // org until its fresh scores have propagated (SCAN_SETTLE_MS) rather than dimming it back down.
   const recentScan = useRef<Map<string, number>>(new Map());
@@ -65,16 +69,20 @@ export function FleetMap({
   // Scan an org's watched repos straight from the map — reuses the dashboard's SSE bulk scan and
   // brightens each star in place as results land, so a near-empty grey field can be lit up on the
   // spot (the page the OAuth callback deliberately lands on).
-  async function scanOrg(login: string) {
-    if (scanning) return;
-    setScanning(login);
-    // Clear any prior scan error for this org before retrying.
+  function clearScanError(login: string) {
     setScanError((e) => {
       if (!e[login]) return e;
       const next = { ...e };
       delete next[login];
       return next;
     });
+  }
+
+  async function scanOrg(login: string) {
+    if (scanning) return;
+    setScanning(login);
+    clearScanError(login); // a fresh attempt clears any prior error for this org
+    scanGen.current += 1; // mark a new live scan so a concurrent auto-refresh discards its stale result
     const ctrl = new AbortController();
     scanCtrl.current = ctrl;
     try {
@@ -85,13 +93,15 @@ export function FleetMap({
         signal: ctrl.signal,
       });
       if (!res.ok) {
-        // Surface the failure (credits/permission/server) on the card instead of returning silently.
+        // Surface the real reason (quota 402 / permission 403 / server 500) instead of silently
+        // reverting "Scanning…" → "Scan", which looks identical to "nothing watched" and makes a
+        // blocked paying user retry fruitlessly.
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        setScanError((e) => ({ ...e, [login]: data?.error ?? `Scan failed (${res.status}).` }));
+        setScanError((m) => ({ ...m, [login]: data?.error ?? `Scan failed (${res.status}).` }));
         return;
       }
       if (!res.body) {
-        setScanError((e) => ({ ...e, [login]: "Scan failed — no response stream." }));
+        setScanError((m) => ({ ...m, [login]: "Scan failed to start." }));
         return;
       }
       await readSSE(res.body, (msg) => {
@@ -99,10 +109,11 @@ export function FleetMap({
       });
       // Mark this org just-scanned so the live refresh defers it past the propagation window.
       recentScan.current.set(login, Date.now());
-    } catch {
-      // Ignore user/unmount aborts; surface a real network error on the card.
-      if (!ctrl.signal.aborted) {
-        setScanError((e) => ({ ...e, [login]: "Network error — scan not started. Try again." }));
+    } catch (e) {
+      // An aborted scan (Cancel / unmount / navigation) is expected — stay silent. Any other failure
+      // (a genuine network error) is surfaced so the user knows the scan didn't run.
+      if ((e as { name?: string } | null)?.name !== "AbortError") {
+        setScanError((m) => ({ ...m, [login]: "Network error — scan didn't run. Try again." }));
       }
     } finally {
       if (scanCtrl.current === ctrl) scanCtrl.current = null;
@@ -147,6 +158,10 @@ export function FleetMap({
     let cancelled = false;
     async function refreshAll() {
       if (document.visibilityState !== "visible" || scanCtrl.current) return;
+      // Snapshot the scan generation BEFORE the network round-trip. The guard above only catches a scan
+      // already in flight; a scan that starts (and the fetch resolves) after this point would otherwise
+      // commit pre-scan rows (often overall:null) over the live scores the SSE stream just painted.
+      const genAtStart = scanGen.current;
       await Promise.all(
         installations.map(async (inst) => {
           try {
@@ -162,7 +177,9 @@ export function FleetMap({
             if (!r.ok || cancelled) return;
             const data = (await r.json().catch(() => null)) as { repos?: unknown } | null;
             const fresh = mapRepos(data?.repos);
-            if (cancelled) return;
+            // Re-check the live-scan guard at COMMIT time, not just at fetch start: a manual scan that
+            // began during this round-trip now owns the stars, so don't clobber its fresh scores.
+            if (cancelled || scanCtrl.current || scanGen.current !== genAtStart) return;
             setConstellations((cur) =>
               cur.map((c) => (c.id === inst.id && c.status === "done" ? { ...c, repos: mergeStars(c.repos, fresh) } : c)),
             );
@@ -173,9 +190,17 @@ export function FleetMap({
       );
     }
     const id = setInterval(refreshAll, 90_000);
+    // Re-pull immediately when the tab regains focus so a user returning to a backgrounded Mission
+    // Control doesn't stare at scores up to ~90s stale before the next tick (the interval no-ops while
+    // hidden). refreshAll's own visibility/scan guards keep this safe.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshAll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [installations]);
 
@@ -266,6 +291,10 @@ export function FleetMap({
                     type="button"
                     onClick={() => toggleLevel(b)}
                     aria-pressed={on}
+                    // The "unscanned" band renders as a bare "—"; without an explicit name a screen
+                    // reader announces only the punctuation. Give it a real accessible name (the glyph
+                    // stays decorative); L1–L5 already read fine but labelling them is harmless.
+                    aria-label={b === "unscanned" ? "unscanned" : b}
                     className={`rounded-md border px-2 py-0.5 font-mono text-sm transition ${
                       on ? "border-accent bg-accent/15 text-white" : "border-slate-700 text-slate-400 hover:text-white"
                     }`}

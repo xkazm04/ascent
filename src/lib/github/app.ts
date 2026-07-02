@@ -114,9 +114,17 @@ export async function getInstallation(installationId: number | string): Promise<
   const jwt = createAppJwt();
   const data = await githubAppFetch<{
     id: number;
-    account: { login: string; type: string };
+    account: { login: string; type: string } | null;
     suspended_at?: string | null;
   }>(`/app/installations/${installationId}`, jwt);
+  // GitHub can return an installation with a null `account` (account deleted, or certain
+  // enterprise/transfer states). Dereferencing it threw an opaque TypeError instead of an AppApiError,
+  // so revocation callers' `catch` swallowed it as a transient failure. A null account is effectively a
+  // gone account — surface it as a typed 404 so confirmRevocationWithGitHub treats a `deleted` as
+  // confirmed and installationMatchesOwner deterministically fails closed.
+  if (!data.account?.login) {
+    throw new AppApiError(404, `/app/installations/${installationId}`, "installation account is null");
+  }
   return {
     id: data.id,
     account: data.account.login,

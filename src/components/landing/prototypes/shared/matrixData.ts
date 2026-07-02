@@ -50,6 +50,13 @@ export const MAX_WEIGHT = Math.max(
   ]),
 );
 
+/**
+ * Fixed track ceiling the bars are drawn against (the heaviest weight rounded UP to the next 5%). Scaling
+ * bar length by `w / TRACK_MAX` instead of `w / MAX_WEIGHT` keeps the bar proportional to the ABSOLUTE
+ * percent printed beside it — so a 20% cell no longer renders a full-track bar captioned "20%". Derived
+ * from the data, so it tracks the model if the weights change. */
+export const TRACK_MAX = Math.ceil(MAX_WEIGHT * 20) / 20;
+
 /** Percent string for a 0..1 weight (the matrix displays weights as whole-number percents). */
 export function pct(w: number): string {
   return `${Math.round(w * 100)}%`;

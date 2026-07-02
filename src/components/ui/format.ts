@@ -25,9 +25,13 @@ export const DIRECTION_TONE = {
   flat: { arrow: "→", color: "#94a3b8", label: "holding" },
 } as const;
 
-/** Classify a numeric delta into a direction-tone key. */
+/**
+ * Classify a numeric delta into a direction-tone key. A within-noise non-zero delta
+ * (|d| <= SCORE_NOISE_BAND) maps to "flat" so it never wears the confident rising/falling tone of a
+ * real move — matching the noise mute that `deltaHex`/`fmtDelta` already enforce.
+ */
 export function toneFor(delta: number): keyof typeof DIRECTION_TONE {
-  return delta > 0 ? "rising" : delta < 0 ? "falling" : "flat";
+  return isWithinNoise(delta) ? "flat" : delta > 0 ? "rising" : "falling";
 }
 
 /**

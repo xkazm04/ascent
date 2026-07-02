@@ -15,10 +15,18 @@ import { PUBLIC_ORG } from "@/lib/org-constants";
 // attacker-controlled on this unauthenticated endpoint, so anything that isn't hostname-shaped is
 // bucketed into a single "other" row rather than minting a fresh, arbitrary row per forged value.
 const HOST_RE = /^[a-z0-9.-]+(?::\d{1,5})?$/;
-// Hard ceiling on DISTINCT hosts tallied per repo. Real embeds concentrate on a handful of hosts
-// (github.com, gitlab.com, a few docs sites); past this cap, further NEW hosts fold into "other" so a
-// forged-referer flood can't grow the table without bound. The panel is documented as a lower bound.
-const MAX_HOSTS_PER_REPO = 50;
+// Hard ceiling on DISTINCT hosts tallied per repo. The badge endpoint is unauthenticated and the host
+// is derived from the client-controlled, spoofable `Referer` header, so without a bound an attacker can
+// insert one new row per fake host (the upsert keys on (repo, host)) and grow the table without limit —
+// a storage-exhaustion / write-amplification abuse on the most-exposed public route. Real embeds
+// concentrate on a handful of hosts (github.com, gitlab.com, a few docs sites) — far fewer than this —
+// so the cap is invisible to legitimate reach; past it, further NEW hosts fold into the shared "other"
+// bucket, making unbounded host cardinality structurally impossible while the impression is still
+// counted. Env-overridable. The panel is documented as a lower bound.
+const MAX_HOSTS_PER_REPO = (() => {
+  const n = Number(process.env.BADGE_MAX_HOSTS_PER_REPO);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 200;
+})();
 
 /** Best-effort: bump the (repo, host) tally. Swallows every error — analytics must never break a badge. */
 export async function recordBadgeImpression(repoFullName: string, refererHost: string): Promise<void> {
@@ -30,26 +38,25 @@ export async function recordBadgeImpression(repoFullName: string, refererHost: s
   const host = raw === "" ? "direct" : HOST_RE.test(raw) ? raw : "other";
   try {
     const prisma = getPrisma();
-    // Cap distinct hosts per repo: if this exact (repo,host) pair is NEW and the repo already carries
-    // MAX_HOSTS_PER_REPO rows, funnel the impression into the shared "other" bucket instead of creating
-    // yet another row. Bounds row growth per repo against a forged-Referer flood while still counting it.
-    let bucketHost = host;
-    if (host !== "other") {
-      const exists = await prisma.badgeImpression.findUnique({
-        where: { repoFullName_refererHost: { repoFullName: repo, refererHost: host } },
-        select: { repoFullName: true },
-      });
-      if (!exists && (await prisma.badgeImpression.count({ where: { repoFullName: repo } })) >= MAX_HOSTS_PER_REPO) {
-        bucketHost = "other";
-      }
-    }
+    // Bump an EXISTING (repo, host) tally in place — always allowed, since it grows no rows.
+    const updated = await prisma.badgeImpression.updateMany({
+      where: { repoFullName: repo, refererHost: host },
+      data: { count: { increment: 1 }, lastSeen: new Date() },
+    });
+    if (updated.count > 0) return;
+    // A genuinely NEW host for this repo: it only gets its own row while under the per-repo cap, so a
+    // flood of distinct spoofed Referer values can't grow the table without bound. Past the cap the
+    // impression is funneled into the shared "other" bucket instead of creating yet another row —
+    // still counted, just not attributed (the tally is deliberately approximate — see the module note).
+    const hostCount = await prisma.badgeImpression.count({ where: { repoFullName: repo } });
+    const bucketHost = host !== "other" && hostCount >= MAX_HOSTS_PER_REPO ? "other" : host;
     await prisma.badgeImpression.upsert({
       where: { repoFullName_refererHost: { repoFullName: repo, refererHost: bucketHost } },
       update: { count: { increment: 1 }, lastSeen: new Date() },
       create: { repoFullName: repo, refererHost: bucketHost, count: 1 },
     });
   } catch {
-    /* best-effort tally — never surface to the public badge path */
+    /* best-effort tally — never surface to the public badge path (incl. a create racing the cap check) */
   }
 }
 
@@ -94,17 +101,50 @@ export async function getBadgeReach(orgSlug: string): Promise<BadgeReach | null>
     }),
   ]);
 
-  // Distinct counts: cheap distinct scans (bounded by host/repo cardinality, not raw GETs).
-  const [hosts, repos] = await Promise.all([
-    prisma.badgeImpression.findMany({ where, distinct: ["refererHost"], select: { refererHost: true } }),
-    prisma.badgeImpression.findMany({ where, distinct: ["repoFullName"], select: { repoFullName: true } }),
-  ]);
+  // Distinct counts done DB-SIDE via COUNT(DISTINCT …): the prior `findMany({ distinct }).length`
+  // streamed EVERY distinct host and repo string into Node memory just to take `.length`, an unbounded
+  // result proportional to cardinality (which the spoofable-Referer abuse in this same table inflates).
+  // The raw COUNT returns two integers regardless of scale. Falls back to a CAPPED distinct scan if the
+  // raw query is ever unavailable, so /usage can't break (the cap bounds the fallback's memory too).
+  const { distinctHosts, distinctRepos } = await countDistinct(prisma, orgSlug);
 
   return {
     totalImpressions: total._sum.count ?? 0,
-    distinctHosts: hosts.length,
-    distinctRepos: repos.length,
+    distinctHosts,
+    distinctRepos,
     topHosts: hostGroups.map((g) => ({ host: g.refererHost, impressions: g._sum.count ?? 0 })),
     topRepos: repoGroups.map((g) => ({ fullName: g.repoFullName, impressions: g._sum.count ?? 0 })),
   };
+}
+
+/** Cap on rows scanned by the fallback distinct path — bounds its memory if the raw COUNT is ever
+ *  unavailable. Well above any legitimate distinct host/repo cardinality, so it never under-counts real reach. */
+const DISTINCT_FALLBACK_CAP = 5000;
+
+/** DB-side distinct host/repo counts for an org's badge reach. Uses COUNT(DISTINCT …) (two integers,
+ *  no row streaming); falls back to a capped distinct scan if the raw query is unavailable. */
+async function countDistinct(
+  prisma: ReturnType<typeof getPrisma>,
+  orgSlug: string,
+): Promise<{ distinctHosts: number; distinctRepos: number }> {
+  const slug = orgSlug.toLowerCase();
+  const isPublic = slug === PUBLIC_ORG;
+  try {
+    const rows = isPublic
+      ? await prisma.$queryRaw<{ hosts: number; repos: number }[]>`
+          SELECT COUNT(DISTINCT "refererHost")::int AS hosts, COUNT(DISTINCT "repoFullName")::int AS repos
+          FROM "BadgeImpression"`
+      : await prisma.$queryRaw<{ hosts: number; repos: number }[]>`
+          SELECT COUNT(DISTINCT "refererHost")::int AS hosts, COUNT(DISTINCT "repoFullName")::int AS repos
+          FROM "BadgeImpression" WHERE "repoFullName" LIKE ${`${slug}/%`}`;
+    return { distinctHosts: Number(rows[0]?.hosts ?? 0), distinctRepos: Number(rows[0]?.repos ?? 0) };
+  } catch (err) {
+    console.error("[badge-analytics] distinct-count query failed; falling back to a capped scan", err);
+    const where = isPublic ? {} : { repoFullName: { startsWith: `${slug}/` } };
+    const [hosts, repos] = await Promise.all([
+      prisma.badgeImpression.findMany({ where, distinct: ["refererHost"], select: { refererHost: true }, take: DISTINCT_FALLBACK_CAP }),
+      prisma.badgeImpression.findMany({ where, distinct: ["repoFullName"], select: { repoFullName: true }, take: DISTINCT_FALLBACK_CAP }),
+    ]);
+    return { distinctHosts: hosts.length, distinctRepos: repos.length };
+  }
 }

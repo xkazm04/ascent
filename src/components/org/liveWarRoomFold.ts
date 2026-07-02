@@ -96,15 +96,23 @@ export function computeStats(repos: Record<string, LiveRepo>) {
   const all = Object.values(repos);
   const s = all.filter((r) => r.overall != null);
   const n = s.length;
-  const sum = (f: (r: LiveRepo) => number | null) => s.reduce((a, r) => a + (f(r) ?? 0), 0);
+  // Average each axis over ONLY the repos that actually carry it. A scored repo (overall present) can
+  // still have a null adoption/rigor axis (both the seed and the live fold legitimately produce that),
+  // and counting those nulls as 0 in the divisor understated the headline tiles — e.g. 5 repos at 80
+  // + 5 with a null axis read (5·80)/10 = 40 instead of 80. avgOverall stays over `s` (the
+  // overall-present set). (live-war-room #2)
+  const axisAvg = (f: (r: LiveRepo) => number | null): number | null => {
+    const present = s.filter((r) => f(r) != null);
+    return present.length ? Math.round(present.reduce((a, r) => a + (f(r) as number), 0) / present.length) : null;
+  };
   const postureCounts: Record<string, number> = {};
   for (const r of s) if (r.posture) postureCounts[r.posture] = (postureCounts[r.posture] ?? 0) + 1;
   return {
     scored: n,
     total: all.length,
-    avgOverall: n ? Math.round(sum((r) => r.overall) / n) : null,
-    avgAdoption: n ? Math.round(sum((r) => r.adoption) / n) : null,
-    avgRigor: n ? Math.round(sum((r) => r.rigor) / n) : null,
+    avgOverall: n ? Math.round(s.reduce((a, r) => a + (r.overall ?? 0), 0) / n) : null,
+    avgAdoption: axisAvg((r) => r.adoption),
+    avgRigor: axisAvg((r) => r.rigor),
     postureCounts,
     aiNative: postureCounts["ai-native"] ?? 0,
   };

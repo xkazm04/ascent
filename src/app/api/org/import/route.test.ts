@@ -21,6 +21,7 @@ vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 // credit-cap suite below DOES enter it, so stub the alert glue to keep the test hermetic.
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 vi.mock("@/lib/db", () => ({
+  CREDIT_REASON: { SCAN: "scan", GRANT: "grant", ADJUSTMENT: "adjustment", REFUND: "refund", POLAR_REFUND: "polar-refund" },
   consumeScanCredit: vi.fn(),
   getInstallationIdForOwner: vi.fn(async () => null),
   grantCredits: vi.fn(),

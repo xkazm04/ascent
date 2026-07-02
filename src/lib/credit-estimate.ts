@@ -14,10 +14,11 @@ export const CREDIT_ESTIMATE_NOTE =
   "Upper-bound estimate: daily ≈30, weekly ≈4, monthly ≈1 runs per month. Runs on an unchanged commit (or degraded runs) are refunded.";
 
 /**
- * Upper-bound prepaid credits/month the given watch+schedule states will draw. Pure — derived
- * from the SAME rows the list renders, so the figure tracks every optimistic toggle live.
+ * Raw upper-bound scheduled-autoscan RUNS per month for the given watch+schedule states (before any
+ * free allowance is netted out) — the "scheduled runs" figure shown beside the credit estimate. Pure —
+ * derived from the SAME rows the list renders, so it tracks every optimistic toggle live.
  */
-export function estimateMonthlyCredits(
+export function scheduledRunsPerMonth(
   repos: { watched?: boolean | null; schedule?: string | null }[],
 ): number {
   let total = 0;
@@ -26,4 +27,20 @@ export function estimateMonthlyCredits(
     total += MONTHLY_RUNS[r.schedule ?? "off"] ?? 0;
   }
   return total;
+}
+
+/**
+ * Upper-bound prepaid credits/month the given watch+schedule states will draw, AFTER the plan's
+ * remaining free monthly allowance. A metered scan is FREE until the org exceeds its monthly allowance
+ * (Free 10, Pro 100, Team 500), so the raw run count overstates the credit spend by that free band —
+ * e.g. a Pro org watching 3 daily repos schedules ≈90 runs that all fall inside its 100 free scans, a
+ * real draw of 0, not 90. Pass `allowanceRemaining` (the org's INCLUDED free scans still left this
+ * month, from checkScanEntitlement) to subtract it; the default 0 yields the raw run count — a true
+ * upper bound only when the allowance is unknown.
+ */
+export function estimateMonthlyCredits(
+  repos: { watched?: boolean | null; schedule?: string | null }[],
+  allowanceRemaining = 0,
+): number {
+  return Math.max(0, scheduledRunsPerMonth(repos) - Math.max(0, allowanceRemaining));
 }

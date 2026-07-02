@@ -11,6 +11,9 @@ import { deltaHex, fmtDelta, postureLabel } from "@/components/org/ui";
 import { CHAMPION_MIN_POP } from "@/components/org/champions";
 import { scoreHex } from "@/lib/ui";
 
+/** Cap the owned-repos pill list so a broad CODEOWNERS owner can't render hundreds of pills. */
+const OWNED_REPO_CAP = 12;
+
 export function TeamsMatrixDetail({ team }: { team: TeamRollup }) {
   return (
     // sticky left + capped width keep the detail inside the visible scrollport — the row's cell spans
@@ -47,7 +50,7 @@ export function TeamsMatrixDetail({ team }: { team: TeamRollup }) {
 
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="font-mono text-sm uppercase tracking-widest text-slate-600">Repos</span>
-        {team.repos.map((r) => (
+        {team.repos.slice(0, OWNED_REPO_CAP).map((r) => (
           <Link
             key={r.fullName}
             href={`/report/${r.fullName}`}
@@ -59,6 +62,11 @@ export function TeamsMatrixDetail({ team }: { team: TeamRollup }) {
             <span className="ml-1" style={{ color: scoreHex(r.overall) }}>{r.overall}</span>
           </Link>
         ))}
+        {team.repos.length > OWNED_REPO_CAP && (
+          <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-500">
+            +{team.repos.length - OWNED_REPO_CAP} more
+          </span>
+        )}
       </div>
 
       {team.contributors >= CHAMPION_MIN_POP && team.champions.length > 0 && (

@@ -23,6 +23,10 @@ export function ScoreRing({
   // ring as a full circle (reads as a perfect 100). scoreHex already clamps the colour; clamp the
   // geometry too so the arc length can't lie.
   const safeScore = clamp01to100(score);
+  // The numeral and the screen-reader desc must use the SAME clamped value as the arc geometry —
+  // otherwise the clamp protects the picture but a NaN/out-of-range raw `score` still prints "NaN"
+  // or "137" in the headline number and the aria-desc, contradicting a correct-looking arc.
+  const displayScore = Math.round(safeScore);
   const offset = c * (1 - safeScore / 100);
   const color = scoreHex(score);
   const cx = size / 2;
@@ -39,7 +43,7 @@ export function ScoreRing({
     >
       {/* Screen-reader title/desc — the arc length already encodes the score without color. */}
       <title id={titleId}>Overall maturity score</title>
-      <desc id={descId}>{`Score ${score} of 100. Level ${level.id} ${level.name}.`}</desc>
+      <desc id={descId}>{`Score ${displayScore} of 100. Level ${level.id} ${level.name}.`}</desc>
       <circle cx={cx} cy={cx} r={r} fill="none" stroke="#1e293b" strokeWidth={stroke} />
       <circle
         cx={cx}
@@ -55,7 +59,7 @@ export function ScoreRing({
         style={{ transition: "stroke-dashoffset 0.8s ease" }}
       />
       <text x={cx} y={cx - 6} textAnchor="middle" className="fill-white" fontSize={size * 0.26} fontWeight={700}>
-        {score}
+        {displayScore}
       </text>
       <text x={cx} y={cx + 22} textAnchor="middle" fill={color} fontSize={size * 0.085} fontWeight={600}>
         {LEVEL_GLYPH[level.id]} {level.id} · {level.name}

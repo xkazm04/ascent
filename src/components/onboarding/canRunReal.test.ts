@@ -38,4 +38,16 @@ describe("canRunRealScan", () => {
     const drained: OrgCredit = { org: "acme", balance: 0, unlimited: false };
     expect(canRunRealScan({ sourceInstallId: "inst_1", credit: drained, sourceLabel: "acme" })).toBe(false);
   });
+
+  it("returns true at a 0 balance when the org still has INCLUDED free monthly scans (allowanceRemaining > 0)", () => {
+    // A Free-tier org with 0 purchased credits but unused free scans is entitled to a REAL scan (the
+    // server's hybrid gate allows it); the money-gate must not silently downgrade it to a preview.
+    const onAllowance: OrgCredit = { org: "acme", balance: 0, unlimited: false, allowanceRemaining: 6 };
+    expect(canRunRealScan({ sourceInstallId: "inst_1", credit: onAllowance, sourceLabel: "acme" })).toBe(true);
+  });
+
+  it("returns false when balance AND allowance are both exhausted (the 402/upgrade moment)", () => {
+    const spent: OrgCredit = { org: "acme", balance: 0, unlimited: false, allowanceRemaining: 0 };
+    expect(canRunRealScan({ sourceInstallId: "inst_1", credit: spent, sourceLabel: "acme" })).toBe(false);
+  });
 });

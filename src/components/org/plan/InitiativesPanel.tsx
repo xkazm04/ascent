@@ -81,6 +81,10 @@ export function InitiativesPanel({
   // Optimistically patch one initiative and persist the same fields. `goalLabel` is kept in sync
   // locally when the link changes so the chip updates without a refetch.
   async function patch(id: string, body: Partial<Pick<InitiativeView, "status" | "assigneeLogin" | "targetDate" | "goalId">>) {
+    // Optimistic patch WITH a failure path: previously the PATCH response was ignored, so a failed write
+    // (403/404/network) left the UI showing a status/assignee/due/goal-link the server never accepted.
+    // Snapshot first, then restore + surface the error if the write didn't persist (goals-initiatives #2).
+    const prev = items;
     setItems((xs) =>
       xs.map((i) =>
         i.id === id
@@ -88,11 +92,18 @@ export function InitiativesPanel({
           : i,
       ),
     );
-    await fetch(`/api/org/initiatives/${id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    setError(null);
+    try {
+      const res = await fetch(`/api/org/initiatives/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to update initiative.");
+    } catch (e) {
+      setItems(prev);
+      setError(e instanceof Error ? e.message : "Failed to update initiative.");
+    }
   }
 
   const trackedTitles = new Set(items.map((i) => i.title));
@@ -123,6 +134,7 @@ export function InitiativesPanel({
                 <select
                   value={i.status}
                   onChange={(e) => patch(i.id, { status: e.target.value })}
+                  aria-label={`Status for ${i.title}`}
                   className="shrink-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
                 >
                   {REC_STATUSES.map((s) => (
@@ -145,6 +157,7 @@ export function InitiativesPanel({
                       if (v !== (i.assigneeLogin ?? "")) patch(i.id, { assigneeLogin: v || null });
                     }}
                     placeholder="assignee"
+                    aria-label={`Assignee GitHub login for ${i.title}`}
                     className="w-28 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-600"
                   />
                 </label>
@@ -200,11 +213,18 @@ export function InitiativesPanel({
               <div key={s.title} className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-2">
                 <div className="min-w-0">
                   <div className="truncate text-base text-slate-200">{s.title}</div>
-                  <div className="font-mono text-sm text-slate-500">{s.dimId} · affects {s.repoCount} repos</div>
+                  {/* Show the MAPPED scope (what track() actually POSTs), not the rec's pre-map count —
+                      repos that don't resolve to a current-scan fullName are dropped, so advertising the
+                      original count promised repos the initiative never scopes (goals-initiatives #3). */}
+                  <div className="font-mono text-sm text-slate-500">
+                    {s.dimId} · affects {s.repos.length} repo{s.repos.length === 1 ? "" : "s"}
+                    {s.repoCount > s.repos.length ? ` (of ${s.repoCount} — others aren't in the latest scan)` : ""}
+                  </div>
                 </div>
                 <button
                   onClick={() => track(s)}
-                  disabled={busy === s.title}
+                  disabled={busy === s.title || s.repos.length === 0}
+                  title={s.repos.length === 0 ? "None of this recommendation's repos are in the latest scan — nothing to scope" : undefined}
                   className="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
                 >
                   {busy === s.title ? "…" : "Track"}

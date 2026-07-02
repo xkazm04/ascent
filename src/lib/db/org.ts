@@ -11,6 +11,7 @@ export {
   seedWatchlist,
   listDueRescans,
   advanceScheduleAfterFailure,
+  advanceToFullCadence,
   claimRescan,
   recordScanOutcome,
   recordConformance,
@@ -24,12 +25,14 @@ export {
   getOrgId,
   getRepoStates,
   getOrgRollup,
+  getOrgHeaderSummary,
   getOrgEngineMix,
   getOrgRecsActioned,
   type RepoState,
   type OrgRepoRow,
   type OrgWindow,
   type OrgRollup,
+  type OrgHeaderSummary,
   type EngineMixEntry,
 } from "@/lib/db/org-rollup";
 

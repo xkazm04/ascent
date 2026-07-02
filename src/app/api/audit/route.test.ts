@@ -73,7 +73,7 @@ describe("GET /api/audit — authorized read", () => {
   it("serves the audit rows for an org the caller may read", async () => {
     const page = {
       entries: [
-        { id: "a1", action: "scan.run", actorId: "actor_1", at: "2026-01-02T00:00:00.000Z", meta: {}, scan: null },
+        { id: "a1", action: "scan.run", actorId: "actor_1", orgId: "org_acme", at: "2026-01-02T00:00:00.000Z", meta: {}, scan: null },
       ],
       nextCursor: null,
     };
@@ -160,7 +160,10 @@ describe("GET /api/audit?format=csv — formula-injection neutralization + RFC-4
     expect(res.headers.get("content-type")).toContain("text/csv");
     const lines = (await res.text()).trim().split("\n");
 
-    expect(lines[0]).toBe("at,action,actorId,repo,level,overall,headSha,meta");
+    // `orgId` is now part of the header: it's a SIGNED field (the per-row HMAC `_sig` is computed over
+    // it), so the export must carry it for the stated row-level tamper-evidence to be verifiable. The
+    // prior assertion omitted it, encoding the very bug this fix closes.
+    expect(lines[0]).toBe("at,action,actorId,orgId,repo,level,overall,headSha,meta");
     expect(lines).toHaveLength(3); // header + 2 entries
   });
 });

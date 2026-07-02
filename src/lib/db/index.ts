@@ -63,11 +63,15 @@ export { getOrgBranding, setOrgBranding, type OrgBranding } from "@/lib/db/brand
 export {
   getCreditState,
   grantCredits,
+  clawbackOrderRefund,
   consumeScanCredit,
+  countMeteredScansThisMonth,
   getCreditLedger,
   getCreditReconciliation,
   sumRefundClawback,
   setOrgPlan,
+  CREDIT_REASON,
+  isRefundReason,
   type CreditState,
   type CreditLedgerEntry,
   type CreditReconciliation,
@@ -95,10 +99,13 @@ export {
 export {
   upsertInstallation,
   removeInstallation,
+  suspendInstallation,
+  resumeInstallation,
   reconcileWatchedRepos,
   getInstallationIdForOwner,
 } from "@/lib/db/installations";
 export { getSessionVersion, bumpSessionVersion } from "@/lib/db/sessions";
+export { claimWebhookDelivery, releaseWebhookDelivery } from "@/lib/db/webhook-deliveries";
 export {
   setRepoWatch,
   setRepoSchedule,
@@ -106,6 +113,7 @@ export {
   seedWatchlist,
   listWatchedRepos,
   getOrgRollup,
+  getOrgHeaderSummary,
   getRepoStates,
   getContributorInsights,
   getOrgPrSignals,
@@ -123,6 +131,7 @@ export {
   rollupTeams,
   listDueRescans,
   advanceScheduleAfterFailure,
+  advanceToFullCadence,
   claimRescan,
   recordScanOutcome,
   recordConformance,
@@ -140,6 +149,7 @@ export {
   type RepoRef,
   type OrgRepoRow,
   type OrgRollup,
+  type OrgHeaderSummary,
   type OrgWindow,
   type RepoState,
   type ContributorInsight,

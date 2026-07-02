@@ -1,10 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { REC_STATUSES, type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
 import { EVENT_LABEL, STATUS_ACCENT, STATUS_LABEL, dueLabel, eventValue } from "@/components/org/backlogShared";
+
+/**
+ * Volatile per-row interaction state that must survive a regroup. The backlog re-parents rows into a
+ * different owner/due `<Card>` on every edit, which unmounts+remounts the row; keeping this state in
+ * the row would wipe the just-opened PR link, the expanded history and the promote flag. So it is
+ * lifted into BacklogPanel (keyed by item id) and passed back in — see backlog-management #2.
+ */
+export interface BacklogRowState {
+  history?: RecEvent[] | "loading" | null;
+  prResult?: { url: string; reused: boolean } | null;
+  prError?: string | null;
+  promoted?: boolean;
+}
 
 export function BacklogItemRow({
   org,
@@ -12,6 +25,8 @@ export function BacklogItemRow({
   assignees,
   saving,
   error,
+  state,
+  onState,
   onPatch,
 }: {
   org: string;
@@ -19,14 +34,24 @@ export function BacklogItemRow({
   assignees: string[];
   saving: boolean;
   error?: string;
+  /** Lifted per-row state (PR result, history, promote flag) that survives a regroup remount. */
+  state?: BacklogRowState;
+  /** Merge a patch into this row's lifted state in the parent. */
+  onState: (patch: BacklogRowState) => void;
   onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
-  const [history, setHistory] = useState<RecEvent[] | "loading" | null>(null);
+  // Persisted-across-remount state lives in the parent (BacklogPanel); only the truly transient
+  // in-flight busy flags stay local.
+  const history = state?.history ?? null;
+  const prResult = state?.prResult ?? null;
+  const prError = state?.prError ?? null;
+  const promoted = state?.promoted ?? false;
   const [prBusy, setPrBusy] = useState(false);
-  const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
-  const [prError, setPrError] = useState<string | null>(null);
   const [promoteBusy, setPromoteBusy] = useState(false);
-  const [promoted, setPromoted] = useState(false);
+  // Monotonic token for the history fetch: each open/refresh bumps it; a resolved fetch only writes
+  // its result if it is still the latest request. Closing the panel also bumps it, so an in-flight
+  // load that resolves after the user collapsed can't re-open it.
+  const historyReq = useRef(0);
   // Optimistic override for the inline status/owner/due controls. They're bound to server state
   // (`item.*`) which only updates after the PATCH + full backlog re-read completes, so on a slow save
   // the control snapped back to the old value (reading as "my edit failed") before jumping to the new
@@ -39,7 +64,10 @@ export function BacklogItemRow({
   async function patchField(patch: Partial<Pick<BacklogItem, "status" | "assigneeLogin" | "targetDate">>) {
     setOverride((o) => ({ ...o, ...patch }));
     try {
-      await onPatch(item.id, patch);
+      // Route through patchAndRefresh so an open history list also refreshes with the new timeline
+      // event (origin's behaviour) while the optimistic override keeps the value on screen until the
+      // backlog re-read lands.
+      await patchAndRefresh(item.id, patch);
     } finally {
       setOverride((o) => {
         const next = { ...o };
@@ -54,7 +82,7 @@ export function BacklogItemRow({
   async function promoteToInitiative() {
     if (promoteBusy || promoted) return;
     setPromoteBusy(true);
-    setPrError(null);
+    onState({ prError: null });
     try {
       const res = await fetch("/api/org/initiatives", {
         method: "POST",
@@ -63,9 +91,9 @@ export function BacklogItemRow({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
-      setPromoted(true);
+      onState({ promoted: true });
     } catch (e) {
-      setPrError(e instanceof Error ? e.message : "Failed to create initiative.");
+      onState({ prError: e instanceof Error ? e.message : "Failed to create initiative." });
     } finally {
       setPromoteBusy(false);
     }
@@ -84,7 +112,7 @@ export function BacklogItemRow({
   async function openDraftPr() {
     if (!practice || prBusy) return;
     setPrBusy(true);
-    setPrError(null);
+    onState({ prError: null });
     try {
       const res = await fetch("/api/practices/apply", {
         method: "POST",
@@ -93,28 +121,43 @@ export function BacklogItemRow({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
-      setPrResult({ url: data.url, reused: data.reused });
-      if (item.status === "open") await onPatch(item.id, { status: "in_progress" });
+      onState({ prResult: { url: data.url, reused: data.reused } });
+      if (item.status === "open") await patchAndRefresh(item.id, { status: "in_progress" });
     } catch (e) {
-      setPrError(e instanceof Error ? e.message : "Failed to open PR.");
+      onState({ prError: e instanceof Error ? e.message : "Failed to open PR." });
     } finally {
       setPrBusy(false);
     }
   }
 
-  async function toggleHistory() {
-    if (history) {
-      setHistory(null);
-      return;
-    }
-    setHistory("loading");
+  async function loadHistory() {
+    const req = (historyReq.current += 1);
+    onState({ history: "loading" });
     try {
       const res = await fetch(`/api/recommendations/${item.id}/events`);
       const data = res.ok ? ((await res.json()) as { events: RecEvent[] }) : { events: [] };
-      setHistory(data.events);
+      // Ignore a stale response — the panel may have been collapsed (or re-opened) since this fetch began.
+      if (historyReq.current === req) onState({ history: data.events });
     } catch {
-      setHistory([]);
+      if (historyReq.current === req) onState({ history: [] });
     }
+  }
+
+  function toggleHistory() {
+    if (history) {
+      // Bump the token so any in-flight load can't re-open the panel we're collapsing.
+      historyReq.current += 1;
+      onState({ history: null });
+      return;
+    }
+    void loadHistory();
+  }
+
+  // onPatch records a new timeline event server-side, so an already-open history list goes stale.
+  // Wrap the patch to refetch history after a successful edit (and a no-op when it's collapsed).
+  async function patchAndRefresh(id: string, body: Record<string, unknown>) {
+    await onPatch(id, body);
+    if (history) void loadHistory();
   }
 
   const due = dueLabel(item);

@@ -43,12 +43,12 @@ export const maxDuration = 300; // bulk runs are long
 
 const SCHEDULES = new Set<string>(SCAN_SCHEDULES);
 
-// Hard cap on a single import's fan-out. The `count` (listing) path is already Math.min(100, …), but an
-// explicit `repos[]` list bypassed that entirely — a caller could POST thousands of coordinates and fan
-// out that many GitHub ingests/scans (even mock scans fetch the real snapshot) inside one function,
-// hammering GitHub/the box. Mirror the listing cap (and the watch route's MAX_BULK) so both intake paths
-// are bounded; a truncated batch is surfaced via a `notice`.
-const MAX_IMPORT = 100;
+// Cap an explicit caller-supplied repos[] so one (anonymous-capable) request can't fan out into
+// hundreds of real GitHub ingests: the request rate-limit caps REQUESTS, not the fan-out WITHIN a
+// request, and the metered slice below only bounds metered, non-unlimited orgs — so a public/unlimited
+// caller could drive an unbounded batch. The `count` discovery path is already capped at 100; this
+// mirrors the sibling /api/org/watch route's MAX_BULK.
+const MAX_IMPORT_REPOS = 500;
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) {
@@ -171,12 +171,12 @@ export async function POST(request: Request) {
             send("error", { error: `Invalid repository "${bad.fullName}". Use owner/name with valid GitHub names.` });
             return;
           }
-          // Cap the explicit list to the same ceiling as the listing path so one request can't launch
-          // thousands of scans; tell the client what was dropped.
-          if (fullNames.length > MAX_IMPORT) {
-            const dropped = fullNames.length - MAX_IMPORT;
-            fullNames = fullNames.slice(0, MAX_IMPORT);
-            send("notice", { reason: "batch_capped", scanning: MAX_IMPORT, dropped });
+          // Bound the client-supplied list length (see MAX_IMPORT_REPOS) and surface the truncation,
+          // like the credit cap below does, so the caller isn't left thinking the dropped repos scanned.
+          if (fullNames.length > MAX_IMPORT_REPOS) {
+            const dropped = fullNames.length - MAX_IMPORT_REPOS;
+            fullNames = fullNames.slice(0, MAX_IMPORT_REPOS);
+            send("notice", { reason: "too_many_repos", scanning: fullNames.length, skipped: dropped });
           }
         } else {
           send("progress", { stage: "list", message: `Listing public repos for ${org}…` });
@@ -232,23 +232,18 @@ export async function POST(request: Request) {
             // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
             // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
             if (shouldRefundScan(report, persisted)) await refundCredit();
-            // Watch/schedule are best-effort bookkeeping AFTER a successful, persisted, already-billed
-            // scan. A failure here — notably the lazy Organization upsert in setRepoWatch→ensureOrg
-            // racing itself when the first wave of lanes imports a BRAND-NEW org (the watch route
-            // serializes precisely to dodge this; the pool reintroduces the concurrency) — must NOT
-            // fall through to the outer catch, which would refund a credit for a scan that succeeded
-            // AND report the repo as "failed". Isolate it: log and continue, so the repo is reported
-            // scanned (it may just be left unwatched until the next toggle) with its credit intact.
+            // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
+            // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
+            // the credit and reports the repo as { error }). The notable failure is the lazy Organization
+            // upsert inside setRepoWatch losing a P2002 create race on a brand-new org's first parallel
+            // import — previously that refunded a genuinely-billed, persisted scan and flagged a scored
+            // repo "error". The sibling /api/org/watch route keeps these writes serial for the same reason.
             if (watch) {
               try {
                 await setRepoWatch(org, r, true);
                 if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
-              } catch (watchErr) {
-                console.error(
-                  "[org/import] watch/schedule bookkeeping failed",
-                  r.fullName,
-                  watchErr instanceof Error ? watchErr.message : watchErr,
-                );
+              } catch (werr) {
+                console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
               }
             }
             send("repo", {

@@ -50,11 +50,13 @@ html {
    is min-h-screen + snap-start and clears the sticky header with its own internal top padding. */
 @media (prefers-reduced-motion: no-preference) {
   html.snap-deck {
-    /* mandatory (not proximity): always settle on a section, so a single scroll gesture can't leave the
-       reader stranded in the gap between two sections — it auto-completes to the nearer one. The trailing
-       footer carries its own snap-end point (see the home page), so resting on it is a valid stop rather
-       than a trap. */
-    scroll-snap-type: y mandatory;
+    /* proximity (not mandatory): snap when the scroll SETTLES near a section edge, but never force it.
+       Mandatory stranded content-heavy sections taller than the viewport (Pricing's stacked tiers, the
+       9-row dimension table, the live register) — it yanked the reader to the next section's snap point
+       before the current section's lower rows could be reached. Proximity keeps the snap feel between
+       short sections while letting a tall section scroll naturally to its end; those sections also use
+       justify-start (below lg) so their content begins at the snap edge instead of being centered. */
+    scroll-snap-type: y proximity;
   }
 }
 
