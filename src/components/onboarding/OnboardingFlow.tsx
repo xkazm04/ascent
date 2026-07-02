@@ -89,6 +89,11 @@ export function OnboardingFlow({
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // The in-flight credit read for the App-path source, resolving to the OrgCredit (or null). startScan
+  // awaits this so the money-gate decision never reads a null `credit` from an un-awaited fetch and
+  // fabricates a preview on an org that actually has credits (ONB-1 race).
+  const creditReady = useRef<Promise<OrgCredit | null> | null>(null);
+
   // ONB a11y #1: a multi-step wizard must move focus to the new step and announce it, or keyboard/SR
   // users lose their place (focus falls to <body>) and get no feedback that a step advanced. We hold
   // a flow-root polite live region and, on each phase change, focus the new step's heading and
@@ -180,7 +185,10 @@ export function OnboardingFlow({
       if (list.length === 0) throw new Error("No public repositories found for that account.");
       setRepos(list);
       setSelected(topSelection(list));
-      setSourceLabel(handle);
+      // Lowercase the source label to match the App path: the import route persists under
+      // org.trim().toLowerCase(), and the org dashboard resolves the slug exactly — so a mixed-case
+      // handle (e.g. "Facebook") must be normalized here or the terminal "View dashboard" link 404s.
+      setSourceLabel(handle.toLowerCase());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setPhase("pick");
@@ -200,17 +208,22 @@ export function OnboardingFlow({
     setRepos([]);
     setSourceInstallId(id);
     setPhase("select");
-    // Fire-and-forget: the balance enriches the cost disclosure but must never block the repo
-    // list. The response is tagged with its org slug, so a stale resolution can't mislabel.
+    // Fire-and-forget for the UI: the balance enriches the cost disclosure but must never block the
+    // repo list. The response is tagged with its org slug, so a stale resolution can't mislabel. The
+    // promise is stashed in creditReady so startScan can AWAIT the settled balance before choosing
+    // real-vs-preview (a fast "Scan" click must not race an unresolved read into a mock — ONB-1).
     const creditOrg = login.toLowerCase();
-    fetch(`/api/org/credits?org=${encodeURIComponent(creditOrg)}`)
+    creditReady.current = fetch(`/api/org/credits?org=${encodeURIComponent(creditOrg)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d && typeof d.balance === "number") {
-          setCredit({ org: creditOrg, balance: d.balance, unlimited: Boolean(d.unlimited) });
+          const c: OrgCredit = { org: creditOrg, balance: d.balance, unlimited: Boolean(d.unlimited) };
+          setCredit(c);
+          return c;
         }
+        return null;
       })
-      .catch(() => {});
+      .catch(() => null);
     try {
       const qs = new URLSearchParams({ org: login, installation_id: id });
       const res = await fetch(`/api/app/repos?${qs.toString()}`);
@@ -274,10 +287,21 @@ export function OnboardingFlow({
     const controller = new AbortController();
     abortRef.current = controller;
     const total = picks.length;
+    // Settle the balance before the money-gate decision: on the App path the credit read is kicked off
+    // fire-and-forget, so a fast "Scan" click can arrive while `credit` is still null. Awaiting the
+    // stashed read (only when it hasn't already landed for this source) keeps a paying org from being
+    // silently downgraded to a preview (ONB-1). The public-handle path has no installation id, so
+    // canRunRealScan is false regardless and no wait is needed.
+    let settledCredit = credit && credit.org === sourceLabel ? credit : null;
+    if (sourceInstallId && !settledCredit && creditReady.current) {
+      // The credit read is its own fetch (not tied to `controller`), so it still resolves even if the
+      // user cancels mid-wait; an aborted controller is handled below by runImportScan ("Scan canceled").
+      settledCredit = await creditReady.current;
+    }
     // Run a REAL scan only on the App path AND when the org has credits (the import route meters +
     // refunds on failure) — otherwise a disclosed preview, so a credit-less org never dead-ends on a
     // 402 and scores are never silently fabricated. The public-handle funnel is always a preview.
-    const canRunReal = canRunRealScan({ sourceInstallId, credit, sourceLabel });
+    const canRunReal = canRunRealScan({ sourceInstallId, credit: settledCredit, sourceLabel });
     setPreviewScan(!canRunReal);
     try {
       const outcome = await runImportScan(

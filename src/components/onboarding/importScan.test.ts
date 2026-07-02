@@ -287,8 +287,9 @@ describe("runImportScan — abort & stall", () => {
     const { cb } = makeCallbacks();
     const promise = runImportScan(request, controller, cb);
 
-    // Flush microtasks up to the pending read(), then trip the stall watchdog (> STALL_MS=45_000).
-    await vi.advanceTimersByTimeAsync(46_000);
+    // Flush microtasks up to the pending read(), then trip the stall watchdog (> STALL_MS=120_000,
+    // raised from 45s so a slow real-LLM per-repo gap no longer false-aborts a legitimate scan).
+    await vi.advanceTimersByTimeAsync(121_000);
     const result = await promise;
 
     expect(controller.signal.aborted).toBe(true);

@@ -6,6 +6,8 @@
 // could be the thing that failed). Ordinary page/segment errors are handled by nearer error.tsx
 // boundaries with the full branded UI.
 
+import { useEffect } from "react";
+
 export default function GlobalError({
   error,
   reset,
@@ -13,6 +15,18 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    // Bounded telemetry for the highest-severity boundary (a root-layout failure). A structured,
+    // greppable console.error is the one reporter that works here — the router/app shell may be dead —
+    // and the production log drain (Vercel captures console.error) can alert on it instead of the team
+    // learning about a shell outage from users.
+    console.error("[ascent] global-shell-error", {
+      digest: error.digest,
+      message: error.message,
+      stack: error.stack,
+    });
+  }, [error]);
+
   return (
     <html lang="en">
       <body

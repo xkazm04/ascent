@@ -23,7 +23,13 @@ export default function AppError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[app] route error:", error);
+    // Bounded telemetry: a single structured, greppable line the production log drain (Vercel captures
+    // console.error) can alert on — otherwise a client crash here is invisible until a user reports it.
+    console.error("[ascent] app-route-error", {
+      digest: error.digest,
+      message: error.message,
+      stack: error.stack,
+    });
   }, [error]);
 
   return (

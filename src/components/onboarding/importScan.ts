@@ -2,8 +2,11 @@ import type { LevelId } from "@/lib/types";
 import { parseSSE } from "@/lib/sse";
 
 // Abort an import if no SSE event arrives within this window — turns a server stall into a
-// recoverable error instead of an indefinite "Scanning…" hang.
-const STALL_MS = 45_000;
+// recoverable error instead of an indefinite "Scanning…" hang. Sized for a REAL LLM scan: a single
+// large repo can take well over a minute between per-repo `repo` events, so a tighter window
+// false-aborts a perfectly healthy scan as "stalled". Kept generous (the watchdog only guards against
+// a truly dead stream) until the server emits periodic heartbeat frames the watchdog can track.
+const STALL_MS = 120_000;
 
 /** Watch schedule the onboarding import commits every scanned repo to (sent with watch:true).
  *  Exported so the select step can DISCLOSE the recurring-cost commitment before the user scans —

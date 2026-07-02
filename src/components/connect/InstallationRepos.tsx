@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { CREDIT_ESTIMATE_NOTE, estimateMonthlyCredits } from "@/lib/credit-estimate";
 import { appConfigureUrl } from "@/lib/ui";
@@ -191,11 +191,20 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     });
   }
 
+  // Per-row monotonic sequence for the watch/schedule mutations. A rapid double-toggle (watch then
+  // unwatch) fires overlapping POSTs; if their responses arrive out of order the row could reconcile
+  // to the wrong final state (or a stale non-2xx could roll back a newer optimistic change). Each call
+  // bumps the row's counter and only the LATEST request is allowed to touch state — stale responses
+  // are ignored, so the row always settles on the last click's intent.
+  const watchSeq = useRef<Record<string, number>>({});
+  const scheduleSeq = useRef<Record<string, number>>({});
+
   // Both mutations follow the same contract: optimistic patch → POST → on non-2xx OR network
   // error, roll the row back to its prior value and surface an inline error. Success theater
   // (showing a state the server never saved) on watch/schedule means scans silently never run.
   async function toggleWatch(r: AppRepo, watched: boolean) {
     const prevWatched = r.state?.watched ?? false;
+    const seq = (watchSeq.current[r.fullName] = (watchSeq.current[r.fullName] ?? 0) + 1);
     patchOptimistic(r.fullName, { watched });
     setRowError(r.fullName, null);
     try {
@@ -204,11 +213,13 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, owner: r.owner, name: r.name, fullName: r.fullName, url: r.url, private: r.private, watched }),
       });
+      if (watchSeq.current[r.fullName] !== seq) return; // superseded by a newer toggle — it owns the row
       if (!res.ok) {
         patchRollback(r.fullName, { watched: prevWatched });
         setRowError(r.fullName, `Couldn't ${watched ? "watch" : "unwatch"} — not saved. Try again.`);
       }
     } catch {
+      if (watchSeq.current[r.fullName] !== seq) return; // superseded — don't roll back a newer change
       patchRollback(r.fullName, { watched: prevWatched });
       setRowError(r.fullName, "Network error — change not saved. Try again.");
     }
@@ -216,6 +227,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
 
   async function changeSchedule(r: AppRepo, schedule: string) {
     const prevSchedule = r.state?.scanSchedule ?? "off";
+    const seq = (scheduleSeq.current[r.fullName] = (scheduleSeq.current[r.fullName] ?? 0) + 1);
     patchOptimistic(r.fullName, { scanSchedule: schedule });
     setRowError(r.fullName, null);
     try {
@@ -224,11 +236,13 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, fullName: r.fullName, schedule }),
       });
+      if (scheduleSeq.current[r.fullName] !== seq) return; // superseded by a newer schedule change
       if (!res.ok) {
         patchRollback(r.fullName, { scanSchedule: prevSchedule });
         setRowError(r.fullName, "Couldn't change the schedule — not saved. Try again.");
       }
     } catch {
+      if (scheduleSeq.current[r.fullName] !== seq) return; // superseded — don't roll back a newer change
       patchRollback(r.fullName, { scanSchedule: prevSchedule });
       setRowError(r.fullName, "Network error — schedule not saved. Try again.");
     }

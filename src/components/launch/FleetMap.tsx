@@ -11,6 +11,12 @@ import { type SortKey, fleetStats, makeMatcher, orderConstellations } from "./fl
 import { type Constellation, FALLER, mapRepos, RISER } from "./fleetMapStars";
 import { mergeStars } from "./mergeStars";
 
+// After a manual scan finishes, its fresh scores need a moment to land in /api/app/repos. Skip the
+// ~90s live refresh for that org until this window elapses, so the poll can't pull a still-stale
+// payload and dim a just-brightened star back down (MAP-6 race). Longer than the refresh interval so
+// at least one poll is deferred past a scan's completion.
+const SCAN_SETTLE_MS = 120_000;
+
 const LEVEL_BANDS = ["L1", "L2", "L3", "L4", "L5", "unscanned"] as const;
 const SORTS: { key: SortKey; label: string }[] = [
   { key: "name", label: "name" },
@@ -42,6 +48,12 @@ export function FleetMap({
   const [scanning, setScanning] = useState<string | null>(null);
   const scanCtrl = useRef<AbortController | null>(null);
   useEffect(() => () => scanCtrl.current?.abort(), []);
+  // Per-org message for a scan that failed (402/403/500/network) — surfaced on the card instead of
+  // the button silently re-enabling with no feedback (MAP-2 silent failure).
+  const [scanError, setScanError] = useState<Record<string, string>>({});
+  // Completion time of the most recent successful scan per org, so the live refresh can defer that
+  // org until its fresh scores have propagated (SCAN_SETTLE_MS) rather than dimming it back down.
+  const recentScan = useRef<Map<string, number>>(new Map());
 
   // Fleet triage controls (MAP-4): search, level-band filter, watched-only, and an org sort key.
   // Filters DIM non-matching stars (preserving each constellation's shape); sort reorders the org cards.
@@ -56,6 +68,13 @@ export function FleetMap({
   async function scanOrg(login: string) {
     if (scanning) return;
     setScanning(login);
+    // Clear any prior scan error for this org before retrying.
+    setScanError((e) => {
+      if (!e[login]) return e;
+      const next = { ...e };
+      delete next[login];
+      return next;
+    });
     const ctrl = new AbortController();
     scanCtrl.current = ctrl;
     try {
@@ -65,12 +84,26 @@ export function FleetMap({
         body: JSON.stringify({ org: login }),
         signal: ctrl.signal,
       });
-      if (!res.ok || !res.body) return;
+      if (!res.ok) {
+        // Surface the failure (credits/permission/server) on the card instead of returning silently.
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        setScanError((e) => ({ ...e, [login]: data?.error ?? `Scan failed (${res.status}).` }));
+        return;
+      }
+      if (!res.body) {
+        setScanError((e) => ({ ...e, [login]: "Scan failed — no response stream." }));
+        return;
+      }
       await readSSE(res.body, (msg) => {
         setConstellations((cur) => applyScanEvent(cur, login, msg));
       });
+      // Mark this org just-scanned so the live refresh defers it past the propagation window.
+      recentScan.current.set(login, Date.now());
     } catch {
-      /* aborted or network — leave the seeded stars as-is */
+      // Ignore user/unmount aborts; surface a real network error on the card.
+      if (!ctrl.signal.aborted) {
+        setScanError((e) => ({ ...e, [login]: "Network error — scan not started. Try again." }));
+      }
     } finally {
       if (scanCtrl.current === ctrl) scanCtrl.current = null;
       setScanning((s) => (s === login ? null : s));
@@ -117,6 +150,13 @@ export function FleetMap({
       await Promise.all(
         installations.map(async (inst) => {
           try {
+            // Defer a just-scanned org until its fresh scores have propagated, so the poll can't pull
+            // a stale payload and dim a star back down (MAP-6 race). Clear the marker once elapsed.
+            const scannedAt = recentScan.current.get(inst.login);
+            if (scannedAt != null) {
+              if (Date.now() - scannedAt < SCAN_SETTLE_MS) return;
+              recentScan.current.delete(inst.login);
+            }
             const qs = new URLSearchParams({ org: inst.login, installation_id: String(inst.id) });
             const r = await fetch(`/api/app/repos?${qs.toString()}`);
             if (!r.ok || cancelled) return;
@@ -281,6 +321,7 @@ export function FleetMap({
                 onScan={() => scanOrg(c.login)}
                 scanning={scanning === c.login}
                 scanDisabled={scanning !== null && scanning !== c.login}
+                scanError={scanError[c.login]}
               />
             ))}
           </div>
