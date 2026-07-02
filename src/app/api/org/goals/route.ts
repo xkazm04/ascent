@@ -30,6 +30,11 @@ export async function POST(request: Request) {
   if (!isGoalMetric(body.metric)) {
     return NextResponse.json({ error: "metric must be overall | adoption | rigor | D1..D9." }, { status: 400 });
   }
+  // Maturity metrics are always 0..100; reject out-of-range targets (mirrors the simulate route) so a
+  // stray 1000 or -5 can't produce >100% meters, a permanently "Behind" pace, and fantasy ETAs.
+  if (!Number.isFinite(body.target) || body.target < 0 || body.target > 100) {
+    return NextResponse.json({ error: "target must be a number between 0 and 100." }, { status: 400 });
+  }
   if (body.targetDate != null && Number.isNaN(Date.parse(body.targetDate))) {
     return NextResponse.json({ error: "targetDate must be an ISO date (YYYY-MM-DD)." }, { status: 400 });
   }

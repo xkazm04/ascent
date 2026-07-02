@@ -27,6 +27,27 @@ export function BacklogItemRow({
   const [prError, setPrError] = useState<string | null>(null);
   const [promoteBusy, setPromoteBusy] = useState(false);
   const [promoted, setPromoted] = useState(false);
+  // Optimistic override for the inline status/owner/due controls. They're bound to server state
+  // (`item.*`) which only updates after the PATCH + full backlog re-read completes, so on a slow save
+  // the control snapped back to the old value (reading as "my edit failed") before jumping to the new
+  // one. Overriding the edited field locally keeps the chosen value on screen until the refresh lands;
+  // clearing it in `finally` then tracks the server again — the new value on success, the unchanged
+  // old value on failure (the parent surfaces the error and never mutates `item` on a failed patch).
+  const [override, setOverride] = useState<Partial<BacklogItem>>({});
+  const shown = { ...item, ...override };
+
+  async function patchField(patch: Partial<Pick<BacklogItem, "status" | "assigneeLogin" | "targetDate">>) {
+    setOverride((o) => ({ ...o, ...patch }));
+    try {
+      await onPatch(item.id, patch);
+    } finally {
+      setOverride((o) => {
+        const next = { ...o };
+        for (const k of Object.keys(patch)) delete next[k as keyof typeof next];
+        return next;
+      });
+    }
+  }
 
   // Promote this gap into a tracked org Initiative (BKLG-2) — reuses /api/org/initiatives with the
   // rec's dimension + repo, so a per-repo backlog row rolls up into the org-level unit of work.
@@ -102,7 +123,7 @@ export function BacklogItemRow({
     <div
       aria-busy={saving}
       className="rounded-xl border bg-slate-900/40 p-4"
-      style={{ borderLeftWidth: 3, borderLeftColor: item.overdue ? "#f97316" : STATUS_ACCENT[item.status] }}
+      style={{ borderLeftWidth: 3, borderLeftColor: item.overdue ? "#f97316" : STATUS_ACCENT[shown.status] }}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
@@ -136,12 +157,12 @@ export function BacklogItemRow({
         <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           status
           <select
-            value={item.status}
+            value={shown.status}
             disabled={saving}
-            onChange={(e) => onPatch(item.id, { status: e.target.value })}
+            onChange={(e) => patchField({ status: e.target.value })}
             aria-label="Status"
             className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-            style={{ color: STATUS_ACCENT[item.status] }}
+            style={{ color: STATUS_ACCENT[shown.status] }}
           >
             {REC_STATUSES.map((s) => (
               <option key={s} value={s} className="text-slate-200">
@@ -154,9 +175,9 @@ export function BacklogItemRow({
         <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
           owner
           <select
-            value={item.assigneeLogin ?? ""}
+            value={shown.assigneeLogin ?? ""}
             disabled={saving}
-            onChange={(e) => onPatch(item.id, { assigneeLogin: e.target.value || null })}
+            onChange={(e) => patchField({ assigneeLogin: e.target.value || null })}
             aria-label="Owner"
             className="max-w-[10rem] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
           >
@@ -173,9 +194,9 @@ export function BacklogItemRow({
           due
           <input
             type="date"
-            value={item.targetDate ?? ""}
+            value={shown.targetDate ?? ""}
             disabled={saving}
-            onChange={(e) => onPatch(item.id, { targetDate: e.target.value || null })}
+            onChange={(e) => patchField({ targetDate: e.target.value || null })}
             aria-label="Due date"
             className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
           />

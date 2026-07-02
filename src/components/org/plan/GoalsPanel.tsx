@@ -71,8 +71,18 @@ export function GoalsPanel({
   }
 
   async function remove(id: string) {
+    // Mirror PlaybooksPanel.remove: the delete can 4xx (non-admin / gone) or the network can drop, so
+    // an unchecked response silently dropped the goal from the UI while it survived in the DB (a
+    // data-loss illusion that reappeared on the next load). Snapshot, optimistically remove, then
+    // restore + surface the error on any failure.
+    const prev = goals;
+    setError(null);
     setGoals((g) => g.filter((x) => x.id !== id));
-    await fetch(`/api/org/goals/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/org/goals/${id}`, { method: "DELETE" }).catch(() => null);
+    if (!res || !res.ok) {
+      setGoals(prev);
+      setError((await res?.json().catch(() => ({})))?.error ?? "Couldn't delete the goal.");
+    }
   }
 
   // GOAL-5: one-click add a suggested goal, then drop it from the row.

@@ -24,6 +24,13 @@ import { Celebrations } from "@/components/org/LiveWarRoomCelebrations";
 
 export type { LiveRepoSeed };
 
+// WAR-2 cost guard: how many back-to-back auto-relaunches to allow before pausing. A wall left
+// foregrounded but unattended (a TV on a desk) would otherwise keep firing a full-fleet scan every
+// 15 min forever, silently draining prepaid credits; after this many consecutive UNATTENDED cycles we
+// stop auto-looping and prompt the owner. Any manual interaction (a manual launch or toggling the loop)
+// resets the budget. 8 cycles ≈ 2h at the 15-min cadence.
+const MAX_AUTO_LOOPS = 8;
+
 export function LiveWarRoom({
   slug,
   watchedCount,
@@ -63,6 +70,9 @@ export function LiveWarRoom({
   const [ticker, setTicker] = useState<Mover[]>([]);
   const [celebrations, setCelebrations] = useState<Celebration[]>([]);
   const [autoLoop, setAutoLoop] = useState(false);
+  // WAR-2: set once the unattended auto-relaunch budget (MAX_AUTO_LOOPS) is spent, so we can surface a
+  // "paused to protect credits" notice and stop looping until the owner re-engages.
+  const [loopCapped, setLoopCapped] = useState(false);
   // Page Visibility: true while the tab is foregrounded. Gates the auto-relaunch (war-room #2) and the
   // read-only poll (war-room #1) so a backgrounded/idle wall neither burns scan credits nor hammers the
   // refresh route. Default true for SSR; corrected on mount + every visibilitychange.
@@ -90,6 +100,8 @@ export function LiveWarRoom({
     reposRef.current = repos;
   }, [repos]);
   const idRef = useRef(0);
+  // Count of consecutive auto-relaunches since the last manual interaction (WAR-2 cost cap).
+  const autoRunsRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
@@ -242,6 +254,14 @@ export function LiveWarRoom({
     }
   }, [onRepo, slug, watchedCount, scanRepos]);
 
+  // A manual launch counts as interaction: reset the unattended auto-relaunch budget + clear the cap
+  // notice so the loop (if enabled) gets a fresh N cycles.
+  const manualLaunch = useCallback(() => {
+    autoRunsRef.current = 0;
+    setLoopCapped(false);
+    void launch();
+  }, [launch]);
+
   const stop = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -269,7 +289,27 @@ export function LiveWarRoom({
     // credits with no one watching. Page Visibility gates the timer; visibilitychange re-arms it on
     // focus (the effect re-runs because `visible` flips).
     if (!autoLoop || phase === "running" || readOnly || !visible) return; // readOnly can't scan, so never loop
-    const t = setTimeout(() => void launch(), LOOP_MS);
+    // WAR-2 cost cap: after MAX_AUTO_LOOPS consecutive unattended relaunches, stop looping so a
+    // forgotten wall can't drain prepaid credits indefinitely. Turn the toggle off (+ persist) and
+    // surface a notice; a manual launch or re-toggling the loop resets the budget.
+    if (autoRunsRef.current >= MAX_AUTO_LOOPS) {
+      // Terminal transition: flipping autoLoop off re-runs this effect into the early return above (no
+      // further scheduling); the notice + persisted "0" keep the wall paused until the owner re-engages.
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setAutoLoop(false);
+      setLoopCapped(true);
+      /* eslint-enable react-hooks/set-state-in-effect */
+      try {
+        localStorage.setItem("ascent-warroom-loop", "0");
+      } catch {
+        /* localStorage unavailable */
+      }
+      return;
+    }
+    const t = setTimeout(() => {
+      autoRunsRef.current += 1;
+      void launch();
+    }, LOOP_MS);
     return () => clearTimeout(t);
   }, [autoLoop, phase, launch, LOOP_MS, readOnly, visible]);
 
@@ -304,6 +344,10 @@ export function LiveWarRoom({
       }
       return nv;
     });
+    // A manual toggle is interaction — reset the unattended budget + clear any cap notice so a
+    // re-enable gets a fresh N cycles.
+    autoRunsRef.current = 0;
+    setLoopCapped(false);
   }, []);
 
   // WARROOM-5: restore + persist the Sound toggle, mirroring the auto-loop toggle.
@@ -357,7 +401,7 @@ export function LiveWarRoom({
         skipped={skipped}
         launchLabel={launchLabel}
         onStop={stop}
-        onLaunch={launch}
+        onLaunch={manualLaunch}
         goal={goal}
         campaignDelta={campaignDelta}
         autoLoop={autoLoop}
@@ -367,6 +411,14 @@ export function LiveWarRoom({
         readOnly={readOnly}
         canShare={canShare}
       />
+
+      {/* WAR-2: unattended auto-relaunch budget spent — paused to protect prepaid scan credits. */}
+      {loopCapped && (
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 font-mono text-sm text-amber-300">
+          Auto-relaunch paused after {MAX_AUTO_LOOPS} unattended cycles to protect prepaid scan credits. Launch a scan or
+          re-enable auto-relaunch to keep looping.
+        </p>
+      )}
 
       {/* ── Four headline tiles, counting up as results land ────────────── */}
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

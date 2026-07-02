@@ -23,6 +23,11 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const blocked = await gate(id);
   if (blocked) return blocked;
   const body = (await request.json().catch(() => ({}))) as { status?: string; target?: number; label?: string; targetDate?: string | null };
+  // Maturity metrics are always 0..100; reject an out-of-range target on update too (matches POST) so a
+  // patched goal can't drift into >100% / permanently-"Behind" state.
+  if (body.target != null && (!Number.isFinite(body.target) || body.target < 0 || body.target > 100)) {
+    return NextResponse.json({ error: "target must be a number between 0 and 100." }, { status: 400 });
+  }
   if (body.targetDate != null && Number.isNaN(Date.parse(body.targetDate))) {
     return NextResponse.json({ error: "targetDate must be an ISO date (YYYY-MM-DD)." }, { status: 400 });
   }
