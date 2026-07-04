@@ -1,6 +1,6 @@
 // Shared post-scan orchestration for the two single-repo scan entry points — /api/scan (sync JSON)
 // and /api/scan/stream (SSE). Both carried near-identical copies of three coupled, money-/cache-safety
-// invariants: the weekly public-quota consume+refund, the degrade-to-mock / low-coverage classification,
+// invariants: the monthly public-quota consume+refund, the degrade-to-mock / low-coverage classification,
 // and the "skip cache + skip persist on degrade" guard. The duplicate copies had to stay byte-aligned or
 // a fix to one route silently regressed the other (the routes' own tests exist to catch exactly that).
 // These helpers are the exact union of the two former copies; each route keeps its own surfacing (a JSON
@@ -8,12 +8,12 @@
 
 import { cacheSet } from "@/lib/cache";
 import { isDbConfigured, persistScanReport } from "@/lib/db";
-import { consumePublicScanQuota, refundPublicScanQuota, weeklyQuotaExceeded } from "@/lib/public-scan-quota";
+import { consumePublicScanQuota, refundPublicScanQuota, monthlyQuotaExceeded } from "@/lib/public-scan-quota";
 import { getViewer } from "@/lib/access";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
-/** Quota header fields surfaced to the client (only set when the weekly gate actually enforced). */
+/** Quota header fields surfaced to the client (only set when the monthly gate actually enforced). */
 export interface ScanQuotaHeaders {
   quotaRemaining: number | null;
   quotaResetAt: number | null;
@@ -22,12 +22,12 @@ export interface ScanQuotaHeaders {
 
 export interface ScanQuotaResult extends ScanQuotaHeaders {
   /**
-   * A ready-to-return 402-equivalent Response when the weekly quota is exceeded; null when the scan
+   * A ready-to-return 402-equivalent Response when the monthly quota is exceeded; null when the scan
    * may proceed. The caller returns it directly (JSON route) or before opening the stream.
    */
   blocked: Response | null;
   /**
-   * Refund the consumed weekly slot. No-op unless a slot was actually charged; idempotent (at most one
+   * Refund the consumed monthly slot. No-op unless a slot was actually charged; idempotent (at most one
    * refund per consumed slot). Called on degrade-to-mock / cached-hit / failure — the free tier meters
    * on commit, not attempt.
    */
@@ -43,8 +43,9 @@ const noopQuota: ScanQuotaResult = {
 };
 
 /**
- * Weekly SOFT gate for public scans: a free per-window allowance, elevated for a signed-in viewer.
- * Only real, public, non-mock scans count (a cache hit / peek / private token scan skips this). Consumes
+ * Monthly SOFT gate for public scans: the Free plan's 5 scans/month, bucketed per-user (signed-in) or
+ * per-IP (anon). Only real, public, non-mock scans count (a cache hit / peek / private token scan skips
+ * this). Consumes
  * one slot and returns the header fields + a `refund()` thunk that hits the same bucket the slot was
  * charged to. Fails open (proceeds) when persistence isn't configured. Identical in both scan routes.
  */
@@ -57,7 +58,7 @@ export async function consumeScanQuota(
   const viewer = await getViewer();
   const quota = await consumePublicScanQuota(req, { viewerId: viewer?.id });
   if (quota.enforced && !quota.allowed) {
-    return { ...noopQuota, blocked: weeklyQuotaExceeded(quota) };
+    return { ...noopQuota, blocked: monthlyQuotaExceeded(quota) };
   }
   if (!quota.enforced) return noopQuota;
 

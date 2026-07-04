@@ -1,11 +1,13 @@
-// Soft WEEKLY quota for anonymous public scans — a persistent, per-IP allowance on top of the
-// per-minute in-memory burst limiter (src/lib/rate-limit.ts). A single public scan = a GitHub
-// ingest + an LLM completion (real $), and the public funnel is free + no-signup, so without a
-// longer-horizon cap a casual user (or a cheap script) can graze indefinitely. This caps that at N
-// scans per rolling 7-day window per client IP.
+// Soft MONTHLY quota for public scans — the Free plan's 5 scans/month applied to the public funnel,
+// as a persistent per-IP (anon) / per-user (signed-in) allowance on top of the per-minute in-memory
+// burst limiter (src/lib/rate-limit.ts). A single public scan = a GitHub ingest + an LLM completion
+// (real $), and the public funnel is free + no-signup, so without a longer-horizon cap a casual user
+// (or a cheap script) can graze indefinitely. This caps that at N scans per rolling 30-day window.
+// Beyond the allowance the caller hits the upgrade / add-credits wall (monthlyQuotaExceeded) — the
+// same allowance-then-pay shape private scans get (src/lib/entitlement.ts).
 //
 // DESIGN / LIMITATIONS (intentional, soft gate):
-//   - Persistent + cross-instance (Prisma), because a week-long window CANNOT live in the
+//   - Persistent + cross-instance (Prisma), because a month-long window CANNOT live in the
 //     per-instance, restart-volatile in-memory limiter — there it would reset on every cold start.
 //   - The IP is stored as a SALTED SHA-256 HASH, never the raw value (no PII at rest).
 //   - Knowingly attackable: an attacker can rotate IPs to mint fresh buckets, and CGNAT/shared NAT
@@ -13,9 +15,11 @@
 //     security control. The burst limiter remains the per-request abuse backstop.
 //   - FAILS OPEN: enforced only when persistence is configured, and any store error lets the scan
 //     proceed (a quota hiccup must never take down the free funnel).
+//   - No per-VISITOR wallet: anonymous scanners have no credit balance, so overflow is a paywall
+//     (sign up / upgrade), not a literal credit debit — credits are per-organization.
 //
-// Applies to ANONYMOUS PUBLIC scans only (orgSlug === "public", no installation token, non-mock) —
-// private/org scans are metered by prepaid credits (src/lib/entitlement.ts) and skip this entirely.
+// Applies to PUBLIC scans only (orgSlug === "public", no installation token, non-mock) — private/org
+// scans are metered by prepaid credits (src/lib/entitlement.ts) and skip this entirely.
 
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
@@ -39,26 +43,28 @@ function quotaTxOptions(): { isolationLevel: Prisma.TransactionIsolationLevel } 
     : { isolationLevel: Prisma.TransactionIsolationLevel.Serializable };
 }
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // rolling 30-day "month"
 
-/** Max free public scans per ANONYMOUS IP per rolling 7-day window. Env-overridable; default 3. */
-export function publicScanWeeklyLimit(): number {
-  const n = Number(process.env.PUBLIC_SCAN_WEEKLY_LIMIT);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 3;
+/** Max free public scans per ANONYMOUS IP per rolling 30-day window — the Free plan's 5 scans/month
+ *  applied to the public funnel. Env-overridable; default 5. */
+export function publicScanMonthlyLimit(): number {
+  const n = Number(process.env.PUBLIC_SCAN_MONTHLY_LIMIT);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
 }
 
 /**
- * Elevated weekly allowance for a SIGNED-IN viewer — the reward for authenticating. Keyed per-user
- * (IP-independent) rather than per-IP, so a signed-in user gets their own bucket. Env-overridable;
- * default 20. Clamped to be no lower than the anonymous limit (signing in must never grant *less*).
+ * Monthly allowance for a SIGNED-IN viewer, keyed per-user (IP-independent) so a signed-in user gets
+ * their OWN bucket (uncoupled from a shared IP). Defaults to the same 5/month Free allowance — under
+ * the subscription model the lever for more volume is a paid plan, not merely signing in.
+ * Env-overridable; clamped to be no lower than the anonymous limit (never grant *less*).
  */
-export function signedInScanWeeklyLimit(): number {
-  const n = Number(process.env.PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN);
-  const elevated = Number.isFinite(n) && n > 0 ? Math.floor(n) : 20;
-  return Math.max(elevated, publicScanWeeklyLimit());
+export function signedInScanMonthlyLimit(): number {
+  const n = Number(process.env.PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN);
+  const configured = Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
+  return Math.max(configured, publicScanMonthlyLimit());
 }
 
-/** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the weekly gate off (dev / incident). */
+/** Kill switch — set PUBLIC_SCAN_QUOTA_DISABLED=1 to turn the monthly gate off (dev / incident). */
 export function publicScanQuotaDisabled(): boolean {
   return envBool("PUBLIC_SCAN_QUOTA_DISABLED");
 }
@@ -137,11 +143,11 @@ export function windowState(
   now: number,
   limit: number,
 ): { recent: number[]; remaining: number; resetAt: number | null } {
-  const cutoff = now - WEEK_MS;
+  const cutoff = now - WINDOW_MS;
   const recent = prior.filter((t) => t > cutoff).sort((a, b) => a - b);
   const remaining = Math.max(0, limit - recent.length);
   // The window resets (a slot frees) when the OLDEST in-window hit ages out; null when empty.
-  const resetAt = recent.length ? recent[0]! + WEEK_MS : null;
+  const resetAt = recent.length ? recent[0]! + WINDOW_MS : null;
   return { recent, remaining, resetAt };
 }
 
@@ -154,11 +160,11 @@ export function decideQuota(prior: number[], now: number, limit: number): QuotaD
   const { recent } = windowState(prior, now, limit);
   if (recent.length >= limit) {
     // Denied: the oldest in-window hit must age past the week before a slot frees.
-    return { allowed: false, remaining: 0, resetAt: recent[0]! + WEEK_MS, hits: recent };
+    return { allowed: false, remaining: 0, resetAt: recent[0]! + WINDOW_MS, hits: recent };
   }
   const hits = [...recent, now];
   // The window resets (back to a full allowance) when the OLDEST current hit ages out.
-  const resetAt = hits[0]! + WEEK_MS;
+  const resetAt = hits[0]! + WINDOW_MS;
   return { allowed: true, remaining: Math.max(0, limit - hits.length), resetAt, hits };
 }
 
@@ -185,7 +191,7 @@ export interface QuotaIdentity {
 }
 
 function retryAfterSec(resetAt: number | null, now: number): number {
-  if (!resetAt) return Math.ceil(WEEK_MS / 1000);
+  if (!resetAt) return Math.ceil(WINDOW_MS / 1000);
   return Math.max(1, Math.ceil((resetAt - now) / 1000));
 }
 
@@ -203,7 +209,7 @@ export async function consumePublicScanQuota(
   identity: QuotaIdentity = {},
 ): Promise<QuotaResult> {
   const { signedIn, ipHash, unidentifiable } = bucketContext(req, identity);
-  const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
+  const limit = signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
   // `unidentifiable` (anonymous caller with no usable client IP) can't be bucketed without collapsing
   // every such visitor into one shared weekly bucket, so the weekly gate is unenforceable here — allow.
   if (!isDbConfigured() || publicScanQuotaDisabled() || unidentifiable) {
@@ -278,7 +284,7 @@ export interface QuotaPeek {
  */
 export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<QuotaPeek> {
   const { signedIn, ipHash, scope, unidentifiable } = bucketContext(req, identity);
-  const limit = signedIn ? signedInScanWeeklyLimit() : publicScanWeeklyLimit();
+  const limit = signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
   // Same carve-out as consume: an anonymous caller with no usable client IP isn't gated weekly (the
   // meter reports the full allowance) rather than reading a shared "unknown" bucket's depleted count.
   if (!isDbConfigured() || publicScanQuotaDisabled() || unidentifiable) {
@@ -377,16 +383,15 @@ export async function refundPublicScanQuota(
   }
 }
 
-/** A ready-made 429 JSON Response for a tripped weekly quota, with Retry-After + quota headers. */
-export function weeklyQuotaExceeded(result: QuotaResult): Response {
+/** A ready-made 429 JSON Response for a tripped monthly quota, with Retry-After + quota headers. */
+export function monthlyQuotaExceeded(result: QuotaResult): Response {
   const scope = result.signedIn ? "user" : "anon";
-  // Anonymous callers can lift the limit by signing in (per-user elevated bucket); signed-in
-  // callers have already used their elevated allowance, so the message just points at the reset.
-  const error = result.signedIn
-    ? "You've used all your free public scans for this week. Please try again once the weekly window resets."
-    : "You've used all your free public scans for this week. Sign in for a higher weekly limit, or try again once the window resets.";
+  // Beyond the free monthly allowance the next scan needs a paid plan (which bundles more scans) or
+  // prepaid scan credits — the same allowance-then-pay shape as a private scan.
+  const error =
+    "You've used your 5 free scans this month. Upgrade to Pro for more monthly scans, or add scan credits — or try again once the window resets.";
   return new Response(
-    JSON.stringify({ error, code: "weekly_quota", remaining: 0, resetAt: result.resetAt, scope }),
+    JSON.stringify({ error, code: "monthly_quota", remaining: 0, resetAt: result.resetAt, scope }),
     {
       status: 429,
       headers: {
@@ -408,7 +413,7 @@ export function weeklyQuotaExceeded(result: QuotaResult): Response {
  */
 export async function purgeStalePublicScanQuota(now: number = Date.now()): Promise<number> {
   if (!isDbConfigured()) return 0;
-  const cutoff = new Date(now - WEEK_MS);
+  const cutoff = new Date(now - WINDOW_MS);
   return withDb(async (db) => {
     const res = await withRetry(
       () => db.publicScanQuota.deleteMany({ where: { updatedAt: { lt: cutoff } } }),

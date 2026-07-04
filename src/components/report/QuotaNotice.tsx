@@ -1,6 +1,6 @@
 "use client";
 
-// Free weekly public-scan allowance surfaces for the report page — the banner shown above a
+// Free monthly public-scan allowance surfaces for the report page — the banner shown above a
 // finished report and the blocked state when the limit is exhausted. Driven by the x-ascent-quota-*
 // response headers (anonymous per-IP vs signed-in per-user, elevated). Split out of
 // ReportClientStatus so that module stays focused on the scan lifecycle (loading/empty/SSE).
@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
 
-/** Free weekly public-scan allowance attribution, from the x-ascent-quota-scope header. */
+/** Free monthly public-scan allowance attribution, from the x-ascent-quota-scope header. */
 export type QuotaScope = "anon" | "user";
 
 /**
@@ -25,14 +25,14 @@ function canOfferSignIn(scope: QuotaScope): boolean {
   );
 }
 
-/** Human-friendly date a weekly quota window resets on (epoch ms). Coarse — a day is precise enough. */
+/** Human-friendly date a monthly quota window resets on (epoch ms). Coarse — a day is precise enough. */
 export function formatResetAt(resetAt: number | null): string {
   if (!resetAt || !Number.isFinite(resetAt)) return "in a few days";
   return `on ${new Date(resetAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 }
 
 /**
- * The blocked state when the weekly public-scan limit is exhausted. No "Try again" (an immediate
+ * The blocked state when the monthly public-scan limit is exhausted. No "Try again" (an immediate
  * retry just re-trips the gate); instead it surfaces when the window resets and, for an anonymous
  * caller, a sign-in CTA that lifts the limit to the elevated per-user tier.
  */
@@ -52,7 +52,7 @@ export function QuotaBlocked({
   return (
     <EmptyState
       icon="⏳"
-      title="Weekly scan limit reached"
+      title="Monthly scan limit reached"
       body={message}
       actions={[
         { label: "See plans →", href: "/pricing", primary: !offerSignIn },
@@ -60,7 +60,7 @@ export function QuotaBlocked({
       ]}
     >
       {offerSignIn && (
-        <SupabaseSignInButton variant="primary" label="Sign in for a higher limit" next={signInNext} />
+        <SupabaseSignInButton variant="primary" label="Sign in for more scans" next={signInNext} />
       )}
     </EmptyState>
   );
@@ -119,7 +119,7 @@ function quotaCta(scope: QuotaScope, signInNext: string, fallbackLink: boolean):
 }
 
 /**
- * Notice above a report served from the LAST SAVED scan because the weekly limit blocked a fresh
+ * Notice above a report served from the LAST SAVED scan because the monthly limit blocked a fresh
  * one — the "stale + quota" salvage path. Louder than QuotaBanner (warn-tinted: the data shown is
  * not head-fresh) but still a banner, not a wall: the user keeps the answer they came for while
  * the reset date and sign-in upsell stay visible.
@@ -142,16 +142,16 @@ export function QuotaStaleNotice({
     : "";
   return (
     <QuotaBannerShell tone="warn" cta={quotaCta(scope, signInNext, true)}>
-      Showing the last saved scan{scannedOn} — your free weekly limit is used; it resets{" "}
+      Showing the last saved scan{scannedOn} — your free monthly limit is used; it resets{" "}
       {formatResetAt(resetAt)}.
     </QuotaBannerShell>
   );
 }
 
 /**
- * Subtle banner shown above a finished report for public scans, surfacing the free weekly allowance
+ * Subtle banner shown above a finished report for public scans, surfacing the free monthly allowance
  * left (from the x-ascent-quota-* response headers). Quiet by design — informs without alarming, and
- * only renders when the weekly gate counted this scan. For an anonymous caller it also offers a
+ * only renders when the monthly gate counted this scan. For an anonymous caller it also offers a
  * "Sign in for more" CTA that lifts the limit to the elevated per-user tier.
  */
 export function QuotaBanner({
@@ -169,11 +169,11 @@ export function QuotaBanner({
   return (
     <QuotaBannerShell tone="muted" cta={quotaCta(scope, signInNext, last)}>
       {last ? (
-        <>That was your last free public scan this week — the limit resets {formatResetAt(resetAt)}.</>
+        <>That was your last free public scan this month — the limit resets {formatResetAt(resetAt)}.</>
       ) : (
         <>
           <span className="font-medium text-slate-200">{remaining}</span> free public scan
-          {remaining === 1 ? "" : "s"} left this week.
+          {remaining === 1 ? "" : "s"} left this month.
         </>
       )}
     </QuotaBannerShell>

@@ -52,25 +52,25 @@ describe("checkScanEntitlement (hybrid: allowance, then credits)", () => {
   });
 
   it("allowanceRemaining = the monthly free scans left (the batch-cap input that was missing)", async () => {
-    // A Free org (10/mo) that's used 4 and bought 0 credits still has 6 FREE scans left — so a bulk
-    // scan/import must be sized to balance + allowanceRemaining (6), not balance (0). Capping on credits
+    // A Free org (5/mo) that's used 4 and bought 0 credits still has 1 FREE scan left — so a bulk
+    // scan/import must be sized to balance + allowanceRemaining (1), not balance (0). Capping on credits
     // alone wrongly skipped every included free scan.
     mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false });
     mockCountUsage.mockResolvedValue(4);
-    expect(await checkScanEntitlement("acme")).toMatchObject({ balance: 0, allowanceRemaining: 6 });
+    expect(await checkScanEntitlement("acme")).toMatchObject({ balance: 0, allowanceRemaining: 1 });
     // Allowance fully spent ⇒ 0 remaining (overflow then draws on credits only).
-    mockCountUsage.mockResolvedValue(10);
+    mockCountUsage.mockResolvedValue(5);
     expect((await checkScanEntitlement("acme")).allowanceRemaining).toBe(0);
   });
 
   it("is allowed AND within-allowance under the monthly allowance, even at a zero credit balance", async () => {
     mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false });
-    mockCountUsage.mockResolvedValue(0); // 0 of Free's 10/mo
+    mockCountUsage.mockResolvedValue(0); // 0 of Free's 5/mo
     expect(await checkScanEntitlement("acme")).toMatchObject({ allowed: true, withinAllowance: true });
   });
 
   it("once the allowance is SPENT: allowed via credits when balance > 0, blocked (402) at zero", async () => {
-    mockCountUsage.mockResolvedValue(10); // Free's 10/mo allowance exhausted
+    mockCountUsage.mockResolvedValue(5); // Free's 5/mo allowance exhausted
     mockGetCreditState.mockResolvedValue({ balance: 3, plan: "free", unlimited: false });
     expect(await checkScanEntitlement("acme")).toMatchObject({ allowed: true, withinAllowance: false });
     mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false });

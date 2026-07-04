@@ -7,19 +7,8 @@
 
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
-import { PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
-import { CreditEstimator } from "./CreditEstimator";
+import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, type PlanId } from "@/lib/plans";
 import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
-
-// Display-only price labels. Free is genuinely $0; Pro/Team run on prepaid credits (no fixed
-// subscription price is asserted in code); Enterprise is bespoke. Kept here, not in plans.ts, so the
-// feature/allotment source of truth stays free of pricing claims.
-const PRICE: Record<PlanId, { amount: string; note: string }> = {
-  free: { amount: "$0", note: "free forever" },
-  pro: { amount: "Prepaid", note: "credits — 1 per scan over your allowance" },
-  team: { amount: "Prepaid", note: "credits — 1 per scan over your allowance" },
-  enterprise: { amount: "Custom", note: "contact us" },
-};
 
 // Each tier's primary CTA points at its REAL destination, labeled to match. The previous single
 // `href={id === "free" ? "/" : "/connect"}` ternary sent Pro/Team AND Enterprise to /connect (the
@@ -46,7 +35,7 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "Plans & credits — Ascent",
   description:
-    "Public-repo maturity scans are free forever. Private repos + the org fleet dashboard run on prepaid scan credits — from Free to Enterprise.",
+    "Every plan includes a monthly scan allowance — 5 free a month, Pro $10/mo, Team $20/mo. Scans beyond your allowance run on prepaid credits you can top up anytime.",
 };
 
 export default function PricingPage() {
@@ -57,13 +46,11 @@ export default function PricingPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white sm:text-4xl">Plans &amp; credits</h1>
           <p className="mx-auto mt-3 max-w-2xl text-lg text-slate-400">
-            Every plan includes a <span className="text-slate-200">monthly scan allowance</span>; scans beyond it run
-            on prepaid credits (1 per scan). Public-repo scans also have a free weekly allowance — pick the tier that
-            fits your fleet.
+            Every plan includes a <span className="text-slate-200">monthly scan allowance</span> — 5 free a month, then
+            a subscription for more. Scans beyond your allowance run on prepaid credits you can{" "}
+            <span className="text-slate-200">top up anytime</span>. Pick the tier that fits your fleet.
           </p>
         </div>
-
-        <CreditEstimator />
 
         <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {PLAN_ORDER.map((id) => {
@@ -84,8 +71,8 @@ export default function PricingPage() {
                 )}
                 <h2 className="text-lg font-semibold text-white">{p.label}</h2>
                 <p className="mt-2">
-                  <span className="text-3xl font-bold text-white">{PRICE[id].amount}</span>{" "}
-                  <span className="text-sm text-slate-400">{PRICE[id].note}</span>
+                  <span className="text-3xl font-bold text-white">{planPriceLabel(id).amount}</span>{" "}
+                  <span className="text-sm text-slate-400">{planPriceLabel(id).cadence}</span>
                 </p>
                 <p className="mt-2 text-sm text-slate-400">{p.blurb}</p>
                 <p className="mt-3 font-mono text-sm text-accent">
@@ -120,11 +107,11 @@ export default function PricingPage() {
         </div>
 
         <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500">
-          Each plan includes a monthly scan allowance that{" "}
-          <span className="text-slate-300">resets every month</span>. Scans beyond it run on prepaid credits (1 per
-          scan), which <span className="text-slate-300">roll over and never expire</span> — so you pay only for the
-          overflow you actually use. Cached re-scans of unchanged repos are always free. Manage credits and your plan
-          from the org dashboard.
+          Every plan&apos;s monthly scan allowance <span className="text-slate-300">resets each month</span>; Pro and
+          Team are monthly subscriptions that bundle more of it. Need more than your plan includes? Buy prepaid scan
+          credits (1 per scan), which <span className="text-slate-300">roll over and never expire</span> — so you pay
+          only for the overflow you actually use. Cached re-scans of unchanged repos are always free. Manage your plan
+          and credits from the org dashboard.
         </p>
       </main>
       <SiteFooter />

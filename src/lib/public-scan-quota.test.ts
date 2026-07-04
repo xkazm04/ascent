@@ -27,11 +27,11 @@ import {
   parseHits,
   hashIp,
   hashKey,
-  publicScanWeeklyLimit,
+  publicScanMonthlyLimit,
   refundPublicScanQuota,
   removeHit,
   removeNewestHit,
-  signedInScanWeeklyLimit,
+  signedInScanMonthlyLimit,
 } from "./public-scan-quota";
 
 // Captured per-test: the fake `db` withDb hands to the operation, plus the isolation options the
@@ -72,7 +72,7 @@ function makeFakeDb(seed: Record<string, number[]> = {}) {
   return { db, store, tx };
 }
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // rolling 30-day "month" (matches the module)
 const NOW = 1_700_000_000_000; // fixed epoch for deterministic windows
 
 describe("decideQuota", () => {
@@ -81,7 +81,7 @@ describe("decideQuota", () => {
     expect(d.allowed).toBe(true);
     expect(d.remaining).toBe(2);
     expect(d.hits).toEqual([NOW]);
-    expect(d.resetAt).toBe(NOW + WEEK_MS);
+    expect(d.resetAt).toBe(NOW + WINDOW_MS);
   });
 
   it("allows up to the limit, then denies", () => {
@@ -98,8 +98,8 @@ describe("decideQuota", () => {
     expect(d.remaining).toBe(0); // this was the 3rd; none left
   });
 
-  it("drops hits older than the 7-day window before deciding", () => {
-    const stale = NOW - WEEK_MS - 1; // just outside the window
+  it("drops hits older than the 30-day window before deciding", () => {
+    const stale = NOW - WINDOW_MS - 1; // just outside the window
     const recent = NOW - 1000;
     const d = decideQuota([stale, stale, recent], NOW, 3);
     expect(d.allowed).toBe(true);
@@ -108,14 +108,14 @@ describe("decideQuota", () => {
   });
 
   it("frees a slot once the oldest in-window hit ages out (resetAt when denied)", () => {
-    const oldest = NOW - WEEK_MS + 5000; // ages out in 5s
+    const oldest = NOW - WINDOW_MS + 5000; // ages out in 5s
     const d = decideQuota([oldest, NOW - 2000, NOW - 1000], NOW, 3);
     expect(d.allowed).toBe(false);
-    expect(d.resetAt).toBe(oldest + WEEK_MS);
+    expect(d.resetAt).toBe(oldest + WINDOW_MS);
   });
 
   it("treats a hit exactly at the cutoff as expired (strict >)", () => {
-    const atCutoff = NOW - WEEK_MS; // not > cutoff → excluded
+    const atCutoff = NOW - WINDOW_MS; // not > cutoff → excluded
     const d = decideQuota([atCutoff, atCutoff, atCutoff], NOW, 3);
     expect(d.allowed).toBe(true);
     expect(d.hits).toEqual([NOW]);
@@ -224,25 +224,25 @@ describe("hashIp", () => {
   });
 });
 
-describe("publicScanWeeklyLimit", () => {
-  it("defaults to 3", () => {
-    const prev = process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
-    delete process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
-    expect(publicScanWeeklyLimit()).toBe(3);
-    if (prev !== undefined) process.env.PUBLIC_SCAN_WEEKLY_LIMIT = prev;
+describe("publicScanMonthlyLimit", () => {
+  it("defaults to 5", () => {
+    const prev = process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    expect(publicScanMonthlyLimit()).toBe(5);
+    if (prev !== undefined) process.env.PUBLIC_SCAN_MONTHLY_LIMIT = prev;
   });
 
   it("honors a positive override", () => {
-    const prev = process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
-    process.env.PUBLIC_SCAN_WEEKLY_LIMIT = "10";
-    expect(publicScanWeeklyLimit()).toBe(10);
-    if (prev === undefined) delete process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
-    else process.env.PUBLIC_SCAN_WEEKLY_LIMIT = prev;
+    const prev = process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    process.env.PUBLIC_SCAN_MONTHLY_LIMIT = "10";
+    expect(publicScanMonthlyLimit()).toBe(10);
+    if (prev === undefined) delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
+    else process.env.PUBLIC_SCAN_MONTHLY_LIMIT = prev;
   });
 });
 
-describe("signedInScanWeeklyLimit", () => {
-  const KEYS = ["PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN", "PUBLIC_SCAN_WEEKLY_LIMIT"] as const;
+describe("signedInScanMonthlyLimit", () => {
+  const KEYS = ["PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN", "PUBLIC_SCAN_MONTHLY_LIMIT"] as const;
   function withEnv(vals: Partial<Record<(typeof KEYS)[number], string>>, fn: () => void) {
     const prev = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
     for (const k of KEYS) {
@@ -259,19 +259,19 @@ describe("signedInScanWeeklyLimit", () => {
     }
   }
 
-  it("defaults to 20", () => {
-    withEnv({}, () => expect(signedInScanWeeklyLimit()).toBe(20));
+  it("defaults to 5", () => {
+    withEnv({}, () => expect(signedInScanMonthlyLimit()).toBe(5));
   });
 
   it("honors a positive override", () => {
-    withEnv({ PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN: "50" }, () =>
-      expect(signedInScanWeeklyLimit()).toBe(50),
+    withEnv({ PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN: "50" }, () =>
+      expect(signedInScanMonthlyLimit()).toBe(50),
     );
   });
 
   it("never drops below the anonymous limit (signing in can't grant less)", () => {
-    withEnv({ PUBLIC_SCAN_WEEKLY_LIMIT_SIGNED_IN: "2", PUBLIC_SCAN_WEEKLY_LIMIT: "5" }, () =>
-      expect(signedInScanWeeklyLimit()).toBe(5),
+    withEnv({ PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN: "2", PUBLIC_SCAN_MONTHLY_LIMIT: "8" }, () =>
+      expect(signedInScanMonthlyLimit()).toBe(8),
     );
   });
 });
@@ -293,13 +293,13 @@ describe("consumePublicScanQuota / refundPublicScanQuota (transactional, in-memo
     mockIsDbConfigured.mockReturnValue(true);
     mockReadDsqlConfig.mockReturnValue(null); // Postgres
     delete process.env.PUBLIC_SCAN_QUOTA_DISABLED;
-    process.env.PUBLIC_SCAN_WEEKLY_LIMIT = "3"; // pin the limit for deterministic counting
+    process.env.PUBLIC_SCAN_MONTHLY_LIMIT = "3"; // pin the limit for deterministic counting
     capturedTxOptions = undefined;
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    delete process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
+    delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
   });
 
   it("consume decrements inside the tx, over-quota is DENIED with no decrement, and a refund nets to zero", async () => {
@@ -378,12 +378,12 @@ describe("quota transaction isolation selection (DSQL vs Postgres)", () => {
     vi.clearAllMocks();
     mockIsDbConfigured.mockReturnValue(true);
     delete process.env.PUBLIC_SCAN_QUOTA_DISABLED;
-    process.env.PUBLIC_SCAN_WEEKLY_LIMIT = "3";
+    process.env.PUBLIC_SCAN_MONTHLY_LIMIT = "3";
     capturedTxOptions = undefined;
   });
 
   afterEach(() => {
-    delete process.env.PUBLIC_SCAN_WEEKLY_LIMIT;
+    delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
   });
 
   it("Postgres (no DSQL config) ⇒ Serializable isolation passed to the consume transaction", async () => {

@@ -387,10 +387,10 @@ export default async function UsagePage({
             </h2>
             <div className="mt-3 grid gap-4 lg:grid-cols-2">
               <div>
-                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Weekly-quota denials</div>
+                <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Monthly-quota denials</div>
                 <div className="mt-2 space-y-1.5 text-base">
                   {quotaEvents.quotaDenies.length === 0 ? (
-                    <p className="text-slate-500">None — no one&apos;s hit the weekly free-scan cap.</p>
+                    <p className="text-slate-500">None — no one&apos;s hit the monthly free-scan cap.</p>
                   ) : (
                     quotaEvents.quotaDenies.map((d) => (
                       <div key={d.scope} className="flex items-center justify-between gap-3">
@@ -419,7 +419,7 @@ export default async function UsagePage({
             </div>
             <p className="mt-3 text-sm text-slate-500">
               The per-minute burst limiter on scan/import is an in-memory backstop and isn&apos;t counted here;
-              these are the durable signals (weekly-quota denials + the badge limiter).
+              these are the durable signals (monthly-quota denials + the badge limiter).
             </p>
           </div>
         )}

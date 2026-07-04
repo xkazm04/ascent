@@ -1,9 +1,9 @@
 "use client";
 
-// Live "free scans left this week" meter for the landing page — reads GET /api/quota (read-only,
+// Live "free scans left this month" meter for the landing page — reads GET /api/quota (read-only,
 // never consumes a slot) so a visitor sees their real remaining allowance BEFORE committing a scan,
 // instead of only discovering the limit when a scan is blocked. Renders nothing when the gate is
-// inactive (DB-less / disabled), so it's invisible on deployments without the weekly quota.
+// inactive (DB-less / disabled), so it's invisible on deployments without the monthly quota.
 
 import { useEffect, useState } from "react";
 import { formatResetAt } from "@/components/report/QuotaNotice";
@@ -59,11 +59,11 @@ export function QuotaMeter() {
 
   return (
     <p className={`mt-2 font-mono text-sm ${low ? "text-amber-300" : "text-slate-500"}`}>
-      <span className="font-semibold">{q.remaining}</span> of {q.limit} free scans left this week
+      <span className="font-semibold">{q.remaining}</span> of {q.limit} free scans left this month
       {q.scope === "anon" && (
         <>
           {" "}
-          · <span className="text-slate-400">sign in for more</span>
+          · <span className="text-slate-400">upgrade for more scans</span>
         </>
       )}
       {q.remaining === 0 && reset && <> · resets {reset}</>}

@@ -49,7 +49,7 @@ vi.mock("@/lib/entitlement", () => ({
 vi.mock("@/lib/public-scan-quota", () => ({
   consumePublicScanQuota: vi.fn(async () => ({ enforced: false, allowed: true, remaining: 3, chargedAt: null, resetAt: null, signedIn: false })),
   refundPublicScanQuota: vi.fn(async () => {}),
-  weeklyQuotaExceeded: () => new Response(JSON.stringify({ code: "weekly_quota" }), { status: 429 }),
+  monthlyQuotaExceeded: () => new Response(JSON.stringify({ code: "monthly_quota" }), { status: 429 }),
 }));
 vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true })),

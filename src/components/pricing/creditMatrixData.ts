@@ -17,7 +17,7 @@ export interface MatrixPlan {
 }
 
 export const MATRIX_PLANS: MatrixPlan[] = [
-  { id: "free", label: "Free", allowance: "10" },
+  { id: "free", label: "Free", allowance: "5" },
   { id: "pro", label: "Pro", allowance: "100" },
   { id: "team", label: "Team", allowance: "500", featured: true },
   { id: "enterprise", label: "Enterprise", allowance: "∞" },
@@ -70,19 +70,13 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
   {
     key: "scanning",
     title: "Scanning",
-    intro: "The only operations credits pay for — and only a private scan past your monthly allowance.",
+    intro: "Every scan — public or private — draws on one monthly allowance; only scans past it cost a credit.",
     rows: [
       {
-        label: "Public repo scan",
-        detail: "Any public repository, on the web — full report, radar and badge.",
-        tag: "free",
-        cells: all("Unlimited"),
-      },
-      {
-        label: "Private repo scan",
-        detail: "Free within your monthly allowance, then 1 credit each.",
+        label: "Repository scan",
+        detail: "Any public or private repo — the full report, radar and roadmap. Free within your monthly allowance, then 1 credit each.",
         tag: "credit",
-        cells: { free: "10 / mo", pro: "100 / mo", team: "500 / mo", enterprise: "Unlimited" },
+        cells: { free: "5 / mo", pro: "100 / mo", team: "500 / mo", enterprise: "Unlimited" },
       },
       {
         label: "Re-scan an unchanged commit",
@@ -94,6 +88,12 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
         label: "Scheduled autoscans",
         detail: "Watched repos rescanned on a schedule — each counts as one scan.",
         tag: "credit",
+        cells: from("pro"),
+      },
+      {
+        label: "Buy extra scan credits",
+        detail: "Top up prepaid credits for scans beyond your plan — they roll over and never expire.",
+        tag: "plan",
         cells: from("pro"),
       },
     ],
@@ -121,4 +121,4 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
 
 /** The one-sentence rule the whole matrix proves — reused across variants so copy can't drift. */
 export const CREDIT_RULE =
-  "Credits buy exactly one thing: a private scan beyond your monthly allowance. Public scans, cached re-scans, and every capability are free or included in your plan.";
+  "Credits buy exactly one thing: a scan beyond your monthly allowance. Cached re-scans and every capability are free or included in your plan.";

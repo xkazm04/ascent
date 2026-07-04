@@ -6,14 +6,21 @@
 
 export type PlanId = "free" | "pro" | "team" | "enterprise";
 
+/** How a plan is billed: free (no charge), a fixed monthly subscription, or a bespoke contract. */
+export type PlanBilling = "free" | "subscription" | "custom";
+
 export interface PlanFeature {
   id: PlanId;
   label: string;
-  /** Monthly metered-scan allowance — free scans/month before overflow draws on prepaid credits.
-   *  null = unlimited (Enterprise). This is the "included" volume; see scanAllowance(). */
+  /** Monthly scan allowance — free scans/month (public OR private) before overflow draws on prepaid
+   *  credits. null = unlimited (Enterprise). This is the "included" volume; see scanAllowance(). */
   includedCredits: number | null;
-  /** True when private scans never consume a credit (the `enterprise` behaviour, now data-driven). */
+  /** True when scans never consume a credit (the `enterprise` behaviour, data-driven). */
   unlimited: boolean;
+  /** Fixed monthly subscription price in whole USD; 0 for Free, null for the custom (Enterprise) tier.
+   *  Pro/Team are SUBSCRIPTIONS that bundle a monthly scan allowance; overflow buys extra scan credits. */
+  monthlyPrice: number | null;
+  billing: PlanBilling;
   /** Member seats included; null = unlimited. */
   seats: number | null;
   /** Scan-history retention in days; null = unlimited/inherit the deployment default. */
@@ -26,47 +33,64 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
   free: {
     id: "free",
     label: "Free",
-    includedCredits: 10,
+    includedCredits: 5,
     unlimited: false,
+    monthlyPrice: 0,
+    billing: "free",
     seats: 1,
     retentionDays: 30,
-    blurb: "Free public-repo scans, badge, and the full report — plus 10 org scans a month.",
-    features: ["10 scans / month included", "Free public-repo scans (fair-use)", "Maturity report + roadmap", "README badge", "1 member"],
+    blurb: "5 scans a month — public or private — with the full report and badge.",
+    features: ["5 scans / month included", "Public or private repos", "Maturity report + roadmap", "README badge", "1 member"],
   },
   pro: {
     id: "pro",
     label: "Pro",
     includedCredits: 100,
     unlimited: false,
+    monthlyPrice: 10,
+    billing: "subscription",
     seats: 3,
     retentionDays: 180,
-    blurb: "Private repos + the org fleet dashboard for a small team.",
-    features: ["100 scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "3 members", "180-day history"],
+    blurb: "A monthly subscription with the org fleet dashboard for a small team.",
+    features: ["100 scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
   },
   team: {
     id: "team",
     label: "Team",
     includedCredits: 500,
     unlimited: false,
+    monthlyPrice: 20,
+    billing: "subscription",
     seats: 10,
     retentionDays: 365,
     blurb: "More volume, more seats, and segment-scoped intelligence.",
-    features: ["500 scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "10 members", "1-year history"],
+    features: ["500 scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
   },
   enterprise: {
     id: "enterprise",
     label: "Enterprise",
     includedCredits: null,
     unlimited: true,
+    monthlyPrice: null,
+    billing: "custom",
     seats: null,
     retentionDays: null,
     blurb: "Unlimited scans, SSO-ready access, and custom retention.",
-    features: ["Unlimited private scans", "Unlimited members", "Custom retention", "Priority support"],
+    features: ["Unlimited scans", "Unlimited members", "Custom retention", "Priority support"],
   },
 };
 
 /** Display / upgrade order, cheapest → richest. */
 export const PLAN_ORDER: PlanId[] = ["free", "pro", "team", "enterprise"];
+
+/** Display price for a plan card: the headline amount + a cadence sub-label. Derived from the model's
+ *  `monthlyPrice`/`billing` so the /pricing figures can't drift from the data the gate reads. */
+export function planPriceLabel(plan: PlanId): { amount: string; cadence: string } {
+  const p = PLAN_FEATURES[plan];
+  if (p.billing === "custom" || p.monthlyPrice == null) return { amount: "Custom", cadence: "contact us" };
+  if (p.monthlyPrice === 0) return { amount: "$0", cadence: "free forever" };
+  return { amount: `$${p.monthlyPrice}`, cadence: "/ month" };
+}
 
 export function isPlanId(v: string): v is PlanId {
   return v === "free" || v === "pro" || v === "team" || v === "enterprise";

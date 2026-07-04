@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { retentionCutoff, planFeatures, planAllowsWhiteLabel, scanAllowance, decideScanCharge, PLAN_FEATURES } from "./plans";
+import { retentionCutoff, planFeatures, planAllowsWhiteLabel, planPriceLabel, scanAllowance, decideScanCharge, PLAN_FEATURES } from "./plans";
 
 const NOW = Date.UTC(2026, 5, 20); // fixed clock so the cutoff math is deterministic
 const DAY = 86_400_000;
@@ -37,12 +37,28 @@ describe("planAllowsWhiteLabel — Team and up", () => {
 });
 
 describe("scanAllowance — monthly metered-scan allowance per tier", () => {
-  it("is 10 / 100 / 500, and null (unlimited) for Enterprise", () => {
-    expect(scanAllowance("free")).toBe(10);
+  it("is 5 / 100 / 500, and null (unlimited) for Enterprise", () => {
+    expect(scanAllowance("free")).toBe(5);
     expect(scanAllowance("pro")).toBe(100);
     expect(scanAllowance("team")).toBe(500);
     expect(scanAllowance("enterprise")).toBeNull();
-    expect(scanAllowance(null)).toBe(10); // unknown → free
+    expect(scanAllowance(null)).toBe(5); // unknown → free
+  });
+});
+
+describe("planPriceLabel — subscription display prices", () => {
+  it("Free is $0, Pro $10/mo, Team $20/mo, Enterprise Custom", () => {
+    expect(planPriceLabel("free")).toEqual({ amount: "$0", cadence: "free forever" });
+    expect(planPriceLabel("pro")).toEqual({ amount: "$10", cadence: "/ month" });
+    expect(planPriceLabel("team")).toEqual({ amount: "$20", cadence: "/ month" });
+    expect(planPriceLabel("enterprise")).toEqual({ amount: "Custom", cadence: "contact us" });
+  });
+
+  it("Pro and Team are subscriptions; Free is free; Enterprise is custom", () => {
+    expect(PLAN_FEATURES.pro.billing).toBe("subscription");
+    expect(PLAN_FEATURES.team.billing).toBe("subscription");
+    expect(PLAN_FEATURES.free.billing).toBe("free");
+    expect(PLAN_FEATURES.enterprise.billing).toBe("custom");
   });
 });
 
