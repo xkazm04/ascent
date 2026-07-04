@@ -43,7 +43,7 @@ export function AboutCTA() {
           <div className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">Ascent</div>
           <p className="mt-2 font-mono text-sm uppercase tracking-widest text-slate-500">The maturity index for AI-native engineering</p>
           <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
-            <Link href="/#pricing" className="focus-ring rounded-sm hover:text-accent">Pricing</Link>
+            <Link href="/pricing" className="focus-ring rounded-sm hover:text-accent">Pricing</Link>
             <Link href="/connect" className="focus-ring rounded-sm hover:text-accent">Connect</Link>
             <Link href="/" className="focus-ring rounded-sm hover:text-accent">Home</Link>
           </div>

@@ -1,35 +1,36 @@
-import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { OrgHeader, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { OrgNav } from "@/components/org/OrgNav";
 import { OrgScanButton } from "@/components/org/OrgScanButton";
 import { CreditsControl } from "@/components/org/CreditsControl";
-import { PlanControl } from "@/components/org/PlanControl";
 import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
+import { OnboardingLab } from "@/components/onboarding/tour/OnboardingLab";
+import { DEMO_ORG_SLUG } from "@/lib/site";
 import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { creditPacks, polarEnabled } from "@/lib/polar";
-import { envBool } from "@/lib/env";
 import { scanAllowance } from "@/lib/plans";
 import { levelForScore } from "@/lib/maturity/model";
-import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
+// Frame wraps the pre-dashboard states (no DB, sign-in wall, no access, no data): the marketing
+// SiteHeader over a plain main. NO SiteFooter — the footer belongs to the marketing shell only, never
+// the org dashboard. The populated dashboard (below) swaps SiteHeader for the org-scoped OrgHeader.
 function Frame({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SiteHeader />
       <main id="main" className="mx-auto w-full max-w-7xl px-5 py-8">{children}</main>
-      <SiteFooter />
     </>
   );
 }
 
 /**
- * Org shell: SiteHeader + a persistent org header (name · maturity chip · scan) + the tab bar,
+ * Org shell: the org-scoped OrgHeader (name · maturity · role + alerts/credits/scan) + the tab bar,
  * wrapping every org sub-page. Centralizes the DB/auth/empty guards so the tabs only appear
  * once there's a real org to browse; sub-pages assume valid data.
  */
@@ -161,61 +162,49 @@ export default async function OrgLayout({
   // are plain serializable data; the SDK stays server-side (CreditsControl declares its own Pack type).
   const buyEnabled = polarEnabled();
   const packs = buyEnabled ? creditPacks() : [];
-  // Manual plan-tier override (no-Polar demo path) — mirrors the /api/org/plan gate. Owner-gated at
-  // the route; here it just decides whether the tier chip is a switcher or read-only.
-  const planChangesEnabled = envBool("ASCENT_ALLOW_PLAN_CHANGES");
   // Free metered scans left in the plan's monthly allowance, so the credits chip doesn't say "out of
   // credits / paused" at balance 0 while the allowance still covers scans. null allowance = unlimited
   // (Enterprise) — the chip shows "Unlimited" anyway, so 0 here is harmless.
   const planAllowance = credit ? scanAllowance(credit.plan) : null;
   const allowanceRemaining = planAllowance == null ? 0 : Math.max(0, planAllowance - usageThisMonth);
 
+  // The org's persistent actions (alerts · credits · scan), folded into the OrgHeader's right cluster.
+  // The old in-content "scanned · watched" line and the plan-tier chip are intentionally dropped — the
+  // header carries only identity + the live actions.
+  const actions = (
+    <>
+      {slug !== "public" && <AlertsControl org={slug} />}
+      {credit && (
+        <CreditsControl
+          org={slug}
+          initialBalance={credit.balance}
+          unlimited={credit.unlimited}
+          grantsEnabled={grantsEnabled}
+          buyEnabled={buyEnabled}
+          packs={packs}
+          allowanceRemaining={allowanceRemaining}
+        />
+      )}
+      <div data-tour="scan-scope">
+        <OrgScanButton org={slug} watchedCount={watched} />
+      </div>
+    </>
+  );
+
   return (
-    <Frame>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div>
-            <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Org maturity</div>
-            <h1 className="mt-0.5 text-2xl font-bold text-white">{slug}</h1>
-          </div>
-          <span className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm" style={{ color: scoreHex(summary.avgOverall) }}>
-            {level.id} · {summary.avgOverall}
-          </span>
-          {myRole && (
-            <span
-              className="rounded-md border border-accent/40 bg-accent/5 px-2.5 py-1 font-mono text-sm uppercase tracking-widest text-accent"
-              title="Your role in this organization"
-            >
-              {myRole}
-            </span>
-          )}
-          <span className="font-mono text-sm text-slate-500">
-            {summary.scannedCount}/{summary.repoCount} scanned · {watched} watched
-          </span>
+    <>
+      <OrgHeader slug={slug} levelId={level.id} score={summary.avgOverall} role={myRole} actions={actions} />
+      <main id="main" className="mx-auto w-full max-w-7xl px-5 py-8">
+        <div className="lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-8">
+          <aside data-tour="modules-nav" className="lg:sticky lg:top-20 lg:self-start">
+            <OrgNav slug={slug} />
+          </aside>
+          <div className="animate-fade-up">{children}</div>
         </div>
-        <div className="flex items-center gap-2">
-          {slug !== "public" && <AlertsControl org={slug} />}
-          {credit && <PlanControl org={slug} plan={credit.plan} enabled={planChangesEnabled} />}
-          {credit && (
-            <CreditsControl
-              org={slug}
-              initialBalance={credit.balance}
-              unlimited={credit.unlimited}
-              grantsEnabled={grantsEnabled}
-              buyEnabled={buyEnabled}
-              packs={packs}
-              allowanceRemaining={allowanceRemaining}
-            />
-          )}
-          <OrgScanButton org={slug} watchedCount={watched} />
-        </div>
-      </div>
-      <div className="mt-6 lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-8">
-        <aside className="lg:sticky lg:top-20 lg:self-start">
-          <OrgNav slug={slug} />
-        </aside>
-        <div className="mt-4 animate-fade-up lg:mt-0">{children}</div>
-      </div>
-    </Frame>
+      </main>
+      {/* PROTOTYPE: temporary onboarding-tour A/B harness, scoped to the curated demo org. Persisting it
+          in the layout (not a page) lets the tour survive sub-page navigation and re-anchor on redirect. */}
+      {slug.toLowerCase() === DEMO_ORG_SLUG && <OnboardingLab slug={slug} />}
+    </>
   );
 }

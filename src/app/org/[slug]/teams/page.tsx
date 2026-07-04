@@ -3,6 +3,7 @@ import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { TeamsMatrix } from "@/components/org/TeamsMatrix";
 import { TeamsSignals } from "@/components/org/TeamsSignals";
 import { TeamsUnowned } from "@/components/org/TeamsUnowned";
+import { teamAnchorId } from "@/components/org/teamsShared";
 import { getOrgTeamRollup } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
@@ -55,15 +56,16 @@ export default async function TeamsPage({
         {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
       </div>
 
-      {/* Summary tiles */}
+      {/* Summary ledger — the shared hairline tile band; each stat deep-links to its evidence. */}
       <div className={`mt-6 ${TILE_GRID}`}>
-        <Tile label="Teams" value={rollup.teamCount} sub="from CODEOWNERS" />
-        <Tile label="Attributed repos" value={rollup.attributedRepos} sub="scanned, with a team owner" />
+        <Tile label="Teams" value={rollup.teamCount} sub="from CODEOWNERS" href="#teams-matrix" />
+        <Tile label="Attributed repos" value={rollup.attributedRepos} sub="scanned, with a team owner" href="#teams-matrix" />
         <Tile
           label="Unowned repos"
           value={rollup.unownedRepos}
-          sub={rollup.unownedRepos > 0 ? "no CODEOWNERS team — fix list below" : "every scanned repo has an owner"}
+          sub={rollup.unownedRepos > 0 ? "no CODEOWNERS team → fix" : "every scanned repo has an owner"}
           color={rollup.unownedRepos > 0 ? "var(--color-warn)" : undefined}
+          href={rollup.unownedRepos > 0 ? "#unowned" : undefined}
         />
         <Tile
           label="Knowledge leader"
@@ -73,6 +75,7 @@ export default async function TeamsPage({
           // team with low AI share but high adoption rendered its "30%" tinted green, disagreeing with
           // both the number it sits on and the matrix rows (which color by aiCommitShare).
           color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.aiCommitShare) : undefined}
+          href={rollup.knowledgeLeader ? `#${teamAnchorId(rollup.knowledgeLeader.slug)}` : undefined}
         />
       </div>
 
@@ -80,7 +83,7 @@ export default async function TeamsPage({
       <TeamsSignals slug={slug} leader={rollup.knowledgeLeader} pairings={rollup.pairings} />
 
       {/* The matrix — every team × every dimension, sortable, rows expand to repos/champions. */}
-      <div className="mt-8">
+      <div id="teams-matrix" className="mt-8 scroll-mt-24">
         <SectionHeader
           title="Teams × dimensions"
           description="Each team's maturity, AI knowledge, movement, and per-dimension averages in one grid — click a header to sort, a team to open its repos and champions."

@@ -9,6 +9,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export type OrgRole = "owner" | "admin" | "member" | "viewer";
 
@@ -184,6 +185,39 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
   } catch {
     return "not_found";
   }
+}
+
+/** A real (non-public) org the viewer belongs to, for the header's "enter your org" affordance. */
+export interface ViewerOrg {
+  slug: string;
+  name: string;
+  role: OrgRole;
+}
+
+/**
+ * The real orgs `login` is a member of — the signal the header uses to swap the generic "Org demo"
+ * link for a direct "enter your org" one. Excludes the shared PUBLIC_ORG (never a tenant the viewer
+ * "owns"). Ordered most-privileged first, then most-recently-joined, so `[0]` is the natural primary
+ * org to surface. Empty when the login has no membership rows (signed in but no org created yet) — the
+ * caller then keeps the demo link. Keyed on githubLogin, the identity both the OAuth session and the
+ * Supabase/dev viewer carry (same bridge getMembershipRole uses).
+ */
+export async function listOrgsForLogin(login: string): Promise<ViewerOrg[]> {
+  if (!isDbConfigured()) return [];
+  const gh = normalizeLogin(login);
+  if (!gh) return [];
+  const prisma = getPrisma();
+  const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
+  if (!user) return [];
+  const rows = await prisma.membership.findMany({
+    where: { userId: user.id },
+    select: { role: true, createdAt: true, org: { select: { slug: true, name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  return rows
+    .filter((r) => r.org && r.org.slug !== PUBLIC_ORG)
+    .map((r) => ({ slug: r.org.slug, name: r.org.name, role: isOrgRole(r.role) ? r.role : "member" }))
+    .sort((a, b) => ROLE_RANK[b.role] - ROLE_RANK[a.role]);
 }
 
 /** All members of an org (owner-gated view). */

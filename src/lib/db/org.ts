@@ -25,6 +25,7 @@ export {
   getOrgId,
   getRepoStates,
   getOrgRollup,
+  getOrgRepoHistories,
   getOrgHeaderSummary,
   getOrgEngineMix,
   getOrgRecsActioned,
@@ -32,6 +33,8 @@ export {
   type OrgRepoRow,
   type OrgWindow,
   type OrgRollup,
+  type OrgRepoHistory,
+  type RepoTrajectoryPoint,
   type OrgHeaderSummary,
   type EngineMixEntry,
 } from "@/lib/db/org-rollup";

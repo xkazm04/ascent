@@ -19,7 +19,10 @@ import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
 
 export const DEFAULT_CLAUDE_MODEL = "sonnet";
-const CLI_TIMEOUT_MS = Number(process.env.CLAUDE_CLI_TIMEOUT_MS) || 150_000;
+// A claude-cli scan runs a full local CLI session per call — ~6 min median, up to ~10 min on a large
+// repo. The old 150s default cut most real scans off mid-answer, which then failed over to the mock
+// floor. Default to 10 min so a stock deploy completes live; override with CLAUDE_CLI_TIMEOUT_MS.
+const CLI_TIMEOUT_MS = Number(process.env.CLAUDE_CLI_TIMEOUT_MS) || 600_000;
 
 interface CliResult {
   result?: string;

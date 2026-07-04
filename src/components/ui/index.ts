@@ -11,4 +11,7 @@ export { HairlineGrid } from "./HairlineGrid";
 export { Dateline } from "./Dateline";
 export { SideNav } from "./SideNav";
 export type { SideNavItem, SideNavGroup } from "./SideNav";
+export { Modal, ModalHeader, ModalBody, ModalFooter } from "./Modal";
+export type { ModalSize } from "./Modal";
+export { ModalRoot, MODAL_ROOT_ID } from "./ModalRoot";
 export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE, toneFor } from "./format";

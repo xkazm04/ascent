@@ -1,70 +1,86 @@
 "use client";
 
-// Fleet blocker pareto (P3) — the passports' blocker strings aggregated across the repos in view and
-// ranked by how many repos each one blocks: "fix this once, move N repos". Blockers are deterministic
-// canonical strings from buildPassport, so exact-match counting is sound; the one variable string (the
-// self-verify missing-scripts list) is normalized into a single bucket. Recomputed from whatever rows
-// the active cohort filter leaves visible, so it always answers "what should THIS cohort fix first".
+// Fleet blocker docket (P3) — the passports' blocker strings aggregated across the repos in view and
+// ranked by how many repos each one blocks: "fix this once, move N repos". Message-first, one row per
+// blocker: the sentence is the headline, the axis is a colored left hairline, and magnitude renders as
+// discrete unit marks — one small square per blocked repo (hover names it) — rather than a continuous
+// bar. A row click opens the shared CreateIssueModal pre-filled with the blocker as an issue draft
+// (title + markdown body + the affected repos as targets, each footered with its report link), so the
+// docket's next step is filing real GitHub issues, gated behind that pop-up. Recomputed from whatever
+// rows the active cohort filter leaves visible. Aggregation lives in passportBlockerAgg; the panel
+// shell (Surface + Kicker + all-clear) in PassportBlockerShell.
 
-import { Meter } from "@/components/org/ui";
+import { useState } from "react";
+import { PassportBlockerShell } from "@/components/org/PassportBlockerShell";
+import { CreateIssueModal, type IssueDraft } from "@/components/github/CreateIssueModal";
+import { AXIS_TONE, aggregateBlockers, type Agg } from "@/components/org/passportBlockerAgg";
 import type { PassportRow } from "@/components/org/PassportTable";
+import { reportPermalink } from "@/lib/ui";
 
-interface Agg {
-  label: string;
-  axis: "automation" | "production";
-  repos: string[];
-}
+const MAX_MARKS = 20;
 
-const SELF_VERIFY_BUCKET = "Agent can't self-verify (missing build/test/lint/typecheck scripts).";
-
-function aggregate(rows: PassportRow[]): Agg[] {
-  const byLabel = new Map<string, Agg>();
-  const add = (label: string, axis: Agg["axis"], repo: string) => {
-    const key = label.startsWith("Agent can't self-verify") ? SELF_VERIFY_BUCKET : label;
-    const agg = byLabel.get(key) ?? { label: key, axis, repos: [] };
-    agg.repos.push(repo);
-    byLabel.set(key, agg);
+/** The blocker → issue-draft translation: shared title/body, one target per affected repo with its
+ *  report permalink as the per-repo footer. Links are absolute (issue bodies live on github.com). */
+function draftFor(a: Agg, org: string, scopeLabel: string, inView: number): IssueDraft {
+  const origin = window.location.origin;
+  return {
+    title: a.label.replace(/\.$/, ""),
+    context: `${a.axis} blocker · ${a.repos.length}/${inView} repos in view`,
+    body: [
+      `Ascent flagged a **${a.axis} readiness** blocker on this repository:`,
+      ``,
+      `> ${a.label}`,
+      ``,
+      `It affects ${a.repos.length} of the ${inView} repos in the "${scopeLabel}" view of the [${org} fleet passports](${origin}/org/${org}/passports).`,
+    ].join("\n"),
+    targets: a.repos.map((r) => ({
+      name: r.name,
+      fullName: r.fullName,
+      footer: `Ascent report for this repo: ${origin}${reportPermalink(r.fullName)}`,
+    })),
   };
-  for (const r of rows) {
-    for (const b of r.detail.autoBlockers) add(b, "automation", r.name);
-    for (const b of r.detail.prodBlockers) add(b, "production", r.name);
-  }
-  return [...byLabel.values()].sort((a, b) => b.repos.length - a.repos.length);
 }
 
-const AXIS_TONE: Record<Agg["axis"], { label: string; color: string }> = {
-  automation: { label: "auto", color: "#3b9eff" },
-  production: { label: "prod", color: "#d97706" },
-};
+export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows: PassportRow[]; scopeLabel: string; org: string; max?: number }) {
+  const top = aggregateBlockers(rows).slice(0, max);
+  const [draft, setDraft] = useState<IssueDraft | null>(null);
 
-export function PassportBlockerPareto({ rows, scopeLabel, max = 6 }: { rows: PassportRow[]; scopeLabel: string; max?: number }) {
-  const top = aggregate(rows).slice(0, max);
-  if (top.length === 0) return null;
   return (
-    <div className="rounded-2xl border border-divider bg-surface/40 p-4">
-      <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Top blockers · {scopeLabel}</div>
-      <p className="mt-1 text-sm text-slate-500">The fixes that move the most repos in view.</p>
-      <div className="mt-3 space-y-2.5">
+    <PassportBlockerShell scopeLabel={scopeLabel} intro="Each mark is a blocked repo — click a row to file it as GitHub issues." empty={top.length === 0}>
+      <div className="mt-3 space-y-1">
         {top.map((a) => {
           const tone = AXIS_TONE[a.axis];
+          const marks = a.repos.slice(0, MAX_MARKS);
           return (
-            <div key={a.label} title={`Blocked: ${a.repos.slice(0, 12).join(", ")}${a.repos.length > 12 ? ` +${a.repos.length - 12} more` : ""}`}>
-              <div className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="min-w-0 text-slate-300">
-                  <span className="mr-1.5 rounded border px-1 font-mono text-xs" style={{ color: tone.color, borderColor: `${tone.color}55` }}>
-                    {tone.label}
-                  </span>
+            <div key={a.label} className="border-l-2 pl-3" style={{ borderColor: `${tone.color}66` }}>
+              <button
+                type="button"
+                onClick={() => setDraft(draftFor(a, org, scopeLabel, rows.length))}
+                title="File this blocker as GitHub issues in the affected repos"
+                className="focus-ring group flex w-full items-baseline gap-3 rounded py-1.5 text-left"
+              >
+                <p className="min-w-0 flex-1 text-base leading-snug text-slate-200 transition group-hover:text-white">
                   {a.label}
+                </p>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span aria-hidden className="flex max-w-28 flex-wrap justify-end gap-0.5">
+                    {marks.map((r) => (
+                      <span
+                        key={r.fullName}
+                        title={r.name}
+                        className="h-1.5 w-1.5 rounded-[1px]"
+                        style={{ backgroundColor: tone.color, opacity: 0.75 }}
+                      />
+                    ))}
+                  </span>
+                  <span className="font-mono text-sm tabular-nums text-slate-300">{a.repos.length}</span>
                 </span>
-                <span className="shrink-0 font-mono text-sm tabular-nums text-slate-400">
-                  {a.repos.length}<span className="text-slate-600">/{rows.length}</span>
-                </span>
-              </div>
-              <Meter className="mt-1" size="sm" value={(a.repos.length / Math.max(1, rows.length)) * 100} color={tone.color} />
+              </button>
             </div>
           );
         })}
       </div>
-    </div>
+      <CreateIssueModal draft={draft} onClose={() => setDraft(null)} />
+    </PassportBlockerShell>
   );
 }

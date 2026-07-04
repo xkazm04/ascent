@@ -1,26 +1,14 @@
-import Link from "next/link";
 import type { Metadata } from "next";
-import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
-import { Trajectory } from "@/components/org/Trajectory";
-import { OrgScoreBadges, type ScoreBadge } from "@/components/org/OrgScoreBadges";
-import { PeriodSummary } from "@/components/org/PeriodSummary";
 import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
-import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { OrgGapsSection } from "@/components/org/OrgGapsSection";
-import { PostureDimensionsPanel } from "@/components/org/PostureDimensionsPanel";
-import { Card, InlineEmpty, OrgEmpty, SectionHeader, DIRECTION_TONE } from "@/components/org/ui";
-import { CollapsibleSection, OVERVIEW_COLLAPSE_COOKIE } from "@/components/org/CollapsibleSection";
-import { getOrgGapAnalysis, getOrgMovers, getOrgRollup, listGoals } from "@/lib/db";
+import { DIMS, OrgEmpty } from "@/components/org/ui";
+import { RepoCategoryRollup } from "@/components/org/RepoCategoryRollup";
+import { RepoDimensionHeatmap } from "@/components/org/RepoDimensionHeatmap";
+import { buildTrajectories } from "@/components/org/repoTrajectory";
+import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { canReadOrg } from "@/lib/authz";
-import { cookies } from "next/headers";
 import { levelForScore } from "@/lib/maturity/model";
-import { scoreHex } from "@/lib/ui";
 import { resolveOrgWindow } from "@/lib/org/period";
-import type { RepoMove } from "@/lib/db";
-import { GOAL_PACE_TONE } from "@/components/org/plan/goalView";
-import type { GoalPace } from "@/lib/maturity/forecast";
 
 export const dynamic = "force-dynamic";
 
@@ -45,47 +33,6 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   };
 }
 
-function MoversList({ title, tone, moves, emptyText }: { title: string; tone: "up" | "down"; moves: RepoMove[]; emptyText: string }) {
-  const { arrow, color } = DIRECTION_TONE[tone === "up" ? "rising" : "falling"];
-  return (
-    <Card>
-      <SectionHeader size="sm" title={title} />
-      {moves.length === 0 ? (
-        <InlineEmpty>{emptyText}</InlineEmpty>
-      ) : (
-        <div className="mt-3 space-y-2">
-          {moves.map((m) => (
-            <div key={m.fullName} className="flex items-center justify-between gap-3 text-base">
-              {/* GA: a mover is a lead, not just a stat — open its stored report to see WHAT moved. */}
-              <Link
-                href={`/report/${m.fullName}`}
-                title={`Open ${m.fullName}'s report`}
-                className="focus-ring min-w-0 truncate font-mono text-sm text-slate-200 transition hover:text-accent"
-              >
-                {m.name}
-              </Link>
-              <span className="flex shrink-0 items-center gap-2 font-mono text-sm">
-                {/* Show the level pair only when its direction AGREES with the score tone (gainer→up,
-                    regresser→down). A repo can gain score while its level dropped (or vice versa); the
-                    old `levelDelta !== 0` showed a contradictory "L4→L3" next to a green ▲, so omit the
-                    level pair when it would contradict the headline arrow. */}
-                {((tone === "up" && m.levelDelta > 0) || (tone === "down" && m.levelDelta < 0)) && (
-                  <span className="text-slate-500">
-                    {m.levelFrom}→{m.levelTo}
-                  </span>
-                )}
-                <span style={{ color }}>
-                  {arrow} {Math.abs(m.dOverall)}
-                </span>
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 export default async function OrgOverview({
   params,
   searchParams,
@@ -95,38 +42,24 @@ export default async function OrgOverview({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const cookieStore = await cookies();
-  // OVR-5: an explicit ?range= wins (shareable links stay authoritative); otherwise the remembered
-  // period cookie, then the default. Shared with every other org tab via resolveOrgWindow so the range
-  // carries across navigation.
+  // An explicit ?range= wins (shareable links stay authoritative); otherwise the remembered period
+  // cookie, then the default. Shared with every org tab via resolveOrgWindow so the range carries across.
   const period = await resolveOrgWindow(sp);
   const win = { start: period.start, end: period.end };
 
-  // OVR-4: which overview sections the user has collapsed (server-read so SSR matches — no flash).
-  const collapsed = new Set((cookieStore.get(OVERVIEW_COLLAPSE_COOKIE)?.value ?? "").split(",").filter(Boolean));
-  const sectionOpen = (id: string) => !collapsed.has(id);
+  // Segment + tech-stack scope still applies via deep links (?segment=/?stack= carried from other tabs);
+  // the in-view Type/Stack/Level dropdowns replace the old top-of-page selectors.
+  const { activeSegment, segmentId, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
-  // Optional segment + tech-stack scope (a bogus id/key falls back to the whole fleet): every aggregate
-  // below is scoped to the same repos, and the two filters compose.
-  const { segments, activeSegment, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
-
-  // The section queries are independent of each other — only `segmentId` (validated from
-  // `listSegments` above) feeds them — so fetch concurrently rather than as an await waterfall (each
-  // helper is itself 2-3 DB round trips; serialized they dominated the landing tab's TTFB). The
-  // sibling tabs (practices/plan/delivery) already use Promise.all. `goals` (goal chips) is PERIPHERAL
-  // — a transient failure must not reject the whole Promise.all and throw the entire dashboard to
-  // error.tsx over a non-core widget, so it degrades individually via `.catch(() => null)` (the same
-  // way generateMetadata already tolerates a failed rollup). The core fetches stay all-or-nothing.
-  const [rollup, movers, gaps, goals] = await Promise.all([
+  // The repos×time Overview needs exactly two reads: the fleet snapshot (latest per repo + counts) and
+  // each repo's per-scan history. Both are core, so fetch them together and let a failure throw to
+  // error.tsx as one (no half-rendered dashboard).
+  const [rollup, histories] = await Promise.all([
     getOrgRollup(slug, win, segmentId, techGroupId),
-    getOrgMovers(slug, win, segmentId, techGroupId),
-    getOrgGapAnalysis(slug, segmentId, techGroupId),
-    listGoals(slug).catch(() => null),
+    getOrgRepoHistories(slug, win, segmentId, techGroupId),
   ]);
-  // The layout decides whether to render the org shell at all (org exists + has data); reaching here
-  // with a null rollup means this view's scoped query (period + segment) found nothing where the
-  // layout's did — e.g. a segment that matches no repos or a window with no scans. Render a page-scale
-  // empty state with a way out, not a silent blank panel inside the shell.
+  // Reaching here with a null rollup means this view's scoped query (period + segment) found nothing
+  // where the layout's did — render a page-scale empty state with a way out, not a blank panel.
   if (!rollup) {
     return (
       <OrgEmpty
@@ -138,40 +71,28 @@ export default async function OrgOverview({
     );
   }
 
-  const level = levelForScore(rollup.avgOverall);
+  // Repos×time model — join each repo's latest snapshot with its per-scan history. Pure + serializable,
+  // so it's derived here on the server and passed to the client view.
+  const trajectories = buildTrajectories(
+    rollup.repos.map((r) => ({ fullName: r.fullName, name: r.name, owner: r.owner, techStack: r.techStack, latest: r.latest })),
+    histories,
+  );
 
-  // OVR-6: connect the org's stated goals to its most-glanced numbers. Match an active goal by metric
-  // (already fetched via listGoals) and surface its target + pace verdict on the headline tile. The
-  // tile wants short, lowercase labels ("on track"/"behind"), but the COLOR comes from the canonical
-  // GOAL_PACE_TONE so the pace palette stays single-sourced with the Plan tab's PaceChip.
-  const PACE_LABEL: Record<GoalPace, string> = {
-    reached: "reached",
-    "on-pace": "on track",
-    behind: "behind",
-    tracking: "tracking",
-  };
-  const goalNote = (metric: string) => {
-    const g = (goals ?? []).find((x) => x.status === "active" && x.metric === metric);
-    if (!g) return undefined;
-    return { target: g.target, label: PACE_LABEL[g.pace] ?? PACE_LABEL.tracking, color: GOAL_PACE_TONE[g.pace].color };
-  };
-
-  const trend: TrendPoint[] = rollup.trend.map((t) => ({ score: t.avg, at: t.date }));
-  const moversEmpty = period.start ? "None this period." : "None since last scan.";
-
-  // Headline numbers as compact header badges (replacing the large Tile grid). Deltas + goal verdicts
-  // are derived here so their palette stays single-sourced with the rest of the page.
-  const badges: ScoreBadge[] = [
-    { label: "Org maturity", value: rollup.avgOverall, sub: `${level.id} · ${level.name}`, color: scoreHex(rollup.avgOverall), delta: rollup.deltas?.overall, goal: goalNote("overall") },
-    { label: "AI Adoption", value: rollup.avgAdoption, color: scoreHex(rollup.avgAdoption), delta: rollup.deltas?.adoption, goal: goalNote("adoption") },
-    { label: "Engineering Rigor", value: rollup.avgRigor, color: scoreHex(rollup.avgRigor), delta: rollup.deltas?.rigor, goal: goalNote("rigor") },
-    { label: "Repos scanned", value: `${rollup.scannedCount}/${rollup.repoCount}` },
-  ];
+  // Repo × dimension heatmap rows — the scanned fleet's per-dimension scores, the same lean projection
+  // the Repositories tab fed before this instrument moved here (next to the Fleet rollup) so the two
+  // Fleet-level reads sit side by side. Empty (all-unscanned view) hides the card below.
+  const heatmapRows = rollup.repos
+    .filter((r) => r.latest)
+    .map((r) => ({
+      name: r.name,
+      fullName: r.fullName,
+      dims: r.latest!.dims.map((d) => ({ dimId: d.dimId, score: d.score })),
+    }));
 
   return (
     <div className="space-y-6">
-      {/* Period + segment controls — drive the badges' deltas, the trend, and the movers below */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Period control + active-scope readout (filtering now lives in the view's header dropdowns) */}
+      <div data-tour="results-controls" className="flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-sm uppercase tracking-widest text-slate-500">
           Showing · {period.title}
           {activeSegment && (
@@ -186,61 +107,20 @@ export default async function OrgOverview({
               <span className="text-accent">{activeStack.label}</span> stack
             </>
           )}
-          {/* GB: the compare-segments link rides the controls line instead of its own block. */}
-          {segments.length > 0 && (
-            <>
-              {" · "}
-              <Link href={`/org/${slug}/segments`} className="focus-ring text-slate-500 transition hover:text-accent">
-                compare segments →
-              </Link>
-            </>
-          )}
         </span>
         <div className="flex flex-wrap items-center gap-2">
-          <SegmentSelector segments={segments} active={segmentId} />
-          <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
           <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
         </div>
       </div>
 
-      {/* Headline numbers — compact header panel (was the large Tile grid) */}
-      <OrgScoreBadges badges={badges} />
+      <div data-tour="results-view">
+        <RepoCategoryRollup trajectories={trajectories} periodTitle={period.title} orgSlug={slug} />
+      </div>
 
-      {/* Posture + dimension averages — one panel: composition bar + practice-linked dim grid */}
-      <CollapsibleSection id="posture" title="Posture & dimensions" defaultOpen={sectionOpen("posture")}>
-        <PostureDimensionsPanel slug={slug} postureCounts={rollup.postureCounts} dims={rollup.dimAverages} />
-      </CollapsibleSection>
-
-      {/* Period-in-review banner — auto-summary of net fleet movement over the window */}
-      <PeriodSummary window={period} rollup={rollup} movers={movers} />
-
-      {/* Trajectory — forward-looking GPS over the maturity trend */}
-      {rollup.forecast && <Trajectory forecast={rollup.forecast} />}
-
-      {/* Where the gaps live — common org gaps vs repo-specific */}
-      {gaps && (gaps.commonGaps.length > 0 || gaps.repoSpecific.length > 0) && (
-        <OrgGapsSection gaps={gaps} slug={slug} />
-      )}
-
-      {/* Trend — needs at least two points; a single rollup is just a lone dot in an empty axis. */}
-      {trend.length >= 2 && (
-        <Card>
-          <SectionHeader size="sm" title="Org maturity over time" right={<span className="font-mono text-sm text-slate-500">{period.title}</span>} />
-          <div className="mt-3">
-            <TrendChart points={trend} />
-          </div>
-        </Card>
-      )}
-
-      {/* Movers & regressions */}
-      {movers && movers.comparedRepos > 0 && (movers.gainers.length > 0 || movers.regressers.length > 0) && (
-        <CollapsibleSection id="movers" title="Movers & regressions" defaultOpen={sectionOpen("movers")}>
-          <div className="grid gap-6 lg:grid-cols-2">
-            <MoversList title="Top gainers" tone="up" moves={movers.gainers.slice(0, 5)} emptyText={moversEmpty} />
-            <MoversList title="Regressions" tone="down" moves={movers.regressers.slice(0, 5)} emptyText={moversEmpty} />
-          </div>
-        </CollapsibleSection>
-      )}
+      {/* Repo × dimension heatmap — the second Fleet-level instrument, moved here from the Repositories
+          tab so "which cohorts are moving" (Fleet) and "who's strong/weak per dimension" (heatmap) read
+          together. Self-contained Surface card (matches the Fleet card); cells open the per-dimension modal. */}
+      {heatmapRows.length > 0 && <RepoDimensionHeatmap org={slug} dims={DIMS} rows={heatmapRows} />}
     </div>
   );
 }

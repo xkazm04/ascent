@@ -6,6 +6,7 @@
 
 import { Surface } from "@/components/ui";
 import { fmtHours } from "@/components/org/ui";
+import { REVIEW_TARGET } from "@/components/org/delivery/PrSignalsBand";
 import type { OrgGovernance, OrgPrSignals } from "@/lib/db";
 
 interface Priority {
@@ -16,7 +17,6 @@ interface Priority {
   action: string;
 }
 
-const REVIEW_TARGET = 80; // % of human-merged PRs with an approving review
 const SLOW_MERGE_HOURS = 48;
 
 function nameFew(names: string[], max = 3): string {

@@ -24,6 +24,9 @@ export interface PersistResult {
   /** True when an existing scan for this exact commit was reused — no new Scan row was
    *  created (so no redundant LLM persistence and no double usage-based billing). */
   deduped: boolean;
+  /** True when this LIVE scan REPLACED an existing `mock`-engine scan of the same commit (the mock
+   *  floor is retired in place). A real graded row was written, so it is NOT deduped and IS billable. */
+  upgraded?: boolean;
   /** The commit SHA the returned scan is pinned to (null when the source had none). */
   headSha: string | null;
   /** Per-area write failures. Persistence is now atomic — the scan graph, contributor upserts, and
@@ -164,10 +167,21 @@ export async function persistScanReport(
   return withRepoLock(repo.id, () => withRetry(async () => {
     // Dedup: if this exact commit was already scored, reuse it — no second (metered) Scan row. The
     // repo's metadata + lastScanAt were already refreshed above (so the UI still shows "up to date").
+    let upgradeOldScanId: string | null = null;
     if (headSha) {
       const existing = await findScanByCommit(repo.id, headSha);
       if (existing) {
-        return { scanId: existing.id, deduped: true, headSha, failures: { audit: false, contributors: 0 } };
+        // Engine UPGRADE (mock → live): the only scan of this commit is the deterministic MOCK floor
+        // and THIS is a real graded scan. Plain dedup would discard the live result and keep the
+        // placeholder forever — a commit first scored via the mock fallback (or a seeded demo) could
+        // never become authoritative. Fall through and REPLACE the mock row in the transaction below.
+        // Every other case still dedups (no free duplicate row): same-engine re-scan, or a
+        // live/anything re-scan of an unchanged commit.
+        if (existing.engineProvider === "mock" && report.engine.provider !== "mock") {
+          upgradeOldScanId = existing.id;
+        } else {
+          return { scanId: existing.id, deduped: true, headSha, failures: { audit: false, contributors: 0 } };
+        }
       }
     } else {
       // No commit SHA to dedup on: a sha-less report (head resolution failed, a reconstructed snapshot)
@@ -211,6 +225,17 @@ export async function persistScanReport(
     try {
     scanId = await prisma.$transaction(
       async (tx) => {
+        // Engine upgrade: retire the mock scan of this SAME commit first, so the live scan can take its
+        // (repoId, headSha) slot — the @@unique constraint permits only one scan per commit, and Scan's
+        // children don't cascade (relationMode="prisma"), so delete events → recommendations →
+        // dimensions → the scan, in dependency order. Same tx as the insert, so a failure rolls the
+        // delete back too (the mock row is never lost without a live replacement).
+        if (upgradeOldScanId) {
+          await tx.recommendationEvent.deleteMany({ where: { recommendation: { scanId: upgradeOldScanId } } });
+          await tx.recommendation.deleteMany({ where: { scanId: upgradeOldScanId } });
+          await tx.scanDimension.deleteMany({ where: { scanId: upgradeOldScanId } });
+          await tx.scan.delete({ where: { id: upgradeOldScanId } });
+        }
         const scan = await tx.scan.create({
           data: {
             repoId: repo.id,
@@ -379,7 +404,7 @@ export async function persistScanReport(
     // transient failure self-corrects on the next scan (sync is idempotent).
     await syncTechStackGroups(orgId, repo.id, report.techStack).catch(() => {});
 
-    return { scanId, deduped: dedupedByRace, headSha, failures: { audit: false, contributors: 0 } };
+    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha, failures: { audit: false, contributors: 0 } };
   }, { label: "persistScanReport:scan" }));
   });
 }

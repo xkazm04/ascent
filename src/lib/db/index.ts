@@ -1,4 +1,4 @@
-export {
+﻿export {
   getPrisma,
   isDbConfigured,
   withDb,
@@ -82,8 +82,10 @@ export {
   setMembershipRole,
   removeMembership,
   listOrgMembers,
+  listOrgsForLogin,
   type OrgRole,
   type OrgMember,
+  type ViewerOrg,
 } from "@/lib/db/members";
 export {
   createInvite,
@@ -113,6 +115,7 @@ export {
   seedWatchlist,
   listWatchedRepos,
   getOrgRollup,
+  getOrgRepoHistories,
   getOrgHeaderSummary,
   getRepoStates,
   getContributorInsights,
@@ -149,6 +152,8 @@ export {
   type RepoRef,
   type OrgRepoRow,
   type OrgRollup,
+  type OrgRepoHistory,
+  type RepoTrajectoryPoint,
   type OrgHeaderSummary,
   type OrgWindow,
   type RepoState,
@@ -273,3 +278,14 @@ export {
   type OrgLlmConfigInput,
   type ByomProviderParams,
 } from "@/lib/db/org-llm";
+export {
+  listOpsState,
+  acceptDirection,
+  rejectDirection,
+  refreshOps,
+  mockPrsEnabled,
+  type OpsState,
+  type OpsTriageItem,
+  type OpsPrItem,
+  type OpsAcceptResult,
+} from "@/lib/db/improvement";

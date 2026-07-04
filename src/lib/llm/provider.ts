@@ -17,6 +17,7 @@ import type {
   ProviderName,
   RepoArchetype,
   RepoMeta,
+  SecurityPosture,
   TechStack,
   TokenUsage,
 } from "@/lib/types";
@@ -36,6 +37,10 @@ export interface LlmScoreInput {
   prStats?: PrStats | null;
   /** Default-branch protection — likewise already in hand from the scan. Null without a token. */
   governance?: Governance | null;
+  /** GitHub-native security posture (published advisories + org security policy) already folded into
+   *  the deterministic D9 signal. Threaded here so the LLM scores D9 from the same evidence instead of
+   *  only the (absent) committed security-as-code files. Null when scanned without a token. */
+  securityPosture?: SecurityPosture | null;
   /** Stack-fit caveat (ML/notebook · mobile · embedded) when the repo's stack is one the web/service-
    *  tuned rubric under-reads. Threaded into the prompt so the model calibrates the affected dimensions
    *  and the roadmap/discrepancy audit to the stack instead of penalizing absent web conventions. Null

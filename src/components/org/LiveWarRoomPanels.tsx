@@ -49,23 +49,40 @@ export function PostureMix({
             />
           ))}
       </div>
-      <dl className="mt-3 space-y-1.5">
+      <ul className="mt-3 space-y-1.5">
         {shares.map((s) => {
           const isNative = s.posture === "ai-native";
-          return (
-            <div key={s.posture} className="flex items-center gap-2 text-base">
+          const row = (
+            <>
               <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: s.color }} />
-              <dt className={`min-w-0 flex-1 truncate ${isNative ? "font-medium text-white" : "text-slate-300"}`}>
+              <span className={`min-w-0 flex-1 truncate ${isNative ? "font-medium text-white" : "text-slate-300"}`}>
                 {POSTURE_LABEL[s.posture]}
-              </dt>
-              <dd className="font-mono text-sm tabular-nums" style={{ color: s.n > 0 ? s.color : "#64748b" }}>
+              </span>
+              <span className="font-mono text-sm tabular-nums" style={{ color: s.n > 0 ? s.color : "#64748b" }}>
                 {s.n}
                 {s.n > 0 && <span className="text-slate-500"> · {Math.round(s.pct)}%</span>}
-              </dd>
-            </div>
+              </span>
+            </>
+          );
+          return (
+            <li key={s.posture} className="text-base">
+              {/* Each posture drills into the repositories view filtered to that quadrant — the wall
+                  shows the mix, the fleet table answers "which repos?". Kiosk rows stay inert. */}
+              {readOnly || s.n === 0 ? (
+                <span className="flex items-center gap-2 px-1">{row}</span>
+              ) : (
+                <Link
+                  href={`/org/${slug}/repositories?posture=${s.posture}`}
+                  title={`See the ${s.n} ${POSTURE_LABEL[s.posture]} ${s.n === 1 ? "repo" : "repos"}`}
+                  className="focus-ring -mx-1 flex items-center gap-2 rounded-md px-2 py-0.5 transition hover:bg-slate-800/50"
+                >
+                  {row}
+                </Link>
+              )}
+            </li>
           );
         })}
-      </dl>
+      </ul>
     </div>
   );
 }

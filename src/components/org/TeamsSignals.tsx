@@ -35,7 +35,7 @@ export function TeamsSignals({
     <Surface className="mt-6">
       <div className="grid divide-y divide-divider md:grid-cols-2 md:divide-x md:divide-y-0">
         <div className="p-5">
-          <div className="font-mono text-sm uppercase tracking-widest text-accent">🧠 Most institutional AI knowledge</div>
+          <div className="text-sm font-medium text-accent">🧠 Most institutional AI knowledge</div>
           {leader ? (
             <>
               <div className="mt-2 text-lg">
@@ -63,7 +63,7 @@ export function TeamsSignals({
           )}
         </div>
         <div className="p-5">
-          <div className="font-mono text-sm uppercase tracking-widest text-accent">🤝 Pairings to consider</div>
+          <div className="text-sm font-medium text-accent">🤝 Pairings to consider</div>
           {pairings.length > 0 ? (
             <>
               <ul className="mt-2 space-y-2">

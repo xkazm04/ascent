@@ -145,14 +145,25 @@ export function PassportTable({ rows, focus }: { rows: PassportRow[]; focus?: { 
                 }}
                 className="focus-ring rounded px-1 font-mono text-sm text-slate-500 transition hover:text-accent"
               >
-                {open ? "▾" : "▸"}
+                <span
+                  aria-hidden
+                  className={`inline-block transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+                >
+                  ▸
+                </span>
               </button>
             </td>
           </tr>,
           open ? (
             <tr key={`${r.fullName}-detail`}>
               <td colSpan={8} className="p-0">
-                <PassportRowDetail fullName={r.fullName} detail={r.detail} />
+                {/* Mount-only height reveal (collapse stays instant, per the brand's entrance-beat
+                    rule); the min-h-0 overflow-hidden child is what the 0fr→1fr row clamps. */}
+                <div className="animate-expand-down">
+                  <div className="min-h-0 overflow-hidden">
+                    <PassportRowDetail fullName={r.fullName} detail={r.detail} />
+                  </div>
+                </div>
               </td>
             </tr>
           ) : null,

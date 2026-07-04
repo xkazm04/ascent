@@ -6,6 +6,7 @@ import {
   scoreGlyph,
   freshness,
   timeAgo,
+  fmtCompact,
 } from "@/lib/ui";
 import { levelForScore, LEVELS } from "@/lib/maturity/model";
 import { LEVEL_BANDS, BAND_EDGES } from "@/components/report/chartScale";
@@ -294,5 +295,35 @@ describe("timeAgo — day/month/year buckets at their band edges", () => {
     expect(timeAgo(undefined)).toBe("unknown");
     expect(timeAgo("")).toBe("unknown");
     expect(timeAgo("garbage")).toBe("unknown");
+  });
+});
+
+// fmtCompact — dense integer for fleet activity cells (LoC changed etc.): thousands/millions get a
+// k/M/B suffix to one decimal, trailing ".0" dropped, sub-1000 stays whole.
+describe("fmtCompact — compact integer formatting for dense cells", () => {
+  it("leaves values under 1000 as whole integers", () => {
+    expect(fmtCompact(0)).toBe("0");
+    expect(fmtCompact(1)).toBe("1");
+    expect(fmtCompact(420)).toBe("420");
+    expect(fmtCompact(999)).toBe("999");
+    expect(fmtCompact(12.7)).toBe("13"); // rounded, not truncated
+  });
+
+  it("abbreviates thousands with a k suffix, dropping a trailing .0", () => {
+    expect(fmtCompact(1000)).toBe("1k");
+    expect(fmtCompact(1234)).toBe("1.2k");
+    expect(fmtCompact(12000)).toBe("12k");
+    expect(fmtCompact(12400)).toBe("12.4k");
+    expect(fmtCompact(999499)).toBe("999.5k");
+  });
+
+  it("abbreviates millions and billions", () => {
+    expect(fmtCompact(1_200_000)).toBe("1.2M");
+    expect(fmtCompact(3_000_000_000)).toBe("3B");
+  });
+
+  it("preserves the sign for negatives", () => {
+    expect(fmtCompact(-1500)).toBe("-1.5k");
+    expect(fmtCompact(-42)).toBe("-42");
   });
 });

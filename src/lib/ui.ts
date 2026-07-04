@@ -20,9 +20,15 @@ export const DIMENSION_SHORT: Record<DimensionId, string> = {
 /** Stable permalink to a repo's report, pinned to a commit when one is known
  *  (`/report/{owner}/{repo}` or `/report/{owner}/{repo}@{sha}`). Lives in this client-safe
  *  module so both server callers and the client trend charts build the identical link
- *  (re-exported from @/lib/db/scans for the existing db-barrel importers). */
-export function reportPermalink(fullName: string, headSha?: string | null): string {
-  return `/report/${fullName}${headSha ? `@${headSha}` : ""}`;
+ *  (re-exported from @/lib/db/scans for the existing db-barrel importers).
+ *
+ *  `org` appends `?org={slug}` — an in-app link from a dashboard whose org SLUG differs from the
+ *  repo's OWNER login (e.g. a rebranded org) uses it so the report resolves under the owning tenant
+ *  instead of falling back to owner→public and dead-ending. The report route honors it only when the
+ *  viewer may read that org, so it can't be used to reach another tenant's private report. */
+export function reportPermalink(fullName: string, headSha?: string | null, org?: string | null): string {
+  const path = `/report/${fullName}${headSha ? `@${headSha}` : ""}`;
+  return org ? `${path}?org=${encodeURIComponent(org)}` : path;
 }
 
 /** External jump to the exact commit a scan pinned to — the "what landed?" half of the trend
@@ -206,4 +212,17 @@ export function freshness(iso?: string): string {
 export function fmtPts(n: number): string {
   const r = Math.round(n * 10) / 10;
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+/** Compact integer for dense table cells: 1234 → "1.2k", 1_200_000 → "1.2M", 980 → "980". Drops a
+ *  trailing ".0" (12_000 → "12k"). Used by the fleet activity columns (LoC changed etc.). */
+export function fmtCompact(n: number): string {
+  const abs = Math.abs(n);
+  for (const [base, suffix] of [[1e9, "B"], [1e6, "M"], [1e3, "k"]] as const) {
+    if (abs >= base) {
+      const r = Math.round((n / base) * 10) / 10;
+      return `${Number.isInteger(r) ? String(r) : r.toFixed(1)}${suffix}`;
+    }
+  }
+  return String(Math.round(n));
 }

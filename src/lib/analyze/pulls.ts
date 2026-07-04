@@ -5,7 +5,7 @@
 
 import { fetchPullRequests, type PrNode } from "@/lib/github/graphql";
 import { clamp } from "@/lib/maturity/model";
-import type { DimensionSignals, Governance, PrStats } from "@/lib/types";
+import type { DimensionSignals, Governance, PrStats, SecurityPosture } from "@/lib/types";
 
 // AI coding agents that open PRs as GitHub App bots (author.__typename === "Bot").
 const AI_AGENT = /(copilot|devin|cursor|codex|sweep|claude|aider)/i;
@@ -267,6 +267,54 @@ export function applyGovernanceSignals(
     }
     return s;
   });
+}
+
+/**
+ * Fold GitHub-native security posture into D9 (Supply Chain & Security) — additive only, presence
+ * lifts and absence is neutral (a repo may run GitHub-managed scanning we can't see from files, so
+ * "no advisories" must never be read as "no security"). This closes the file-detector's structural
+ * blind spot: D9's deterministic detector only reads committed CI/manifest files, so a repo like
+ * next.js — GitHub-managed code scanning + Dependabot + an active coordinated-disclosure program,
+ * none of it committed as YAML — scored ~0 despite a genuinely mature posture.
+ *
+ * Published advisories are a POSITIVE maturity signal (a triage + disclosure + patched-release
+ * program), not a vulnerability tally — the same stance OpenSSF Scorecard takes on an active
+ * vulnerability-handling process. Contribution saturates in tiers so a high count can't outweigh
+ * fully shift-left committed tooling (which the file detector can still drive to ~100).
+ */
+export function applySecurityPostureSignals(
+  signals: DimensionSignals[],
+  posture: SecurityPosture | null | undefined,
+): DimensionSignals[] {
+  if (!posture) return signals;
+
+  let boost = 0;
+  const evidence: { label: string; detail?: string }[] = [];
+  const shown = posture.advisoryCapped ? `${posture.advisoryCount}+` : `${posture.advisoryCount}`;
+
+  if (posture.advisoryCount >= 20) {
+    boost += 30;
+    evidence.push({ label: `Mature coordinated-disclosure program (${shown} published advisories)`, detail: "triaged & patched via GHSA — a working security process, not a vulnerability count" });
+  } else if (posture.advisoryCount >= 5) {
+    boost += 22;
+    evidence.push({ label: `Active vulnerability-disclosure process (${shown} published advisories)`, detail: "coordinated disclosure via GHSA" });
+  } else if (posture.advisoryCount >= 1) {
+    boost += 14;
+    evidence.push({ label: `Published security advisories (${shown})`, detail: "evidence of a coordinated-disclosure path" });
+  }
+
+  if (posture.orgSecurityPolicy) {
+    boost += 8;
+    evidence.push({ label: "Org-level security policy (SECURITY.md)", detail: "documented vulnerability-reporting path inherited from the org's .github" });
+  }
+
+  if (boost === 0) return signals;
+
+  return signals.map((s) =>
+    s.id === "D9"
+      ? { ...s, signalScore: clamp(s.signalScore + boost), signals: [...s.signals, ...evidence] }
+      : s,
+  );
 }
 
 /** Fetch + summarize a repo's recent PRs. THROWS on transport failure (the underlying

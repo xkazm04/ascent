@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { publicBaseUrl } from "@/lib/site";
+import { ModalRoot } from "@/components/ui/ModalRoot";
 import { DevInspector } from "./_dev-inspector/DevInspector";
 import "./globals.css";
 
@@ -80,6 +81,8 @@ export default function RootLayout({
           Skip to content
         </a>
         {children}
+        {/* App-level dialog host: every brand Modal portals here, above all page stacking contexts. */}
+        <ModalRoot />
         {process.env.NODE_ENV === "development" && <DevInspector />}
       </body>
     </html>

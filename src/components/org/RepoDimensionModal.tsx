@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { ScanReport } from "@/lib/types";
 import { DimensionDetail } from "@/components/report/DimensionDetail";
+import type { TrendPoint } from "@/components/report/TrendChart";
 import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS } from "@/lib/ui";
 
 export interface HeatTarget {
@@ -24,6 +25,10 @@ interface DimData {
   level: { id: string; name: string };
   dimension: ScanReport["dimensions"][number];
   nextSteps: ScanReport["roadmap"];
+  /** This dimension's score over recent scans (oldest→newest) — the DimensionDetail sparkline. */
+  series?: TrendPoint[];
+  /** The dimension's score on the prior scan — drives DimensionDetail's "since last scan" delta. */
+  prevScore?: number;
 }
 
 export function RepoDimensionModal({
@@ -114,7 +119,9 @@ export function RepoDimensionModal({
           {error && <p className="text-sm text-danger">{error}</p>}
           {data && (
             <>
-              <DimensionDetail d={data.dimension} />
+              {/* Reuses the report's DimensionDetail — with `series`/`prevScore` it also renders the
+                  score-history sparkline + "since last scan" delta, so the drill-in shows trajectory. */}
+              <DimensionDetail d={data.dimension} series={data.series} prevScore={data.prevScore} />
 
               <div className="mt-5 border-t border-divider pt-4">
                 <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Next steps</div>

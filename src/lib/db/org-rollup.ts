@@ -7,7 +7,7 @@ import { getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupSco
 import { retentionCutoff } from "@/lib/plans";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
-import type { AppPassport, TechStack } from "@/lib/types";
+import type { AppPassport, PrStats, TechStack } from "@/lib/types";
 
 /** Pull just the two branch-protection fields the fleet gate needs out of a persisted governance
  *  JSON blob. Returns undefined for a null/missing/malformed blob (no-token scan, parse error) so the
@@ -21,6 +21,55 @@ function parseGovernanceLite(raw: string | null | undefined): { readable: boolea
   } catch {
     return undefined;
   }
+}
+
+/** The Repositories table's commit window: the trailing weekly buckets kept for the Commits column,
+ *  ~1 month. The scan persists a longer series (governance.fetchCommitActivity → ~12 weeks, also fed to
+ *  the Delivery trend); we slice the last month HERE so this column reads as a 1-month figure without
+ *  shrinking Delivery's longer trend. Existing scans get the 1-month view immediately — no re-scan. */
+const ACTIVITY_WEEKS = 4;
+
+/**
+ * Project the repo-activity signals (weekly commits + PR volume + LoC changed) out of a scan's
+ * persisted GitHub blobs, for the Repositories table's activity columns. Both blobs are already
+ * ingested at scan time (commitActivity + prStats) — no extra GitHub calls. Returns null when the
+ * latest scan carries NEITHER (a tokenless or mock scan never ingested them), so the UI renders "—"
+ * instead of a fabricated zero. Defensive parse mirrors org-signals.ts (getOrgActivity / getOrgPrSignals).
+ */
+function parseRepoActivity(commitActivity: string | null | undefined, prStats: string | null | undefined): OrgRepoRow["activity"] {
+  let commitsWeekly: number[] = [];
+  if (commitActivity) {
+    try {
+      const arr = JSON.parse(commitActivity);
+      // Last ~1 month of weekly buckets (newest kept) — the Commits column is a 1-month read.
+      if (Array.isArray(arr)) commitsWeekly = arr.filter((n): n is number => typeof n === "number" && Number.isFinite(n)).slice(-ACTIVITY_WEEKS);
+    } catch {
+      /* ignore malformed */
+    }
+  }
+  let pr: { prsMerged: number; prsTotal: number; locChanged: number } | null = null;
+  if (prStats) {
+    try {
+      const p = JSON.parse(prStats) as PrStats;
+      if (p && typeof p.analyzed === "number") {
+        pr = {
+          prsMerged: p.merged ?? 0,
+          prsTotal: p.totalCount ?? p.analyzed,
+          // avgLineChanges is per-PR (additions+deletions); × analyzed ≈ LoC over the analyzed window.
+          locChanged: Math.round((p.avgLineChanges ?? 0) * p.analyzed),
+        };
+      }
+    } catch {
+      /* ignore malformed */
+    }
+  }
+  if (!commitsWeekly.length && !pr) return null;
+  return {
+    commitsWeekly,
+    prsMerged: pr?.prsMerged ?? 0,
+    prsTotal: pr?.prsTotal ?? 0,
+    locChanged: pr?.locChanged ?? 0,
+  };
 }
 
 /**
@@ -91,6 +140,19 @@ export interface OrgRepoRow {
   lastScanError: string | null;
   /** `.ai/` standard conformance % reported by the repo's doctor, or null if never reported. */
   aiConformance: number | null;
+  /** Repo-activity signals projected from the latest scan's already-ingested GitHub blobs
+   *  (commitActivity + prStats) — the Repositories table's activity columns. Null when the latest
+   *  scan ingested neither (tokenless / mock scan), so the UI renders "—" not a fabricated zero. */
+  activity: {
+    /** Trailing ~1 month of weekly commit totals (GitHub commit_activity), oldest→newest; [] if not ingested. */
+    commitsWeekly: number[];
+    /** Merged PRs across the analyzed PR window. */
+    prsMerged: number;
+    /** Repo-wide PR count (PrStats.totalCount). */
+    prsTotal: number;
+    /** Lines changed (additions+deletions) across the analyzed PR window. */
+    locChanged: number;
+  } | null;
   latest: {
     level: string;
     overall: number;
@@ -98,6 +160,9 @@ export interface OrgRepoRow {
     rigor: number;
     posture: string;
     scannedAt: string;
+    /** The engine that produced this scan — "mock" = the deterministic floor (a placeholder score, not
+     *  a real graded scan); anything else is a live model. Surfaced so the UI can flag mock provenance. */
+    engine: string;
     dims: { dimId: string; score: number }[];
     /** Whether a token saw the default branch's protection rules (governance.readable). Undefined
      *  when no governance blob was persisted. Lets the fleet gate enforce `requireProtectedBranch`
@@ -277,6 +342,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       lastScanStatus: r.lastScanStatus,
       lastScanError: r.lastScanError,
       aiConformance: r.aiConformance ?? null,
+      activity: parseRepoActivity(s?.commitActivity, s?.prStats),
       latest: s
         ? {
             level: s.level,
@@ -285,6 +351,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
             rigor: s.rigorScore,
             posture: s.posture,
             scannedAt: s.scannedAt.toISOString(),
+            engine: s.engineProvider,
             dims: s.dimensions,
             govReadable: gov?.readable,
             protected: gov?.protected,
@@ -426,6 +493,93 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     deltas,
     dimDeltas,
   };
+}
+
+/** One repo's overall-score reading at a single historical scan — the atom of the fleet trajectory view. */
+export interface RepoTrajectoryPoint {
+  at: string; // ISO scannedAt
+  overall: number;
+  level: string; // "L1".."L5"
+  posture: string;
+  headSha: string | null;
+  /** Engine that produced this point — "mock" is the deterministic floor, else a live model. Lets the
+   *  trend flag mock points and detect a mock→live transition (an engine change, not real movement). */
+  engine: string;
+}
+
+/** A repo's full overall-score history across the window (oldest → newest). */
+export interface OrgRepoHistory {
+  fullName: string;
+  owner: string;
+  name: string;
+  points: RepoTrajectoryPoint[];
+}
+
+/**
+ * Per-repo overall-score history across the window — the data behind the Overview's repos×time view
+ * (every repo's climb/decline across ITS OWN historical scans, which neither the fleet-aggregate
+ * `trend` line nor the two-point `getOrgMovers` delta can express). One window-bounded query over the
+ * org's scans, grouped by repo and sorted oldest→newest. The lower bound is retention-clamped exactly
+ * like getOrgRollup's trend so per-repo history depth follows the plan tier (Free 30d · Pro 180d ·
+ * Team 365d · Enterprise unlimited). Segment + tech-group scoped like the rest of the dashboard.
+ * A repo with a single scan in the window yields a one-point series (the view degrades to "no trend
+ * yet"); empty array when the DB is off or the org doesn't exist.
+ */
+export async function getOrgRepoHistories(
+  orgSlug: string,
+  window?: OrgWindow,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+): Promise<OrgRepoHistory[]> {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return [];
+
+  const start = window?.start ?? null;
+  const end = window?.end ?? null;
+  const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  // Same retention floor as the trend: never look further back than the plan buys.
+  const retentionStart = retentionCutoff(org.plan, Date.now());
+  const lower = retentionStart && (!start || retentionStart > start) ? retentionStart : start;
+
+  const scans = await prisma.scan.findMany({
+    where: {
+      repo: { orgId: org.id, ...seg },
+      ...(lower || end ? { scannedAt: { ...(lower ? { gte: lower } : {}), ...(end ? { lte: end } : {}) } } : {}),
+    },
+    select: {
+      overallScore: true,
+      level: true,
+      posture: true,
+      headSha: true,
+      scannedAt: true,
+      engineProvider: true,
+      repo: { select: { fullName: true, owner: true, name: true } },
+    },
+    orderBy: { scannedAt: "asc" },
+  });
+
+  const byRepo = new Map<string, OrgRepoHistory>();
+  for (const s of scans) {
+    let h = byRepo.get(s.repo.fullName);
+    if (!h) {
+      h = { fullName: s.repo.fullName, owner: s.repo.owner, name: s.repo.name, points: [] };
+      byRepo.set(s.repo.fullName, h);
+    }
+    // Rows arrive scannedAt-asc, so each repo's points accumulate oldest→newest without re-sorting.
+    h.points.push({
+      at: s.scannedAt.toISOString(),
+      overall: s.overallScore,
+      level: s.level,
+      posture: s.posture,
+      headSha: s.headSha ?? null,
+      engine: s.engineProvider,
+    });
+  }
+  // Stable base order (longest history first, then name) so SSR and client hydration agree before the
+  // view applies its own sort.
+  return [...byRepo.values()].sort((a, b) => b.points.length - a.points.length || a.fullName.localeCompare(b.fullName));
 }
 
 /** A lightweight org header summary — repo/scan/watch counts + avg maturity. The org shell wraps EVERY

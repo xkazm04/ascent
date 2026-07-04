@@ -2,8 +2,9 @@
 
 // The live war-room's state machine, extracted verbatim from LiveWarRoom.tsx so the component
 // stays a pure layout shell (300-LOC rule). Owns the SSE scan stream fold, the launch/stop
-// lifecycle, the WAR-2 auto-relaunch budget, the read-only kiosk refresh, and the celebration
-// timers. The pure fold rules themselves live in liveWarRoomFold.ts.
+// lifecycle, the read-only kiosk refresh, and the celebration timers. Scanning is now explicit
+// (manual launch of the selected repos) — the old unattended 15-min auto-relaunch was removed so a
+// forgotten wall can't silently burn prepaid credits. The pure fold rules live in liveWarRoomFold.ts.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -18,13 +19,6 @@ import {
   type Phase,
 } from "@/components/org/liveWarRoomShared";
 import { computeLeaderboard, computeStats, foldRepoEvent } from "@/components/org/liveWarRoomFold";
-
-// WAR-2 cost guard: how many back-to-back auto-relaunches to allow before pausing. A wall left
-// foregrounded but unattended (a TV on a desk) would otherwise keep firing a full-fleet scan every
-// 15 min forever, silently draining prepaid credits; after this many consecutive UNATTENDED cycles we
-// stop auto-looping and prompt the owner. Any manual interaction (a manual launch or toggling the loop)
-// resets the budget. 8 cycles ≈ 2h at the 15-min cadence.
-export const MAX_AUTO_LOOPS = 8;
 
 export function useLiveWarRoom({
   slug,
@@ -52,13 +46,9 @@ export function useLiveWarRoom({
   const [skipped, setSkipped] = useState(0);
   const [ticker, setTicker] = useState<Mover[]>([]);
   const [celebrations, setCelebrations] = useState<Celebration[]>([]);
-  const [autoLoop, setAutoLoop] = useState(false);
-  // WAR-2: set once the unattended auto-relaunch budget (MAX_AUTO_LOOPS) is spent, so we can surface a
-  // "paused to protect credits" notice and stop looping until the owner re-engages.
-  const [loopCapped, setLoopCapped] = useState(false);
-  // Page Visibility: true while the tab is foregrounded. Gates the auto-relaunch (war-room #2) and the
-  // read-only poll (war-room #1) so a backgrounded/idle wall neither burns scan credits nor hammers the
-  // refresh route. Default true for SSR; corrected on mount + every visibilitychange.
+  // Page Visibility: true while the tab is foregrounded. Gates the read-only kiosk poll so a
+  // backgrounded/idle wall doesn't hammer the refresh route. Default true for SSR; corrected on
+  // mount + every visibilitychange.
   const [visible, setVisible] = useState(true);
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -83,8 +73,6 @@ export function useLiveWarRoom({
     reposRef.current = repos;
   }, [repos]);
   const idRef = useRef(0);
-  // Count of consecutive auto-relaunches since the last manual interaction (WAR-2 cost cap).
-  const autoRunsRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
@@ -173,14 +161,17 @@ export function useLiveWarRoom({
     [pushCelebration],
   );
 
-  const launch = useCallback(async () => {
+  const launch = useCallback(async (reposOverride?: string[]) => {
     if (abortRef.current) return; // already running
+    // The ship loop's verify rescan passes an explicit repo list; otherwise the active stack's
+    // scope (or the whole watched fleet) applies as before.
+    const targetRepos = reposOverride ?? scanRepos;
     setError(null);
     setSkipped(0);
     setTicker([]);
     setCelebrations([]);
     setPhase("running");
-    setProgress({ done: 0, total: watchedCount, current: "starting…" });
+    setProgress({ done: 0, total: targetRepos?.length || watchedCount, current: "starting…" });
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     let sawError = false;
@@ -188,8 +179,7 @@ export function useLiveWarRoom({
       const res = await fetch("/api/org/scan", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        // Scope the scan to the active stack's repos when set (else the whole watched fleet).
-        body: JSON.stringify(scanRepos && scanRepos.length > 0 ? { org: slug, repos: scanRepos } : { org: slug }),
+        body: JSON.stringify(targetRepos && targetRepos.length > 0 ? { org: slug, repos: targetRepos } : { org: slug }),
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {
@@ -240,10 +230,19 @@ export function useLiveWarRoom({
   // A manual launch counts as interaction: reset the unattended auto-relaunch budget + clear the cap
   // notice so the loop (if enabled) gets a fresh N cycles.
   const manualLaunch = useCallback(() => {
-    autoRunsRef.current = 0;
-    setLoopCapped(false);
     void launch();
   }, [launch]);
+
+  // Ship-loop verify rescan: scan ONLY the given repos (a merged PR's repo) so the wall measures
+  // the merge's impact without burning a full-fleet run. Skipped silently while a scan is already
+  // in flight — the verify pass picks the impact up from whatever scan lands next anyway.
+  const launchRepos = useCallback(
+    (fullNames: string[]) => {
+      if (fullNames.length === 0) return;
+      void launch(fullNames);
+    },
+    [launch],
+  );
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -251,48 +250,6 @@ export function useLiveWarRoom({
     setPhase("idle");
     setProgress((p) => ({ ...p, current: "" }));
   }, []);
-
-  // WAR-3: optional auto-relaunch for an unattended wall display. Restore the persisted toggle once,
-  // then — while enabled and NOT mid-run — schedule the next launch; the effect re-arms after each
-  // run finishes (running flips false). launch() itself guards against overlapping runs.
-  const LOOP_MS = 15 * 60 * 1000;
-  useEffect(() => {
-    let persisted = false;
-    try {
-      persisted = localStorage.getItem("ascent-warroom-loop") === "1";
-    } catch {
-      /* localStorage unavailable */
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot restore of the persisted toggle
-    if (persisted) setAutoLoop(true);
-  }, []);
-  useEffect(() => {
-    // WAR-2 (war-room #2): never auto-relaunch while the tab is hidden — an unattended/backgrounded
-    // wall would otherwise keep firing a full fleet scan every 15 min, silently burning prepaid
-    // credits with no one watching. Page Visibility gates the timer; visibilitychange re-arms it on
-    // focus (the effect re-runs because `visible` flips).
-    if (!autoLoop || phase === "running" || readOnly || !visible) return; // readOnly can't scan, so never loop
-    // WAR-2 cost cap: after MAX_AUTO_LOOPS consecutive unattended relaunches, stop looping so a
-    // forgotten wall can't drain prepaid credits indefinitely. Turn the toggle off (+ persist) and
-    // surface a notice; a manual launch or re-toggling the loop resets the budget.
-    if (autoRunsRef.current >= MAX_AUTO_LOOPS) {
-      // Terminal transition: flipping autoLoop off re-runs this effect into the early return above (no
-      // further scheduling); the notice + persisted "0" keep the wall paused until the owner re-engages.
-      setAutoLoop(false);
-      setLoopCapped(true);
-      try {
-        localStorage.setItem("ascent-warroom-loop", "0");
-      } catch {
-        /* localStorage unavailable */
-      }
-      return;
-    }
-    const t = setTimeout(() => {
-      autoRunsRef.current += 1;
-      void launch();
-    }, LOOP_MS);
-    return () => clearTimeout(t);
-  }, [autoLoop, phase, launch, LOOP_MS, readOnly, visible]);
 
   // war-room #1: the read-only TV/shared wall has no SSE stream (readOnly suppresses launch()), so
   // without this it's a frozen page-load snapshot. Poll the server component (force-dynamic → re-reads
@@ -316,23 +273,7 @@ export function useLiveWarRoom({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciling the server-refreshed seed prop into kiosk state (no external system to subscribe to)
     setRepos(next);
   }, [readOnly, seed]);
-  const toggleLoop = useCallback(() => {
-    setAutoLoop((v) => {
-      const nv = !v;
-      try {
-        localStorage.setItem("ascent-warroom-loop", nv ? "1" : "0");
-      } catch {
-        /* localStorage unavailable */
-      }
-      return nv;
-    });
-    // A manual toggle is interaction — reset the unattended budget + clear any cap notice so a
-    // re-enable gets a fresh N cycles.
-    autoRunsRef.current = 0;
-    setLoopCapped(false);
-  }, []);
-
-  // WARROOM-5: restore + persist the Sound toggle, mirroring the auto-loop toggle.
+  // WARROOM-5: restore + persist the Sound toggle.
   useEffect(() => {
     let persisted = false;
     try {
@@ -374,13 +315,11 @@ export function useLiveWarRoom({
     progress,
     error,
     skipped,
-    autoLoop,
-    loopCapped,
     sound,
     launchLabel,
     manualLaunch,
+    launchRepos,
     stop,
-    toggleLoop,
     toggleSound,
   };
 }

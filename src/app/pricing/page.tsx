@@ -9,6 +9,7 @@ import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
 import { CreditEstimator } from "./CreditEstimator";
+import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
 
 // Display-only price labels. Free is genuinely $0; Pro/Team run on prepaid credits (no fixed
 // subscription price is asserted in code); Enterprise is bespoke. Kept here, not in plans.ts, so the
@@ -110,6 +111,12 @@ export default function PricingPage() {
               </div>
             );
           })}
+        </div>
+
+        {/* Full operation × credit × plan breakdown — the "what actually draws on credits" comparison
+            beneath the price cards. */}
+        <div className="mt-16">
+          <CreditMatrixLedger />
         </div>
 
         <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500">

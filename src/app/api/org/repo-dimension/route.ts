@@ -8,7 +8,7 @@
 // underlying getScanReportByCommit re-checks tenant scope — a private repo never leaks cross-org.
 
 import { NextResponse } from "next/server";
-import { getScanReportByCommit } from "@/lib/db";
+import { getScanReportByCommit, getRepositoryHistory } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 
 export const runtime = "nodejs";
@@ -32,7 +32,12 @@ export async function GET(request: Request) {
   const owner = repo.slice(0, slash);
   const name = repo.slice(slash + 1);
 
-  const report = await getScanReportByCommit(owner, name, { orgSlug: org }).catch(() => null);
+  // The latest scan (rich per-dim detail) + this dimension's score history run in parallel — a paid
+  // drill-in earns the second query, and the modal reads both to answer "where is it" AND "which way".
+  const [report, history] = await Promise.all([
+    getScanReportByCommit(owner, name, { orgSlug: org }).catch(() => null),
+    getRepositoryHistory(owner, name, { orgSlug: org, limit: 12 }).catch(() => null),
+  ]);
   if (!report) {
     return NextResponse.json({ error: "No stored scan for this repository." }, { status: 404 });
   }
@@ -44,6 +49,15 @@ export async function GET(request: Request) {
   // roadmap surfaces, scoped to the one dimension the user clicked.
   const nextSteps = report.roadmap.filter((r) => r.dimension === dim);
 
+  // This dimension's score over its recent scans. history.scans is most-recent-first; keep only scans
+  // that carry the dim (a legacy scan predating it simply doesn't plot), take prevScore from the point
+  // BEFORE the latest (the "since last scan" delta), and reverse to oldest→newest for the sparkline.
+  const points = (history?.scans ?? [])
+    .map((s) => ({ at: s.scannedAt, score: s.dimensions.find((x) => x.dimId === dim)?.score }))
+    .filter((p): p is { at: string; score: number } => p.score != null);
+  const prevScore = points.length >= 2 ? points[1]!.score : undefined;
+  const series = points.slice().reverse();
+
   return NextResponse.json({
     repo: `${owner}/${name}`,
     scannedAt: report.scannedAt,
@@ -51,5 +65,7 @@ export async function GET(request: Request) {
     level: { id: report.level.id, name: report.level.name },
     dimension,
     nextSteps,
+    series,
+    prevScore,
   });
 }

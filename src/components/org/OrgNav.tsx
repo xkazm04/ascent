@@ -18,8 +18,8 @@ export function OrgNav({ slug }: { slug: string }) {
       { href: `${base}/executive`, label: "Briefing" },
     ] },
     { label: "Fleet", tabs: [
+      // Segments merged into the Repositories page as its "?tab=segments" tab — no separate rail item.
       { href: `${base}/repositories`, label: "Repositories" },
-      { href: `${base}/segments`, label: "Segments" },
       { href: `${base}/tech-stacks`, label: "Tech Stacks" },
       { href: `${base}/passports`, label: "Passports" },
       { href: `${base}/live`, label: "Live" },

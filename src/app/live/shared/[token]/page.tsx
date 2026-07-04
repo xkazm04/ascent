@@ -6,7 +6,8 @@
 
 import { LiveWarRoom } from "@/components/org/LiveWarRoom";
 import { toLiveRepoSeeds } from "@/components/org/liveWarRoomShared";
-import { getOrgRollup, isDbConfigured } from "@/lib/db";
+import { buildFleetTimetable } from "@/components/org/fleetTimetable";
+import { getOrgRepoHistories, getOrgRollup, isDbConfigured } from "@/lib/db";
 import { verifyLiveShareToken } from "@/lib/live-share";
 
 export const dynamic = "force-dynamic";
@@ -35,18 +36,20 @@ export default async function SharedLivePage({ params }: { params: Promise<{ tok
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }
   const seed = toLiveRepoSeeds(rollup.repos);
-  // Display-only extras the kiosk can safely show: the org trend spark + fleet freshness
-  // (both come from the same rollup the wall already exposes — no session-gated links).
+  // Display-only extras the kiosk can safely show: the fleet-evolution timetable + fleet freshness
+  // (both come from the same rollup/history the dashboard exposes — no session-gated actions).
   const fleetScannedAt = rollup.repos.reduce<string | null>((acc, r) => {
     const at = r.latest?.scannedAt ?? null;
     return at && (!acc || at > acc) ? at : acc;
   }, null);
+  const timetable = buildFleetTimetable(await getOrgRepoHistories(verified.org).catch(() => []));
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-8">
       <LiveWarRoom
         slug={verified.org}
         watchedCount={rollup.repos.filter((r) => r.watched).length}
         seed={seed}
+        timetable={timetable}
         trend={rollup.trend}
         fleetScannedAt={fleetScannedAt}
         readOnly

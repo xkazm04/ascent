@@ -86,6 +86,7 @@ export default async function OrgExecutive({
         </div>
       </div>
 
+      {/* GA: each headline tile deep-links to the tab that explains it (Tile.href — whole cell). */}
       <div className={TILE_GRID}>
         <Tile
           label="Org maturity"
@@ -94,14 +95,16 @@ export default async function OrgExecutive({
           color={scoreHex(maturity.overall)}
           delta={briefing.periodDelta ?? undefined}
           deltaLabel={period.comparisonLabel}
+          href={`/org/${slug}`}
         />
-        <Tile label="AI Adoption" value={maturity.adoption} color={scoreHex(maturity.adoption)} />
-        <Tile label="Engineering Rigor" value={maturity.rigor} color={scoreHex(maturity.rigor)} />
+        <Tile label="AI Adoption" value={maturity.adoption} color={scoreHex(maturity.adoption)} href={`/org/${slug}/adoption`} />
+        <Tile label="Engineering Rigor" value={maturity.rigor} color={scoreHex(maturity.rigor)} href={`/org/${slug}/delivery`} />
         <Tile
           label="Corpus percentile"
           value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"}
           sub={benchmark && benchmark.corpusRepos > 0 ? `vs ${benchmark.corpusRepos} repos` : "no corpus yet"}
           color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined}
+          href="/leaderboard"
         />
       </div>
 

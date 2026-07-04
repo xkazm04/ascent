@@ -94,7 +94,12 @@ function fakePrisma(opts: {
   });
 
   const tx = {
-    scan: { create: scanCreate },
+    scan: { create: scanCreate, delete: vi.fn(async () => ({})) },
+    // Engine-upgrade path: the mock scan's graph is torn down (children first, no cascades) before the
+    // live row is written. Faked so the upgrade tests can assert the delete order + that it ran at all.
+    recommendationEvent: { deleteMany: vi.fn(async () => ({})) },
+    recommendation: { deleteMany: vi.fn(async () => ({})) },
+    scanDimension: { deleteMany: vi.fn(async () => ({})) },
     repoContributor: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
     repoTeam: { deleteMany: vi.fn(async () => ({})), createMany: vi.fn(async () => ({})) },
     auditLog: { create: vi.fn(async () => ({})) },
@@ -123,6 +128,7 @@ function makeReport(over: {
   headSha?: string | null;
   scannedAt?: string;
   roadmap?: Array<{ dimension: string; title: string }>;
+  engineProvider?: string;
 } = {}): ScanReport {
   const roadmap = (over.roadmap ?? [{ dimension: "D1", title: "Add CI smoke tests" }]).map((r) => ({
     dimension: r.dimension,
@@ -150,7 +156,7 @@ function makeReport(over: {
     rigorScore: 80,
     posture: { id: "balanced" },
     confidence: 0.9,
-    engine: { provider: "anthropic", model: "claude" },
+    engine: { provider: over.engineProvider ?? "anthropic", model: "claude" },
     headline: "ok",
     strengths: [],
     risks: [],
@@ -241,6 +247,57 @@ describe("persistScanReport — commit-SHA dedup (no second metered Scan row)", 
     const res = await persistScanReport(makeReport());
     expect(res).toBeNull();
     expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+});
+
+// ── CRITICAL #1b: engine upgrade — a LIVE scan replaces the MOCK floor at the same commit ─────────
+//
+// Dedup is engine-blind on its own: a commit first scored by the deterministic `mock` fallback (or a
+// seeded demo) would keep that placeholder FOREVER, discarding any later real graded scan of the same
+// commit. persistScanReport upgrades in place — when the only scan of this SHA is `mock` and the
+// incoming report is live, it tears down the mock graph (children first — no cascades) and writes the
+// live row into the same (repoId, headSha) slot: deduped:false (billable), upgraded:true. Every OTHER
+// case still dedups (no free duplicate): live→live, or a mock re-scan (mock never replaces mock).
+describe("persistScanReport — mock → live engine upgrade", () => {
+  it("a LIVE re-scan of a MOCK-only commit REPLACES it (deletes the mock graph, writes a live row, deduped:false/upgraded:true)", async () => {
+    const { prisma, scanCreate, tx } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_mock", engineProvider: "mock" });
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_x", engineProvider: "claude-cli" }));
+
+    // The mock scan's graph is torn down (children before the scan, since they don't cascade)…
+    expect(tx.recommendationEvent.deleteMany).toHaveBeenCalledWith({ where: { recommendation: { scanId: "scan_mock" } } });
+    expect(tx.recommendation.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.scanDimension.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.scan.delete).toHaveBeenCalledWith({ where: { id: "scan_mock" } });
+    // …and the live scan is written into the freed slot (a real, billable row — not deduped).
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, upgraded: true, headSha: "sha_x" });
+  });
+
+  it("a live re-scan of a commit ALREADY scored live still dedups (no upgrade, no delete)", async () => {
+    const { prisma, scanCreate, tx } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_live", engineProvider: "anthropic" });
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_x", engineProvider: "anthropic" }));
+
+    expect(res).toMatchObject({ scanId: "scan_live", deduped: true, headSha: "sha_x" });
+    expect(scanCreate).not.toHaveBeenCalled();
+    expect(tx.scan.delete).not.toHaveBeenCalled();
+  });
+
+  it("a MOCK re-scan never replaces an existing mock (mock does not upgrade mock)", async () => {
+    const { prisma, scanCreate, tx } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_mock", engineProvider: "mock" });
+
+    const res = await persistScanReport(makeReport({ headSha: "sha_x", engineProvider: "mock" }));
+
+    expect(res).toMatchObject({ scanId: "scan_mock", deduped: true, headSha: "sha_x" });
+    expect(scanCreate).not.toHaveBeenCalled();
+    expect(tx.scan.delete).not.toHaveBeenCalled();
   });
 });
 

@@ -36,7 +36,8 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
   });
 
   it("mirrors the per-org alert sink column (additive, 2026-06-12)", () => {
-    expect(schema).toMatch(/alertWebhookUrl String\?/);
+    // \s+ not a single space: `prisma format` column-aligns field types, so the gap width varies.
+    expect(schema).toMatch(/alertWebhookUrl\s+String\?/);
     expect(initSql).toMatch(/"alertWebhookUrl" TEXT/);
   });
 

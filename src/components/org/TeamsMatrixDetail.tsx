@@ -49,7 +49,7 @@ export function TeamsMatrixDetail({ team }: { team: TeamRollup }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-600">Repos</span>
+        <span className="text-sm font-medium text-slate-400">Repos</span>
         {team.repos.slice(0, OWNED_REPO_CAP).map((r) => (
           <Link
             key={r.fullName}
@@ -71,7 +71,7 @@ export function TeamsMatrixDetail({ team }: { team: TeamRollup }) {
 
       {team.contributors >= CHAMPION_MIN_POP && team.champions.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-mono text-sm uppercase tracking-widest text-slate-600">AI champions</span>
+          <span className="text-sm font-medium text-slate-400">AI champions</span>
           {team.champions.map((c) => (
             <span
               key={c.login}

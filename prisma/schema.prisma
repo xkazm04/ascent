@@ -23,15 +23,15 @@ datasource db {
 }
 
 model Organization {
-  id              String   @id @default(uuid())
-  slug            String   @unique
-  name            String
-  plan            String   @default("free") // free | pro | team | enterprise
+  id                 String   @id @default(uuid())
+  slug               String   @unique
+  name               String
+  plan               String   @default("free") // free | pro | team | enterprise
   // Prepaid private-scan credit balance. Public scans are free + unmetered; each private (installation)
   // scan that runs real LLM inference debits one credit (see src/lib/db/credits.ts + src/lib/entitlement.ts).
   // `enterprise` plan is treated as unlimited (no debit). Credits are granted out-of-band (a Polar
   // top-up, or an owner/admin grant) — see docs/BILLING.md. The CreditLedger is the audit trail.
-  scanCredits     Int      @default(0)
+  scanCredits        Int      @default(0)
   // Per-org data-retention overrides (enterprise). null = inherit the global env default
   // (RETENTION_MAX_SCANS_PER_REPO / RETENTION_AUDIT_DAYS); 0 = keep everything (unlimited).
   // Enforced by the /api/cron/purge job — see src/lib/db/retention.ts.
@@ -41,7 +41,7 @@ model Organization {
   // the weekly digest route HERE when set, falling back to the global ALERT_WEBHOOK_URL env — so each
   // tenant receives its own fleet intelligence instead of everything landing in the operator's channel.
   // null = inherit the global sink (or a clean no-op when that's unset too). See src/lib/db/org-alerts.ts.
-  alertWebhookUrl String?
+  alertWebhookUrl    String?
   // Per-org regression sensitivity (points). null = inherit DEFAULT_THRESHOLDS (overall 5 / dim 15).
   // Threaded into detectRegression by checkAndAlertRegression — see src/lib/scan-alerts.ts.
   alertOverallDrop   Int?
@@ -49,28 +49,28 @@ model Organization {
   // Per-org CI maturity-gate policy (GatePolicy serialized as JSON in a TEXT column — the schema's
   // no-jsonb DSQL-safety contract; parsed at the edge in org-gate.ts). null = archetype default.
   // Honored by the App-mode PR Check Run + the governance fleet view — see src/lib/db/org-gate.ts.
-  gatePolicy      String?
+  gatePolicy         String?
   // White-label branding for the executive briefing (EXEC-5, enterprise) — null = the Ascent default.
   // brandColor is a #rrggbb accent; logoUrl an https image rendered in the PDF header. See briefing.
-  brandName       String?
-  brandColor      String?
-  logoUrl         String?
-  githubInstallId String?
-  createdAt       DateTime @default(now())
+  brandName          String?
+  brandColor         String?
+  logoUrl            String?
+  githubInstallId    String?
+  createdAt          DateTime @default(now())
 
-  memberships   Membership[]
-  repositories  Repository[]
-  auditLogs     AuditLog[]
-  subscription  Subscription?
-  creditLedger  CreditLedger[]
-  goals         Goal[]
-  initiatives   Initiative[]
-  segments      Segment[]
-  playbooks     Playbook[]
-  invites       Invite[]
-  orgSkills     OrgSkill[]
-  techGroups    TechStackGroup[]
-  llmConfig     OrgLlmConfig?
+  memberships  Membership[]
+  repositories Repository[]
+  auditLogs    AuditLog[]
+  subscription Subscription?
+  creditLedger CreditLedger[]
+  goals        Goal[]
+  initiatives  Initiative[]
+  segments     Segment[]
+  playbooks    Playbook[]
+  invites      Invite[]
+  orgSkills    OrgSkill[]
+  techGroups   TechStackGroup[]
+  llmConfig    OrgLlmConfig?
 }
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
@@ -100,13 +100,13 @@ model CreditLedger {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
+  id          String   @id @default(uuid())
+  email       String   @unique
   // GitHub login — the identity the session actually carries (auth is GitHub-OAuth/App based, not
   // email/password). Bridges a session to a Membership row so RBAC (Membership.role) can be resolved
   // and persisted for the logins we know. Email is kept (unique, required) and set to the GitHub
   // noreply form for App/OAuth users. See src/lib/db/members.ts.
-  githubLogin String? @unique
+  githubLogin String?  @unique
   name        String?
   createdAt   DateTime @default(now())
 
@@ -152,51 +152,51 @@ model Invite {
 }
 
 model Repository {
-  id              String    @id @default(uuid())
-  orgId           String
-  owner           String
-  name            String
-  fullName        String // "owner/name"
-  url             String
-  isPrivate       Boolean   @default(false)
-  primaryLanguage String?
+  id                    String    @id @default(uuid())
+  orgId                 String
+  owner                 String
+  name                  String
+  fullName              String // "owner/name"
+  url                   String
+  isPrivate             Boolean   @default(false)
+  primaryLanguage       String?
   // Latest detected tech stack (Feature 3a), cached from the most recent scan for fleet-wide grouping
   // without re-deriving. JSON TechStack (see src/lib/analyze/tech-extract.ts). Null until first scan.
-  techStackJson   String?
+  techStackJson         String?
   // Latest App Readiness Passport (JSON AppPassport) cached from the most recent scan — the portfolio
   // scorecard surfaced/compared without re-deriving. Display-only. Null until first scan.
-  passportJson    String?
+  passportJson          String?
   // Owner-set passport overrides (P4) for the fields a scan can't observe — JSON
   // { criticality?, lifecycle?, rollback? }. Applied as a read-time overlay over the scan-derived
   // passport (never mutates the stored scan). Null = none set. See src/lib/db/passport-overrides.ts.
   passportOverridesJson String?
-  stars           Int       @default(0)
+  stars                 Int       @default(0)
   // Current default-branch head + the GitHub ETag from the last conditional HEAD lookup.
   // Together these back the cross-instance scan cache: a re-scan sends `If-None-Match: headEtag`
   // (a free 304 when unchanged) and serves the persisted scan pinned to headSha — see
   // src/lib/scan-cache.ts. Null until the repo's first anonymous scan records them.
-  headSha         String?
-  headEtag        String?
-  watched         Boolean   @default(false)
-  scanSchedule    String    @default("off") // off | daily | weekly | monthly
-  lastScanAt      DateTime?
-  nextScanAt      DateTime?
+  headSha               String?
+  headEtag              String?
+  watched               Boolean   @default(false)
+  scanSchedule          String    @default("off") // off | daily | weekly | monthly
+  lastScanAt            DateTime?
+  nextScanAt            DateTime?
   // Outcome of the most recent scan ATTEMPT (bulk/cron), so the dashboard can tell "never scanned"
   // apart from "scanning is broken" (revoked token, deleted repo, rate-limited). Null until first try.
-  lastScanStatus    String? // "ok" | "error"
-  lastScanError     String?
-  lastScanAttemptAt DateTime?
+  lastScanStatus        String? // "ok" | "error"
+  lastScanError         String?
+  lastScanAttemptAt     DateTime?
   // `.ai/` standard conformance reported back by the repo's doctor (`node .ai/doctor.mjs --json`),
   // closing the adopt→verify→re-score loop. Null until a conformance report lands. See
   // src/app/api/report/conformance + src/lib/standard/doctor.ts.
-  aiConformance     Int? // 0..100 conformance %
-  aiConformanceFails Int?
-  aiConformanceWarns Int?
-  aiConformanceAt   DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  aiConformance         Int? // 0..100 conformance %
+  aiConformanceFails    Int?
+  aiConformanceWarns    Int?
+  aiConformanceAt       DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  org          Organization      @relation(fields: [orgId], references: [id])
+  org          Organization           @relation(fields: [orgId], references: [id])
   scans        Scan[]
   contributors RepoContributor[]
   teams        RepoTeam[]
@@ -318,18 +318,18 @@ model Scan {
   scannedAt      DateTime
   createdAt      DateTime @default(now())
 
-  repo            Repository      @relation(fields: [repoId], references: [id])
+  repo            Repository       @relation(fields: [repoId], references: [id])
   dimensions      ScanDimension[]
   recommendations Recommendation[]
 
-  @@index([repoId])
-  @@index([repoId, scannedAt])
   // Cross-instance dedup backstop: two serverless instances persisting the SAME commit concurrently
   // both miss the read-then-insert dedup (the row isn't committed yet) and both insert. A unique
   // constraint makes the loser fail with P2002 (handled in persistScanReport → deduped). headSha is
   // nullable, so sha-less scans (NULLs are distinct in Postgres) are unconstrained and fall back to
   // the scannedAt dedup. Replaces the plain @@index (a unique index also serves the lookup).
   @@unique([repoId, headSha])
+  @@index([repoId])
+  @@index([repoId, scannedAt])
 }
 
 model ScanDimension {
@@ -352,23 +352,23 @@ model ScanDimension {
 }
 
 model Recommendation {
-  id          String   @id @default(uuid())
-  scanId      String
-  title       String
-  dimId       String
-  impact      String // high | medium | low
-  effort      String // high | medium | low
-  rationale   String   @default("")
-  explore     String   @default("[]") // JSON string[] — invitational questions to explore the gap
-  levelUnlock String?
-  status      String   @default("open") // open | in_progress | done | dismissed
+  id            String    @id @default(uuid())
+  scanId        String
+  title         String
+  dimId         String
+  impact        String // high | medium | low
+  effort        String // high | medium | low
+  rationale     String    @default("")
+  explore       String    @default("[]") // JSON string[] — invitational questions to explore the gap
+  levelUnlock   String?
+  status        String    @default("open") // open | in_progress | done | dismissed
   // Ownership + planning layer that turns a scattered list of gaps into a trackable backlog
   // (the assignee/due-date mechanics behind the org-wide backlog view — see getOrgBacklog).
   // Both carry forward across re-scans (matched by dimId+title) so a re-scan doesn't drop who
   // owns a gap or when it's due. null = unassigned / no deadline.
   assigneeLogin String? // GitHub login accountable for closing this gap
   targetDate    DateTime? // optional due date the backlog is paced against
-  createdAt   DateTime @default(now())
+  createdAt     DateTime  @default(now())
 
   scan   Scan                  @relation(fields: [scanId], references: [id])
   events RecommendationEvent[]
@@ -512,6 +512,40 @@ model PlaybookApplication {
   @@unique([playbookId, repoFullName])
   @@index([playbookId])
   @@index([orgId])
+}
+
+// One improvement PR opened from the live-wall ship loop (or a future backlog surface): a practice
+// starter seeded into a repo after an owner ACCEPTED a triaged recommendation. This is the persistence
+// that closes the identify → triage → PR → merge → rescan → impact cycle — the practices-page apply
+// flow ends at "draft PR opened", this row carries the PR through merge detection and the post-merge
+// score verification. Standalone under relationMode="prisma" (denormalized orgId, no DB FKs), mirroring
+// PlaybookApplication. One row per repo × practice (the artifact branch `ascent/{practiceId}` is
+// per-repo unique, so a second accept reuses the same PR). See src/lib/db/improvement.ts.
+model ImprovementPr {
+  id               String    @id @default(uuid())
+  orgId            String // denormalized for org-scoped aggregation
+  repoFullName     String
+  practiceId       String
+  dimId            String // "D1".."D9" — the dimension the practice lifts (impact is measured here)
+  recommendationId String? // the triaged Recommendation that led to this PR (null = other surfaces)
+  prNumber         Int
+  prUrl            String
+  state            String    @default("open") // open | merged | closed (closed = rejected on GitHub)
+  mergedAt         DateTime?
+  closedAt         DateTime?
+  // Impact bookends: the repo's latest scan when the PR was opened vs the first scan after the merge.
+  // impact* stay null until the post-merge scan lands ("awaiting rescan" in the UI).
+  baselineScanId   String?
+  verifiedScanId   String?
+  impactDim        Int?
+  impactOverall    Int?
+  openedBy         String? // GitHub login who accepted the direction (null = anonymous/dev)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([orgId, repoFullName, practiceId])
+  @@index([orgId, state])
+  @@index([orgId, createdAt])
 }
 
 // Org Skills Library (Feature 2) — a scalable, categorized catalog of reusable Claude/LLM "skills"

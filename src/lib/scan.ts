@@ -15,8 +15,9 @@ import { analyzeSignals, classifyArchetype } from "@/lib/analyze";
 import { detectStackFit } from "@/lib/analyze/stack-fit";
 import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { buildPassport } from "@/lib/analyze/passport";
-import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
+import { applyGovernanceSignals, applyPrSignals, applySecurityPostureSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
+import { fetchSecurityPosture } from "@/lib/github/security-posture";
 import { getProvider, getProviderForOrg, providerByName, MockProvider } from "@/lib/llm";
 import { techStackPromptEnabled } from "@/lib/llm/config";
 import { BedrockProvider } from "@/lib/llm/bedrock";
@@ -27,7 +28,7 @@ import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { assembleReport } from "@/lib/scoring/engine";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { extractTeamOwnership } from "@/lib/github/codeowners";
-import type { Governance, PrStats, ScanReport, TokenUsage } from "@/lib/types";
+import type { Governance, PrStats, ScanReport, SecurityPosture, TokenUsage } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
@@ -35,10 +36,24 @@ import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
 
 /** Backoff before a single LLM retry — fixed (no jitter) to keep the scan path deterministic-friendly. */
 const LLM_RETRY_MS = 500;
-/** Total wall-clock budget for ALL LLM attempts (primary + retry + failover) in one scan. Sits under
- *  the route's maxDuration (120s) so the mock degrade is always reached before the platform hard-kills
- *  the function. Overridable via env for slower self-hosted models. */
-const LLM_TOTAL_BUDGET_MS = Number(process.env.LLM_TOTAL_BUDGET_MS) || 90_000;
+/**
+ * Total wall-clock budget for ALL LLM attempts (primary + retry + failover) in one scan. When it
+ * expires the in-flight call and every remaining attempt abort and the scan degrades to the
+ * deterministic mock floor. An explicit `LLM_TOTAL_BUDGET_MS` env always wins; otherwise the default is
+ * PROVIDER-AWARE so a slow provider isn't silently mocked out of the box:
+ *   • Fast hosted models (Gemini Flash, Bedrock) → 90s, which sits under a serverless route's
+ *     maxDuration so the mock degrade is reached before the platform hard-kills the function.
+ *   • `claude-cli` spawns a full local CLI session per call (~6 min median). A 90s budget would abort
+ *     EVERY scan into the mock floor before the model ever answered; it runs on a long-lived server
+ *     (never serverless), so default it generously (15 min). This makes a stock
+ *     `LLM_PROVIDER=claude-cli` deploy stay LIVE with no env tuning, instead of silently mocking.
+ */
+function llmTotalBudgetMs(providerName: string): number {
+  const raw = process.env.LLM_TOTAL_BUDGET_MS;
+  const override = raw ? Number(raw) : NaN;
+  if (Number.isFinite(override) && override > 0) return override;
+  return providerName === "claude-cli" ? 15 * 60_000 : 90_000;
+}
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface ScanOptions {
@@ -173,19 +188,28 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   const govPromise: Promise<Governance | null> = token
     ? fetchBranchGovernance(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
     : Promise.resolve(null);
+  // GitHub-native security posture (published advisories + org-level security policy) — closes the D9
+  // file-detector blind spot so a GitHub-managed security program isn't scored as zero. Public reads,
+  // token-gated like governance; folds into D9 below.
+  const secPromise: Promise<SecurityPosture | null> = token
+    ? fetchSecurityPosture(parsed.owner, parsed.repo, token, signal).catch(() => null)
+    : Promise.resolve(null);
   const activityPromise: Promise<number[] | null> = token
     ? fetchCommitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
     : Promise.resolve(null);
 
   emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
-  const [prStats, governance] = await Promise.all([prPromise, govPromise]);
+  const [prStats, governance, securityPosture] = await Promise.all([prPromise, govPromise, secPromise]);
   // Resolve the scan timestamp up front and thread it through signal extraction, so D7's
   // recency bonus is deterministic (and the same `now` stamps the report below).
   const now = opts.now ?? new Date().toISOString();
   const detectorWarnings: string[] = [];
-  const signals = applyGovernanceSignals(
-    applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats),
-    governance,
+  const signals = applySecurityPostureSignals(
+    applyGovernanceSignals(
+      applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats),
+      governance,
+    ),
+    securityPosture,
   );
   const archetype = classifyArchetype(snapshot);
   // Stack-fit (ML/notebook · mobile · embedded) is a known blind spot of the web/service-tuned rubric.
@@ -208,6 +232,11 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     // the LLM auditor so it reasons about review/governance with the real evidence (MAT-1).
     prStats,
     governance,
+    // Same rationale as governance: fold the GitHub-native security posture (already in the D9 signal
+    // above) into the prompt so the LLM scores D9 with the real evidence rather than seeing only the
+    // absent committed tooling — the guardband anchors the LLM to the deterministic signal, so it must
+    // reason from the same facts to land D9 in a fair band.
+    securityPosture,
     // Name the stack the rubric under-reads so the model weights the affected dimensions accordingly.
     stackFit,
     // Option B (gated): include the detected stack in the prompt only when explicitly enabled.
@@ -266,7 +295,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   const llmDeadline = new AbortController();
   const llmDeadlineTimer = setTimeout(
     () => llmDeadline.abort(new Error("LLM total budget exceeded")),
-    LLM_TOTAL_BUDGET_MS,
+    llmTotalBudgetMs(intendedProvider),
   );
   const llmSignal = signal ? AbortSignal.any([signal, llmDeadline.signal]) : llmDeadline.signal;
   try {

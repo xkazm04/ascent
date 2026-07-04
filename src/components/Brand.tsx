@@ -5,8 +5,9 @@ import { SupabaseSignInButton, SignOutButton } from "@/components/SupabaseAuthBu
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
-import { isDbConfigured } from "@/lib/db";
+import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 import { demoOrgHref } from "@/lib/site";
+import { scoreHex } from "@/lib/ui";
 
 /** Generated ascending-chevron mark + mono wordmark (Altimeter identity). */
 export function Logo({ className = "", size = 24 }: { className?: string; size?: number }) {
@@ -27,10 +28,15 @@ export function Logo({ className = "", size = 24 }: { className?: string; size?:
   );
 }
 
-export async function SiteHeader() {
+/**
+ * The account cluster shared by both headers: org switcher (when the viewer has installations) + the
+ * signed-in identity + sign out, or the sign-in / get-started affordance. Extracted so the marketing
+ * SiteHeader and the dashboard OrgHeader render the SAME auth chrome without duplicating the
+ * Supabase-vs-custom-OAuth branching.
+ */
+async function HeaderAccount() {
   const session = await getSession();
   const authOn = isAuthConfigured();
-  const dbOn = isDbConfigured();
   // Supabase is the active login when configured; when it isn't, the header falls back to the
   // dormant custom-OAuth branches below (unchanged).
   const supaOn = supabaseAuthConfigured();
@@ -40,6 +46,95 @@ export async function SiteHeader() {
   const showSwitcher = Boolean(authOn && session && session.installations.length > 0);
   const orgOptions = showSwitcher ? orgOptionsForSession(session) : [];
   const activeOrg = showSwitcher ? await getActiveOrg(session) : "public";
+
+  if (supaOn) {
+    return viewer ? (
+      <span className="flex items-center gap-3">
+        <span className="flex items-center gap-2 text-slate-200">
+          {viewer.avatar && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={viewer.avatar} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
+          )}
+          <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">
+            {viewer.login}
+          </span>
+        </span>
+        <SignOutButton />
+      </span>
+    ) : (
+      <SupabaseSignInButton variant="nav" next="/" />
+    );
+  }
+  if (authOn && session) {
+    return (
+      <span className="flex items-center gap-3">
+        {showSwitcher && <OrgSwitcher orgs={orgOptions} active={activeOrg} />}
+        <Link href="/connect" className="focus-ring flex items-center gap-2 rounded-sm text-slate-200 hover:text-white">
+          {session.image && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={session.image} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
+          )}
+          <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">{session.login}</span>
+        </Link>
+        <form action="/api/auth/logout" method="post" className="contents">
+          <button type="submit" className="focus-ring rounded-sm hover:text-white">
+            Sign out
+          </button>
+        </form>
+      </span>
+    );
+  }
+  if (authOn) {
+    return <GitHubSignInButton variant="nav" next="/connect" />;
+  }
+  return (
+    <Link
+      href="/onboarding"
+      className="focus-ring rounded-md bg-accent px-3 py-1.5 font-medium text-on-accent transition hover:bg-accent-soft"
+    >
+      Get started
+    </Link>
+  );
+}
+
+/**
+ * The header's org-entry affordance. For a signed-in viewer who belongs to a real org this becomes a
+ * direct link INTO that org (labelled with its name), and the generic demo link is dropped; for a
+ * signed-out viewer — or one signed in but without an org yet — it stays the neutral "Org demo" link.
+ * Resolves the viewer's login across BOTH identity models (the custom-OAuth session or the
+ * Supabase/dev viewer) and reads their memberships. Rendered only when a database is configured (with
+ * no DB there are no org rows to enter, so the demo link is meaningless too).
+ */
+async function OrgEntryLink() {
+  if (!isDbConfigured()) return null;
+  const [session, viewer] = await Promise.all([getSession(), getViewer()]);
+  const login = session?.login ?? viewer?.login ?? null;
+  // The viewer's primary org (most privileged, then most recent). Undefined ⇒ no org yet ⇒ demo link.
+  const primary = login ? (await listOrgsForLogin(login))[0] : undefined;
+
+  if (primary) {
+    return (
+      <Link
+        href={`/org/${primary.slug}`}
+        className="focus-ring flex items-center gap-1.5 rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 text-slate-100 transition hover:border-accent hover:bg-accent/20 hover:text-white"
+        title={`Enter ${primary.name}`}
+      >
+        <span className="max-w-[11rem] truncate normal-case tracking-normal">{primary.name}</span>
+        <span aria-hidden>→</span>
+      </Link>
+    );
+  }
+  return (
+    <Link
+      href={demoOrgHref()}
+      className="focus-ring rounded-md border border-divider px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white"
+    >
+      Org demo
+    </Link>
+  );
+}
+
+export function SiteHeader() {
   return (
     <header className="sticky top-0 z-30 border-b border-divider/70 bg-ink/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
@@ -58,58 +153,68 @@ export async function SiteHeader() {
           <Link href="/about" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
             About
           </Link>
-          {dbOn && (
-            <Link
-              href={demoOrgHref()}
-              className="focus-ring rounded-md border border-divider px-3 py-1.5 text-slate-200 transition hover:border-accent hover:text-white"
-            >
-              Org demo
-            </Link>
-          )}
-          {supaOn ? (
-            viewer ? (
-              <span className="flex items-center gap-3">
-                <span className="flex items-center gap-2 text-slate-200">
-                  {viewer.avatar && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={viewer.avatar} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
-                  )}
-                  <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">
-                    {viewer.login}
-                  </span>
-                </span>
-                <SignOutButton />
-              </span>
-            ) : (
-              <SupabaseSignInButton variant="nav" next="/" />
-            )
-          ) : authOn && session ? (
-            <span className="flex items-center gap-3">
-              {showSwitcher && <OrgSwitcher orgs={orgOptions} active={activeOrg} />}
-              <Link href="/connect" className="focus-ring flex items-center gap-2 rounded-sm text-slate-200 hover:text-white">
-                {session.image && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={session.image} alt="" className="h-6 w-6 rounded-full border border-slate-700" />
-                )}
-                <span className="max-w-[7rem] truncate normal-case tracking-normal sm:max-w-none">{session.login}</span>
-              </Link>
-              <form action="/api/auth/logout" method="post" className="contents">
-                <button type="submit" className="focus-ring rounded-sm hover:text-white">
-                  Sign out
-                </button>
-              </form>
-            </span>
-          ) : authOn ? (
-            <GitHubSignInButton variant="nav" next="/connect" />
-          ) : (
-            <Link
-              href="/onboarding"
-              className="focus-ring rounded-md bg-accent px-3 py-1.5 font-medium text-on-accent transition hover:bg-accent-soft"
-            >
-              Get started
-            </Link>
-          )}
+          <OrgEntryLink />
+          <HeaderAccount />
         </nav>
+      </div>
+    </header>
+  );
+}
+
+/**
+ * Org dashboard header — replaces the marketing SiteHeader on /org/[slug]. It drops the marketing nav
+ * (Leaderboard / Pricing / About / Org demo) and folds the org's persistent context (name · maturity ·
+ * your role) plus its actions (alerts · credits · scan) into the top bar, so the dashboard body opens
+ * straight into page content and never repeats these controls. Actions are passed in by the layout
+ * (which owns their data); the account cluster is shared with SiteHeader via HeaderAccount.
+ */
+export function OrgHeader({
+  slug,
+  levelId,
+  score,
+  role,
+  actions,
+}: {
+  slug: string;
+  levelId: string;
+  score: number;
+  /** The viewer's role in this org (e.g. "owner"); omitted for the public org / non-members. */
+  role?: string | null;
+  /** Alerts · credits · scan — assembled by the layout, rendered in the right cluster. */
+  actions?: React.ReactNode;
+}) {
+  return (
+    <header className="sticky top-0 z-30 border-b border-divider/70 bg-ink/80 backdrop-blur">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link href="/" className="focus-ring shrink-0 rounded-sm" title="Ascent home">
+            <Logo />
+          </Link>
+          <span aria-hidden className="hidden h-6 w-px shrink-0 bg-divider sm:block" />
+          <span className="truncate text-lg font-bold text-white" title={slug}>
+            {slug}
+          </span>
+          <span
+            className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 font-mono text-sm tabular-nums"
+            style={{ color: scoreHex(score) }}
+            title="Fleet maturity — level · index score"
+          >
+            {levelId} · {score}
+          </span>
+          {role && (
+            <span
+              className="shrink-0 rounded-md border border-accent/40 bg-accent/5 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-accent"
+              title="Your role in this organization"
+            >
+              {role}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {actions}
+          {actions && <span aria-hidden className="hidden h-6 w-px bg-divider sm:block" />}
+          <HeaderAccount />
+        </div>
       </div>
     </header>
   );

@@ -70,7 +70,7 @@ export function PassportScatter({
             height={q.h}
             fill={COHORT_META[q.id].color}
             fillOpacity={active === q.id ? 0.14 : q.restOpacity}
-            className="cursor-pointer focus-ring"
+            className="focus-ring cursor-pointer transition-[fill-opacity] duration-300 motion-reduce:transition-none"
             role="button"
             tabIndex={0}
             aria-pressed={active === q.id}
@@ -95,18 +95,21 @@ export function PassportScatter({
         <text x={W - PAD - 4} y={H - PAD - 6} textAnchor="end" fontSize="9" fontFamily="monospace" className="pointer-events-none fill-orange-400/70">automatable, not prod-ready</text>
         <text x={PAD + 4} y={PAD + 12} textAnchor="start" fontSize="9" fontFamily="monospace" className="pointer-events-none fill-slate-500">prod-grade, agent-hostile</text>
         <text x={PAD + 4} y={H - PAD - 6} textAnchor="start" fontSize="9" fontFamily="monospace" className="pointer-events-none fill-slate-600">early</text>
-        {/* points — faded ones first so the active cohort renders on top */}
-        {[...points].sort((a, b) => Number(b.faded ?? false) - Number(a.faded ?? false)).map((p, i) => (
+        {/* points — stable order + stable keys so the opacity transition survives filter changes
+            (re-sorting for z-order would re-key/move nodes and cut the animation; at 0.18 opacity a
+            faded point barely occludes anyway) */}
+        {points.map((p) => (
           <circle
-            key={`${p.name}-${i}`}
+            key={p.name}
             cx={px(p.x)}
             cy={py(p.y)}
             r={5}
             fill={bandColor(p.band)}
-            fillOpacity={p.faded ? 0.15 : 0.85}
+            fillOpacity={0.85}
+            opacity={p.faded ? 0.18 : 1}
             stroke="#04070e"
             strokeWidth={0.75}
-            className={onPoint && !p.faded ? "cursor-pointer" : undefined}
+            className={`transition-opacity duration-300 motion-reduce:transition-none${onPoint && !p.faded ? " cursor-pointer" : ""}`}
             onClick={onPoint && !p.faded ? () => onPoint(p.name) : undefined}
           >
             <title>{`${p.name} — automation ${p.x}, production ${p.y} (${p.band})${onPoint && !p.faded ? " · click to open in table" : ""}`}</title>

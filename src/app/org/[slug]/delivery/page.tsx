@@ -1,6 +1,7 @@
-import { Card, ExportCsvLink, SectionEmpty, SectionHeader, Tile, fmtHours } from "@/components/org/ui";
+import { Card, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_LEDGER } from "@/components/org/ui";
 import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
 import { DeliveryPriorities } from "@/components/org/delivery/DeliveryPriorities";
+import { PrSignalsBand } from "@/components/org/delivery/PrSignalsBand";
 import { PrRepoTable } from "@/components/org/delivery/PrRepoTable";
 import { GovernanceTable } from "@/components/org/delivery/GovernanceTable";
 import { DeliveryActivityChart } from "@/components/org/delivery/DeliveryActivityChart";
@@ -82,23 +83,8 @@ export default async function OrgDelivery({
               ) : undefined
             }
           />
-          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-            <Tile
-              label="Review coverage"
-              value={pr.avgReviewedRate == null ? "—" : `${pr.avgReviewedRate}%`}
-              sub={pr.avgReviewedRate == null ? "no human-merged PRs" : "target ≥80%"}
-              color={pr.avgReviewedRate == null ? "#fff" : scoreHex(pr.avgReviewedRate)}
-            />
-            <Tile label="Merge rate" value={`${pr.avgMergeRate}%`} color={scoreHex(pr.avgMergeRate)} />
-            <Tile label="Small PRs" value={`${pr.avgSmallPrRate}%`} sub="≤200 changed lines" color={scoreHex(pr.avgSmallPrRate)} />
-            <Tile label="AI-involved PRs" value={`${pr.avgAiInvolvedRate}%`} color={scoreHex(pr.avgAiInvolvedRate)} />
-            <Tile
-              label="AI PRs reviewed"
-              value={pr.avgAiGovernedRate == null ? "—" : `${pr.avgAiGovernedRate}%`}
-              sub={pr.avgAiGovernedRate == null ? "sample too small" : "governed AI"}
-              color={pr.avgAiGovernedRate == null ? "#fff" : scoreHex(pr.avgAiGovernedRate)}
-            />
-            <Tile label="Typical time-to-merge" value={fmtHours(pr.typicalHoursToMerge)} />
+          <div className="mt-3">
+            <PrSignalsBand pr={pr} />
           </div>
 
           {/* The averages above are only readable with the spread behind them: who drags the mean. */}
@@ -124,7 +110,7 @@ export default async function OrgDelivery({
             title="Branch governance"
             description={`Guardrails on the default branch — from branch protection & rulesets, across ${gov.repos} repos. Gaps first; the governed tail is folded.`}
           />
-          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className={`mt-3 ${TILE_LEDGER} grid-cols-2 sm:grid-cols-4`}>
             <Tile label="Protect main" value={`${gov.protectedRate}%`} color={scoreHex(gov.protectedRate)} />
             <Tile label="Require review" value={`${gov.requireReviewRate}%`} sub="≥1 approving review" color={scoreHex(gov.requireReviewRate)} />
             <Tile label="Require checks" value={`${gov.requireChecksRate}%`} color={scoreHex(gov.requireChecksRate)} />

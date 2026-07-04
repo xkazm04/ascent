@@ -6,8 +6,10 @@
 // rich per-dimension metadata is loaded only when a cell is clicked. Table markup mirrors the prior
 // server render; only the cell-as-button + modal state are new.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import { Surface } from "@/components/ui";
+import { SectionHeader } from "@/components/org/ui";
 import { DIMENSION_SHORT, heatCell, scoreHex } from "@/lib/ui";
 import { RepoDimensionModal, type HeatTarget } from "@/components/org/RepoDimensionModal";
 
@@ -28,25 +30,73 @@ function columnAverages(rows: HeatRow[], dims: string[]): Record<string, number 
   return out;
 }
 
-export function RepoDimensionHeatmap({ org, rows, dims }: { org: string; rows: HeatRow[]; dims: string[] }) {
+const dimScore = (r: HeatRow, d: string) => r.dims.find((x) => x.dimId === d)?.score;
+
+export function RepoDimensionHeatmap({
+  org,
+  rows,
+  dims,
+  initialSortDim,
+}: {
+  org: string;
+  rows: HeatRow[];
+  dims: string[];
+  /** Deep-link seed (?dim= from the Overview dimension grid): open pre-sorted weakest-first on this
+   *  dimension. Ignored if it isn't a real column. */
+  initialSortDim?: string;
+}) {
   const [target, setTarget] = useState<HeatTarget | null>(null);
+  // GC: column sort — a dimension header click ranks the fleet by that dimension, WEAKEST FIRST
+  // (the actionable view: "who needs help on CI?"), a second click flips to strongest-first, a third
+  // restores the caller's default (overall maturity) order. Repos missing the dim sort as -1. A
+  // ?dim= deep-link seeds the same weakest-first sort so the linked-to column arrives pre-ranked.
+  const [sort, setSort] = useState<{ dim: string; dir: 1 | -1 } | null>(
+    initialSortDim && dims.includes(initialSortDim) ? { dim: initialSortDim, dir: 1 } : null,
+  );
+  const sorted = useMemo(() => {
+    if (!sort) return rows;
+    return [...rows].sort((a, b) => ((dimScore(a, sort.dim) ?? -1) - (dimScore(b, sort.dim) ?? -1)) * sort.dir);
+  }, [rows, sort]);
+  const cycleSort = (d: string) =>
+    setSort((s) => (s?.dim !== d ? { dim: d, dir: 1 } : s.dir === 1 ? { dim: d, dir: -1 } : null));
   const avgs = columnAverages(rows, dims);
   return (
-    <>
-      <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-800 p-4">
+    <Surface className="p-5">
+      <SectionHeader
+        size="sm"
+        title="Dimension heatmap"
+        description={`Where each repo is strong or weak across all ${dims.length} dimensions — click a column to sort, a cell for its score, evaluation, and next steps.`}
+      />
+      <div className="mt-4 overflow-x-auto">
         <table className="min-w-[640px]">
           <thead>
             <tr className="font-mono text-sm uppercase tracking-widest text-slate-500">
               <th className="px-2 py-1 text-left" />
-              {dims.map((d) => (
-                <th key={d} scope="col" className="px-2 py-1 text-center">
-                  {DIMENSION_SHORT[d as keyof typeof DIMENSION_SHORT] ?? d}
-                </th>
-              ))}
+              {dims.map((d) => {
+                const active = sort?.dim === d;
+                return (
+                  <th
+                    key={d}
+                    scope="col"
+                    aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
+                    className="px-2 py-1 text-center"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => cycleSort(d)}
+                      title={`Sort by ${d} — weakest first, again for strongest, again to reset`}
+                      className={`focus-ring rounded px-1 uppercase tracking-widest transition hover:text-accent ${active ? "text-accent" : ""}`}
+                    >
+                      {DIMENSION_SHORT[d as keyof typeof DIMENSION_SHORT] ?? d}
+                      {active ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
+                    </button>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {sorted.map((r) => {
               const byId = Object.fromEntries(r.dims.map((d) => [d.dimId, d.score]));
               return (
                 <tr key={r.fullName}>
@@ -108,6 +158,6 @@ export function RepoDimensionHeatmap({ org, rows, dims }: { org: string; rows: H
         </table>
       </div>
       <RepoDimensionModal org={org} target={target} onClose={() => setTarget(null)} />
-    </>
+    </Surface>
   );
 }

@@ -6,8 +6,7 @@
 
 import Link from "next/link";
 import { StackComparePanel } from "@/components/org/StackComparePanel";
-import { StackMatrix } from "@/components/org/StackMatrix";
-import { StackSignals } from "@/components/org/StackSignals";
+import { TechStacksAnalysis } from "@/components/org/TechStacksAnalysis";
 import { TechStackComparePicker } from "@/components/org/TechStackComparePicker";
 import { DIMS, SectionEmpty, SectionHeader } from "@/components/org/ui";
 import { compareTechStacks, listTechStackGroups, listTechStackSummaries } from "@/lib/db";
@@ -64,14 +63,13 @@ export default async function OrgTechStacks({
 
   return (
     <div className="space-y-6">
-      {/* Stack × dimension matrix + computed signals */}
+      {/* Overlaid per-stack profiles + the dimension analysis they scope, as one selection-linked section */}
       <div>
         <SectionHeader
           title="Tech stacks"
-          description="Per-stack maturity across the fleet — each auto-derived group rolled up from its repos' latest scans, one dimension per column, anchored against the whole-fleet baseline."
+          description="Per-stack maturity across the fleet. Overlay stack profiles to compare their shape, then read the dimension analysis and transformation playbooks — the selection drives both."
         />
-        <StackMatrix org={slug} stacks={stacks} fleet={fleet} dims={DIMS} bKey={bKey} />
-        <StackSignals org={slug} stacks={stacks} />
+        <TechStacksAnalysis org={slug} stacks={stacks} fleet={fleet} dims={DIMS} />
       </div>
 
       {/* Side-by-side comparison */}

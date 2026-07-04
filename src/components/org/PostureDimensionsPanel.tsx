@@ -18,28 +18,39 @@ export function PostureDimensionsPanel({
   slug,
   postureCounts,
   dims,
+  dimDeltas,
+  deltaLabel,
 }: {
   slug: string;
   postureCounts: Record<string, number>;
   dims: { dimId: string; avg: number }[];
+  /** Cohort-matched per-dimension movement over the active window (rollup.dimDeltas); null hides deltas. */
+  dimDeltas?: { dimId: string; delta: number }[] | null;
+  /** Comparison suffix for the delta tooltips, e.g. "vs 90d ago". */
+  deltaLabel?: string;
 }) {
   const total = Math.max(1, POSTURE_ORDER.reduce((sum, p) => sum + (postureCounts[p] ?? 0), 0));
   const pct = (n: number) => Math.round((n / total) * 100);
+  const deltaByDim = new Map((dimDeltas ?? []).map((d) => [d.dimId, d.delta]));
 
   return (
     <Card>
-      {/* Posture composition — one bar, true shares (not normalized to the leading bucket) */}
+      {/* Posture composition — one bar, true shares (not normalized to the leading bucket).
+          GA: every non-empty segment and legend chip opens the Repositories tab filtered to that
+          posture, so "who exactly is Fast & Ungoverned?" is one click, not a mental cross-reference. */}
       <SectionHeader size="sm" title="Posture distribution" right={<span className="font-mono text-sm text-slate-500">{total} scored</span>} />
       <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-slate-800">
         {POSTURE_ORDER.map((p) => {
           const n = postureCounts[p] ?? 0;
           if (n === 0) return null;
           return (
-            <div
+            <Link
               key={p}
-              className="h-full transition-all"
+              href={`/org/${slug}/repositories?posture=${p}`}
+              className="h-full transition-all hover:opacity-80"
               style={{ width: `${(n / total) * 100}%`, backgroundColor: POSTURE_HEX[p] ?? "#64748b" }}
-              title={`${postureLabel(p)} — ${n} repo${n === 1 ? "" : "s"} (${pct(n)}%)`}
+              title={`${postureLabel(p)} — ${n} repo${n === 1 ? "" : "s"} (${pct(n)}%) — view them`}
+              aria-label={`View the ${n} ${postureLabel(p)} repositories`}
             />
           );
         })}
@@ -47,11 +58,23 @@ export function PostureDimensionsPanel({
       <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
         {POSTURE_ORDER.map((p) => {
           const n = postureCounts[p] ?? 0;
-          return (
-            <span key={p} className={`inline-flex items-center gap-1.5 font-mono text-sm ${n === 0 ? "text-slate-600" : "text-slate-400"}`}>
+          const chip = (
+            <>
               <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: POSTURE_HEX[p] ?? "#64748b", opacity: n === 0 ? 0.35 : 1 }} />
               {postureLabel(p)} <span className="tabular-nums text-slate-500">{n}</span>
-            </span>
+            </>
+          );
+          return n > 0 ? (
+            <Link
+              key={p}
+              href={`/org/${slug}/repositories?posture=${p}`}
+              title={`View the ${n} ${postureLabel(p)} repo${n === 1 ? "" : "s"}`}
+              className="focus-ring inline-flex items-center gap-1.5 rounded font-mono text-sm text-slate-400 transition hover:text-accent"
+            >
+              {chip}
+            </Link>
+          ) : (
+            <span key={p} className="inline-flex items-center gap-1.5 font-mono text-sm text-slate-600">{chip}</span>
           );
         })}
       </div>
@@ -68,6 +91,9 @@ export function PostureDimensionsPanel({
           {dims.map((d) => {
             const short = DIMENSION_SHORT[d.dimId as keyof typeof DIMENSION_SHORT] ?? d.dimId;
             const practiceId = PRACTICE_BY_DIM.get(d.dimId);
+            // GC: cohort-matched movement per dimension (only when the window has a baseline) — the
+            // grid answers "is it improving?" per row, not just "where is it now?".
+            const delta = deltaByDim.get(d.dimId) ?? 0;
             const body = (
               <>
                 <span className="w-20 shrink-0 text-slate-400 group-hover:text-accent">{short}</span>
@@ -75,22 +101,40 @@ export function PostureDimensionsPanel({
                 <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.avg) }}>
                   {d.avg}
                 </span>
+                {dimDeltas != null && (
+                  <span
+                    className={`w-8 shrink-0 text-right font-mono text-xs tabular-nums ${delta > 0 ? "text-emerald-400" : delta < 0 ? "text-red-400" : "text-slate-600"}`}
+                    title={delta !== 0 && deltaLabel ? `${delta > 0 ? "+" : ""}${delta} ${deltaLabel}` : undefined}
+                  >
+                    {delta > 0 ? `▲${delta}` : delta < 0 ? `▼${Math.abs(delta)}` : "·"}
+                  </span>
+                )}
               </>
             );
-            // Every dimension maps to a practice, but fall back to a non-link row if the catalog
-            // ever lacks one — never render a dead/empty href.
-            return practiceId ? (
-              <Link
-                key={d.dimId}
-                href={`/org/${slug}/practices#practice-${practiceId}`}
-                title={`See the ${short} practice — exemplar, gap repos, and how to lift this dimension`}
-                className="focus-ring group -mx-1 flex items-center gap-3 rounded-md px-1 py-0.5 text-sm transition hover:bg-slate-800/40"
-              >
-                {body}
-              </Link>
-            ) : (
-              <div key={d.dimId} className="-mx-1 flex items-center gap-3 px-1 py-0.5 text-sm">
-                {body}
+            // Two side-by-side affordances per row (can't nest <a>): the label/meter → the practice
+            // that lifts this dimension; a trailing "▦" → the Repositories heatmap pre-sorted on it.
+            // Fall back to a non-link body when the catalog lacks a practice — never a dead href.
+            return (
+              <div key={d.dimId} className="-mx-1 flex items-center gap-2 px-1 py-0.5 text-sm">
+                {practiceId ? (
+                  <Link
+                    href={`/org/${slug}/practices#practice-${practiceId}`}
+                    title={`See the ${short} practice — exemplar, gap repos, and how to lift this dimension`}
+                    className="focus-ring group flex flex-1 items-center gap-3 rounded-md transition hover:bg-slate-800/40"
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div className="flex flex-1 items-center gap-3">{body}</div>
+                )}
+                <Link
+                  href={`/org/${slug}/repositories?dim=${d.dimId}#heatmap`}
+                  title={`See ${short} across every repo in the heatmap`}
+                  aria-label={`See ${short} across every repo`}
+                  className="focus-ring shrink-0 rounded px-1 font-mono text-xs text-slate-600 transition hover:text-accent"
+                >
+                  ▦
+                </Link>
               </div>
             );
           })}

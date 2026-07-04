@@ -2,7 +2,10 @@
 // grid showed (maturity · adoption · rigor · repos scanned), rendered as small inline badges inside a
 // single hairline panel so they read as a header summary rather than four heavy cards. Server
 // component; the page builds the badge list (so goal/delta derivation stays single-sourced there).
+// With `trend`, the org-maturity history rides along as an inline sparkline (hover for per-point
+// values) — replacing the full-width "over time" card that spent a whole viewport row on one line.
 
+import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
 import { scoreHex } from "@/lib/ui";
 
 export interface ScoreBadge {
@@ -17,7 +20,14 @@ export interface ScoreBadge {
   goal?: { target: number; label: string; color: string };
 }
 
-export function OrgScoreBadges({ badges }: { badges: ScoreBadge[] }) {
+export function OrgScoreBadges({
+  badges,
+  trend,
+}: {
+  badges: ScoreBadge[];
+  /** Org-maturity history for the inline sparkline; omit (or pass <2 points) to hide it. */
+  trend?: { points: TrendPoint[]; label: string };
+}) {
   return (
     <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border border-divider bg-surface/40 px-5 py-3.5">
       {badges.map((b) => (
@@ -42,6 +52,12 @@ export function OrgScoreBadges({ badges }: { badges: ScoreBadge[] }) {
           </div>
         </div>
       ))}
+      {trend && trend.points.length >= 2 && (
+        <div className="ml-auto flex flex-col gap-0.5">
+          <span className="font-mono text-xs uppercase tracking-widest text-slate-500">Trend · {trend.label}</span>
+          <Sparkline points={trend.points} />
+        </div>
+      )}
     </div>
   );
 }

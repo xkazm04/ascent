@@ -87,6 +87,33 @@ describe("buildAssessmentPrompt — PROCESS SIGNALS rate rendering (#1)", () => 
   });
 });
 
+describe("buildAssessmentPrompt — SECURITY POSTURE block (D9 GitHub-native evidence)", () => {
+  it("surfaces published advisories as a POSITIVE D9 signal and warns against file-blindness", () => {
+    const { user } = buildAssessmentPrompt(
+      input({ securityPosture: { advisoryCount: 100, advisoryCapped: true, orgSecurityPolicy: true } }),
+    );
+    expect(user).toContain("SECURITY POSTURE");
+    expect(user).toContain("100+ published security advisories");
+    expect(user).toContain("POSITIVE D9 maturity signal");
+    expect(user).toContain("org-level SECURITY.md present");
+    // The anti-false-negative instruction: don't zero D9 just because security-as-code YAML is absent.
+    expect(user).toContain("Do not score D9 near zero");
+  });
+
+  it("states the honest zero when there are no advisories / no policy", () => {
+    const { user } = buildAssessmentPrompt(
+      input({ securityPosture: { advisoryCount: 0, advisoryCapped: false, orgSecurityPolicy: false } }),
+    );
+    expect(user).toContain("no published security advisories found");
+    expect(user).toContain("no org-level SECURITY.md found");
+  });
+
+  it("degrades to the token-less note when the posture is absent", () => {
+    const { user } = buildAssessmentPrompt(input({ securityPosture: null }));
+    expect(user).toContain("GitHub-native security signals were skipped");
+  });
+});
+
 describe("buildAssessmentPrompt — cacheable stable prefix (Tiger P0-1)", () => {
   it("puts the stable rubric + task + output schema in SYSTEM, not the per-repo user message", () => {
     const { system, user } = buildAssessmentPrompt(input());

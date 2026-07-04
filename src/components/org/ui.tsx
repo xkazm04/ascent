@@ -33,13 +33,26 @@ export function postureLabel(posture: string | null | undefined): string {
 // view automatically. Was frozen at D1–D8, which silently dropped D9 Security from the heatmap.
 export const DIMS = Object.keys(DIMENSION_SHORT) as DimensionId[];
 
-/** Canonical summary-tile grid — one column rhythm + gap for every tab's top tiles. */
-export const TILE_GRID = "grid gap-4 sm:grid-cols-2 lg:grid-cols-4";
+/**
+ * The summary-tile ledger frame — ONE bordered panel whose cells are separated by 1px hairline rules
+ * (the HairlineGrid signature), replacing the old four-floating-cards grid: less chrome, tighter
+ * vertical rhythm, and the shared frame keeps a row of stats reading as one instrument. Tiles must be
+ * the direct children (they paint the opaque bg-ink cell the hairline bed shows through around).
+ * Compose with a column rhythm: TILE_GRID is the canonical 4-across; other rhythms append their own
+ * grid-cols (e.g. BacklogSummary's 6-across).
+ */
+export const TILE_LEDGER = "grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider";
+
+/** Canonical summary-tile grid — one column rhythm for every tab's top tiles. */
+export const TILE_GRID = `${TILE_LEDGER} sm:grid-cols-2 lg:grid-cols-4`;
 
 export const fmtHours = (h: number | null) =>
   h == null ? "—" : h < 48 ? `${Math.round(h)}h` : `${(h / 24).toFixed(1)}d`;
 
-/** Summary tile — a brand Stat inside a hairline Surface. */
+/** Summary tile — a brand Stat as a TILE_LEDGER cell (opaque bg so the ledger's 1px bed reads as
+ *  hairline rules between cells; the ledger frame supplies the border and radius). With `href` the
+ *  whole cell becomes a deep link to the stat's evidence section (e.g. "#unowned"); the anchor keeps
+ *  an OPAQUE hover fill so the ledger's divider bed never bleeds through the cell. */
 export function Tile({
   label,
   value,
@@ -48,6 +61,7 @@ export function Tile({
   delta,
   deltaLabel,
   goal,
+  href,
 }: {
   label: string;
   value: string | number;
@@ -59,12 +73,18 @@ export function Tile({
   deltaLabel?: string;
   /** Active goal on this metric: target + a precomputed pace verdict (label + color). */
   goal?: { target: number; label: string; color: string };
+  /** Deep link to the stat's evidence (anchor or route); makes the whole cell clickable. */
+  href?: string;
 }) {
-  return (
-    <Surface radius="xl" className="p-5">
-      <Stat label={label} value={value} sub={sub} color={color} delta={delta} deltaLabel={deltaLabel} goal={goal} />
-    </Surface>
-  );
+  const stat = <Stat label={label} value={value} sub={sub} color={color} delta={delta} deltaLabel={deltaLabel} goal={goal} />;
+  if (href) {
+    return (
+      <a href={href} className="focus-ring block bg-ink px-5 py-3.5 transition-colors hover:bg-slate-900">
+        {stat}
+      </a>
+    );
+  }
+  return <div className="bg-ink px-5 py-3.5">{stat}</div>;
 }
 
 /**

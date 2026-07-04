@@ -2,7 +2,7 @@
 // (Phase 2) Bedrock share identical instructions and output contract.
 
 import type { LlmScoreInput } from "@/lib/llm/provider";
-import type { Governance, PrStats } from "@/lib/types";
+import type { Governance, PrStats, SecurityPosture } from "@/lib/types";
 import { formatSignal } from "@/lib/types";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 
@@ -42,6 +42,28 @@ function processBlock(prStats?: PrStats | null, governance?: Governance | null):
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * Render the GitHub-native security posture (D9). The file excerpts only show committed CI-as-code,
+ * so a repo whose security runs through GitHub (managed code scanning, Dependabot, an active
+ * advisory program) looks empty on D9. Surface the platform-level evidence so the model scores D9 on
+ * the real posture — and reads published advisories as a maturity signal (a triage/disclosure/patch
+ * program), NOT as a vulnerability count that should DROP the score.
+ */
+function securityBlock(posture?: SecurityPosture | null): string {
+  if (!posture) return "(unavailable — scanned without a token, so GitHub-native security signals were skipped.)";
+  const advisories =
+    posture.advisoryCount > 0
+      ? `${posture.advisoryCapped ? `${posture.advisoryCount}+` : posture.advisoryCount} published security advisories (coordinated disclosure via GHSA — a working triage/patch program, treat as a POSITIVE D9 maturity signal, not a vulnerability tally)`
+      : "no published security advisories found";
+  const policy = posture.orgSecurityPolicy
+    ? "org-level SECURITY.md present (documented vulnerability-reporting path)"
+    : "no org-level SECURITY.md found";
+  return [
+    `- GitHub-native security (D9): ${advisories}; ${policy}.`,
+    `- NOTE: managed code scanning / Dependabot / secret scanning are configured in repo Settings, not as committed files — absence from the SAMPLED FILES is NOT evidence they're off. Do not score D9 near zero solely because security-as-code YAML isn't in the excerpts.`,
+  ].join("\n");
 }
 
 const SYSTEM_ROLE = `You are Ascent, an expert assessor of how "AI-native" a software engineering organization is, based on evidence read from a GitHub repository. You apply a fixed, published rubric and you are rigorous and evidence-driven. You never invent facts: every judgment must be supported by the signals and file excerpts provided. Calibrate dimension scores to the deterministic signal scores you are given (nuance within a small band). However, the deterministic detectors are imperfect — in the "discrepancies" field you SHOULD actively flag any signal you believe is wrong given the file excerpts (e.g. tests or config clearly present but the signal missed them). Catching detector misses is part of your job; don't be shy. Respond with JSON only, matching the requested schema exactly.`;
@@ -112,7 +134,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   system: string;
   user: string;
 } {
-  const { repo, signals, files, commitSample, archetype, prStats, governance, stackFit, techStack } = input;
+  const { repo, signals, files, commitSample, archetype, prStats, governance, securityPosture, stackFit, techStack } = input;
 
   const signalBlock = signals
     .map((s) => {
@@ -159,6 +181,9 @@ ${signalBlock}
 
 PROCESS SIGNALS (review discipline, merge velocity, AI governance, branch protection — the behavioral evidence behind D3/D6/D7/D8; calibrate those dimensions to this too):
 ${processBlock(prStats, governance)}
+
+SECURITY POSTURE (GitHub-native evidence behind D9 — the platform-managed security the sampled files can't show; calibrate D9 to this, not just committed security-as-code):
+${securityBlock(securityPosture)}
 
 RECENT COMMIT MESSAGES (sample):
 ${commitBlock}

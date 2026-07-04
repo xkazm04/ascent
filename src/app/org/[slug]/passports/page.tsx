@@ -1,15 +1,15 @@
 // /org/[slug]/passports — the fleet App Readiness Passport portfolio (P3). The view neither the agent
 // manifest nor a CI badge can give: every scanned repo's two readiness axes side by side, so the
-// "automatable but not production-ready" gap (and its opposite) is visible at a glance. One interactive
-// unit (PassportPortfolio): cohort chips that filter, the automation×production scatter with clickable
-// quadrants, a top-blockers pareto ("fix once, move N repos"), and a sortable table whose rows expand
-// into each passport's blockers + observed facts. Scoped by the same ?segment=/?stack= filters as the
-// rest of the dashboard; exportable as CSV. Passports come from scans (P1), so a never-scanned /
-// pre-passport repo simply isn't listed.
+// "automatable but not production-ready" gap (and its opposite) is visible at a glance. One compact
+// header row (title · segment scope · CSV export), then straight into the content: the
+// automation×production scatter whose quadrants are the one and only filter (click to isolate a
+// cohort, ✕ to reset to all), a top-blockers docket that files GitHub issues, and a full-width table
+// whose rows expand into each passport's blockers + observed facts. A ?stack= URL scope is still
+// honored for data consistency with the other tabs, but this page renders no stack UI. Passports
+// come from scans (P1), so a never-scanned / pre-passport repo simply isn't listed.
 
 import { ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/ui";
 import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
 import { PassportPortfolio } from "@/components/org/PassportPortfolio";
 import type { PassportRow } from "@/components/org/PassportTable";
 import { getOrgRollup } from "@/lib/db";
@@ -27,7 +27,7 @@ export default async function OrgPassports({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
+  const { segments, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
   const rollup = await getOrgRollup(slug, undefined, segmentId, techGroupId);
 
   const withPassport = (rollup?.repos ?? []).filter((r) => r.passport);
@@ -68,25 +68,20 @@ export default async function OrgPassports({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <SectionHeader
-          descriptionClassName="max-w-3xl"
-          title="Readiness passports"
-          description="Each scanned repo's two readiness axes — ready for full LLM automation, and ready for production — side by side. Click a cohort (or a scatter quadrant) to isolate it; expand a row for the blockers behind its numbers."
-        />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SectionHeader title="Readiness passports" />
         <div className="flex flex-wrap items-center gap-2">
           {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
-          <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
           {rows.length > 0 && <ExportCsvLink org={slug} kind="passports" segmentId={segmentId} className="shrink-0" />}
         </div>
       </div>
 
       {rows.length === 0 ? (
         <SectionEmpty>
-          No passports yet for this view. Passports are produced by scans — scan some of this org&apos;s repositories (or widen the segment / stack filter), and each scan adds its repo here.
+          No passports yet for this view. Passports are produced by scans — scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
         </SectionEmpty>
       ) : (
-        <PassportPortfolio rows={rows} repoTotal={(rollup?.repos ?? []).length} />
+        <PassportPortfolio rows={rows} org={slug} />
       )}
     </div>
   );

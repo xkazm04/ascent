@@ -11,7 +11,6 @@ import { IndexOrg } from "./IndexOrg";
 import { IndexGallery } from "./IndexGallery";
 import { IndexLevels } from "./IndexLevels";
 import { DimensionMatrix } from "./DimensionMatrix";
-import { PricingCards } from "./PricingCards";
 import { Reveal } from "@/components/deck/Reveal";
 
 export function IndexVariant(props: LandingData) {
@@ -33,9 +32,6 @@ export function IndexVariant(props: LandingData) {
         </Reveal>
         <Reveal>
           <DimensionMatrix />
-        </Reveal>
-        <Reveal>
-          <PricingCards quota={props.quota} />
         </Reveal>
       </div>
     </>

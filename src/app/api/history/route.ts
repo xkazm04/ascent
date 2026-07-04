@@ -9,6 +9,7 @@ import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured, type RepositoryHistory } from "@/lib/db";
 import { sha256Hex } from "@/lib/db/audit-integrity";
 import { getSession, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { canReadOrg } from "@/lib/authz";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { csvField } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
@@ -61,9 +62,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Scope to the org the caller may read (own org via session, else public) so a
-    // name collision can't leak another tenant's history.
-    const orgSlug = await readableOrgForOwner(parsed.owner);
+    // Scope to the org the caller may read (own org via session, else public) so a name collision
+    // can't leak another tenant's history. An explicit `?org={slug}` wins when the caller may read it
+    // (canReadOrg) — so an in-app link can address a repo under its OWNING tenant even when the org
+    // slug differs from the owner login (e.g. a rebranded org). The gate keeps it from reaching
+    // another tenant's private history.
+    const orgHint = searchParams.get("org")?.trim().toLowerCase();
+    const orgSlug = orgHint && (await canReadOrg(orgHint)) ? orgHint : await readableOrgForOwner(parsed.owner);
     const wantCsv = searchParams.get("format") === "csv";
     // `?dims=0` requests the lightweight overall-only series (skips the per-dimension fan-out) for
     // callers that chart only the overall line; the default (and any CSV export) returns dimensions.

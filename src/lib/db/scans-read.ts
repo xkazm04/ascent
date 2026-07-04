@@ -47,16 +47,18 @@ const SCAN_ORDER: Prisma.ScanOrderByWithRelationInput[] = [
   { id: "desc" },
 ];
 
-/** Find the most recent persisted scan for a repo at an exact commit (dedup lookup). */
+/** Find the most recent persisted scan for a repo at an exact commit (dedup lookup). `engineProvider`
+ *  rides along so the persist path can distinguish a real graded scan from the deterministic `mock`
+ *  floor — a live re-scan UPGRADES a mock-only commit instead of being discarded by dedup. */
 export async function findScanByCommit(
   repoId: string,
   headSha: string,
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; engineProvider: string } | null> {
   if (!isDbConfigured()) return null;
   return getPrisma().scan.findFirst({
     where: { repoId, headSha },
     orderBy: SCAN_ORDER,
-    select: { id: true },
+    select: { id: true, engineProvider: true },
   });
 }
 

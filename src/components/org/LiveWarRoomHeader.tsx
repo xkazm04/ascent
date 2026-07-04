@@ -45,12 +45,11 @@ export function WarRoomHeader({
   goal = null,
   campaignDelta = null,
   fleetScannedAt = null,
-  autoLoop = false,
-  onToggleLoop,
   sound = false,
   onToggleSound,
   readOnly = false,
   canShare = false,
+  onEnterTv,
 }: {
   slug: string;
   running: boolean;
@@ -60,15 +59,15 @@ export function WarRoomHeader({
   error: string | null;
   /** Repos the run skipped for lack of prepaid scan credits — partial coverage must be visible. */
   skipped: number;
-  launchLabel: string;
+  /** Optional launch trigger — the main wall now scans from the timetable, so it's omitted there;
+   *  kept for any surface that still wants a header-level launch. */
+  launchLabel?: string;
   onStop: () => void;
-  onLaunch: () => void;
+  onLaunch?: () => void;
   goal?: GoalProgressView | null;
   campaignDelta?: number | null;
   /** ISO of the fleet's most recent scan — the idle caption's "fleet scanned Xh ago" freshness. */
   fleetScannedAt?: string | null;
-  autoLoop?: boolean;
-  onToggleLoop?: () => void;
   /** Opt-in celebration sound (default off). */
   sound?: boolean;
   onToggleSound?: () => void;
@@ -76,6 +75,8 @@ export function WarRoomHeader({
   readOnly?: boolean;
   /** Owner on the authenticated view: can mint a read-only TV share link. */
   canShare?: boolean;
+  /** Enter Dynamic-UI TV mode (state-driven single-stage wall). Undefined on the kiosk view. */
+  onEnterTv?: () => void;
 }) {
   const countdown = goal ? daysUntil(goal.targetDate) : null;
   const toGoal = goal ? Math.max(0, goal.target - goal.current) : 0;
@@ -139,7 +140,7 @@ export function WarRoomHeader({
                 Stop
               </button>
             )}
-            {!readOnly && (
+            {!readOnly && onLaunch && (
               <button
                 type="button"
                 onClick={onLaunch}
@@ -151,8 +152,13 @@ export function WarRoomHeader({
             )}
             <button
               type="button"
-              onClick={enterTvMode}
-              title="Fullscreen + keep the screen awake for a wall display"
+              onClick={() => {
+                // Dynamic-UI TV mode (state-driven single-stage wall) + fullscreen + wake-lock; the
+                // kiosk view has no onEnterTv, so there it stays a plain fullscreen.
+                void enterTvMode();
+                onEnterTv?.();
+              }}
+              title={onEnterTv ? "Dynamic TV mode: one lifecycle-relevant panel at a time, fullscreen for a wall" : "Fullscreen + keep the screen awake for a wall display"}
               className="focus-ring rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white"
             >
               ⛶ TV mode
@@ -183,12 +189,6 @@ export function WarRoomHeader({
             <p className="font-mono text-sm text-slate-500" suppressHydrationWarning>
               fleet scanned {freshness(fleetScannedAt)}
             </p>
-          )}
-          {!readOnly && onToggleLoop && watchedCount > 0 && (
-            <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500" title="Re-run the live scan automatically for an unattended wall display">
-              <input type="checkbox" checked={autoLoop} onChange={onToggleLoop} className="accent-accent" />
-              Auto-relaunch every 15 min
-            </label>
           )}
           {onToggleSound && (
             <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500" title="Play a short chime when a repo crosses into AI-Native">

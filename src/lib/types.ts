@@ -399,6 +399,26 @@ export interface Governance {
   readable: boolean;
 }
 
+/**
+ * GitHub-native security posture — the security a repo runs through GitHub's platform rather than as
+ * committed CI-as-code files, which the file-based D9 detector is structurally blind to. Fetched from
+ * public endpoints (no admin scope): the repo's own published advisories and the org-level SECURITY.md
+ * fallback. Folds into D9 additively (presence lifts; absence is neutral) so a repo like next.js — a
+ * mature coordinated-disclosure program with GitHub-managed scanning — isn't scored near zero for
+ * lacking a committed CodeQL workflow. Null when scanned without a token.
+ */
+export interface SecurityPosture {
+  /** Count of the repo's OWN published GitHub Security Advisories (GHSA). A positive maturity signal:
+   *  it evidences a triage + coordinated-disclosure + patched-release process, NOT raw "insecurity"
+   *  (mirrors how OpenSSF Scorecard credits an active vulnerability-handling program). */
+  advisoryCount: number;
+  /** True when advisoryCount hit the API page cap (so it's a floor, rendered "N+"). */
+  advisoryCapped: boolean;
+  /** An org-level SECURITY.md (owner/.github fallback) exists. Repo-local SECURITY.md is already scored
+   *  from the tree by the D9 file detector; this is the documented reporting path the tree can't see. */
+  orgSecurityPolicy: boolean;
+}
+
 /** The two-axis posture (Adoption × Rigor) quadrant. */
 export interface Posture {
   id: "ai-native" | "ungoverned" | "manual" | "early";

@@ -122,3 +122,25 @@ export async function openDraftPr(input: OpenPrInput): Promise<OpenPrResult> {
     throw err;
   }
 }
+
+/** One PR's lifecycle state, as the merge monitor needs it. GitHub reports `state` as only
+ *  open|closed — `merged` is the flag that distinguishes a landed PR from a rejected one. */
+export interface PullRequestState {
+  state: "open" | "closed";
+  merged: boolean;
+  mergedAt: string | null;
+  closedAt: string | null;
+}
+
+/**
+ * Read one PR's state — the merge-monitor counterpart of openDraftPr. The ship loop polls this
+ * (bounded, from the visible war-room wall) to detect a starter PR landing so it can rescan the
+ * repo and measure the score impact. Read-only; needs only the installation's PR read scope.
+ */
+export async function getPullRequest(token: string, owner: string, repo: string, number: number): Promise<PullRequestState> {
+  const pr = await githubAppFetch<{ state: "open" | "closed"; merged: boolean; merged_at: string | null; closed_at: string | null }>(
+    `/repos/${owner}/${repo}/pulls/${number}`,
+    token,
+  );
+  return { state: pr.state, merged: Boolean(pr.merged), mergedAt: pr.merged_at, closedAt: pr.closed_at };
+}

@@ -1,11 +1,11 @@
-import { Tile } from "@/components/org/ui";
+import { Tile, TILE_LEDGER } from "@/components/org/ui";
 import type { BacklogOwnerGroup, OrgBacklog } from "@/lib/db";
 
 export function SummaryStrip({ b }: { b: OrgBacklog }) {
-  // Use the canonical Tile (brand Surface + Stat) so these tiles match every other dashboard surface,
-  // instead of a local Stat copy that drifted (bordered box, text-2xl vs the canonical text-3xl).
+  // Use the canonical Tile ledger so these tiles match every other dashboard surface, instead of a
+  // local Stat copy that drifted; only the column rhythm (6-across) is local.
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+    <div className={`${TILE_LEDGER} grid-cols-2 sm:grid-cols-3 lg:grid-cols-6`}>
       <Tile label="Active" value={b.active} />
       <Tile label="Overdue" value={b.overdue} color={b.overdue ? "#f97316" : undefined} />
       <Tile label="Due ≤ 7d" value={b.dueSoon} color={b.dueSoon ? "#eab308" : undefined} />

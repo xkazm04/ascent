@@ -7,12 +7,14 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { OrgTable, postureLabel } from "@/components/org/ui";
+import { OrgTable } from "@/components/org/ui";
 import { ScheduleSelect } from "@/components/org/ScheduleSelect";
 import { RepoRescanButton } from "@/components/org/RepoRescanButton";
 import { TechBadges } from "@/components/org/TechBadges";
+import { Sparkline } from "@/components/org/Sparkline";
+import { LeaderboardHead, activityValue, sum, type RepoActivity, type SortKey, type SortState } from "@/components/org/RepoLeaderboardParts";
 import { bulkTagRepos } from "@/lib/org/segment-actions";
-import { LEVEL_CLASSES, scoreHex } from "@/lib/ui";
+import { LEVEL_CLASSES, fmtCompact, scoreHex } from "@/lib/ui";
 import type { LevelId, TechStack } from "@/lib/types";
 
 interface LeaderRow {
@@ -24,6 +26,9 @@ interface LeaderRow {
   lastScanError: string | null;
   aiConformance: number | null;
   techStack?: TechStack | null;
+  activity: RepoActivity | null;
+  // `latest` is kept only to gate the report link (link a scanned repo, render inert otherwise) — the
+  // Overall/Adopt/Rigor/Posture columns it fed were dropped in favour of the activity columns.
   latest: { level: string; overall: number; adoption: number; rigor: number; posture: string; scannedAt: string } | null;
 }
 
@@ -48,7 +53,19 @@ export function RepoLeaderboard({
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Column sort over the activity columns — a header click cycles most-first → least-first → default
+  // (the incoming overall-maturity order). Selection state is keyed by fullName, so re-sorting the
+  // rows never disturbs which repos are ticked.
+  const [sort, setSort] = useState<SortState>(null);
   const router = useRouter();
+
+  const cycleSort = (key: SortKey) =>
+    setSort((s) => (s?.key !== key ? { key, dir: -1 } : s.dir === -1 ? { key, dir: 1 } : null));
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+    const d = sort.dir;
+    return [...rows].sort((x, y) => (activityValue(x.activity, sort.key) - activityValue(y.activity, sort.key)) * d);
+  }, [rows, sort]);
 
   const allSelected = selected.size > 0 && selected.size === rows.length;
   const segName = useMemo(() => new Map(segments.map((s) => [s.id, s.name])), [segments]);
@@ -98,28 +115,18 @@ export function RepoLeaderboard({
       <OrgTable
         className="mt-3"
         head={
-          <tr>
-            <th className="px-3 py-2 text-left">
-              {segments.length > 0 && (
-                <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all repositories" className="accent-accent" />
-              )}
-            </th>
-            <th className="px-4 py-2 text-left">Repo</th>
-            <th className="px-3 py-2 text-left">Level</th>
-            <th className="px-3 py-2 text-right">Overall</th>
-            <th className="px-3 py-2 text-right">Adopt</th>
-            <th className="px-3 py-2 text-right">Rigor</th>
-            <th className="px-3 py-2 text-left">Posture</th>
-            <th className="px-3 py-2 text-left">Last scan</th>
-            <th className="px-3 py-2 text-left">Autoscan</th>
-            <th className="px-3 py-2 text-left">
-              <span className="sr-only">Rescan</span>
-            </th>
-          </tr>
+          <LeaderboardHead
+            hasSegments={segments.length > 0}
+            allSelected={allSelected}
+            onToggleAll={toggleAll}
+            sort={sort}
+            onCycle={cycleSort}
+          />
         }
       >
-        {rows.map((r) => {
+        {sortedRows.map((r) => {
           const l = r.latest;
+          const a = r.activity;
           const rlc = l ? LEVEL_CLASSES[l.level as LevelId] : null;
           return (
             <tr key={r.fullName} className="text-slate-300">
@@ -174,12 +181,31 @@ export function RepoLeaderboard({
               <td className="px-3 py-2">
                 {l && rlc ? <span className={`font-mono text-sm ${rlc.text}`}>{l.level}</span> : <span className="text-slate-600">—</span>}
               </td>
-              <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: l ? scoreHex(l.overall) : undefined }}>
-                {l ? l.overall : "—"}
+              {/* Commits — trailing weekly sparkline + total over the ~1-month window (real, from GitHub
+                  commit_activity). The number is the period total, matching the column's sort key. */}
+              <td className="px-3 py-2">
+                {a && a.commitsWeekly.length > 0 ? (
+                  <span className="flex items-center gap-2">
+                    <Sparkline values={a.commitsWeekly} ariaLabel={`${r.name} weekly commits, past ${a.commitsWeekly.length} weeks`} />
+                    <span
+                      className="font-mono text-sm tabular-nums text-slate-400"
+                      title={`${sum(a.commitsWeekly).toLocaleString()} commits over the past ${a.commitsWeekly.length} weeks (from GitHub)`}
+                    >
+                      {sum(a.commitsWeekly).toLocaleString()}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-slate-600">—</span>
+                )}
               </td>
-              <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{l ? l.adoption : "—"}</td>
-              <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{l ? l.rigor : "—"}</td>
-              <td className="px-3 py-2 text-sm text-slate-400">{l ? postureLabel(l.posture) : "—"}</td>
+              {/* PRs — merged across the analyzed window (repo-wide total in the tooltip). */}
+              <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">
+                {a ? <span title={`${a.prsTotal.toLocaleString()} total PRs`}>{a.prsMerged.toLocaleString()}</span> : "—"}
+              </td>
+              {/* LoC Δ — lines changed (additions + deletions) across the analyzed PR window. */}
+              <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">
+                {a && a.locChanged > 0 ? <span title={`${a.locChanged.toLocaleString()} lines changed`}>{fmtCompact(a.locChanged)}</span> : "—"}
+              </td>
               <td className="px-3 py-2 text-sm text-slate-500">{l ? l.scannedAt.slice(0, 10) : "not scanned"}</td>
               <td className="px-3 py-2">
                 <ScheduleSelect

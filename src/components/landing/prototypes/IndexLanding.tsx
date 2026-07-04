@@ -21,7 +21,6 @@ export function IndexLanding(props: LandingData) {
       ...(props.gallery ? [{ id: "gallery", label: "The register" }] : []),
       { id: "levels", label: "Levels" },
       { id: "dimensions", label: "Dimensions" },
-      { id: "pricing", label: "Pricing" },
     ],
     [props.gallery],
   );

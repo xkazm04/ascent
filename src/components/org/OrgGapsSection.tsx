@@ -32,10 +32,23 @@ export function OrgGapsSection({ gaps, slug }: { gaps: OrgGapAnalysis; slug: str
                     <span>org avg {g.avg}</span>
                     {g.exemplar && (
                       <span>
-                        learn from <span className="text-slate-300">{g.exemplar.name}</span> ({g.exemplar.score})
+                        {/* GA: the exemplar is the internal playbook — open its report to see HOW. */}
+                        learn from{" "}
+                        <Link
+                          href={`/report/${g.exemplar.fullName}`}
+                          title={`Open ${g.exemplar.fullName}'s report`}
+                          className="focus-ring text-slate-300 transition hover:text-accent"
+                        >
+                          {g.exemplar.name}
+                        </Link>{" "}
+                        ({g.exemplar.score})
                       </span>
                     )}
-                    <Link href={`/org/${slug}/practices`} className="text-accent hover:text-white">
+                    {/* GA: deep-link to THIS gap's practice card, not the library index. */}
+                    <Link
+                      href={g.practiceId ? `/org/${slug}/practices#practice-${g.practiceId}` : `/org/${slug}/practices`}
+                      className="focus-ring text-accent transition hover:text-white"
+                    >
                       reuse a practice →
                     </Link>
                   </div>
@@ -55,7 +68,8 @@ export function OrgGapsSection({ gaps, slug }: { gaps: OrgGapAnalysis; slug: str
               {gaps.repoSpecific.slice(0, 8).map((o, i) => (
                 <li key={`${o.fullName}-${o.dimId}-${i}`} className="flex items-center justify-between gap-3 text-base">
                   <span className="min-w-0 truncate">
-                    <Link href={`/report?repo=${encodeURIComponent(o.fullName)}`} className="font-mono text-sm text-white hover:text-accent">
+                    {/* Stored-report permalink (no re-scan) — /report?repo= starts the live scan flow. */}
+                    <Link href={`/report/${o.fullName}`} className="focus-ring font-mono text-sm text-white transition hover:text-accent">
                       {o.name}
                     </Link>{" "}
                     <span className="text-slate-500">{o.label}</span>

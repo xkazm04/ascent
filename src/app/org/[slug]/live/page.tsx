@@ -5,8 +5,9 @@
 
 import { LiveWarRoom } from "@/components/org/LiveWarRoom";
 import { toLiveRepoSeeds } from "@/components/org/liveWarRoomShared";
+import { buildFleetTimetable } from "@/components/org/fleetTimetable";
 import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { getOrgRollup, listGoals } from "@/lib/db";
+import { getOrgRepoHistories, getOrgRollup, listGoals, listOpsState } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
 import { liveShareEnabled } from "@/lib/live-share";
@@ -31,11 +32,16 @@ export default async function OrgLivePage({
   // createdAt doubles as the campaign-start baseline for the "since kickoff" delta (WAR-2).
   const goals = await listGoals(slug).catch(() => null);
   const goal = goals?.find((g) => !g.achieved) ?? goals?.[0] ?? null;
-  const [rollup, isOwner] = await Promise.all([
+  const [rollup, isOwner, histories, ops] = await Promise.all([
     getOrgRollup(slug, goal ? { start: new Date(goal.createdAt) } : undefined, null, techGroupId),
     hasOrgRole(slug, "owner"),
+    // Per-repo overall-score history → the fleet-evolution timetable (repos × scan days).
+    getOrgRepoHistories(slug, undefined, null, techGroupId).catch(() => []),
+    // Ship-loop SSR snapshot (triage / in-flight PRs / landed impact); the band's poll advances it.
+    listOpsState(slug).catch(() => null),
   ]);
   if (!rollup) return null;
+  const timetable = buildFleetTimetable(histories);
   const canShare = isOwner && liveShareEnabled();
 
   const watched = rollup.repos.filter((r) => r.watched).length;
@@ -71,6 +77,8 @@ export default async function OrgLivePage({
         scanRepos={scanRepos}
         goal={(goal as GoalProgressView | null) ?? null}
         campaignDeltas={goal ? rollup.deltas ?? null : null}
+        timetable={timetable}
+        ops={ops}
         trend={rollup.trend}
         fleetScannedAt={fleetScannedAt}
         attention={attention}

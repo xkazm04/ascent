@@ -34,10 +34,11 @@ Import everything from `@/components/ui`. Reach for a primitive before hand-roll
 
 - **`Kicker`** — mono uppercase eyebrow. `tone="accent"` (section eyebrow) | `"muted"` (metadata/table head). Replaces hand-rolled `font-mono uppercase tracking-widest` labels.
 - **`Surface`** — the panel: `rounded-{xl|2xl} border border-divider bg-surface/40`. Caller sets padding. Pass `id` for a scroll-anchored panel.
-- **`Stat`** — mono label + `tabular-nums` value + optional `delta`/`goal`. Compose inside a `Surface` for a tile.
+- **`Stat`** — mono label + `tabular-nums` value + optional `delta`/`goal`. The org tabs compose it via `Tile` inside the `TILE_LEDGER` hairline frame (`@/components/org/ui`) — one bordered panel, 1px rules between stats — not one bordered card per stat.
 - **`SectionHeading`** — `kicker` + `title` + `intro` + `right`. `size="page"` (editorial top, text-2xl/3xl) | `"lg"` (dashboard section) | `"sm"` (in-card).
 - **`HairlineGrid`** — a `gap-px` grid over `bg-divider`; children set `bg-ink` so gaps read as hairlines. The editorial cluster (levels, pricing, ledgers).
 - **`Dateline`** — masthead metadata row + hairline under-rule. The "publication" header.
+- **`Modal`** + **`ModalHeader`/`ModalBody`/`ModalFooter`** — the app-level dialog: portals into the root layout's `<ModalRoot />` (ink-veil backdrop over the whole app, never a section-level overlay), surface-strong panel with hairline-ruled sections, focus trap + Escape + scroll lock built in, `locked` pins it open while an operation runs. Don't hand-roll `fixed inset-0` overlays.
 - **`deltaHex` / `fmtDelta` / `signedDelta`** — period-over-period delta color + arrowed text (lime up · orange down · slate flat).
 
 ## Conventions

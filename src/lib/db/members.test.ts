@@ -13,7 +13,7 @@ vi.mock("@/lib/db/client", () => ({
   isDbConfigured: mockIsDbConfigured,
 }));
 
-import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole } from "./members";
+import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole, listOrgsForLogin } from "./members";
 import { createInvite, listPendingInvites } from "./invites";
 
 describe("roleAtLeast", () => {
@@ -144,6 +144,62 @@ describe("setMembershipRole last-owner guard", () => {
     // the route maps "db_error" to a 503 retry instead of a misleading "Unknown organization".
     expect(res).toBe("db_error");
     expect(writes).toHaveLength(0);
+  });
+});
+
+// --- listOrgsForLogin: the header's "enter your org" resolver -----------------------------------
+// Drives the marketing header's swap of the generic "Org demo" link for a direct org-entry link.
+// A fake prisma returns the viewer's membership rows; the function must exclude PUBLIC_ORG and order
+// most-privileged-first so `[0]` is the org to surface.
+
+function fakeOrgsPrisma(opts: {
+  userId?: string | null;
+  memberships?: Array<{ role: string; slug: string; name: string; createdAt: Date }>;
+}) {
+  const memberships = opts.memberships ?? [];
+  const user = { findUnique: vi.fn(async () => (opts.userId === null ? null : { id: opts.userId ?? "user_1" })) };
+  const membership = {
+    findMany: vi.fn(async () =>
+      memberships.map((m) => ({ role: m.role, createdAt: m.createdAt, org: { slug: m.slug, name: m.name } })),
+    ),
+  };
+  return { user, membership };
+}
+
+describe("listOrgsForLogin", () => {
+  it("returns [] when the DB is off, the login is blank, or the user has no row", async () => {
+    mockIsDbConfigured.mockReturnValueOnce(false);
+    expect(await listOrgsForLogin("alice")).toEqual([]);
+
+    expect(await listOrgsForLogin("   ")).toEqual([]); // normalizes to empty → no query
+
+    mockGetPrisma.mockReturnValue(fakeOrgsPrisma({ userId: null }));
+    expect(await listOrgsForLogin("ghost")).toEqual([]);
+  });
+
+  it("excludes the public org and orders most-privileged-first so [0] is the primary org", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakeOrgsPrisma({
+        memberships: [
+          { role: "member", slug: "acme", name: "Acme", createdAt: new Date("2026-01-01") },
+          { role: "public", slug: "public", name: "Public", createdAt: new Date("2026-02-01") },
+          { role: "owner", slug: "vercel", name: "Vercel", createdAt: new Date("2026-01-15") },
+        ],
+      }),
+    );
+
+    const orgs = await listOrgsForLogin("Alice");
+
+    expect(orgs.map((o) => o.slug)).toEqual(["vercel", "acme"]); // public dropped; owner before member
+    expect(orgs[0]).toEqual({ slug: "vercel", name: "Vercel", role: "owner" });
+  });
+
+  it("coerces an unknown stored role to 'member' rather than dropping the org", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakeOrgsPrisma({ memberships: [{ role: "guest", slug: "acme", name: "Acme", createdAt: new Date() }] }),
+    );
+    const orgs = await listOrgsForLogin("bob");
+    expect(orgs).toEqual([{ slug: "acme", name: "Acme", role: "member" }]);
   });
 });
 

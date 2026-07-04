@@ -173,6 +173,25 @@ body {
   animation: ascent-fade-in 0.28s ease-out both;
 }
 
+/* Expansion reveal for inline drill-ins (e.g. a table row's detail panel): animates the modern
+   grid-template-rows 0fr→1fr trick so the height eases open without JS measurement. Mount-only (an
+   entrance beat, per the brand's motion rules — collapse is instant). The direct child must be
+   `min-h-0 overflow-hidden` so the fraction row can actually clamp it. */
+@keyframes ascent-expand-down {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+.animate-expand-down {
+  display: grid;
+  animation: ascent-expand-down 0.24s ease-out both;
+}
+
 /* Shared focus token — one consistent, visible focus ring for every interactive element.
    Keyboard focus (focus-visible) gets an accent outline; mouse clicks stay clean. */
 .focus-ring {
@@ -379,6 +398,9 @@ body {
     animation: none;
   }
   .animate-fade-in {
+    animation: none;
+  }
+  .animate-expand-down {
     animation: none;
   }
   .animate-shake {
