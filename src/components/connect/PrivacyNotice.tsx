@@ -18,6 +18,7 @@ const WHERE: Record<ProviderName, string> = {
   "claude-cli": "a local Claude CLI under your own subscription — your code stays on this machine.",
   gemini: "the Google Gemini API to produce the score.",
   openai: "your configured OpenAI-compatible endpoint to produce the score.",
+  openrouter: "the OpenRouter API, which routes the request to your selected model's upstream provider.",
   mock: "nowhere — scoring is fully local and deterministic; no code leaves this deployment.",
 };
 

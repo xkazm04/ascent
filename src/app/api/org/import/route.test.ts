@@ -27,6 +27,7 @@ vi.mock("@/lib/db", () => ({
   grantCredits: vi.fn(),
   isDbConfigured: () => true,
   persistScanReport: vi.fn(async () => null),
+  persistTeamStandings: vi.fn(async () => false),
   recordScanOutcome: vi.fn(async () => {}),
   setRepoSchedule: vi.fn(async () => {}),
   setRepoWatch: vi.fn(async () => {}),

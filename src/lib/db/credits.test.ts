@@ -15,7 +15,7 @@ vi.mock("@/lib/db/client", () => ({
   withRetry: (fn: () => unknown) => fn(),
 }));
 
-import { consumeScanCredit, grantCredits } from "./credits";
+import { clawbackOrderRefund, consumeScanCredit, grantCredits } from "./credits";
 import { isUnlimitedPlan, PLAN_ORDER } from "@/lib/plans";
 
 /**
@@ -596,5 +596,164 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
     mockIsDbConfigured.mockReturnValue(false);
     const rec = await getCreditReconciliation("acme", 30);
     expect(rec).toBeNull();
+  });
+});
+
+/**
+ * Fake prisma for clawbackOrderRefund — the refund-abuse defense. Models the two pieces its correctness
+ * rides on: (a) a unique `externalId` per refund EVENT (`polar-refund:<orderId>:<cumulativeAmount>`) so a
+ * redelivery collapses, and (b) an `aggregate` over the order's prior `polar-refund` rows so a 2nd+ partial
+ * only reverses the MARGINAL share. The live org row is shared mutable state; `update` applies the relative
+ * increment; `$transaction` rolls the balance back if the body throws (P2002 from a duplicate create).
+ */
+function fakePrismaForClawback(initialBalance: number, opts: { org?: boolean } = {}) {
+  const present = opts.org ?? true;
+  const row = present ? { id: "org_1", scanCredits: initialBalance, plan: "pro" } : null;
+  const ledger: Array<{ delta: number; balanceAfter: number; reason: string; externalId: string }> = [];
+  const seen = new Set<string>();
+
+  const findSeen = vi.fn(async ({ where }: { where: { externalId: string } }) =>
+    seen.has(where.externalId) ? { id: `cl_${where.externalId}` } : null,
+  );
+  const tx = {
+    organization: {
+      findUnique: vi.fn(async () => (row ? { id: row.id, scanCredits: row.scanCredits } : null)),
+      update: vi.fn(async ({ data }: { data: { scanCredits: { increment: number } } }) => {
+        row!.scanCredits += data.scanCredits.increment;
+        return { scanCredits: row!.scanCredits };
+      }),
+    },
+    creditLedger: {
+      // Sum |delta| already clawed for THIS order (rows whose externalId starts with the order prefix).
+      aggregate: vi.fn(async ({ where }: { where: { externalId: { startsWith: string } } }) => {
+        const prefix = where.externalId.startsWith;
+        const total = ledger.filter((e) => e.externalId.startsWith(prefix)).reduce((a, e) => a + e.delta, 0);
+        return { _sum: { delta: total } };
+      }),
+      create: vi.fn(
+        async ({ data }: { data: { delta: number; balanceAfter: number; reason: string; externalId: string } }) => {
+          if (seen.has(data.externalId)) throw { code: "P2002", message: "Unique constraint failed (externalId)" };
+          seen.add(data.externalId);
+          ledger.push({ delta: data.delta, balanceAfter: data.balanceAfter, reason: data.reason, externalId: data.externalId });
+          return data;
+        },
+      ),
+    },
+  };
+  const prisma = {
+    organization: { findUnique: vi.fn(async () => (row ? { scanCredits: row.scanCredits, plan: row.plan } : null)) },
+    creditLedger: { findUnique: findSeen },
+    $transaction: async (fn: (t: typeof tx) => unknown) => {
+      const snap = row ? row.scanCredits : 0;
+      try {
+        return await fn(tx);
+      } catch (err) {
+        if (row) row.scanCredits = snap;
+        throw err;
+      }
+    },
+  };
+  return { prisma, row, ledger };
+}
+
+describe("clawbackOrderRefund (Polar refund-abuse defense)", () => {
+  it("a full refund reverses the whole granted pack", async () => {
+    const { prisma, row, ledger } = fakePrismaForClawback(100);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await clawbackOrderRefund("acme", "ord1", 100, { eventKey: "1000" });
+
+    expect(balance).toBe(0);
+    expect(row!.scanCredits).toBe(0);
+    expect(ledger).toEqual([
+      { delta: -100, balanceAfter: 0, reason: "polar-refund", externalId: "polar-refund:ord1:1000" },
+    ]);
+  });
+
+  it("a partial refund reverses only its proportional share", async () => {
+    const { prisma, row, ledger } = fakePrismaForClawback(100);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" });
+
+    expect(balance).toBe(60);
+    expect(row!.scanCredits).toBe(60);
+    expect(ledger).toEqual([{ delta: -40, balanceAfter: 60, reason: "polar-refund", externalId: "polar-refund:ord1:400" }]);
+  });
+
+  it("sequential partials apply only the MARGINAL share (cumulative target, not double-clawing)", async () => {
+    const { prisma, row, ledger } = fakePrismaForClawback(100);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" }); // → -40, balance 60
+    const balance = await clawbackOrderRefund("acme", "ord1", 70, { eventKey: "700" }); // cumulative target 70 → marginal 30
+
+    expect(balance).toBe(30);
+    expect(row!.scanCredits).toBe(30);
+    expect(ledger.map((e) => e.delta)).toEqual([-40, -30]);
+  });
+
+  it("partial-then-full reconciles to the full pack (marginal 60 after a first -40)", async () => {
+    const { prisma, row, ledger } = fakePrismaForClawback(100);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" });
+    const balance = await clawbackOrderRefund("acme", "ord1", 100, { eventKey: "1000" });
+
+    expect(balance).toBe(0);
+    expect(row!.scanCredits).toBe(0);
+    expect(ledger.map((e) => e.delta)).toEqual([-40, -60]);
+  });
+
+  it("a redelivery of the SAME refund event is a no-op (fast-path on the per-event externalId)", async () => {
+    const { prisma, row, ledger } = fakePrismaForClawback(100);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const first = await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" });
+    const second = await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" }); // same event redelivered
+
+    expect(first).toBe(60);
+    expect(second).toBe(60); // current balance, not double-clawed
+    expect(row!.scanCredits).toBe(60);
+    expect(ledger).toHaveLength(1);
+  });
+
+  it("clamps at zero when the balance was already spent (an already-spent pack absorbs the rest)", async () => {
+    const { prisma, row, ledger } = fakePrismaForClawback(10); // bought 100, spent 90
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await clawbackOrderRefund("acme", "ord1", 100, { eventKey: "1000" });
+
+    expect(balance).toBe(0); // never negative
+    expect(row!.scanCredits).toBe(0);
+    expect(ledger).toEqual([{ delta: -10, balanceAfter: 0, reason: "polar-refund", externalId: "polar-refund:ord1:1000" }]);
+  });
+
+  it("a cumulative target no greater than what's already clawed adds nothing (marginal ≤ 0)", async () => {
+    const { prisma, row, ledger } = fakePrismaForClawback(100);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" }); // -40
+    const balance = await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400b" }); // same target, new event
+
+    expect(balance).toBe(60);
+    expect(row!.scanCredits).toBe(60);
+    expect(ledger).toHaveLength(1); // no second row
+  });
+
+  it("returns null for an unknown org (no clawback attempted)", async () => {
+    const { prisma, ledger } = fakePrismaForClawback(0, { org: false });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await clawbackOrderRefund("ghost", "ord1", 40, { eventKey: "400" });
+
+    expect(balance).toBeNull();
+    expect(ledger).toHaveLength(0);
+  });
+
+  it("returns null when persistence is off (no DB)", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    const balance = await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" });
+    expect(balance).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import { securityMarkdown, type SecurityOverview } from "./security";
 vi.mock("@/lib/db", () => ({
   getOrgRollup: vi.fn(),
   getOrgGovernance: vi.fn(),
+  getOrgDimensionGaps: vi.fn(),
 }));
 
 const fixture: SecurityOverview = {
@@ -36,8 +37,8 @@ const fixture: SecurityOverview = {
     failingRepos: [{ name: "legacy-api", fullName: "acme/legacy-api", score: 22, reason: "Security 22 < 50" }],
   },
   register: [
-    { name: "legacy-api", fullName: "acme/legacy-api", score: 22, gateReason: "Security 22 < 50", rules: { protected: false, review: false, checks: false, signed: false } },
-    { name: "web", fullName: "acme/web", score: 51, gateReason: null, rules: { protected: true, review: true, checks: false, signed: false } },
+    { name: "legacy-api", fullName: "acme/legacy-api", score: 22, gateReason: "Security 22 < 50", rules: { protected: false, review: false, checks: false, signed: false }, checks: [], issues: ["No SAST configuration visible", "No SBOM generation evidenced"], summary: "Weak supply-chain posture." },
+    { name: "web", fullName: "acme/web", score: 51, gateReason: null, rules: { protected: true, review: true, checks: false, signed: false }, checks: [], issues: [], summary: "" },
   ],
 };
 
@@ -83,12 +84,13 @@ describe("securityMarkdown", () => {
 // ---------------------------------------------------------------------------
 
 import { buildSecurityOverview } from "./security";
-import { getOrgRollup, getOrgGovernance } from "@/lib/db";
+import { getOrgRollup, getOrgGovernance, getOrgDimensionGaps } from "@/lib/db";
 import { DEFAULT_SECURITY_MIN } from "@/lib/scoring/gate";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 
 const mockRollup = vi.mocked(getOrgRollup);
 const mockGov = vi.mocked(getOrgGovernance);
+const mockGaps = vi.mocked(getOrgDimensionGaps);
 
 type Rollup = NonNullable<Awaited<ReturnType<typeof getOrgRollup>>>;
 type RepoRow = Rollup["repos"][number];
@@ -146,6 +148,7 @@ function rollup(repos: RepoRow[], over: Partial<Rollup> = {}): Rollup {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGov.mockResolvedValue(null); // default: no governance data; individual tests override.
+  mockGaps.mockResolvedValue(null); // default: no per-repo D9 findings; individual tests override.
 });
 
 describe("buildSecurityOverview — null / empty fleet", () => {
@@ -306,5 +309,33 @@ describe("buildSecurityOverview — risk register", () => {
     const byName = Object.fromEntries(o.register.map((r) => [r.name, r]));
     expect(byName.a.rules).toEqual({ protected: true, review: false, checks: true, signed: false });
     expect(byName.b.rules).toBeNull(); // no governance row for b — unknown, not "all off"
+  });
+
+  it("joins each repo's D9 findings (gaps + parsed checks + summary) onto its row; missing → empty", async () => {
+    mockRollup.mockResolvedValue(rollup([repo("a", 40), repo("b", 30)]));
+    mockGaps.mockResolvedValue(
+      new Map([
+        [
+          "acme/a",
+          {
+            fullName: "acme/a",
+            gaps: ["Add CodeQL scanning that runs on pull_request."],
+            evidence: ["SAST [posture/medium]: 0/10 — No SAST wired into CI.", "Branch protection [posture/high]: 9/10 — Default branch: protected, 2 approvals.", "Known vulnerabilities [exposure/high]: n/a/10 — not inspected."],
+            summary: "Weak posture.",
+          },
+        ],
+        // b intentionally absent → its row must degrade to no findings, not throw.
+      ]),
+    );
+    const o = (await buildSecurityOverview("acme"))!;
+    const byName = Object.fromEntries(o.register.map((r) => [r.name, r]));
+    expect(byName.a.issues).toEqual(["Add CodeQL scanning that runs on pull_request."]);
+    expect(byName.a.summary).toBe("Weak posture.");
+    // The evidence lines parse into structured, graded checks (posture + exposure, n/a preserved).
+    expect(byName.a.checks.find((c) => c.name === "SAST")).toMatchObject({ score: 0, group: "posture" });
+    expect(byName.a.checks.find((c) => c.name === "Branch protection")).toMatchObject({ score: 9 });
+    expect(byName.a.checks.find((c) => c.name === "Known vulnerabilities")).toMatchObject({ score: null, group: "exposure" });
+    expect(byName.b.issues).toEqual([]);
+    expect(byName.b.checks).toEqual([]);
   });
 });

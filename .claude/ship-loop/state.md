@@ -1,31 +1,46 @@
-# Ship Loop — state
+# Ship Loop — state (ascent)
 
 ## Context refresher
-- App: ai-bookkeeper — AI bookkeeping for trades ("Ledgerline/Trader Desk"). Stack: NextJS 16 + Supabase auth (NOT Firebase — memory corrected) + Postgres-dialect getDb() over PGlite/pg/CloudSQL + token ledger + Polar. Branch dev-clone/adr0048-perf-gaps (ahead 7 now, unpushed).
-- Ship bar: DEFERRED (user AFK at CP0). Cadence: Milestone (provisional). UAT depth: deferred.
-- Scorecard: 1.Build 🟢 2.Func 🔴 3.Tests 🟡 4.UAT 🟡 5.Billing 🟡 6.Sec 🟡 7.UX 🟡 8.Ops 🟡 9.Value 🔴 (lens not yet run — items 31-32)
-- Milestone 1 "correctness+security" ☑ COMPLETE: items 6,7,8,9,10,11,12 all done+committed; gate ran (see below).
-- NEXT ACTION: CP1 — present milestone results + re-ask deferred CP0 questions (ship bar, product core) + confirm auto-decisions; then Milestone 2.
+- App: **ascent** — an "engineering maturity" scanner. Scans GitHub orgs/repos, scores maturity across dimensions (D1..D9, incl. D9 Security) via an LLM, and renders org dashboards (delivery / security / teams / practices), report permalinks, an onboarding tour, and a **maturity-gate** API product (`/api/gate/:repo` → CI pass/fail). Monetized via Polar (monthly subscription + 5-scan/month public allowance).
+- Stack: Next **16.3.0-preview.5** (App Router; breaking vs training data — read node_modules/next/dist/docs before writing code) · React 19.2 · Prisma 6 + Postgres (local **PGlite** / pg / AWS DSQL) · **Supabase** GitHub OAuth auth · Polar billing · LLM provider (claude-cli / Bedrock / @google/genai) · vitest · Playwright · Tailwind 4 · framer-motion · recharts · remotion/react-pdf.
+- Repo: ascent, branch **master**. Working tree: large uncommitted WIP (~40 modified + many new files) — auditing AS-IS.
+- Ship bar: **DEFERRED** (CP0 pending — ask at first checkpoint). Cadence: Milestone (provisional default). UAT depth: deferred.
+- Conventions: max 300 LOC per .tsx (currently zero over — keep it); large .ts → thin re-export barrels; context-map.json maps files→features (read before editing).
 
-## Scorecard (post-Milestone-1 gate, 2026-07-02)
-| # | Dimension | Score | Evidence | Top gaps |
+## Scorecard (post-BOOT gate + 6-lens audit, 2026-07-05)
+| # | Dimension | Score | Evidence | Top gaps (backlog #) |
 |---|-----------|-------|----------|----------|
-| 1 | Build & types | 🟢 | typecheck 0 · lint 0 · build 0 (22 routes) — all this gate | — |
-| 2 | Functional completeness | 🔴 | routes audit | "text a receipt" NO backend (fake number); business data = shared mock fixture; 4 orphaned landing widgets (→ e2e reds); FAQ overpromises; wealth placeholders. ALL awaiting CP1 product decisions (items 1-5) |
-| 3 | Tests | 🟡 | npm test exit 0: 1079/1079 (was 1069/1070 at boot) | Money-in holes remain: checkout route, polar/client, auth/db, db drivers, forecast route, settle wiring (items 13-16) |
-| 4 | Simulated UAT | 🟡 | full run: 88/107 passed, exit 1 (6.3m, gemini-fallback mode) | 19 fails, 3 roots: (A) tour overlay blocked clicks → FIXED via storageState pre-seed, subset rerun pending; (B) orphaned-landing specs (item 3 decision); (C) zz-paywall drain hits 429 before 402 (item 29). Missing journeys: items 18-20 |
-| 5 | Billing value | 🟡 | benchmarks overcharge FIXED (ctx.reclaim, tested); charge-then-reclaim + idempotent credits + webhook all tested | Rate-card omits forecast+export (25); A2 per-op assertions (21); mock-books value question (inherits dim 2); auto-reload placeholder |
-| 6 | Auth & security | 🟡 | /admin RBAC ✓ (ADMIN_EMAILS, fail-closed, 4 tests) · ask/export requireUser-first ✓ (19 tests) · middleware backstop ✓ (2 tests) · env docs fixed ✓ | No DB-level RLS backstop (matters when real per-owner data lands, item 1); sandbox tokens in plaintext .env.local (user: rotate if tree was shared) |
-| 7 | UX/UI polish | 🟡 | static survey only | Boundaries (22), mobile top-bar + chart (23), auto-reload feedback (24), drift (27); no screenshot sweep yet |
-| 8 | Ops readiness | 🟡 | CI green ladder exists; POLAR_PRODUCT_* discovered already set in .env.local | Deploy story unverified; e2e not in CI (deliberate); .claude/CLAUDE.md boilerplate (28); docs for Polar envs (26, shrunk) |
+| 1 | Build & types | 🟢 | tsc ✓ 0 · eslint ✓ 0 err · next build ✓; **M7: 300-LOC invariant restored (18 ☑) — zero .tsx >300** | 13 benign lint warnings; large .ts barrels (21), name collision (19), context-map drift (20) remain |
+| 2 | Functional completeness | 🟡 | core scan/scoring/gate all real; **M3: AI-delivery synthetic $ now gated/dashed/watermarked behind real fidelity + connector copy fixed (12,13,14 ☑)** | verdict taxonomy still spend-derived in simulated mode (39); logs stub (16); seed-ai-usage context-map drift (40) |
+| 3 | Tests | 🟢 | **gate GREEN**: 2940/2940 (+59 across M4+M5); money-in (5,6,7 ☑) + integrations recordUsage/ingest/team-standings (8,9,10 ☑) now covered | remaining: e2e not in CI (11) |
+| 4 | Simulated UAT (e2e) | 🟡 | 9 Playwright specs exist (scan-flow, org-suite, connect) | NOT run this boot; NOT in CI (11) |
+| 5 | Billing / value capture | 🟡 | Polar webhook + idempotent grants + refund clawback + checkout guards now **tested** (M4, [C/C/H] closed); allowance aligned to 5/mo (M3-adjacent) | repricing for platform-eng buyer (38); integrations $ ROI untested (8) |
+| 6 | Auth & security | 🟢 | no cross-tenant IDOR (layout canReadOrg gates 21 pages via real Membership); all 64 routes gated; SSRF/cmd-inj/bypass closed; webhook+crons fail-closed; secrets clean | 3 low hardening only (26,27); public-scan quota fails-open by design |
+| 7 | UX/UI polish | 🟢 | exemplary scan UX; M6 shared RouteError + 5 loading shells (23◐); **M7 300-LOC extraction (18 ☑)**; **M8 SVG-title hydration fix (24 ☑) + a11y labels/aria-live (25◐)** | scatter keyboard-access (25, deferred); remaining loading/error refinements (23) |
+| 8 | Ops readiness | 🟡 | CI runs vitest+coverage+build; 2 new prisma migrations consistent w/ schema | e2e not in CI (11); context-map drift 7 files (20); seed-ai-usage route deleted-but-referenced (15) |
+| 9 | Value & market reality | 🟡 | narrative moat; decisions D28-32 locked (M1); **M9: GH-native bias fix confirmed ALREADY SHIPPED+TESTED (37 ☑) + deterministic golang-floor regression added (36◐) — twin gap 54pt→≤8pt** | live 10-org re-scan = user task (36); repricing needs pricing decisions (38); reproducibility marketing (29) pending |
 
-## Milestone 1 — commits
-7f53e38 lint clean · 403e080 relocate teardown (PGlite/libuv race) · +ctx.reclaim benchmarks fix · 37333ce ask/export envelope · middleware backstop · admin RBAC · 3fd4b35 env docs
-Gate: typecheck ✓ lint ✓ tests 1079/1079 ✓ build ✓ e2e 88/107 (3 failure roots, none caused by Milestone 1 — verified: wealth route answers in 2.6s via direct probe; failures pre-date loop)
+**Headline:** Build/Security/UX are 🟢 and genuinely strong. The only RED is **Tests (gate is failing on 4 WIP-integration breaks + 22 lint errors)** — mechanical to green. Deeper themes: untested money-in path, an AI-delivery seam that shows synthetic dollars to users, and a cluster of strategic value/positioning decisions (dim 9).
 
-## Price table (unchanged from boot — see journal for source)
-categorize 1 · ask-ledger 3 · benchmarks 3+fee · export 3 · tax-credits 5+fee · wealth 5 (no fee, uncalibrated) · forecast 5. Signup 150. Bundles $5-$150. Pro $29/mo.
+## Milestones
+- **M1 "strategy" ☑ COMPLETE** (2026-07-05): dim-9 decisions D28-D32 made at CP1 (two-tier / gate-only-reproducible / validate-then-broaden / platform-eng-leader buyer). Brief: docs/VALUE-CASE.md. Derived work filed (33-38). No code changed (strategy milestone).
+- **M2 "green the gate" ☑ COMPLETE** (2026-07-05): items 1,2,3,4 done. 4 failing tests fixed (persistTeamStandings mock + allowance→5) → 2881/2881; 22 lint errors → 0 (Th hoisted to module scope ×2, Modal ref→effect, 6 justified scoped disables, mechanical). Gate GREEN (tsc✓ lint✓ tests✓ build✓). Changes uncommitted (mixed into pre-existing WIP).
+- **M3 "AI-delivery synthetic-$ disclosure" ☑ COMPLETE** (2026-07-05): items 12,13,14 done. Gate GREEN. Follow-up 39 filed (verdict taxonomy).
+- **M4 "money-in test holes" ☑ COMPLETE** (2026-07-05): items 5,6,7 done. +32 tests (webhook 14, clawback 9, checkout 9). Gate GREEN. Revenue path was ZERO-tested; now covered.
+- **M5 "integrations tests" ☑ COMPLETE** (2026-07-05): items 8,9,10 done. +27 tests (integrations 11, ingest 6, team-standings 10). Gate GREEN.
+- **M6 "boundaries" ☑ COMPLETE** (2026-07-05): item 23 (slice) — shared RouteError (DRY'd root+org error.tsx) + PageSkeleton + 5 loading shells. Gate GREEN.
+- **M7 "300-LOC extraction" ☑ COMPLETE** (2026-07-05): item 18 — all 11 files ≤300 via parallel pure-relocation agents; ~30 co-located files; gate green; AGENTS.md invariant restored.
+- **M8 "quick UX" ☑ COMPLETE** (2026-07-05): item 24 done + item 25 (a11y labels/aria-live) mostly; gate green.
+- **M9 "value execution" ☑ COMPLETE** (2026-07-05): item 37 confirmed already-shipped+tested; item 36 validated deterministically (golang-floor regression test); item 38 deferred (pricing decisions). Gate green.
+- **M10 candidates**: context-map refresh (20, quite stale after M7's ~30 files); OR large-.ts barrel splits (21) + name collision (19); OR e2e-in-CI (11); OR functional (16 logs-stub, 39 verdict-taxonomy); OR security hardening (26 ingest-token dev-secret, 27 prompt delimiters).
+
+## Backlog status (as of M9)
+DONE: 1,2,3,4 (M2) · 5,6,7 (M4) · 8,9,10 (M5) · 12,13,14 (M3) · 18 (M7) · 24 (M8) · 37 (M9, was already-done) · 28-32 decided (M1). PARTIAL: 23 (M6), 25 (M8), 36 (M9). OPEN: 11,15,16,17,19,20,21,22,26,27,33,34,35,38,39,40.
+
+## NEXT ACTION
+**9 milestones stacked uncommitted** (+62 tests session-total). Await user: **commit** (recommended), **M10** (pick a candidate), or pause. Gate green throughout.
 
 ## Checkpoint history
-- CP0 (2026-07-02): USER AFK → provisional: cadence=milestone; ship bar + product core DEFERRED; M1 = items 6-12.
-- CP1: PENDING (trigger: M1 complete). Must present: deferred CP0 questions, 4 auto-decisions, product-decision cluster 1-5, new item 29.
+- CP0 (2026-07-05): ship bar="just keep improving"; cadence=continuous; allowance=5/mo; M1=strategy-first.
+- CP1 (2026-07-05): M1 strategy decisions D28-D32 (see decisions.md). → M2 = green the gate.
+- M2 (2026-07-05): gate GREEN. → M3 = AI-delivery synthetic-$ disclosure (continuous; no checkpoint).

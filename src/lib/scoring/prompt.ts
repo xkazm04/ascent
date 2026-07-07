@@ -2,7 +2,7 @@
 // (Phase 2) Bedrock share identical instructions and output contract.
 
 import type { LlmScoreInput } from "@/lib/llm/provider";
-import type { Governance, PrStats, SecurityPosture } from "@/lib/types";
+import type { Governance, PrStats, SecurityAssessment } from "@/lib/types";
 import { formatSignal } from "@/lib/types";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 
@@ -45,24 +45,20 @@ function processBlock(prStats?: PrStats | null, governance?: Governance | null):
 }
 
 /**
- * Render the GitHub-native security posture (D9). The file excerpts only show committed CI-as-code,
- * so a repo whose security runs through GitHub (managed code scanning, Dependabot, an active
- * advisory program) looks empty on D9. Surface the platform-level evidence so the model scores D9 on
- * the real posture — and reads published advisories as a maturity signal (a triage/disclosure/patch
- * program), NOT as a vulnerability count that should DROP the score.
+ * Render the DETERMINISTIC Security (D9) check battery. D9's score is computed, not judged: it is the
+ * risk-weighted mean of the graded checks below (plus an exposure fold), and the engine takes it as
+ * final. The model's job for D9 is NARRATIVE — write the summary and prioritize the gaps from this
+ * exact evidence — NOT to re-score it. Do not contradict these grades; explain them.
  */
-function securityBlock(posture?: SecurityPosture | null): string {
-  if (!posture) return "(unavailable — scanned without a token, so GitHub-native security signals were skipped.)";
-  const advisories =
-    posture.advisoryCount > 0
-      ? `${posture.advisoryCapped ? `${posture.advisoryCount}+` : posture.advisoryCount} published security advisories (coordinated disclosure via GHSA — a working triage/patch program, treat as a POSITIVE D9 maturity signal, not a vulnerability tally)`
-      : "no published security advisories found";
-  const policy = posture.orgSecurityPolicy
-    ? "org-level SECURITY.md present (documented vulnerability-reporting path)"
-    : "no org-level SECURITY.md found";
+function securityBlock(a?: SecurityAssessment | null): string {
+  if (!a) return "(unavailable — scanned without a token, so the security check battery didn't run; D9 falls back to file signals.)";
+  const lines = a.checks
+    .filter((c) => c.score !== null)
+    .map((c) => `- [${c.score}/10] ${c.name} (${c.risk}): ${c.evidence}`);
+  const exposure = a.exposure === null ? "unknown (dependencies not inspected)" : `${a.exposure}/100`;
   return [
-    `- GitHub-native security (D9): ${advisories}; ${policy}.`,
-    `- NOTE: managed code scanning / Dependabot / secret scanning are configured in repo Settings, not as committed files — absence from the SAMPLED FILES is NOT evidence they're off. Do not score D9 near zero solely because security-as-code YAML isn't in the excerpts.`,
+    `Security (D9) = ${a.d9}/100 — DETERMINISTIC (posture ${a.posture}/100 · exposure ${exposure}). This number is FIXED; narrate it, do not re-score.`,
+    ...lines,
   ].join("\n");
 }
 
@@ -134,7 +130,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   system: string;
   user: string;
 } {
-  const { repo, signals, files, commitSample, archetype, prStats, governance, securityPosture, stackFit, techStack } = input;
+  const { repo, signals, files, commitSample, archetype, prStats, governance, securityAssessment, stackFit, techStack } = input;
 
   const signalBlock = signals
     .map((s) => {
@@ -182,8 +178,8 @@ ${signalBlock}
 PROCESS SIGNALS (review discipline, merge velocity, AI governance, branch protection — the behavioral evidence behind D3/D6/D7/D8; calibrate those dimensions to this too):
 ${processBlock(prStats, governance)}
 
-SECURITY POSTURE (GitHub-native evidence behind D9 — the platform-managed security the sampled files can't show; calibrate D9 to this, not just committed security-as-code):
-${securityBlock(securityPosture)}
+SECURITY (D9) — DETERMINISTIC CHECK BATTERY (the number is computed from these graded controls; your D9 score field is ignored — write the D9 summary + gaps to match this evidence):
+${securityBlock(securityAssessment)}
 
 RECENT COMMIT MESSAGES (sample):
 ${commitBlock}

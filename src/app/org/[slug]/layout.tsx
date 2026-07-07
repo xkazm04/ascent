@@ -5,7 +5,7 @@ import { OrgScanButton } from "@/components/org/OrgScanButton";
 import { CreditsControl } from "@/components/org/CreditsControl";
 import { AlertsControl } from "@/components/org/AlertsControl";
 import { OrgEmpty } from "@/components/org/ui";
-import { OnboardingLab } from "@/components/onboarding/tour/OnboardingLab";
+import { OnboardingChecklist } from "@/components/onboarding/tour/OnboardingChecklist";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
@@ -202,9 +202,9 @@ export default async function OrgLayout({
           <div className="animate-fade-up">{children}</div>
         </div>
       </main>
-      {/* PROTOTYPE: temporary onboarding-tour A/B harness, scoped to the curated demo org. Persisting it
-          in the layout (not a page) lets the tour survive sub-page navigation and re-anchor on redirect. */}
-      {slug.toLowerCase() === DEMO_ORG_SLUG && <OnboardingLab slug={slug} />}
+      {/* Guided onboarding drawer, scoped to the curated demo org. Mounted in the layout (not a page) so
+          the tour survives sub-page navigation and re-anchors after each redirect. */}
+      {slug.toLowerCase() === DEMO_ORG_SLUG && <OnboardingChecklist slug={slug} />}
     </>
   );
 }

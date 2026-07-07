@@ -177,6 +177,8 @@ CREATE TABLE "Scan" (
     "commitActivity" TEXT,
     "techStackJson" TEXT,
     "passportJson" TEXT,
+    "warningsJson" TEXT,
+    "aiUsageJson" TEXT,
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
@@ -185,6 +187,11 @@ CREATE TABLE "Scan" (
 
     CONSTRAINT "Scan_pkey" PRIMARY KEY ("id")
 );
+-- Idempotent add-column so an EXISTING local .pglite DB picks up new columns without a wipe:
+-- pglite-boot rewrites CREATE TABLE -> IF NOT EXISTS (which skips an existing table), so a new column
+-- must be applied explicitly. Safe + idempotent on fresh boots (the column already exists) and psql.
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "warningsJson" TEXT;
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "aiUsageJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (
@@ -349,6 +356,24 @@ CREATE TABLE "ImprovementPr" (
 );
 
 -- CreateTable
+CREATE TABLE "TeamStandingSnapshot" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "generatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "teamCount" INTEGER NOT NULL,
+    "fleetAvgOverall" INTEGER NOT NULL,
+    "spread" INTEGER NOT NULL,
+    "leaderSlug" TEXT NOT NULL,
+    "leaderScore" INTEGER NOT NULL,
+    "laggardSlug" TEXT NOT NULL,
+    "laggardScore" INTEGER NOT NULL,
+    "standingsJson" TEXT NOT NULL,
+    "source" TEXT NOT NULL DEFAULT 'scan',
+
+    CONSTRAINT "TeamStandingSnapshot_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "SessionRevocation" (
     "login" TEXT NOT NULL,
     "version" INTEGER NOT NULL DEFAULT 0,
@@ -500,6 +525,9 @@ CREATE INDEX "ImprovementPr_orgId_createdAt_idx" ON "ImprovementPr"("orgId", "cr
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ImprovementPr_orgId_repoFullName_practiceId_key" ON "ImprovementPr"("orgId", "repoFullName", "practiceId");
+
+-- CreateIndex
+CREATE INDEX "TeamStandingSnapshot_orgId_generatedAt_idx" ON "TeamStandingSnapshot"("orgId", "generatedAt");
 
 -- CreateTable
 CREATE TABLE "Invite" (
@@ -710,6 +738,33 @@ CREATE TABLE "WebhookDelivery" (
 
 -- CreateIndex
 CREATE INDEX "WebhookDelivery_expiresAt_idx" ON "WebhookDelivery"("expiresAt");
+
+-- CreateTable: normalized AI-usage records (integrations increment 2). One row per (source, scope,
+-- scopeKey, day). scope=repo carries measured per-repo spend (Claude Code OTel git.repository); scope=org
+-- an allocated total (Copilot/OpenAI). Feeds the /delivery AI ROI resolver at the declared fidelity.
+CREATE TABLE "AiUsageRecord" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "scope" TEXT NOT NULL,
+    "scopeKey" TEXT NOT NULL,
+    "periodStart" TIMESTAMP(3) NOT NULL,
+    "tokens" INTEGER NOT NULL DEFAULT 0,
+    "costCents" INTEGER NOT NULL DEFAULT 0,
+    "sessions" INTEGER NOT NULL DEFAULT 0,
+    "seats" INTEGER NOT NULL DEFAULT 0,
+    "fidelity" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AiUsageRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AiUsageRecord_orgId_source_scope_scopeKey_periodStart_key" ON "AiUsageRecord"("orgId", "source", "scope", "scopeKey", "periodStart");
+
+-- CreateIndex
+CREATE INDEX "AiUsageRecord_orgId_source_idx" ON "AiUsageRecord"("orgId", "source");
 
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so

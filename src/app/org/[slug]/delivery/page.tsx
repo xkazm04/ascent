@@ -5,7 +5,9 @@ import { PrSignalsBand } from "@/components/org/delivery/PrSignalsBand";
 import { PrRepoTable } from "@/components/org/delivery/PrRepoTable";
 import { GovernanceTable } from "@/components/org/delivery/GovernanceTable";
 import { DeliveryActivityChart } from "@/components/org/delivery/DeliveryActivityChart";
-import { getOrgActivity, getOrgGovernance, getOrgPrSignals } from "@/lib/db";
+import { AiDeliveryModule } from "@/components/org/delivery/ai/AiDeliveryModule";
+import { buildAiDeliveryModel } from "@/components/org/delivery/ai/aiDeliveryModel";
+import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";
 
@@ -25,11 +27,17 @@ export default async function OrgDelivery({
   // delivery/governance for one business unit or stack; the two filters compose.
   const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
 
-  const [pr, gov, activity] = await Promise.all([
+  const [pr, gov, activity, usage] = await Promise.all([
     getOrgPrSignals(slug, segmentId, techGroupId),
     getOrgGovernance(slug, segmentId, techGroupId),
     getOrgActivity(slug, segmentId, techGroupId),
+    getOrgUsageRollup(slug),
   ]);
+
+  // AI delivery intelligence: join the real per-repo AI signals above with connected-provider usage
+  // (measured/allocated), falling back to a simulated placeholder when nothing is connected. Computed
+  // server-side; the client module toggles between the Table and Map views over this one model.
+  const aiModel = buildAiDeliveryModel(pr, usage);
 
   const segmentBar = (
     <ScopeFilterBar
@@ -63,6 +71,9 @@ export default async function OrgDelivery({
 
       {/* Fix first — the derived punch list; every priority links to the evidence below. */}
       {(pr || gov) && <DeliveryPriorities pr={pr} gov={gov} />}
+
+      {/* AI delivery intelligence — spend × AI output × governance, as a Table and a Map view. */}
+      {aiModel && <AiDeliveryModule model={aiModel} slug={slug} />}
 
       {/* Pull request signals */}
       {pr && (

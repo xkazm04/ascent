@@ -61,9 +61,15 @@ function makeError(overrides: Partial<Error & { digest?: string }> = {}): Error 
   return err;
 }
 
-/** Build the element tree for the boundary, given an error + a reset spy. */
+/** Build the element tree for the boundary, given an error + a reset spy. AppError delegates to the
+ *  shared RouteError card, so descend one level (invoke the returned component with its props) to walk
+ *  the actual rendered output. Handles a direct-tree return too, so the assertions stay implementation-
+ *  agnostic. */
 function tree(error: Error & { digest?: string }, reset: () => void = () => {}): El[] {
-  return flatten(AppError({ error, reset }));
+  const top = AppError({ error, reset }) as El;
+  const rendered =
+    top && typeof top.type === "function" ? (top.type as (p: unknown) => ReactNode)(top.props) : top;
+  return flatten(rendered);
 }
 
 /** All concatenated text in the tree. */

@@ -23,6 +23,7 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   listWatchedRepos: vi.fn(),
   persistScanReport: vi.fn(),
+  persistTeamStandings: vi.fn(async () => false),
   recordScanOutcome: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/github/app", () => ({

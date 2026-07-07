@@ -952,3 +952,44 @@ describe("cheapestPathToNextLevel — level-up roadmap branches (#5)", () => {
     expect(path.projected.overallScore).toBe(report.overallScore); // unchanged as-is projection
   });
 });
+
+describe("assembleReport — discrepancy widens the guardband (P1-1)", () => {
+  it("a dimension the LLM flagged as a detector discrepancy trusts the model further (wider band, UP)", () => {
+    const base = signalsWith({ D1: { signalScore: 20 } });
+    const unflagged = assembleReport(snapWithCoverage(1), base, assessmentWith({ D1: 90 }), eng, AT, "org");
+    const flagged = assembleReport(
+      snapWithCoverage(1),
+      base,
+      { ...assessmentWith({ D1: 90 }), discrepancies: [{ dimension: "D1", claim: "Detector missed CI-inline lint enforced off-GitHub." }] },
+      eng, AT, "org",
+    );
+    // Unflagged: llm clamped to signal+25=45 → round(0.6·45+0.4·20)=35. Flagged: signal+50=70 → round(0.6·70+0.4·20)=50.
+    expect(scoreOf(unflagged, "D1")).toBe(35);
+    expect(scoreOf(flagged, "D1")).toBe(50);
+  });
+
+  it("also lets the model correct a FALSE POSITIVE downward when flagged", () => {
+    const base = signalsWith({ D1: { signalScore: 80 } });
+    const unflagged = assembleReport(snapWithCoverage(1), base, assessmentWith({ D1: 10 }), eng, AT, "org");
+    const flagged = assembleReport(
+      snapWithCoverage(1),
+      base,
+      { ...assessmentWith({ D1: 10 }), discrepancies: [{ dimension: "D1", claim: "Signal credited mypy on a Rust repo — false positive." }] },
+      eng, AT, "org",
+    );
+    expect(scoreOf(flagged, "D1")).toBeLessThan(scoreOf(unflagged, "D1")); // 50 < 65
+  });
+
+  it("does not move a dimension the model did NOT flag (calibrated ±25 preserved)", () => {
+    const base = signalsWith({ D1: { signalScore: 40 }, D2: { signalScore: 40 } });
+    const noDisc = assembleReport(snapWithCoverage(1), base, assessmentWith({ D1: 90, D2: 90 }), eng, AT, "org");
+    const d2Flagged = assembleReport(
+      snapWithCoverage(1), base,
+      { ...assessmentWith({ D1: 90, D2: 90 }), discrepancies: [{ dimension: "D2", claim: "missed evidence" }] },
+      eng, AT, "org",
+    );
+    // D1 (unflagged) is identical with or without the D2 discrepancy; only the flagged D2 rises above it.
+    expect(scoreOf(d2Flagged, "D1")).toBe(scoreOf(noDisc, "D1"));
+    expect(scoreOf(d2Flagged, "D2")).toBeGreaterThan(scoreOf(d2Flagged, "D1"));
+  });
+});

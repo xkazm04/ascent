@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
-import { getInstallationIdForOwner, isByomActive, isDbConfigured, listWatchedRepos, persistScanReport, recordScanOutcome } from "@/lib/db";
+import { getInstallationIdForOwner, isByomActive, isDbConfigured, listWatchedRepos, persistScanReport, persistTeamStandings, recordScanOutcome } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
@@ -163,6 +163,9 @@ export async function POST(request: Request) {
           done += 1;
           send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
         });
+        // Capture the team-standings decomposition as a durable output of this full org scan
+        // (best-effort — a failure here must never break the scan or the SSE result).
+        await persistTeamStandings(org).catch(() => {});
         send("result", { scanned: done, total: scanList.length, skippedForCredits });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Bulk scan failed." });

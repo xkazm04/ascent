@@ -20,6 +20,7 @@ import {
   getInstallationIdForOwner,
   isDbConfigured,
   persistScanReport,
+  persistTeamStandings,
   recordQuotaEvent,
   recordScanOutcome,
   setRepoSchedule,
@@ -268,6 +269,10 @@ export async function POST(request: Request) {
           scanned += 1;
           send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
         });
+        // Capture the team-standings decomposition as a durable output of this full org import
+        // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
+        // never break the scan or the SSE result).
+        await persistTeamStandings(org).catch(() => {});
         send("result", { org, scanned, total: fullNames.length, skippedForCredits, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });

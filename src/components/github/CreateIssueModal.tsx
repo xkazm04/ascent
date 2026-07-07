@@ -41,6 +41,7 @@ export function CreateIssueModal({ draft, onClose }: { draft: IssueDraft | null;
   // (Re)arm the form whenever a new draft arrives; a fresh object per open resets prior results.
   useEffect(() => {
     if (!draft) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- (re)arm the editable form when a new draft object is injected
     setTitle(draft.title);
     setBody(draft.body);
     setSelected(new Set(draft.targets.map((t) => t.fullName)));

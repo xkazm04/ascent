@@ -4,7 +4,8 @@ import { useRef, useState } from "react";
 import { REC_STATUSES, type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
-import { EVENT_LABEL, STATUS_ACCENT, STATUS_LABEL, dueLabel, eventValue } from "@/components/org/backlogShared";
+import { STATUS_ACCENT, STATUS_LABEL, dueLabel } from "@/components/org/backlogShared";
+import { BacklogRowHistory } from "@/components/org/BacklogItemRow.history";
 
 /**
  * Volatile per-row interaction state that must survive a regroup. The backlog re-parents rows into a
@@ -285,28 +286,7 @@ export function BacklogItemRow({
         </p>
       )}
 
-      {history && (
-        <div className="mt-3 border-t border-slate-800 pt-3">
-          {history === "loading" ? (
-            <p className="font-mono text-sm text-slate-500">Loading history…</p>
-          ) : history.length === 0 ? (
-            <p className="font-mono text-sm text-slate-500">No changes recorded yet.</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {history.map((ev) => (
-                <li key={ev.id} className="flex flex-wrap items-baseline gap-x-2 text-sm text-slate-400">
-                  <span className="font-mono text-sm text-slate-600">{new Date(ev.at).toLocaleString()}</span>
-                  <span className="text-slate-300">{ev.actor ? `@${ev.actor}` : "system"}</span>
-                  <span>
-                    set {EVENT_LABEL[ev.kind] ?? ev.kind} {eventValue(ev.kind, ev.from)} → <span className="text-slate-200">{eventValue(ev.kind, ev.to)}</span>
-                  </span>
-                  {ev.note && <span className="text-slate-500">“{ev.note}”</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      {history && <BacklogRowHistory history={history} />}
     </div>
   );
 }

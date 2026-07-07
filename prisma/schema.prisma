@@ -310,6 +310,14 @@ model Scan {
   // Per-scan App Readiness Passport — JSON AppPassport. Per-scan history; latest cached on
   // Repository.passportJson. Display-only (never scored). See src/lib/analyze/passport.ts.
   passportJson   String?
+  // Non-fatal scan caveats (JSON string[]): degrade-to-mock, low-coverage, truncated, no-token, and
+  // stack-fit warnings. Persisted so a reloaded/permalinked scan keeps its reliability disclosure
+  // instead of silently reading as a confident full scan (reference-scan P1-5). null = none.
+  warningsJson   String?
+  // Per-scan AI-usage indicator (JSON AiUsage: detected + PR-level signals + tool attribution). Persisted
+  // so a reloaded report reproduces the fresh scan's detection instead of a lossy re-derivation from
+  // contributors (the tree/commits that back guidance-file detection aren't stored). reference-scan P2/aiUsage.
+  aiUsageJson    String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens    Int?
@@ -548,6 +556,29 @@ model ImprovementPr {
   @@index([orgId, createdAt])
 }
 
+// Team-standings snapshot (Teams tab): the "why the top team leads and the bottom lags" decomposition,
+// captured as a durable OUTPUT of a full org scan so the analysis is gathered over time (and can be
+// trended) rather than only recomputed at render. One append row per org-scan generation; the Teams
+// page reads the latest for provenance ("captured by the org scan on …"). Fully deterministic — derived
+// from the team rollup (no LLM). `standingsJson` is the serialized TeamStandings shape (JSON-in-TEXT, no
+// jsonb). No DB FK (relationMode="prisma"); written/read via raw SQL. See src/lib/db/team-standings.ts.
+model TeamStandingSnapshot {
+  id              String   @id @default(uuid())
+  orgId           String // denormalized for org-scoped reads
+  generatedAt     DateTime @default(now())
+  teamCount       Int
+  fleetAvgOverall Int
+  spread          Int // leader.avgOverall − laggard.avgOverall
+  leaderSlug      String
+  leaderScore     Int
+  laggardSlug     String
+  laggardScore    Int
+  standingsJson   String // serialized TeamStandings (the full decomposition, for visualization/export)
+  source          String   @default("scan") // which pipeline captured it
+
+  @@index([orgId, generatedAt])
+}
+
 // Org Skills Library (Feature 2) — a scalable, categorized catalog of reusable Claude/LLM "skills"
 // (SKILL.md-like prompt/workflow assets) authored in-app, so members discover and reuse the org's own
 // best assets. Mirrors the Playbook stack (org-authored library item + adoption tracking) but adds a
@@ -667,6 +698,29 @@ model OrgLlmConfig {
   org Organization @relation(fields: [orgId], references: [id])
 
   @@unique([orgId])
+}
+
+// Normalized AI-usage records feeding the /delivery AI ROI resolver (integrations increment 2). One
+// row per (source, scope, scopeKey, day). scope=repo carries MEASURED per-repo spend (Claude Code OTel
+// git.repository); scope=org an ALLOCATED total (Copilot/OpenAI, distributed to repos by git evidence).
+// Denormalized orgId, no relation — mirrors ImprovementPr (relationMode="prisma" emits no FKs).
+model AiUsageRecord {
+  id          String   @id @default(uuid())
+  orgId       String
+  source      String // "claude-code" | "copilot" | "openai"
+  scope       String // "repo" | "user" | "team" | "org"
+  scopeKey    String // repo fullName | user email | team slug | org slug
+  periodStart DateTime // UTC day-bucket start
+  tokens      Int      @default(0)
+  costCents   Int      @default(0)
+  sessions    Int      @default(0)
+  seats       Int      @default(0)
+  fidelity    String // "measured" | "allocated"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([orgId, source, scope, scopeKey, periodStart])
+  @@index([orgId, source])
 }
 
 // Server-side session revocation. The signed session cookie embeds the `sv` (session

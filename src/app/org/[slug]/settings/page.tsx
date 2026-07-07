@@ -1,4 +1,6 @@
 import { LlmProviderSettings } from "@/components/org/LlmProviderSettings";
+import { OpenRouterByomSettings } from "@/components/org/OpenRouterByomSettings";
+import { ModelScorecard } from "@/components/org/ModelScorecard";
 import { OrgEmpty, SectionHeader } from "@/components/org/ui";
 import { getCreditState, getOrgLlmConfig } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
@@ -26,6 +28,13 @@ export default async function OrgSettings({ params }: { params: Promise<{ slug: 
         planAllowed={planAllowsByom(credit?.plan)}
         encryptionConfigured={isEncryptionConfigured()}
       />
+      <OpenRouterByomSettings
+        slug={slug}
+        initial={config}
+        planAllowed={planAllowsByom(credit?.plan)}
+        encryptionConfigured={isEncryptionConfigured()}
+      />
+      <ModelScorecard />
     </div>
   );
 }

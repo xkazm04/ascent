@@ -87,6 +87,7 @@ export function CreditsControl({
   // the Retry button clears it to re-trigger.
   useEffect(() => {
     if (!open || ledger !== null || ledgerLoading || ledgerError) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-open: raise the loading flag, then load the ledger once
     setLedgerLoading(true);
     fetch(`/api/org/credits?org=${encodeURIComponent(org)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))

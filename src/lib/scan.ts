@@ -11,24 +11,28 @@ import {
   type ProgressFn,
   type RepoSource,
 } from "@/lib/github/source";
-import { analyzeSignals, classifyArchetype } from "@/lib/analyze";
+import { analyzeSignals, classifyArchetype, detectAiUsage, offPlatformReview } from "@/lib/analyze";
 import { detectStackFit } from "@/lib/analyze/stack-fit";
 import { extractTechStack } from "@/lib/analyze/tech-extract";
 import { buildPassport } from "@/lib/analyze/passport";
-import { applyGovernanceSignals, applyPrSignals, applySecurityPostureSignals, fetchPrStats } from "@/lib/analyze/pulls";
+import { applyGovernanceSignals, applyPrSignals, fetchPrStats } from "@/lib/analyze/pulls";
 import { fetchBranchGovernance, fetchCommitActivity } from "@/lib/github/governance";
 import { fetchSecurityPosture } from "@/lib/github/security-posture";
+import { fetchSecurityExposure } from "@/lib/security/exposure";
+import { computeSecurityChecks } from "@/lib/security/checks";
 import { getProvider, getProviderForOrg, providerByName, MockProvider } from "@/lib/llm";
 import { techStackPromptEnabled } from "@/lib/llm/config";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { isAssessmentUsable } from "@/lib/llm/provider";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
+import { matrixCaptureEnabled, captureMatrixInput } from "@/lib/llm/matrix-capture";
 import { captureAssessment, evalLogEnabled } from "@/lib/llm/eval-log";
+import { trackLlmCall } from "@/lib/llm/tracklight";
 import type { LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { assembleReport } from "@/lib/scoring/engine";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { extractTeamOwnership } from "@/lib/github/codeowners";
-import type { Governance, PrStats, ScanReport, SecurityPosture, TokenUsage } from "@/lib/types";
+import type { Governance, PrStats, ScanReport, SecurityExposure, SecurityPosture, TokenUsage } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
@@ -188,28 +192,43 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   const govPromise: Promise<Governance | null> = token
     ? fetchBranchGovernance(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(() => null)
     : Promise.resolve(null);
-  // GitHub-native security posture (published advisories + org-level security policy) — closes the D9
-  // file-detector blind spot so a GitHub-managed security program isn't scored as zero. Public reads,
-  // token-gated like governance; folds into D9 below.
+  // GitHub-native security posture (published advisories + org-level security policy) — fed to the
+  // Security (D9) check battery below (the Security-Policy check). Public reads, token-gated.
   const secPromise: Promise<SecurityPosture | null> = token
     ? fetchSecurityPosture(parsed.owner, parsed.repo, token, signal).catch(() => null)
+    : Promise.resolve(null);
+  // Current EXPOSURE — open known vulns from OSV (parsed from the committed npm lockfile). The
+  // "open vulns are the real negative" axis, kept separate from posture; degrades to UNKNOWN.
+  const expPromise: Promise<SecurityExposure | null> = token
+    ? fetchSecurityExposure(parsed.owner, parsed.repo, snapshot.meta.headSha ?? snapshot.meta.defaultBranch, token, signal).catch(() => null)
     : Promise.resolve(null);
   const activityPromise: Promise<number[] | null> = token
     ? fetchCommitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
     : Promise.resolve(null);
 
   emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
-  const [prStats, governance, securityPosture] = await Promise.all([prPromise, govPromise, secPromise]);
+  const [prStats, governance, securityPosture, securityExposure] = await Promise.all([prPromise, govPromise, secPromise, expPromise]);
   // Resolve the scan timestamp up front and thread it through signal extraction, so D7's
   // recency bonus is deterministic (and the same `now` stamps the report below).
   const now = opts.now ?? new Date().toISOString();
   const detectorWarnings: string[] = [];
-  const signals = applySecurityPostureSignals(
-    applyGovernanceSignals(
-      applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats),
-      governance,
-    ),
-    securityPosture,
+  const baseSignals = applyGovernanceSignals(
+    applyPrSignals(analyzeSignals(snapshot, now, detectorWarnings), prStats, {
+      // Suppress the misleading GitHub reviewedRate when review runs off-platform (Gerrit/bors) — the
+      // gate is credited positively in the D6 detector from the same commit trailers.
+      offPlatformReview: offPlatformReview(snapshot.commits) != null,
+    }),
+    governance,
+  );
+  // Security (D9) is scored by the DETERMINISTIC check battery (OpenSSF-Scorecard-style: graded,
+  // risk-weighted, auditable) rather than the file-grep detector + LLM blend. It reads the full
+  // workflow set + governance + posture + exposure, and its result REPLACES the D9 signal, flagged
+  // `deterministic` so the engine takes the number as-is (the LLM only narrates D9, per the framework).
+  const securityAssessment = computeSecurityChecks(snapshot, governance, securityPosture, securityExposure);
+  const signals = baseSignals.map((s) =>
+    s.id === "D9"
+      ? { ...s, signalScore: securityAssessment.d9, deterministic: true, gaps: securityAssessment.gaps, signals: securityAssessment.evidence.map((label) => ({ label })) }
+      : s,
   );
   const archetype = classifyArchetype(snapshot);
   // Stack-fit (ML/notebook · mobile · embedded) is a known blind spot of the web/service-tuned rubric.
@@ -232,16 +251,23 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     // the LLM auditor so it reasons about review/governance with the real evidence (MAT-1).
     prStats,
     governance,
-    // Same rationale as governance: fold the GitHub-native security posture (already in the D9 signal
-    // above) into the prompt so the LLM scores D9 with the real evidence rather than seeing only the
-    // absent committed tooling — the guardband anchors the LLM to the deterministic signal, so it must
-    // reason from the same facts to land D9 in a fair band.
-    securityPosture,
+    // The deterministic Security (D9) check battery — its score is FIXED (D9 is `deterministic`); the
+    // LLM's job is to narrate it (summary + prioritized gaps) from the same graded evidence, not to
+    // re-derive the number. Threaded so the D9 narrative matches the computed score/checks.
+    securityAssessment,
     // Name the stack the rubric under-reads so the model weights the affected dimensions accordingly.
     stackFit,
     // Option B (gated): include the detected stack in the prompt only when explicitly enabled.
     ...(techStackPromptEnabled() ? { techStack } : {}),
   };
+
+  // Model-matrix capture (dev/bench only, gated on ASCENT_MATRIX_CAPTURE_DIR): dump the fully-built
+  // {scoreInput, snapshot} so the model-comparison bench can replay assess() across models on identical
+  // inputs. Best-effort, no-op in production. Runs BEFORE assess() so a capture scan can force the mock
+  // provider (no LLM key needed) and still record a real input.
+  if (matrixCaptureEnabled()) {
+    captureMatrixInput({ repo: `${parsed.owner}/${parsed.repo}`, at: now, scoreInput, snapshot });
+  }
 
   let llmFailed = false;
   emit({
@@ -261,20 +287,57 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Capture token usage from the call that ultimately succeeds — the metering basis. Each attempt's
   // onUsage overwrites this; a thrown attempt never reports, so the winning provider's usage stands.
   let capturedUsage: TokenUsage = {};
+  // owner/repo for LightTrack telemetry (below) — the per-repo dimension of the LLM-cost rollup.
+  const repoFullName = `${parsed.owner}/${parsed.repo}`;
   const attemptAssess = async (p: LLMProvider, attemptSignal: AbortSignal | undefined) => {
     // Capture this attempt's usage into a LOCAL and commit it to capturedUsage only AFTER the
     // attempt is proven usable. Providers call onUsage BEFORE the parse/usability check, so a failed
     // attempt (malformed JSON, unusable coverage) would otherwise leave its tokens on report.usage
     // even though the scan degraded to mock — billing the user for an attempt that never contributed.
     let attemptUsage: TokenUsage = {};
-    const a = await p.assess(scoreInput, { signal: attemptSignal, onUsage: (u) => { attemptUsage = u; } });
-    if (p.name !== "mock" && !isAssessmentUsable(a, signals.length)) {
-      throw new Error(
-        `LLM returned an unusable assessment (${a.dimensions.length}/${signals.length} dimensions scored).`,
-      );
+    // Per-attempt wall-clock for the tracklight latency metric (distinct from the whole-stage
+    // llmLatencyMs persisted on the report — this times THIS provider call, incl. failed ones).
+    const attemptStartedAt = Date.now();
+    try {
+      const a = await p.assess(scoreInput, { signal: attemptSignal, onUsage: (u) => { attemptUsage = u; } });
+      if (p.name !== "mock" && !isAssessmentUsable(a, signals.length)) {
+        throw new Error(
+          `LLM returned an unusable assessment (${a.dimensions.length}/${signals.length} dimensions scored).`,
+        );
+      }
+      // Mirror the successful real LLM call to LightTrack (fire-and-forget; a no-op unless configured).
+      // Mock carries no real provider traffic/cost, so it's never tracked.
+      if (p.name !== "mock") {
+        trackLlmCall({
+          provider: p.name,
+          model: p.model,
+          usage: attemptUsage,
+          latencyMs: Date.now() - attemptStartedAt,
+          status: "success",
+          repo: repoFullName,
+          org: opts.orgSlug,
+        });
+      }
+      capturedUsage = attemptUsage; // commit only on success
+      return a;
+    } catch (err) {
+      // Track failed real attempts too — the tokens may have been spent at the provider (an
+      // unusable-but-answered response) and the error/latency is the signal that drives the
+      // retry/failover. Skip only a CLIENT disconnect (the scan is abandoned, not a provider fault).
+      if (p.name !== "mock" && !signal?.aborted) {
+        trackLlmCall({
+          provider: p.name,
+          model: p.model,
+          usage: attemptUsage,
+          latencyMs: Date.now() - attemptStartedAt,
+          status: "error",
+          error: err instanceof Error ? err.message : String(err),
+          repo: repoFullName,
+          org: opts.orgSlug,
+        });
+      }
+      throw err;
     }
-    capturedUsage = attemptUsage; // commit only on success
-    return a;
   };
 
   // Resilience: a transient blip (rate limit / timeout) or a one-off unusable reply should not
@@ -363,6 +426,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   emit({ stage: "compose", message: "Composing your report…", pct: 95 });
   const report = assembleReport(snapshot, signals, assessment, provider, now, archetype);
   report.prStats = prStats;
+  // Re-derive AI usage now that PR stats are available: `detected` keys on REAL AI evidence (PR-level
+  // AI involvement with tool attribution, committed guidance, or genuine AI co-author trailers) rather
+  // than the bot-commit fraction that spuriously counted Renovate/Dependabot as "AI" (reference-scan P0-5).
+  report.aiUsage = detectAiUsage(snapshot, prStats);
   report.governance = governance;
   report.commitActivity = await activityPromise;
   // Team attribution from CODEOWNERS (the file is already in the snapshot — no extra GitHub call).

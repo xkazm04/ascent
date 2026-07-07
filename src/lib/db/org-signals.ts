@@ -3,6 +3,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { parseStringArray } from "@/lib/db/scans-shared";
 import type { PrStats } from "@/lib/types";
 
 /** One repo's PR-signal row for the delivery drill-down table. */
@@ -182,6 +183,58 @@ export async function getOrgGovernance(orgSlug: string, segmentId?: string | nul
     signedRate: rate((g) => g.requiresSignatures),
     perRepo,
   };
+}
+
+/** One repo's specific findings for a single dimension, from its latest scan. */
+export interface RepoDimensionGaps {
+  fullName: string;
+  /** The concrete issues the scan flagged for this dimension (LLM/detector `gaps`) — the "what's
+   *  wrong" list the Security register surfaces per repo. Empty when the dimension has no open gaps. */
+  gaps: string[];
+  /** The dimension's evidence lines. For D9 these are the deterministic check-battery findings
+   *  (`Name [group/risk]: score/10 — detail`), which the register parses into the control grid. */
+  evidence: string[];
+  /** One-line dimension summary (the headline verdict), or "" when absent. */
+  summary: string;
+}
+
+/**
+ * Per-repo `gaps` (+ summary) for ONE dimension across the org's latest scans — the batched form of
+ * `/api/org/repo-dimension`, so a fleet view (the Security risk register) can show each repo's
+ * specific findings without an N+1 of per-repo report loads. Latest scan per repo, mirroring
+ * `getOrgGovernance`'s semantics (absolute latest, not window-bounded — the gaps are descriptive
+ * metadata for the score already shown). Keyed by fullName. Null when the DB is off / org unknown.
+ */
+export async function getOrgDimensionGaps(
+  orgSlug: string,
+  dimId: string,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+): Promise<Map<string, RepoDimensionGaps> | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return null;
+
+  const repos = await prisma.repository.findMany({
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    select: {
+      fullName: true,
+      scans: {
+        orderBy: { scannedAt: "desc" },
+        take: 1,
+        select: { dimensions: { where: { dimId }, select: { gaps: true, evidence: true, summary: true } } },
+      },
+    },
+  });
+
+  const out = new Map<string, RepoDimensionGaps>();
+  for (const r of repos) {
+    const dim = r.scans[0]?.dimensions[0];
+    if (!dim) continue;
+    out.set(r.fullName, { fullName: r.fullName, gaps: parseStringArray(dim.gaps), evidence: parseStringArray(dim.evidence), summary: dim.summary ?? "" });
+  }
+  return out;
 }
 
 export interface OrgActivity {

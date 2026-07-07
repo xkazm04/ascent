@@ -59,11 +59,13 @@ export {
 export {
   getOrgPrSignals,
   getOrgGovernance,
+  getOrgDimensionGaps,
   getOrgActivity,
   type OrgPrSignals,
   type PrRepoRow,
   type RepoGovernance,
   type OrgGovernance,
+  type RepoDimensionGaps,
   type OrgActivity,
 } from "@/lib/db/org-signals";
 

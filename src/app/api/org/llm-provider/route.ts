@@ -43,12 +43,14 @@ export async function POST(request: Request) {
   if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
+    provider?: string;
     modelId?: string;
     region?: string;
     authMode?: string;
     enabled?: boolean;
     accessKeyId?: string;
     secretAccessKey?: string;
+    apiKey?: string;
   };
   if (!body.org || !body.modelId?.trim()) {
     return NextResponse.json({ error: "Provide { org, modelId }." }, { status: 400 });
@@ -65,24 +67,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Secret encryption is not configured on this deployment (set ENCRYPTION_KEY)." }, { status: 409 });
   }
   const session = await getSession();
+  const provider = body.provider?.trim() || "bedrock";
   const res = await setOrgLlmConfig(
     body.org,
     {
+      provider,
       modelId: body.modelId,
       region: body.region,
       authMode: body.authMode,
       enabled: body.enabled,
       accessKeyId: body.accessKeyId,
       secretAccessKey: body.secretAccessKey,
+      apiKey: body.apiKey,
     },
     session?.login ?? null,
   );
   if (!res.ok) return NextResponse.json({ error: res.error ?? "Failed to save." }, { status: 400 });
   const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
-  // Audit the config change WITHOUT the secret — model/region/enabled + whether creds were rotated.
+  // Audit the config change WITHOUT the secret — provider/model/region/enabled + whether creds rotated.
   await recordAudit(
     "org.llm_provider.updated",
-    { provider: "bedrock", modelId: body.modelId.trim(), region: body.region ?? null, enabled: body.enabled ?? false, credsRotated: Boolean(body.accessKeyId) },
+    { provider, modelId: body.modelId.trim(), region: body.region ?? null, enabled: body.enabled ?? false, credsRotated: Boolean(body.accessKeyId || body.apiKey) },
     { orgId, actorId: session?.login },
   );
   return NextResponse.json({ ok: true });

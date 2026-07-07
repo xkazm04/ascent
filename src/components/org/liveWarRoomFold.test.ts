@@ -185,7 +185,7 @@ describe("a sequence of live events folds to the correct stats + leaderboard", (
   });
 
   it("excludes unscored (error/skip) repos from the leaderboard entirely", () => {
-    let repos = repoMap(seedRepo({ fullName: "acme/api", overall: 80, posture: "ai-native" }));
+    const repos = repoMap(seedRepo({ fullName: "acme/api", overall: 80, posture: "ai-native" }));
     const err = foldRepoEvent(repos, [], { repo: "acme/web", error: "boom" }, 1);
     expect(err.repos).toBeNull(); // web never entered the map
     const board = computeLeaderboard(repos);

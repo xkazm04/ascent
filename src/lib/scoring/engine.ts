@@ -52,6 +52,13 @@ export function assembleReport(
   archetype: RepoArchetype,
 ): ScanReport {
   const llmById = new Map(assessment.dimensions.map((d) => [d.id, d]));
+  // Dimensions the LLM's self-audit flagged as a detector discrepancy — a MISSED signal (a visibility
+  // blind spot that scored a false 0, e.g. CI/review running off-GitHub) OR a FALSE POSITIVE that
+  // over-credited (e.g. "mypy" on a Rust repo). For these the deterministic signal is suspect, so the
+  // guardband is WIDENED below so the model's judgment (in either direction) isn't pinned to the broken
+  // signal — closing the loop where the model correctly diagnosed the problem in prose but couldn't move
+  // the number (reference-scan P1-1). D9 stays fully deterministic (its blind spots are fixed upstream).
+  const flaggedDims = new Set((assessment.discrepancies ?? []).map((d) => d.dimension));
   const lensW = weightsFor(archetype);
   const warnings: string[] = [];
   // Track which deterministic dimensions the LLM did NOT score: a missing dim falls back to its
@@ -97,11 +104,20 @@ export function assembleReport(
     if (!llm) llmMissing.push(s.id);
     const llmScore = llm ? clamp(llm.score) : s.signalScore;
 
-    // Guardband the LLM score to within ±LLM_GUARDBAND of the deterministic score.
+    // Deterministic dimensions (D9 — the security check battery) take their signal as the final score:
+    // the LLM never moves the number, only narrates it. `llmScore` is still recorded for transparency.
+    // Everything else blends: guardband the LLM to within ±LLM_GUARDBAND of the deterministic score,
+    // then confidence-weight the two.
+    // Widen the guardband for a dimension the LLM flagged as a detector discrepancy (P1-1): its signal
+    // is suspect, so trust the model's judgment further (still bounded, so it nuances rather than
+    // fabricates). A dimension the model didn't flag keeps the calibrated ±LLM_GUARDBAND.
+    const band = flaggedDims.has(s.id) ? LLM_GUARDBAND * 2 : LLM_GUARDBAND;
     const guarded = clamp(
-      Math.max(s.signalScore - LLM_GUARDBAND, Math.min(s.signalScore + LLM_GUARDBAND, llmScore)),
+      Math.max(s.signalScore - band, Math.min(s.signalScore + band, llmScore)),
     );
-    const score = Math.round(effectiveBlend * guarded + (1 - effectiveBlend) * s.signalScore);
+    const score = s.deterministic
+      ? s.signalScore
+      : Math.round(effectiveBlend * guarded + (1 - effectiveBlend) * s.signalScore);
 
     return [{
       id: s.id,
@@ -113,7 +129,9 @@ export function assembleReport(
       summary: llm?.summary || `${def.name}: scored ${s.signalScore}/100 from repository signals.`,
       evidence: evidenceStrings(s),
       strengths: llm?.strengths ?? [],
-      gaps: llm?.gaps ?? [],
+      // Deterministic dimensions carry their own remediation (the check battery's fixes); everything
+      // else uses the LLM's gaps.
+      gaps: s.gaps ?? llm?.gaps ?? [],
     }];
   });
 

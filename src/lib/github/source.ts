@@ -33,7 +33,12 @@ const API = githubApiBase();
 const RAW = githubRawBase();
 
 // Ingestion budgets — keep prompts small and avoid hammering hosts.
-const MAX_FILES = 32;
+const MAX_FILES = 50;
+// Security (D9) is scored by a deterministic check battery that reads WORKFLOW CONTENT (token perms,
+// pinned actions, dangerous patterns, SAST, signing). The old 3-workflow cap made those checks blind on
+// exactly the big repos (next.js has 36 workflows), so fetch far more — ranked LAST (see pickFilesToFetch)
+// so the LLM prompt window still front-loads README/manifests/source and only the detectors read the tail.
+const MAX_WORKFLOW_FILES = 24;
 const MAX_FILE_BYTES = 14_000; // truncate any single file to this many bytes
 // CODEOWNERS is not prompt fodder — codeowners.ts parses it as an EXACT structured file for team
 // attribution (RepoTeam / getOrgTeamRollup). Truncating it to the LLM byte budget silently drops any
@@ -43,7 +48,7 @@ const MAX_CODEOWNERS_BYTES = 60_000;
 // The three locations GitHub honors CODEOWNERS (root, .github/, docs/) — mirrors codeowners.ts's
 // CODEOWNERS_PATH_RE and the exact names pickFilesToFetch requests, matched case-insensitively.
 const CODEOWNERS_PATH_RE = /^(?:\.github\/|docs\/)?codeowners$/i;
-const MAX_TOTAL_BYTES = 180_000; // total content budget across all files
+const MAX_TOTAL_BYTES = 280_000; // total content budget across all files (raised for full workflow ingest)
 const COMMIT_COUNT = 30;
 const TIMEOUT_API_MS = 12_000; // GitHub REST (metadata/tree/commits)
 const TIMEOUT_FILE_MS = 8_000; // per-file content fetch
@@ -603,11 +608,8 @@ function pickFilesToFetch(blobs: RepoFile[]): string[] {
     if (hit) add(hit);
   }
 
-  // 2. CI workflows (up to 3).
-  paths
-    .filter((p) => /^\.github\/workflows\/.+\.(ya?ml)$/i.test(p))
-    .slice(0, 3)
-    .forEach(add);
+  // (CI workflow CONTENT is fetched in bulk at the END — see step 7 — so the security check battery
+  //  sees every workflow, while these high-signal files keep prompt priority.)
 
   // 3. Cursor rules dir, MCP configs.
   paths
@@ -640,6 +642,14 @@ function pickFilesToFetch(blobs: RepoFile[]): string[] {
         !picked.has(p),
     )
     .slice(0, 6)
+    .forEach(add);
+
+  // 7. ALL CI workflows (up to MAX_WORKFLOW_FILES) — the deterministic security checks need full
+  //    workflow content. Added LAST so they rank lowest for the prompt window (the detectors read the
+  //    whole `files` array regardless of order), keeping README/manifests/source front-loaded in the prompt.
+  paths
+    .filter((p) => /^\.github\/workflows\/.+\.(ya?ml)$/i.test(p))
+    .slice(0, MAX_WORKFLOW_FILES)
     .forEach(add);
 
   return [...picked];

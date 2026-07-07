@@ -320,23 +320,23 @@ describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient 
   });
 
   it("(e) LARGE repo (totalBlobs > MAX_FILES) uses the 0.4 + fetched/totalBlobs branch, capped at 0.9", async () => {
-    // 40 plain source files → totalBlobs=40 (> MAX_FILES=32); the sample bucket caps picks at 6.
-    const big = Array.from({ length: 40 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
+    // 60 plain source files → totalBlobs=60 (> MAX_FILES=50); the sample bucket caps picks at 6.
+    const big = Array.from({ length: 60 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
     vi.stubGlobal("fetch", makeFetch(big, false, () => "ok"));
     const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
-    expect(snap.tree.length).toBe(40);
+    expect(snap.tree.length).toBe(60);
     expect(snap.files).toHaveLength(6); // sample bucket .slice(0, 6)
-    // 0.4 + fetched/totalBlobs = 0.4 + 6/40 = 0.55, under the 0.9 cap.
-    expect(snap.coverage).toBe(0.55);
+    // 0.4 + fetched/totalBlobs = 0.4 + 6/60 = 0.5, under the 0.9 cap.
+    expect(snap.coverage).toBe(0.5);
     expect(snap.coverage).toBeLessThanOrEqual(0.9);
   });
 
   it("(e') LARGE repo where the picks blip out scores LOWER still (degrade survives the large-repo branch too)", async () => {
-    const big = Array.from({ length: 40 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
+    const big = Array.from({ length: 60 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
     vi.stubGlobal("fetch", makeFetch(big, false, () => "blip")); // all 6 picks fail
     const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
     expect(snap.files).toHaveLength(0); // fetched=0
-    // 0.4 + 0/40 = 0.4 — still a finite, sub-perfect number, never 0.9.
+    // 0.4 + 0/60 = 0.4 — still a finite, sub-perfect number, never 0.9.
     expect(snap.coverage).toBe(0.4);
   });
 });

@@ -54,7 +54,9 @@
             "src/lib/llm/json.test.ts",
             "src/lib/llm/config.ts",
             "src/lib/llm/config.test.ts",
-            "src/lib/llm/schema.ts"
+            "src/lib/llm/schema.ts",
+            "src/lib/llm/tracklight.ts",
+            "src/lib/llm/tracklight.test.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -104,7 +106,9 @@
             "src/lib/scan-alerts.ts",
             "src/lib/sse.ts",
             "src/lib/cache.ts",
-            "src/lib/cache.test.ts"
+            "src/lib/cache.test.ts",
+            "src/lib/security/checks.ts",
+            "src/lib/security/exposure.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -235,7 +239,9 @@
             "src/app/manifest.ts",
             "src/lib/site.ts",
             "src/app/launch/opengraph-image.tsx",
-            "src/app/org/[slug]/opengraph-image.tsx"
+            "src/app/org/[slug]/opengraph-image.tsx",
+            "src/components/ui/RouteError.tsx",
+            "src/components/ui/PageSkeleton.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -283,7 +289,10 @@
             "src/components/launch/fleetMapStars.ts",
             "src/components/launch/applyScanEvent.ts",
             "src/components/launch/fleetMapDerive.ts",
-            "src/components/launch/mergeStars.ts"
+            "src/components/launch/mergeStars.ts",
+            "src/components/launch/FleetMap.constants.ts",
+            "src/components/launch/FleetMap.TriageControls.tsx",
+            "src/components/launch/useFleetData.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -303,7 +312,10 @@
             "src/app/connect/installRouting.ts",
             "src/components/connect/ConnectDiscovered.tsx",
             "src/components/connect/PrivacyNotice.tsx",
-            "src/components/connect/watchState.ts"
+            "src/components/connect/watchState.ts",
+            "src/components/connect/InstallationRepos.CreditCostStrip.tsx",
+            "src/components/connect/InstallationRepos.BulkActionsBar.tsx",
+            "src/components/connect/useInstallationRepos.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -325,7 +337,10 @@
             "src/components/onboarding/types.ts",
             "src/components/onboarding/byProminence.ts",
             "src/components/onboarding/canRunReal.ts",
-            "src/components/onboarding/importCost.ts"
+            "src/components/onboarding/importCost.ts",
+            "src/components/onboarding/OnboardingFlow.Shell.tsx",
+            "src/components/onboarding/OnboardingFlow.model.ts",
+            "src/components/onboarding/useOnboardingFlow.ts"
           ],
           "target": null,
           "apiRoutes": []
@@ -395,6 +410,9 @@
             "src/lib/db/org-shared.ts",
             "src/lib/db/org-teams.ts",
             "src/lib/db/teamRollup.test.ts",
+            "src/lib/db/team-standings.ts",
+            "src/lib/org/teamStandings.ts",
+            "src/lib/org/teamStandings.test.ts",
             "src/lib/window.ts",
             "src/components/org/champions.ts",
             "src/lib/org/period.ts"
@@ -478,7 +496,9 @@
             "src/lib/db/scans-audit.ts",
             "src/components/org/AuditLogViewer.tsx",
             "src/app/api/org/security/pdf/route.ts",
-            "src/lib/pdf/security-document.tsx"
+            "src/lib/pdf/security-document.tsx",
+            "src/components/org/securityRegisterShared.ts",
+            "src/components/org/securityRegisterShared.test.ts"
           ],
           "target": null,
           "apiRoutes": [
@@ -526,7 +546,8 @@
             "src/components/org/AnalysisPlaybookBoard.tsx",
             "src/components/org/PlaybookDetail.tsx",
             "src/components/org/transferPlaybook.ts",
-            "src/components/org/transferPlaybook.test.ts"
+            "src/components/org/transferPlaybook.test.ts",
+            "src/components/org/RepoSegmentsPanel.parts.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -572,6 +593,7 @@
             "src/components/org/TeamsMatrix.tsx",
             "src/components/org/TeamsMatrixDetail.tsx",
             "src/components/org/TeamsSignals.tsx",
+            "src/components/org/TeamsStandings.tsx",
             "src/components/org/TeamsUnowned.tsx",
             "src/components/org/teamsShared.ts",
             "src/app/org/[slug]/delivery/page.tsx",
@@ -579,10 +601,43 @@
             "src/components/org/delivery/PrSignalsBand.tsx",
             "src/components/org/delivery/PrRepoTable.tsx",
             "src/components/org/delivery/GovernanceTable.tsx",
-            "src/components/org/delivery/DeliveryActivityChart.tsx"
+            "src/components/org/delivery/DeliveryActivityChart.tsx",
+            "src/components/org/delivery/ai/AiDeliveryModule.tsx",
+            "src/components/org/delivery/ai/AiRoiLedger.tsx",
+            "src/components/org/delivery/ai/AiRoiQuadrant.tsx",
+            "src/components/org/delivery/ai/aiDeliveryModel.ts",
+            "src/components/org/delivery/ai/aiShared.tsx"
           ],
           "target": null,
           "apiRoutes": []
+        },
+        {
+          "name": "Provider Integrations",
+          "description": "## Purpose\nConnect AI coding providers (Claude Code, then Copilot, OpenAI) so the /delivery AI ROI views run on real usage instead of simulated spend. Built gradually behind an owner-only Integrations page under Govern.\n\n## Key Flows\n- Integrations page renders the provider registry; Claude Code connects via OTel push using a stateless per-org ingest token (HMAC, verified server-side); /api/integrations/ingest authenticates inbound telemetry (202; OTLP parsing + storage + per-repo attribution are the next increment).\n\n## Entry Points\n- src/app/org/[slug]/integrations/page.tsx\n- src/lib/integrations/providers.ts",
+          "businessFeature": "Provider Integrations",
+          "category": "ui",
+          "filePaths": [
+            "src/app/org/[slug]/integrations/page.tsx",
+            "src/components/org/integrations/IntegrationsPanel.tsx",
+            "src/components/org/integrations/ProviderCard.tsx",
+            "src/components/org/integrations/ClaudeCodeSetup.tsx",
+            "src/lib/integrations/providers.ts",
+            "src/lib/integrations/ingest-token.ts",
+            "src/lib/integrations/otlp.ts",
+            "src/lib/integrations/otlp.test.ts",
+            "src/app/api/integrations/ingest/route.ts",
+            "src/app/api/integrations/ingest/v1/metrics/route.ts",
+            "src/app/api/integrations/ingest/v1/logs/route.ts",
+            "src/lib/db/integrations.ts",
+            "src/app/api/dev/seed-ai-usage/route.ts"
+          ],
+          "target": null,
+          "apiRoutes": [
+            "/api/integrations/ingest",
+            "/api/integrations/ingest/v1/metrics",
+            "/api/integrations/ingest/v1/logs",
+            "/api/dev/seed-ai-usage"
+          ]
         },
         {
           "name": "Org Overview & Standing",
@@ -689,7 +744,11 @@
             "src/lib/scoring/orgsim.test.ts",
             "src/lib/maturity/forecast.ts",
             "src/lib/maturity/forecast.test.ts",
-            "src/components/org/plan/Simulator.tsx"
+            "src/components/org/plan/Simulator.tsx",
+            "src/components/org/plan/Simulator.types.ts",
+            "src/components/org/plan/Simulator.RankPanel.tsx",
+            "src/components/org/plan/Simulator.ProjectionResult.tsx",
+            "src/components/org/plan/Simulator.SavedScenarios.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -731,7 +790,8 @@
             "src/components/org/BacklogItemRow.tsx",
             "src/components/org/BacklogPanel.tsx",
             "src/components/org/BacklogSummary.tsx",
-            "src/components/org/backlogShared.ts"
+            "src/components/org/backlogShared.ts",
+            "src/components/org/BacklogItemRow.history.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -831,7 +891,9 @@
             "src/components/report/WhatChanged.tsx",
             "src/components/report/WhatChangedParts.tsx",
             "src/components/report/deltas.tsx",
-            "src/app/api/history/route.ts"
+            "src/app/api/history/route.ts",
+            "src/components/report/TrendChart.Sparkline.tsx",
+            "src/app/report/compare/loading.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -891,7 +953,10 @@
             "src/components/report/FreshnessControl.tsx",
             "src/components/report/ContributorsPanel.tsx",
             "src/components/report/repoKey.ts",
-            "src/components/report/reportTaxonomy.ts"
+            "src/components/report/reportTaxonomy.ts",
+            "src/components/report/reportSeries.ts",
+            "src/components/report/ReportNotices.tsx",
+            "src/app/report/[owner]/[repo]/loading.tsx"
           ],
           "target": null,
           "apiRoutes": []
@@ -978,7 +1043,12 @@
             "src/app/api/badge/[owner]/[repo]/route.ts",
             "src/app/badge/page.tsx",
             "src/components/badge/BadgeGenerator.tsx",
-            "src/lib/db/badge-analytics.ts"
+            "src/lib/db/badge-analytics.ts",
+            "src/app/usage/usageShell.tsx",
+            "src/app/usage/usagePanels.tsx",
+            "src/app/usage/usageDashboard.tsx",
+            "src/app/usage/usageAllTimePanels.tsx",
+            "src/app/usage/loading.tsx"
           ],
           "target": null,
           "apiRoutes": [

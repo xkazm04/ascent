@@ -5,7 +5,7 @@
 
 import { fetchPullRequests, type PrNode } from "@/lib/github/graphql";
 import { clamp } from "@/lib/maturity/model";
-import type { DimensionSignals, Governance, PrStats, SecurityPosture } from "@/lib/types";
+import type { DimensionSignals, Governance, PrStats } from "@/lib/types";
 
 // AI coding agents that open PRs as GitHub App bots (author.__typename === "Bot").
 const AI_AGENT = /(copilot|devin|cursor|codex|sweep|claude|aider)/i;
@@ -161,18 +161,25 @@ export function summarizePullRequests(nodes: PrNode[], totalCount: number): PrSt
 export function applyPrSignals(
   signals: DimensionSignals[],
   pr: PrStats | null | undefined,
+  opts?: { offPlatformReview?: boolean },
 ): DimensionSignals[] {
   if (!pr || pr.analyzed === 0) return signals;
 
+  // When code review happens OFF GitHub (Gerrit / bors merge-queue — detected from commit trailers),
+  // GitHub's reviewedRate is a misleading 0%/low that would drag D6 even though the real gate is
+  // stricter. Treat it as "no sample" (null) so it drops out; the off-platform review is credited as a
+  // positive signal in the D6 detector. Otherwise use the measured rate unchanged.
+  const reviewedRate = opts?.offPlatformReview ? null : pr.reviewedRate;
+
   // PR-derived rigor: review discipline dominates; PR hygiene + stability round it out.
-  // When review coverage has NO sample (reviewedRate null — zero human-authored merged PRs),
-  // drop the review term and renormalize the remaining weights (0.3/0.5 and 0.2/0.5) so the
-  // measurable hygiene/stability signals still count without a fabricated 0% dragging D6.
+  // When review coverage has NO sample (reviewedRate null — zero human-authored merged PRs, or
+  // off-platform review), drop the review term and renormalize the remaining weights (0.3/0.5 and
+  // 0.2/0.5) so the measurable hygiene/stability signals still count without a fabricated 0% dragging D6.
   const stability = Math.max(0, 100 - pr.revertRate * 6);
   const prRigor = clamp(
-    pr.reviewedRate == null
+    reviewedRate == null
       ? 0.6 * pr.smallPrRate + 0.4 * stability
-      : 0.5 * pr.reviewedRate + 0.3 * pr.smallPrRate + 0.2 * stability,
+      : 0.5 * reviewedRate + 0.3 * pr.smallPrRate + 0.2 * stability,
   );
 
   return signals.map((s) => {
@@ -184,9 +191,11 @@ export function applyPrSignals(
           ...s.signals,
           {
             label:
-              pr.reviewedRate == null
-                ? "PR review coverage n/a (no human-merged PRs in window)"
-                : `PR review coverage ${pr.reviewedRate}%`,
+              reviewedRate == null
+                ? opts?.offPlatformReview
+                  ? "PR review coverage n/a (review runs off-GitHub — credited in D6)"
+                  : "PR review coverage n/a (no human-merged PRs in window)"
+                : `PR review coverage ${reviewedRate}%`,
             detail: `${pr.merged} merged · ${pr.smallPrRate}% small · ${pr.revertRate}% reverted`,
           },
         ],
@@ -267,54 +276,6 @@ export function applyGovernanceSignals(
     }
     return s;
   });
-}
-
-/**
- * Fold GitHub-native security posture into D9 (Supply Chain & Security) — additive only, presence
- * lifts and absence is neutral (a repo may run GitHub-managed scanning we can't see from files, so
- * "no advisories" must never be read as "no security"). This closes the file-detector's structural
- * blind spot: D9's deterministic detector only reads committed CI/manifest files, so a repo like
- * next.js — GitHub-managed code scanning + Dependabot + an active coordinated-disclosure program,
- * none of it committed as YAML — scored ~0 despite a genuinely mature posture.
- *
- * Published advisories are a POSITIVE maturity signal (a triage + disclosure + patched-release
- * program), not a vulnerability tally — the same stance OpenSSF Scorecard takes on an active
- * vulnerability-handling process. Contribution saturates in tiers so a high count can't outweigh
- * fully shift-left committed tooling (which the file detector can still drive to ~100).
- */
-export function applySecurityPostureSignals(
-  signals: DimensionSignals[],
-  posture: SecurityPosture | null | undefined,
-): DimensionSignals[] {
-  if (!posture) return signals;
-
-  let boost = 0;
-  const evidence: { label: string; detail?: string }[] = [];
-  const shown = posture.advisoryCapped ? `${posture.advisoryCount}+` : `${posture.advisoryCount}`;
-
-  if (posture.advisoryCount >= 20) {
-    boost += 30;
-    evidence.push({ label: `Mature coordinated-disclosure program (${shown} published advisories)`, detail: "triaged & patched via GHSA — a working security process, not a vulnerability count" });
-  } else if (posture.advisoryCount >= 5) {
-    boost += 22;
-    evidence.push({ label: `Active vulnerability-disclosure process (${shown} published advisories)`, detail: "coordinated disclosure via GHSA" });
-  } else if (posture.advisoryCount >= 1) {
-    boost += 14;
-    evidence.push({ label: `Published security advisories (${shown})`, detail: "evidence of a coordinated-disclosure path" });
-  }
-
-  if (posture.orgSecurityPolicy) {
-    boost += 8;
-    evidence.push({ label: "Org-level security policy (SECURITY.md)", detail: "documented vulnerability-reporting path inherited from the org's .github" });
-  }
-
-  if (boost === 0) return signals;
-
-  return signals.map((s) =>
-    s.id === "D9"
-      ? { ...s, signalScore: clamp(s.signalScore + boost), signals: [...s.signals, ...evidence] }
-      : s,
-  );
 }
 
 /** Fetch + summarize a repo's recent PRs. THROWS on transport failure (the underlying

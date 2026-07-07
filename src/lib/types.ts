@@ -5,7 +5,7 @@ export type LevelId = "L1" | "L2" | "L3" | "L4" | "L5";
 export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8" | "D9";
 export type Impact = "high" | "medium" | "low";
 export type Effort = "high" | "medium" | "low";
-export type ProviderName = "gemini" | "bedrock" | "openai" | "mock" | "claude-cli";
+export type ProviderName = "gemini" | "bedrock" | "openai" | "openrouter" | "mock" | "claude-cli";
 /** Token usage reported by an LLM provider for one assess() call — the metered cost basis. */
 export interface TokenUsage {
   inputTokens?: number;
@@ -285,6 +285,14 @@ export interface DimensionSignals {
    *  The engine excludes a failed dimension from the overall instead of folding a fake 0 that would
    *  deflate the score as if the repo genuinely scored zero on it. */
   failed?: boolean;
+  /** When true, the FINAL dimension score IS `signalScore` — the LLM does not move it (no ±guardband
+   *  blend). Used by D9, whose score comes from the deterministic security check battery; the LLM's
+   *  role there is narrative (summary/gaps), not the number. The LLM's raw score is still recorded on
+   *  `llmScore` for transparency. */
+  deterministic?: boolean;
+  /** Deterministic gaps that OVERRIDE the LLM's gaps for this dimension (D9's check-battery
+   *  remediation). When set, the engine uses these as the dimension's `gaps` instead of `llm.gaps`. */
+  gaps?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -417,6 +425,50 @@ export interface SecurityPosture {
   /** An org-level SECURITY.md (owner/.github fallback) exists. Repo-local SECURITY.md is already scored
    *  from the tree by the D9 file detector; this is the documented reporting path the tree can't see. */
   orgSecurityPolicy: boolean;
+}
+
+/**
+ * Current supply-chain EXPOSURE — open known vulnerabilities in the repo's dependencies, kept
+ * SEPARATE from posture (do you have controls?) because a mature repo can still carry a fresh CVE and
+ * vice-versa. Sourced from OSV.dev (public, no auth — parsed from a committed lockfile) or Dependabot
+ * alerts when the token allows. `known:false` = we couldn't inspect dependencies (no lockfile / no
+ * alert access), which must read as "unknown", never "clean". */
+export interface SecurityExposure {
+  known: boolean;
+  source: "osv" | "dependabot" | "none";
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  /** How many dependencies we actually checked (0 when unknown). */
+  scanned: number;
+}
+
+/** One deterministic, Scorecard-style security control check — graded 0..10 by how effectively the
+ *  control is in place (not merely present), with the evidence and the fix. Auditable: every check
+ *  states what it looked at and what it found. */
+export interface SecurityCheck {
+  id: string;
+  name: string;
+  group: "posture" | "exposure";
+  /** 0..10, or null when the control is not applicable / couldn't be evaluated (excluded from the mean). */
+  score: number | null;
+  /** Relative weight within its group (risk-weighted, à la OpenSSF Scorecard). */
+  weight: number;
+  risk: "critical" | "high" | "medium" | "low";
+  evidence: string;
+  remediation?: string;
+}
+
+/** The deterministic Security (D9) assessment — the auditable check battery + its aggregate scores.
+ *  `d9` is the final dimension score; `posture` and `exposure` are the two axes it combines. */
+export interface SecurityAssessment {
+  d9: number; // 0..100 — the deterministic D9 dimension score
+  posture: number; // 0..100 — control coverage (maturity)
+  exposure: number | null; // 0..100 — inverse of current known vuln exposure; null when unknown
+  checks: SecurityCheck[];
+  evidence: string[];
+  gaps: string[];
 }
 
 /** The two-axis posture (Adoption × Rigor) quadrant. */

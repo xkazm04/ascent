@@ -65,3 +65,7 @@ next-env.d.ts
 # dev-only prototype/QA screenshots (scripts/proto-shot.mjs, shot-landing.mjs) + dev inspector log
 .proto-shots/
 .inspect-dev.log
+
+# LLM model-matrix bench artifacts (raw fixtures carry repo contents)
+bench/matrix-inputs/
+bench/matrix/

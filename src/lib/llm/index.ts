@@ -15,6 +15,7 @@ import type { LlmAssessment, ProviderName } from "@/lib/types";
 import { GeminiProvider } from "@/lib/llm/gemini";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { OpenAiProvider } from "@/lib/llm/openai";
+import { OpenRouterProvider } from "@/lib/llm/openrouter";
 import { MockProvider } from "@/lib/llm/mock";
 
 export type ProviderChoice = "auto" | ProviderName;
@@ -61,7 +62,7 @@ export function hasLlmKey(): boolean {
 
 export function resolveProviderChoice(): ProviderChoice {
   const v = (process.env.LLM_PROVIDER ?? "auto").toLowerCase();
-  return (["auto", "gemini", "bedrock", "openai", "mock", "claude-cli"] as const).includes(
+  return (["auto", "gemini", "bedrock", "openai", "openrouter", "mock", "claude-cli"] as const).includes(
     v as ProviderChoice,
   )
     ? (v as ProviderChoice)
@@ -88,6 +89,8 @@ export function providerAvailable(name: ProviderName): boolean {
       return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
     case "openai":
       return Boolean(process.env.OPENAI_API_KEY);
+    case "openrouter":
+      return Boolean(process.env.OPENROUTER_API_KEY);
     case "bedrock":
       // BedrockProvider ALWAYS resolves a region (BEDROCK_REGION > AWS_REGION > the us-east-1
       // default), so region is never a hard prerequisite — this sniffs for ANY sign the host is
@@ -129,6 +132,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       return new MockProvider();
     case "bedrock":
     case "openai":
+    case "openrouter":
     case "claude-cli":
       // Trust the operator's EXPLICIT LLM_PROVIDER selection. Pre-degrading a selected-but-unavailable
       // real provider to mock HERE set intendedProvider="mock" downstream, which suppressed the
@@ -139,6 +143,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       // providerByName below, so the failover never wastes a round trip on a doomed provider.)
       if (choice === "bedrock") return new BedrockProvider();
       if (choice === "openai") return new OpenAiProvider();
+      if (choice === "openrouter") return new OpenRouterProvider();
       return new LazyClaudeCliProvider();
     case "gemini":
       return geminiOrMock();
@@ -168,6 +173,8 @@ export function providerByName(name: string | undefined | null): LLMProvider | n
       return providerAvailable("bedrock") ? new BedrockProvider() : null;
     case "openai":
       return providerAvailable("openai") ? new OpenAiProvider() : null;
+    case "openrouter":
+      return providerAvailable("openrouter") ? new OpenRouterProvider() : null;
     case "claude-cli":
       return providerAvailable("claude-cli") ? new LazyClaudeCliProvider() : null;
     default:
@@ -191,10 +198,14 @@ export async function getProviderForOrg(
     const { resolveByomProvider, isByomActive } = await import("@/lib/db/org-llm");
     const byom = await resolveByomProvider(orgSlug).catch(() => null);
     if (byom) {
-      return {
-        provider: new BedrockProvider({ model: byom.model, region: byom.region, credentials: byom.credentials }),
-        byom: true,
-      };
+      // Bedrock keeps inference in the org's AWS boundary; OpenRouter routes to third-party upstreams
+      // with the org's own key (a cost/flexibility BYOM, not the privacy one). Either way `byom:true`
+      // tells the scan pipeline to skip platform credits + the platform fallback.
+      const provider =
+        byom.kind === "openrouter"
+          ? new OpenRouterProvider({ model: byom.model, apiKey: byom.apiKey })
+          : new BedrockProvider({ model: byom.model, region: byom.region, credentials: byom.credentials });
+      return { provider, byom: true };
     }
     // resolveByomProvider returned null, which conflates TWO very different states: "BYOM not
     // configured" (fall through to the platform provider, correct) and "BYOM configured + ACTIVE but

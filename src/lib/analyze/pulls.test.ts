@@ -6,9 +6,9 @@
 // surface as null, not a fabricated "0% reviewed" that drags D6 and misinforms the LLM auditor.
 
 import { describe, it, expect } from "vitest";
-import { applyPrSignals, applySecurityPostureSignals, summarizePullRequests } from "./pulls";
+import { applyPrSignals, summarizePullRequests } from "./pulls";
 import type { PrNode } from "@/lib/github/graphql";
-import type { DimensionSignals, PrStats, SecurityPosture } from "@/lib/types";
+import type { DimensionSignals, PrStats } from "@/lib/types";
 
 function pr(over: Partial<PrNode> = {}): PrNode {
   return {
@@ -135,59 +135,6 @@ describe("applyPrSignals — D6 fold with a null reviewedRate (maturity #3)", ()
   });
 });
 
-// The D9 file detector is structurally blind to GitHub-managed security (code scanning / Dependabot
-// configured in Settings, an active advisory program), so a mature repo like next.js scored ~0.
-// applySecurityPostureSignals closes that blind spot additively — these lock in the tiers, the
-// additive-only contract (absence never penalizes), and that only D9 is touched.
-describe("applySecurityPostureSignals — GitHub-native security folds into D9", () => {
-  const dims = (): DimensionSignals[] => [
-    { id: "D6", signalScore: 70, signals: [] },
-    { id: "D9", signalScore: 0, signals: [] }, // the next.js case: zero committed security-as-code
-  ];
-  const d9 = (out: DimensionSignals[]) => out.find((s) => s.id === "D9")!;
-  const post = (over: Partial<SecurityPosture>): SecurityPosture => ({
-    advisoryCount: 0,
-    advisoryCapped: false,
-    orgSecurityPolicy: false,
-    ...over,
-  });
-
-  it("lifts a mature coordinated-disclosure program out of the critical band (the next.js fix)", () => {
-    // 50 published advisories (capped floor) + org policy: +30 +8 = 38 — a fair 'weak' posture for a
-    // repo whose security is GitHub-managed, not committed, instead of a false-negative 0.
-    const out = applySecurityPostureSignals(dims(), post({ advisoryCount: 100, advisoryCapped: true, orgSecurityPolicy: true }));
-    expect(d9(out).signalScore).toBe(38);
-    expect(d9(out).signals.some((s) => /coordinated-disclosure program \(100\+/.test(s.label))).toBe(true);
-    expect(d9(out).signals.some((s) => /Org-level security policy/.test(s.label))).toBe(true);
-  });
-
-  it("scales by advisory tier (>=20 / >=5 / >=1) and adds the policy boost independently", () => {
-    expect(d9(applySecurityPostureSignals(dims(), post({ advisoryCount: 20 }))).signalScore).toBe(30);
-    expect(d9(applySecurityPostureSignals(dims(), post({ advisoryCount: 5 }))).signalScore).toBe(22);
-    expect(d9(applySecurityPostureSignals(dims(), post({ advisoryCount: 1 }))).signalScore).toBe(14);
-    expect(d9(applySecurityPostureSignals(dims(), post({ orgSecurityPolicy: true }))).signalScore).toBe(8);
-  });
-
-  it("is additive-only: an empty posture (no advisories, no policy) leaves every score untouched", () => {
-    const out = applySecurityPostureSignals(dims(), post({}));
-    expect(d9(out).signalScore).toBe(0);
-    expect(out.find((s) => s.id === "D6")!.signalScore).toBe(70);
-  });
-
-  it("touches ONLY D9 — a strong security posture never inflates another dimension", () => {
-    const out = applySecurityPostureSignals(dims(), post({ advisoryCount: 40, orgSecurityPolicy: true }));
-    expect(out.find((s) => s.id === "D6")!.signalScore).toBe(70);
-    expect(out.find((s) => s.id === "D6")!.signals).toHaveLength(0);
-  });
-
-  it("null/undefined posture (tokenless scan) is a no-op", () => {
-    expect(applySecurityPostureSignals(dims(), null)).toEqual(dims());
-    expect(applySecurityPostureSignals(dims(), undefined)).toEqual(dims());
-  });
-
-  it("clamps so a huge advisory count plus a high base can't exceed 100", () => {
-    const highBase: DimensionSignals[] = [{ id: "D9", signalScore: 90, signals: [] }];
-    const out = applySecurityPostureSignals(highBase, post({ advisoryCount: 100, advisoryCapped: true, orgSecurityPolicy: true }));
-    expect(d9(out).signalScore).toBe(100); // 90 + 38 clamped, not 128
-  });
-});
+// D9 (Supply Chain & Security) is now scored by the deterministic check battery
+// (src/lib/security/checks.ts + its unit tests), NOT a pulls.ts post-processor. The old
+// applySecurityPostureSignals (advisory-tier boost) was removed when the battery subsumed it.

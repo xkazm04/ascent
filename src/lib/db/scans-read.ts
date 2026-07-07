@@ -3,6 +3,7 @@
 // and the latest-recommendations read. All are no-ops/null when the DB isn't configured.
 
 import type {
+  AiUsage,
   Contributor,
   DimensionId,
   DimensionResult,
@@ -17,6 +18,7 @@ import type {
   ProviderName,
   RepoArchetype,
   ScanReport,
+  TechStack,
 } from "@/lib/types";
 import { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
@@ -829,9 +831,42 @@ export async function getScanReportByCommit(
   const commitTotal = contributors.reduce((a, c) => a + c.commits, 0);
   const level = LEVEL_BY_ID[scan.level as LevelId] ?? levelForScore(scan.overallScore);
 
-  // Warnings aren't persisted, so recompute the durable stack-fit caveat from the stored primary
-  // language — keeps a partial-fit reload (ML notebook / mobile repo) honest, not just the fresh scan.
+  // Merge PERSISTED caveats (P1-5: degrade-to-mock / low-coverage / no-token) with the stack-fit caveat
+  // recomputed from the stored primary language — the latter is a backstop for legacy rows written before
+  // the warningsJson column existed. Deduped: a fresh row's persisted set already carries the stack-fit
+  // caveat, so guard against doubling it.
   const stackFit = stackFitFromLanguage(repo.primaryLanguage);
+  const persistedWarnings = parseStringArray(scan.warningsJson);
+  const warnings =
+    stackFit && !persistedWarnings.includes(stackFit.caveat)
+      ? [...persistedWarnings, stackFit.caveat]
+      : persistedWarnings;
+
+  // Reconstruct AI usage from the AUTHORITATIVE PR-level signal (aiInvolvedRate + tool attribution),
+  // not the bot-commit fraction (which ≈ the Renovate/Dependabot rate). Mirrors the fresh-scan
+  // detectAiUsage (P0-5/P2-1). The persisted snapshot's tree/commits aren't available on read, so
+  // guidance-file-only detection isn't recoverable here — a small residual vs the fresh scan.
+  const prStats = parseJsonObject<PrStats>(scan.prStats);
+  const aiInPrs = prStats && prStats.aiInvolvedRate > 0 ? prStats.aiInvolvedRate : 0;
+  const aiSignals: string[] = [];
+  if (aiInPrs > 0) {
+    const tools = prStats?.tools?.length ? ` (${prStats.tools.map((t) => `${t.name} ${t.count}`).join(", ")})` : "";
+    aiSignals.push(`AI involved in ${aiInPrs}% of recent PRs${tools}`);
+  }
+  if (aiCommitTotal > 0) aiSignals.push(`${aiCommitTotal}/${commitTotal} commits AI/bot-attributed`);
+  const aiDetected = aiInPrs > 0 || (prStats == null && aiCommitTotal > 0);
+  // Prefer the PERSISTED aiUsage (faithful to the fresh scan, incl. guidance-file detection the read
+  // path can't re-derive); fall back to the reconstruction above for legacy rows written before the column.
+  const aiUsage: AiUsage =
+    parseJsonObject<AiUsage>(scan.aiUsageJson) ?? {
+      detected: aiDetected,
+      commitFraction: commitTotal ? Math.round((aiCommitTotal / commitTotal) * 100) / 100 : 0,
+      signals: aiSignals,
+    };
+  // Passport reconstruction with owner overrides, for parity with getRepoPassport (P2-1) — the report
+  // page's fallback fetch can now be dropped since the reconstructed report carries the passport.
+  const pp = parsePassportJson(scan.passportJson);
+  const passport = pp ? applyPassportOverrides(pp, parsePassportOverrides(repo.passportOverridesJson)) : undefined;
 
   return {
     repo: {
@@ -851,15 +886,19 @@ export async function getScanReportByCommit(
     adoptionScore: scan.adoptionScore,
     rigorScore: scan.rigorScore,
     posture: postureFor(scan.adoptionScore, scan.rigorScore),
-    aiUsage: {
-      detected: aiCommitTotal > 0,
-      commitFraction: commitTotal ? Math.round((aiCommitTotal / commitTotal) * 100) / 100 : 0,
-      signals: [],
-    },
+    aiUsage,
     contributors,
-    prStats: parseJsonObject<PrStats>(scan.prStats),
+    prStats,
     governance: parseJsonObject<Governance>(scan.governance),
     commitActivity: parseNumberArray(scan.commitActivity),
+    // Reader completeness (P2-1): tech stack, passport, and token/latency usage ARE persisted but were
+    // dropped on read — a reconstructed/permalinked report now carries them, matching the fresh scan.
+    techStack: parseJsonObject<TechStack>(scan.techStackJson) ?? undefined,
+    passport,
+    usage:
+      scan.inputTokens != null || scan.outputTokens != null || scan.llmLatencyMs != null
+        ? { inputTokens: scan.inputTokens ?? undefined, outputTokens: scan.outputTokens ?? undefined, latencyMs: scan.llmLatencyMs ?? undefined }
+        : undefined,
     dimensions,
     headline: scan.headline,
     strengths: parseStringArray(scan.strengths),
@@ -867,7 +906,7 @@ export async function getScanReportByCommit(
     roadmap,
     discrepancies: parseDiscrepancies(scan.discrepancies),
     confidence: scan.confidence,
-    ...(stackFit ? { warnings: [stackFit.caveat] } : {}),
+    ...(warnings.length ? { warnings } : {}),
     scannedAt: scan.scannedAt.toISOString(),
     engine: { provider: scan.engineProvider as ProviderName, model: scan.engineModel },
   };

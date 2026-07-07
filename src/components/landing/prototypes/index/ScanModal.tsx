@@ -10,78 +10,16 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { ScanForm } from "@/components/ScanForm";
 import { QuotaMeter } from "@/components/QuotaMeter";
-import { GitHubSignInButton } from "@/components/GitHubSignInButton";
-import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
-import { GitHubMark } from "@/components/auth/buttonChrome";
 import { Kicker } from "@/components/ui";
-import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
+import { AuthCta, SignInButton, type AuthMode } from "./ScanModal.AuthCta";
+import { OutputsCard } from "./ScanModal.OutputsCard";
+import { ScanTriggerFallback } from "./ScanModal.TriggerFallback";
 
 /** Which GitHub sign-in backend the deployment runs — decided server-side and passed down so the
  *  modal renders the matching CTA (or a get-started link when auth isn't configured at all). */
-export type AuthMode = "supabase" | "github" | null;
-
-// What a scan returns — the promise shown the moment the dialog opens. Counts come from the rubric so
-// the copy can't drift from the model.
-const OUTPUTS = [
-  `A single 0–100 maturity score on a ${LEVELS.length}-level ladder`,
-  `A radar across ${DIMENSIONS.length} weighted dimensions`,
-  "The evidence behind every score",
-  "A prioritized roadmap to climb to the next level",
-];
-
-/** Renders the GitHub sign-in affordance for whichever backend is configured (or a get-started
- *  fallback when none is). Shared by the gated "sign in to scan" panel and the private-repo connect CTA. */
-function SignInButton({ auth, next, label }: { auth: AuthMode; next: string; label: string }) {
-  const cls = "w-full justify-center";
-  if (auth === "supabase") return <SupabaseSignInButton next={next} label={label} className={cls} />;
-  if (auth === "github") return <GitHubSignInButton next={next} label={label} className={cls} />;
-  // No auth backend on this deployment — fall back to the get-started flow rather than a dead button.
-  return (
-    <Link
-      href="/onboarding"
-      className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft"
-    >
-      <GitHubMark size={18} /> {label} →
-    </Link>
-  );
-}
-
-/** The "what you'll get" rundown, in a hairline panel matching the landing's bordered cards. */
-function OutputsCard() {
-  return (
-    <div className="rounded-xl border border-divider bg-surface/40 p-5">
-      <Kicker tone="muted">What you&apos;ll get</Kicker>
-      <ul className="mt-3 space-y-2 text-base text-slate-300">
-        {OUTPUTS.map((o) => (
-          <li key={o} className="flex gap-2.5">
-            <span className="mt-0.5 shrink-0 text-accent" aria-hidden>→</span>
-            <span>{o}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/** The private-repo GitHub connect CTA, gated on the consent checkbox. Until consent is given it's a
- *  disabled stand-in; once given it becomes the real connect for whichever backend is configured. */
-function AuthCta({ auth, consent }: { auth: AuthMode; consent: boolean }) {
-  if (!consent) {
-    return (
-      <button
-        type="button"
-        disabled
-        className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-slate-800 px-5 py-2.5 text-base font-semibold text-slate-500"
-      >
-        <GitHubMark size={18} /> Continue with GitHub
-      </button>
-    );
-  }
-  return <SignInButton auth={auth} next="/connect" label="Continue with GitHub" />;
-}
+export type { AuthMode };
 
 interface ScanModalProps {
   examples?: string[];
@@ -89,20 +27,6 @@ interface ScanModalProps {
   /** Whether the login wall is enforced on this deployment. When true, a scan requires a signed-in
    *  viewer — the dialog locks the scan form behind sign-in until one is present. */
   gated?: boolean;
-}
-
-/** Static stand-in shown while the Suspense boundary resolves during prerender — visually identical to
- *  the real trigger so the primary CTA is present in the cached HTML; hydration swaps in the live modal. */
-function ScanTriggerFallback() {
-  return (
-    <button
-      type="button"
-      aria-haspopup="dialog"
-      className="focus-ring inline-flex items-center gap-2 rounded-xl bg-accent px-6 py-3 text-base font-semibold text-on-accent shadow-2xl shadow-black/40 transition hover:bg-accent-soft"
-    >
-      Scan a repository <span aria-hidden>→</span>
-    </button>
-  );
 }
 
 /** `ScanModalInner` reads `?scan=1` via `useSearchParams`; that de-opts any statically-optimizable page

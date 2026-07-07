@@ -259,6 +259,12 @@ export async function persistScanReport(
             commitActivity: report.commitActivity ? JSON.stringify(report.commitActivity) : null,
             techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
             passportJson: report.passport ? JSON.stringify(report.passport) : null,
+            // Reliability caveats (degrade-to-mock / low-coverage / no-token / stack-fit) — persisted so a
+            // reloaded scan keeps its disclosure instead of reading as a confident full scan (P1-5).
+            warningsJson: report.warnings?.length ? JSON.stringify(report.warnings) : null,
+            // AI-usage indicator — persisted so a reloaded report reproduces the fresh scan's detection
+            // (PR-level + guidance-file) instead of a lossy re-derivation from contributors (aiUsage fix).
+            aiUsageJson: report.aiUsage ? JSON.stringify(report.aiUsage) : null,
             // Persist a CACHE-AWARE cost basis: billableInputTokens folds prompt-cache reads (~10%) and
             // writes (~125%) into a cost-equivalent input count, so /usage prices a cached scan correctly
             // off the single inputTokens column (no schema migration). Null stays null for a mock/no-token
