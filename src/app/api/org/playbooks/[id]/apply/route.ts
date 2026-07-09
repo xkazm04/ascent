@@ -10,7 +10,8 @@ import { parseRepoUrl, fetchRepoContext, GitHubError } from "@/lib/github/source
 import { openDraftPr } from "@/lib/github/write";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { applyPlaybook, getPlaybook, getInstallationIdForOwner, isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
 import { DIMENSION_SHORT } from "@/lib/ui";
@@ -31,8 +32,12 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       { status: 503 },
     );
   }
-  const session = isAuthConfigured() ? await getSession() : null;
-  if (isAuthConfigured() && !session) {
+  // The sign-in check used to key on isAuthConfigured() alone -- the DORMANT custom-OAuth env, false
+  // in production -- so it never fired there and the actor below was always null. Gate whenever
+  // EITHER stack is live (Supabase wall or a dev box with the legacy OAuth configured); a fully
+  // auth-off local/demo deployment stays open, exactly as before.
+  const actorLogin = await resolveViewerLogin();
+  if ((authGateEnabled() || isAuthConfigured()) && !actorLogin) {
     return NextResponse.json({ error: "Sign in to open a playbook PR." }, { status: 401 });
   }
 
@@ -87,12 +92,12 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     });
 
     // Record the adoption mark (idempotent) so lift analytics include this repo, and audit the write.
-    await applyPlaybook(org, id, ctxRepo.fullName, session?.login ?? null);
+    await applyPlaybook(org, id, ctxRepo.fullName, actorLogin);
     await recordOrgAudit(
       "playbook.pr_opened",
       org,
       { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused },
-      session?.login,
+      actorLogin ?? undefined,
     );
 
     return NextResponse.json(pr);

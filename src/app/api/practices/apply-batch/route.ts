@@ -11,7 +11,8 @@ import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner, getOrgId, isDbConfigured } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
@@ -38,8 +39,12 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-  const session = isAuthConfigured() ? await getSession() : null;
-  if (isAuthConfigured() && !session) {
+  // The sign-in check used to key on isAuthConfigured() alone -- the DORMANT custom-OAuth env, false
+  // in production -- so it never fired there and the actor below was always null. Gate whenever
+  // EITHER stack is live (Supabase wall or a dev box with the legacy OAuth configured); a fully
+  // auth-off local/demo deployment stays open, exactly as before.
+  const actorLogin = await resolveViewerLogin();
+  if ((authGateEnabled() || isAuthConfigured()) && !actorLogin) {
     return NextResponse.json({ error: "Sign in to open starter PRs." }, { status: 401 });
   }
 
@@ -85,7 +90,7 @@ export async function POST(request: Request) {
       try {
         const result = await applyPracticeToRepo(token, ref, body.practiceId!, body.base, {
           orgId,
-          actorId: session?.login,
+          actorId: actorLogin ?? undefined,
           batch: true,
         });
         if (result.kind === "unknown-practice") {

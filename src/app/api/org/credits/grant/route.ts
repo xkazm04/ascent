@@ -8,7 +8,8 @@
 import { NextResponse } from "next/server";
 import { grantCredits, isDbConfigured } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
-import { getSession, isSameOrigin } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { envBool } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -40,10 +41,12 @@ export async function POST(request: Request) {
   if (amount === 0 || Math.abs(amount) > 100_000) {
     return NextResponse.json({ error: "amount must be a non-zero integer up to 100000." }, { status: 400 });
   }
-  const session = await getSession();
+  // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so this audit row recorded a null actor in production.
+  const actorLogin = await resolveViewerLogin();
   const balance = await grantCredits(body.org, amount, {
     reason: amount > 0 ? "grant" : "adjustment",
-    actor: session?.login ?? "system",
+    actor: actorLogin ?? "system",
   });
   if (balance === null) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   return NextResponse.json({ ok: true, balance });

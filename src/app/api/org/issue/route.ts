@@ -10,7 +10,8 @@ import { parseRepoUrl } from "@/lib/github/source";
 import { createRepoIssue } from "@/lib/github/issues";
 import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner, getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
@@ -28,8 +29,12 @@ export async function POST(request: Request) {
     );
   }
   // Writing to a customer repo is sensitive — require a signed-in user when auth is configured.
-  const session = isAuthConfigured() ? await getSession() : null;
-  if (isAuthConfigured() && !session) {
+  // The sign-in check used to key on isAuthConfigured() alone -- the DORMANT custom-OAuth env, false
+  // in production -- so it never fired there and the actor below was always null. Gate whenever
+  // EITHER stack is live (Supabase wall or a dev box with the legacy OAuth configured); a fully
+  // auth-off local/demo deployment stays open, exactly as before.
+  const actorLogin = await resolveViewerLogin();
+  if ((authGateEnabled() || isAuthConfigured()) && !actorLogin) {
     return NextResponse.json({ error: "Sign in to file issues." }, { status: 401 });
   }
 
@@ -65,7 +70,7 @@ export async function POST(request: Request) {
   }
 
   // Attribution: the App bot is the technical author, so stamp the requesting user into the body.
-  const attribution = session?.login ? `\n\n---\n_Filed via Ascent by @${session.login}._` : "";
+  const attribution = actorLogin ? `\n\n---\n_Filed via Ascent by @${actorLogin}._` : "";
 
   try {
     const token = await getInstallationToken(installId);
@@ -78,7 +83,7 @@ export async function POST(request: Request) {
     await recordAudit(
       "issue.create",
       { repo: `${parsed.owner}/${parsed.repo}`, number: issue.number, title },
-      { orgId, actorId: session?.login },
+      { orgId, actorId: actorLogin ?? undefined },
     );
     return NextResponse.json(issue);
   } catch (err) {

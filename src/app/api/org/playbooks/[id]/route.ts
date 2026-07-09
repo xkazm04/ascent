@@ -5,7 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { deletePlaybook, isDbConfigured, recordOrgAudit, updatePlaybook } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { isDimensionId } from "@/lib/maturity/model";
 import { resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 
@@ -41,9 +41,11 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     });
     // PLAY-6: audit the change so a playbook edit leaves a trail (the org's standards have history).
     // Reuse the org the gate already resolved (no second getPlaybookOrgSlug round-trip).
-    const session = await getSession();
+    // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
+    // so this actor was recorded as null in production.
+    const actorLogin = await resolveViewerLogin();
     const changed = Object.keys(body).filter((k) => body[k as keyof typeof body] !== undefined);
-    await recordOrgAudit("playbook.updated", gated.org, { playbookId: id, changed }, session?.login);
+    await recordOrgAudit("playbook.updated", gated.org, { playbookId: id, changed }, actorLogin ?? undefined);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Playbook not found." }, { status: 404 });

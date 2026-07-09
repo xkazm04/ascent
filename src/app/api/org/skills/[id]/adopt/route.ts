@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { adoptOrgSkill, getOrgSkillOrgSlug, isDbConfigured, unadoptOrgSkill } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
-import { getSession } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,8 +27,10 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const body = (await request.json().catch(() => ({}))) as { repo?: string };
   const repo = body.repo?.trim();
   if (!repo) return NextResponse.json({ error: "Provide { repo }." }, { status: 400 });
-  const session = await getSession();
-  const ok = await adoptOrgSkill(r.org, id, repo, session?.login ?? null);
+  // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so this actor/audit row was recorded as null in production.
+  const actorLogin = await resolveViewerLogin();
+  const ok = await adoptOrgSkill(r.org, id, repo, actorLogin);
   return NextResponse.json(ok ? { ok: true } : { error: "Skill not found." }, { status: ok ? 200 : 404 });
 }
 

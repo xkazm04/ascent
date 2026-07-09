@@ -17,7 +17,7 @@ import {
   updateOrgSkill,
 } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead, requireOrgRole } from "@/lib/authz";
-import { getSession } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { planAllowsSkillsLibrary } from "@/lib/plans";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 import type { OrgRole } from "@/lib/db/members";
@@ -76,10 +76,12 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       tags: Array.isArray(body.tags) ? body.tags : undefined,
       archived: body.archived,
     });
-    const session = await getSession();
+    // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
+    // Supabase wall, so this actor/audit row was recorded as null in production.
+    const actorLogin = await resolveViewerLogin();
     const orgId = (await getOrgId(g.org.toLowerCase()).catch(() => null)) ?? undefined;
     const changed = Object.keys(body).filter((k) => body[k as keyof typeof body] !== undefined);
-    await recordAudit("org_skill.updated", { skillId: id, changed }, { orgId, actorId: session?.login });
+    await recordAudit("org_skill.updated", { skillId: id, changed }, { orgId, actorId: actorLogin ?? undefined });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const code = (err as { code?: string }).code;
@@ -95,9 +97,11 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
   if (g instanceof Response) return g;
   try {
     await archiveOrgSkill(id);
-    const session = await getSession();
+    // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
+    // Supabase wall, so this actor/audit row was recorded as null in production.
+    const actorLogin = await resolveViewerLogin();
     const orgId = (await getOrgId(g.org.toLowerCase()).catch(() => null)) ?? undefined;
-    await recordAudit("org_skill.archived", { skillId: id }, { orgId, actorId: session?.login });
+    await recordAudit("org_skill.archived", { skillId: id }, { orgId, actorId: actorLogin ?? undefined });
     return NextResponse.json({ ok: true });
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Skill not found." }, { status: 404 });

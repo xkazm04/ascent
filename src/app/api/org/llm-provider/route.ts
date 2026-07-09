@@ -16,7 +16,8 @@ import {
   setOrgLlmConfig,
 } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
-import { getSession, isSameOrigin } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 
@@ -66,7 +67,9 @@ export async function POST(request: Request) {
   if (!isEncryptionConfigured()) {
     return NextResponse.json({ error: "Secret encryption is not configured on this deployment (set ENCRYPTION_KEY)." }, { status: 409 });
   }
-  const session = await getSession();
+  // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so this actor/audit row was recorded as null in production.
+  const actorLogin = await resolveViewerLogin();
   const provider = body.provider?.trim() || "bedrock";
   const res = await setOrgLlmConfig(
     body.org,
@@ -80,7 +83,7 @@ export async function POST(request: Request) {
       secretAccessKey: body.secretAccessKey,
       apiKey: body.apiKey,
     },
-    session?.login ?? null,
+    actorLogin,
   );
   if (!res.ok) return NextResponse.json({ error: res.error ?? "Failed to save." }, { status: 400 });
   const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
@@ -88,7 +91,7 @@ export async function POST(request: Request) {
   await recordAudit(
     "org.llm_provider.updated",
     { provider, modelId: body.modelId.trim(), region: body.region ?? null, enabled: body.enabled ?? false, credsRotated: Boolean(body.accessKeyId || body.apiKey) },
-    { orgId, actorId: session?.login },
+    { orgId, actorId: actorLogin ?? undefined },
   );
   return NextResponse.json({ ok: true });
 }
@@ -101,8 +104,10 @@ export async function DELETE(request: Request) {
   const denied = await requireOrgRole(body.org, "owner");
   if (denied) return denied;
   await disableOrgLlmConfig(body.org);
-  const session = await getSession();
+  // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so this actor/audit row was recorded as null in production.
+  const actorLogin = await resolveViewerLogin();
   const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
-  await recordAudit("org.llm_provider.disabled", { provider: "bedrock" }, { orgId, actorId: session?.login });
+  await recordAudit("org.llm_provider.disabled", { provider: "bedrock" }, { orgId, actorId: actorLogin ?? undefined });
   return NextResponse.json({ ok: true });
 }

@@ -8,7 +8,8 @@
 import { NextResponse } from "next/server";
 import { REC_STATUSES, type RecStatus } from "@/lib/types";
 import { getRecommendationOrgSlug, isDbConfigured, updateRecommendation, type RecommendationPatch } from "@/lib/db";
-import { getSession, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
+import { PUBLIC_ORG } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
@@ -50,7 +51,9 @@ export async function PATCH(
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
   // Attribute the change to the signed-in user (recorded as the timeline actor).
-  const session = isAuthConfigured() ? await getSession() : null;
+  // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
+  // so this actor was recorded as null in production.
+  const actorLogin = await resolveViewerLogin();
 
   const body = (await request.json().catch(() => ({}))) as PatchBody;
 
@@ -104,7 +107,7 @@ export async function PATCH(
   const note = typeof body.note === "string" ? body.note.slice(0, 500) : null;
 
   try {
-    const updated = await updateRecommendation(id, patch, { actor: session?.login ?? null, note });
+    const updated = await updateRecommendation(id, patch, { actor: actorLogin, note });
     return NextResponse.json(updated);
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") {
