@@ -8,7 +8,8 @@ import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { peekInvite, isDbConfigured } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { AcceptInviteForm } from "./AcceptInviteForm";
 
 export const dynamic = "force-dynamic";
@@ -60,15 +61,21 @@ export default async function AcceptInvitePage({ params }: { params: Promise<{ t
       </Frame>
     );
   }
-  const session = isAuthConfigured() ? await getSession() : null;
-  if (isAuthConfigured() && !session) {
+  // The whole invite flow was dead in production. This read `isAuthConfigured() ? await getSession()`,
+  // keyed on the DORMANT custom-OAuth env: under the ACTIVE Supabase wall that predicate is false, so
+  // `session` was always null, the sign-in branch never fired, and EVERY invited teammate fell through
+  // to the "Authentication required" dead end below. The sibling accept ROUTE was already migrated to
+  // the active stack; this page was left behind.
+  const authOn = authGateEnabled() || isAuthConfigured();
+  const viewerLogin = authOn ? await resolveViewerLogin() : null;
+  if (authOn && !viewerLogin) {
     return (
       <Frame>
         <SignInNotice next={`/invite/${token}`} />
       </Frame>
     );
   }
-  if (!session) {
+  if (!viewerLogin) {
     return (
       <Frame>
         <Card title="Authentication required" body="Accepting an invite needs GitHub authentication configured on this deployment." />
@@ -88,7 +95,7 @@ export default async function AcceptInvitePage({ params }: { params: Promise<{ t
   }
   // Surface a pinned-login mismatch up front (acceptInvite still enforces it server-side).
   const mismatch =
-    peek.pinnedLogin && peek.pinnedLogin !== session.login.trim().toLowerCase() ? peek.pinnedLogin : null;
+    peek.pinnedLogin && peek.pinnedLogin !== viewerLogin.trim().toLowerCase() ? peek.pinnedLogin : null;
   // An email-pinned invite (no login pin) carries no login-mismatch signal, so hint the required email
   // up front — switching GitHub accounts can't satisfy it, so the generic login guidance would mislead.
   const pinnedEmail = peek.pinnedLogin ? null : peek.pinnedEmail;
