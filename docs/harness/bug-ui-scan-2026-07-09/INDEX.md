@@ -24,11 +24,24 @@ Counts verified three ways (declared `> Total:` headers, `- **Severity**:` bulle
 
 ## Elevated to Critical (orchestrator judgment)
 
-| # | Finding | File | Why Critical |
-|---|---|---|---|
-| **C1** | `/api/practices/generate` guard is `!isAuthConfigured() \|\| sessionOwnsOrg(...)`. `isAuthConfigured()` is **false** in prod, so `!false` short-circuits the entire check. | `src/app/api/practices/generate/route.ts:31` | **Any** caller makes the server mint the org's GitHub **installation token** and returns private-repo metadata. No viewer check executes. |
-| **C2** | Public gate endpoint calls `scanRepository` **without** `noAmbientToken`, ingesting via the operator PAT. | `src/app/api/gate/[owner]/[repo]/route.ts:68` | Anonymous callers enumerate **private** repos' full gate verdicts using the operator's credentials. The badge + import routes explicitly guard this; the gate route was missed. |
-| **C3** | `/api/app/setup` gates authorization on the dormant `isAuthConfigured()`/`getSession()` stack, so its owner guard is dead code in prod. | `src/app/api/app/setup/route.ts:32` | Unauthenticated installation-id enumeration + `private`-org seeding. Same bug class the repos route was hardened against. |
+> **STATUS: all 5 fixed in Wave 1.** See [FIXES-WAVE-1.md](FIXES-WAVE-1.md).
+> C4 and C5 were **not found by the per-context scan** — they surfaced while fixing C1, whose comment
+> cited `resolveScanAuth` as the correct template to mirror. It was itself broken, and worse.
+> Confirmed against `.env.production`: `GITHUB_OAUTH_CLIENT_ID`/`_SECRET` are absent, so
+> `isAuthConfigured()` is permanently `false` in production and every `!isAuthConfigured() || …` guard
+> evaluates to "allow".
+
+| # | Finding | File | Why Critical | Fixed |
+|---|---|---|---|---|
+| **C1** | `/api/practices/generate` guard is `!isAuthConfigured() \|\| sessionOwnsOrg(...)`. `isAuthConfigured()` is **false** in prod, so `!false` short-circuits the entire check. | `src/app/api/practices/generate/route.ts:31` | **Any** caller makes the server mint the org's GitHub **installation token** and returns private-repo metadata. No viewer check executes. | `91daa10` |
+| **C2** | Public gate endpoint calls `scanRepository` **without** `noAmbientToken`, ingesting via the operator PAT. | `src/app/api/gate/[owner]/[repo]/route.ts:68` | Anonymous callers enumerate **private** repos' full gate verdicts using the operator's credentials. The badge + import routes explicitly guard this; the gate route was missed. | `857a574` |
+| **C3** | `/api/app/setup` gates authorization on the dormant `isAuthConfigured()`/`getSession()` stack, so its owner guard is dead code in prod. | `src/app/api/app/setup/route.ts:32` | Unauthenticated installation-id enumeration + `private`-org seeding. Same bug class the repos route was hardened against. | `1bec4d6` |
+| **C4** | *(missed by the scan)* `resolveScanAuth` mints the token **before** `/api/scan:52` checks for a viewer — and that check requires **any signed-in user, not membership**. Caller-supplied `installationId` honored unconditionally. | `src/lib/scan.ts:119-126` | **Any authenticated account** could `POST {repo:"victim-org/private-repo"}` and receive a full maturity report on a private repo. The most severe finding of the run. | `c83a4ed` |
+| **C5** | *(missed by the scan)* `org/import` — both `ownsOrg` and the ambient-PAT escape hatch keyed on the dormant predicate; `requireOrgAccess` leaves `PUBLIC_ORG` open to any signed-in viewer. | `src/app/api/org/import/route.ts:100,106,130` | A signed-in caller posts `{org:"public", repos:["victim/secret"], installationId:<victim>}` → mints the victim's token or rides the operator PAT. The confused deputy its own comment at `:120` describes. | `fd4954f` |
+
+**Lesson for future scans:** a per-context agent cannot see a cross-context predicate. The three scanned
+Criticals were each reported as an isolated route bug; the shared root cause — and its two worst
+instances, in a *library* rather than a route — only became visible when fixing them.
 
 ---
 

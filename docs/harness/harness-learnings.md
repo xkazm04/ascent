@@ -1332,3 +1332,70 @@ New structural facts:
   thawed instance past the ~15-min IAM-token TTL 500s on first read. Large multi-site change → own session.
 - **~110 Medium/Low bug tail + 90 business findings** remain per `biz-bug-scan-2026-06-29/INDEX.md`
   (business = product/pricing decisions; not auto-fix material).
+
+---
+
+## Structural facts (bug+ui scan + Wave 1, 2026-07-09)
+
+- **2026-07-09 — The two auth stacks, and which one is real.** `authGateEnabled()` (env.ts:42) =
+  `supabaseAuthConfigured() && !authBypassEnabled()` is the **ACTIVE** production wall.
+  `isAuthConfigured()` (auth.ts:85) requires `GITHUB_OAUTH_CLIENT_ID` **and** `GITHUB_OAUTH_CLIENT_SECRET`
+  **and** `AUTH_SECRET`. **`.env.production` / `.env.vercel` set neither OAuth var**, so it is permanently
+  `false` in prod and no `ascent_session` cookie is ever minted. Consequence: `!isAuthConfigured() || X`
+  ⇒ always allow; `isAuthConfigured() && X` ⇒ never fires. **Gate on `authGateEnabled()`/`getViewer()`.**
+- **2026-07-09 — `src/lib/authz.ts`'s guards are all correct.** `requireOrgAccess`, `canReadOrg`,
+  `requireOrgRead`, `requireOrgRole` all branch on `authGateEnabled()` **first**. Every dormant-predicate
+  bug found in this scan lives at a **call site**, never in authz.ts. Don't "fix" authz.ts.
+- **2026-07-09 — `resolveViewerLogin()` (access.ts:89-94) is SAFE and canonical.** It tries the dormant
+  `getSession()`, then falls through to `(await getViewer())?.login`, a JWT-validated Supabase identity.
+  It is the correct fix for the ~7-route null-actor audit cluster. ⚠ **Never await it inside a
+  `ReadableStream start()`** — its cookie-scoped reads return null there (documented at access.ts:83).
+- **2026-07-09 — `canMintInstallationToken(owner)` (authz.ts) is now the ONLY sanctioned way** to
+  authorize minting an org's GitHub App installation token. Five call sites share it.
+- **2026-07-09 — `scanRepository` silently falls back to the operator PAT.**
+  `opts.token ?? (opts.noAmbientToken ? undefined : process.env.GITHUB_TOKEN)` (scan.ts:163). That PAT
+  "commonly carries private `repo` scope". **Denying a mint without also passing `noAmbientToken` is a
+  cosmetic fix.** Public routes (badge, gate) must pass it unconditionally.
+- **2026-07-09 — `requireOrgAccess(PUBLIC_ORG)` returns null for any signed-in viewer.** Treating
+  "passed requireOrgAccess" as "is a member of a real tenant" is wrong; `PUBLIC_ORG` is a funnel bucket.
+- **2026-07-09 — `graphql.ts` computes a `partial` flag that NO consumer reads** (`fetchPrStats`,
+  pulls.ts:291, drops it). Truncated PR slices are scored and cached as authoritative → D6/D7/D8 silently
+  understated on large repos. Same shape: `supply-chain`'s `degraded` flag, unread by security/page.tsx.
+- **2026-07-09 — `/api/scan` authorizes with `authGateEnabled() && !getViewer()` (route.ts:52), which
+  checks for *a* viewer, not membership in the target org.** Any per-repo authorization must happen in
+  `resolveScanAuth`, not there.
+
+## Conventions enforced
+
+- **2026-07-09** — When a guard branches on deployment configuration, its test MUST pin the **production**
+  branch explicitly. `scan.test.ts` and `org/import/route.test.ts` both mocked `isAuthConfigured` as
+  `true` — a shape production never runs — so 3046 green tests coexisted with a live cross-tenant
+  private-repo read. See `authz.test.ts > canMintInstallationToken` for the "PROD SHAPE:" naming pattern.
+
+## Anti-patterns to avoid
+
+- **2026-07-09 — Dead-predicate authz.** A guard keyed on an env-gated *capability* predicate
+  (`isXConfigured()`) rather than an *authorization* predicate inverts to "allow" wherever that capability
+  is absent. Cost: 5 Criticals, incl. unauthenticated installation-token minting.
+- **2026-07-09 — A precise security comment above an ineffective guard.** Three of the five Wave 1 sites
+  carried comments accurately describing the attack the code failed to prevent (`org/import:120` literally
+  describes its own confused deputy). Treat an unusually careful security comment as a prompt to *verify
+  the predicate*, not as evidence the guard works.
+- **2026-07-09 — Fixing the mint without fixing the fallback.** See `noAmbientToken` above.
+
+## Open follow-ups (from bug+ui scan, 2026-07-09)
+
+- **CORRECTION to the 2026-06-29 list:** the **DimensionTrends stale-repo race is FIXED** (AbortController
+  + unmount abort now present). Verified 2026-07-09. Only a latent, unreachable residual remains.
+- **Wave 2 — null-actor audit attribution (7 findings, High).** Audit rows, timeline events, `createdBy`
+  and `appliedBy` are all written as `null` under the Supabase wall: `security-posture` (gate-policy,
+  alerts, invites), `members/route.ts:62`, `invites/route.ts:64`, `playbooks`, `recommendations/[id]:53`,
+  `backlog`, `fleet-alerts`, `ci-gate`. All fix to `resolveViewerLogin()`.
+- **Wave 3 — feature lockouts from `readableOrgForOwner` (auth.ts:336)**, which always returns `"public"`
+  in prod: private-repo Trends/Compare/`/api/history`, the Private-tier PDF export, the report permalink,
+  `passport/pr` (403s on every org repo), `getActiveOrg`/`orgOptionsForSession` (dead org switcher), and
+  **the invite accept *page* (`invite/[token]/page.tsx:63`) — no invited teammate can accept in prod.**
+- **`/api/gate` no longer serves private repos** (Wave 1, deliberate). If private-repo HTTP gating is a
+  product requirement, it needs an authenticated variant; the App check-run path already covers CI.
+- **~297 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
+- **Context-map drift:** 7 contexts reference files that no longer exist; run `refresh_context` on them.
