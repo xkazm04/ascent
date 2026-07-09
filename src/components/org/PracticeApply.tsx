@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ConfirmAction, batchPrConfirm } from "@/components/ConfirmAction";
 
 interface RepoRef {
   name: string;
@@ -48,8 +49,15 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
   const [batchSummary, setBatchSummary] = useState<{ attempted: number; skipped: number } | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
+  // The batch is the most expensive button in the app — one click opens a real draft PR in up to
+  // MAX_BATCH repos at once. Gate it behind a confirm that states the count + the org before firing.
+  const [confirmingBatch, setConfirmingBatch] = useState(false);
 
   if (gapRepos.length === 0) return null;
+
+  // All gap repos belong to one org (the batch route rejects a mixed-owner batch); take the owner from
+  // the first so the confirm can name the org whose repos are about to receive PRs.
+  const batchOrg = gapRepos[0]?.fullName.split("/")[0] ?? "the org";
 
   function toggleSelected(fullName: string) {
     setSelected((s) => {
@@ -243,7 +251,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
                 ))}
               </div>
               <button
-                onClick={applyBatch}
+                onClick={() => setConfirmingBatch(true)}
                 disabled={batchBusy || selected.size === 0}
                 className="mt-3 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
               >
@@ -282,6 +290,21 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
           )}
         </div>
       )}
+
+      {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect
+          runs. The overlay blocks the checkbox grid, so `selected` is frozen while confirming. */}
+      <ConfirmAction
+        open={confirmingBatch}
+        busy={batchBusy}
+        onCancel={() => setConfirmingBatch(false)}
+        onConfirm={() => {
+          setConfirmingBatch(false);
+          void applyBatch();
+        }}
+        {...(selected.size > 0
+          ? batchPrConfirm(selected.size, MAX_BATCH, batchOrg)
+          : { title: "", body: "", confirmLabel: "", tone: "default" as const })}
+      />
     </div>
   );
 }

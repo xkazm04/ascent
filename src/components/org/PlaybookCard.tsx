@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
@@ -30,6 +31,9 @@ export function PlaybookCard({
   const [prBusy, setPrBusy] = useState(false);
   const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
   const [prError, setPrError] = useState<string | null>(null);
+  // "Open draft PR" writes a real branch+commit+PR into the customer's repo — gate it behind a confirm
+  // that names the repo, so a stray click on a button that sits next to "Mark applied" can't file a PR.
+  const [confirmingPr, setConfirmingPr] = useState(false);
   // Error surface for the adoption mark/unmark actions. Previously a failed mark/unmark just rolled
   // the optimistic chip back with zero feedback (only `prError` existed, scoped to the Open-PR flow),
   // so a 403/404 (e.g. "Repo must belong to …") or network blip read as "the click did nothing".
@@ -239,11 +243,26 @@ export function PlaybookCard({
           <button onClick={apply} disabled={!pick} className="shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Just record that this repo adopted the playbook">
             Mark applied
           </button>
-          <button onClick={openPr} disabled={!pick || prBusy} className="shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50" title="Open a draft PR seeding this playbook into the repo">
+          <button onClick={() => setConfirmingPr(true)} disabled={!pick || prBusy} className="shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50" title="Open a draft PR seeding this playbook into the repo">
             {prBusy ? "Opening PR…" : "Open draft PR →"}
           </button>
         </div>
       )}
+
+      {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect
+          runs. `pick` can't change while the overlay is up, so openPr() reads the confirmed repo. */}
+      <ConfirmAction
+        open={confirmingPr}
+        busy={prBusy}
+        onCancel={() => setConfirmingPr(false)}
+        onConfirm={() => {
+          setConfirmingPr(false);
+          void openPr();
+        }}
+        {...(pick
+          ? draftPrConfirm(pick, `the "${p.title}" playbook`)
+          : { title: "", body: "", confirmLabel: "", tone: "default" as const })}
+      />
       {markError && <p className="mt-2 text-sm text-orange-300">{markError}</p>}
       {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
       {prResult && (

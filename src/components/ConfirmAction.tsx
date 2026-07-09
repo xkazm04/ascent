@@ -4,12 +4,13 @@
 // the org surfaces sit one misclick away from an irreversible or costly outcome with no friction. This
 // is the ONE confirm they route through.
 //
-// WIRED TODAY: the segment `×`, which wipes the segment AND every RepoSegment tag on a single misclick
-// (the button sits one pixel from the ✎ edit control). The remaining unguarded sites -- "Open draft PR"
-// (writes a real branch+commit+PR into a customer repo), the fleet batch (fans that across up to 25
-// repos), "Re-test" (spends a weekly scan slot) and goal delete -- are tracked in
-// docs/harness/bug-ui-scan-2026-07-09/INDEX.md theme T13. Add their copy builders HERE, beside
-// segmentDeleteConfirm, when wiring them; do not scatter the wording into the call sites.
+// WIRED: the segment `×` (wipes the segment AND every RepoSegment tag on a single misclick, the button
+// sits one pixel from the ✎ edit control); "Open draft PR" on a playbook card and a backlog row (each
+// writes a real branch+commit+PR into a customer repo — draftPrConfirm); the practice fleet batch (fans
+// that across up to MAX_BATCH repos at once — batchPrConfirm); "Re-test" (spends a weekly scan slot —
+// retestConfirm); and goal delete (hard-deletes the goal + its achievement history — goalDeleteConfirm).
+// These were the T13 cluster in docs/harness/bug-ui-scan-2026-07-09/INDEX.md. ALL copy builders live
+// HERE, beside segmentDeleteConfirm; do not scatter the wording into the call sites.
 //
 // Built on the brand Modal (app-root portal, focus trap, Escape/backdrop close, focus restore, body
 // scroll lock, and `locked`-while-busy so a half-finished write is read not dismissed) rather than the
@@ -137,6 +138,66 @@ export function segmentDeleteConfirm(name: string, tagCount: number): ConfirmSpe
     title: `Delete the "${name}" segment?`,
     body: `This permanently deletes the segment${tags}. Those tags also drive the Overview filter and segment comparison. This can't be undone.`,
     confirmLabel: "Delete segment",
+    tone: "danger",
+  };
+}
+
+/** Opening a draft PR writes a real branch + commit into the CUSTOMER's repo and files a pull request —
+ *  a side effect the repo owner sees, not a local change. Name the repo and say what's being seeded.
+ *  tone "default" (accent, not red): recoverable — the PR can be closed — but never silent. Shared by
+ *  the playbook card and the backlog row (both seed a starter file into one repo). */
+export function draftPrConfirm(repo: string, seeds: string): ConfirmSpec {
+  return {
+    kicker: "Open draft PR",
+    title: `Open a draft PR in ${repo}?`,
+    body: `This writes a new branch and commit into ${repo} and opens a real draft pull request seeding ${seeds}. It's visible to the repo's owners — recoverable (you can close the PR), but not a local-only change.`,
+    confirmLabel: "Open draft PR",
+    tone: "default",
+  };
+}
+
+/** The fleet batch fans "open draft PR" across many repos of ONE org in a single click. State how many
+ *  PRs actually open (the server caps each batch at `cap` and keeps the neediest-first repos), and warn
+ *  when the selection exceeds the cap so "23 selected → 25 cap" isn't read as full coverage. tone
+ *  "default": each PR is closeable, but this is the most expensive button in the app — name the count. */
+export function batchPrConfirm(selectedCount: number, cap: number, org: string): ConfirmSpec {
+  const n = Math.min(selectedCount, cap);
+  const over =
+    selectedCount > cap
+      ? ` Only the first ${cap} of ${selectedCount} selected open this run — the rest exceed the per-batch cap; re-run to open them.`
+      : "";
+  return {
+    kicker: "Fleet rollout",
+    title: `Open ${n} draft ${plural(n, "PR")} across ${n} ${org} ${plural(n, "repo", "repos")}?`,
+    body: `This opens a real draft pull request in ${n} ${plural(n, "repository", "repositories")} under ${org}, each writing its own branch and commit.${over} Every repo's owners see it — recoverable per PR, but ${n} at once.`,
+    confirmLabel: `Open ${n} ${plural(n, "PR")}`,
+    tone: "default",
+  };
+}
+
+/** "Re-test" spends one slot from the org's weekly scan quota to re-score a repo against its latest
+ *  commit. It's free when the repo is unchanged (a 304 serves the cached scan), but a moved repo runs —
+ *  and bills — a full re-score, so one click can silently burn a slot. tone "default": recoverable but
+ *  metered. Name the repo. */
+export function retestConfirm(repo: string): ConfirmSpec {
+  return {
+    kicker: "Re-test",
+    title: `Re-scan ${repo}?`,
+    body: `This spends one slot from your weekly scan quota to re-score ${repo} against its latest commit. It's free if nothing changed since the last scan, but a moved repo runs — and bills — a full re-score.`,
+    confirmLabel: "Re-scan now",
+    tone: "default",
+  };
+}
+
+/** Goal delete is a HARD delete: the goal and its achievement history (the recorded milestones and the
+ *  date it was met) go with it — no soft-delete, no undo. tone "danger" (red): irreversible data loss.
+ *  Name the goal. */
+export function goalDeleteConfirm(label: string): ConfirmSpec {
+  return {
+    kicker: "Delete goal",
+    title: `Delete the "${label}" goal?`,
+    body: `This permanently deletes the goal and its achievement history — the milestones it recorded and the date it was met. This can't be undone.`,
+    confirmLabel: "Delete goal",
     tone: "danger",
   };
 }

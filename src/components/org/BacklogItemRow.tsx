@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { REC_STATUSES, type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
@@ -49,6 +50,10 @@ export function BacklogItemRow({
   const promoted = state?.promoted ?? false;
   const [prBusy, setPrBusy] = useState(false);
   const [promoteBusy, setPromoteBusy] = useState(false);
+  // "Open draft PR" writes a real branch+commit+PR into item.repo — gate it behind a confirm naming
+  // the repo. Local (transient) state: if the row remounts on a regroup mid-confirm, the dialog just
+  // closes (the safe default), which is why this doesn't need the parent's lifted state.
+  const [confirmingPr, setConfirmingPr] = useState(false);
   // Monotonic token for the history fetch: each open/refresh bumps it; a resolved fetch only writes
   // its result if it is still the latest request. Closing the panel also bumps it, so an in-flight
   // load that resolves after the user collapsed can't re-open it.
@@ -248,7 +253,7 @@ export function BacklogItemRow({
 
         {practice && (
           <button
-            onClick={openDraftPr}
+            onClick={() => setConfirmingPr(true)}
             disabled={prBusy || saving}
             title={`Open a draft PR seeding the "${practice.label}" starter into ${item.repo}`}
             className="rounded-md border border-accent/50 bg-accent/10 px-2.5 py-1 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
@@ -287,6 +292,20 @@ export function BacklogItemRow({
       )}
 
       {history && <BacklogRowHistory history={history} />}
+
+      {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
+      <ConfirmAction
+        open={confirmingPr}
+        busy={prBusy}
+        onCancel={() => setConfirmingPr(false)}
+        onConfirm={() => {
+          setConfirmingPr(false);
+          void openDraftPr();
+        }}
+        {...(practice
+          ? draftPrConfirm(item.repo, `the "${practice.label}" starter`)
+          : { title: "", body: "", confirmLabel: "", tone: "default" as const })}
+      />
     </div>
   );
 }
