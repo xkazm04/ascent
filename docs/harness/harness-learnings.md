@@ -1423,6 +1423,15 @@ New structural facts:
   PR check pending forever. Retry was the small half of that fix; removing the `.catch` was the load-bearing half.
 - **2026-07-09 — Rendering a number that cannot be computed correctly under the current filter.** Withhold it.
 
+- **2026-07-09 — vitest here is NODE-ONLY.** No `jsdom`, no `@testing-library` in package.json. Component
+  JSX/CSS/a11y changes are NOT unit-testable. Extract pure helpers (`nextHoverOnResize`, `deltaAt`,
+  `segmentDeleteConfirm`) so the LOGIC is testable, and don't promise a component test you cannot write.
+  Adding a DOM environment is the prerequisite for pinning any of the 93 ui-perfectionist findings.
+- **2026-07-09 — `src/components/ui/Modal.tsx` already provides** portal + focus trap + Escape/backdrop
+  close + focus restore + `locked`-while-busy. Build confirmations on it; never `window.confirm` (it blocks
+  and cannot be themed or announced). `ConfirmAction.tsx` is the shared destructive-action gate; add new
+  copy builders beside `segmentDeleteConfirm`, not at the call sites.
+
 ## Open follow-ups (from bug+ui scan, 2026-07-09)
 
 - **CORRECTION to the 2026-06-29 list:** the **DimensionTrends stale-repo race is FIXED** (AbortController
@@ -1452,5 +1461,8 @@ New structural facts:
   provider+model but cannot check the rubric — it isn't persisted per row.
 - **NOT FIXED (out of an agent's file scope): "Export CSV" on the delivery page drops the stack filter**
   (`components/org/ui.tsx` ExportCsvLink + `/api/org/export`).
-- **~297 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
+- **Destructive confirms still unwired (T13):** "Open draft PR" (writes into a customer repo), the
+  25-repo fleet batch, "Re-test" (spends a weekly scan slot), goal delete. `ConfirmAction` exists and is
+  wired for the segment delete; the rest is mechanical.
+- **~250 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
 - **Context-map drift:** 7 contexts reference files that no longer exist; run `refresh_context` on them.

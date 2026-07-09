@@ -236,7 +236,30 @@ The codebase repeatedly *computes* a degradation signal and then drops it before
 
 ---
 
-## Suggested wave plan
+## Wave status (updated 2026-07-09)
+
+| Wave | Theme | Status | Commit(s) |
+|---|---|---|---|
+| 1 | Critical auth bypass | **DONE** — 5 Criticals (2 the scan could not find) | `74f0fe5`…`fa3aa9a` |
+| 2 | Dormant-auth null-actor | **DONE** — 19 routes (INDEX said 7) | `b656d3f`, `c655a90` |
+| 3 | Dormant-auth lockouts | **DONE** — 6; org switcher deferred (needs a data-path change) | `355628d`, `9c5a637` |
+| 4 | Honesty flags | **DONE** — 6 | `ec1ccbd` |
+| 5 | Money correctness | **DONE** — 5; pricing funnel is a product decision | `6716d7c` |
+| 6+7 | Share tokens, recovery, cache, bounds | **DONE** — ~10 | `0c706f4` |
+| 8 | UI crash, overflow, destructive confirm | **DONE** — 3 primary + ~8 secondary | `9121a4c` |
+| 9 | A11y, design-system drift, SSR + the Med/Low tail | **OPEN** — ~250 findings | — |
+
+Cumulative: tsc **0 → 0**, vitest **3046 → 3184 passing**, **0 regressions**, ~24 commits.
+Summaries: [Wave 1](FIXES-WAVE-1.md) · [Waves 2–3](FIXES-WAVE-2-3.md) · [Waves 4–7](FIXES-WAVE-4-7.md).
+
+> **Constraint that shapes Wave 9:** this repo's vitest is **node-only — no jsdom, no testing-library**.
+> JSX/CSS/a11y changes cannot be regression-pinned. The 93 ui-perfectionist findings therefore have no
+> test coverage available to them. Adding a DOM test environment is the highest-leverage prerequisite for
+> Wave 9, and is itself a worthwhile task.
+
+---
+
+## Original suggested wave plan
 
 Each wave = one mental model, 5–7 fixes, verified against baseline (tsc 0 · vitest 3046) before the next.
 
