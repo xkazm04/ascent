@@ -30,7 +30,7 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
-import { requireOrgAccess, sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
+import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -79,8 +79,8 @@ export async function POST(request: Request) {
   // scoped mutations — yet was the lone mutating org endpoint with no membership gate, so any
   // signed-in viewer (or anyone, on an auth-off deploy) could drain a victim org's credits and
   // inject repos/scores into its dashboard. requireOrgAccess leaves PUBLIC_ORG and auth-off
-  // deployments open, so the free funnel + local seeding are preserved; the finer sessionOwnsOrg
-  // token-mint gate below still governs PRIVATE-repo access.
+  // deployments open, so the free funnel + local seeding are preserved; the finer
+  // canMintInstallationToken gate below still governs PRIVATE-repo access.
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
 
@@ -89,30 +89,28 @@ export async function POST(request: Request) {
   const watch = body.watch ?? true;
   const schedule = body.schedule && SCHEDULES.has(body.schedule) ? body.schedule : "weekly";
 
-  // Mint an installation token (PRIVATE-repo access) ONLY for a caller who owns this org. Without
-  // this gate an anonymous request could pass any `installationId` (or rely on the org's stored
-  // install) to mint a token and read another tenant's PRIVATE repos. The public funnel is
-  // unaffected: an anonymous caller's ownsOrg is false, so no token is minted and only public repos
-  // resolve via the env GITHUB_TOKEN. Auth-off (local/demo) deployments keep the prior open behavior.
+  // Mint an installation token (PRIVATE-repo access) ONLY for a caller with real standing in this org.
+  //
+  // The old gate was `!isAuthConfigured() || sessionOwnsOrg(org)`. isAuthConfigured() keys on the
+  // DORMANT custom-OAuth env, unset in production, so `!false` made ownsOrg true for EVERY caller and
+  // the supplied-installationId check below was equally short-circuited. Since requireOrgAccess leaves
+  // PUBLIC_ORG open to any signed-in viewer, a signed-in caller could POST { org: "public",
+  // installationId: <victim's enumerable id> } and mint the victim's token — the confused deputy the
+  // comment below describes. canMintInstallationToken resolves real membership against the ACTIVE
+  // Supabase wall and never allows PUBLIC_ORG.
   let token = process.env.GITHUB_TOKEN || undefined;
   let appTokenMinted = false;
-  if (isAppConfigured()) {
-    const ownsOrg = !isAuthConfigured() || (await sessionOwnsOrg(org));
-    if (ownsOrg) {
-      // A caller-supplied installationId must belong to the session (when auth is on); otherwise
-      // fall back to the org's own stored installation.
-      const supplied = body.installationId?.trim();
-      let installationId: string | undefined;
-      if (supplied && (!isAuthConfigured() || (await sessionHasInstallation(supplied)))) {
-        installationId = supplied;
-      }
-      if (!installationId) installationId = (await getInstallationIdForOwner(org)) || undefined;
-      if (installationId) {
-        const appToken = await getInstallationToken(installationId).catch(() => undefined);
-        if (appToken) {
-          token = appToken;
-          appTokenMinted = true;
-        }
+  if (isAppConfigured() && (await canMintInstallationToken(org))) {
+    // A caller-supplied installationId is only ever a hint for THIS org; honoring an arbitrary id was
+    // the cross-tenant mint. Fall back to the org's own stored installation.
+    const stored = (await getInstallationIdForOwner(org)) || undefined;
+    const supplied = body.installationId?.trim();
+    const installationId = supplied && stored && supplied === String(stored) ? supplied : stored;
+    if (installationId) {
+      const appToken = await getInstallationToken(installationId).catch(() => undefined);
+      if (appToken) {
+        token = appToken;
+        appTokenMinted = true;
       }
     }
   }
@@ -127,7 +125,12 @@ export async function POST(request: Request) {
   // `listOrgRepos` listing below, for rate-limit relief. Auth-off (local/demo) deployments keep
   // the prior open behavior — they are operator-only by design and this is the documented
   // seeding path (scripts/seed-org.mjs).
-  const scanOpts = appTokenMinted || !isAuthConfigured() ? { token, mock } : { noAmbientToken: true, mock };
+  //
+  // The escape hatch used to be `!isAuthConfigured()`, the DORMANT predicate — true in production, so
+  // the ambient PAT was handed to every scan and the confused deputy above was fully reachable. Key it
+  // on "no auth stack is live at all" instead, which is what "auth-off local/demo" actually means.
+  const authOff = !authGateEnabled() && !isAuthConfigured();
+  const scanOpts = appTokenMinted || authOff ? { token, mock } : { noAmbientToken: true, mock };
 
   // Credits: a real-LLM import into a private org dashboard draws on prepaid credits. The default mock
   // import and the public funnel are free (mock runs no inference). Refuse up front when out of credits;
