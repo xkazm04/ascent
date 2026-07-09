@@ -58,6 +58,7 @@ import { POST } from "./route";
 import { after } from "next/server";
 import { AppApiError, getInstallation, getInstallationToken, listInstallationReposResult } from "@/lib/github/app";
 import {
+  claimWebhookDelivery,
   getInstallationIdForOwner,
   getOrgGatePolicy,
   getOrgId,
@@ -109,6 +110,7 @@ const mockGetOrgGatePolicy = vi.mocked(getOrgGatePolicy);
 const mockGetOrgId = vi.mocked(getOrgId);
 const mockDiffReports = vi.mocked(diffReports);
 const mockRelease = vi.mocked(releaseWebhookDelivery);
+const mockClaim = vi.mocked(claimWebhookDelivery);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
 async function runDeferred(): Promise<void> {
@@ -445,6 +447,58 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     expect(mockGetToken).toHaveBeenCalledTimes(1);
     expect(mockGetToken).toHaveBeenCalledWith(88);
     expect(mockScan).toHaveBeenCalled();
+  });
+});
+
+// github-app-installation-webhooks #5 + #6 — the replay horizon (the authoritative DB claim must outlast
+// GitHub's redelivery window) and per-repo rescan serialization (back-to-back pushes must diff against the
+// immediately-prior persisted scan, not a shared stale baseline).
+describe("POST /api/app/webhook — replay horizon + per-repo rescan baseline (runPushRescan)", () => {
+  const pushPayload = (owner: string, installationId: number) => ({
+    installation: { id: installationId },
+    repository: { name: "secret-repo", default_branch: "main", owner: { login: owner } },
+    ref: "refs/heads/main",
+    after: "1111111111111111111111111111111111111111",
+    deleted: false,
+  });
+
+  it("claims the delivery for the FULL replay horizon (24h), not the 10-min default (#5)", async () => {
+    mockIsRepoWatched.mockResolvedValue(false); // deferred work bails; we assert only the SYNC claim in POST
+    await post("push", "replay-horizon-id", pushPayload("acme", 42));
+    expect(mockClaim).toHaveBeenCalledWith("replay-horizon-id", 24 * 60 * 60_000);
+  });
+
+  it("serializes back-to-back rescans of the same repo so the 2nd diff baselines on the 1st's persisted scan (#6)", async () => {
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockIdForOwner.mockResolvedValue("42"); // stored mapping agrees for both deliveries
+    mockGetToken.mockResolvedValue("tok");
+    mockGetOrgId.mockResolvedValue("org1");
+
+    // Model the DB honestly: getScanReportByCommit returns the LAST persisted report. Two pushes scan two
+    // different reports. WITHOUT serialization both baseline reads see the same stale value (null); WITH it,
+    // the 2nd critical section runs after the 1st persists, so its baseline is the 1st's report.
+    const reportA = { repo: { headSha: "a" } } as Awaited<ReturnType<typeof scanRepository>>;
+    const reportB = { repo: { headSha: "b" } } as Awaited<ReturnType<typeof scanRepository>>;
+    let lastPersisted: unknown = null;
+    mockGetReportByCommit.mockImplementation(
+      async () => lastPersisted as Awaited<ReturnType<typeof getScanReportByCommit>>,
+    );
+    mockScan.mockResolvedValueOnce(reportA).mockResolvedValueOnce(reportB);
+    mockPersist.mockImplementation(async (report) => {
+      lastPersisted = report;
+      return { deduped: false } as Awaited<ReturnType<typeof persistScanReport>>;
+    });
+
+    // Two pushes for the SAME repo, deferred work run CONCURRENTLY (as a real after() burst would).
+    await post("push", "push-a", pushPayload("acme", 42));
+    await post("push", "push-b", pushPayload("acme", 42));
+    await Promise.all(mockAfter.mock.calls.map((c) => (c[0] as () => Promise<void>)()));
+
+    expect(mockCheckRegression).toHaveBeenCalledTimes(2);
+    // Order-independent invariant of the fix: the FIRST rescan baselines on null (nothing persisted yet);
+    // the SECOND baselines on the FIRST rescan's persisted report — NOT the stale null it read before #6.
+    expect(mockCheckRegression.mock.calls[0]![0]).toBeNull();
+    expect(mockCheckRegression.mock.calls[1]![0]).toBe(mockCheckRegression.mock.calls[0]![1]);
   });
 });
 

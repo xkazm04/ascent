@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHmac, generateKeyPairSync } from "crypto";
 import {
   verifyWebhook,
+  createAppJwt,
   getInstallation,
   getInstallationToken,
   listInstallationRepos,
@@ -108,6 +109,35 @@ function repo(name: string, opts: { fork?: boolean; archived?: boolean; private?
 
 const isTokenMint = (call: unknown[]) => String(call[0]).includes("/access_tokens");
 const isRepoList = (call: unknown[]) => String(call[0]).includes("/installation/repositories");
+
+// createAppJwt — the App-JWT clock-skew budget (github-app-installation-webhooks #4). The `iat` was
+// backdated only 60s while the token cache assumes up to 180s of drift, so a host whose clock runs >60s
+// AHEAD of GitHub had its App JWT rejected ("'iat' is in the future") and every App call 401'd — making
+// the 180s token-cache widening moot. iat is now backdated the same 180s, with exp held so exp - iat stays
+// within GitHub's 600s (10-min) maximum.
+describe("createAppJwt — iat/exp clock-skew budget", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("backdates iat by 180s (not 60s) and keeps exp - iat within GitHub's 600s cap", () => {
+    vi.stubEnv("GITHUB_APP_ID", "12345");
+    vi.stubEnv("GITHUB_APP_PRIVATE_KEY", TEST_PRIVATE_KEY as string);
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const nowSec = Math.floor(NOW / 1000);
+
+    const [, payloadB64] = createAppJwt().split(".");
+    const payload = JSON.parse(Buffer.from(payloadB64!, "base64url").toString("utf8")) as {
+      iat: number;
+      exp: number;
+      iss: string;
+    };
+
+    expect(payload.iat).toBe(nowSec - 180); // the widened backdate (was nowSec - 60)
+    expect(payload.exp - payload.iat).toBe(600); // GitHub's hard ceiling on an App-JWT lifetime
+    expect(payload.exp).toBe(nowSec + 420); // 600 - 180
+    expect(payload.iss).toBe("12345");
+  });
+});
 
 describe("getInstallationToken — mint, cache, expiry-skew + NaN guard", () => {
   beforeEach(() => {

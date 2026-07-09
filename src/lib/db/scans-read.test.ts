@@ -74,6 +74,7 @@ function fakePrismaWithColumns(cols: {
   discrepancies?: string | null;
   dimEvidence?: string | null;
   recExplore?: string | null;
+  posture?: string;
 }) {
   const scan = {
     id: "scan_1",
@@ -83,6 +84,9 @@ function fakePrismaWithColumns(cols: {
     archetype: "app",
     adoptionScore: 60,
     rigorScore: 80,
+    // Stored posture id (default agrees with postureFor(60,80)='ai-native'; a test overrides it to prove
+    // reconstruction reads the FROZEN column rather than recomputing).
+    posture: cols.posture === undefined ? "ai-native" : cols.posture,
     confidence: 0.9,
     headline: "ok",
     engineProvider: "anthropic",
@@ -280,6 +284,28 @@ describe("getScanReportByCommit — parseDiscrepancies resilience", () => {
   it("malformed JSON and null columns default to [] (report still renders)", async () => {
     expect((await reportWith({ discrepancies: "[{oops" })).discrepancies).toEqual([]);
     expect((await reportWith({ discrepancies: null })).discrepancies).toEqual([]);
+  });
+});
+
+// ── Pinned posture is FROZEN: read the stored column, don't recompute (scan-persistence-history #3) ──
+//
+// A `/report/{owner}/{repo}@{sha}` permalink is a supposedly-immutable snapshot. `posture` must be
+// reconstructed from the persisted `scan.posture` column (the classification the scan recorded), NOT
+// recomputed via postureFor(adoption, rigor) under today's POSTURE_THRESHOLD — otherwise tuning the
+// maturity model silently re-postures every old pinned report, and the report view disagrees with the
+// comparison view (which already reads the stored column).
+
+describe("getScanReportByCommit — pinned posture reads the stored column (not a recompute)", () => {
+  it("reads the stored posture id, even when it disagrees with postureFor(adoption, rigor)", async () => {
+    // adoption=60, rigor=80 → postureFor would say 'ai-native'; the stored column says 'manual'. The
+    // reconstruction must reproduce the FROZEN stored classification, proving it doesn't recompute.
+    const r = await reportWith({ posture: "manual" });
+    expect(r.posture.id).toBe("manual");
+  });
+
+  it("falls back to postureFor only for a legacy/corrupt row with no recognized posture id", async () => {
+    const r = await reportWith({ posture: "" }); // unrecognized id → fallback recompute
+    expect(r.posture.id).toBe("ai-native"); // postureFor(60,80): both axes ≥ threshold
   });
 });
 

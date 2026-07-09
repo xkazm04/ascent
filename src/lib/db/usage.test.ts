@@ -13,7 +13,7 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
 
-import { buildDailySeries, estimateLlmCostFromTable, estimateLlmCostUsd, getUsageSummary } from "./usage";
+import { boundUsageDays, buildDailySeries, estimateLlmCostFromTable, estimateLlmCostUsd, getUsageSummary } from "./usage";
 
 describe("estimateLlmCostUsd", () => {
   it("returns null unless BOTH per-MTok rates are set", () => {
@@ -117,5 +117,57 @@ describe("buildDailySeries", () => {
     expect(series.find((d) => d.date === "2026-06-03")).toMatchObject({ billable: 1, free: 1 });
     expect(series.find((d) => d.date === "2026-06-02")).toMatchObject({ billable: 1, free: 0 });
     expect(series.find((d) => d.date === "2026-06-01")).toMatchObject({ billable: 0, free: 0 });
+  });
+});
+
+// The single-sourced ?days= clamp shared by /usage (page) and /api/usage (route). The FLOOR is the
+// fix for the fractional-days bug: an un-floored 1.5 stepped the day axis by half-days, so the newest
+// UTC day never landed on a generated axis key and the chart/CSV dropped it while the counts kept it.
+describe("boundUsageDays", () => {
+  it("floors a fractional ?days= so the window is always a whole day (1.5 → 1)", () => {
+    expect(boundUsageDays("1.5", false)).toBe(1);
+    expect(boundUsageDays("30.9", false)).toBe(30);
+    expect(boundUsageDays("7.0001", false)).toBe(7);
+  });
+
+  it("falls back to 30 for non-numeric / empty / sub-1 input", () => {
+    expect(boundUsageDays(undefined, false)).toBe(30);
+    expect(boundUsageDays(null, false)).toBe(30);
+    expect(boundUsageDays("", false)).toBe(30);
+    expect(boundUsageDays("abc", false)).toBe(30);
+    // floor(0.5) === 0 → falsy → the 30 default (a sub-day window is meaningless for a per-day series).
+    expect(boundUsageDays("0.5", false)).toBe(30);
+    expect(boundUsageDays("0", false)).toBe(30);
+  });
+
+  it("clamps to at least 1 day (a negative window is nonsense)", () => {
+    expect(boundUsageDays("-5", false)).toBe(1); // floor(-5) = -5 (truthy) → max(1, -5) = 1
+  });
+
+  it("caps the PUBLIC funnel tighter (90d) than a private org (365d)", () => {
+    expect(boundUsageDays("1000", true)).toBe(90);
+    expect(boundUsageDays("91", true)).toBe(90);
+    expect(boundUsageDays("1000", false)).toBe(365);
+  });
+});
+
+describe("the newest day only survives on an INTEGER window (the fractional-days fix)", () => {
+  const anchorUtcMs = Date.UTC(2026, 6, 9); // 2026-07-09 00:00Z is the axis anchor
+  const todayScan = { at: new Date(Date.UTC(2026, 6, 9, 10, 0, 0)), billable: true };
+
+  it("drops today when periodDays is fractional (the pre-fix bug)", () => {
+    // 1.5 steps the axis by half a day: the only bucket is 2026-07-08 and today's scan is idx-missed.
+    const series = buildDailySeries(1.5, anchorUtcMs, [todayScan]);
+    expect(series).toHaveLength(1);
+    expect(series[0]!.date).toBe("2026-07-08");
+    expect(series[0]!.billable).toBe(0);
+  });
+
+  it("keeps today once the window is floored via boundUsageDays", () => {
+    const days = boundUsageDays("1.5", false); // → 1
+    const series = buildDailySeries(days, anchorUtcMs, [todayScan]);
+    expect(series).toHaveLength(1);
+    expect(series[0]!.date).toBe("2026-07-09"); // today is on the axis
+    expect(series[0]!.billable).toBe(1); // and its scan is counted
   });
 });

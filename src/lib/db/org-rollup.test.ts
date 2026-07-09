@@ -11,11 +11,16 @@
 // module import side-effect-free (defensive — the client is only touched inside the async query
 // functions, not at module load) so this suite never reaches for a database.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/db/client", () => ({ getPrisma: vi.fn(), isDbConfigured: () => false }));
+const { mockGetPrisma, mockIsDbConfigured } = vi.hoisted(() => ({
+  mockGetPrisma: vi.fn(),
+  mockIsDbConfigured: vi.fn(() => false),
+}));
 
-import { computeWindowDeltas, computeDimDeltas, type RepoScoreSnap, type RepoDimSnap } from "@/lib/db/org-rollup";
+vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
+
+import { computeWindowDeltas, computeDimDeltas, getOrgRollup, type RepoScoreSnap, type RepoDimSnap } from "@/lib/db/org-rollup";
 
 /** Terse snapshot builder: same overall/adoption/rigor unless overridden. */
 function snap(repoId: string, overall: number, adoption = overall, rigor = overall): RepoScoreSnap {
@@ -173,5 +178,91 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
     const current = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 71])];
     const baseline = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 70])];
     expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D9", delta: 1 }]);
+  });
+});
+
+// ── getOrgRollup — baseline query shape + local-day trend (fleet-rollups-insights #1, #2) ──────────
+// Integration-ish coverage over the real query pipeline (real org-shared / forecast / parsers, a faked
+// prisma, mirroring org-signals.test.ts): the pre-window baseline query must fetch ONE row per repo at
+// the DB (distinct), not the org's whole pre-window history; and the maturity trend must bucket by LOCAL
+// calendar day (the same zone the window snaps to), collapsing multiple same-day scans to one point.
+
+describe("getOrgRollup — baseline query shape + local-day trend", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  const localDayKey = (d: Date): string =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  /** One repo row with a single latest scan, shaped as getOrgRollup's include reads it. */
+  function repoRow(id: string, scannedAt: Date) {
+    return {
+      id, fullName: `acme/${id}`, owner: "acme", name: id, isPrivate: false, watched: true,
+      primaryLanguage: "TypeScript", techStackJson: null, passportJson: null, passportOverridesJson: null,
+      scanSchedule: "manual", lastScanAt: null, lastScanStatus: "ok", lastScanError: null, aiConformance: null,
+      scans: [{
+        level: "L3", overallScore: 70, adoptionScore: 60, rigorScore: 80, posture: "ai-native",
+        scannedAt, engineProvider: "anthropic", governance: null, commitActivity: null, prStats: null,
+        dimensions: [{ dimId: "D1", score: 70 }],
+      }],
+    };
+  }
+
+  /** scan.findMany is called twice (trend, then the distinct baseline); branch on the `distinct` arg. */
+  function fakePrisma(trendScans: { scannedAt: Date; overallScore: number }[]) {
+    const scanFindMany = vi.fn(async (args: { distinct?: unknown } = {}) =>
+      args.distinct
+        ? [{ id: "s_base", repoId: "r1", overallScore: 50, adoptionScore: 50, rigorScore: 50 }]
+        : trendScans,
+    );
+    const prisma = {
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
+      repository: { findMany: vi.fn(async () => [repoRow("r1", new Date("2026-05-12T12:00:00Z"))]) },
+      scan: { findMany: scanFindMany },
+      scanDimension: { findMany: vi.fn(async () => []) },
+    };
+    return { prisma, scanFindMany };
+  }
+
+  it("issues the pre-window baseline query with distinct:['repoId'] — one row per repo at the DB (fleet-rollups-insights #1)", async () => {
+    const { prisma, scanFindMany } = fakePrisma([{ scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // A window `start` triggers the baseline branch.
+    const start = new Date("2026-05-01T00:00:00Z");
+    await getOrgRollup("acme", { start });
+
+    const baselineCall = scanFindMany.mock.calls.map((c) => c[0]).find((a) => a?.distinct) as
+      | { distinct: unknown; where: { scannedAt: unknown } }
+      | undefined;
+    expect(baselineCall, "the baseline scan.findMany should carry distinct").toBeDefined();
+    expect(baselineCall!.distinct).toEqual(["repoId"]);
+    // Half-open baseline: strictly before `start`.
+    expect(baselineCall!.where.scannedAt).toEqual({ lt: start });
+  });
+
+  it("buckets the maturity trend by LOCAL calendar day, collapsing same-day scans to one averaged point (fleet-rollups-insights #2)", async () => {
+    // Two scans on one local day + one on a later day. Expected buckets are computed with the SAME local-day
+    // grouping the code uses, so this holds in any timezone AND catches a regression to UTC-day bucketing
+    // wherever the run zone isn't UTC.
+    const rows = [
+      { scannedAt: new Date("2026-05-10T11:00:00Z"), overallScore: 60 },
+      { scannedAt: new Date("2026-05-10T13:00:00Z"), overallScore: 80 },
+      { scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 90 },
+    ];
+    const { prisma } = fakePrisma(rows);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    const byDay: Record<string, number[]> = {};
+    for (const r of rows) (byDay[localDayKey(r.scannedAt)] ??= []).push(r.overallScore);
+    const expected = Object.keys(byDay)
+      .sort()
+      .map((date) => ({ date, avg: Math.round(byDay[date]!.reduce((a, b) => a + b, 0) / byDay[date]!.length) }));
+
+    expect(res!.trend).toEqual(expected); // same-day pair collapses to one point (avg 70)
   });
 });

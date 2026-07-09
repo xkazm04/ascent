@@ -24,10 +24,12 @@ vi.mock("@/lib/rate-limit", () => ({ clientIp: () => "203.0.113.99" }));
 import {
   consumePublicScanQuota,
   decideQuota,
+  monthlyQuotaExceeded,
   parseHits,
   hashIp,
   hashKey,
   publicScanMonthlyLimit,
+  type QuotaResult,
   refundPublicScanQuota,
   removeHit,
   signedInScanMonthlyLimit,
@@ -205,6 +207,80 @@ describe("publicScanMonthlyLimit", () => {
     expect(publicScanMonthlyLimit()).toBe(10);
     if (prev === undefined) delete process.env.PUBLIC_SCAN_MONTHLY_LIMIT;
     else process.env.PUBLIC_SCAN_MONTHLY_LIMIT = prev;
+  });
+});
+
+// The 429 copy must state the ACTUAL allowance, not a hardcoded "5" — the old literal lied under any
+// PUBLIC_SCAN_MONTHLY_LIMIT / *_SIGNED_IN override or the elevated signed-in tier (a user-facing untruth
+// on the upgrade prompt). The number is derived from the scope that tripped, matching what consume charged.
+describe("monthlyQuotaExceeded — derives the limit from the tripped scope", () => {
+  const ENV = ["PUBLIC_SCAN_MONTHLY_LIMIT", "PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN"] as const;
+  function withEnv(vals: Partial<Record<(typeof ENV)[number], string>>, fn: () => void | Promise<void>) {
+    const prev = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
+    for (const k of ENV) {
+      if (vals[k] === undefined) delete process.env[k];
+      else process.env[k] = vals[k];
+    }
+    try {
+      return fn();
+    } finally {
+      for (const k of ENV) {
+        if (prev[k] === undefined) delete process.env[k];
+        else process.env[k] = prev[k]!;
+      }
+    }
+  }
+
+  const denied = (signedIn: boolean): QuotaResult => ({
+    enforced: true,
+    allowed: false,
+    remaining: 0,
+    retryAfterSec: 120,
+    resetAt: NOW + 1000,
+    signedIn,
+    chargedAt: null,
+  });
+
+  async function errorOf(result: QuotaResult): Promise<{ body: { error: string; code: string; scope: string }; res: Response }> {
+    const res = monthlyQuotaExceeded(result);
+    const body = (await res.json()) as { error: string; code: string; scope: string };
+    return { body, res };
+  }
+
+  it("uses the default 5 (anonymous) and returns a 429 with quota headers", async () => {
+    await withEnv({}, async () => {
+      const { body, res } = await errorOf(denied(false));
+      expect(res.status).toBe(429);
+      expect(body.error).toContain("your 5 free scans this month");
+      expect(body.code).toBe("monthly_quota");
+      expect(body.scope).toBe("anon");
+      expect(res.headers.get("x-ascent-quota-scope")).toBe("anon");
+      expect(res.headers.get("retry-after")).toBe("120");
+    });
+  });
+
+  it("reflects a PUBLIC_SCAN_MONTHLY_LIMIT override (10), not the old hardcoded 5", async () => {
+    await withEnv({ PUBLIC_SCAN_MONTHLY_LIMIT: "10" }, async () => {
+      const { body } = await errorOf(denied(false));
+      expect(body.error).toContain("your 10 free scans this month");
+      expect(body.error).not.toContain("your 5 ");
+    });
+  });
+
+  it("reflects the elevated signed-in tier for a signed-in viewer", async () => {
+    await withEnv({ PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN: "50" }, async () => {
+      const { body } = await errorOf(denied(true));
+      expect(body.error).toContain("your 50 free scans this month");
+      expect(body.scope).toBe("user");
+    });
+  });
+
+  it("pluralizes: a limit of 1 reads 'free scan', not 'free scans'", async () => {
+    await withEnv({ PUBLIC_SCAN_MONTHLY_LIMIT: "1" }, async () => {
+      const { body } = await errorOf(denied(false));
+      expect(body.error).toContain("your 1 free scan this month");
+      expect(body.error).not.toContain("free scans");
+    });
   });
 });
 
