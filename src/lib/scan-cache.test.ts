@@ -5,14 +5,25 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveHead } from "@/lib/github/source";
-import { resolveHeadWithHint } from "./scan-cache";
+import { getHeadHint, getScanReportByCommit } from "@/lib/db";
+import { lookupCachedScan, persistedMatchesActiveIdentity, resolveHeadWithHint } from "./scan-cache";
+import type { ScanReport } from "@/lib/types";
 
 vi.mock("@/lib/github/source", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/github/source")>()),
   resolveHead: vi.fn(),
 }));
 
+// scan-cache only reads getHeadHint + getScanReportByCommit from the db barrel — mock just those.
+vi.mock("@/lib/db", () => ({ getHeadHint: vi.fn(), getScanReportByCommit: vi.fn() }));
+
 const mockResolveHead = vi.mocked(resolveHead);
+const mockGetHeadHint = vi.mocked(getHeadHint);
+const mockGetScanReportByCommit = vi.mocked(getScanReportByCommit);
+
+/** Minimal persisted report — only the fields the identity guard + freshness gate read. */
+const fakeReport = (engine: { provider: string; model: string }, scannedAt = new Date().toISOString()) =>
+  ({ engine, scannedAt }) as unknown as ScanReport;
 
 describe("resolveHeadWithHint — conditional head-hint reuse (#7)", () => {
   beforeEach(() => mockResolveHead.mockReset());
@@ -50,5 +61,55 @@ describe("resolveHeadWithHint — conditional head-hint reuse (#7)", () => {
   it("returns null on a failed head lookup so the caller falls back to a SHA-less key", async () => {
     mockResolveHead.mockResolvedValueOnce({ status: "error" });
     expect(await resolveHeadWithHint({ owner: "octo", repo: "hint-error" }, "tok")).toBeNull();
+  });
+});
+
+// DB-tier identity guard (scan-pipeline-ingestion #1): the persistent cache keys only on (repo, sha),
+// so — exactly like the in-memory key before it learned the scoring identity — it would serve an OLD
+// provider/model's score as current after a swap (bounded only by the 7-day age gate). The persisted
+// hit must now also match the CURRENT {provider, model}, or it's a miss and re-scans.
+describe("persistedMatchesActiveIdentity — reproduce-under-current-config guard", () => {
+  it("matches when the persisted engine equals the active identity (mock mode)", () => {
+    expect(persistedMatchesActiveIdentity(fakeReport({ provider: "mock", model: "deterministic-rubric" }), false)).toBe(
+      true,
+    );
+  });
+
+  it("rejects a persisted report from a DIFFERENT provider/model (the swap case)", () => {
+    // Active mock identity vs a persisted gemini scan → not reproducible now → miss.
+    expect(persistedMatchesActiveIdentity(fakeReport({ provider: "gemini", model: "gemini-3-flash" }), false)).toBe(
+      false,
+    );
+  });
+
+  it("is CONSERVATIVE: a blank/legacy engine stamp is served (no re-scan storm)", () => {
+    expect(persistedMatchesActiveIdentity(fakeReport({ provider: "", model: "" }), false)).toBe(true);
+  });
+});
+
+describe("lookupCachedScan — tier-2 (DB) honors the identity guard", () => {
+  beforeEach(() => {
+    mockResolveHead.mockReset();
+    mockGetHeadHint.mockReset().mockResolvedValue(null);
+    mockGetScanReportByCommit.mockReset();
+  });
+
+  it("serves a fresh persisted report whose engine matches the current config", async () => {
+    mockResolveHead.mockResolvedValueOnce({ status: "ok", sha: "sha-match", etag: "e1" });
+    mockGetScanReportByCommit.mockResolvedValueOnce(fakeReport({ provider: "mock", model: "deterministic-rubric" }));
+
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "db-match" }, useLLM: false });
+    expect(res.source).toBe("db");
+    expect(res.cached).not.toBeNull();
+  });
+
+  it("treats a fresh persisted report from a DIFFERENT provider/model as a MISS (re-scan)", async () => {
+    mockResolveHead.mockResolvedValueOnce({ status: "ok", sha: "sha-swap", etag: "e1" });
+    mockGetScanReportByCommit.mockResolvedValueOnce(fakeReport({ provider: "gemini", model: "gemini-3-flash" }));
+
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "db-swap" }, useLLM: false });
+    expect(res.cached).toBeNull(); // identity mismatch → don't serve the stale-config score
+    expect(res.source).toBeNull();
+    expect(res.headSha).toBe("sha-swap"); // still resolved the sha so the re-scan is cached
   });
 });

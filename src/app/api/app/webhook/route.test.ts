@@ -65,6 +65,7 @@ import {
   isRepoWatched,
   persistScanReport,
   reconcileWatchedRepos,
+  releaseWebhookDelivery,
   removeInstallation,
   resumeInstallation,
   suspendInstallation,
@@ -107,6 +108,7 @@ const mockCheckRegression = vi.mocked(checkAndAlertRegression);
 const mockGetOrgGatePolicy = vi.mocked(getOrgGatePolicy);
 const mockGetOrgId = vi.mocked(getOrgId);
 const mockDiffReports = vi.mocked(diffReports);
+const mockRelease = vi.mocked(releaseWebhookDelivery);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
 async function runDeferred(): Promise<void> {
@@ -740,5 +742,101 @@ describe("POST /api/app/webhook — replay-dedup window: TTL expiry + DELIVERY_M
     expect(isDuplicate(await post("installation", oldestId, carrier))).toBe(false);
     // ...while the RECENT id survived eviction → still deduped. Oldest-first, never an unexpired-recent.
     expect(isDuplicate(await post("installation", recentId, carrier))).toBe(true);
+  });
+});
+
+// github-app-installation-webhooks #2: installationMatchesOwner collapses "forged mismatch" (drop) and
+// "transient DB/GitHub blip" (retry) into one `false`, and the caller early-returned INSIDE the try — so
+// the catch's forgetDelivery never ran and the delivery stayed CLAIMED forever. GitHub only redelivers on
+// a non-2xx and we always 2xx, so that permanently lost the PR gate / push rescan on a momentary blip. The
+// fix releases the delivery on that early-return path so a redelivery retries (a genuine forgery just
+// re-fails the gate again, harmlessly). Pinned end-to-end through the deferred runPrGate/runPushRescan.
+describe("POST /api/app/webhook — delivery release on the installationMatchesOwner-false early return (#2)", () => {
+  it("releases the delivery on the PR gate's owner-match-false early return (redelivery can retry)", async () => {
+    mockIdForOwner.mockResolvedValue("99"); // stored victimOwner->99 != payload 42 → owner-match false
+    await post("pull_request", "pr-owner-mismatch-release", {
+      action: "opened",
+      installation: { id: 42 },
+      repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
+      pull_request: { number: 7, head: { sha: "abc", ref: "feature" }, base: { ref: "main" } },
+    });
+    await runDeferred();
+    expect(mockGetToken).not.toHaveBeenCalled(); // bailed before minting a token / scoring
+    expect(mockCreateCheckRun).not.toHaveBeenCalled();
+    expect(mockRelease).toHaveBeenCalledWith("pr-owner-mismatch-release");
+  });
+
+  it("releases the delivery on the push rescan's owner-match-false early return", async () => {
+    mockIsRepoWatched.mockResolvedValue(true); // watched, so we reach the owner check
+    mockIdForOwner.mockResolvedValue("99"); // stored != payload 42 → false
+    await post("push", "push-owner-mismatch-release", {
+      installation: { id: 42 },
+      repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
+      ref: "refs/heads/main",
+      after: "abc1230000000000000000000000000000000000",
+      deleted: false,
+    });
+    await runDeferred();
+    expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockRelease).toHaveBeenCalledWith("push-owner-mismatch-release");
+  });
+
+  it("does NOT release on the deterministic 'not watched' return (a real no-op, nothing to retry)", async () => {
+    mockIsRepoWatched.mockResolvedValue(false); // deterministic: this repo isn't watched
+    mockIdForOwner.mockResolvedValue("42"); // (never reached — the watch check returns first)
+    await post("push", "push-unwatched-norelease", {
+      installation: { id: 42 },
+      repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
+      ref: "refs/heads/main",
+      after: "abc1230000000000000000000000000000000000",
+      deleted: false,
+    });
+    await runDeferred();
+    expect(mockRelease).not.toHaveBeenCalled(); // a deterministic skip stays deduped
+  });
+});
+
+// ci-gate-status-checks #3 (caller half of defect 1): the PRIMARY Check Run write IS the required merge
+// status. It was `.catch(log)`-swallowed, so a failed write returned normally — skipping BOTH the outer
+// catch's neutral fallback AND the delivery release, leaving the required check permanently absent with
+// only a log line. createCheckRun now retries transient failures internally; if it STILL rejects it THROWS
+// (no inline catch), so the neutral 'could not run' check posts and the delivery is released for retry.
+describe("POST /api/app/webhook — a failed PRIMARY check write is not swallowed (#3 / defect 1)", () => {
+  const prPayload = {
+    action: "opened",
+    installation: { id: 55 },
+    repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
+    pull_request: { number: 9, head: { sha: "headsha9", ref: "feature" }, base: { ref: "main" } },
+  };
+
+  it("posts the neutral fallback AND releases the delivery when the primary check write ultimately fails", async () => {
+    mockIdForOwner.mockResolvedValue("55"); // stored mapping agrees → authorized
+    mockGetToken.mockResolvedValue("ghs_pr_token");
+    mockGetOrgGatePolicy.mockResolvedValue(null as Awaited<ReturnType<typeof getOrgGatePolicy>>);
+    mockScan.mockResolvedValue({ repo: { headSha: "headsha9" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockEvaluateGate.mockReturnValue({} as ReturnType<typeof evaluateGate>);
+    mockBuildComment.mockReturnValue({
+      conclusion: "success",
+      title: "t",
+      summary: "s",
+      commentBody: "b",
+    } as ReturnType<typeof buildGateComment>);
+    mockDiffReports.mockReturnValue({} as ReturnType<typeof diffReports>);
+    // The primary (required) check write rejects even after checks.ts's internal retries; the neutral
+    // fallback then succeeds. Pre-fix, the primary's inline .catch swallowed this — no fallback, no release.
+    mockCreateCheckRun.mockRejectedValueOnce(new Error("github 502 after retries"));
+    mockCreateCheckRun.mockResolvedValueOnce(undefined as Awaited<ReturnType<typeof createCheckRun>>);
+    mockStickyComment.mockResolvedValue(undefined as Awaited<ReturnType<typeof upsertStickyComment>>);
+
+    await post("pull_request", "pr-primary-checkfail", prPayload);
+    await expect(runDeferred()).resolves.toBeUndefined(); // never throws out of the deferred gate
+
+    // Two check writes: the failed primary, then the neutral 'could not run' fallback.
+    expect(mockCreateCheckRun).toHaveBeenCalledTimes(2);
+    expect((mockCreateCheckRun.mock.calls[1][0] as { conclusion: string }).conclusion).toBe("neutral");
+    // The sticky comment is skipped (the throw jumped past it) and the delivery is freed for a redelivery.
+    expect(mockStickyComment).not.toHaveBeenCalled();
+    expect(mockRelease).toHaveBeenCalledWith("pr-primary-checkfail");
   });
 });

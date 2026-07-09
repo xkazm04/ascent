@@ -109,7 +109,12 @@ export function FleetMap({
   // Fleet-wide tallies that visibly climb as each org's data streams in.
   const stats = useMemo(() => fleetStats(constellations), [constellations]);
 
-  const hydrating = stats.loaded < stats.orgs;
+  // Hydration is done when every org has SETTLED — reached a terminal state (done OR error), not merely
+  // succeeded. Keying this off `stats.loaded` (done only) stuck the header on "charting…" forever whenever
+  // any org errored, since an errored org never becomes `done` (launch-fleet-map #1). An errored org still
+  // surfaces AS errored per-card (ConstellationField shows "unreachable" + its message) and in the header
+  // pill below ("· N unreachable"), so the fleet completes honestly instead of lying about progress.
+  const hydrating = stats.settled < stats.orgs;
 
   // A star matches when it passes every active filter. When no filter is active the matcher is
   // undefined, so ConstellationField renders at full brightness (no dimming).
@@ -169,7 +174,14 @@ export function FleetMap({
               role="status"
               aria-live="polite"
             >
-              {hydrating ? `charting ${stats.loaded}/${stats.orgs}…` : "fleet charted"}
+              {/* Progress counts SETTLED orgs so the fraction climbs monotonically to N/N (an errored org
+                  is progress, not a stall). On completion, surface any that never loaded as "· N unreachable"
+                  rather than pretending the whole fleet charted cleanly. aria-live stays polite. */}
+              {hydrating
+                ? `charting ${stats.settled}/${stats.orgs}…`
+                : stats.errored > 0
+                  ? `fleet charted · ${stats.errored} unreachable`
+                  : "fleet charted"}
             </span>
           </div>
         </header>

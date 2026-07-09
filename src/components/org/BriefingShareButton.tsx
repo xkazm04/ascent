@@ -39,7 +39,10 @@ export function BriefingShareButton({
       if (!res.ok) throw new Error(d.error ?? "Couldn't create a share link.");
       await navigator.clipboard?.writeText(`${window.location.origin}${d.path}`).catch(() => {});
       setState("copied");
-      setMsg("Read-only link copied — valid 14 days.");
+      // briefing-share #2: echo the REAL expiry the route returns (the single source of truth) instead of
+      // a hardcoded "14 days" that silently lied once the TTL was halved to 7d — the link was dead on day 8.
+      const exp = typeof d.expiresAt === "number" ? new Date(d.expiresAt) : null;
+      setMsg(exp ? `Read-only link copied — expires ${exp.toLocaleDateString()}.` : "Read-only link copied.");
       setTimeout(() => setState((s) => (s === "copied" ? "idle" : s)), 4000);
     } catch (e) {
       setState("error");

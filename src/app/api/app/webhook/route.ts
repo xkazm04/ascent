@@ -222,7 +222,16 @@ async function runPrGate(ref: PrGateRef) {
   // Hoisted so the catch can post a neutral check on the SAME token when a failure happens after mint.
   let token: string | undefined;
   try {
-    if (!(await installationMatchesOwner(installationId, owner))) return;
+    if (!(await installationMatchesOwner(installationId, owner))) {
+      // github-app-installation-webhooks #2: installationMatchesOwner collapses "forged/misrouted
+      // mismatch" (want: drop) and "transient DB/GitHub blip" (want: retry) into one `false`. A bare
+      // `return` here is INSIDE the try, so the catch's forgetDelivery never runs and the delivery stays
+      // claimed in BOTH the in-memory Map and the DB claim — a momentary blip then permanently loses this
+      // PR gate (GitHub only redelivers on a non-2xx, and we already 2xx'd). Release on EVERY exit path so
+      // a redelivery retries; a genuine forgery simply re-fails the owner check again, harmlessly.
+      if (ref.deliveryId) await forgetDelivery(ref.deliveryId);
+      return;
+    }
     token = await getInstallationToken(installationId);
     const fullName = `${owner}/${repo}`;
 
@@ -253,6 +262,11 @@ async function runPrGate(ref: PrGateRef) {
     const comment = buildGateComment(headReport, gate, baseline, { baselineSuffix: "in this PR" });
     const detailsUrl = publicBase() + reportPermalink(fullName, headReport.repo.headSha);
 
+    // GATE-3 / ci-gate-status-checks #3: the Check Run IS the required merge status — a swallowed failure
+    // here leaves it permanently pending. createCheckRun now retries transient GitHub errors internally;
+    // if it STILL rejects, let it THROW (no inline .catch) so the outer catch posts the neutral "could not
+    // run" check AND releases the delivery for a redelivery retry. Silently logging it (the old behavior)
+    // returned normally, skipping both the neutral fallback and the release — the exact silent hole.
     await createCheckRun({
       token,
       owner,
@@ -263,8 +277,10 @@ async function runPrGate(ref: PrGateRef) {
       summary: comment.summary,
       detailsUrl: detailsUrl.startsWith("http") ? detailsUrl : undefined,
       actions: RERUN_ACTION, // GATE-2: a "Re-run" button so a verdict can be refreshed without a new push
-    }).catch((err) => console.error("[webhook] check-run failed", err instanceof Error ? err.message : err));
+    });
 
+    // The sticky comment is best-effort narrative (not the merge gate) — a failure here is logged and
+    // swallowed so it doesn't spuriously trip the neutral-check fallback; the redelivery retry reposts it.
     await upsertStickyComment({ token, owner, repo, prNumber, marker: GATE_COMMENT_MARKER, body: comment.commentBody }).catch(
       (err) => console.error("[webhook] sticky comment failed", err instanceof Error ? err.message : err),
     );
@@ -338,8 +354,14 @@ async function runPushRescan(installationId: number, owner: string, repo: string
     // Cheap local short-circuit FIRST: only watched repos auto-rescan, so bail on the DB check before
     // the (potentially GitHub-round-tripping) owner confirm. For a push from an unrecorded org the
     // owner-confirm always dead-ended here anyway, burning a GitHub API call per push (rate-limit burn).
-    if (!(await isRepoWatched(orgSlug, fullName))) return;
-    if (!(await installationMatchesOwner(installationId, owner))) return;
+    if (!(await isRepoWatched(orgSlug, fullName))) return; // deterministic "not watched" — nothing to retry
+    if (!(await installationMatchesOwner(installationId, owner))) {
+      // github-app-installation-webhooks #2 (push path): same as runPrGate — a `false` here can be a
+      // transient DB/GitHub blip, and this bare return is inside the try, so release the delivery so a
+      // redelivery retries the rescan rather than being silently deduped and the push scan lost forever.
+      if (deliveryId) await forgetDelivery(deliveryId);
+      return;
+    }
     const token = await getInstallationToken(installationId);
     const prev = await getScanReportByCommit(owner, repo, { orgSlug }).catch(() => null);
     const report = await scanRepository(fullName, { token });

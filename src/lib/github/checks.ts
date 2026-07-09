@@ -5,6 +5,57 @@
 
 import { AppApiError, githubAppFetch } from "@/lib/github/app";
 
+// --- Bounded retry for the Check Run write (ci-gate-status-checks #3) -------------------------------
+// createCheckRun was a single un-retried POST: a transient GitHub 5xx/429/network blip threw, and the
+// only caller swallowed it inline (`.catch(log)`), so a *required* "Ascent maturity gate" check was left
+// PERMANENTLY pending — blocking merge on that PR forever with no status, no comment, no Re-run, no retry
+// (GitHub only redelivers on a non-2xx, and we always 2xx). Wrap the write in bounded exponential backoff
+// so a momentary hiccup self-heals; on a FINAL failure we still throw (loud) so the caller's neutral-check
+// + delivery-release fallback runs instead of silently swallowing it.
+
+// Retryable = transient server / rate-limit statuses. A network failure (fetch throws a TypeError) is also
+// transient. Everything else — notably the terminal 401/403/404/422 (bad token, no permission, gone repo,
+// GitHub rejected the payload) — is NOT retried: retrying a permission error just burns quota forever.
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3; // 1 initial + 2 retries
+const BASE_BACKOFF_MS = 500; // 500ms, 1000ms (× 2 ** attempt)
+const MAX_BACKOFF_MS = 8000; // ceiling so a huge Retry-After can't wedge the request for the full maxDuration
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** A transient failure worth retrying: a 429/5xx from GitHub, or a network error (fetch → TypeError). A
+ *  terminal 401/403/404/422 returns false so we don't retry a permission/validation error indefinitely. */
+function isRetryableCheckError(err: unknown): boolean {
+  if (err instanceof AppApiError) return RETRYABLE_STATUS.has(err.status);
+  return err instanceof TypeError; // fetch network failure
+}
+
+/** Honor GitHub's rate-limit back-off when the error carries a Retry-After. AppApiError does NOT currently
+ *  surface response headers (githubAppFetch discards them), so this reads an optional `retryAfterSec` field
+ *  defensively/forward-compatibly and returns null when absent — the caller then falls back to exponential
+ *  backoff. Kept here so that if app.ts ever attaches Retry-After, this path honors it with no other change. */
+function retryAfterMs(err: unknown): number | null {
+  const ra = (err as { retryAfterSec?: unknown } | null)?.retryAfterSec;
+  return typeof ra === "number" && Number.isFinite(ra) && ra >= 0 ? Math.min(ra * 1000, MAX_BACKOFF_MS) : null;
+}
+
+/** Run a Check Run write with bounded backoff on transient failures, rethrowing the last error when the
+ *  retries are exhausted or the failure is terminal — so the caller can react (post a neutral check, release
+ *  the webhook delivery for redelivery) rather than lose the required status silently. */
+async function withCheckRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === MAX_ATTEMPTS - 1 || !isRetryableCheckError(err)) throw err;
+      await sleep(retryAfterMs(err) ?? Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS));
+    }
+  }
+  throw lastErr; // unreachable (the loop either returns or throws), but keeps the type non-optional
+}
+
 /** A button GitHub renders on the Check Run; clicking it delivers a `check_run.requested_action`
  *  webhook carrying this `identifier`. label ≤20 chars, description ≤40, identifier ≤20 (GitHub limits). */
 export interface CheckRunAction {
@@ -28,21 +79,25 @@ export interface CheckRunInput {
   actions?: CheckRunAction[];
 }
 
-/** Create a completed Check Run on a commit. Returns the run's html_url. */
+/** Create a completed Check Run on a commit. Returns the run's html_url. Retries transient GitHub
+ *  failures (429/5xx/network) with bounded backoff (withCheckRetry); a terminal or exhausted failure
+ *  THROWS so the caller can post its neutral fallback + release the delivery — never a silent no-check. */
 export async function createCheckRun(input: CheckRunInput): Promise<{ url: string; id: number }> {
   const { token, owner, repo, headSha } = input;
-  const run = await githubAppFetch<{ html_url: string; id: number }>(`/repos/${owner}/${repo}/check-runs`, token, {
-    method: "POST",
-    body: JSON.stringify({
-      name: input.name ?? "Ascent maturity gate",
-      head_sha: headSha,
-      status: "completed",
-      conclusion: input.conclusion,
-      ...(input.detailsUrl ? { details_url: input.detailsUrl } : {}),
-      ...(input.actions?.length ? { actions: input.actions.slice(0, 3) } : {}),
-      output: { title: input.title, summary: input.summary },
+  const run = await withCheckRetry(() =>
+    githubAppFetch<{ html_url: string; id: number }>(`/repos/${owner}/${repo}/check-runs`, token, {
+      method: "POST",
+      body: JSON.stringify({
+        name: input.name ?? "Ascent maturity gate",
+        head_sha: headSha,
+        status: "completed",
+        conclusion: input.conclusion,
+        ...(input.detailsUrl ? { details_url: input.detailsUrl } : {}),
+        ...(input.actions?.length ? { actions: input.actions.slice(0, 3) } : {}),
+        output: { title: input.title, summary: input.summary },
+      }),
     }),
-  });
+  );
   return { url: run.html_url, id: run.id };
 }
 

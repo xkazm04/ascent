@@ -4,7 +4,13 @@ export type SortKey = "name" | "maturity" | "repos" | "movement";
 
 export interface FleetStats {
   orgs: number;
+  /** Orgs that reached `done` (contribute repos/scores). */
   loaded: number;
+  /** Orgs that reached `error` (permanently failed to load — never become `done`). */
+  errored: number;
+  /** Orgs in a TERMINAL state (`done` OR `error`) = loaded + errored. Hydration is complete when
+   *  settled === orgs; keying "still hydrating" off `loaded` alone sticks forever if any org errors. */
+  settled: number;
   repos: number;
   scanned: number;
   /** Mean overall maturity over SCANNED repos, or null when nothing is scanned (never NaN/0). */
@@ -15,15 +21,20 @@ export interface FleetStats {
 
 /** Fleet-wide header tallies that visibly climb as each org's data streams in. Pure.
  *  Only `done` orgs contribute repos/scores; `avg` is null (not NaN/0) when `scanned === 0`;
- *  a repo counts as a riser at `dOverall >= 1` and a faller at `dOverall <= -1` (0.5 counts as neither). */
+ *  a repo counts as a riser at `dOverall >= 1` and a faller at `dOverall <= -1` (0.5 counts as neither).
+ *  `errored`/`settled` let the header TERMINATE: an `error` org never reaches `done`, so hydration must
+ *  key off terminal state (done OR error), not success (`loaded`), or the "charting…" pill sticks forever
+ *  (launch-fleet-map #1). */
 export function fleetStats(constellations: Constellation[]): FleetStats {
   let repos = 0;
   let scanned = 0;
   let sum = 0;
   let loaded = 0;
+  let errored = 0;
   let risers = 0;
   let fallers = 0;
   for (const c of constellations) {
+    if (c.status === "error") errored += 1;
     if (c.status === "done") {
       loaded += 1;
       repos += c.repos.length;
@@ -40,6 +51,8 @@ export function fleetStats(constellations: Constellation[]): FleetStats {
   return {
     orgs: constellations.length,
     loaded,
+    errored,
+    settled: loaded + errored,
     repos,
     scanned,
     avg: scanned ? Math.round(sum / scanned) : null,

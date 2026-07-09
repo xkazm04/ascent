@@ -25,7 +25,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { listGoals, simulateOrgFixes, rankOrgInvestments, goalImpactsForScenario, isGoalMetric, metricLabel, createGoal, createInitiative, listInitiatives } from "./plan";
+import { listGoals, simulateOrgFixes, rankOrgInvestments, goalImpactsForScenario, isGoalMetric, metricLabel, createGoal, createInitiative, listInitiatives, updateGoal, updateInitiative } from "./plan";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 
 const ORG_ID = "org_1";
@@ -864,5 +864,134 @@ describe("dailyAvg (via listGoals trend) — collapses same-day points to a per-
     expect(g.trajectory.length).toBeGreaterThan(0);
     expect(g.etaDays).not.toBeNull();
     expect(g.etaDays!).toBeGreaterThan(0);
+  });
+});
+
+// ── updateGoal / updateInitiative — optimistic compare-and-set (goals-initiatives #1) ──────────────
+// Goal & Initiative have NO updatedAt/version column and the schema is frozen, so the lost-update guard
+// is a value-compare (compare-and-set), mirroring updateRecommendation: the write lands as a conditional
+// `updateMany` keyed on the last-seen value of ONLY the fields being changed — the editor's `expected`
+// value when supplied, else the server pre-image read moments earlier. A concurrent write to one of THIS
+// patch's own fields makes updateMany match 0 rows → a tagged GOAL_CONFLICT / INIT_CONFLICT the route
+// maps to 409, so a deliberate retarget/relabel is never silently clobbered; editing DIFFERENT fields
+// never conflicts. An unknown id throws P2025 (route → 404).
+
+/**
+ * A fake `goal`/`initiative` model whose `updateMany` models the DB's conditional match: every guard
+ * field in the `where` (besides `id`) must equal the ACTUAL stored row (`stored`) for the update to
+ * land. `current` is what the pre-update `findUnique` returns (the read pre-image); pass a different
+ * `stored` to model a concurrent write that committed between the read and the update.
+ */
+function fakeCasModel(opts: { current: Record<string, unknown> | null; stored?: Record<string, unknown> }) {
+  const stored = opts.stored ?? opts.current ?? {};
+  const findUnique = vi.fn(async () => opts.current);
+  const updateMany = vi.fn(async ({ where }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+    const norm = (x: unknown) => (x instanceof Date ? x.getTime() : x);
+    const match = Object.entries(where).every(([k, v]) => k === "id" || norm((stored as Record<string, unknown>)[k]) === norm(v));
+    return { count: match ? 1 : 0 };
+  });
+  return { findUnique, updateMany };
+}
+
+describe("updateGoal — optimistic compare-and-set", () => {
+  const base = { status: "active", target: 50, label: "old", targetDate: null };
+
+  it("returns false and touches nothing when the DB is not configured", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await updateGoal("g1", { target: 80 })).toBe(false);
+  });
+
+  it("applies the change guarding each written field on the server pre-image (no expected supplied)", async () => {
+    const model = fakeCasModel({ current: { ...base } });
+    mockGetPrisma.mockReturnValue({ goal: model });
+
+    expect(await updateGoal("g1", { target: 80, label: "new" })).toBe(true);
+    // The conditional update guards ONLY the fields it writes (target, label), keyed on the pre-image,
+    // with the normalized new values in `data` — never the untouched status/targetDate.
+    expect(model.updateMany).toHaveBeenCalledTimes(1);
+    const call = model.updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: "g1", target: 50, label: "old" });
+    expect(call.data).toEqual({ target: 80, label: "new" });
+  });
+
+  it("GOAL_CONFLICT when a concurrent write changed a field this patch also writes", async () => {
+    // Read saw target 50; by update time another admin set it to 80 → the pre-image guard misses.
+    const model = fakeCasModel({ current: { ...base, target: 50 }, stored: { ...base, target: 80 } });
+    mockGetPrisma.mockReturnValue({ goal: model });
+
+    await expect(updateGoal("g1", { target: 90 })).rejects.toMatchObject({ code: "GOAL_CONFLICT" });
+  });
+
+  it("honors a client `expected` snapshot: a stale editor's write is rejected even after a fresh read", async () => {
+    // DB already at 80 (another admin moved it); this editor last saw 50 and sends expected.target=50.
+    const model = fakeCasModel({ current: { ...base, target: 80 }, stored: { ...base, target: 80 } });
+    mockGetPrisma.mockReturnValue({ goal: model });
+
+    await expect(updateGoal("g1", { target: 90 }, { target: 50 })).rejects.toMatchObject({ code: "GOAL_CONFLICT" });
+    // The guard used the CLIENT's last-seen value (50), not the fresh pre-image (80).
+    expect(model.updateMany.mock.calls[0][0].where).toMatchObject({ target: 50 });
+  });
+
+  it("does NOT conflict when a concurrent edit touched a DIFFERENT field", async () => {
+    // This patch writes label; another admin changed status. Guarding only label → still matches.
+    const model = fakeCasModel({ current: { ...base }, stored: { ...base, status: "achieved" } });
+    mockGetPrisma.mockReturnValue({ goal: model });
+
+    expect(await updateGoal("g1", { label: "renamed" })).toBe(true);
+    expect(model.updateMany.mock.calls[0][0].where).toEqual({ id: "g1", label: "old" });
+  });
+
+  it("throws P2025 (route → 404) when the goal id is unknown, without an update", async () => {
+    const model = fakeCasModel({ current: null });
+    mockGetPrisma.mockReturnValue({ goal: model });
+
+    await expect(updateGoal("ghost", { target: 80 })).rejects.toMatchObject({ code: "P2025" });
+    expect(model.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op (true, no update) for an empty patch once existence is confirmed", async () => {
+    const model = fakeCasModel({ current: { ...base } });
+    mockGetPrisma.mockReturnValue({ goal: model });
+
+    expect(await updateGoal("g1", {})).toBe(true);
+    expect(model.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateInitiative — optimistic compare-and-set", () => {
+  const base = { status: "open", assigneeLogin: "ann", targetDate: null, goalId: null };
+
+  it("applies a status move guarded on the pre-image status", async () => {
+    const model = fakeCasModel({ current: { ...base } });
+    mockGetPrisma.mockReturnValue({ initiative: model });
+
+    expect(await updateInitiative("i1", { status: "in_progress" })).toBe(true);
+    const call = model.updateMany.mock.calls[0][0];
+    expect(call.where).toEqual({ id: "i1", status: "open" });
+    expect(call.data).toEqual({ status: "in_progress" });
+  });
+
+  it("INIT_CONFLICT when the status moved underneath a concurrent editor", async () => {
+    const model = fakeCasModel({ current: { ...base, status: "open" }, stored: { ...base, status: "done" } });
+    mockGetPrisma.mockReturnValue({ initiative: model });
+
+    await expect(updateInitiative("i1", { status: "dismissed" })).rejects.toMatchObject({ code: "INIT_CONFLICT" });
+  });
+
+  it("honors a client `expected` snapshot for assignee (stale write → conflict)", async () => {
+    const model = fakeCasModel({ current: { ...base, assigneeLogin: "bob" }, stored: { ...base, assigneeLogin: "bob" } });
+    mockGetPrisma.mockReturnValue({ initiative: model });
+
+    await expect(
+      updateInitiative("i1", { assigneeLogin: "carol" }, { assigneeLogin: "ann" }),
+    ).rejects.toMatchObject({ code: "INIT_CONFLICT" });
+  });
+
+  it("throws P2025 for an unknown initiative id, without an update", async () => {
+    const model = fakeCasModel({ current: null });
+    mockGetPrisma.mockReturnValue({ initiative: model });
+
+    await expect(updateInitiative("ghost", { status: "done" })).rejects.toMatchObject({ code: "P2025" });
+    expect(model.updateMany).not.toHaveBeenCalled();
   });
 });

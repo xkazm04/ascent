@@ -25,7 +25,7 @@ function done(login: string, repos: RepoStar[]): Constellation {
 
 describe("fleetStats — fleet-wide header tallies", () => {
   it("an empty fleet has zeroed counts and a NULL avg (never NaN/0)", () => {
-    expect(fleetStats([])).toEqual({ orgs: 0, loaded: 0, repos: 0, scanned: 0, avg: null, risers: 0, fallers: 0 });
+    expect(fleetStats([])).toEqual({ orgs: 0, loaded: 0, errored: 0, settled: 0, repos: 0, scanned: 0, avg: null, risers: 0, fallers: 0 });
   });
 
   it("an all-loading/error fleet counts orgs but loads no repos and keeps avg null", () => {
@@ -33,7 +33,8 @@ describe("fleetStats — fleet-wide header tallies", () => {
       { id: 1, login: "a", status: "loading" },
       { id: 2, login: "b", status: "error", message: "boom" },
     ];
-    expect(fleetStats(cs)).toEqual({ orgs: 2, loaded: 0, repos: 0, scanned: 0, avg: null, risers: 0, fallers: 0 });
+    // The `error` org is settled (terminal) but not loaded; the loading org keeps the fleet hydrating.
+    expect(fleetStats(cs)).toEqual({ orgs: 2, loaded: 0, errored: 1, settled: 1, repos: 0, scanned: 0, avg: null, risers: 0, fallers: 0 });
   });
 
   it("an all-unscanned done org counts repos but scanned:0 and avg:null (the guard, not NaN)", () => {
@@ -77,6 +78,36 @@ describe("fleetStats — fleet-wide header tallies", () => {
     ]);
     expect(s.risers).toBe(2);
     expect(s.fallers).toBe(1);
+  });
+});
+
+describe("fleetStats — settled/errored terminal tallies (launch-fleet-map #1)", () => {
+  // The header's `hydrating` was `loaded < orgs`; an `error` org never becomes `done`, so a single flaky
+  // org stuck 'charting N/M…' + the repos/scanned '…' placeholders FOREVER. `settled` = done OR error lets
+  // the header terminate, while `errored` stays separate so the UI can report it as unreachable.
+  it("counts an errored org toward settled so the header completes (settled === orgs)", () => {
+    const s = fleetStats([done("a", []), done("b", []), { id: 3, login: "c", status: "error", message: "unreachable" }]);
+    expect(s.loaded).toBe(2);
+    expect(s.errored).toBe(1);
+    expect(s.settled).toBe(3);
+    expect(s.settled < s.orgs).toBe(false); // hydrating === false → 'fleet charted', not stuck at 2/3
+  });
+
+  it("stays hydrating while any org is still loading (settled < orgs)", () => {
+    const s = fleetStats([done("a", []), { id: 2, login: "b", status: "loading" }, { id: 3, login: "c", status: "error", message: "x" }]);
+    expect(s.settled).toBe(2); // 1 done + 1 error, the loader is not settled
+    expect(s.settled < s.orgs).toBe(true);
+  });
+
+  it("all orgs errored → fully settled with avg null (never NaN) and zero repos", () => {
+    const s = fleetStats([
+      { id: 1, login: "a", status: "error", message: "x" },
+      { id: 2, login: "b", status: "error", message: "y" },
+    ]);
+    expect(s.settled).toBe(2);
+    expect(s.errored).toBe(2);
+    expect(s.repos).toBe(0);
+    expect(s.avg).toBeNull();
   });
 });
 

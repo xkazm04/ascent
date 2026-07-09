@@ -224,3 +224,42 @@ describe("POST /api/org/simulate — pre-sim short-circuits", () => {
     expect(mockSimulateOrgFixes).not.toHaveBeenCalled();
   });
 });
+
+// ===========================================================================
+// 5. DoS-amplification guard (investment-simulator-forecast #1): `fixes[]` is an attacker-controlled
+// loop bound multiplied by the fleet size inside simulateFleet (O(repos × fixes)), reachable
+// UNAUTHENTICATED against the public org. The route must reject an over-length array with 400 BEFORE
+// running the (expensive) per-fix validation or the sim — capped at 9, the number of maturity
+// dimensions D1..D9 (the UI builds at most one leg per dimension).
+describe("POST /api/org/simulate — fixes[] length cap (DoS amplification guard)", () => {
+  // N distinct, individually-VALID legs (cycling D1..D9) so ONLY the count gate can reject them.
+  const validFixes = (n: number) => Array.from({ length: n }, (_, i) => ({ dimId: `D${(i % 9) + 1}`, target: 70 }));
+
+  it("rejects a 10-leg array with 400 and NEVER simulates (one past the cap)", async () => {
+    const res = await post({ org: "public", fixes: validFixes(10) });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/at most 9/i);
+    // The amplifying call must not run — the guard rejects before simulateFleet's O(repos × fixes) loop.
+    expect(mockSimulateOrgFixes).not.toHaveBeenCalled();
+  });
+
+  it("rejects a massive hostile array (the real attack shape) with 400 and no sim work", async () => {
+    const res = await post({ org: "public", fixes: validFixes(180_000) });
+    expect(res.status).toBe(400);
+    expect(mockSimulateOrgFixes).not.toHaveBeenCalled();
+  });
+
+  it("ALLOWS the UI maximum of 9 legs (boundary) — reaches the sim with all 9 forwarded", async () => {
+    const res = await post({ org: "public", fixes: validFixes(9) });
+    expect(res.status).toBe(200);
+    expect(mockSimulateOrgFixes).toHaveBeenCalledTimes(1);
+    expect(mockSimulateOrgFixes.mock.calls[0][1]).toHaveLength(9);
+  });
+
+  it("a single-leg { dimId, target } request is unaffected by the cap", async () => {
+    const res = await post({ org: "public", dimId: "D2", target: 80 });
+    expect(res.status).toBe(200);
+    expect(mockSimulateOrgFixes).toHaveBeenCalledTimes(1);
+  });
+});

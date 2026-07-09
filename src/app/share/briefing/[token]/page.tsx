@@ -54,11 +54,19 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   }
 
   const period = resolveWindow({ range: verified.range, from: verified.from, to: verified.to });
+  // Finding B (clock-drift): use the ABSOLUTE window the owner froze at mint time, not one recomputed
+  // against this viewer's clock. `winEnd` is present on every frozen token (an open-ended end was pinned
+  // to the mint instant), so its presence is the "frozen" signal; `winStart` absent = an all-time (null)
+  // start. A legacy link carries neither → fall back to `period` (the pre-fix behavior that re-floats to
+  // the viewer's clock — kept so already-minted live links keep working). `period.title` stays the label.
+  const frozen = verified.winEnd != null;
+  const start = frozen ? (verified.winStart ? new Date(verified.winStart) : null) : period.start;
+  const end = frozen ? new Date(verified.winEnd!) : period.end;
   // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's
   // per-client read-only link shows that client's data — not the whole org. Feature 3b: the same for the
   // tech-stack scope (resolve the carried KEY → group id within the org).
   const techGroupId = await getTechGroupIdByKey(verified.org, verified.stack ?? null).catch(() => null);
-  const briefing = await buildExecBriefing(verified.org, { start: period.start, end: period.end }, period.title, verified.segment ?? null, techGroupId).catch(() => null);
+  const briefing = await buildExecBriefing(verified.org, { start, end }, period.title, verified.segment ?? null, techGroupId).catch(() => null);
   if (!briefing) {
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }

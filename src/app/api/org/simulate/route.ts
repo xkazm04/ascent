@@ -43,6 +43,20 @@ export async function POST(request: Request) {
 
   // Normalize to a list of legs: an explicit `fixes[]` (SIM-2), else the single `{dimId, target}`.
   const rawFixes = Array.isArray(body.fixes) && body.fixes.length > 0 ? body.fixes : [{ dimId: body.dimId, target: body.target }];
+  // DoS AMPLIFICATION GUARD: `fixes[]` is an attacker-controlled loop bound that simulateFleet
+  // multiplies by the fleet size (it runs `for (const f of fixes)` INSIDE `repos.map`, so the work is
+  // O(repos × fixes) with a `{...dims}` spread per iteration). Per-fix content validation below bounds
+  // each element's VALUE but never the COUNT, so an unauthenticated POST to the public org with a
+  // ~180k-element array (each a valid {dimId,target}) is a multi-second synchronous event-loop stall
+  // that degrades every concurrent tenant on the instance. Cap the COUNT first (O(1), before the
+  // per-fix loop even runs). MAX_FIXES = 9 because there are exactly 9 maturity dimensions (D1..D9)
+  // and the UI (Simulator.tsx: one primary leg + one extra per remaining distinct dimension, guarded
+  // by `dims.length > used.size`) can build at most one leg per dimension — so a legitimate scenario
+  // never exceeds 9. Anything larger is malformed or hostile.
+  const MAX_FIXES = 9;
+  if (rawFixes.length > MAX_FIXES) {
+    return NextResponse.json({ error: `At most ${MAX_FIXES} fixes (one per maturity dimension).` }, { status: 400 });
+  }
   const fixes: SimFix[] = [];
   for (const f of rawFixes) {
     const t = f.target;

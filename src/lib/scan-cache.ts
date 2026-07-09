@@ -13,7 +13,7 @@
 // A persistent hit warms the in-memory tier for the next reader.
 
 import { resolveHead, type ParsedRepo } from "@/lib/github/source";
-import { cacheGet, cacheSet, headHintGet, headHintSet, makeCacheKey } from "@/lib/cache";
+import { activeScoringIdentity, cacheGet, cacheSet, headHintGet, headHintSet, makeCacheKey } from "@/lib/cache";
 import { getHeadHint, getScanReportByCommit } from "@/lib/db";
 import type { ScanReport } from "@/lib/types";
 
@@ -37,6 +37,32 @@ export function isPersistedScanFresh(scannedAt: string | undefined, now: number 
   const t = scannedAt ? new Date(scannedAt).getTime() : NaN;
   if (!Number.isFinite(t)) return false; // no/garbled timestamp → don't trust it, re-scan
   return now - t <= maxAge;
+}
+
+/**
+ * Would the CURRENT scoring config reproduce this persisted report? The persistent tier shares the
+ * SAME staleness the in-memory key had before it learned the scoring identity: getScanReportByCommit
+ * keys only on (repo, headSha, org) — it returns the newest scan for a commit REGARDLESS of which
+ * provider/model produced it — so after a model swap or `LLM_PROVIDER` change it would serve an old
+ * provider's score as current, bounded only by the 7-day age gate. Gate the persisted hit on a
+ * provider+model match so a swap busts the cross-instance cache too, not just warm memory.
+ *
+ * CONSERVATIVE: reject ONLY on a POSITIVE mismatch (both the persisted engine stamp and the active
+ * identity are known and differ). A blank / legacy engine stamp (pre-column rows) is served as before
+ * rather than triggering a fleet-wide re-scan storm on deploy.
+ *
+ * NOTE — the rubric version is NOT persisted on the Scan row (the report stamps engine.provider/model
+ * but no SCORING_RUBRIC_VERSION), so a rubric bump can't be detected PER-ROW here; that dimension still
+ * relies on the deploy cold-starting memory + the 7-day age gate. Persisting the rubric version so the
+ * DB tier can self-invalidate on a bump is the proper follow-up (needs a schema migration — out of
+ * scope for this cache-key fix). Provider/model changes ARE fully invalidated at both tiers now.
+ */
+export function persistedMatchesActiveIdentity(report: ScanReport, useLLM: boolean): boolean {
+  const provider = report.engine?.provider;
+  const model = report.engine?.model;
+  if (!provider || !model) return true; // unknown/legacy stamp — don't force a re-scan
+  const want = activeScoringIdentity(useLLM);
+  return provider === want.provider && model === want.model;
 }
 
 export interface ScanCacheLookup {
@@ -123,9 +149,12 @@ export async function lookupCachedScan(opts: {
   // Tier 2: persistent (cross-instance) — rebuild the report pinned to this commit, then warm
   // the in-memory tier so the next reader on this instance skips the DB round-trip. A persisted
   // report older than scanMaxCacheAgeMs() is treated as a miss so an unchanged-but-stale repo
-  // re-scans (the weekly-refresh allowance), instead of serving an ageing snapshot forever.
+  // re-scans (the weekly-refresh allowance), instead of serving an ageing snapshot forever. It's
+  // ALSO a miss when a provider/model swap means the current config wouldn't reproduce it
+  // (persistedMatchesActiveIdentity) — the cross-instance twin of the identity in the in-memory key,
+  // so a model change busts the DB tier too instead of serving the old model's score for up to 7 days.
   const persisted = await getScanReportByCommit(owner, repo, { headSha, orgSlug }).catch(() => null);
-  if (persisted && isPersistedScanFresh(persisted.scannedAt)) {
+  if (persisted && isPersistedScanFresh(persisted.scannedAt) && persistedMatchesActiveIdentity(persisted, useLLM)) {
     cacheSet(cacheKey, persisted);
     return { cacheKey, headSha, etag, cached: persisted, source: "db" };
   }

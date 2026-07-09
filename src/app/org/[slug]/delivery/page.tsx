@@ -31,6 +31,9 @@ export default async function OrgDelivery({
     getOrgPrSignals(slug, segmentId, techGroupId),
     getOrgGovernance(slug, segmentId, techGroupId),
     getOrgActivity(slug, segmentId, techGroupId),
+    // Finding A: getOrgUsageRollup is WHOLE-ORG and takes no scope arg. Its measured layer is per-repo
+    // (so buildAiDeliveryModel's per-repo lookups already honor the filtered set), but its ALLOCATED
+    // layer is a single org-level total with no per-repo breakdown — it genuinely cannot be filtered.
     getOrgUsageRollup(slug),
   ]);
 
@@ -38,6 +41,16 @@ export default async function OrgDelivery({
   // (measured/allocated), falling back to a simulated placeholder when nothing is connected. Computed
   // server-side; the client module toggles between the Table and Map views over this one model.
   const aiModel = buildAiDeliveryModel(pr, usage);
+
+  // Finding A (money misattribution): in "allocated" fidelity buildAiDeliveryModel distributes the
+  // WHOLE-ORG spend total across only the repos in `pr` (the filtered set) — weightSum shrinks with the
+  // filter while the org-total numerator does not, so every $ readout (idle / ungoverned / $-per-AI-PR /
+  // annual spend) inflates by (org total)/(filtered subset) under a segment or stack filter, driving
+  // wrong "reclaim $X" budget calls. The org total has no per-repo breakdown and getOrgUsageRollup can't
+  // be scoped, so rather than mis-attribute it we WITHHOLD the allocated-$ module under a filter and say
+  // why. (measured is per-repo and simulated is a placeholder with no real money — both stay filterable.)
+  const scoped = segmentId != null || techGroupId != null;
+  const withholdAllocatedRoi = aiModel?.fidelity === "allocated" && scoped;
 
   const segmentBar = (
     <ScopeFilterBar
@@ -57,8 +70,11 @@ export default async function OrgDelivery({
       <div className="space-y-4">
         {segmentBar}
         <SectionEmpty>
-          {segmentId
-            ? "No delivery signals for this segment — pick another segment or scan more of its repos (signals need a GitHub token)."
+          {/* Finding #3: branch on the composed scope (segment OR stack), not `segmentId` alone — a
+              stack filter that matched no repo also empties the view, and blaming "no GitHub token"
+              sent the user to re-configure a token they already have instead of clearing the filter. */}
+          {segmentId || techGroupId
+            ? "No delivery signals for this filter — pick another segment/stack or scan more of its repos (signals need a GitHub token)."
             : "Delivery signals (pull requests, branch governance, commit activity) need a GitHub token. Re-scan with a token configured to populate this tab."}
         </SectionEmpty>
       </div>
@@ -73,7 +89,16 @@ export default async function OrgDelivery({
       {(pr || gov) && <DeliveryPriorities pr={pr} gov={gov} />}
 
       {/* AI delivery intelligence — spend × AI output × governance, as a Table and a Map view. */}
-      {aiModel && <AiDeliveryModule model={aiModel} slug={slug} />}
+      {aiModel && !withholdAllocatedRoi && <AiDeliveryModule model={aiModel} slug={slug} />}
+      {/* Finding A: allocated-$ figures are org-wide and can't be split to a filtered scope — refuse to
+          render them under a filter instead of showing a total inflated by (org total)/(subset). */}
+      {aiModel && withholdAllocatedRoi && (
+        <SectionEmpty>
+          AI spend for this org is connected only as a whole-org total (allocated), which has no per-repo
+          breakdown — splitting it across a filtered segment/stack would inflate the dollar figures. Clear
+          the filter to see AI delivery ROI, or connect per-repo telemetry for filterable spend.
+        </SectionEmpty>
+      )}
 
       {/* Pull request signals */}
       {pr && (

@@ -22,7 +22,16 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const blocked = await gate(id);
   if (blocked) return blocked;
-  const body = (await request.json().catch(() => ({}))) as { status?: string; target?: number; label?: string; targetDate?: string | null };
+  // `expected` (optional) carries the values the editor last saw for the fields being changed, so
+  // updateGoal can compare-and-set and reject a stale write with 409 instead of silently clobbering a
+  // concurrent admin's edit (goals-initiatives #1 — no version column, so this is a value-compare).
+  const body = (await request.json().catch(() => ({}))) as {
+    status?: string;
+    target?: number;
+    label?: string;
+    targetDate?: string | null;
+    expected?: { status?: string; target?: number; label?: string; targetDate?: string | null };
+  };
   // Maturity metrics are always 0..100; reject an out-of-range target on update too (matches POST) so a
   // patched goal can't drift into >100% / permanently-"Behind" state.
   if (body.target != null && (!Number.isFinite(body.target) || body.target < 0 || body.target > 100)) {
@@ -32,10 +41,14 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ error: "targetDate must be an ISO date (YYYY-MM-DD)." }, { status: 400 });
   }
   try {
-    await updateGoal(id, body);
+    await updateGoal(id, body, body.expected);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Goal not found." }, { status: 404 });
+    const code = (err as { code?: string }).code;
+    if (code === "P2025") return NextResponse.json({ error: "Goal not found." }, { status: 404 });
+    // Optimistic-lock miss: another editor moved a field this patch also writes. 409 so the client can
+    // refetch the latest goal and retry, rather than the write being lost.
+    if (code === "GOAL_CONFLICT") return NextResponse.json({ error: (err as Error).message }, { status: 409 });
     return NextResponse.json({ error: "Failed to update goal." }, { status: 500 });
   }
 }
