@@ -25,9 +25,15 @@ import { ABOUT_FEATURES, type AboutFeatureId } from "./features";
 // already holds a sized aspect-video placeholder until its Player mounts — the loading fallback matches
 // that box so there's no layout shift while the chunk streams in.
 const DiagramPlaceholder = () => (
-  <div className="overflow-hidden rounded-xl border border-divider bg-surface-strong/40">
-    <div className="aspect-video w-full" />
-  </div>
+  <>
+    <div className="overflow-hidden rounded-xl border border-divider bg-surface-strong/40">
+      <div className="aspect-video w-full" />
+    </div>
+    {/* RemotionStage always paints a legend/replay row beneath its box (RemotionStage.tsx:90) — reserve
+        the SAME ~24px row here so the column doesn't grow taller when the client chunk resolves (CLS).
+        Matches the row's height: text-xs line + the replay button's py-1. */}
+    <div className="mt-3 h-6" />
+  </>
 );
 const ChampionNetwork = dynamic(() => import("./ChampionNetwork").then((m) => m.ChampionNetwork), {
   ssr: false,

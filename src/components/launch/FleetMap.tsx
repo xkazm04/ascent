@@ -138,7 +138,10 @@ export function FleetMap({
   }
 
   return (
-    <main className="launch-sky relative flex-1">
+    // id="main": the global skip-to-content link in app/layout.tsx targets #main. Without it the
+    // keyboard bypass silently no-ops on this page — the link focuses nothing and the user tabs through
+    // the whole header anyway.
+    <main id="main" className="launch-sky relative flex-1">
       {/* spotlight wash so the constellations feel lit from the center */}
       <div
         aria-hidden

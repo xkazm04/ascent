@@ -1,6 +1,12 @@
+// NOTE (2026-07-09): PeriodSummary.tsx itself was deleted — it had been unreferenced since the Org
+// Overview refactor (org-overview-standing #2). This file survives because it never imported the
+// component: it pins the LIB derivations the banner was built on (computeWindowDeltas, isWithinNoise),
+// which are still live and still carry the narrative. Restore the component from git if it is ever
+// wanted again; the maths below is what actually needed the coverage.
+//
 // Medium coverage gap (test-mastery-2026-06-18, org-overview-standing #5): the "Quarter in review"
-// banner (PeriodSummary.tsx) is the first sentence a leader reads, and its headline number + prose are
-// derived inline from the rollup's cohort-matched deltas. Two numbers carry the narrative:
+// banner's headline number + prose were derived from the rollup's cohort-matched deltas. Two numbers
+// carry the narrative:
 //   cohortNow = baseline.avgOverall + deltas.overall   (NOT rollup.avgOverall, the fleet-wide avg)
 //   onboarded = max(0, rollup.scannedCount - baseline.repos)
 // plus the promoted/demoted tallies off movers.levelChanges, and a null-render when there is no

@@ -179,7 +179,10 @@ export function WarRoomHeader({
             (watchedCount === 0 ? (
               <p className="font-mono text-sm text-slate-500">Watch some repos on /connect to scan.</p>
             ) : (
-              <p className="font-mono text-sm text-slate-500" aria-live="polite" suppressHydrationWarning>
+              // The ONE polite region for a run: the coalesced "done/total repos" progress count
+              // (aria-atomic so the whole short count reads each update). Keeping a single announcer
+              // is why the per-repo "scanning…" caption below is not itself a live region.
+              <p className="font-mono text-sm text-slate-500" aria-live="polite" aria-atomic="true" suppressHydrationWarning>
                 {running
                   ? `${progress.done}/${progress.total} repos`
                   : `${watchedCount} watched${fleetScannedAt ? ` · scanned ${freshness(fleetScannedAt)}` : ""}`}
@@ -268,7 +271,11 @@ export function WarRoomHeader({
             <div className="h-full rounded-full bg-accent transition-all motion-reduce:transition-none" style={{ width: `${Math.max(3, pct)}%` }} />
           </div>
           {progress.current && (
-            <p className="mt-1 truncate font-mono text-sm text-slate-500" aria-live="polite">
+            // NOT a live region: the currently-scanning repo name changes on every landed result, so
+            // announcing it floods a polite region during a full-fleet run (it never finishes reading).
+            // The single run announcer is the coalesced "done/total repos" count above; this caption
+            // is a visual-only status (matching the TV scanning stage, which likewise omits aria-live).
+            <p className="mt-1 truncate font-mono text-sm text-slate-500" suppressHydrationWarning>
               scanning {shortName(progress.current)}…
             </p>
           )}

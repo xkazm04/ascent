@@ -7,7 +7,7 @@
 // the repo (projectSandbox / cheapestPathToNextLevel), so a what-if is never a lie — with every
 // slider at its current value the projection is byte-for-byte the report you're reading.
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { DimensionId, ScanReport } from "@/lib/types";
 import { LEVEL_BY_ID, clamp } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
@@ -49,6 +49,19 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
   const path = useMemo(() => cheapestPathToNextLevel(projectedReport), [projectedReport]);
 
   const projectedLevel = LEVEL_BY_ID[proj.overall.level];
+
+  // Debounced screen-reader announcement of the projected headline. Arrowing a slider 40→80 fires
+  // ~40 onChange re-renders; announcing on each one floods a polite region so it never finishes
+  // reading, and the native range already speaks its own value per step (aria-valuetext in
+  // DimensionSlider). So the live region below mirrors ONLY the SETTLED projection — updated ~450ms
+  // after the last change — instead of every intermediate tick.
+  const projectionText = `Projected score ${proj.overall.overallScore} of 100, level ${projectedLevel.id} ${projectedLevel.name}.`;
+  const [announced, setAnnounced] = useState(projectionText);
+  useEffect(() => {
+    const t = setTimeout(() => setAnnounced(projectionText), 450);
+    return () => clearTimeout(t);
+  }, [projectionText]);
+
   const baseline = { adoption: report.adoptionScore, rigor: report.rigorScore };
   const anyChanged = report.dimensions.some((d) => (overrides[d.id] ?? d.score) !== d.score);
 
@@ -88,9 +101,10 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
 
       {open && (
         <div id={panelId} className="mt-6 space-y-6">
-          {/* Polite live region — announces the projected headline as sliders move. */}
+          {/* Polite live region — announces the SETTLED projected headline (see the debounced
+              `announced` above), not every slider tick, so it stays readable during exploration. */}
           <div role="status" aria-live="polite" className="sr-only">
-            {`Projected score ${proj.overall.overallScore} of 100, level ${projectedLevel.id} ${projectedLevel.name}.`}
+            {announced}
           </div>
 
           {/* Live hero + the sliders that drive it. */}

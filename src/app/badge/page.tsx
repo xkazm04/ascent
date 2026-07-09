@@ -10,7 +10,9 @@ export default function BadgePage() {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-3xl px-5 py-10">
+      {/* id="main" is the global skip-to-content target (layout.tsx). Without it the always-present
+          "Skip to content" link no-ops here — a WCAG 2.4.1 bypass-blocks failure. */}
+      <main id="main" className="mx-auto w-full max-w-3xl px-5 py-10">
         <div className="animate-fade-up">
           <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Embed</div>
           <h1 className="mt-1 text-3xl font-bold text-white">Maturity badge generator</h1>

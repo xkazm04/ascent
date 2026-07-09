@@ -29,7 +29,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-3xl px-5 py-10">{children}</main>
+      {/* id="main" is the global skip-to-content target (layout.tsx). Without it the always-present
+          "Skip to content" link no-ops here — a WCAG 2.4.1 bypass-blocks failure. */}
+      <main id="main" className="mx-auto w-full max-w-3xl px-5 py-10">{children}</main>
       <SiteFooter />
     </>
   );

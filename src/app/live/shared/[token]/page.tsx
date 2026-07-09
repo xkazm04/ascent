@@ -17,7 +17,7 @@ export const metadata = { robots: { index: false, follow: false } };
 
 function Notice({ title, body }: { title: string; body: string }) {
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-5 text-center">
+    <main id="main" className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-5 text-center">
       <h1 className="text-xl font-bold text-white">{title}</h1>
       <p className="mt-2 text-base text-slate-400">{body}</p>
     </main>
@@ -61,7 +61,7 @@ export default async function SharedLivePage({ params }: { params: Promise<{ tok
   }, null);
   const timetable = buildFleetTimetable(await getOrgRepoHistories(verified.org).catch(() => []));
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 py-8">
+    <main id="main" className="mx-auto w-full max-w-6xl px-5 py-8">
       <LiveWarRoom
         slug={verified.org}
         watchedCount={rollup.repos.filter((r) => r.watched).length}

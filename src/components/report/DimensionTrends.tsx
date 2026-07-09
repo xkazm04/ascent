@@ -214,9 +214,11 @@ export function DimensionTrends({ history }: { history: RepositoryHistory }) {
                 </EmptyState>
               </div>
             ) : (
-              // idle / loading — shimmer placeholder cards while the dimension rows load.
+              // idle / loading — shimmer placeholder cards while the dimension rows load. One card per
+              // DIMENSION (not a hardcoded 6) so the placeholder grid is exactly the height the loaded
+              // grid resolves to — no extra row popping in after load (CLS).
               <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
-                {[0, 1, 2, 3, 4, 5].map((i) => (
+                {Array.from({ length: DIMENSIONS.length }).map((_, i) => (
                   <Surface key={i} radius="xl" className="p-4">
                     <div className="h-4 w-24 animate-pulse rounded bg-slate-800" />
                     <div className="mt-3 h-[90px] w-full animate-pulse rounded bg-slate-800/60" />

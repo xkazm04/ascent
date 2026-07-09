@@ -304,18 +304,6 @@ export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity 
 }
 
 /**
- * Pure: drop the single NEWEST hit from a window — the one `consumePublicScanQuota` just appended.
- * Exported (and unit-tested) independently of the DB, like `decideQuota`. Removes exactly one entry
- * even when timestamps collide (two consumes in the same millisecond).
- */
-export function removeNewestHit(hits: number[]): number[] {
-  if (hits.length === 0) return hits;
-  const newest = Math.max(...hits);
-  const idx = hits.indexOf(newest);
-  return [...hits.slice(0, idx), ...hits.slice(idx + 1)];
-}
-
-/**
  * Pure: drop the SINGLE hit equal to `ts` — the exact timestamp `consumePublicScanQuota` recorded for
  * this request. Idempotent: if `ts` isn't present (already refunded, or aged out), the window is
  * returned unchanged. This is the value-keyed refund that fixes the double-refund race — two refunds

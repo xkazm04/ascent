@@ -16,7 +16,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl px-5 py-10">{children}</main>
+      <main id="main" className="mx-auto w-full max-w-5xl px-5 py-10">{children}</main>
       <SiteFooter />
     </>
   );

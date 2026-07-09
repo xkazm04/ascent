@@ -5,7 +5,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-4xl px-5 py-10">{children}</main>
+      {/* id="main": the global skip-to-content link (app/layout.tsx) targets #main. Without it the
+          keyboard bypass silently no-ops on /usage. */}
+      <main id="main" className="mx-auto w-full max-w-4xl px-5 py-10">{children}</main>
       <SiteFooter />
     </>
   );
