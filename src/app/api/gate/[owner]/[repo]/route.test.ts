@@ -257,7 +257,9 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect(mockCacheGet).not.toHaveBeenCalled();
     expect(mockCacheSet).not.toHaveBeenCalled();
     expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, ref: "deadbeef" });
+    // noAmbientToken: this endpoint is unauthenticated, so an ingest must never run against the
+    // operator PAT (which would expose private repos' verdicts to anonymous callers).
+    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, ref: "deadbeef", noAmbientToken: true });
   });
 
   // --- the non-ref path keys the cache and only scans on a miss ---------------
@@ -271,6 +273,25 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect(mockScan).not.toHaveBeenCalled(); // cache hit → no scan
   });
 
+  it("SECURITY: no ingest path may ever run against the ambient operator PAT", async () => {
+    // ci-gate-status-checks #1. This endpoint is unauthenticated by design (CI calls it with curl).
+    // scanRepository falls back to process.env.GITHUB_TOKEN unless noAmbientToken is set, so omitting
+    // it let anonymous callers enumerate PRIVATE repos' gate verdicts through the operator's
+    // credentials. Assert the invariant over EVERY scan call, on both the ref and cache-miss paths.
+    mockCacheGet.mockReturnValue(undefined);
+    mockScan.mockResolvedValue(report());
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    await get();
+    await get("?ref=deadbeef");
+
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    for (const [, opts] of mockScan.mock.calls) {
+      expect(opts?.noAmbientToken).toBe(true);
+      expect(opts?.token).toBeUndefined();
+    }
+  });
+
   it("non-ref path scans and populates the cache on a miss", async () => {
     mockCacheGet.mockReturnValue(undefined);
     mockScan.mockResolvedValue(report());
@@ -278,7 +299,7 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
 
     const res = await get();
     expect(res.status).toBe(200);
-    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true });
+    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, noAmbientToken: true });
     expect(mockCacheSet).toHaveBeenCalledTimes(1); // write-through after a miss
   });
 
