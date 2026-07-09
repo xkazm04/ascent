@@ -1383,6 +1383,46 @@ New structural facts:
   the predicate*, not as evidence the guard works.
 - **2026-07-09 — Fixing the mint without fixing the fallback.** See `noAmbientToken` above.
 
+
+## Structural facts (waves 4-7, 2026-07-09)
+
+- **2026-07-09 — `scanRepository` cache/persist is guarded by `classifyScanResult`** (scan-finalize.ts),
+  now THREE vectors: `degradedToMock`, `lowCoverage`, `partialPrSlice`. Pass the whole `ScanResultClass`
+  object to `cacheAndPersistScan` — re-assembling a subset at the call site is how a vector gets dropped.
+- **2026-07-09 — `estimateLlmCostFromTable` deliberately returns null for the WHOLE period** if any model
+  is unpriced (it refuses a half-bill). Don't "fix" it; fix the unpriced model.
+- **2026-07-09 — OpenRouter model ids are `vendor/model` slugs.** `priceForModel` strips the vendor before
+  matching. Add new families to `MODEL_PRICES` in `llm/config.ts`, and add the provider's
+  `DEFAULT_*_MODEL` to config.test.ts's "prices every shipped default model" loop.
+- **2026-07-09 — `SCORING_RUBRIC_VERSION` (maturity/model.ts) is folded into the scan cache key.** Bump it
+  whenever weights, dimensions or level bands change; that busts the cached corpus atomically.
+  The persistent tier additionally guards on the stamped engine provider+model (scan-cache.ts).
+- **2026-07-09 — `briefing-share.ts` is the REFERENCE share-token implementation** (HMAC-SHA256, timing-safe,
+  expiry-on-read, owner-binding, revocation). `live-share.ts` now mirrors it. Per-link revocation reuses the
+  `SessionRevocation` store under a namespaced `live-share:<jti>` key (GitHub logins contain no colon, so it
+  cannot collide) — no schema change needed.
+- **2026-07-09 — `claimRepoScan`/`releaseRepoScan` (db/org-watch.ts) is PROCESS-LOCAL**, like rate-limit.ts.
+  It dedups same-instance concurrent scans; it is NOT a cross-instance lock. `reserveScanCredit` remains the
+  DB-serialized money ceiling. A cross-instance guarantee needs Redis or a schema claim column.
+- **2026-07-09 — `getOrgUsageRollup`'s allocated spend is an org-level TOTAL with no per-repo breakdown.**
+  It cannot be scoped to a segment/stack filter. Never join it against filtered signals.
+
+## Conventions enforced (waves 4-7)
+
+- **2026-07-09** — Prove each new test FAILS against the pre-fix code before keeping it. The OpenRouter
+  price assertions were verified red-then-green; the config.test.ts loop over "every shipped default model"
+  had simply omitted `DEFAULT_OPENROUTER_MODEL`, which is exactly how that bug shipped.
+- **2026-07-09** — Never embed a raw NUL byte in source (composite map keys). Use the ` ` escape:
+  a literal NUL makes git treat the file as binary and breaks grep/diff. Two agents did this independently.
+
+## Anti-patterns to avoid (waves 4-7)
+
+- **2026-07-09 — A computed honesty flag with no consumer.** `partial`, `degraded`, `stoppedEarly` were all
+  set, documented, and read by nobody. The code looks careful while the system reports unearned success.
+- **2026-07-09 — Silently swallowing a write failure.** `createCheckRun`'s inline `.catch` left a required
+  PR check pending forever. Retry was the small half of that fix; removing the `.catch` was the load-bearing half.
+- **2026-07-09 — Rendering a number that cannot be computed correctly under the current filter.** Withhold it.
+
 ## Open follow-ups (from bug+ui scan, 2026-07-09)
 
 - **CORRECTION to the 2026-06-29 list:** the **DimensionTrends stale-repo race is FIXED** (AbortController
@@ -1398,7 +1438,19 @@ New structural facts:
   `org/page.tsx:14`, `usage/page.tsx:33`, `api/org/active/route.ts:42`, and make `getActiveOrg` validate
   the ACTIVE_ORG cookie against the viewer's orgs (auth.test.ts:697 pins that invariant).
   Deferred because it touches `Brand.tsx`, which had uncommitted WIP. Needs a clean tree.
-- **`/api/gate` no longer serves private repos** (Wave 1, deliberate). If private-repo HTTP gating is a
-  product requirement, it needs an authenticated variant; the App check-run path already covers CI.
+- **`/api/gate` no longer serves private repos** (Wave 1, deliberate) and now **503s on a degraded scan**
+  (Wave 4). If private-repo HTTP gating is a product requirement it needs an authenticated variant.
+- **DEFERRED (product decision): the paid upgrade funnel does not exist.** `/pricing`'s Pro+Team CTAs
+  dead-end at `/onboarding`; the only live checkout sells credit packs. Pro/Team cannot be bought in-app.
+- **DEFERRED (needs schema): cross-instance scan dedup.** `claimRepoScan` is process-local. Needs Redis or a
+  claim column on Repository.
+- **DEFERRED (needs schema): Polar redelivery fence.** A webhook redelivery carrying a stale *active*
+  subscription snapshot can re-grant a revoked tier. Needs a durable per-subscription version column.
+- **DEFERRED (needs schema): goals/initiatives lost-update.** The value-compare CAS only catches two admins
+  editing the SAME field. Needs `updatedAt`/version + the client sending its last-seen value.
+- **DEFERRED (needs schema): rubric version per persisted scan.** The DB cache tier guards on engine
+  provider+model but cannot check the rubric — it isn't persisted per row.
+- **NOT FIXED (out of an agent's file scope): "Export CSV" on the delivery page drops the stack filter**
+  (`components/org/ui.tsx` ExportCsvLink + `/api/org/export`).
 - **~297 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
 - **Context-map drift:** 7 contexts reference files that no longer exist; run `refresh_context` on them.
