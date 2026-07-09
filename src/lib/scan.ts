@@ -35,8 +35,7 @@ import { extractTeamOwnership } from "@/lib/github/codeowners";
 import type { Governance, PrStats, ScanReport, SecurityExposure, SecurityPosture, TokenUsage } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
-import { isAuthConfigured } from "@/lib/auth";
-import { sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
+import { canMintInstallationToken } from "@/lib/authz";
 
 /** Backoff before a single LLM retry — fixed (no jitter) to keep the scan path deterministic-friendly. */
 const LLM_RETRY_MS = 500;
@@ -108,27 +107,39 @@ export interface ScanOptions {
 export async function resolveScanAuth(
   parsed: ParsedRepo | null,
   installationId?: string,
-): Promise<{ token?: string; orgSlug: string }> {
+): Promise<{ token?: string; orgSlug: string; noAmbientToken?: boolean }> {
   if (!parsed || !isAppConfigured()) return { orgSlug: "public" };
-  // AUTHORIZE before minting. Without this, an anonymous caller could pass another tenant's
-  // (enumerable) installationId — or simply rely on the repo owner's stored installation — to mint
-  // that installation's token and read a PRIVATE repo's maturity (cross-tenant IDOR). Mirror the
-  // org-import gate: when auth is configured, a caller-supplied id must belong to their session, and
-  // the owner's stored installation is used only for a caller who owns that org; auth-off (local/
-  // demo) stays open, exactly like requireOrgAccess.
-  const authOn = isAuthConfigured();
-  let id: string | undefined;
-  if (installationId) {
-    if (!authOn || (await sessionHasInstallation(installationId))) id = installationId;
+
+  // AUTHORIZE before minting. The previous guard was `!isAuthConfigured() || sessionOwnsOrg(owner)`,
+  // keyed on the DORMANT custom-OAuth env that production leaves unset — so `!false` allowed EVERY
+  // caller (and honored any caller-supplied, enumerable installationId) to mint that installation's
+  // token and read a private repo's maturity. canMintInstallationToken resolves real membership
+  // against the ACTIVE Supabase wall.
+  const ownerInstallationId = (await getInstallationIdForOwner(parsed.owner)) ?? undefined;
+
+  // Not an installed org: nothing to mint, and the repo is reachable only if public. Keep the
+  // ambient GITHUB_TOKEN here — the anonymous public-scan funnel depends on it for GitHub rate limits.
+  if (!ownerInstallationId) return { orgSlug: "public" };
+
+  // From here the owner IS an installed org, so its repos may be private. When the caller may not
+  // mint, we must ALSO refuse the ambient GITHUB_TOKEN: that operator PAT commonly has broad read
+  // access, so falling back to it would leak exactly the private repo the mint gate just denied.
+  // Token-less ingestion of a private repo simply 404s (neutral), which is the intended outcome.
+  if (!(await canMintInstallationToken(parsed.owner))) {
+    return { orgSlug: "public", noAmbientToken: true };
   }
-  if (!id && (!authOn || (await sessionOwnsOrg(parsed.owner)))) {
-    id = (await getInstallationIdForOwner(parsed.owner)) ?? undefined;
+
+  // A caller-supplied installation id is only ever a hint for THIS owner. Honoring an arbitrary id
+  // was the cross-tenant IDOR: pass a victim's (enumerable) id, receive a token minted for it.
+  if (installationId && String(installationId) !== String(ownerInstallationId)) {
+    return { orgSlug: "public", noAmbientToken: true };
   }
-  if (!id) return { orgSlug: "public" };
+
   try {
-    return { token: await getInstallationToken(id), orgSlug: parsed.owner.toLowerCase() };
+    return { token: await getInstallationToken(ownerInstallationId), orgSlug: parsed.owner.toLowerCase() };
   } catch {
-    return { orgSlug: "public" };
+    // Mint failed for an authorized member — still never downgrade to the operator PAT.
+    return { orgSlug: "public", noAmbientToken: true };
   }
 }
 

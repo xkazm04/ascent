@@ -64,7 +64,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { token, orgSlug } = await resolveScanAuth(parsed, body.installationId);
+  // noAmbientToken: the owner is an installed org this caller may not mint for — never downgrade to
+  // the operator PAT, which would leak the private repo the mint gate just denied.
+  const { token, orgSlug, noAmbientToken } = await resolveScanAuth(parsed, body.installationId);
 
   // Supabase login wall. In production (Supabase configured + bypass hard-off, via authGateEnabled)
   // EVERY scan requires a signed-in viewer — LLM cost is easily abused, so the public funnel is gated
@@ -159,6 +161,7 @@ export async function POST(request: Request) {
         const runScan = (signal: AbortSignal) =>
           scanRepository(url, {
             token,
+            noAmbientToken,
             mock,
             onProgress: (p) => send("progress", p),
             // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan

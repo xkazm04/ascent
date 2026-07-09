@@ -40,10 +40,14 @@ async function runScan(
   // GitHub App installation token takes precedence over any explicit body token.
   let token = opts.token;
   let orgSlug = "public";
+  // Set when the owner is an installed org the caller may NOT mint for: ingesting it with the ambient
+  // operator PAT would leak the private repo the mint gate just denied. Token-less ⇒ private repos 404.
+  let noAmbientToken = false;
   if (!token) {
     const resolved = await resolveScanAuth(parsed, opts.installationId);
     token = resolved.token;
     orgSlug = resolved.orgSlug;
+    noAmbientToken = resolved.noAmbientToken ?? false;
   }
 
   // Supabase login wall — private/org scans only. A non-public orgSlug means an installation token
@@ -195,6 +199,7 @@ async function runScan(
   const doScan = (signal?: AbortSignal) =>
     scanRepository(url, {
       token,
+      noAmbientToken,
       mock: opts.mock,
       signal,
       headSha: lookup?.headSha ?? undefined,
