@@ -4,7 +4,14 @@
 // the others still want.
 
 import { describe, it, expect, vi } from "vitest";
-import { coalesceScan, inflightScanCount, makeCacheKey, normalizeRepoName } from "./cache";
+import {
+  activeScoringIdentity,
+  coalesceScan,
+  inflightScanCount,
+  makeCacheKey,
+  normalizeRepoName,
+  type ScoringIdentity,
+} from "./cache";
 import type { ScanReport } from "@/lib/types";
 
 const fakeReport = (id: string) => ({ id }) as unknown as ScanReport;
@@ -116,23 +123,24 @@ describe("makeCacheKey — one logical repo+commit+mode ⇒ one key (scan-pipeli
     );
   });
 
-  it("lowercases the pinned sha and assembles the `owner/repo@sha::mode` shape", () => {
-    expect(makeCacheKey("facebook", "react", true, "ABC123")).toBe("facebook/react@abc123::llm");
+  it("lowercases the pinned sha and assembles the `owner/repo@sha::mode#fp` shape", () => {
+    // repo/sha/mode stay legible; the trailing #<8 hex> is the {provider,model,rubric} fingerprint.
+    expect(makeCacheKey("facebook", "react", true, "ABC123")).toMatch(/^facebook\/react@abc123::llm#[0-9a-f]{8}$/);
     expect(makeCacheKey("facebook", "react", true, "abc123")).toBe(
       makeCacheKey("facebook", "react", true, "ABC123"),
     );
   });
 
-  it("falls back to the un-pinned `owner/repo::mode` form when sha is null/omitted", () => {
-    const unpinned = "facebook/react::llm";
-    expect(makeCacheKey("facebook", "react", true)).toBe(unpinned);
+  it("falls back to the un-pinned `owner/repo::mode#fp` form when sha is null/omitted", () => {
+    const unpinned = makeCacheKey("facebook", "react", true);
+    expect(unpinned).toMatch(/^facebook\/react::llm#[0-9a-f]{8}$/); // no @sha segment
     expect(makeCacheKey("facebook", "react", true, null)).toBe(unpinned);
     expect(makeCacheKey("facebook", "react", true, "")).toBe(unpinned); // empty sha → no pin
   });
 
   it("toggles the mode segment on useLLM (::llm vs ::mock)", () => {
-    expect(makeCacheKey("facebook", "react", true, "sha")).toBe("facebook/react@sha::llm");
-    expect(makeCacheKey("facebook", "react", false, "sha")).toBe("facebook/react@sha::mock");
+    expect(makeCacheKey("facebook", "react", true, "sha")).toMatch(/^facebook\/react@sha::llm#[0-9a-f]{8}$/);
+    expect(makeCacheKey("facebook", "react", false, "sha")).toMatch(/^facebook\/react@sha::mock#[0-9a-f]{8}$/);
   });
 
   it("keys a different repo/sha/mode to a DIFFERENT key (no collision)", () => {
@@ -147,5 +155,57 @@ describe("makeCacheKey — one logical repo+commit+mode ⇒ one key (scan-pipeli
     const key = makeCacheKey("Facebook%2FTeam", "React", true, "ABC");
     // owner already decoded+lowercased to `facebook/team` — re-running must not drift.
     expect(makeCacheKey("facebook/team", "react", true, "abc")).toBe(key);
+  });
+});
+
+// Cache-key identity folding (scan-pipeline-ingestion #1): a cached score is a function of the
+// {provider, model, rubric} that produced it, not just repo+sha+mode. Fold that identity into the key
+// so a model swap / LLM_PROVIDER change / rubric bump makes every prior entry a (safe) MISS instead of
+// serving the old number as current for up to the TTL / the 7-day persisted age gate.
+describe("makeCacheKey — folds the scoring identity (scan-pipeline-ingestion #1)", () => {
+  const gem = (model: string, rubric = "r1"): ScoringIdentity => ({ provider: "gemini", model, rubric });
+
+  it("two different MODELS ⇒ different keys for the same repo+sha+mode", () => {
+    const a = makeCacheKey("facebook", "react", true, "sha", gem("gemini-3-flash"));
+    const b = makeCacheKey("facebook", "react", true, "sha", gem("gemini-3.5-flash"));
+    expect(a).not.toBe(b);
+    // repo/sha/mode stay legible; only the fingerprint segment moves.
+    expect(a).toMatch(/^facebook\/react@sha::llm#[0-9a-f]{8}$/);
+    expect(b).toMatch(/^facebook\/react@sha::llm#[0-9a-f]{8}$/);
+  });
+
+  it("two different PROVIDERS ⇒ different keys for the same repo+sha+model", () => {
+    const g = makeCacheKey("facebook", "react", true, "sha", { provider: "gemini", model: "m", rubric: "r1" });
+    const b = makeCacheKey("facebook", "react", true, "sha", { provider: "bedrock", model: "m", rubric: "r1" });
+    expect(g).not.toBe(b);
+  });
+
+  it("bumping the RUBRIC version ⇒ different key (the fleet-wide invalidation lever)", () => {
+    const v1 = makeCacheKey("facebook", "react", true, "sha", gem("m", "r1"));
+    const v2 = makeCacheKey("facebook", "react", true, "sha", gem("m", "r2"));
+    expect(v1).not.toBe(v2);
+  });
+
+  it("the mock/llm distinction still holds, and mock keys DON'T depend on the LLM provider/model", () => {
+    const llm = makeCacheKey("facebook", "react", true, "sha");
+    const mock = makeCacheKey("facebook", "react", false, "sha");
+    expect(llm).not.toBe(mock); // mode segment + fingerprint differ
+    expect(mock).toMatch(/^facebook\/react@sha::mock#[0-9a-f]{8}$/);
+    // A supplied LLM identity must not change a MOCK key — the mock score never consults the LLM.
+    // (activeScoringIdentity(false) is the pinned mock identity regardless of env.)
+    expect(activeScoringIdentity(false)).toEqual({
+      provider: "mock",
+      model: "deterministic-rubric",
+      rubric: expect.any(String),
+    });
+  });
+
+  it("is stable across calls for the same inputs (deterministic fingerprint)", () => {
+    const id = gem("gemini-3-flash");
+    expect(makeCacheKey("facebook", "react", true, "sha", id)).toBe(
+      makeCacheKey("facebook", "react", true, "sha", id),
+    );
+    // …and via the env-derived path (no explicit identity) too.
+    expect(makeCacheKey("facebook", "react", true, "sha")).toBe(makeCacheKey("facebook", "react", true, "sha"));
   });
 });
