@@ -247,15 +247,18 @@ The codebase repeatedly *computes* a degradation signal and then drops it before
 | 5 | Money correctness | **DONE** — 5; pricing funnel is a product decision | `6716d7c` |
 | 6+7 | Share tokens, recovery, cache, bounds | **DONE** — ~10 | `0c706f4` |
 | 8 | UI crash, overflow, destructive confirm | **DONE** — 3 primary + ~8 secondary | `9121a4c` |
-| 9 | A11y, design-system drift, SSR + the Med/Low tail | **OPEN** — ~250 findings | — |
+| 9-0 | DOM test environment (the prerequisite) | **DONE** | `6459b2d` |
+| 9a | Dormant-auth: the PAGE gates + `/launch` unreachable | **DONE** — 8 | `5479b17` |
+| 9b | SSR: `/about` + landing rendered blank without JS | **DONE** — 4 | `e81ddd5` |
+| 9c | Dead code (verified 4 ways before deletion) | **DONE** — 8 | `e81ddd5` |
+| 9d | Accessibility: skip-link, live-region flooding | **DONE** — ~6 | `e81ddd5` |
+| 9e | Design-system drift + a11y tail + ~180 bug-hunter Mediums | **OPEN** — ~238 | — |
 
-Cumulative: tsc **0 → 0**, vitest **3046 → 3184 passing**, **0 regressions**, ~24 commits.
-Summaries: [Wave 1](FIXES-WAVE-1.md) · [Waves 2–3](FIXES-WAVE-2-3.md) · [Waves 4–7](FIXES-WAVE-4-7.md).
+Cumulative: tsc **0 → 0**, vitest **3046 → 3200 passing**, `next build` clean, **0 regressions**, 26 commits.
+Summaries: [Wave 1](FIXES-WAVE-1.md) · [Waves 2–3](FIXES-WAVE-2-3.md) · [Waves 4–7](FIXES-WAVE-4-7.md) · [Wave 9](FIXES-WAVE-9.md).
 
-> **Constraint that shapes Wave 9:** this repo's vitest is **node-only — no jsdom, no testing-library**.
-> JSX/CSS/a11y changes cannot be regression-pinned. The 93 ui-perfectionist findings therefore have no
-> test coverage available to them. Adding a DOM test environment is the highest-leverage prerequisite for
-> Wave 9, and is itself a worthwhile task.
+> **RESOLVED (`6459b2d`):** the repo now HAS a DOM test environment. A component test opts in with a line-1
+> `// @vitest-environment jsdom` docblock; the default stays `node`. UI findings are now pinnable.
 
 ---
 

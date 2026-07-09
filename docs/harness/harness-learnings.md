@@ -1426,14 +1426,26 @@ New structural facts:
   PR check pending forever. Retry was the small half of that fix; removing the `.catch` was the load-bearing half.
 - **2026-07-09 — Rendering a number that cannot be computed correctly under the current filter.** Withhold it.
 
-- **2026-07-09 — vitest here is NODE-ONLY.** No `jsdom`, no `@testing-library` in package.json. Component
-  JSX/CSS/a11y changes are NOT unit-testable. Extract pure helpers (`nextHoverOnResize`, `deltaAt`,
-  `segmentDeleteConfirm`) so the LOGIC is testable, and don't promise a component test you cannot write.
-  Adding a DOM environment is the prerequisite for pinning any of the 93 ui-perfectionist findings.
+- **2026-07-09 — vitest now has BOTH environments.** Default is `node` (fast, 3100+ pure-logic tests). A
+  component test opts in with a line-1 docblock `// @vitest-environment jsdom`; `vitest.setup.dom.js` wires
+  jest-dom + auto-cleanup and is inert under node. Pattern: `src/components/ConfirmActionDom.test.tsx`.
+  React does NOT emit an `autofocus` attribute — assert `document.activeElement`, not the markup.
 - **2026-07-09 — `src/components/ui/Modal.tsx` already provides** portal + focus trap + Escape/backdrop
   close + focus restore + `locked`-while-busy. Build confirmations on it; never `window.confirm` (it blocks
   and cannot be themed or announced). `ConfirmAction.tsx` is the shared destructive-action gate; add new
   copy builders beside `segmentDeleteConfirm`, not at the call sites.
+
+- **2026-07-09 — `Reveal.tsx` must never put its hidden state in the SSR markup.** framer-motion's
+  `initial={{opacity:0}}` is baked into the server HTML. The hidden state lives in a `.js-reveal` class added
+  after client mount. Any regression here blanks `/about` and the landing page for no-JS clients and crawlers.
+- **2026-07-09 — `resolveSignInState()` (lib/signin-gate.ts) is the ONE page-level sign-in gate.** It checks
+  the ACTIVE Supabase wall first and returns the provider whose button actually works. `SignInNotice`'s
+  default provider now follows the live stack. Never write `isAuthConfigured() && !session` on a page.
+- **2026-07-09 — `viewerInstallations()` (lib/viewer-installations.ts)** resolves the viewer's GitHub App
+  installations across both stacks (dormant session inline, else `listOrgsForLogin` → `getInstallationIdForOwner`).
+  This is the primitive the deferred **org switcher** needs too.
+- **2026-07-09 — the section switcher is a `<nav>`, not a tablist.** It writes `?tab=` to the URL, so it
+  navigates. `aria-current="page"` is correct; `role="tab"` on a link is a downgrade dressed as a fix.
 
 ## Open follow-ups (from bug+ui scan, 2026-07-09)
 
@@ -1467,5 +1479,5 @@ New structural facts:
 - **Destructive confirms still unwired (T13):** "Open draft PR" (writes into a customer repo), the
   25-repo fleet batch, "Re-test" (spends a weekly scan slot), goal delete. `ConfirmAction` exists and is
   wired for the segment delete; the rest is mechanical.
-- **~250 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
+- **~238 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
 - **Context-map drift:** 7 contexts reference files that no longer exist; run `refresh_context` on them.
