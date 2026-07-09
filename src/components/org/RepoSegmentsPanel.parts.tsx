@@ -10,14 +10,16 @@ import type { SegmentItem, RepoItem } from "./RepoSegmentsPanel";
 export const PALETTE = ["#3b9eff", "#84cc16", "#f97316", "#a855f7", "#ec4899", "#14b8a6", "#eab308", "#64748b"];
 
 // Existing segments row + create — the chip list with double-click rename, ✎ editor, and × delete.
+// The × only REQUESTS deletion (opens a confirm in the panel) — it sits one pixel from the ✎ edit
+// button and a straight DELETE here wiped the segment and every RepoSegment tag on a single misclick.
 export function SegmentChips({
   segments,
   startEdit,
-  removeSegment,
+  onDeleteRequest,
 }: {
   segments: SegmentItem[];
   startEdit: (s: SegmentItem) => void;
-  removeSegment: (id: string) => void;
+  onDeleteRequest: (id: string) => void;
 }) {
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -39,7 +41,7 @@ export function SegmentChips({
           </button>
           <button
             type="button"
-            onClick={() => removeSegment(s.id)}
+            onClick={() => onDeleteRequest(s.id)}
             aria-label={`Delete ${s.name} segment`}
             className="rounded-full px-1 text-slate-600 transition hover:bg-slate-800 hover:text-orange-300"
           >

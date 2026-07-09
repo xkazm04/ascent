@@ -39,6 +39,20 @@ export function useCoarseTapToOpen() {
 }
 
 /**
+ * Reset rule for a retained hover index when the series length changes. `active` is captured
+ * against ONE series; the moment a parent swaps `xs` for a shorter one (e.g. the DimensionTrends
+ * range toggle shrinks 40 points to 3 while a point is still hovered), the old index can point
+ * past the new end. A consumer that then indexes its data array with it (DimLine's actDelta,
+ * TrendChart's `points[a]!`) reads `undefined` and a non-null assertion throws mid-render,
+ * white-screening the whole section. Same length → keep the index; any length change → drop it
+ * (a defensive read alone would leave a STALE highlight sitting on the wrong point). Exported
+ * pure so the contract is unit-testable without a DOM renderer.
+ */
+export function nextHoverOnResize(active: number | null, prevLen: number, nextLen: number): number | null {
+  return prevLen === nextLen ? active : null;
+}
+
+/**
  * Map a pointer's X to the nearest data index using the chart's own viewBox X positions —
  * the very same xFor() coordinates the chart already computes for its dots. Returns the
  * active index (or null when the pointer has left) and the handlers to spread onto the
@@ -47,6 +61,14 @@ export function useCoarseTapToOpen() {
  */
 export function useChartHover(xs: number[], viewBoxWidth: number) {
   const [active, setActive] = useState<number | null>(null);
+  // Track the last series length across renders. When it changes we reset `active` DURING render
+  // (the idiomatic React "adjust state when a prop changes" pattern — no effect, no extra paint),
+  // so a stale, now-out-of-bounds index can never reach the consumer's read site. This is the
+  // root-cause fix for the range-toggle white-screen; see nextHoverOnResize above.
+  const [prevLen, setPrevLen] = useState(xs.length);
+  const reconciled = nextHoverOnResize(active, prevLen, xs.length);
+  if (reconciled !== active) setActive(reconciled);
+  if (prevLen !== xs.length) setPrevLen(xs.length);
 
   function onPointerMove(e: PointerEvent<SVGSVGElement>) {
     if (xs.length === 0) return;
@@ -69,7 +91,9 @@ export function useChartHover(xs: number[], viewBoxWidth: number) {
     setActive(null);
   }
 
-  return { active, onPointerMove, onPointerLeave };
+  // Return the reconciled index (never the raw, possibly-stale state) so even the render that
+  // triggers the reset hands the consumer an in-bounds value.
+  return { active: reconciled, onPointerMove, onPointerLeave };
 }
 
 /**

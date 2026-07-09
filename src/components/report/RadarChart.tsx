@@ -118,19 +118,20 @@ export function RadarChart({
           key={rg}
           points={dimensions.map((_, i) => point(i, rg).map((v) => v.toFixed(1)).join(",")).join(" ")}
           fill="none"
-          stroke="#1e293b"
+          stroke="var(--color-divider)"
           strokeWidth={1}
         />
       ))}
       {/* axes */}
       {dimensions.map((_, i) => {
         const [x, y] = point(i, 1);
-        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#1e293b" strokeWidth={1} />;
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--color-divider)" strokeWidth={1} />;
       })}
-      {/* data polygon */}
-      <polygon points={dataPath} fill="rgba(59,158,255,0.22)" stroke="#3b9eff" strokeWidth={2} />
+      {/* data polygon — follows the brand tokens (--color-accent + its soft tint) so a re-skin /
+          white-label retunes the chart with the buttons instead of leaving it on the old azure. */}
+      <polygon points={dataPath} fill="var(--color-accent)" fillOpacity={0.22} stroke="var(--color-accent)" strokeWidth={2} />
       {dataPts.map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r={i === active || i === highlightIdx ? 4.5 : 3} fill="#7bbcff" />
+        <circle key={i} cx={x} cy={y} r={i === active || i === highlightIdx ? 4.5 : 3} fill="var(--color-accent-soft)" />
       ))}
       {/* selected vertex — a persistent ring synced to the external selection (the bar list) */}
       {highlightIdx >= 0 && (
@@ -157,7 +158,10 @@ export function RadarChart({
             className={isHi ? "fill-slate-100" : "fill-slate-400"}
           >
             {DIMENSION_SHORT[d.id]}
-            <tspan dx={4} className={isHi ? "fill-slate-300" : "fill-slate-500"} fontWeight={600}>
+            {/* Default numeral lifted slate-500 → slate-400: these nine per-dimension scores are a
+                primary readout, and slate-500 (#64748b) on the panel is ~3.9:1 — below WCAG AA 4.5:1
+                for 11px text. slate-400 (#94a3b8) clears it; the active/highlight state stays -300. */}
+            <tspan dx={4} className={isHi ? "fill-slate-300" : "fill-slate-400"} fontWeight={600}>
               {d.score}
             </tspan>
           </text>

@@ -39,8 +39,12 @@ export function RepoRow({
     <div className="p-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-mono text-base text-white">{r.fullName}</span>
+          {/* `min-w-0` must repeat on EVERY flex ancestor down to the truncating span: a flex item's
+           *  default `min-width:auto` refuses to shrink below its content, so `truncate` on the span is
+           *  inert unless this inner flex row AND the span itself can shrink. Without it a long private
+           *  repo name shoves the private/level badges off-screen and wraps the row's watch/Scan controls. */}
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate font-mono text-base text-white">{r.fullName}</span>
             {r.private ? (
               <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-accent">
                 private
@@ -76,7 +80,7 @@ export function RepoRow({
           onChange={(e) => onChangeSchedule(r, e.target.value)}
           disabled={!st?.watched || bulkBusy || watchPending}
           aria-label="Autoscan schedule"
-          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-40"
+          className="focus-ring rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 disabled:opacity-40"
         >
           {SCHEDULES.map((s) => (
             <option key={s} value={s}>

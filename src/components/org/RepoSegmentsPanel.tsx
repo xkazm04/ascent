@@ -7,6 +7,7 @@
 // (RepoSegment), so this panel only mirrors it.
 
 import { useMemo, useState } from "react";
+import { ConfirmAction, segmentDeleteConfirm } from "@/components/ConfirmAction";
 import { Card, SectionHeader } from "@/components/org/ui";
 import { bulkTagRepos } from "@/lib/org/segment-actions";
 import {
@@ -48,6 +49,11 @@ export function RepoSegmentsPanel({
   const [color, setColor] = useState(PALETTE[0] ?? "#3b9eff");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The `×` only REQUESTS deletion; the destructive call runs after an explicit confirm. It sits one
+  // pixel from the ✎ edit control, and deleting a segment also wipes every RepoSegment tag on it —
+  // which drives the Overview filter and segment comparison. A single misclick was irreversible.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const pendingDelete = segments.find((s) => s.id === pendingDeleteId) ?? null;
   const [filter, setFilter] = useState("");
   // Inline chip editor (rename + recolor) — one segment at a time.
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -236,7 +242,22 @@ export function RepoSegmentsPanel({
       />
 
       {/* Existing segments + create */}
-      <SegmentChips segments={segments} startEdit={startEdit} removeSegment={removeSegment} />
+      <SegmentChips segments={segments} startEdit={startEdit} onDeleteRequest={setPendingDeleteId} />
+
+      {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
+      <ConfirmAction
+        open={pendingDelete != null}
+        busy={busy}
+        onCancel={() => setPendingDeleteId(null)}
+        onConfirm={() => {
+          const id = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (id) void removeSegment(id);
+        }}
+        {...(pendingDelete
+          ? segmentDeleteConfirm(pendingDelete.name, pendingDelete.repoCount)
+          : { title: "", body: "", confirmLabel: "", tone: "danger" as const })}
+      />
 
       {/* Inline editor — rename + recolor the selected segment (PATCH /api/org/segments/:id). */}
       {editingId && (
