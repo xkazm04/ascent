@@ -148,17 +148,21 @@ export async function persistScanReport(
   // back. headSha + headEtag move together (so they can't tear), and a null/undefined etag (a private
   // /token scan that carries no public ETag) leaves the stored one alone. A no-op for the just-created
   // row (lastScanAt already == scannedAt) and for an older/replayed scan.
+  //
+  // ATOMICITY (scan-persistence-history #1): the advance now runs ONLY once a scan for this report is
+  // durably persisted — AFTER the scan-graph transaction commits, or on a dedup path where a scan for
+  // this commit already exists. Previously it committed BEFORE the transaction, so a rolled-back scan
+  // graph stranded the repo advertising a headSha with no Scan row: getHeadHint then 304'd every
+  // conditional re-scan against a commit that was never persisted, and never backfilled. The guard keeps
+  // it monotonic + idempotent, so re-running it verbatim on a withRetry replay is safe.
   const headAdvance: Prisma.RepositoryUpdateManyMutationInput = { lastScanAt: scannedAtDate };
   if (headSha) headAdvance.headSha = headSha;
   if (opts.headEtag != null) headAdvance.headEtag = opts.headEtag;
-  await withRetry(
-    () =>
-      prisma.repository.updateMany({
-        where: { id: repo.id, OR: [{ lastScanAt: null }, { lastScanAt: { lt: scannedAtDate } }] },
-        data: headAdvance,
-      }),
-    { label: "persistScanReport:repo-head" },
-  );
+  const advanceHead = () =>
+    prisma.repository.updateMany({
+      where: { id: repo.id, OR: [{ lastScanAt: null }, { lastScanAt: { lt: scannedAtDate } }] },
+      data: headAdvance,
+    });
 
   // Serialize the read-decide-write section per repo so two concurrent scans of the same repo can't
   // both read the same "previous" scan and both insert. The second caller waits, then sees the
@@ -180,6 +184,9 @@ export async function persistScanReport(
         if (existing.engineProvider === "mock" && report.engine.provider !== "mock") {
           upgradeOldScanId = existing.id;
         } else {
+          // A real scan for this commit already exists → refresh the head/lastScanAt freshness (safe: no
+          // phantom head), but never insert a duplicate metered row.
+          await advanceHead();
           return { scanId: existing.id, deduped: true, headSha, failures: { audit: false, contributors: 0 } };
         }
       }
@@ -191,6 +198,7 @@ export async function persistScanReport(
       // genuinely new re-score carries a later scannedAt and is not suppressed.
       const existing = await findScanByScannedAt(repo.id, new Date(report.scannedAt));
       if (existing) {
+        await advanceHead(); // a real scan exists for this scannedAt → safe freshness refresh, no duplicate
         return { scanId: existing.id, deduped: true, headSha: null, failures: { audit: false, contributors: 0 } };
       }
     }
@@ -393,6 +401,11 @@ export async function persistScanReport(
         throw err;
       }
     }
+
+    // Head pointer advances only NOW — the scan is durably persisted (the transaction committed above, or
+    // a race-winner was resolved in the catch). A rolled-back scan graph never reaches this line, so the
+    // head can never point at a commit with no Scan row. (scan-persistence-history #1)
+    await advanceHead();
 
     // A fresh=1 re-test of an UNCHANGED commit just wrote this new Scan row, but this instance's
     // scan cache still holds the prior report under the same owner/repo[@sha]::mode key (TTL/LRU

@@ -373,6 +373,8 @@ describe("withDb — proactive refresh is best-effort while a client is cached",
   const g = globalThis as unknown as {
     __ascentPrisma?: { client: unknown; expiresAt: number };
     __ascentPrismaRefresh?: Promise<unknown>;
+    __ascentPrismaRefreshFailUntil?: number;
+    __ascentPrismaRefreshFailCount?: number;
   };
   const savedEnv: Record<string, string | undefined> = {};
   let savedState: typeof g.__ascentPrisma;
@@ -382,6 +384,10 @@ describe("withDb — proactive refresh is best-effort while a client is cached",
     process.env.DSQL_ENDPOINT = "test.dsql.us-east-1.on.aws";
     process.env.DSQL_REGION = "us-east-1";
     savedState = g.__ascentPrisma;
+    // The failure cooldown (database-client-schema #1) lives on globalThis; clear it so a prior test's
+    // failed mint can't suppress this test's proactive refresh.
+    g.__ascentPrismaRefreshFailUntil = undefined;
+    g.__ascentPrismaRefreshFailCount = undefined;
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -566,6 +572,8 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
   const g = globalThis as unknown as {
     __ascentPrisma?: { client: unknown; expiresAt: number };
     __ascentPrismaRefresh?: Promise<unknown>;
+    __ascentPrismaRefreshFailUntil?: number;
+    __ascentPrismaRefreshFailCount?: number;
   };
   const ENV = ["DATABASE_URL", "DSQL_ENDPOINT", "DSQL_REGION"] as const;
   const savedEnv: Record<string, string | undefined> = {};
@@ -577,6 +585,8 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
     savedState = g.__ascentPrisma;
     g.__ascentPrisma = undefined; // force a cold start
     g.__ascentPrismaRefresh = undefined;
+    g.__ascentPrismaRefreshFailUntil = undefined; // clear the #1 failure cooldown (globalThis-scoped)
+    g.__ascentPrismaRefreshFailCount = undefined;
     constructed.length = 0;
     fakeClientQueue = [];
     fakeClientSeq = 0;
@@ -664,7 +674,9 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
     expect(constructed).toHaveLength(2);
     expect(constructed[0].$queryRaw).toHaveBeenCalledTimes(1); // failed ping
     expect(constructed[1].$queryRaw).toHaveBeenCalledTimes(1); // healthy re-ping on the reconnected client
-    expect(constructed[0].$disconnect).toHaveBeenCalled(); // old client disconnected on reconnect
+    // database-client-schema #2: the old client is RETIRED (deferred $disconnect), not eagerly torn down,
+    // so a flaky monitoring ping can't abort concurrent in-flight queries. It is NOT disconnected inline.
+    expect(constructed[0].$disconnect).not.toHaveBeenCalled();
     expect(g.__ascentPrisma?.client).toBe(constructed[1]); // the fresh client is now cached
   });
 
@@ -727,15 +739,75 @@ describe("getPrisma / dbHealthCheck / reconnectDb — cold-start + self-heal (mo
   });
 
   // ── reconnectDb: re-establishes the client ────────────────────────────────────────────────
-  it("reconnectDb (static) rebuilds a fresh client, caches it never-expiring, and disconnects the old one", async () => {
+  it("reconnectDb (static) rebuilds a fresh client, caches it never-expiring, and RETIRES the old one (deferred disconnect)", async () => {
+    vi.useFakeTimers();
+    try {
+      process.env.DATABASE_URL = "postgresql://localhost:5432/app";
+      const before = getPrisma();
+      expect(constructed).toHaveLength(1);
+      const after = await reconnectDb();
+      expect(after).not.toBe(before); // a genuinely fresh client
+      expect(constructed).toHaveLength(2);
+      // database-client-schema #2: the old client is retired via a deferred (grace-period) disconnect, NOT
+      // yanked out from under in-flight queries — so it is not disconnected synchronously on reconnect...
+      expect((before as unknown as FakeClient).$disconnect).not.toHaveBeenCalled();
+      expect(g.__ascentPrisma?.client).toBe(after);
+      expect(g.__ascentPrisma?.expiresAt).toBe(Infinity);
+      // ...but it IS disconnected once the retire grace (300s) elapses, so the pool eventually drains.
+      vi.advanceTimersByTime(300_000);
+      expect((before as unknown as FakeClient).$disconnect).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ── database-client-schema #1: background mint is cooldown-gated after a failure (no retry storm) ──
+  it("does not re-kick a background DSQL refresh within the post-failure cooldown", async () => {
+    process.env.DSQL_ENDPOINT = "abc.dsql.us-east-1.on.aws";
+    process.env.DSQL_REGION = "us-east-1";
+    process.env.DATABASE_URL = "postgresql://abc.dsql.us-east-1.on.aws:5432/postgres";
+    // Cold seed kicks the first mint; it REJECTS (@aws-sdk/dsql-signer isn't installed / no AWS creds),
+    // which arms the failure cooldown.
+    getPrisma();
+    expect(g.__ascentPrismaRefresh).toBeDefined();
+    await g.__ascentPrismaRefresh?.catch(() => {});
+    await new Promise((r) => setTimeout(r, 0)); // flush the refresh .then/.finally chain
+    expect(g.__ascentPrismaRefresh).toBeUndefined(); // in-flight handle cleared
+    expect(g.__ascentPrismaRefreshFailUntil ?? 0).toBeGreaterThan(Date.now()); // cooldown armed
+    // A warm call while the seed is still STALE-NOW (expiresAt 0) would, without the cooldown, immediately
+    // re-kick another doomed mint — the retry storm. The cooldown must suppress it: no new mint in flight.
+    getPrisma();
+    expect(g.__ascentPrismaRefresh).toBeUndefined();
+  });
+
+  // ── database-client-schema #3: withDb is the FULL DSQL entry point — it retries OCC conflicts ─────
+  it("withDb retries a serialization/OCC conflict then succeeds", async () => {
+    process.env.DATABASE_URL = "postgresql://localhost:5432/app"; // static mode
+    let calls = 0;
+    const result = await withDb(
+      async () => {
+        calls++;
+        if (calls < 2) throw { code: "40001", message: "could not serialize access" };
+        return "committed";
+      },
+      { retry: { sleep: async () => {}, random: () => 0 } },
+    );
+    expect(result).toBe("committed");
+    expect(calls).toBe(2); // first attempt lost the OCC commit; the retry succeeded
+  });
+
+  it("withDb does NOT retry a non-serialization error (a real bug propagates)", async () => {
     process.env.DATABASE_URL = "postgresql://localhost:5432/app";
-    const before = getPrisma();
-    expect(constructed).toHaveLength(1);
-    const after = await reconnectDb();
-    expect(after).not.toBe(before); // a genuinely fresh client
-    expect(constructed).toHaveLength(2);
-    expect((before as unknown as FakeClient).$disconnect).toHaveBeenCalled();
-    expect(g.__ascentPrisma?.client).toBe(after);
-    expect(g.__ascentPrisma?.expiresAt).toBe(Infinity);
+    let calls = 0;
+    await expect(
+      withDb(
+        async () => {
+          calls++;
+          throw { code: "P2002", message: "Unique constraint failed" };
+        },
+        { retry: { sleep: async () => {} } },
+      ),
+    ).rejects.toMatchObject({ code: "P2002" });
+    expect(calls).toBe(1);
   });
 });

@@ -635,14 +635,21 @@ export async function getPublicScanGallery(
   const recentLimit = Math.max(1, opts.recentLimit ?? 12);
   const topLimit = Math.max(1, opts.topLimit ?? 8);
 
-  // Resolve the public org id OUTSIDE the cache scope (unstable_cache must not wrap request-scoped reads).
-  const orgId = await resolveOrgId(DEFAULT_ORG_SLUG);
-  if (!orgId) return null;
+  // A configured-but-UNREACHABLE DB must degrade to the static fallback (null → the landing page renders
+  // its static examples), NOT 500 the public homepage. resolveOrgId + the cached corpus load both issue
+  // raw getPrisma() reads that throw PrismaClientInitializationError on a DB-down; dbReadSafe returns null
+  // on that (and recovers a DSQL auth-expiry with one reconnect + retry), exactly as getHeadHint /
+  // getRepoPassport already do. A genuine live-DB query error still propagates. (scan-persistence-history #2)
+  return dbReadSafe(async () => {
+    // Resolve the public org id OUTSIDE the cache scope (unstable_cache must not wrap request-scoped reads).
+    const orgId = await resolveOrgId(DEFAULT_ORG_SLUG);
+    if (!orgId) return null;
 
-  const data = await loadPublicGalleryCards(orgId, recentLimit, topLimit);
-  if (!data) return null;
-  // dbMode reflects the live backend (env/global signals), not cached row data — merge it in per request.
-  return { ...data, dbMode: getDbMode() };
+    const data = await loadPublicGalleryCards(orgId, recentLimit, topLimit);
+    if (!data) return null;
+    // dbMode reflects the live backend (env/global signals), not cached row data — merge it in per request.
+    return { ...data, dbMode: getDbMode() };
+  }, null);
 }
 
 /** Recommendations from the most recent scan of a repo (with ids + trackable status). */
@@ -750,6 +757,20 @@ function parseDiscrepancies(s: string | null | undefined): Discrepancy[] {
     return [];
   }
 }
+
+/**
+ * Map a persisted posture id back to its canonical Posture object. The four full objects come from
+ * `postureFor` at the Adoption×Rigor quadrant extremes (the id is a pure function of which quadrant the
+ * axes fall in), keyed by id. Pinned-snapshot reconstruction reads the FROZEN classification the scan
+ * persisted (`scan.posture`) through this map instead of re-deriving it from adoption/rigor under today's
+ * `POSTURE_THRESHOLD` — so an "immutable" permalink can't silently re-posture when the maturity model is
+ * later tuned, and the report view agrees with the comparison view (loadComparableScan already reads the
+ * stored column). `postureFor` stays the fallback for a legacy/corrupt row missing a recognized id.
+ * (scan-persistence-history #3)
+ */
+const POSTURE_BY_ID: Record<string, ReturnType<typeof postureFor>> = Object.fromEntries(
+  [postureFor(100, 100), postureFor(100, 0), postureFor(0, 100), postureFor(0, 0)].map((p) => [p.id, p]),
+);
 
 /**
  * Rebuild a full ScanReport from a persisted scan — the pinned snapshot behind a
@@ -885,7 +906,10 @@ export async function getScanReportByCommit(
     archetype: scan.archetype as RepoArchetype,
     adoptionScore: scan.adoptionScore,
     rigorScore: scan.rigorScore,
-    posture: postureFor(scan.adoptionScore, scan.rigorScore),
+    // Read the FROZEN posture the scan persisted (via POSTURE_BY_ID), not a recompute from adoption/rigor
+    // under today's threshold — an immutable permalink must not drift when the maturity model is tuned.
+    // postureFor stays the fallback for a legacy row whose posture column is missing/unrecognized.
+    posture: POSTURE_BY_ID[scan.posture] ?? postureFor(scan.adoptionScore, scan.rigorScore),
     aiUsage,
     contributors,
     prStats,

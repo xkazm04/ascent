@@ -10,7 +10,7 @@ import { resolve } from "node:path";
 import { readFileSync, mkdirSync } from "node:fs";
 
 export async function bootPglite(dataDir: string): Promise<void> {
-  const g = globalThis as unknown as { __ascentPgliteAdapter?: unknown };
+  const g = globalThis as unknown as { __ascentPgliteAdapter?: unknown; __ascentPgliteBootError?: string };
   if (g.__ascentPgliteAdapter) return; // already initialized (survives HMR)
 
   try {
@@ -45,8 +45,20 @@ export async function bootPglite(dataDir: string): Promise<void> {
     );
 
     g.__ascentPgliteAdapter = new PrismaPGlite(pglite);
+    g.__ascentPgliteBootError = undefined; // a prior failed boot (if any) is now healed
     console.log(`[pglite] embedded local DB ready (in-process) at ${dir}`);
   } catch (err) {
-    console.error("[pglite] embedded DB init FAILED — falling back to no-DB:", err);
+    // database-client-schema #5: a swallowed console.error alone let the app run as a confusing NO-DB build
+    // (every DB read silently empty) behind one log line — easy to miss and hard to diagnose. Record the
+    // failure on globalThis so it is OBSERVABLE (a health endpoint / diagnostic can read
+    // __ascentPgliteBootError and report "local DB failed to boot" instead of "no data"), and shout on the
+    // console. (NOTE: a NEW COLUMN added to init.sql still won't reach an EXISTING .pglite dir — the boot
+    // rewrites CREATE TABLE → CREATE TABLE IF NOT EXISTS, which skips the existing table; that column-level
+    // reconcile is left out deliberately, since a blind ALTER … ADD COLUMN of a NOT-NULL-without-default
+    // column would itself fail on a populated dev table. The cure remains a data-dir wipe or a hand-written
+    // ALTER, as documented on the exec above.)
+    const message = err instanceof Error ? err.message : String(err);
+    g.__ascentPgliteBootError = message;
+    console.error("[pglite] embedded DB init FAILED — running as NO-DB (reads will be empty):", err);
   }
 }

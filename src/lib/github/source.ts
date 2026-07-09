@@ -197,6 +197,51 @@ export async function resolveHead(
   }
 }
 
+/**
+ * Decide the canonical head COMMIT sha to persist, WITHOUT a network call (github-repo-data-access #2).
+ * Returns the sha, or `null` meaning "the /commits FETCH failed and the ref isn't a full SHA — the caller
+ * must re-resolve the ref's head commit from GitHub before falling back to the tree sha". Pure + exported
+ * for unit testing. Never returns the tree sha on a FETCH FAILURE — that would corrupt head identity (the
+ * cache key / permalinks / @@unique([repoId, headSha]) dedup are keyed on the commit sha, not the tree).
+ */
+export function chooseHeadSha(opts: {
+  firstCommitSha: string | undefined; // commitList[0]?.sha (undefined = list empty)
+  commitsFailed: boolean; // the /commits FETCH threw (vs a genuinely empty repo)
+  ref: string; // the ref actually read (pinned ref, else the resolved default branch)
+  treeSha: string; // treeRes.sha — the TREE OBJECT's sha (a WRONG head identity)
+}): string | null {
+  const { firstCommitSha, commitsFailed, ref, treeSha } = opts;
+  if (firstCommitSha) return firstCommitSha; // the ref's head commit — the correct identity
+  if (!commitsFailed) return treeSha; // genuinely empty commit list → the tree sha is the best we have
+  if (/^[0-9a-f]{40}$/i.test(ref)) return ref.toLowerCase(); // a pinned full-SHA ref IS its own head commit
+  return null; // fetch failed on a branch/tag ref → caller re-resolves the ref's head commit sha
+}
+
+/** Resolve a ref's head COMMIT sha via the cheap sha media type — the github-repo-data-access #2 fallback
+ *  when the /commits list fetch failed on a branch/tag ref. Returns null on any failure so the caller can
+ *  fall back to the tree sha as a last resort. */
+async function resolveRefHeadSha(
+  owner: string,
+  repo: string,
+  ref: string,
+  token?: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  try {
+    const res = await fetchWithTimeout(
+      `${API}/repos/${owner}/${repo}/commits/${encodeRef(ref)}`,
+      { headers: ghHeaders(token, { accept: "application/vnd.github.sha" }), cache: "no-store" },
+      TIMEOUT_API_MS,
+      signal,
+    );
+    if (!res.ok) return null;
+    const sha = (await res.text()).trim();
+    return /^[0-9a-f]{7,40}$/i.test(sha) ? sha.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Minimal repo metadata for tailoring a generated artifact (no tree/file fetch). */
 export interface RepoContextMeta {
   fullName: string;
@@ -363,16 +408,19 @@ export class GitHubPublicSource implements RepoSource {
     // first, so that path stays serial.
     const treeReq = (r: string) =>
       ghJson<GhTreeResponse>(`${API}/repos/${owner}/${repo}/git/trees/${encodeRef(r)}?recursive=1`, token, signal);
-    const commitsReq = (q: string) =>
+    // Returns null when the /commits FETCH threw (rate-limit/timeout/5xx), distinct from [] for a repo
+    // that genuinely has no commits on this ref — the tree-sha fallback below is only valid for the LATTER
+    // (github-repo-data-access #2). The old `.catch(() => [])` conflated the two.
+    const commitsReq = (q: string): Promise<GhCommitResponse[] | null> =>
       ghJson<GhCommitResponse[]>(
         `${API}/repos/${owner}/${repo}/commits?per_page=${COMMIT_COUNT}${q}`,
         token,
         signal,
-      ).catch(() => [] as GhCommitResponse[]);
+      ).then((x) => x, () => null);
 
     let repoMeta: RepoMeta;
     let treeRes: GhTreeResponse;
-    let commitsRes: GhCommitResponse[];
+    let commitsRes: GhCommitResponse[] | null;
     if (opts.ref) {
       [repoMeta, treeRes, commitsRes] = await Promise.all([
         metaPromise.then(mapGhRepo),
@@ -390,11 +438,21 @@ export class GitHubPublicSource implements RepoSource {
     // The canonical head identity is the COMMIT sha (cache key, /report@sha permalinks, the
     // @@unique([repoId, headSha]) dedup), NOT treeRes.sha — that is the TREE OBJECT's sha. The commit
     // list is scoped to the read ref (the `&sha=ref` query on a pinned/PR-head scan, else the default
-    // branch), so commitsRes[0] is this ref's head commit. Previously only scan.ts's default-branch
+    // branch), so commitList[0] is this ref's head commit. Previously only scan.ts's default-branch
     // path corrected this; PR-gate and sha-less scans persisted the tree sha, 404-ing commit links and
-    // defeating dedup. Fall back to the tree sha only when the commit list came back empty (the
-    // commitsReq error path returns []), so a transient blip still yields some identity.
-    repoMeta.headSha = commitsRes[0]?.sha ?? treeRes.sha;
+    // defeating dedup. github-repo-data-access #2: when the /commits FETCH FAILS (not an empty repo), the
+    // old `?? treeRes.sha` corrupted head identity — so distinguish empty (commitsRes === []) from failed
+    // (commitsRes === null) and, on a failure, prefer a pinned full-SHA ref or a direct re-resolve before
+    // ever falling back to the tree sha.
+    const commitsFailed = commitsRes === null;
+    const commitList = commitsRes ?? [];
+    let headSha = chooseHeadSha({ firstCommitSha: commitList[0]?.sha, commitsFailed, ref, treeSha: treeRes.sha });
+    if (headSha == null) {
+      // Commit list fetch failed AND the ref is a branch/tag name — re-resolve its head commit sha with a
+      // cheap sha-media-type GET; only fall back to the (identity-corrupting) tree sha if that also fails.
+      headSha = (await resolveRefHeadSha(owner, repo, ref, token, signal)) ?? treeRes.sha;
+    }
+    repoMeta.headSha = headSha;
 
     const tree: RepoFile[] = treeRes.tree.map((t) => ({
       path: t.path,
@@ -407,7 +465,7 @@ export class GitHubPublicSource implements RepoSource {
       throw new GitHubError("EMPTY", "Repository appears to be empty.");
     }
 
-    const commits: CommitInfo[] = commitsRes.map((c) => ({
+    const commits: CommitInfo[] = commitList.map((c) => ({
       message: c.commit.message,
       authorName: c.commit.author?.name ?? undefined,
       authorLogin: c.author?.login ?? undefined,
@@ -540,7 +598,7 @@ async function fetchRaw(
  * high-signal files (manifests, AI config, CI, docs) then sample a few source/test
  * files so the LLM gets a feel for the codebase.
  */
-function pickFilesToFetch(blobs: RepoFile[]): string[] {
+export function pickFilesToFetch(blobs: RepoFile[]): string[] {
   const paths = blobs.map((b) => b.path);
   const picked = new Set<string>();
 
@@ -644,18 +702,23 @@ function pickFilesToFetch(blobs: RepoFile[]): string[] {
     .slice(0, 6)
     .forEach(add);
 
-  // 7. ALL CI workflows (up to MAX_WORKFLOW_FILES) — the deterministic security checks need full
-  //    workflow content. Added LAST so they rank lowest for the prompt window (the detectors read the
-  //    whole `files` array regardless of order), keeping README/manifests/source front-loaded in the prompt.
+  // 7. ALL CI workflows (up to MAX_WORKFLOW_FILES) — the deterministic D9 security battery reads full
+  //    workflow CONTENT (token perms, pinned actions, SAST, signing). github-repo-data-access #4: `add()`
+  //    refuses once picked.size >= MAX_FILES, so on a manifest-heavy polyglot monorepo the shared 50-slot
+  //    budget fills on manifests/docs/source BEFORE this step and few or ZERO workflows get fetched —
+  //    re-blinding the exact checks the bulk-workflow ingest exists to feed. Give workflows a RESERVED
+  //    quota ON TOP of MAX_FILES (add straight to the set, bypassing the count gate) so texture files can't
+  //    starve them; MAX_TOTAL_BYTES already budgets for the extra content, and they still rank LAST for the
+  //    prompt window (files.sort by fetchRank keeps README/manifests/source front-loaded).
   paths
     .filter((p) => /^\.github\/workflows\/.+\.(ya?ml)$/i.test(p))
     .slice(0, MAX_WORKFLOW_FILES)
-    .forEach(add);
+    .forEach((p) => picked.add(p)); // reserved quota — deliberately NOT gated by MAX_FILES
 
   return [...picked];
 }
 
-function estimateCoverage(totalBlobs: number, fetched: number, attempted: number, truncated: boolean): number {
+export function estimateCoverage(totalBlobs: number, fetched: number, attempted: number, truncated: boolean): number {
   // Heuristic: how confident are we that we've seen the signal-bearing files?
   // Small repos -> high coverage; truncated giant repos -> lower.
   // Factor in the fetch SUCCESS RATE of the files we actually tried to read: a small repo used to pin
@@ -663,8 +726,16 @@ function estimateCoverage(totalBlobs: number, fetched: number, attempted: number
   // still read as fully covered — and the scan routes then CACHED that degraded snapshot for the full
   // TTL (their guard keys off this coverage). Scaling by fetched/attempted pushes a blip-degraded scan
   // below the cache threshold so it isn't pinned; a few legitimately-empty files barely move it.
+  //
+  // github-repo-data-access #3: the LARGE-repo branch used `0.4 + fetched/totalBlobs`, but `fetched` is
+  // capped at MAX_FILES (~50) so for ANY repo with >500 blobs the term is <0.1 and coverage lands <0.5 —
+  // tripping the "only part of the repository could be inspected" caveat (scan.ts) and suppressing caching
+  // for essentially EVERY non-trivial repo, purely on file COUNT, not any real ingestion shortfall. Base
+  // large-repo confidence on the SUCCESS RATE of the signal-bearing picks (fetched/attempted) too, capped
+  // a notch below the small-repo ceiling to reflect the larger unseen tail — so a fully-successful ingest
+  // of a big repo no longer reads as degraded, while a genuine blip (many picks failing) still does.
   const fetchRate = attempted > 0 ? fetched / attempted : 1;
-  let c = totalBlobs <= MAX_FILES ? 0.95 * fetchRate : Math.min(0.9, 0.4 + fetched / totalBlobs);
+  let c = totalBlobs <= MAX_FILES ? 0.95 * fetchRate : Math.min(0.9, 0.85 * fetchRate);
   if (truncated) c = Math.min(c, 0.6);
   return Math.round(c * 100) / 100;
 }

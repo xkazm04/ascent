@@ -2,7 +2,7 @@
 // governance, and commit-activity trend (Deepen-F3). All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { getOrgBySlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { getOrgBySlug, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { parseStringArray } from "@/lib/db/scans-shared";
 import type { PrStats } from "@/lib/types";
 
@@ -22,12 +22,12 @@ export interface PrRepoRow {
 export interface OrgPrSignals {
   repos: number; // repos that have PR data
   totalPrs: number; // PRs analyzed across the fleet
-  avgMergeRate: number;
-  avgReviewedRate: number | null; // mean of repo reviewedRate (where a human-merged sample exists)
-  avgSmallPrRate: number;
-  avgAiInvolvedRate: number;
-  avgAiGovernedRate: number | null; // mean of repo aiGovernedRate (where it has a sample)
-  typicalHoursToMerge: number | null; // mean of per-repo medians
+  avgMergeRate: number; // analyzed-PR-weighted fleet merge rate (a large repo outweighs a toy one)
+  avgReviewedRate: number | null; // analyzed-weighted repo reviewedRate (null when NO repo has a human-merged sample)
+  avgSmallPrRate: number; // analyzed-weighted
+  avgAiInvolvedRate: number; // analyzed-weighted
+  avgAiGovernedRate: number | null; // analyzed-weighted repo aiGovernedRate (null when NO repo has a sample)
+  typicalHoursToMerge: number | null; // mean of per-repo medians (a median-of-medians, left unweighted)
   tools: { name: string; count: number }[];
   perRepo: PrRepoRow[]; // sorted riskiest first: lowest review coverage, then slowest merges
 }
@@ -81,21 +81,39 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
       (b.medianHoursToMerge ?? -1) - (a.medianHoursToMerge ?? -1),
   );
 
-  const mean = roundedMean;
+  // Volume-weighted fleet rates: weight each repo's rate by its analyzed PR count, so a 500-PR flagship
+  // outweighs a 1-PR toy repo instead of every repo voting equally (an average-of-averages). The old
+  // unweighted mean let low-traffic repos dominate a headline "fleet" rate no meaningful slice of PRs
+  // experienced — and was internally inconsistent with the commit-weighted org AI share
+  // (org-contributors.ts) and the PR-count-based `totalPrs` right beside it. A nullable rate
+  // (reviewedRate / aiGovernedRate — "no sample") contributes only where present and stays null when NO
+  // repo carries it, preserving the null-vs-measured-0 distinction. `analyzed` is the natural fleet
+  // weight (exact for the analyzed-denominated rates; a volume proxy for reviewed/governed whose exact
+  // sub-denominators aren't persisted per repo). (fleet-rollups-insights #3)
+  const weightedRate = (pick: (s: PrStats) => number | null): number | null => {
+    let wsum = 0;
+    let sum = 0;
+    for (const s of stats) {
+      const v = pick(s);
+      if (v == null) continue; // "no sample" — not a measured 0
+      wsum += s.analyzed;
+      sum += v * s.analyzed;
+    }
+    return wsum > 0 ? Math.round(sum / wsum) : null;
+  };
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
-  const governed = stats.map((s) => s.aiGovernedRate).filter((x): x is number => x != null);
-  const reviewed = stats.map((s) => s.reviewedRate).filter((x): x is number => x != null);
   const toolMap = new Map<string, number>();
   for (const s of stats) for (const t of s.tools) toolMap.set(t.name, (toolMap.get(t.name) ?? 0) + t.count);
 
   return {
     repos: stats.length,
     totalPrs: stats.reduce((a, s) => a + s.analyzed, 0),
-    avgMergeRate: mean(stats.map((s) => s.mergeRate)),
-    avgReviewedRate: reviewed.length ? mean(reviewed) : null,
-    avgSmallPrRate: mean(stats.map((s) => s.smallPrRate)),
-    avgAiInvolvedRate: mean(stats.map((s) => s.aiInvolvedRate)),
-    avgAiGovernedRate: governed.length ? mean(governed) : null,
+    // Always-present rates: `stats` is non-empty and every row has analyzed > 0, so wsum > 0 ⇒ never null.
+    avgMergeRate: weightedRate((s) => s.mergeRate) ?? 0,
+    avgReviewedRate: weightedRate((s) => s.reviewedRate),
+    avgSmallPrRate: weightedRate((s) => s.smallPrRate) ?? 0,
+    avgAiInvolvedRate: weightedRate((s) => s.aiInvolvedRate) ?? 0,
+    avgAiGovernedRate: weightedRate((s) => s.aiGovernedRate),
     typicalHoursToMerge: ttm.length ? Math.round((ttm.reduce((a, b) => a + b, 0) / ttm.length) * 10) / 10 : null,
     tools: [...toolMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
     perRepo,
@@ -256,6 +274,12 @@ export interface OrgActivity {
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 
+/** Fleet activity is a RECENT-activity read: bound the zero-filled week grid to this trailing horizon,
+ *  anchored at the newest scan week, so one repo last scanned long ago can't stretch the grid back to a
+ *  stale spike and dilute the trend to ~90% zeros. ~6 months reads as "recent" while dropping a repo
+ *  whose latest activity is a year+ old. (fleet-rollups-insights #4) */
+const ACTIVITY_HORIZON_WEEKS = 26;
+
 /** Sunday-aligned whole-week index of an instant. GitHub's commit_activity buckets are Sunday-aligned
  *  weeks, so two repos' series elements only belong in the same fleet bucket if they fall in the same
  *  Sunday–Saturday week. A naive `floor(ms / WEEK_MS)` bins on the Unix-epoch 7-day grid, which is
@@ -301,27 +325,47 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
   // fleet's current week. Bucket each series element by its absolute calendar week (derived from the
   // scan time) and sum per week. When all repos ARE scanned in the same week this reduces to the old
   // right-aligned sum (identical output) — only heterogeneous-cadence fleets change.
-  const byWeek = new Map<number, number>();
-  let repoCount = 0;
+  // Pass 1: parse each repo's latest weekly series + the absolute week its scan sits in. maxWk (the
+  // newest scan week across the fleet) is the grid's right edge AND the anchor for the recency horizon.
+  const parsed: { lastWeek: number; arr: number[] }[] = [];
+  let newestScanWk = -Infinity;
   for (const r of repos) {
     const scan = r.scans[0];
     const raw = scan?.commitActivity;
     if (!raw) continue;
     try {
-      const arr = JSON.parse(raw) as number[];
+      const arr = JSON.parse(raw) as unknown;
       if (!Array.isArray(arr) || !arr.length) continue;
-      // The last element is the scan's own week; element i counts back (arr.length - 1 - i) weeks.
-      const lastWeek = weekIndex(scan!.scannedAt.getTime());
-      for (let i = 0; i < arr.length; i++) {
-        const v = arr[i];
-        if (typeof v !== "number" || !Number.isFinite(v)) continue;
-        const wk = lastWeek - (arr.length - 1 - i);
-        byWeek.set(wk, (byWeek.get(wk) ?? 0) + v);
-      }
-      repoCount += 1;
+      const lastWeek = weekIndex(scan!.scannedAt.getTime()); // the scan's own week = the series' last element
+      parsed.push({ lastWeek, arr: arr as number[] });
+      if (lastWeek > newestScanWk) newestScanWk = lastWeek;
     } catch {
       /* ignore */
     }
+  }
+  if (!parsed.length) return null;
+
+  // Pass 2: bucket by absolute calendar week, but DROP any week older than the trailing horizon anchored
+  // at the newest scan week (fleet-rollups-insights #4). Without this, ONE repo last scanned long ago
+  // stretched min..maxWk across a year+ and zero-filled a ~52-element series that was ~90% zeros with a
+  // lone stale spike — misrepresenting recent activity. A repo whose entire latest series predates the
+  // horizon contributes nothing and isn't counted. Anchoring at maxWk (the module already anchors the
+  // grid's right edge to the most recent SCAN) bounds the grid WIDTH deterministically and never blanks a
+  // non-empty fleet — the way a raw `now - N` clamp would for a wholly-dormant fleet.
+  const floorWk = newestScanWk - (ACTIVITY_HORIZON_WEEKS - 1);
+  const byWeek = new Map<number, number>();
+  let repoCount = 0;
+  for (const { lastWeek, arr } of parsed) {
+    let contributed = false;
+    for (let i = 0; i < arr.length; i++) {
+      const v = arr[i];
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      const wk = lastWeek - (arr.length - 1 - i); // element i counts back (arr.length - 1 - i) weeks
+      if (wk < floorWk) continue; // older than the trailing horizon — don't let a stale repo stretch the grid
+      byWeek.set(wk, (byWeek.get(wk) ?? 0) + v);
+      contributed = true;
+    }
+    if (contributed) repoCount += 1;
   }
   if (!repoCount) return null;
 

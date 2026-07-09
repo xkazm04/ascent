@@ -76,6 +76,16 @@ const DELIVERY_TTL_MS = 10 * 60_000;
 const DELIVERY_MAX = 2000;
 const seenDeliveries = new Map<string, number>(); // delivery id -> expiry
 
+// github-app-installation-webhooks #5: a GitHub HMAC never expires, so a captured, still-validly-signed
+// delivery can be REPLAYED anytime within GitHub's redelivery horizon (hours/days). The in-memory Map above
+// is only a 10-min, process-local FAST PATH; the AUTHORITATIVE cross-instance replay defense is the DB claim
+// (claimWebhookDelivery), whose default TTL also matched 10 min — far shorter than the window it defends, so
+// a replay 10 min later re-claimed and fully reprocessed (double scan/alert/re-posted checks). Persist the
+// claim for a full day so a replay across the redelivery horizon is rejected. A LEGITIMATE redelivery after a
+// failure still retries: forgetDelivery() DELETES the claim on a deferred-work failure, so only
+// SUCCESSFULLY-processed ids stay claimed — exactly the replay we want to keep rejecting.
+const REPLAY_HORIZON_MS = 24 * 60 * 60_000;
+
 function deliveryAlreadySeen(id: string): boolean {
   const now = Date.now();
   const exp = seenDeliveries.get(id);
@@ -346,6 +356,25 @@ async function reconcileInstallationRepos(installationId: number, deliveryId?: s
   }
 }
 
+// github-app-installation-webhooks #6: two default-branch pushes (C1 then C2) landing within seconds spawn
+// two deferred runPushRescan runs that BOTH read `prev` (the regression baseline) BEFORE either persists —
+// so both diff against the same stale baseline R0 (a C1 regression reverted by C2 is missed, or a two-step
+// regression is mis-attributed). Serialize the read→scan→persist→diff sequence PER REPO so the next run's
+// baseline read sees the immediately-prior persisted scan. This is a PROCESS-LOCAL lock (a push burst is
+// typically routed to one warm instance); a cross-instance race is rarer and bounded, and the authoritative
+// per-commit dedup (@@unique[repoId, headSha]) still prevents a double metered scan regardless.
+const rescanChains = new Map<string, Promise<unknown>>();
+function serializePerRepo<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const tail = rescanChains.get(key) ?? Promise.resolve();
+  const next = tail.then(fn, fn); // run fn after the prior rescan settles, success OR failure
+  rescanChains.set(key, next);
+  // Drop the map entry once this run is the tail so the map can't grow unbounded across many repos.
+  void next.catch(() => {}).finally(() => {
+    if (rescanChains.get(key) === next) rescanChains.delete(key);
+  });
+  return next;
+}
+
 /** Re-scan a watched repo on push, persist, and alert on a regression vs the prior scan. */
 async function runPushRescan(installationId: number, owner: string, repo: string, deliveryId?: string) {
   try {
@@ -363,13 +392,17 @@ async function runPushRescan(installationId: number, owner: string, repo: string
       return;
     }
     const token = await getInstallationToken(installationId);
-    const prev = await getScanReportByCommit(owner, repo, { orgSlug }).catch(() => null);
-    const report = await scanRepository(fullName, { token });
-    const persisted = await persistScanReport(report, { orgSlug });
-    if (persisted && !persisted.deduped) {
-      const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
-      await checkAndAlertRegression(prev, report, { orgId, orgSlug });
-    }
+    // #6: read the baseline, scan, persist and diff as ONE per-repo critical section, so a concurrent
+    // rescan of the same repo reads its baseline AFTER this one persists (see serializePerRepo).
+    await serializePerRepo(fullName.toLowerCase(), async () => {
+      const prev = await getScanReportByCommit(owner, repo, { orgSlug }).catch(() => null);
+      const report = await scanRepository(fullName, { token });
+      const persisted = await persistScanReport(report, { orgSlug });
+      if (persisted && !persisted.deduped) {
+        const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
+        await checkAndAlertRegression(prev, report, { orgId, orgSlug });
+      }
+    });
   } catch (err) {
     console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err);
     // The deferred rescan failed after we already 2xx'd — release the delivery so a redelivery retries.
@@ -479,7 +512,7 @@ export async function POST(request: Request) {
   const delivery = request.headers.get("x-github-delivery");
   if (delivery) {
     const seenLocally = deliveryAlreadySeen(delivery);
-    const claimed = seenLocally ? false : await claimWebhookDelivery(delivery);
+    const claimed = seenLocally ? false : await claimWebhookDelivery(delivery, REPLAY_HORIZON_MS);
     if (!claimed) {
       return NextResponse.json({ ok: true, event, duplicate: true });
     }

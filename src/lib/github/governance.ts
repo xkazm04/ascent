@@ -48,6 +48,14 @@ export async function fetchBranchGovernance(
     // than emitting a confident false negative — even if the rulesets call succeeded. (github-repo-data-access #4)
     if (branchRes.status !== 200) return null;
 
+    // github-repo-data-access #5: a 200 whose body did NOT parse into an object (a truncated stream, or a
+    // proxy returning HTML-with-200) leaves branchRes.body null/non-object → Boolean(null?.protected) =
+    // false, reporting a repo that genuinely ENFORCES branch protection as wide open (a security signal
+    // read as PASS, understating its governance score). The `protected` flag is only trustworthy when the
+    // protection-bearing body actually parsed — treat an unparseable/absent body the same as a failed read:
+    // protection UNKNOWN → null, never a confident false negative.
+    if (branchRes.body == null || typeof branchRes.body !== "object") return null;
+
     const isProtected = Boolean((branchRes.body as { protected?: boolean } | null)?.protected);
     const rules: Rule[] = Array.isArray(rulesRes.body) ? (rulesRes.body as Rule[]) : [];
     const byType = (t: string) => rules.find((r) => r.type === t);

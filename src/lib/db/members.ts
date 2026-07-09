@@ -126,8 +126,20 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
   });
   // Last-owner guard + the role write run in ONE transaction so two concurrent owner-gated requests
   // can't each read "2 owners > 1", both proceed, and orphan the org with zero owners (a TOCTOU the
-  // separate read-then-write left open). On Aurora DSQL (serializable) the loser aborts; the count is
-  // re-read inside the tx so the guard sees a consistent snapshot.
+  // separate read-then-write left open).
+  //
+  // members-access-control #5: a bare $transaction alone does NOT close this. The two requests demote
+  // DIFFERENT owner rows (A vs B), so there is no write-write conflict; under a vanilla Postgres
+  // deployment's default READ COMMITTED, each tx's `count(role:"owner")` is a SNAPSHOT read that neither
+  // blocks on nor sees the other's uncommitted write, so BOTH read 2 (>1), both commit, and the org is
+  // orphaned. A correlated conditional write (`... WHERE (SELECT count(*) owners) > 1`) is NO better —
+  // that subquery is the same non-locking snapshot read. The only portable fix (works on both Aurora DSQL
+  // and stock Postgres) with NO schema change is to run the guard at SERIALIZABLE isolation: the count
+  // read then participates in the serialization graph, so on stock Postgres SSI aborts one of the two
+  // concurrent demotions (40001) and on DSQL the OCC commit loses — the invariant "owner count never
+  // reaches 0" now holds. A serialization abort surfaces below as a transient failure (db_error → 503
+  // retry on the loser), never a silent orphan. The count is re-read inside the tx so the guard reads a
+  // consistent snapshot.
   try {
     return await prisma.$transaction(async (tx) => {
       if (role !== "owner") {
@@ -146,7 +158,7 @@ export async function setMembershipRole(orgSlug: string, login: string, role: Or
         create: { orgId, userId: user.id, role },
       });
       return "ok" as const;
-    });
+    }, { isolationLevel: "Serializable" });
   } catch {
     // The org exists (orgId resolved above); this is the transaction failing transiently
     // (serialization abort / DB blip). Signal it distinctly so the caller doesn't report 404.
@@ -166,8 +178,10 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
   if (!gh || !orgId) return "not_found";
   const user = await prisma.user.findUnique({ where: { githubLogin: gh }, select: { id: true } });
   if (!user) return "not_found";
-  // Last-owner guard + delete run in ONE transaction (see setMembershipRole) so two concurrent
-  // removals can't both pass the "owners > 1" check and leave the org with no owner.
+  // Last-owner guard + delete run in ONE SERIALIZABLE transaction (see setMembershipRole for the full
+  // rationale — a plain read-committed tx leaves the two-distinct-owner TOCTOU open; serializable makes
+  // the count read conflict on both stock Postgres (SSI) and Aurora DSQL (OCC) so the two concurrent
+  // removals can't both pass the "owners > 1" check and leave the org with no owner).
   try {
     return await prisma.$transaction(async (tx) => {
       const m = await tx.membership.findUnique({
@@ -181,8 +195,11 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
       }
       await tx.membership.delete({ where: { orgId_userId: { orgId, userId: user.id } } });
       return "ok" as const;
-    });
+    }, { isolationLevel: "Serializable" });
   } catch {
+    // A serialization abort (the loser of two concurrent owner removals) lands here too. removeMembership's
+    // outcome type has no db_error variant, so it maps to not_found — safe (the removal simply didn't
+    // happen; the org keeps its owner), just a benign retry for the caller. The invariant is preserved.
     return "not_found";
   }
 }
