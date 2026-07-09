@@ -49,7 +49,7 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
         <PrMetric label="Small PRs" value={`${stats.smallPrRate}%`} color={scoreHex(stats.smallPrRate)} hint="≤200 lines" />
         <PrMetric label="Time to merge" value={fmtHours(stats.medianHoursToMerge)} hint="median" />
         <PrMetric label="Time to review" value={fmtHours(stats.medianHoursToFirstReview)} hint="median 1st" />
-        <PrMetric label="Revert rate" value={`${stats.revertRate}%`} color={stats.revertRate > 10 ? "#f97316" : "#fff"} hint="reverted PRs" />
+        <PrMetric label="Revert rate" value={`${stats.revertRate}%`} color={stats.revertRate > 10 ? "var(--color-warn)" : "#fff"} hint="reverted PRs" />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-sm text-slate-500">
         <span>avg {stats.avgLineChanges} lines · {stats.avgChangedFiles} files</span>

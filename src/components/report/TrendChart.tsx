@@ -112,7 +112,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         {/* y gridlines / labels at band edges */}
         {BAND_EDGES.map((v) => (
           <g key={v}>
-            <line x1={m.left} x2={m.left + innerW} y1={yFor(v)} y2={yFor(v)} stroke="#1e293b" strokeWidth={1} />
+            <line x1={m.left} x2={m.left + innerW} y1={yFor(v)} y2={yFor(v)} stroke="var(--color-divider)" strokeWidth={1} />
             <text x={m.left - 6} y={yFor(v) + 3} textAnchor="end" fontSize={9} className="fill-slate-600">
               {v}
             </text>
@@ -144,7 +144,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
         )}
         {points.map((p, i) => (
           <g key={i}>
-            <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke="#020617" strokeWidth={1.5} />
+            <circle cx={xFor(i)} cy={yFor(p.score)} r={i === points.length - 1 ? 5 : 3.5} fill={scoreHex(p.score)} stroke="var(--color-surface-strong)" strokeWidth={1.5} />
             {showDateLabel(i) && (
               <text x={xFor(i)} y={H - 8} textAnchor="middle" fontSize={9} className="fill-slate-500">
                 {shortDate(p.at)}

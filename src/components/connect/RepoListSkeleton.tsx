@@ -30,7 +30,7 @@ export function RepoListSkeleton() {
           <div className="h-7 w-20 animate-pulse rounded-full bg-slate-800/70" />
         </div>
         {/* Repo rows — mirror the real row layout so the list keeps a stable height. */}
-        <div className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/40">
+        <div className="divide-y divide-divider overflow-hidden rounded-xl border border-divider bg-surface/40">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
               <div className="min-w-0 flex-1">

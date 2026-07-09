@@ -14,7 +14,7 @@ export function ConnectDiscovered({
 }) {
   if (!seededOrg && suggestedOrgs.length === 0) return null;
   return (
-    <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+    <section className="mt-6 rounded-2xl border border-divider bg-surface/40 p-6">
       <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Discovered from your GitHub</div>
       {seededOrg && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">

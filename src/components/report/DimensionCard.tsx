@@ -130,9 +130,9 @@ function ProvenanceTrack({ signal, llm, blended }: { signal: number; llm: number
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="mt-1 h-auto w-full" role="img" aria-label={`Score provenance: signal ${signal}, LLM ${llm}, blended ${blended}`}>
       {/* baseline track */}
-      <line x1={x(0)} x2={x(100)} y1={trackY} y2={trackY} stroke="#1e293b" strokeWidth={3} strokeLinecap="round" />
+      <line x1={x(0)} x2={x(100)} y1={trackY} y2={trackY} stroke="var(--color-divider)" strokeWidth={3} strokeLinecap="round" />
       {/* ±guardband zone around the signal */}
-      <rect x={x(bandLo)} y={trackY - 4} width={x(bandHi) - x(bandLo)} height={8} rx={2} fill="#3b9eff" opacity={0.14}>
+      <rect x={x(bandLo)} y={trackY - 4} width={x(bandHi) - x(bandLo)} height={8} rx={2} fill="var(--color-accent)" opacity={0.14}>
         {/* Single template-literal child: React 19 special-cases <title> as metadata and only renders a
             lone text child — mixed text+number children make it drop on the server but render on the
             client (a hydration mismatch). Keep every SVG <title> a single string. */}
@@ -147,12 +147,12 @@ function ProvenanceTrack({ signal, llm, blended }: { signal: number; llm: number
       </g>
       {/* llm tick */}
       <g>
-        <circle cx={x(llm)} cy={trackY} r={3} fill="#cbd5e1" stroke="#0f172a" strokeWidth={1} />
+        <circle cx={x(llm)} cy={trackY} r={3} fill="#cbd5e1" stroke="var(--color-surface)" strokeWidth={1} />
         <title>{`LLM judgment: ${llm}`}</title>
       </g>
       {/* blended marker */}
       <g>
-        <circle cx={x(blended)} cy={trackY} r={3.5} fill={color} stroke="#020617" strokeWidth={1} />
+        <circle cx={x(blended)} cy={trackY} r={3.5} fill={color} stroke="var(--color-surface-strong)" strokeWidth={1} />
         <title>{`Blended result: ${blended}`}</title>
       </g>
       {/* The numeric values are intentionally not drawn into this 22px-tall track — a 7px legend

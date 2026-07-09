@@ -114,7 +114,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       {filtered.length === 0 ? (
         <EmptyState variant="section" body="No repositories match your search and filters." />
       ) : (
-        <div className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/40">
+        <div className="divide-y divide-divider overflow-hidden rounded-xl border border-divider bg-surface/40">
           {filtered.map((r) => (
             <RepoRow
               key={r.fullName}

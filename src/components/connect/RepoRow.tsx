@@ -89,7 +89,7 @@ export function RepoRow({
           ))}
         </select>
 
-        <span aria-hidden className="hidden h-7 w-px self-center bg-slate-800 sm:block" />
+        <span aria-hidden className="hidden h-7 w-px self-center bg-divider sm:block" />
         <Link
           href={`/report?repo=${encodeURIComponent(r.fullName)}`}
           className="focus-ring shrink-0 rounded-lg bg-accent px-4 py-2 font-mono text-sm font-semibold uppercase tracking-widest text-on-accent transition hover:bg-accent-soft"

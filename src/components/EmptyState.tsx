@@ -42,7 +42,7 @@ export function EmptyState({
 }) {
   const section = variant === "section";
   const wrap = section
-    ? "rounded-2xl border border-dashed border-slate-800 bg-slate-900/20 p-10 text-center"
+    ? "rounded-2xl border border-dashed border-divider bg-surface/20 p-10 text-center"
     : "flex flex-col items-center py-24 text-center";
   const iconCls = section ? "text-3xl" : "text-5xl";
   const titleCls = section ? "text-base font-semibold text-white" : "mt-4 text-2xl font-bold text-white";

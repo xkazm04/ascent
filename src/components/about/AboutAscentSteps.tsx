@@ -99,7 +99,7 @@ export function AboutAscentSteps() {
       {/* The climber traces the staircase via `cx`/`cy` keyframes — for reduced-motion users render
           it parked at the summit (final keyframe) with no travel. */}
       <motion.circle
-        r={7} fill="#fff" stroke="#3b9eff" strokeWidth={2.5}
+        r={7} fill="#fff" stroke="var(--color-accent)" strokeWidth={2.5}
         initial={reduced ? false : { cx: cx[0], cy: cy[0] }}
         animate={reduced ? { cx: cx[cx.length - 1], cy: cy[cy.length - 1] } : undefined}
         whileInView={reduced ? undefined : { cx, cy }}

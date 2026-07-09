@@ -33,7 +33,7 @@ export function ConnectPrivacyNotice() {
   const isBedrock = provider === "bedrock";
   const isMock = provider === "mock";
   return (
-    <section className="mt-5 rounded-xl border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-300">
+    <section className="mt-5 rounded-xl border border-divider bg-surface/40 p-4 text-sm text-slate-300">
       <div className="font-mono text-xs uppercase tracking-[0.25em] text-accent">Where your code goes</div>
       <p className="mt-2">
         During a private scan, a budgeted sample of your repository&apos;s file contents (≤32 files) is sent to{" "}

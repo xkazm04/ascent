@@ -41,7 +41,7 @@ export function Sparkline({
         onPointerLeave={hover.onPointerLeave}
       >
         {/* Reference line at the L4 (Advanced) threshold — a real band edge, not an arbitrary 50. */}
-        <line x1={0} x2={width} y1={y(65)} y2={y(65)} stroke="#1e293b" strokeWidth={1} strokeDasharray="2 3" />
+        <line x1={0} x2={width} y1={y(65)} y2={y(65)} stroke="var(--color-divider)" strokeWidth={1} strokeDasharray="2 3" />
         {points.length > 1 && <path d={path} fill="none" stroke={scoreHex(last)} strokeWidth={1.75} />}
         {points.map((p, i) => (
           <circle
@@ -55,7 +55,7 @@ export function Sparkline({
         {a !== null && (
           <g>
             <line x1={x(a)} x2={x(a)} y1={0} y2={height} stroke="#475569" strokeWidth={1} strokeDasharray="2 2" />
-            <circle cx={x(a)} cy={y(points[a]!.score)} r={3.25} fill={scoreHex(points[a]!.score)} stroke="#020617" strokeWidth={1.25} />
+            <circle cx={x(a)} cy={y(points[a]!.score)} r={3.25} fill={scoreHex(points[a]!.score)} stroke="var(--color-surface-strong)" strokeWidth={1.25} />
           </g>
         )}
         <rect x={0} y={0} width={width} height={height} fill="transparent" />
