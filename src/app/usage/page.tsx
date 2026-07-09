@@ -3,6 +3,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Shell, Notice } from "./usageShell";
 import { UsageDashboard } from "./usageDashboard";
 import { getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
+import { boundUsageDays } from "@/lib/db/usage";
 import { getActiveOrg, PUBLIC_ORG } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
@@ -25,21 +26,33 @@ export default async function UsagePage({
   // in production, so a signed-out visitor was never prompted. resolveSignInState checks the ACTIVE
   // Supabase wall first and names the button that actually works.
   const { needsSignIn, provider, expired, session } = await resolveSignInState();
-  if (needsSignIn) {
+
+  // An explicit ?org= wins; otherwise follow the org remembered via the header switcher (which itself
+  // falls back to the first installation, else public). Resolved BEFORE the sign-in wall so the wall
+  // can special-case the public funnel the way canReadOrg does. Safe for an anonymous session (null):
+  // the option set collapses to public, so a stray active-org cookie can't resolve to a private slug.
+  const org = orgParam || (await getActiveOrg(session));
+
+  // Only prompt sign-in for a NON-public org. The shared public org's usage is readable anonymously —
+  // canReadOrg(PUBLIC_ORG) is unconditionally true and the sibling GET /api/usage?org=public serves
+  // signed-out callers via requireOrgRead — so walling it here made the PAGE stricter than its own API
+  // and contradicted the "view the shared public usage" copy in the access Notice below. A private org
+  // still walls (the canReadOrg gate at the bottom would only render a dead "no access" notice with no
+  // prompt), and a signed-in viewer skips this entirely.
+  if (needsSignIn && org.toLowerCase() !== PUBLIC_ORG) {
     return (
       <Shell>
         <SignInNotice next="/usage" provider={provider} expired={expired} />
       </Shell>
     );
   }
-  // An explicit ?org= wins; otherwise follow the org remembered via the header switcher
-  // (which itself falls back to the first installation, else public).
-  const org = orgParam || (await getActiveOrg(session));
 
-  // Bound the window AFTER the org is known, mirroring /api/usage: the UNAUTHENTICATED public org
-  // is capped tighter (90d) so an anonymous caller can't force the 365-day full-window aggregate
-  // the API path refuses (this page computes the same summary directly). Non-numeric input → 30.
-  const days = Math.min(org.toLowerCase() === PUBLIC_ORG ? 90 : 365, Math.max(1, Number(daysParam) || 30));
+  // Bound the window AFTER the org is known, mirroring /api/usage via the shared boundUsageDays: the
+  // UNAUTHENTICATED public org is capped tighter (90d) so an anonymous caller can't force the 365-day
+  // full-window aggregate the API path refuses (this page computes the same summary directly). The
+  // helper FLOORS a fractional ?days= so `since`, the day axis, and the counts share one integer window
+  // (an un-floored 1.5 stepped the axis by half-days and silently dropped today from the chart/CSV).
+  const days = boundUsageDays(daysParam, org.toLowerCase() === PUBLIC_ORG);
 
   // Cross-tenant IDOR guard — the canonical read-side tenant gate (the same canReadOrg the sibling
   // /api/usage route and the other org-scoped pages use). It opens PUBLIC_ORG to everyone, requires

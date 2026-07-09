@@ -21,11 +21,18 @@ export function QuotaMeter() {
 
   useEffect(() => {
     let active = true;
+    // Monotonic request id: load() fires on mount AND on focus/visibilitychange/pageshow, so rapid
+    // tab-switching launches overlapping /api/quota fetches. Without sequencing, an EARLIER (slower)
+    // response can resolve AFTER a later one and clobber the fresh count with a stale "scans left"
+    // (e.g. show more than the visitor has, right after a scan). Only the latest-issued load wins;
+    // `active` still guards unmount.
+    let latest = 0;
     const load = () => {
+      const seq = ++latest;
       fetch("/api/quota")
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
-          if (active && d) setQ(d as Quota);
+          if (active && seq === latest && d) setQ(d as Quota);
         })
         .catch(() => {});
     };
@@ -58,12 +65,19 @@ export function QuotaMeter() {
   const reset = q.resetAt ? formatResetAt(q.resetAt) : null;
 
   return (
-    <p className={`mt-2 font-mono text-sm ${low ? "text-amber-300" : "text-slate-500"}`}>
+    // Low-allowance warning uses the semantic `warn` token (the same one the report-side QuotaNotice
+    // uses for this state) instead of a raw amber hex, so a theme change to "warn" propagates here too.
+    <p className={`mt-2 font-mono text-sm ${low ? "text-warn" : "text-slate-500"}`}>
       <span className="font-semibold">{q.remaining}</span> of {q.limit} free scans left this month
       {q.scope === "anon" && (
         <>
           {" "}
-          · <span className="text-slate-400">upgrade for more scans</span>
+          ·{" "}
+          {/* A real CTA, not dead text: an anonymous visitor deciding pre-scan can act on the upsell.
+              Matches the report banner's link style so the two quota surfaces read as one system. */}
+          <a href="/pricing" className="text-accent hover:text-white">
+            upgrade for more scans
+          </a>
         </>
       )}
       {q.remaining === 0 && reset && <> · resets {reset}</>}

@@ -19,7 +19,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
   const labelEvery = Math.max(1, Math.ceil(daily.length / 8));
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+    <div className="rounded-2xl border border-divider bg-surface/40 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-white">Computed scans per day</h2>
