@@ -1412,8 +1412,11 @@ New structural facts:
 - **2026-07-09** — Prove each new test FAILS against the pre-fix code before keeping it. The OpenRouter
   price assertions were verified red-then-green; the config.test.ts loop over "every shipped default model"
   had simply omitted `DEFAULT_OPENROUTER_MODEL`, which is exactly how that bug shipped.
-- **2026-07-09** — Never embed a raw NUL byte in source (composite map keys). Use the ` ` escape:
-  a literal NUL makes git treat the file as binary and breaks grep/diff. Two agents did this independently.
+- **2026-07-09** — Composite map keys use a NUL separator. This is an ESTABLISHED house idiom —
+  `src/lib/integrations/otlp.ts` predates this scan and does it too, so a subagent reaching for it is
+  following the style, not erring. Write it as the `\u0000` ESCAPE, never a literal NUL byte: a literal
+  one makes git mark the file binary and silently breaks `grep` and `git diff` on it. (`otlp.ts` still
+  carries a literal one — harmless, but it is why grep skips that file.)
 
 ## Anti-patterns to avoid (waves 4-7)
 
