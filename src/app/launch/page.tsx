@@ -7,7 +7,9 @@ import { redirect } from "next/navigation";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { FleetMap } from "@/components/launch/FleetMap";
-import { getSessionState, isAuthConfigured, safeNext } from "@/lib/auth";
+import { safeNext } from "@/lib/auth";
+import { resolveSignInState } from "@/lib/signin-gate";
+import { viewerDisplayName, viewerInstallations } from "@/lib/viewer-installations";
 
 export const dynamic = "force-dynamic";
 
@@ -30,12 +32,13 @@ export default async function LaunchPage({
   // Re-validate the carried-along destination (defense in depth — the value rode in on a
   // query param) and default to the connect dashboard.
   const next = safeNext(nextParam, "/connect");
-  const { session, status } = await getSessionState();
-
-  // Direct visits without a session: prompt sign-in when auth is on, otherwise this
-  // entrance has nothing to map — send the visitor to connect.
-  if (!session) {
-    if (!isAuthConfigured()) redirect("/connect");
+  // This page was UNREACHABLE in production. It read the dormant custom-OAuth session, which is never
+  // minted under the Supabase wall, so `!session` was always true — and the guard inside it then read
+  // `if (!isAuthConfigured()) redirect("/connect")`, which is also always true. Every visitor, signed in
+  // or not, was bounced to /connect. Resolve the prompt from whichever stack is live, and the
+  // installations from the DB when the viewer's identity is a Supabase one.
+  const { needsSignIn, provider, expired } = await resolveSignInState();
+  if (needsSignIn) {
     return (
       <>
         <SiteHeader />
@@ -45,17 +48,25 @@ export default async function LaunchPage({
           <p className="mt-2 max-w-xl text-slate-400">
             Sign in to chart your orgs and repositories as a living star-map of engineering maturity.
           </p>
-          <SignInNotice next="/launch" expired={status === "expired"} />
+          <SignInNotice next="/launch" provider={provider} expired={expired} />
         </main>
         <SiteFooter />
       </>
     );
   }
 
+  const installations = await viewerInstallations();
+  // Signed in (or auth-off) but nothing installed: this entrance has nothing to map, so send the visitor
+  // where they can install the App. Same intent as the original redirect — it just now depends on the
+  // actual fleet rather than on a session object that production never creates.
+  if (!installations.length) redirect("/connect");
+
+  const viewerName = await viewerDisplayName();
+
   return (
     <>
       <SiteHeader />
-      <FleetMap installations={session.installations} userName={session.name ?? session.login} next={next} />
+      <FleetMap installations={installations} userName={viewerName} next={next} />
       <SiteFooter />
     </>
   );

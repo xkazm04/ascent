@@ -4,6 +4,7 @@
 // slot and the GitHub CTA rides the `children` action slot, so this is no longer a hand-rolled
 // notice scaffold that can drift from the rest of the app.
 
+import { authGateEnabled } from "@/lib/env";
 import { EmptyState } from "@/components/EmptyState";
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
@@ -11,14 +12,18 @@ import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
 export function SignInNotice({
   next,
   expired = false,
-  provider = "github",
+  provider,
 }: {
   next: string;
   expired?: boolean;
-  /** Which OAuth backend the CTA drives. "supabase" = the active Supabase GitHub login; "github" =
-   *  the dormant custom-OAuth button (default, used by the legacy flow). */
+  /** Which OAuth backend the CTA drives. "supabase" = the active Supabase GitHub login; "github" = the
+   *  dormant custom-OAuth button. Omit it: the default follows whichever stack is actually live. It
+   *  used to default to "github" unconditionally, so every caller but the org layout rendered a button
+   *  that hits `isAuthConfigured() === false` and bounces to /connect?error=not_configured — a dead
+   *  sign-in affordance on most of the app. */
   provider?: "github" | "supabase";
 }) {
+  const backend = provider ?? (authGateEnabled() ? "supabase" : "github");
   return (
     <EmptyState
       icon={expired ? "⏳" : "🔐"}
@@ -39,7 +44,7 @@ export function SignInNotice({
           : "Connect your GitHub account to access private repositories, history, and usage."
       }
     >
-      {provider === "supabase" ? (
+      {backend === "supabase" ? (
         <SupabaseSignInButton next={next} />
       ) : (
         <GitHubSignInButton next={next} />

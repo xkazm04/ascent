@@ -8,7 +8,8 @@ import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured, type RepositoryHistory } from "@/lib/db";
 import { sha256Hex } from "@/lib/db/audit-integrity";
-import { getSession, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { csvField } from "@/lib/export/csv";
@@ -57,7 +58,10 @@ export async function GET(request: Request) {
   // caller resolves to the "public" org), but requiring sign-in keeps the API and page in
   // lockstep and blocks anonymous enumeration of owner/repo slugs. Auth-off (local/demo)
   // deployments skip the gate, consistent with the rest of the app.
-  if (isAuthConfigured() && !(await getSession())) {
+  // Keyed on the DORMANT custom-OAuth predicate, this never fired in production: the 401 was dead code
+  // and the endpoint stayed anonymously reachable (org-scoping still prevented cross-tenant reads, but
+  // the slug-enumeration block the comment above promises did not exist). Gate on whichever stack is live.
+  if ((authGateEnabled() || isAuthConfigured()) && !(await resolveViewerLogin())) {
     return NextResponse.json({ error: "Sign in to view history." }, { status: 401 });
   }
 

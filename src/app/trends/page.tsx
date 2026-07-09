@@ -5,7 +5,8 @@ import { DimensionTrends } from "@/components/report/DimensionTrends";
 import { Trajectory } from "@/components/org/Trajectory";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
-import { getSessionState, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { readableOrgForOwner } from "@/lib/auth";
+import { resolveSignInState } from "@/lib/signin-gate";
 import { forecastTrajectory } from "@/lib/maturity/forecast";
 import { SignInNotice } from "@/components/SignInNotice";
 import { LevelBadge } from "@/components/LevelBadge";
@@ -46,13 +47,17 @@ export default async function TrendsPage({
 }) {
   const { repo } = await searchParams;
 
-  const { session, status } = await getSessionState();
-  if (isAuthConfigured() && !session) {
+  // The gate used to be `isAuthConfigured() && !session` — the DORMANT custom-OAuth predicate, false in
+  // production, so a signed-out visitor was never prompted (and readableOrgForOwner then resolved them
+  // to "public", so Trends said "No scans recorded yet"). Check the ACTIVE Supabase wall first.
+  const { needsSignIn, provider, expired } = await resolveSignInState();
+  if (needsSignIn) {
     return (
       <Shell>
         <SignInNotice
           next={repo ? `/trends?repo=${encodeURIComponent(repo)}` : "/trends"}
-          expired={status === "expired"}
+          provider={provider}
+          expired={expired}
         />
       </Shell>
     );

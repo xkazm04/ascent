@@ -3,7 +3,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { Shell, Notice } from "./usageShell";
 import { UsageDashboard } from "./usageDashboard";
 import { getBadgeReach, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type BadgeReach, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
-import { getActiveOrg, getSessionState, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
+import { getActiveOrg, PUBLIC_ORG } from "@/lib/auth";
+import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
 
 export const metadata = {
@@ -20,11 +21,14 @@ export default async function UsagePage({
 }) {
   const { org: orgParam, days: daysParam } = await searchParams;
 
-  const { session, status } = await getSessionState();
-  if (isAuthConfigured() && !session) {
+  // The gate used to be `isAuthConfigured() && !session` — the DORMANT custom-OAuth predicate, false
+  // in production, so a signed-out visitor was never prompted. resolveSignInState checks the ACTIVE
+  // Supabase wall first and names the button that actually works.
+  const { needsSignIn, provider, expired, session } = await resolveSignInState();
+  if (needsSignIn) {
     return (
       <Shell>
-        <SignInNotice next="/usage" expired={status === "expired"} />
+        <SignInNotice next="/usage" provider={provider} expired={expired} />
       </Shell>
     );
   }

@@ -8,7 +8,8 @@ import { ConnectDiscovered } from "@/components/connect/ConnectDiscovered";
 import { resolveInstallView } from "./installRouting";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 import { appConfigureUrl, appInstallUrl, isAppConfigured } from "@/lib/github/app";
-import { getSessionState, isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured } from "@/lib/auth";
+import { resolveSignInState } from "@/lib/signin-gate";
 import { listWatchedRepos } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export default async function ConnectPage({
 }) {
   const { org, installation_id, error, resynced, revoked } = await searchParams;
   const installUrl = appInstallUrl();
-  const { session, status } = await getSessionState();
+  const { needsSignIn, provider, expired, session } = await resolveSignInState();
 
   const header = (
     <>
@@ -88,12 +89,15 @@ export default async function ConnectPage({
   }
 
   // Auth configured but not signed in → require sign-in.
-  if (isAuthConfigured() && !session) {
+  // The gate used to be `isAuthConfigured() && !session` — the DORMANT custom-OAuth predicate, false
+  // in production, so a signed-out visitor was never prompted. resolveSignInState checks the ACTIVE
+  // Supabase wall first and names the button that actually works.
+  if (needsSignIn) {
     return (
       <Shell>
         <div className="animate-fade-up">
           {header}
-          <SignInNotice next="/connect" expired={status === "expired"} />
+          <SignInNotice next="/connect" provider={provider} expired={expired} />
         </div>
       </Shell>
     );
