@@ -156,6 +156,15 @@ export async function GET(
         engine: report.engine,
         confidence: report.confidence,
         warnings: report.warnings ?? [],
+        // `error` is what a generic CI wrapper prints on a non-2xx (scripts/maturity-gate.mjs falls back
+        // to "unknown" without it). A 503 with no explanation is as unactionable as the silent pass we
+        // just removed, so say plainly what happened and that retrying is the right move.
+        ...(degraded
+          ? {
+              error:
+                "The AI grade could not be produced (the LLM provider was unavailable, so the scan fell back to the deterministic floor). This verdict is NOT authoritative — retry the gate.",
+            }
+          : {}),
       },
       { status },
     );
