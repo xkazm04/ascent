@@ -48,13 +48,23 @@ export async function GET(request: Request) {
 
   try {
     const summary = await purgeExpiredData();
-    if (summary && summary.errors.length > 0) {
-      console.warn("[cron/purge] completed with errors", { errors: summary.errors });
-      // A DEGRADED run (a per-org prune threw, a destructive purge lost its compliance audit trace, or
-      // the time budget stopped the loop with orgs unprocessed) must NOT report a green 200: Vercel Cron
-      // and uptime monitors only watch the HTTP status, so a non-2xx is the only thing that pages an
-      // operator. Return 207 (Multi-Status) with the FULL summary in the body — the deletes that did
-      // succeed are still reported, but the run is visibly not-OK. A TOTAL failure still 500s (catch).
+    // A DEGRADED run must NOT report a green 200: Vercel Cron and uptime monitors only watch the HTTP
+    // status, so a non-2xx is the only thing that pages an operator. Two channels signal degradation and
+    // BOTH must trip the 207 — `errors` (a per-org prune threw, or a destructive purge lost its compliance
+    // audit trace) AND `stoppedEarly` (the wall-clock budget stopped the run before every org/sweep was
+    // reached). Gating on errors alone regressed the route's own invariant: the trailing orphan-audit and
+    // public-scan-quota sweeps set stoppedEarly but push NO error when the budget skips them (data-retention
+    // #2), so a run that silently skipped its sweeps returned 200. Widening the decision here (rather than
+    // scattering `(budget):` error strings across every skip branch) wires that second channel in one
+    // place. A TOTAL failure still 500s (catch).
+    if (summary && (summary.errors.length > 0 || summary.stoppedEarly)) {
+      console.warn("[cron/purge] completed degraded", {
+        errors: summary.errors,
+        stoppedEarly: summary.stoppedEarly,
+        orgsRemaining: summary.orgsRemaining,
+      });
+      // Return 207 (Multi-Status) with the FULL summary in the body — the deletes that did succeed are
+      // still reported, but the run is visibly not-OK.
       return NextResponse.json(summary, { status: 207 });
     }
     return NextResponse.json(summary ?? { skipped: "Database required." });

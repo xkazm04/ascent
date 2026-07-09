@@ -106,7 +106,10 @@ const PR_QUERY = `query Prs($owner:String!,$repo:String!,$num:Int!,$after:String
 // aggregated return) so the connection's shape doesn't inherit the derived `partial` flag.
 interface PrPage {
   totalCount: number;
-  nodes: PrNode[];
+  // On a partial page (node-level `errors`) GitHub nulls the individual PR elements that failed to
+  // resolve — the error propagates to the nearest nullable list slot — so an element can be null
+  // even though a complete connection yields PrNode. Callers must drop the nulls before use.
+  nodes: (PrNode | null)[];
   pageInfo: { hasNextPage: boolean; endCursor: string | null };
 }
 
@@ -163,7 +166,10 @@ export async function fetchPullRequests(
       break;
     }
     totalCount = pr.totalCount;
-    nodes.push(...pr.nodes);
+    // Drop the null slots a partial page leaves for the PRs that failed to resolve, so the
+    // aggregated `nodes` honours its PrNode[] type and summarizePullRequests (which dereferences
+    // every node) can't NPE on them. `partial` already flags the gap for the caller to surface.
+    nodes.push(...pr.nodes.filter((n): n is PrNode => n != null));
     if (!pr.pageInfo?.hasNextPage || pr.nodes.length === 0) break; // last (or short) page
     after = pr.pageInfo.endCursor;
   }

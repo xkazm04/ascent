@@ -42,6 +42,27 @@ const fixture: SecurityOverview = {
   ],
 };
 
+describe("securityMarkdown — degraded supply chain is stated, never implied clean", () => {
+  // getOrgSupplyChain returns { degraded: true, scanned: 0 } when the advisory fetch FAILED. The old
+  // gate was `supply.scanned > 0`, so a degraded result rendered exactly like a clean one: the section
+  // was simply omitted. A model handed that brief concludes the supply chain is fine and recommends
+  // nothing. The brief must say it could not look.
+  const degraded = { provider: "github", demo: false, degraded: true, scanned: 0, totals: { critical: 0, high: 0, medium: 0, low: 0, total: 0 }, repos: [] };
+
+  it("emits an explicit UNKNOWN section when the advisory fetch failed", () => {
+    const md = securityMarkdown(fixture, degraded as never);
+    expect(md).toContain("## Supply chain — UNKNOWN");
+    expect(md).toContain("not** evidence of a clean supply chain");
+    // and must NOT render the normal advisory summary
+    expect(md).not.toContain("Open advisories:");
+  });
+
+  it("omits the supply-chain section entirely when no supply data was requested", () => {
+    const md = securityMarkdown(fixture);
+    expect(md).not.toContain("## Supply chain");
+  });
+});
+
 describe("securityMarkdown", () => {
   const md = securityMarkdown(fixture);
 

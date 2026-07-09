@@ -51,6 +51,12 @@ export default async function OrgSecurity({
     ),
   ].join("\n");
   const supplyOn = !!supply && supply.scanned > 0;
+  // getOrgSupplyChain returns `degraded: true` with `scanned: 0` when the advisory fetch failed (GitHub
+  // auth/token failure), precisely so the caller does not mistake it for "no advisories". Nothing read
+  // that flag: `supplyOn` is false either way, `advisories` is passed as null, and the register renders
+  // a clean supply chain. A security view that reports "clean" when it could not look is the most
+  // dangerous false signal it can emit — surface it.
+  const supplyDegraded = !!supply?.degraded;
 
   return (
     <div className="space-y-6">
@@ -105,6 +111,13 @@ export default async function OrgSecurity({
           description={`All ${sec.scanned} scanned repos against the security gate (D9 ≥ ${gate.minSecurity}, not "ungoverned"), each graded 0–10 across the deterministic control battery + current vuln exposure. Failing repos first; ┃ divides posture from exposure.`}
           right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />}
         />
+        {supplyDegraded && (
+          <p role="status" className="mb-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-warn">
+            Vulnerability advisories couldn&apos;t be fetched for this org, so the exposure columns below are
+            blank — that is <strong>not</strong> a clean bill of health. Re-check the GitHub App installation
+            and its security-advisory access, then reload.
+          </p>
+        )}
         <SecurityRiskRegister
           org={slug}
           rows={sec.register}

@@ -43,7 +43,11 @@ const hoursBetween = (later: string, earlier: string): number | null => {
 };
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
-export function summarizePullRequests(nodes: PrNode[], totalCount: number): PrStats {
+export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: number): PrStats {
+  // A partial GraphQL page (node-level errors) can hand us null array slots for the PRs that failed
+  // to resolve; the loop below dereferences every node (`pr.state`, `pr.reviews…`), so drop the
+  // nulls up front rather than NPE on one. `analyzed` then reflects the PRs we could summarize.
+  const nodes = rawNodes.filter((n): n is PrNode => n != null);
   const analyzed = nodes.length;
   let open = 0,
     merged = 0,
@@ -278,16 +282,23 @@ export function applyGovernanceSignals(
   });
 }
 
-/** Fetch + summarize a repo's recent PRs. THROWS on transport failure (the underlying
- *  `fetchPullRequests` rejects) — it never resolves to null; the return type is non-nullable.
- *  Callers that want to degrade PR-less must wrap the call (see scan.ts: `.catch(() => null)`). */
+/** Fetch + summarize a repo's recent PRs, paired with the `partial` flag from the underlying
+ *  GraphQL walk. `partial` is true when a page returned `data` AND `errors` (a silently-incomplete
+ *  PR slice while `totalCount` still reports the true repo-wide count): the caller MUST annotate the
+ *  report "based on partial data" and NOT cache/persist the scan as authoritative, rather than
+ *  serving an under-stated review/AI-process score as complete (github-repo-data-access #1). A
+ *  complete result reports `partial:false`.
+ *  THROWS on transport failure (the underlying `fetchPullRequests` rejects) — it never resolves to
+ *  null; the return type is non-nullable. Callers that want to degrade PR-less must wrap the call
+ *  (see scan.ts: `.catch(() => null)`). */
 export async function fetchPrStats(
   owner: string,
   repo: string,
   token: string,
   signal?: AbortSignal,
   limit = 40,
-): Promise<PrStats> {
-  const { totalCount, nodes } = await fetchPullRequests(owner, repo, token, limit, signal);
-  return summarizePullRequests(nodes, totalCount);
+): Promise<{ stats: PrStats; partial: boolean }> {
+  const { totalCount, nodes, partial } = await fetchPullRequests(owner, repo, token, limit, signal);
+  // `partial` is omitted upstream on a complete result, so coerce to a definite boolean here.
+  return { stats: summarizePullRequests(nodes, totalCount), partial: Boolean(partial) };
 }

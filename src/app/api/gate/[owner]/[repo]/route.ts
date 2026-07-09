@@ -113,19 +113,51 @@ export async function GET(
       ? policyFromParams(searchParams, report.archetype)
       : (await getOrgGatePolicy(ownerN).catch(() => null)) ?? policyFromParams(searchParams, report.archetype);
     const gate = evaluateGate(report, policy);
+
+    // HONESTY GUARD (ci-gate-status-checks #2): the machine-readable verdict must never present a
+    // DEGRADED scan as a confident pass. When the caller asks for the real AI grade (?mock=0) but the
+    // LLM times out / is unconfigured, scanRepository falls back to the deterministic MockProvider and
+    // stamps engine.provider = "mock" (plus a warnings caveat). evaluateGate reads ONLY scores — never
+    // the engine or warnings — so a fabricated-floor scan can still say pass:true. Because the old body
+    // omitted warnings/engine and always returned 200 on a pass, `curl --fail` saw a clean green gate
+    // indistinguishable from a genuine AI-graded pass, and CI would merge on the floor score.
+    //
+    // Detect degradation with the SAME predicate the persistence layer uses as its cache-poisoning
+    // guard (scan-finalize.ts `classifyScanResult().degradedToMock`): the engine is "mock" while the
+    // request did NOT ask for mock. Inlined rather than imported because scan-finalize pulls in @/lib/db
+    // and @/lib/access — keep this unauthenticated route's module graph lean. The DEFAULT gate path
+    // (?mock omitted → mock=true) is the DOCUMENTED deterministic rubric, not a degradation: !mock is
+    // false there, so it keeps the exact 200-pass / 422-fail contract CI keys on.
+    const degraded = report.engine.provider === "mock" && !mock;
+    // Fail closed on degradation: force a non-2xx status (503 — the requested authoritative grade could
+    // not be produced) so `curl --fail` trips and CI cannot merge on a floor score, even when the gate
+    // math would "pass". Healthy scans (a real provider, or an explicit ?mock request) are untouched.
+    // We still return the FULL verdict + an explicit `degraded: true` so a consumer that reads the body
+    // knows why (and can retry), and always surface engine/confidence/warnings so any score — healthy or
+    // degraded — is read in context (mirrors the web report's ReportNotices, which the machine path lacked).
+    const status = degraded ? 503 : gate.pass ? 200 : 422;
     return NextResponse.json(
       {
         repo: `${ownerN}/${repoN}`,
         ref: ref ?? null,
         pass: gate.pass,
+        degraded,
         level: report.level.id,
         overallScore: report.overallScore,
         posture: report.posture.id,
         archetype: report.archetype,
         policy: gate.policy,
         failures: gate.failures,
+        // Degradation signals a CI consumer needs to trust — or distrust — the verdict:
+        //   engine      — which grader actually produced it ("mock" = deterministic floor, not the AI grade);
+        //   confidence  — 0..1 repo coverage (how much of the tree we could inspect);
+        //   warnings    — non-fatal reliability caveats (LLM fallback, low coverage, skipped PR signals).
+        // All three were omitted before, so no consumer could tell a degraded pass from a real one.
+        engine: report.engine,
+        confidence: report.confidence,
+        warnings: report.warnings ?? [],
       },
-      { status: gate.pass ? 200 : 422 },
+      { status },
     );
   } catch (err) {
     // Token-less ingest of a private (or missing) repo 404s. Say so plainly rather than reporting a

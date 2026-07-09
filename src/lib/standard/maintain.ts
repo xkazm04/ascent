@@ -10,7 +10,7 @@ import type { GeneratedFile } from "./types";
 const MAINTAIN = `#!/usr/bin/env node
 // .ai/maintain.mjs - keep the .ai/ standard fresh as the code changes (self-maintaining upkeep).
 // Subcommands:
-//   check               warn when a changed module's CONTEXT.md wasn't refreshed (run from pre-push)
+//   check               warn when a module changed in the PUSHED range but its CONTEXT.md wasn't (pre-push)
 //   note <kind> <text>  append a well-formed, auto-numbered memory entry
 //   touch <module-path> record that <module>/CONTEXT.md is reconciled to the current HEAD
 // Pass --strict to make 'check' fail (exit 1) instead of warning. Zero-dependency.
@@ -23,10 +23,52 @@ const INDEX = '.ai/context-index.json';
 const git = (a) => { try { return execSync('git ' + a, { encoding: 'utf8' }).trim(); } catch { return ''; } };
 const dirOf = (p) => { const i = p.lastIndexOf('/'); return i < 0 ? '.' : p.slice(0, i); };
 const loadIndex = () => { try { return JSON.parse(readFileSync(INDEX, 'utf8')); } catch { return { modules: [] }; } };
+const readStdin = () => { try { return readFileSync(0, 'utf8'); } catch { return ''; } };
+
+// The set of files 'check' should police depends on WHERE it runs. It is documented for a pre-push hook,
+// but PRE-PUSH is exactly where the old implementation silently did nothing: it diffed the working tree
+// (git diff HEAD / --cached), yet at pre-push time everything is already committed, so that diff is EMPTY
+// and every freshness/note warning was skipped for every push. We instead diff what is about to be
+// pushed. Pure string->records so the parser is unit-tested verbatim; git/base resolution lives in changed().
+// A ref DELETION (localSha all-zeros) pushes nothing to inspect, so it is dropped; a malformed line too.
+function parsePushLines(stdin) {
+  const refs = [];
+  for (const line of String(stdin || '').split('\\n')) {
+    const p = line.trim().split(/\\s+/);
+    if (p.length < 4) continue;
+    const localSha = p[1], remoteSha = p[3];
+    if (!localSha || /^0+$/.test(localSha)) continue;
+    refs.push({ localSha: localSha, remoteSha: remoteSha });
+  }
+  return refs;
+}
+
+// The rev range one pushed ref introduces. Existing remote branch: remoteSha..localSha (exactly the new
+// commits). Brand-new remote branch (remoteSha all-zeros, no base to diff from): fall back to the pushed/
+// tracked ref, else this tip's parent - so we still check the NEW commits, never the whole history.
+function rangeFor(r) {
+  if (r.remoteSha && !/^0+$/.test(r.remoteSha)) return r.remoteSha + '..' + r.localSha;
+  const base = git('rev-parse --verify --quiet @{push}') || git('rev-parse --verify --quiet @{upstream}') || (r.localSha + '~1');
+  return base + '..' + r.localSha;
+}
 
 function changed() {
-  const out = git('diff --name-only HEAD') + '\\n' + git('diff --name-only --cached');
-  return [...new Set(out.split('\\n').map((s) => s.trim()).filter(Boolean))];
+  const files = new Set();
+  const add = (out) => { for (const f of out.split('\\n')) { const t = f.trim(); if (t) files.add(t); } };
+  // 1) PRE-PUSH: git pipes the pushed refs on stdin as "<localRef> <localSha> <remoteRef> <remoteSha>".
+  //    Diff each pushed range - the commits about to leave this machine. A TTY stdin means there is no
+  //    pushed-ref payload (an interactive run), so we never block trying to read it.
+  const refs = process.stdin.isTTY ? [] : parsePushLines(readStdin());
+  if (refs.length) { for (const r of refs) add(git('diff --name-only ' + rangeFor(r))); return [...files]; }
+  // 2) PRE-PUSH under a hook runner that did NOT forward stdin: if HEAD is committed ahead of its push/
+  //    upstream ref AND the worktree is otherwise clean, diff those unpushed commits (a clean worktree
+  //    diffs to nothing - the whole bug). A dirty tree falls through to (3), so pre-commit/manual survive.
+  const base = git('rev-parse --verify --quiet @{push}') || git('rev-parse --verify --quiet @{upstream}');
+  if (base && !git('status --porcelain')) { add(git('diff --name-only ' + base + '..HEAD')); return [...files]; }
+  // 3) MANUAL run or a PRE-COMMIT placement: the uncommitted working tree + staged index (what it can see).
+  add(git('diff --name-only HEAD'));
+  add(git('diff --name-only --cached'));
+  return [...files];
 }
 
 if (cmd === 'check') {

@@ -248,7 +248,8 @@ async function runScan(
     orgSlug = report.repo.owner.trim().toLowerCase() || parsed.owner.toLowerCase();
   }
 
-  const { degradedToMock, lowCoverage } = classifyScanResult(report, opts.mock);
+  const resultClass = classifyScanResult(report, opts.mock);
+  const { degradedToMock } = resultClass;
   // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not the
   // product the slot pays for — refund both the weekly slot and any reserved credit ("a degrade-to-mock
   // run is free"). The quota headers below may overstate usage by this one refunded slot (soft gate).
@@ -260,7 +261,8 @@ async function runScan(
   // degraded/low-coverage report (lookupCachedScan's DB tier would otherwise re-serve the floor cross-
   // instance under ::llm — the same poisoning the cacheSet skip prevents). `persistedOk` is false when
   // the atomic persist threw and rolled the whole scan back (surfaced as a degraded response header).
-  const { deduped, persistedOk } = await cacheAndPersistScan(report, { degradedToMock, lowCoverage }, {
+  // Pass the whole guard object so a new poisoning vector (e.g. partialPrSlice) can't be dropped here.
+  const { deduped, persistedOk } = await cacheAndPersistScan(report, resultClass, {
     tag: "scan",
     repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
     orgSlug,

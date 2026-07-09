@@ -118,7 +118,35 @@ describe("doctor", () => {
     // Regression: a capability named `evals` once shadowed paths.evals via a naive first-match.
     expect(buildDoctor().body).toContain("scope to the paths: block");
   });
+
+  it("matches a pre-push control by WORD-boundary token, not naive substring (false 'wired' pass)", () => {
+    // Finding #2: the hook-wiring check used `hookText.includes(alias)`, so 'build:latest'.includes('test')
+    // reported a control as wired when it wasn't. Extract the SHIPPED `wired()` verbatim and pin it.
+    const wired = loadDoctorWired();
+    // The exact false pass the finding calls out: 'test' is a substring of 'latest'.
+    expect(wired("npm run build:latest", "test")).toBe(false);
+    expect(wired("npm test", "test")).toBe(true);
+    // Flag/multi-word aliases still match — their own edges are already non-alphanumeric.
+    expect(wired("pytest --cov=src", "--cov")).toBe(true);
+    expect(wired("go vet ./...", "go vet")).toBe(true);
+    // Hyphen/colon boundaries count (npm-script / lefthook style), so a genuinely wired hook still passes.
+    expect(wired("    lint: { run: npm run lint }", "lint")).toBe(true);
+    // Genuinely absent -> no false positive.
+    expect(wired("npm run build", "test")).toBe(false);
+    // The doctor uses it, not the old raw includes().
+    expect(buildDoctor().body).toContain("al.some((a) => wired(hookText, a))");
+  });
 });
+
+/** Extract the doctor's SHIPPED `wired()` helper verbatim and compile it (mirrors loadDoctorParsers). */
+function loadDoctorWired(): (hookText: string, alias: string) => boolean {
+  const body = buildDoctor().body;
+  const start = body.indexOf("function wired(");
+  const end = body.indexOf("\nfunction kv(", start);
+  if (start < 0 || end < 0) throw new Error("doctor wired() helper not found in emitted source");
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  return new Function(body.slice(start, end) + "\nreturn wired;")() as (h: string, a: string) => boolean;
+}
 
 describe("conformance wiring (one script, two layers)", () => {
   it("emits a CI hard-pass that runs the same doctor command", () => {
@@ -144,7 +172,57 @@ describe("maintain (self-maintaining upkeep)", () => {
     expect(m.body).not.toContain("`");
     expect(m.body).not.toContain("${");
   });
+
+  it("check diffs the PUSHED RANGE at pre-push, not the (clean) worktree", () => {
+    // Finding #1: at pre-push the worktree is already committed, so the old `git diff HEAD` / `--cached`
+    // saw nothing and the guardrail silently never fired. The check must diff what is about to be pushed.
+    const body = buildMaintain().body;
+    // Reads git's pre-push ref feed from stdin (the authoritative pre-push signal), guarded by isTTY so a
+    // manual/interactive run never blocks reading fd 0.
+    expect(body).toContain("process.stdin.isTTY");
+    expect(body).toContain("parsePushLines");
+    // Diffs a RANGE (remoteSha..localSha via rangeFor, or base..HEAD), not just the working tree.
+    expect(body).toContain("diff --name-only ' + rangeFor(r)");
+    expect(body).toContain("@{push}");
+    expect(body).toContain("@{upstream}");
+    expect(body).toContain("'..HEAD'");
+    // Detects pre-commit / manual (a dirty tree) rather than guessing, so those placements still work.
+    expect(body).toContain("status --porcelain");
+    // The worktree + index diff survives ONLY as the manual/pre-commit fallback.
+    expect(body).toContain("diff --name-only --cached");
+  });
+
+  it("parsePushLines turns git's pre-push stdin into ranges, dropping deletions and junk", () => {
+    // Extract the SHIPPED parser verbatim (mirrors loadMaintainNoteLogic) and exercise the exact regex/
+    // field logic that resolves the pushed range — so a revert to worktree-only diffing breaks loudly.
+    const parse = loadPushLineParser();
+    const Z = "0".repeat(40);
+    const stdin =
+      "refs/heads/main aaa111 refs/heads/main bbb222\n" + // update to an existing remote branch
+      "refs/heads/feat ccc333 refs/heads/feat " + Z + "\n" + // brand-new remote branch (zero remote sha)
+      "(delete) " + Z + " refs/heads/old ddd444\n" + // deletion (zero local sha) -> dropped
+      "\n" + // blank line -> dropped
+      "a b c\n"; // fewer than 4 fields -> dropped
+    expect(parse(stdin)).toEqual([
+      { localSha: "aaa111", remoteSha: "bbb222" },
+      { localSha: "ccc333", remoteSha: Z }, // new-branch tip preserved; rangeFor() resolves its base
+    ]);
+    // Tolerates arbitrary run-length whitespace between fields.
+    expect(parse("refs/heads/x   111   refs/heads/x   222")).toEqual([{ localSha: "111", remoteSha: "222" }]);
+    // No pushed refs (a pre-commit/manual invocation feeds no ref lines) -> empty, so changed() falls back.
+    expect(parse("")).toEqual([]);
+  });
 });
+
+/** Extract the maintain script's SHIPPED pure `parsePushLines()` verbatim and compile it. */
+function loadPushLineParser(): (stdin: string) => { localSha: string; remoteSha: string }[] {
+  const body = buildMaintain().body;
+  const start = body.indexOf("function parsePushLines(");
+  const end = body.indexOf("\nfunction rangeFor(", start);
+  if (start < 0 || end < 0) throw new Error("maintain parsePushLines() not found in emitted source");
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  return new Function(body.slice(start, end) + "\nreturn parsePushLines;")();
+}
 
 describe("foundation", () => {
   it("bundles manifest, doctor, CI gate, maintain, memory and context in scaffold order", () => {

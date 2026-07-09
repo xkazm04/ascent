@@ -28,6 +28,7 @@ vi.mock("@/lib/db/scans", () => ({ recordAudit: vi.fn(async () => true) }));
 vi.mock("@/lib/public-scan-quota", () => ({ purgeStalePublicScanQuota: vi.fn(async () => 0) }));
 
 import { recordAudit } from "@/lib/db/scans";
+import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 
 const ENV_KEYS = ["RETENTION_MAX_SCANS_PER_REPO", "RETENTION_AUDIT_DAYS", "RETENTION_BATCH_SIZE"] as const;
 
@@ -1036,5 +1037,108 @@ describe("purgeExpiredData — wall-clock budget + rotation (tail-org starvation
     expect(summary!.orgsRemaining).toBe(0);
     expect(summary!.orgsProcessed).toBe(2);
     expect(summary!.errors).toEqual([]);
+  });
+
+  it("interrupts a SINGLE large org BETWEEN repos and still records its partial committed deletes (finding #1)", async () => {
+    // The exact fleet the budget exists to protect: one org with many repos. The budget must be polled
+    // INSIDE the org's repo loop, not only between orgs — otherwise this org runs its whole delete loop
+    // past maxDuration and is hard-killed mid-delete with no summary. Here the injected clock crosses the
+    // budget AFTER repo_1's scan delete commits, so repo_2 is never reached; the run must YIELD with
+    // repo_1's committed deletes reflected, not lost.
+    const deletedScanIds: string[] = [];
+    const scanSelectsFor: string[] = [];
+    let repo1Committed = 0; // flips the injected clock once repo_1's delete commits
+    const tx = {
+      recommendation: { findMany: vi.fn(async () => []), deleteMany: vi.fn(async () => ({ count: 0 })) },
+      recommendationEvent: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+      scanDimension: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+      scan: {
+        deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
+          for (const id of where.id.in) deletedScanIds.push(id);
+          repo1Committed += 1;
+          return { count: where.id.in.length };
+        }),
+      },
+    };
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_mega", slug: "mega", retentionMaxScans: 1, retentionAuditDays: 0 },
+        ]),
+      },
+      // One short page of two repos (< REPO_PAGE_SIZE), pruned in order repo_1 then repo_2.
+      repository: { findMany: vi.fn(async () => [{ id: "repo_1" }, { id: "repo_2" }]) },
+      scan: {
+        findMany: vi.fn(async ({ where }: { where: { repoId: string } }) => {
+          scanSelectsFor.push(where.repoId);
+          return [{ id: "s1" }, { id: "s2" }]; // two stale scans for whichever repo is pruned
+        }),
+      },
+      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // Budget 100ms. now()=0 until repo_1's delete commits, then 999 (over budget) — so the between-repos
+    // check performed BEFORE repo_2 trips and stops the org mid-way.
+    const summary = await purgeExpiredData({
+      timeBudgetMs: 100,
+      now: () => (repo1Committed >= 1 ? 999 : 0),
+      random: () => 0,
+    });
+
+    expect(summary).not.toBeNull();
+    // The org yielded BEFORE repo_2 — only repo_1's scans were ever selected/deleted (the interrupt is
+    // INSIDE the org, not merely between orgs).
+    expect(scanSelectsFor).toEqual(["repo_1"]);
+    expect(deletedScanIds.sort()).toEqual(["s1", "s2"]);
+    // The partial run is visible + resumable: stoppedEarly, a resume tail, and a `(budget):` error so the
+    // route's 207 gate trips — instead of a hard kill with no summary.
+    expect(summary!.stoppedEarly).toBe(true);
+    expect(summary!.orgsRemaining).toBe(1); // the mega org still holds repo_2 for the next tick
+    expect(summary!.errors.some((e) => e.startsWith("(budget):"))).toBe(true);
+    // repo_1's committed deletes ARE reflected in the roll-up (not discarded on the early stop).
+    expect(summary!.orgsProcessed).toBe(1);
+    expect(summary!.scansDeleted).toBe(2);
+    expect(summary!.results[0]!.scansDeleted).toBe(2);
+  });
+
+  it("skips the trailing sweeps on budget and sets stoppedEarly WITHOUT an error (finding #2 — the silent channel)", async () => {
+    // The silent-failure path: the org loop finishes fully WITHIN budget (so it pushes no `(budget):`
+    // error), but the clock then crosses the budget, so the org-less orphan-audit sweep AND the
+    // public-scan-quota sweep are skipped. They set stoppedEarly but push NO error. This proves the two
+    // degraded-signal channels can diverge — errors=[] yet stoppedEarly=true — which is exactly why
+    // route.ts now returns 207 on stoppedEarly, not only on errors.length (else this run would be a green 200).
+    process.env.RETENTION_AUDIT_DAYS = "14"; // arm the org-less orphan sweep (defaults.auditDays > 0)
+    const auditFindMany = vi.fn(async () => []);
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          // A 0/0 org: the loop completes within budget with nothing to push to errors.
+          { id: "org_1", slug: "a", retentionMaxScans: 0, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) },
+      scan: { findMany: vi.fn(async () => []) },
+      auditLog: { findMany: auditFindMany, deleteMany: vi.fn(async () => ({ count: 0 })) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // Under budget while the (empty) org loop runs; over budget by the time the trailing sweeps are reached.
+    const clock = [0, 0, 999, 999];
+    let t = 0;
+    const summary = await purgeExpiredData({
+      timeBudgetMs: 100,
+      now: () => clock[Math.min(t++, clock.length - 1)]!,
+      random: () => 0,
+    });
+
+    expect(summary).not.toBeNull();
+    // Degraded via the stoppedEarly channel ALONE — the org loop pushed no `(budget):` error…
+    expect(summary!.stoppedEarly).toBe(true);
+    expect(summary!.errors).toEqual([]);
+    // …because BOTH trailing sweeps were skipped by the budget (never queried / never invoked).
+    expect(auditFindMany).not.toHaveBeenCalled();
+    expect(vi.mocked(purgeStalePublicScanQuota)).not.toHaveBeenCalled();
   });
 });

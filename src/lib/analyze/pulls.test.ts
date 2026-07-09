@@ -5,10 +5,15 @@
 // whose merged PRs are ALL bot-authored has no measurable human review discipline — that must
 // surface as null, not a fabricated "0% reviewed" that drags D6 and misinforms the LLM auditor.
 
-import { describe, it, expect } from "vitest";
-import { applyPrSignals, summarizePullRequests } from "./pulls";
+import { describe, it, expect, vi } from "vitest";
+import { applyPrSignals, fetchPrStats, summarizePullRequests } from "./pulls";
 import type { PrNode } from "@/lib/github/graphql";
+import { fetchPullRequests } from "@/lib/github/graphql";
 import type { DimensionSignals, PrStats } from "@/lib/types";
+
+// fetchPrStats reaches GitHub via fetchPullRequests; mock that so we can assert the `partial`
+// flag round-trips out of fetchPrStats (github-repo-data-access #1) without a live GraphQL call.
+vi.mock("@/lib/github/graphql", () => ({ fetchPullRequests: vi.fn() }));
 
 function pr(over: Partial<PrNode> = {}): PrNode {
   return {
@@ -91,6 +96,39 @@ describe("summarizePullRequests — reviewedRate no-sample (maturity #3)", () =>
 
   it("returns null for an empty window", () => {
     expect(summarizePullRequests([], 0).reviewedRate).toBeNull();
+  });
+});
+
+describe("summarizePullRequests — null nodes from a partial page (github-repo-data-access #1)", () => {
+  it("does not crash on null node slots and excludes them from `analyzed`", () => {
+    // A partial GraphQL page leaves null slots for the PRs that failed to resolve. The summarizer
+    // dereferences every node, so an unfiltered null used to NPE on `pr.state`.
+    const stats = summarizePullRequests([pr({ number: 1 }), null, pr({ number: 2 })], 5);
+    expect(stats.analyzed).toBe(2); // two real PRs summarized; the null slot dropped
+    expect(stats.totalCount).toBe(5); // repo-wide count still honoured
+  });
+
+  it("handles an all-null page without throwing", () => {
+    const stats = summarizePullRequests([null, null], 2);
+    expect(stats.analyzed).toBe(0);
+    expect(stats.reviewedRate).toBeNull();
+  });
+});
+
+describe("fetchPrStats — partial flag propagation (github-repo-data-access #1)", () => {
+  const mockFetch = vi.mocked(fetchPullRequests);
+
+  it("surfaces partial:true when the underlying PR page was incomplete", async () => {
+    mockFetch.mockResolvedValueOnce({ totalCount: 5, nodes: [pr()], partial: true });
+    const res = await fetchPrStats("o", "r", "tok");
+    expect(res.partial).toBe(true); // caller must annotate + skip caching as authoritative
+    expect(res.stats.analyzed).toBe(1);
+  });
+
+  it("reports partial:false for a complete page (flag omitted upstream)", async () => {
+    mockFetch.mockResolvedValueOnce({ totalCount: 1, nodes: [pr()] });
+    const res = await fetchPrStats("o", "r", "tok");
+    expect(res.partial).toBe(false);
   });
 });
 

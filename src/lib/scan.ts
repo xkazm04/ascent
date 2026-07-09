@@ -180,7 +180,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // Pull-request ingestion (GraphQL) runs in parallel with the REST snapshot fetch, then is
   // awaited before analysis so PR signals fold into the dimension scores (F4). GraphQL needs a
   // token — skip gracefully (null) when scanning anonymously.
-  const prPromise: Promise<PrStats | null> = token
+  const prPromise: Promise<{ stats: PrStats; partial: boolean } | null> = token
     ? fetchPrStats(parsed.owner, parsed.repo, token, signal).catch((err) => {
         console.error("[scan] PR ingestion failed:", err);
         return null;
@@ -218,7 +218,12 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     : Promise.resolve(null);
 
   emit({ stage: "analyze", message: `Analyzing signals across ${DIMENSIONS.length} dimensions…`, pct: 62 });
-  const [prStats, governance, securityPosture, securityExposure] = await Promise.all([prPromise, govPromise, secPromise, expPromise]);
+  const [prResult, governance, securityPosture, securityExposure] = await Promise.all([prPromise, govPromise, secPromise, expPromise]);
+  const prStats = prResult?.stats ?? null;
+  // graphql.ts sets `partial` when the PR page came back truncated (null nodes / an `errors` array on a
+  // 200). It documented that such results must not be treated as authoritative or cached — and then no
+  // consumer read it, so a truncated slice silently deflated D6/D7/D8 on large or rate-limited repos.
+  const prPartial = prResult?.partial ?? false;
   // Resolve the scan timestamp up front and thread it through signal extraction, so D7's
   // recency bonus is deterministic (and the same `now` stamps the report below).
   const now = opts.now ?? new Date().toISOString();
@@ -512,6 +517,15 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // mobile delivery, embedded/firmware) so the score is read honestly rather than taken at face value.
   // Detected once above and also threaded into the LLM prompt (Tiger P0-2) — reuse it here.
   if (stackFit) warnings.push(stackFit.caveat);
+  // A truncated PR slice makes D6/D7/D8 understate. Say so on the report (the UI, the LLM export and the
+  // CI gate all read `warnings`), and stamp the typed flag classifyScanResult uses to refuse caching or
+  // persisting this report as authoritative.
+  if (prPartial) {
+    report.prPartial = true;
+    warnings.push(
+      "Pull-request data was incomplete (GitHub returned a truncated page), so the Review, Velocity and Delivery dimensions may understate. This scan was not cached.",
+    );
+  }
   if (warnings.length) report.warnings = [...(report.warnings ?? []), ...warnings];
 
   emit({ stage: "done", message: "Done", pct: 100 });

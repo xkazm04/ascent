@@ -225,7 +225,17 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
   out.push(`- Policy: Security (D9) >= ${o.securityGate.minSecurity}, no "ungoverned" posture`);
   out.push(`- ${o.securityGate.failing} of ${o.scanned} repos FAIL the gate`);
   for (const r of o.securityGate.failingRepos) out.push(`  - ${r.name}: ${r.reason}`);
-  if (supply && supply.scanned > 0) {
+  if (supply?.degraded) {
+    // getOrgSupplyChain sets `degraded` (with scanned: 0) when the advisory fetch FAILED, precisely so a
+    // caller cannot mistake it for "no advisories". Omitting the section silently would hand the model a
+    // brief that reads as a clean supply chain and invite it to recommend nothing — the most dangerous
+    // false signal a security brief can carry. State the gap instead.
+    out.push("");
+    out.push("## Supply chain — UNKNOWN");
+    out.push(
+      "- Advisory data could NOT be fetched for this org (GitHub advisory access failed). Absence of advisories below is **not** evidence of a clean supply chain. Do not treat this section as a pass.",
+    );
+  } else if (supply && supply.scanned > 0) {
     out.push("");
     out.push(`## Supply chain (Dependabot${supply.demo ? " — demo data" : ""})`);
     out.push(`- Open advisories: ${supply.totals.critical} critical · ${supply.totals.high} high · ${supply.totals.medium} medium · ${supply.totals.low} low`);

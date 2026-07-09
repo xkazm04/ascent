@@ -519,6 +519,11 @@ export interface ScanReport {
   passport?: AppPassport;
   /** Non-fatal caveats about this scan's reliability (low coverage, LLM fallback, …). */
   warnings?: string[];
+  /** The PR slice this report's D6/D7/D8 signals were derived from was INCOMPLETE — GraphQL returned a
+   *  truncated page (null nodes / an `errors` array on a 200). The scores understate reality, so the
+   *  report must not be cached or persisted as authoritative. `graphql.ts` computes this and `pulls.ts`
+   *  propagates it; before this existed the flag was computed, documented, and read by nobody. */
+  prPartial?: boolean;
   scannedAt: string;
   engine: { provider: ProviderName; model: string };
   /** LLM token usage + wall-clock latency for THIS scan's model call — the cost/usage metering basis.

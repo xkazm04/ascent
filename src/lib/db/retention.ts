@@ -35,7 +35,9 @@ const RETENTION_MAX_BATCH_SIZE = 5000;
 // Soft wall-clock budget for a single purge run (data-retention #2). The /api/cron/purge function caps
 // at maxDuration=300s, so stop cleanly a bit before that: a large fleet then returns a proper (partial)
 // summary that records where it stopped, instead of being hard-killed mid-delete with no throw and no
-// summary log. Override via RETENTION_TIME_BUDGET_MS (ms). Governs the per-org loop and the trailing sweeps.
+// summary log. Override via RETENTION_TIME_BUDGET_MS (ms). Governs the per-org loop, its INNER repo/scan/
+// audit batches (data-retention #1 — a single mega-org must yield too, not only the gaps between orgs),
+// and the trailing sweeps.
 export const RETENTION_DEFAULT_TIME_BUDGET_MS = 250_000;
 /** Repos enumerated per page when pruning an org, so a fleet org's repo list is never read all at once. */
 const REPO_PAGE_SIZE = 500;
@@ -100,8 +102,15 @@ async function deleteInPages(
   selectIds: () => Promise<string[]>,
   deleteByIds: (ids: string[]) => Promise<number>,
   batchSize: number,
+  budgetExceeded?: () => boolean,
 ): Promise<void> {
   for (;;) {
+    // Yield BETWEEN batches when the run's wall-clock budget is spent (data-retention #1). A single
+    // long-watched repo (or a huge org-less audit sweep) can otherwise loop for minutes here with no
+    // budget check, blowing past the route's maxDuration and getting hard-killed mid-delete. We only
+    // stop at a batch boundary — every committed batch was its own transaction, so the partial state is
+    // safe and the next tick's re-selection resumes exactly where this one left off.
+    if (budgetExceeded?.()) break;
     const ids = await selectIds();
     if (ids.length === 0) break;
     const deleted = await deleteByIds(ids);
@@ -115,6 +124,7 @@ async function pruneRepoScans(
   repoId: string,
   max: number,
   batchSize: number,
+  budgetExceeded?: () => boolean,
 ): Promise<{ scans: number; dimensions: number; recommendations: number; events: number }> {
   let scans = 0;
   let dimensions = 0;
@@ -167,6 +177,7 @@ async function pruneRepoScans(
       return counts.sc; // progress count → zero stops the loop (a delete that removed no scan rows)
     },
     batchSize,
+    budgetExceeded, // stop between batches once the run is over budget (data-retention #1)
   );
   return { scans, dimensions, recommendations, events };
 }
@@ -176,6 +187,7 @@ async function pruneAudit(
   prisma: PrismaLike,
   where: Prisma.AuditLogWhereInput,
   batchSize: number,
+  budgetExceeded?: () => boolean,
 ): Promise<number> {
   let total = 0;
   await deleteInPages(
@@ -193,6 +205,7 @@ async function pruneAudit(
       return count;
     },
     batchSize,
+    budgetExceeded, // a large audit sweep must also yield between batches (data-retention #1)
   );
   return total;
 }
@@ -316,6 +329,13 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
       let recommendationsDeleted = 0;
       let recommendationEventsDeleted = 0;
       let auditDeleted = 0;
+      // Set once the wall-clock budget trips WHILE this org is being pruned (data-retention #1). The
+      // budget used to be polled only between orgs, so the one fleet org it exists to protect — thousands
+      // of repos, huge scan histories — ran its entire delete loop past maxDuration and was hard-killed
+      // mid-delete with no summary and no alert. We now poll inside the repo loop (and inside
+      // pruneRepoScans/pruneAudit) and, on a trip, stop at the next repo/batch boundary. Committed batches
+      // are durable, so this org's partial deletes are safe/resumable on the next (re-shuffled) tick.
+      let budgetStopped = false;
 
       if (policy.maxScansPerRepo > 0) {
         // Page the repo enumeration with a stable id cursor (data-retention #5): the prior single
@@ -325,7 +345,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         // last id; stop on a short page. Keep per-repo pruning serial so DSQL conflict pressure stays
         // bounded (each prune is itself batched + retry-on-conflict).
         let repoCursor: string | undefined;
-        for (;;) {
+        repoPages: for (;;) {
           const repos = await prisma.repository.findMany({
             where: { orgId: org.id },
             orderBy: { id: "asc" },
@@ -335,7 +355,14 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           });
           if (repos.length === 0) break;
           for (const repo of repos) {
-            const r = await pruneRepoScans(prisma, repo.id, policy.maxScansPerRepo, policy.batchSize);
+            // Poll the budget BETWEEN repos (data-retention #1): stop before starting another repo's
+            // prune once the budget is spent, so a mega-org yields control instead of being hard-killed.
+            // The scans already deleted this tick stand; the unreached repos resume next tick.
+            if (overBudget()) {
+              budgetStopped = true;
+              break repoPages;
+            }
+            const r = await pruneRepoScans(prisma, repo.id, policy.maxScansPerRepo, policy.batchSize, overBudget);
             scansDeleted += r.scans;
             dimensionsDeleted += r.dimensions;
             recommendationsDeleted += r.recommendations;
@@ -346,9 +373,12 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         }
       }
 
-      if (policy.auditDays > 0) {
-        const cutoff = new Date(Date.now() - policy.auditDays * DAY_MS);
-        auditDeleted = await pruneAudit(prisma, { orgId: org.id, at: { lt: cutoff } }, policy.batchSize);
+      // Skip this org's audit sweep if the scan prune already exhausted the budget; run it otherwise,
+      // and treat a budget-interrupted (partial) sweep as a mid-org stop too (data-retention #1).
+      if (!budgetStopped && policy.auditDays > 0) {
+        const cutoff = new Date(now() - policy.auditDays * DAY_MS);
+        auditDeleted = await pruneAudit(prisma, { orgId: org.id, at: { lt: cutoff } }, policy.batchSize, overBudget);
+        if (overBudget()) budgetStopped = true;
       }
 
       // The purge job records its own audit entry (compliance trace of what was removed).
@@ -390,6 +420,19 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         recommendationEventsDeleted,
         auditDeleted,
       });
+
+      if (budgetStopped) {
+        // The budget was exhausted inside this org (data-retention #1). Surface it the SAME way the
+        // between-orgs stop does — set stoppedEarly, count the resume tail (this org included, since it
+        // may still hold stale rows), and push a `(budget):` error so the route's 207 gate trips and cron
+        // alerting pages an operator — instead of the platform hard-killing the run with no summary.
+        stoppedEarly = true;
+        orgsRemaining = orgs.length - i;
+        errors.push(
+          `(budget): retention stopped mid-org (${org.slug}) after ${Math.round((now() - startedAt) / 1000)}s with ${orgsRemaining} org(s) unprocessed this tick`,
+        );
+        break;
+      }
     } catch (err) {
       errors.push(`${org.slug}: ${err instanceof Error ? err.message : "purge failed"}`);
     }
@@ -402,8 +445,13 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     stoppedEarly = true;
   } else if (defaults.auditDays > 0) {
     try {
-      const cutoff = new Date(Date.now() - defaults.auditDays * DAY_MS);
-      const auditDeleted = await pruneAudit(prisma, { orgId: null, at: { lt: cutoff } }, defaults.batchSize);
+      // Compute the cutoff from the SAME injectable clock as the budget (data-retention #5): now() is
+      // opts.now ?? Date.now, so a test/simulation that advances opts.now moves the window and the budget
+      // together instead of silently diverging them. Thread overBudget in so a large org-less sweep also
+      // yields between batches, and mark stoppedEarly if it stopped short.
+      const cutoff = new Date(now() - defaults.auditDays * DAY_MS);
+      const auditDeleted = await pruneAudit(prisma, { orgId: null, at: { lt: cutoff } }, defaults.batchSize, overBudget);
+      if (overBudget()) stoppedEarly = true;
       if (auditDeleted > 0) {
         const audited = await recordAudit(PURGE_ACTION, { auditDeleted, scope: "orphan" }, { actorId: opts.actorId });
         if (!audited) {
