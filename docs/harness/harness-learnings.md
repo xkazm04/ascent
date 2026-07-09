@@ -1387,14 +1387,17 @@ New structural facts:
 
 - **CORRECTION to the 2026-06-29 list:** the **DimensionTrends stale-repo race is FIXED** (AbortController
   + unmount abort now present). Verified 2026-07-09. Only a latent, unreachable residual remains.
-- **Wave 2 — null-actor audit attribution (7 findings, High).** Audit rows, timeline events, `createdBy`
-  and `appliedBy` are all written as `null` under the Supabase wall: `security-posture` (gate-policy,
-  alerts, invites), `members/route.ts:62`, `invites/route.ts:64`, `playbooks`, `recommendations/[id]:53`,
-  `backlog`, `fleet-alerts`, `ci-gate`. All fix to `resolveViewerLogin()`.
-- **Wave 3 — feature lockouts from `readableOrgForOwner` (auth.ts:336)**, which always returns `"public"`
-  in prod: private-repo Trends/Compare/`/api/history`, the Private-tier PDF export, the report permalink,
-  `passport/pr` (403s on every org repo), `getActiveOrg`/`orgOptionsForSession` (dead org switcher), and
-  **the invite accept *page* (`invite/[token]/page.tsx:63`) — no invited teammate can accept in prod.**
+- **DONE (Waves 1-3, 2026-07-09):** the dormant-auth cluster is closed. 5 Criticals (token minting),
+  19 routes of null-actor audit attribution, `readableOrgForOwner`, and the dead invite accept page.
+  See `bug-ui-scan-2026-07-09/FIXES-WAVE-1.md` and `FIXES-WAVE-2-3.md`.
+- **DEFERRED — the org switcher.** `getActiveOrg`/`orgOptionsForSession` (auth.ts:348) derive the org list
+  from **session installations**, so under the Supabase wall it collapses to `["public"]` and
+  `POST /api/org/active` rejects every real org. Needs a data-path change, not a predicate swap:
+  `listOrgsForLogin(login)` already exists at `src/lib/db/members.ts:205`. Add `orgOptionsForViewer()`
+  (resolveViewerLogin -> listOrgsForLogin -> slugs + PUBLIC_ORG last), then swap `Brand.tsx:47-48`,
+  `org/page.tsx:14`, `usage/page.tsx:33`, `api/org/active/route.ts:42`, and make `getActiveOrg` validate
+  the ACTIVE_ORG cookie against the viewer's orgs (auth.test.ts:697 pins that invariant).
+  Deferred because it touches `Brand.tsx`, which had uncommitted WIP. Needs a clean tree.
 - **`/api/gate` no longer serves private repos** (Wave 1, deliberate). If private-repo HTTP gating is a
   product requirement, it needs an authenticated variant; the App check-run path already covers CI.
 - **~297 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
