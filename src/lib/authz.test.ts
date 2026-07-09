@@ -74,6 +74,7 @@ vi.mock("@/lib/db/members", () => ({
 }));
 
 import {
+  canMintInstallationToken,
   canReadOrg,
   openOrgDashboardsEnabled,
   requireOrgAccess,
@@ -205,6 +206,62 @@ describe("session installation checks (scan-token IDOR)", () => {
     mockGetSession.mockResolvedValue(null);
     expect(await sessionOwnsOrg("acme")).toBe(false);
     expect(await sessionHasInstallation(1)).toBe(false);
+  });
+});
+
+/**
+ * The installation token reads an org's PRIVATE repos. Production runs the Supabase wall with the
+ * custom OAuth env UNSET, so `isAuthConfigured()` is false there. The predicate these tests replace
+ * (`!isAuthConfigured() || sessionOwnsOrg(owner)`) therefore short-circuited to TRUE for every caller.
+ * The first case below is the one that was exploitable in prod; it must fail closed.
+ */
+describe("canMintInstallationToken (private-repo token gate)", () => {
+  it("PROD SHAPE: Supabase wall on, legacy OAuth off — a signed-in NON-member cannot mint", async () => {
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false); // the production configuration
+    mockGetViewer.mockResolvedValue({ id: "1", login: "mallory" });
+    mockGetMembershipRole.mockResolvedValue(null); // no standing in victim org
+    mockOrgHasOwner.mockResolvedValue(true); // owned org ⇒ no bootstrap seed
+    expect(await canMintInstallationToken("victim-org")).toBe(false);
+  });
+
+  it("PROD SHAPE: an anonymous caller cannot mint", async () => {
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockGetViewer.mockResolvedValue(null);
+    expect(await canMintInstallationToken("victim-org")).toBe(false);
+  });
+
+  it("PROD SHAPE: a real member CAN mint (viewer role suffices)", async () => {
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockGetViewer.mockResolvedValue({ id: "1", login: "alice" });
+    mockGetMembershipRole.mockResolvedValue("viewer");
+    expect(await canMintInstallationToken("acme")).toBe(true);
+  });
+
+  it("PUBLIC_ORG is never mintable — it is a funnel bucket, not an identity", async () => {
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockGetViewer.mockResolvedValue({ id: "1", login: "alice" });
+    mockGetMembershipRole.mockResolvedValue("owner");
+    expect(await canMintInstallationToken("public")).toBe(false);
+    expect(await canMintInstallationToken("PUBLIC")).toBe(false);
+    expect(await canMintInstallationToken("  ")).toBe(false);
+  });
+
+  it("dormant OAuth still configured (dev): falls back to session installations", async () => {
+    mockAuthGateEnabled.mockReturnValue(false);
+    mockIsAuthConfigured.mockReturnValue(true);
+    mockGetSession.mockResolvedValue(sessionWith(["acme"]));
+    expect(await canMintInstallationToken("ACME")).toBe(true);
+    expect(await canMintInstallationToken("other")).toBe(false);
+  });
+
+  it("fully auth-off (local/demo) stays open, like requireOrgAccess", async () => {
+    mockAuthGateEnabled.mockReturnValue(false);
+    mockIsAuthConfigured.mockReturnValue(false);
+    expect(await canMintInstallationToken("acme")).toBe(true);
   });
 });
 
