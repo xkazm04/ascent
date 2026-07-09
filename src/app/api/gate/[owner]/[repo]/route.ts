@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
+import { GitHubError } from "@/lib/github/source";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
@@ -44,6 +45,13 @@ export async function GET(
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
+  // SECURITY (ci-gate-status-checks #1): this endpoint is unauthenticated by design — CI calls it with
+  // plain curl. Every ingest below therefore passes noAmbientToken, so a scan can never run against the
+  // ambient GITHUB_TOKEN (an operator PAT that commonly has broad read access). Without it, any
+  // anonymous caller could enumerate PRIVATE repos' full gate verdicts through the operator's
+  // credentials. Token-less ingestion of a private repo 404s, which we surface honestly below.
+  // Private repos are gated through the authenticated GitHub App check-run path (/api/app/webhook),
+  // not this endpoint. Same construction as the public badge route.
   // Rate-limiting strategy (denial-of-wallet defense that still lets real CI through):
   //  - The real-LLM path (?mock=0) is always throttled up-front with the strict SCAN_RATE_LIMIT — it
   //    spends both LLM budget and a full GitHub ingest.
@@ -65,14 +73,16 @@ export async function GET(
         const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
         if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
       }
-      report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref });
+      report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref, noAmbientToken: true });
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
       // flow and badge — a push misses the cache and re-evaluates against fresh signals instead
       // of returning a stale pass/fail (CI would otherwise gate on the pre-push score). CONDITIONAL
       // via the shared head-hint store (free 304 on an unchanged repo). Null on failure → a
       // SHA-less key (best-effort).
-      const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
+      // Token-less by construction (see the noAmbientToken note above): resolving a head sha with the
+      // operator PAT would confirm a private repo's existence and current commit to an anonymous caller.
+      const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, undefined);
       // Probe ONLY the mode that was requested. The old `cacheGet(llmKey) ?? cacheGet(mockKey)` read the
       // LLM entry first regardless of mode, so a default (mock=true) CI gate could return a STOCHASTIC
       // LLM verdict — a PR flipping pass↔fail between runs with identical code, purely from which scan
@@ -86,7 +96,7 @@ export async function GET(
           const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
           if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
         }
-        report = await scanRepository(`${ownerN}/${repoN}`, { mock });
+        report = await scanRepository(`${ownerN}/${repoN}`, { mock, noAmbientToken: true });
         cacheSet(key, report);
       }
     }
@@ -118,6 +128,18 @@ export async function GET(
       { status: gate.pass ? 200 : 422 },
     );
   } catch (err) {
+    // Token-less ingest of a private (or missing) repo 404s. Say so plainly rather than reporting a
+    // generic 500 the CI operator cannot act on — and point at the surface that CAN gate a private repo.
+    // `status` is optional on GitHubError, so match the semantic code too.
+    if (err instanceof GitHubError && (err.code === "NOT_FOUND" || err.status === 404)) {
+      return NextResponse.json(
+        {
+          error:
+            "Repository not found or not publicly readable. Private repositories are gated through the GitHub App check run, not this endpoint.",
+        },
+        { status: 404 },
+      );
+    }
     console.error("[gate] evaluation failed", err);
     return NextResponse.json({ error: "Failed to evaluate the maturity gate." }, { status: 500 });
   }
