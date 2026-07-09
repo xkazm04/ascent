@@ -606,11 +606,21 @@ describe("getCreditReconciliation refund-vs-grant classification", () => {
  * only reverses the MARGINAL share. The live org row is shared mutable state; `update` applies the relative
  * increment; `$transaction` rolls the balance back if the body throws (P2002 from a duplicate create).
  */
-function fakePrismaForClawback(initialBalance: number, opts: { org?: boolean } = {}) {
+function fakePrismaForClawback(
+  initialBalance: number,
+  opts: { org?: boolean; seed?: Array<{ delta: number; externalId: string }> } = {},
+) {
   const present = opts.org ?? true;
   const row = present ? { id: "org_1", scanCredits: initialBalance, plan: "pro" } : null;
   const ledger: Array<{ delta: number; balanceAfter: number; reason: string; externalId: string }> = [];
   const seen = new Set<string>();
+  // Pre-existing clawback rows ALREADY on the ledger before this test runs — e.g. a legacy no-colon
+  // per-order row (`polar-refund:<orderId>`) written by the pre-migration code. Seeded straight into the
+  // ledger and deliberately NOT into `seen`, so a NEW-format event for the same order still clears the
+  // per-event fast-path and reaches the aggregate — exactly the cross-migration path the bug lived on.
+  for (const s of opts.seed ?? []) {
+    ledger.push({ delta: s.delta, balanceAfter: 0, reason: "polar-refund", externalId: s.externalId });
+  }
 
   const findSeen = vi.fn(async ({ where }: { where: { externalId: string } }) =>
     seen.has(where.externalId) ? { id: `cl_${where.externalId}` } : null,
@@ -624,10 +634,16 @@ function fakePrismaForClawback(initialBalance: number, opts: { org?: boolean } =
       }),
     },
     creditLedger: {
-      // Sum |delta| already clawed for THIS order (rows whose externalId starts with the order prefix).
-      aggregate: vi.fn(async ({ where }: { where: { externalId: { startsWith: string } } }) => {
-        const prefix = where.externalId.startsWith;
-        const total = ledger.filter((e) => e.externalId.startsWith(prefix)).reduce((a, e) => a + e.delta, 0);
+      // Sum |delta| already clawed for THIS order. The real code passes an OR of the exact legacy key
+      // (`polar-refund:<orderId>`) and the per-event startsWith prefix (`polar-refund:<orderId>:`), so a
+      // row counts when it satisfies ANY branch — the same tolerant matcher sumRefundClawback uses. (The
+      // prior mock read a single `externalId.startsWith`; that shape no longer reaches this aggregate.)
+      aggregate: vi.fn(async ({ where }: { where: { OR: Array<{ externalId: string | { startsWith: string } }> } }) => {
+        const matches = (eid: string) =>
+          where.OR.some((b) =>
+            typeof b.externalId === "string" ? b.externalId === eid : eid.startsWith(b.externalId.startsWith),
+          );
+        const total = ledger.filter((e) => matches(e.externalId)).reduce((a, e) => a + e.delta, 0);
         return { _sum: { delta: total } };
       }),
       create: vi.fn(
@@ -749,6 +765,45 @@ describe("clawbackOrderRefund (Polar refund-abuse defense)", () => {
 
     expect(balance).toBeNull();
     expect(ledger).toHaveLength(0);
+  });
+
+  // THE cross-migration double-claw bug (finding #1): an order clawed under the OLD code left a LEGACY
+  // no-colon key `polar-refund:<orderId>`. After the deploy, clawbackOrderRefund's `prior` aggregate must
+  // still SEE that row, or `alreadyClawed` under-counts and the already-reversed share is clawed twice —
+  // silently deleting paid credits. These pin that the aggregate is tolerant of BOTH key formats.
+  it("does NOT re-claw a legacy no-colon row for the same cumulative amount (cross-format idempotency)", async () => {
+    // 100-credit pack; the pre-migration code already partially refunded 40 → legacy row, balance 60.
+    const { prisma, row, ledger } = fakePrismaForClawback(60, {
+      seed: [{ delta: -40, externalId: "polar-refund:ord1" }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // A NEW-format event re-processes the SAME cumulative 40. alreadyClawed must count the legacy -40, so
+    // marginal = 40 − 40 = 0 → nothing new. If the aggregate missed the legacy row, marginal would be 40
+    // and the balance would drop to 20 — a second, spurious claw of already-refunded credits.
+    const balance = await clawbackOrderRefund("acme", "ord1", 40, { eventKey: "400" });
+
+    expect(balance).toBe(60); // unchanged — the refund already accounted for by the legacy row
+    expect(row!.scanCredits).toBe(60);
+    expect(ledger).toHaveLength(1); // only the seeded legacy row; no second clawback appended
+  });
+
+  it("applies only the MARGINAL share over a legacy no-colon row (larger refund straddling the migration)", async () => {
+    // Same setup: legacy -40 already clawed, balance 60. A later, LARGER cumulative refund (70) arrives
+    // under the new code.
+    const { prisma, row, ledger } = fakePrismaForClawback(60, {
+      seed: [{ delta: -40, externalId: "polar-refund:ord1" }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const balance = await clawbackOrderRefund("acme", "ord1", 70, { eventKey: "700" });
+
+    // alreadyClawed = 40 (legacy) → marginal = 30, balance 60 → 30, one new per-event row. Missing the
+    // legacy row would make marginal 70 → appliedDelta clamped to −60 → balance 0 (30 credits destroyed).
+    expect(balance).toBe(30);
+    expect(row!.scanCredits).toBe(30);
+    expect(ledger.map((e) => e.delta)).toEqual([-40, -30]);
+    expect(ledger[1].externalId).toBe("polar-refund:ord1:700");
   });
 
   it("returns null when persistence is off (no DB)", async () => {

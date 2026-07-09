@@ -219,9 +219,21 @@ export async function clawbackOrderRefund(
       prisma.$transaction(async (tx) => {
         const org = await tx.organization.findUnique({ where: { slug }, select: { id: true, scanCredits: true } });
         if (!org) return null;
-        // How much has ALREADY been clawed back for THIS order across prior refund events.
+        // How much has ALREADY been clawed back for THIS order across prior refund events. Match BOTH
+        // key shapes so `alreadyClawed` can NEVER under-count and re-claw: the legacy per-ORDER key
+        // `polar-refund:<orderId>` (no trailing colon, written before the per-event migration) AND the
+        // new per-event key `polar-refund:<orderId>:<eventKey>`. This mirrors sumRefundClawback's matcher
+        // exactly, so the two readers of the same rows agree. The prior code matched only `startsWith:
+        // prefix` (WITH the colon), so an order refunded ACROSS the key-format migration had its legacy
+        // no-colon row missed here → alreadyClawed under-counted → marginal over-counted → the order's
+        // already-reversed share was clawed a SECOND time, silently deleting paid credits (clamped at 0).
+        // The exact-legacy branch can't collide with a sibling order (string equality), and the colon in
+        // the startsWith branch prevents `<orderId>` matching a longer id that has it as a prefix.
         const prior = await tx.creditLedger.aggregate({
-          where: { orgId: org.id, externalId: { startsWith: prefix } },
+          where: {
+            orgId: org.id,
+            OR: [{ externalId: `polar-refund:${orderId}` }, { externalId: { startsWith: prefix } }],
+          },
           _sum: { delta: true },
         });
         const alreadyClawed = Math.abs(prior._sum.delta ?? 0);

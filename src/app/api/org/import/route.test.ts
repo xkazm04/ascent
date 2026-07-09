@@ -71,6 +71,9 @@ import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
 import { getInstallationToken } from "@/lib/github/app";
 import { consumeScanCredit, getInstallationIdForOwner, grantCredits } from "@/lib/db";
 import { checkScanEntitlement } from "@/lib/entitlement";
+// Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
+// here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
+import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 
 const mockScan = vi.mocked(scanRepository);
 const mockAuthOn = vi.mocked(isAuthConfigured);
@@ -302,5 +305,47 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(mockConsume).not.toHaveBeenCalled();
     expect(mockEntitlement).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-repo in-flight claim (org-import-scan-watchlist #1): a metered import that overlaps another
+// in-flight run (a second import tab, another member, or an overlapping /api/org/scan) must NOT re-scan
+// and re-charge a repo the other run already owns. The route claims each repo before reserving/scanning.
+describe("POST /api/org/import — per-repo in-flight claim (no double-scan/charge)", () => {
+  beforeEach(() => {
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
+    mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: true });
+    mockScan.mockResolvedValue(realReport);
+    mockGrant.mockResolvedValue(0);
+  });
+
+  it("skips a repo a concurrent run already claimed — no scan, no credit — then imports once released", async () => {
+    // Stand in for the concurrent run holding the claim for (acme, acme/dup).
+    const held = claimRepoScan("acme", "acme/dup");
+    expect(held).not.toBeNull();
+
+    const first = await collectImport({ org: "acme", repos: ["acme/dup"], mock: false, watch: false });
+    // Money invariant: no real inference and no credit reserved for the contended repo.
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(first.find((e) => e.event === "repo")?.data).toMatchObject({ repo: "acme/dup", skipped: "in_progress" });
+
+    // The other run completes and frees the repo; the import now scans + bills exactly once.
+    releaseRepoScan("acme", "acme/dup", held!);
+    const second = await collectImport({ org: "acme", repos: ["acme/dup"], mock: false, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    expect(second.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
+  });
+
+  it("releases the claim after a normal import, so a repo isn't locked out of the next run", async () => {
+    await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    // If the route leaked the claim, this second import would skip as in_progress. It must scan again.
+    const events = await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    expect(events.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
   });
 });

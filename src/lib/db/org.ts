@@ -13,6 +13,8 @@ export {
   advanceScheduleAfterFailure,
   advanceToFullCadence,
   claimRescan,
+  claimRepoScan,
+  releaseRepoScan,
   recordScanOutcome,
   recordConformance,
   listWatchedRepos,

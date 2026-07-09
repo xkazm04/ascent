@@ -40,6 +40,9 @@ import { POST } from "./route";
 import { scanRepository } from "@/lib/scan";
 import { consumeScanCredit, grantCredits, listWatchedRepos, persistScanReport } from "@/lib/db";
 import { checkScanEntitlement } from "@/lib/entitlement";
+// Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
+// here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
+import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 
 const mockScan = vi.mocked(scanRepository);
 const mockConsume = vi.mocked(consumeScanCredit);
@@ -169,5 +172,43 @@ describe("POST /api/org/scan — never-scans-for-free + out-of-credits surfacing
     expect(body).not.toContain("Out of scan credits");
     expect(mockScan).toHaveBeenCalledTimes(2); // both included free scans ran
     expect(body).toContain('"skippedForCredits":0');
+  });
+});
+
+describe("POST /api/org/scan — per-repo in-flight claim (no double-scan/charge)", () => {
+  // The money defect (org-import-scan-watchlist #1): a bulk scan that overlaps another in-flight run
+  // (a second tab / another member / an overlapping import) must NOT re-scan and re-charge a repo the
+  // other run already owns. The route claims each repo before reserving/scanning and skips a live claim.
+  it("skips a repo a concurrent run already claimed — no scan, no credit — then scans once released", async () => {
+    mockScan.mockResolvedValue(report("gemini"));
+    mockPersist.mockResolvedValue(persisted(false));
+    // Stand in for the concurrent run: it already holds the claim for the org's single watched repo.
+    const held = claimRepoScan("acme", "acme/repo");
+    expect(held).not.toBeNull();
+
+    const body1 = await runBulkScan();
+    // Money invariant: the contended repo is neither scanned (no real inference) nor charged.
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(body1).toContain('"skipped":"in_progress"'); // the skip is surfaced, not silent
+
+    // The other run completes and frees the repo; a fresh scan now proceeds and bills exactly once.
+    releaseRepoScan("acme", "acme/repo", held!);
+    const body2 = await runBulkScan();
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    expect(body2).not.toContain('"skipped":"in_progress"');
+  });
+
+  it("releases the claim after a normal run, so a repo isn't locked out of the next scan", async () => {
+    mockScan.mockResolvedValue(report("gemini"));
+    mockPersist.mockResolvedValue(persisted(false));
+    await runBulkScan(); // the route claims acme/repo, scans, and must release it in its finally
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    // If the route leaked the claim, this second run would skip as in_progress. It must scan again.
+    const body = await runBulkScan();
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    expect(body).not.toContain('"skipped":"in_progress"');
   });
 });

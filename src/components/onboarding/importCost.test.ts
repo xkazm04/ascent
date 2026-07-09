@@ -47,3 +47,31 @@ describe("import watch cost-disclosure contract", () => {
     expect(importWatchMonthlyCredits(1)).toBeGreaterThan(0);
   });
 });
+
+describe("importWatchMonthlyCredits — free-allowance netting (finding #1)", () => {
+  const rate = MONTHLY_RUNS[IMPORT_WATCH_SCHEDULE]!;
+
+  it("subtracts the org's remaining free monthly allowance from the disclosed recurring cost", () => {
+    // The bug: a 0-balance Free-tier org with 10 free scans left picking 10 repos was shown the RAW
+    // cadence cost (10×rate) + a false "pauses at zero" alarm — even though canRunRealScan qualifies it
+    // for a real scan precisely BECAUSE allowanceRemaining>0. The disclosure must net that same band.
+    expect(importWatchMonthlyCredits(10, 10)).toBe(Math.max(0, 10 * rate - 10));
+    expect(importWatchMonthlyCredits(10, 10)).toBeLessThan(importWatchMonthlyCredits(10, 0));
+  });
+
+  it("never goes below zero when the allowance covers the whole committed cadence", () => {
+    expect(importWatchMonthlyCredits(3, 1000)).toBe(0);
+    expect(importWatchMonthlyCredits(3, 3 * rate)).toBe(0);
+  });
+
+  it("defaults to the raw upper bound when the allowance is unknown (legacy single-arg call)", () => {
+    for (const count of [0, 1, 5, 10]) {
+      expect(importWatchMonthlyCredits(count)).toBe(count * rate);
+      expect(importWatchMonthlyCredits(count, 0)).toBe(count * rate);
+    }
+  });
+
+  it("ignores a negative/garbage allowance (never INFLATES the disclosed cost)", () => {
+    expect(importWatchMonthlyCredits(4, -5)).toBe(4 * rate);
+  });
+});

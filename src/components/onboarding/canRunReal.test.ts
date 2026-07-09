@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { canRunRealScan } from "./canRunReal";
+import { importWatchMonthlyCredits } from "./importCost";
 import type { OrgCredit } from "@/components/onboarding/OnboardingFlow";
 
 // Pins the onboarding "money gate" — the single boolean deciding whether a scan spends
@@ -49,5 +50,17 @@ describe("canRunRealScan", () => {
   it("returns false when balance AND allowance are both exhausted (the 402/upgrade moment)", () => {
     const spent: OrgCredit = { org: "acme", balance: 0, unlimited: false, allowanceRemaining: 0 };
     expect(canRunRealScan({ sourceInstallId: "inst_1", credit: spent, sourceLabel: "acme" })).toBe(false);
+  });
+});
+
+describe("the gate and the cost disclosure share ONE free-allowance source of truth (finding #1)", () => {
+  it("when the gate qualifies a 0-balance org purely via allowance, the disclosure nets that SAME band", () => {
+    const allowanceRemaining = 8;
+    const credit: OrgCredit = { org: "acme", balance: 0, unlimited: false, allowanceRemaining };
+    // The gate says "real scan" on the free allowance alone…
+    expect(canRunRealScan({ sourceInstallId: "inst_1", credit, sourceLabel: "acme" })).toBe(true);
+    // …so the recurring-cost disclosure must credit that same allowance, not the raw cadence — no more
+    // inflated figure for the exact org the gate just qualified for a free scan.
+    expect(importWatchMonthlyCredits(10, allowanceRemaining)).toBeLessThan(importWatchMonthlyCredits(10, 0));
   });
 });

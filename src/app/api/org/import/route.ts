@@ -26,6 +26,10 @@ import {
   setRepoSchedule,
   setRepoWatch,
 } from "@/lib/db";
+// Imported from the sub-module (not the "@/lib/db" barrel) so it is a process-local advisory claim,
+// NOT the cron's DB `nextScanAt` lease — see claimRepoScan's rationale in org-watch.ts. Import repos may
+// have no Repository row yet (created mid-scan), so a DB-row claim is impossible on this path.
+import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
@@ -209,68 +213,88 @@ export async function POST(request: Request) {
         // to fit the 300s budget. `scanned` is incremented in single-threaded lanes — race-free.
         let scanned = 0;
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
-          // RESERVE the credit BEFORE scanning (metered, non-unlimited, non-mock imports). The atomic
-          // conditional decrement enforces the prepaid balance even under concurrency, so two in-flight
-          // imports can't both scan the same slice for free — the old path scanned first and only
-          // best-effort-debited afterwards (failure swallowed). Refunded below if the scan degrades to
-          // mock or throws.
-          let reserved = false;
-          if (metered && !unlimited) {
-            const reservation = await reserveScanCredit(org, r.fullName);
-            if (reservation.skip) {
-              skippedForCredits += 1;
-              send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
-              scanned += 1;
-              send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
-              return;
-            }
-            reserved = reservation.reserved;
+          // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the import
+          // path was missing. If another in-flight run (a second import tab, another member, or an
+          // overlapping /api/org/scan) already holds a live claim for (org, repo), skip: reserving +
+          // scanning here would debit a second credit and burn a second real-LLM ingest for the SAME
+          // repo (reserveScanCredit bounds TOTAL spend, not per-repo duplication). Released in the
+          // finally below on EVERY exit path — including a hard TTL self-heal if this process is killed.
+          const claim = claimRepoScan(org, r.fullName);
+          if (claim === null) {
+            send("repo", { repo: r.fullName, skipped: "in_progress" });
+            scanned += 1;
+            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            return;
           }
-          const refundCredit = () => refundScanCredit(org, reserved);
-          send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
           try {
-            const report = await scanRepository(r.fullName, scanOpts);
-            const persisted = await persistScanReport(report, { orgSlug: org });
-            logPartialWrites("org/import", r.fullName, persisted);
-            // Refund the reservation when nothing billable was produced: either the scan degraded to
-            // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
-            // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
-            if (shouldRefundScan(report, persisted)) await refundCredit();
-            // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
-            // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
-            // the credit and reports the repo as { error }). The notable failure is the lazy Organization
-            // upsert inside setRepoWatch losing a P2002 create race on a brand-new org's first parallel
-            // import — previously that refunded a genuinely-billed, persisted scan and flagged a scored
-            // repo "error". The sibling /api/org/watch route keeps these writes serial for the same reason.
-            if (watch) {
-              try {
-                await setRepoWatch(org, r, true);
-                if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
-              } catch (werr) {
-                console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
+            // RESERVE the credit BEFORE scanning (metered, non-unlimited, non-mock imports). The atomic
+            // conditional decrement enforces the prepaid balance even under concurrency, so two in-flight
+            // imports can't both scan the same slice for free — the old path scanned first and only
+            // best-effort-debited afterwards (failure swallowed). Refunded below if the scan degrades to
+            // mock or throws.
+            let reserved = false;
+            if (metered && !unlimited) {
+              const reservation = await reserveScanCredit(org, r.fullName);
+              if (reservation.skip) {
+                skippedForCredits += 1;
+                send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
+                scanned += 1;
+                send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+                return; // finally releases the claim
               }
+              reserved = reservation.reserved;
             }
-            send("repo", {
-              repo: r.fullName,
-              level: report.level.id,
-              overall: report.overallScore,
-              posture: report.posture.id,
-              adoption: report.adoptionScore,
-              rigor: report.rigorScore,
-              contributors: report.contributors?.length ?? 0,
-            });
-            // Only record an outcome once the repo row exists (watch=true upserts it above); the
-            // public funnel (watch=false) may not have persisted a Repository row, so skip then.
-            if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
-          } catch (err) {
-            // Scan threw — no inference to bill, so refund the reservation made above.
-            await refundCredit();
-            const msg = err instanceof Error ? err.message : "scan failed";
-            if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
-            send("repo", { repo: r.fullName, error: msg });
+            const refundCredit = () => refundScanCredit(org, reserved);
+            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            try {
+              const report = await scanRepository(r.fullName, scanOpts);
+              const persisted = await persistScanReport(report, { orgSlug: org });
+              logPartialWrites("org/import", r.fullName, persisted);
+              // Refund the reservation when nothing billable was produced: either the scan degraded to
+              // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
+              // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
+              if (shouldRefundScan(report, persisted)) await refundCredit();
+              // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
+              // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
+              // the credit and reports the repo as { error }). The notable failure is the lazy Organization
+              // upsert inside setRepoWatch losing a P2002 create race on a brand-new org's first parallel
+              // import — previously that refunded a genuinely-billed, persisted scan and flagged a scored
+              // repo "error". The sibling /api/org/watch route keeps these writes serial for the same reason.
+              if (watch) {
+                try {
+                  await setRepoWatch(org, r, true);
+                  if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
+                } catch (werr) {
+                  console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
+                }
+              }
+              send("repo", {
+                repo: r.fullName,
+                level: report.level.id,
+                overall: report.overallScore,
+                posture: report.posture.id,
+                adoption: report.adoptionScore,
+                rigor: report.rigorScore,
+                contributors: report.contributors?.length ?? 0,
+              });
+              // Only record an outcome once the repo row exists (watch=true upserts it above); the
+              // public funnel (watch=false) may not have persisted a Repository row, so skip then.
+              if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
+            } catch (err) {
+              // Scan threw — no inference to bill, so refund the reservation made above.
+              await refundCredit();
+              const msg = err instanceof Error ? err.message : "scan failed";
+              if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
+              send("repo", { repo: r.fullName, error: msg });
+            }
+            scanned += 1;
+            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+          } finally {
+            // Release on EVERY exit — normal completion, the insufficient-credits early return, or a
+            // throw from reserveScanCredit (which mapPool rethrows). A leaked claim would bar this repo
+            // from re-import for the whole TTL; only a hard process kill relies on the TTL self-heal.
+            releaseRepoScan(org, r.fullName, claim);
           }
-          scanned += 1;
-          send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
         });
         // Capture the team-standings decomposition as a durable output of this full org import
         // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must

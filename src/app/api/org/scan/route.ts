@@ -5,6 +5,9 @@
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import { getInstallationIdForOwner, isByomActive, isDbConfigured, listWatchedRepos, persistScanReport, persistTeamStandings, recordScanOutcome } from "@/lib/db";
+// Imported from the sub-module (not the "@/lib/db" barrel) so it is a process-local advisory claim,
+// NOT the cron's DB `nextScanAt` lease — see claimRepoScan's rationale in org-watch.ts.
+import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
@@ -116,52 +119,71 @@ export async function POST(request: Request) {
         // the count is race-free.
         let done = 0;
         await mapPool(scanList, SCAN_CONCURRENCY, async (repo) => {
-          // RESERVE the credit BEFORE scanning (metered, non-unlimited plans). consumeScanCredit is an
-          // atomic conditional decrement (WHERE scanCredits > 0), so two concurrent batches can't both
-          // spend the same credit. A failed reservation means the balance was exhausted (often by
-          // another in-flight batch) — skip this repo rather than scan it for free, which is what the
-          // old "scan first, best-effort debit afterwards" path silently did. Refunded below if the
-          // scan degrades to mock or throws (no real inference billed).
-          let reserved = false;
-          if (metered && !unlimited) {
-            const reservation = await reserveScanCredit(org, repo.fullName);
-            if (reservation.skip) {
-              skippedForCredits += 1;
-              send("repo", { repo: repo.fullName, skipped: "insufficient_credits" });
-              done += 1;
-              send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
-              return;
-            }
-            reserved = reservation.reserved;
+          // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the manual
+          // path was missing. If another in-flight run (a second tab, another member, or an overlapping
+          // import) already holds a live claim, skip: reserving + scanning here would debit a second
+          // credit and burn a second set of LLM tokens for the SAME repo (reserveScanCredit only bounds
+          // TOTAL spend, not per-repo duplication). Released in the finally below on EVERY exit path.
+          const claim = claimRepoScan(org, repo.fullName);
+          if (claim === null) {
+            send("repo", { repo: repo.fullName, skipped: "in_progress" });
+            done += 1;
+            send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
+            return;
           }
-          const refundCredit = () => refundScanCredit(org, reserved);
-          send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
           try {
-            const report = await scanRepository(repo.fullName, { token, orgSlug: org });
-            const persisted = await persistScanReport(report, { orgSlug: org });
-            logPartialWrites("org/scan", repo.fullName, persisted);
-            // Refund the reservation when nothing billable was produced: either the scan degraded to
-            // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
-            // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
-            if (shouldRefundScan(report, persisted)) await refundCredit();
-            send("repo", {
-              repo: repo.fullName,
-              level: report.level.id,
-              overall: report.overallScore,
-              posture: report.posture.id,
-              adoption: report.adoptionScore,
-              rigor: report.rigorScore,
-            });
-            await recordScanOutcome(org, repo.fullName, { ok: true }).catch(() => {});
-          } catch (err) {
-            // Scan threw — no inference to bill, so refund the reservation.
-            await refundCredit();
-            const msg = err instanceof Error ? err.message : "scan failed";
-            await recordScanOutcome(org, repo.fullName, { ok: false, error: msg }).catch(() => {});
-            send("repo", { repo: repo.fullName, error: msg });
+            // RESERVE the credit BEFORE scanning (metered, non-unlimited plans). consumeScanCredit is an
+            // atomic conditional decrement (WHERE scanCredits > 0), so two concurrent batches can't both
+            // spend the same credit. A failed reservation means the balance was exhausted (often by
+            // another in-flight batch) — skip this repo rather than scan it for free, which is what the
+            // old "scan first, best-effort debit afterwards" path silently did. Refunded below if the
+            // scan degrades to mock or throws (no real inference billed).
+            let reserved = false;
+            if (metered && !unlimited) {
+              const reservation = await reserveScanCredit(org, repo.fullName);
+              if (reservation.skip) {
+                skippedForCredits += 1;
+                send("repo", { repo: repo.fullName, skipped: "insufficient_credits" });
+                done += 1;
+                send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
+                return; // finally releases the claim
+              }
+              reserved = reservation.reserved;
+            }
+            const refundCredit = () => refundScanCredit(org, reserved);
+            send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
+            try {
+              const report = await scanRepository(repo.fullName, { token, orgSlug: org });
+              const persisted = await persistScanReport(report, { orgSlug: org });
+              logPartialWrites("org/scan", repo.fullName, persisted);
+              // Refund the reservation when nothing billable was produced: either the scan degraded to
+              // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
+              // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
+              if (shouldRefundScan(report, persisted)) await refundCredit();
+              send("repo", {
+                repo: repo.fullName,
+                level: report.level.id,
+                overall: report.overallScore,
+                posture: report.posture.id,
+                adoption: report.adoptionScore,
+                rigor: report.rigorScore,
+              });
+              await recordScanOutcome(org, repo.fullName, { ok: true }).catch(() => {});
+            } catch (err) {
+              // Scan threw — no inference to bill, so refund the reservation.
+              await refundCredit();
+              const msg = err instanceof Error ? err.message : "scan failed";
+              await recordScanOutcome(org, repo.fullName, { ok: false, error: msg }).catch(() => {});
+              send("repo", { repo: repo.fullName, error: msg });
+            }
+            done += 1;
+            send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
+          } finally {
+            // Release on EVERY exit — normal completion, the insufficient-credits early return, or a
+            // throw from reserveScanCredit (which mapPool rethrows). A leaked claim would bar this repo
+            // from future scans for the whole TTL; only a hard process kill relies on the TTL self-heal.
+            releaseRepoScan(org, repo.fullName, claim);
           }
-          done += 1;
-          send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
         });
         // Capture the team-standings decomposition as a durable output of this full org scan
         // (best-effort — a failure here must never break the scan or the SSE result).

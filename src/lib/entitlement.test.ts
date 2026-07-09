@@ -41,13 +41,30 @@ describe("isMeteredScan", () => {
 
 describe("checkScanEntitlement (hybrid: allowance, then credits)", () => {
   it("an unlimited plan is always allowed regardless of balance/usage", async () => {
-    mockGetCreditState.mockResolvedValue({ balance: 0, plan: "enterprise", unlimited: true });
+    mockGetCreditState.mockResolvedValue({ balance: 0, plan: "enterprise", unlimited: true, orgExists: true });
     expect(await checkScanEntitlement("acme")).toEqual({
       allowed: true,
       unlimited: true,
       balance: 0,
       withinAllowance: false,
       allowanceRemaining: Infinity,
+      orgExists: true,
+    });
+  });
+
+  it("an unknown org (orgExists:false) is DENIED — read gate agrees with the write gate, not a phantom free scan", async () => {
+    // A deleted/typo'd slug: getCreditState returns the $0/free shape but orgExists:false. With usage 0 <
+    // the free allowance the old gate reported allowed:true/withinAllowance:true — a phantom org looked
+    // entitled while consumeScanCredit (the write gate) denied it. Now both deny.
+    mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false, orgExists: false });
+    mockCountUsage.mockResolvedValue(0);
+    expect(await checkScanEntitlement("ghost")).toEqual({
+      allowed: false,
+      unlimited: false,
+      balance: 0,
+      withinAllowance: false,
+      allowanceRemaining: 0,
+      orgExists: false,
     });
   });
 

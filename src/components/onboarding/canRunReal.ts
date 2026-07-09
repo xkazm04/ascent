@@ -12,6 +12,13 @@ import type { OrgCredit } from "@/components/onboarding/OnboardingFlow";
  * (`allowanceRemaining > 0`). Keying on purchased balance alone wrongly downgraded a
  * Free-tier org's entitled free scans to a preview. Anything else is a disclosed preview —
  * the public-handle funnel is always a preview.
+ *
+ * `credit.allowanceRemaining` is the ONE source of truth for the free monthly allowance: this gate
+ * counts it as headroom here, and the recurring-cost disclosure (importCost.ts) subtracts the SAME
+ * value. Keep the two in agreement — a gate that qualifies an org on its allowance while the cost copy
+ * ignores that allowance is precisely finding #1 (an inflated "pauses at zero" alarm for a qualifying
+ * org). Both derive the allowance from OrgCredit.allowanceRemaining (checkScanEntitlement); neither
+ * hardcodes the per-plan constant.
  */
 export function canRunRealScan(args: {
   sourceInstallId?: string | null;

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { PickStep, type Installation } from "@/components/onboarding/OnboardingPickStep";
 import { SelectStep } from "@/components/onboarding/OnboardingSelectStep";
 import { ScanStep } from "@/components/onboarding/OnboardingScanStep";
@@ -61,6 +62,23 @@ export function OnboardingFlow({
   const checklistSteps = (): ReturnType<typeof buildChecklistSteps> =>
     buildChecklistSteps({ hasInstallation, selected, phase, sourceInstallId, invitedCount, sourceLabel });
 
+  // Finding #4 (double-submission): `startScan` has no re-entrancy lock, and the "Scan {n} repos"
+  // button stays mounted for the ~1 frame between a click and setPhase("scanning"), so a fast
+  // double-click fires startScan TWICE — two concurrent POSTs to /api/org/import (two credit-reserve
+  // windows on the metered path) and a second AbortController that orphans the first stream (Cancel/
+  // unmount can then only abort the latest). A React state flag can't guard this: the second click
+  // lands before the re-render. A synchronous ref does. Cleared when the scan flow settles (done, or
+  // error → back to select) so "Back"/"Scan another" re-arm it. Guarding the wiring here (not inside
+  // startScan) because the flow hook that owns startScan is out of this change's scope.
+  const submittingRef = useRef(false);
+  const guardedStartScan = () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    void Promise.resolve(startScan()).finally(() => {
+      submittingRef.current = false;
+    });
+  };
+
   // ---- pick phase: choose an installed org (private repos) or enter a handle ----------
   if (phase === "pick") {
     return (
@@ -96,7 +114,7 @@ export function OnboardingFlow({
           onToggle={toggle}
           onSelectTop={selectTop}
           onClear={clearSelection}
-          onScan={startScan}
+          onScan={guardedStartScan}
           onBack={() => setPhase("pick")}
         />
       </Shell>

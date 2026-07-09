@@ -93,6 +93,12 @@ export const MODEL_PRICES: ModelPrice[] = [
   // OpenAI (OPENAI_MODEL default gpt-4o-mini; bare gpt-4o for the obvious upgrade).
   { prefix: "gpt-4o-mini", inPerMTok: 0.15, outPerMTok: 0.6 },
   { prefix: "gpt-4o", inPerMTok: 2.5, outPerMTok: 10 },
+  // Claude via OpenRouter ("anthropic/claude-sonnet-4"). priceForModel strips the vendor slug, which
+  // leaves `claude-…` — a shape neither the Bedrock (dotted) nor the CLI (bare "sonnet") keys match.
+  // Same list rates as the Bedrock tiers above; kept as separate rows so a future divergence is explicit.
+  { prefix: "claude-sonnet-4", inPerMTok: 3, outPerMTok: 15 },
+  { prefix: "claude-haiku-4", inPerMTok: 1, outPerMTok: 5 },
+  { prefix: "claude-opus-4", inPerMTok: 5, outPerMTok: 25 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -144,10 +150,18 @@ const GEO_PREFIX = /^(us|eu|apac|global)\./;
 export function priceForModel(model: string | null | undefined): ModelPrice | null {
   if (!model) return null;
   const id = model.trim().toLowerCase().replace(GEO_PREFIX, "");
+  // OpenRouter model ids are ALWAYS "vendor/model" slugs (openai/gpt-4o-mini, google/gemini-3-flash,
+  // anthropic/claude-sonnet-4), but this table keys on model families. `startsWith` therefore matched
+  // nothing for every OpenRouter model, so priceForModel returned null — and a single unpriced model
+  // nulls the whole org's /usage cost estimate for the period. Try the vendor-stripped form too.
+  const slash = id.indexOf("/");
+  const candidates = slash > 0 ? [id, id.slice(slash + 1)] : [id];
   let best: ModelPrice | null = null;
-  for (const p of MODEL_PRICES) {
-    if (id.startsWith(p.prefix) && (best === null || p.prefix.length > best.prefix.length)) {
-      best = p;
+  for (const candidate of candidates) {
+    for (const p of MODEL_PRICES) {
+      if (candidate.startsWith(p.prefix) && (best === null || p.prefix.length > best.prefix.length)) {
+        best = p;
+      }
     }
   }
   return best;
