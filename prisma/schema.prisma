@@ -13,7 +13,12 @@
 // docs/ARCHITECTURE.md. Migrations: Prisma is supported by DSQL (since 2026-02).
 
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  // engineType = "client" selects Prisma's Rust-free query compiler (wasm) instead of the native
+  // query_engine binary. Every client MUST be constructed with a driver adapter (see
+  // src/lib/db/client.ts newClient()). This is the ONLY way Prisma runs on Windows-ARM64, where no
+  // native windows-arm64 engine ships; it is identical in behavior on x64/Linux.
+  engineType = "client"
 }
 
 datasource db {

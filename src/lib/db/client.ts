@@ -19,6 +19,7 @@
 // docs/ARCHITECTURE.md §3-4.
 
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 // ── DSQL connection config (env-driven; null = static mode) ──────────────────────────────
 
@@ -379,10 +380,14 @@ function newClient(url?: string): PrismaClient {
   if (g.__ascentPgliteAdapter) {
     return new PrismaClient({ adapter: g.__ascentPgliteAdapter as never, log: [...log] });
   }
-  return new PrismaClient({
-    ...(url ? { datasourceUrl: withConnectionBudget(url) } : {}),
-    log: [...log],
-  });
+  // Real Postgres / DSQL (Postgres wire protocol): use the pg driver adapter. This selects Prisma's
+  // Rust-free query path, which is mandatory on Windows-ARM64 (no native windows-arm64 query engine)
+  // and works identically on x64/Linux. Without a url there is no connection to build a client for.
+  if (url) {
+    const adapter = new PrismaPg({ connectionString: withConnectionBudget(url) });
+    return new PrismaClient({ adapter, log: [...log] });
+  }
+  return new PrismaClient({ log: [...log] });
 }
 
 /** Grace period before retiring a swapped-out client. Covers the longest plausible in-flight request
