@@ -253,9 +253,10 @@ The codebase repeatedly *computes* a degradation signal and then drops it before
 | 9c | Dead code (verified 4 ways before deletion) | **DONE** — 8 | `e81ddd5` |
 | 9d | Accessibility: skip-link, live-region flooding | **DONE** — ~6 | `e81ddd5` |
 | 9e | Backend correctness + metering + destructive-confirms + token drift | **DONE** — ~55 | `1aab892`…`1d5ba4e` |
-| 9f | The remaining bug-hunter Mediums + a11y tail | **OPEN** — ~185 | — |
+| 9f | Bug-hunter Mediums: LLM, ops/alerts, billing, org, report surfaces | **DONE** — ~40 | `7a603d8`…`d3e5d6e` |
+| 9g | Remaining Med/Low tail (a11y, per-context polish, WIP-blocked items) | **OPEN** — ~145 | — |
 
-Cumulative: tsc **0 → 0**, vitest **3046 → 3261 passing**, `next build` clean, **0 regressions**, 33 commits.
+Cumulative: tsc **0 → 0**, vitest **3046 → 3334 passing**, `next build` clean, **0 regressions**, 39 commits.
 Summaries: [Wave 1](FIXES-WAVE-1.md) · [Waves 2–3](FIXES-WAVE-2-3.md) · [Waves 4–7](FIXES-WAVE-4-7.md) · [Wave 9](FIXES-WAVE-9.md).
 
 > **RESOLVED (`6459b2d`):** the repo now HAS a DOM test environment. A component test opts in with a line-1

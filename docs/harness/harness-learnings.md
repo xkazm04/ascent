@@ -1447,6 +1447,21 @@ New structural facts:
 - **2026-07-09 — the section switcher is a `<nav>`, not a tablist.** It writes `?tab=` to the URL, so it
   navigates. `aria-current="page"` is correct; `role="tab"` on a link is a downgrade dressed as a fix.
 
+- **2026-07-09 — `error.test.ts` invokes `AppError`/`RouteError` as a PLAIN FUNCTION** to walk the React
+  element tree (no DOM). Any hook added to `RouteError` therefore explodes there. It already mocks React's
+  `useEffect`; it now also mocks `next/navigation`. Add a mock, don't remove the hook.
+- **2026-07-09 — "Try again" on a route error must `router.refresh()` BEFORE `reset()`.** `reset()` alone
+  re-renders the client boundary against the same stale server payload, so a server-thrown error throws
+  again immediately. The ordering is asserted in `error.test.ts`.
+- **2026-07-09 — the PDF exports are Latin-1 only** (built-in Helvetica). `latin1Safe()` renders non-WinAnsi
+  glyphs as a visible `?` rather than dropping a CJK/Cyrillic contributor name silently. Registering a
+  Unicode TTF was rejected: a large runtime asset on a rendering path that must not fail.
+- **2026-07-09 — an explicit `LLM_PROVIDER=<x>` with a broken key now THROWS**, it no longer degrades to
+  mock. Mock fallback is for ABSENT config, not BROKEN config. `LLM_TIMEOUT_MS` is floored at 1s.
+- **2026-07-09 — flake watch:** with jsdom environments sharing the runner, a full-suite run occasionally
+  trips a 5s default timeout under contention (seen 1 run in 4; `auth.test.ts` passes 5/5 in isolation).
+  Re-run before treating a lone full-suite failure as a regression.
+
 ## Open follow-ups (from bug+ui scan, 2026-07-09)
 
 - **CORRECTION to the 2026-06-29 list:** the **DimensionTrends stale-repo race is FIXED** (AbortController
@@ -1479,5 +1494,5 @@ New structural facts:
 - **Destructive confirms still unwired (T13):** "Open draft PR" (writes into a customer repo), the
   25-repo fleet batch, "Re-test" (spends a weekly scan slot), goal delete. `ConfirmAction` exists and is
   wired for the segment delete; the rest is mechanical.
-- **~238 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
+- **~145 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
 - **Context-map drift:** 7 contexts reference files that no longer exist; run `refresh_context` on them.
