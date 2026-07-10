@@ -92,9 +92,14 @@ export class BedrockProvider implements LLMProvider {
 
     // Extended-thinking budget (opt-in via LLM_THINKING_BUDGET — Tiger P2-6c; default 0 = off, no change).
     // When on, the model needs maxTokens ABOVE the reasoning budget to still have room for the answer.
+    // The old `Math.max(baseMaxTokens, thinking + 1024)` left the ANSWER only ~1024 tokens for any
+    // thinking >= baseMaxTokens - 1024 (~3072): the thinking budget ate maxTokens and the 9-dimension
+    // tool-input JSON truncated mid-object → parseJsonLoose throws → "Empty response" → mock. So the
+    // feature meant to SHARPEN the assessment on complex repos instead broke it there. Reserve the FULL
+    // answer budget ON TOP OF the thinking budget so the answer room is guaranteed regardless of thinking.
     const thinking = thinkingBudgetTokens();
     const baseMaxTokens = Math.round(envNumber("BEDROCK_MAX_TOKENS", 4096));
-    const maxTokens = thinking > 0 ? Math.max(baseMaxTokens, thinking + 1024) : baseMaxTokens;
+    const maxTokens = thinking > 0 ? thinking + baseMaxTokens : baseMaxTokens;
 
     let res;
     try {
@@ -205,8 +210,34 @@ export async function testBedrockConnection(opts: {
       await client.send(
         new ConverseCommand({
           modelId: model,
-          messages: [{ role: "user", content: [{ text: "ping" }] }],
-          inferenceConfig: { maxTokens: 1, temperature: 0 },
+          // Exercise the SAME forced-tool path a real assess() takes (Converse function-calling with a
+          // REQUIRED tool), not a bare text ping. A model/region that doesn't support Converse tool use
+          // (or a wrong/legacy model id) round-trips a plain `ping` fine and green-checks the config —
+          // but then errors on EVERY real scan (which forces this exact toolConfig), silently degrading
+          // the paid BYOM privacy path to mock. Validating tool capability here makes a passing test
+          // actually prove a passing scan. maxTokens gives the forced tool-use room to emit (a 1-token
+          // cap could truncate the tool call into a spurious failure); temperature 0 keeps it cheap.
+          messages: [
+            {
+              role: "user",
+              content: [
+                { text: "Connection test: reply by calling the report_assessment tool with any values." },
+              ],
+            },
+          ],
+          inferenceConfig: { maxTokens: 512, temperature: 0 },
+          toolConfig: {
+            tools: [
+              {
+                toolSpec: {
+                  name: ASSESSMENT_TOOL_NAME,
+                  description: ASSESSMENT_TOOL_DESCRIPTION,
+                  inputSchema: { json: ASSESSMENT_JSON_SCHEMA },
+                },
+              },
+            ],
+            toolChoice: { tool: { name: ASSESSMENT_TOOL_NAME } },
+          },
         }),
         { abortSignal },
       );

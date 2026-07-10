@@ -121,6 +121,7 @@ export {
   getContributorInsights,
   getOrgPrSignals,
   getOrgGovernance,
+  getOrgDimensionGaps,
   getOrgActivity,
   getOrgPractices,
   getOrgGapAnalysis,
@@ -164,6 +165,7 @@ export {
   type PrRepoRow,
   type OrgGovernance,
   type RepoGovernance,
+  type RepoDimensionGaps,
   type OrgActivity,
   type OrgPractice,
   type OrgGapAnalysis,
@@ -188,6 +190,11 @@ export {
   type TeamPairing,
   type TeamRollupRepoInput,
 } from "@/lib/db/org";
+export {
+  persistTeamStandings,
+  getTeamStandingsProvenance,
+  type TeamStandingsProvenance,
+} from "@/lib/db/team-standings";
 export {
   listSegments,
   createSegment,
@@ -278,6 +285,15 @@ export {
   type OrgLlmConfigInput,
   type ByomProviderParams,
 } from "@/lib/db/org-llm";
+export {
+  recordUsage,
+  getOrgUsageRollup,
+  type UsageRecordInput,
+  type UsageScope,
+  type UsageFidelity,
+  type RepoUsage,
+  type OrgUsageRollup,
+} from "@/lib/db/integrations";
 export {
   listOpsState,
   acceptDirection,

@@ -8,7 +8,7 @@ import { isWithinNoise } from "@/lib/maturity/noise";
  * A within-noise delta (|d| <= SCORE_NOISE_BAND) is muted to slate so a re-scan wobble never wears
  * the confident green/orange of a real move — see @/lib/maturity/noise.
  */
-export const deltaHex = (d: number): string => (isWithinNoise(d) ? "#94a3b8" : d > 0 ? "#84cc16" : "#f97316");
+export const deltaHex = (d: number): string => DIRECTION_TONE[toneFor(d)].color;
 
 /** "+8" / "-5" / "0" — signed delta for inline text. */
 export const signedDelta = (d: number): string => `${d > 0 ? "+" : ""}${d}`;

@@ -4,7 +4,9 @@
 // that an absent segment stays absent (whole-org, the legacy default).
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { createHmac } from "node:crypto";
 import { signBriefingShareToken, verifyBriefingShareToken, briefingShareEnabled } from "./briefing-share";
+import { resolveWindow } from "./window";
 
 const ENV_KEYS = ["BRIEFING_SHARE_SECRET", "AUTH_SECRET"] as const;
 let saved: Record<string, string | undefined>;
@@ -71,5 +73,58 @@ describe("briefing share token carries the tech-stack scope (Feature 3b)", () =>
   it("leaves stack undefined when none was shared (whole-fleet default preserved)", () => {
     const verified = verifyBriefingShareToken(signBriefingShareToken({ org: "acme", range: "90d" })!.token);
     expect(verified!.stack).toBeUndefined();
+  });
+});
+
+const DAY = 86_400_000;
+
+/** Reconstruct a PRE-fix "legacy" token: only the range key travels (no frozen winStart/winEnd), signed
+ *  with the same secret so it verifies. Proves the reader still accepts links minted before Finding B. */
+function mintLegacyToken(payloadObj: Record<string, unknown>): string {
+  const payload = Buffer.from(JSON.stringify(payloadObj)).toString("base64url");
+  const sig = createHmac("sha256", process.env.BRIEFING_SHARE_SECRET!).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+describe("briefing share token freezes the resolved window (Finding B — clock-drift)", () => {
+  it("freezes a relative preset (90d) as ABSOLUTE instants, not just the range key", () => {
+    // Before the fix only range:"90d" travelled and the recipient re-derived `start` from THEIR clock.
+    const minted = signBriefingShareToken({ org: "acme", range: "90d" });
+    const v = verifyBriefingShareToken(minted!.token);
+    expect(v!.winStart).toBeTruthy();
+    expect(v!.winEnd).toBeTruthy();
+    // The frozen window spans ~90 days (start snapped to local midnight, end pinned to the mint instant).
+    const span = new Date(v!.winEnd!).getTime() - new Date(v!.winStart!).getTime();
+    expect(span).toBeGreaterThan(88 * DAY);
+    expect(span).toBeLessThan(92 * DAY);
+    // The range key still travels too, for the human title label.
+    expect(v!.range).toBe("90d");
+  });
+
+  it("freezes a custom range to exactly resolveWindow's absolute bounds", () => {
+    const minted = signBriefingShareToken({ org: "acme", range: "custom", from: "2026-01-01", to: "2026-03-31" });
+    const v = verifyBriefingShareToken(minted!.token);
+    const expected = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" });
+    expect(new Date(v!.winStart!).getTime()).toBe(expected.start!.getTime());
+    expect(new Date(v!.winEnd!).getTime()).toBe(expected.end!.getTime());
+  });
+
+  it("pins an all-time window's open end to the mint instant (post-share scans don't leak in) with a null start", () => {
+    const minted = signBriefingShareToken({ org: "acme", range: "all" });
+    const v = verifyBriefingShareToken(minted!.token);
+    expect(v!.winStart).toBeUndefined(); // all-time has no lower bound
+    expect(v!.winEnd).toBeTruthy(); // ...but the "now" end is frozen so the recipient sees the same slice
+    expect(Math.abs(new Date(v!.winEnd!).getTime() - Date.now())).toBeLessThan(60_000);
+  });
+
+  it("stays backward-compatible: a legacy token (only the range key, no frozen window) still verifies", () => {
+    const legacy = mintLegacyToken({ org: "acme", range: "90d", exp: Date.now() + 60_000 });
+    const v = verifyBriefingShareToken(legacy);
+    expect(v).not.toBeNull();
+    // No frozen window present → the reader falls back to recomputing from the range key (prior behavior),
+    // so live links minted before this change keep working.
+    expect(v!.winStart).toBeUndefined();
+    expect(v!.winEnd).toBeUndefined();
+    expect(v!.range).toBe("90d");
   });
 });

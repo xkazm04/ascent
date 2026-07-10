@@ -39,7 +39,9 @@ export default async function OnboardingPage() {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-3xl px-5 py-10">
+      {/* id="main" is the global skip-to-content target (layout.tsx). Without it the always-present
+          "Skip to content" link no-ops here — a WCAG 2.4.1 bypass-blocks failure. */}
+      <main id="main" className="mx-auto w-full max-w-3xl px-5 py-10">
         {scannedOrg && (
           <div className="animate-fade-up mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3">
             <div className="text-base text-slate-200">

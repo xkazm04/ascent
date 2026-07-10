@@ -90,11 +90,16 @@ export interface ScanResultClass {
   degradedToMock: boolean;
   /** Silent per-file fetch failures degraded coverage without failing the LLM — skip caching too. */
   lowCoverage: boolean;
+  /** The PR slice behind D6/D7/D8 was truncated (graphql.ts's `partial`), so the scores understate.
+   *  graphql.ts documents that partial results must not be cached; until now nothing read the flag and
+   *  a truncated slice was persisted as authoritative — silently deflating large/rate-limited repos. */
+  partialPrSlice: boolean;
 }
 
 /** Derive the cache-poisoning guards from a report. Identical in both scan routes. */
 export function classifyScanResult(report: ScanReport, mock: boolean): ScanResultClass {
   return {
+    partialPrSlice: report.prPartial === true,
     degradedToMock: report.engine.provider === "mock" && !mock,
     lowCoverage: report.confidence < 0.5,
   };
@@ -118,14 +123,18 @@ export async function cacheAndPersistScan(
     lookup: ScanCacheLookup | null;
   },
 ): Promise<{ deduped: boolean; persistedOk: boolean }> {
-  const { degradedToMock, lowCoverage } = cls;
+  const { degradedToMock, lowCoverage, partialPrSlice } = cls;
   const { lookup } = opts;
+  // A truncated PR slice is the third poisoning vector, alongside a mock fallback and low coverage: its
+  // D6/D7/D8 scores understate reality, so caching or persisting it would serve a deflated verdict to
+  // every later reader of this commit. graphql.ts always documented this; nothing enforced it.
+  const authoritative = !degradedToMock && !lowCoverage && !partialPrSlice;
 
-  if (lookup && !degradedToMock && !lowCoverage) cacheSet(lookup.cacheKey, report);
+  if (lookup && authoritative) cacheSet(lookup.cacheKey, report);
 
   let deduped = false;
   let persistedOk = true;
-  if (isDbConfigured() && !degradedToMock && !lowCoverage) {
+  if (isDbConfigured() && authoritative) {
     try {
       const persisted = await persistScanReport(report, { orgSlug: opts.orgSlug, headEtag: lookup?.etag ?? undefined });
       deduped = persisted?.deduped ?? false;

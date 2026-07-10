@@ -35,6 +35,52 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
     expect(initSql).toMatch(/"githubLogin"/);
   });
 
+  // The 4 hardcoded column assertions above (scanCredits/githubLogin/alertWebhookUrl/externalId) only
+  // catch the specific columns a PAST drift lost — the exact column-drift CLASS this suite exists to stop
+  // (a NEW field added to schema.prisma but forgotten in init.sql) stays green for any OTHER column. Close
+  // it with a generic per-model loop mirroring the index-parity checks: derive the expected columns from
+  // schema.prisma (every scalar/enum field; relation fields emit NO column under relationMode="prisma")
+  // and assert each appears inside that model's CREATE TABLE block in init.sql. (database-client-schema #4)
+  it("mirrors every scalar column of every model into its CREATE TABLE block in init.sql", () => {
+    const modelBlocks = [...schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)];
+    const modelSet = new Set(models);
+    const missing: string[] = [];
+    let checkedColumns = 0;
+
+    for (const [, model, body] of modelBlocks) {
+      // The model's CREATE TABLE column list — everything between the opening "(" and the closing ");".
+      const tableMatch = new RegExp(`CREATE TABLE "${model}" \\(([\\s\\S]*?)\\n\\);`).exec(initSql);
+      if (!tableMatch) {
+        missing.push(`${model}: no CREATE TABLE block`);
+        continue;
+      }
+      const tableBody = tableMatch[1]!;
+
+      for (const rawLine of body!.split("\n")) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("//") || line.startsWith("@@")) continue;
+        const m = /^(\w+)\s+(\S+)/.exec(line);
+        if (!m) continue;
+        const field = m[1]!;
+        // Strip nullability/array markers to the base type: `String?` `Membership[]` `OrgLlmConfig?`.
+        const baseType = m[2]!.replace(/\?$/, "").replace(/\[\]$/, "").replace(/\?$/, "");
+        // A relation field (type is another model, or the line carries @relation) emits NO column under
+        // relationMode="prisma"; only the scalar FK field (e.g. `orgId String`) becomes a column.
+        if (modelSet.has(baseType) || /@relation\b/.test(line)) continue;
+        // Honor @map("col") if ever introduced (column name != field name); default is the field name.
+        const mapped = /@map\("([^"]+)"\)/.exec(line);
+        const column = mapped ? mapped[1]! : field;
+        checkedColumns++;
+        // Column names are emitted quoted (`"col" TYPE`), so a quoted match is exact (no prefix collision).
+        if (!tableBody.includes(`"${column}"`)) missing.push(`${model}.${column}`);
+      }
+    }
+
+    // Sanity: a parser regression matching no fields must not make this assertion vacuously pass.
+    expect(checkedColumns).toBeGreaterThan(100);
+    expect(missing).toEqual([]);
+  });
+
   it("mirrors the per-org alert sink column (additive, 2026-06-12)", () => {
     // \s+ not a single space: `prisma format` column-aligns field types, so the gap width varies.
     expect(schema).toMatch(/alertWebhookUrl\s+String\?/);

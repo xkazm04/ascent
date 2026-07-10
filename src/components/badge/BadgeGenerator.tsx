@@ -7,6 +7,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { BADGE_STYLES, type BadgeStyle, badgeReportHref } from "@/lib/badge";
+import { attemptCopy, nextCopyState } from "@/components/copy-for-llm.logic";
 
 /** Minimal owner/repo parser (kept local so this client component doesn't pull the
  *  server-side ingestion module). Accepts `owner/repo` or a github.com URL. */
@@ -37,7 +38,7 @@ export function BadgeGenerator() {
   const [style, setStyle] = useState<Style>("flat");
   const [kind, setKind] = useState<Kind>("level");
   const [format, setFormat] = useState<Format>("markdown");
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   const parsed = useMemo(() => parseRepo(input), [input]);
   // Origin is only known client-side; absolute URLs make the snippet portable into any README.
@@ -52,6 +53,17 @@ export function BadgeGenerator() {
     const q = qs.toString();
     return `${origin}/api/badge/${parsed.owner}/${parsed.repo}${q ? `?${q}` : ""}`;
   }, [parsed, style, kind, origin]);
+
+  // The live <img> must NOT be tallied as a real README impression. The badge route counts an origin
+  // hit ONLY on the CANONICAL, no-query path — and the default level/flat preview IS that path — so
+  // every keystroke here minted a self-attributed "reach" row for whatever repo was typed, polluting the
+  // /usage Badge-reach panel (totalImpressions/topRepos/topHosts) with the app's own host. Appending an
+  // inert `preview=1` makes the request `customized` (any query param does), which the tally skips and
+  // the CDN marks private — while the COPYABLE `snippet` keeps the canonical badgeUrl so real embeds count.
+  const previewUrl = useMemo(() => {
+    if (!badgeUrl) return "";
+    return `${badgeUrl}${badgeUrl.includes("?") ? "&" : "?"}preview=1`;
+  }, [badgeUrl]);
 
   // ?ref=badge tags the click-through so README → report visits are attributable (USE-1).
   const reportUrl = parsed ? badgeReportHref(origin, parsed.owner, parsed.repo) : "";
@@ -69,11 +81,18 @@ export function BadgeGenerator() {
     }
   }, [parsed, badgeUrl, reportUrl, alt, format]);
 
-  function copy() {
+  async function copy() {
     if (!snippet) return;
-    navigator.clipboard?.writeText(snippet);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    // Only claim "Copied!" when the async write actually RESOLVES. navigator.clipboard is undefined on
+    // an insecure (plain-HTTP) origin and writeText can reject under a denied permission — the old code
+    // set copied=true unconditionally, so the button lied while nothing reached the clipboard, and the
+    // user pasted an empty README badge. Reuse the shared attemptCopy state machine; there's no
+    // execCommand fallback here (the snippet stays selectable in the <pre>), so a failure surfaces a
+    // "select & copy manually" hint instead of a false success.
+    const ok = await attemptCopy(snippet, navigator.clipboard, () => false);
+    const { next, resetMs } = nextCopyState(ok);
+    setCopyState(next);
+    setTimeout(() => setCopyState("idle"), resetMs);
   }
 
   const chip = (active: boolean) =>
@@ -84,7 +103,7 @@ export function BadgeGenerator() {
   return (
     <div className="space-y-5">
       {/* Repo input */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+      <div className="rounded-2xl border border-divider bg-surface/40 p-5">
         <label htmlFor="badge-repo" className="font-mono text-sm uppercase tracking-widest text-slate-500">
           Repository
         </label>
@@ -125,13 +144,14 @@ export function BadgeGenerator() {
       </div>
 
       {/* Live preview */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+      <div className="rounded-2xl border border-divider bg-surface/40 p-5">
         <div className="font-mono text-sm uppercase tracking-widest text-slate-500">Preview</div>
         <div className="mt-3 flex min-h-[44px] items-center">
-          {parsed && badgeUrl ? (
+          {parsed && previewUrl ? (
             <a href={reportUrl} target="_blank" rel="noreferrer">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={badgeUrl} alt={alt} className="h-7" />
+              {/* previewUrl (not badgeUrl): the preview is the app's OWN image and must not be counted. */}
+              <img src={previewUrl} alt={alt} className="h-7" />
             </a>
           ) : (
             <span className="text-base text-slate-500">Enter a repository to preview its badge.</span>
@@ -140,7 +160,7 @@ export function BadgeGenerator() {
       </div>
 
       {/* Snippet + copy */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+      <div className="rounded-2xl border border-divider bg-surface/40 p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             {FORMATS.map((f) => (
@@ -155,12 +175,18 @@ export function BadgeGenerator() {
             disabled={!snippet}
             className="focus-ring rounded-lg bg-accent px-4 py-2 text-base font-medium text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
           >
-            {copied ? "Copied!" : "Copy"}
+            {copyState === "copied" ? "Copied!" : copyState === "failed" ? "Copy failed" : "Copy"}
           </button>
         </div>
         <pre className="mt-3 overflow-x-auto rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-sm text-slate-300">
           {snippet || "— enter a repository above —"}
         </pre>
+        {copyState === "failed" && (
+          // Honest fallback when the clipboard is unavailable/denied — the snippet above stays selectable.
+          <p role="status" className="mt-2 text-sm text-danger-soft">
+            Couldn&apos;t access the clipboard — select the snippet above and copy it manually.
+          </p>
+        )}
       </div>
 
       <p className="text-sm text-slate-500">

@@ -292,6 +292,21 @@ export function computeDimDeltas(
     }));
 }
 
+/**
+ * The org maturity TREND buckets scans by LOCAL calendar day — the SAME zone the window boundaries use
+ * (window.ts `startOfDay` snaps `start`/`end` to LOCAL midnight). Bucketing by `toISOString().slice(0,10)`
+ * (a UTC day) meant a scan was FILTERED by one calendar and LABELLED by another whenever the server runs
+ * off UTC: a late-evening local scan (e.g. 2026-05-01 01:00 local = 2026-04-30 23:00Z) landed in the
+ * previous UTC day's bucket, splitting one local day across two trend points and skewing the
+ * forecastTrajectory ETA. One zone shared with the window. Mirrors window.ts `toDayInput`. (fleet-rollups-insights #2)
+ */
+function localDayKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentId?: string | null, techGroupId?: string | null): Promise<OrgRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
@@ -389,7 +404,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     orderBy: { scannedAt: "asc" },
   });
   const byDay = new GroupedMean();
-  for (const s of allScans) byDay.add(s.scannedAt.toISOString().slice(0, 10), s.overallScore);
+  // LOCAL calendar day (localDayKey) — the same zone the window snaps to — so different-cadence repos
+  // bucket into the SAME day instead of splitting across a UTC midnight (bug+ui scan timezone fix).
+  for (const s of allScans) byDay.add(localDayKey(s.scannedAt), s.overallScore);
   const trend = byDay
     .keys()
     .sort()
@@ -415,10 +432,19 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       // `gte: start` (above). A scan whose timestamp is exactly `start` (e.g. seed/snapshot data at a
       // clean local midnight) previously counted as BOTH the baseline and the first in-window point —
       // comparing it against itself for a spurious 0-delta. `lt` makes each scan land on one side only.
+      //
+      // `distinct: ["repoId"]` bounds this to ONE row per repo AT THE DB (rows are scannedAt desc, so the
+      // kept row is each repo's latest before `start`) — instead of pulling the org's ENTIRE pre-window
+      // history into Node just to dedupe in a JS loop, which scaled with fleet AGE not the period (tens of
+      // thousands of rows for an org scanned daily for a year+). Mirrors the fix getOrgMovers already
+      // applies to its baseline query (org-insights.ts). (fleet-rollups-insights #1)
       where: { repo: { orgId: org.id, ...seg }, scannedAt: { lt: start } },
       select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true },
       orderBy: { scannedAt: "desc" },
+      distinct: ["repoId"],
     });
+    // Defensive first-per-repo pick over the already-deduped rows, mirroring getOrgMovers: keeps the
+    // baseline correct as one row per repo even if a driver ever under-honors `distinct`.
     const seen = new Set<string>();
     const latestPerRepo: typeof priorScans = [];
     for (const s of priorScans) {

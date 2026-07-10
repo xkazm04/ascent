@@ -29,6 +29,23 @@ const findings = [];
 const add = (level, msg) => findings.push({ level, msg });
 const check = (ok, label, miss) => add(ok ? 'pass' : miss, (ok ? '' : 'missing ') + label);
 
+// Is <alias> present in the hook text as a STANDALONE token? A naive hookText.includes(alias) gave FALSE
+// "wired" passes because short aliases are substrings of unrelated words: 'build:latest'.includes('test')
+// is true, so a repo that never wired 'test' looked wired. Require the alias to be flanked by a non-
+// alphanumeric char (or a string edge) so 'test' matches 'npm test' but not 'latest', while multi-word /
+// flag aliases like 'go vet' and '--cov' (whose own edges are non-alphanumeric) still match correctly.
+function wired(hookText, alias) {
+  const alnum = (ch) => /[a-z0-9]/.test(ch);
+  for (let from = 0; ; ) {
+    const i = hookText.indexOf(alias, from);
+    if (i < 0) return false;
+    const before = i === 0 ? '' : hookText[i - 1];
+    const after = hookText[i + alias.length] || '';
+    if (!alnum(before) && !alnum(after)) return true;
+    from = i + 1;
+  }
+}
+
 function kv(text, key) {
   const m = text.match(new RegExp('^' + key + ':\\\\s*(.+)$', 'm'));
   return m ? m[1].trim().replace(/^"|"$/g, '') : null;
@@ -105,7 +122,7 @@ if (!existsSync(path)) {
     for (const c of prePush) {
       if (!caps[c]) continue; // a missing capability is reported below; don't double-warn
       const al = ALIAS[c] || [c];
-      if (!al.some((a) => hookText.includes(a)))
+      if (!al.some((a) => wired(hookText, a)))
         add('warn', 'pre-push control "' + c + '" is backed but not found in your local hook (' + (hookFile || '.husky') + ') - it may only run in CI (too late). Wire it in.');
     }
   }

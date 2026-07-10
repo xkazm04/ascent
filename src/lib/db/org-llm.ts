@@ -33,9 +33,13 @@ export interface OrgLlmConfigInput {
   region?: string | null;
   authMode?: string;
   enabled?: boolean;
-  /** Static AWS creds (plaintext in; encrypted before storage). Omit both to KEEP existing creds. */
+  /** Static AWS creds for Bedrock (plaintext in; encrypted before storage). Omit both to KEEP existing. */
   accessKeyId?: string;
   secretAccessKey?: string;
+  /** OpenRouter API key (plaintext in; encrypted before storage). Omit to KEEP the existing key. Unlike
+   *  Bedrock, OpenRouter routes to third-party upstreams — a cost/flexibility path, NOT the in-boundary
+   *  privacy guarantee. */
+  apiKey?: string;
 }
 
 /** Decrypted static credentials — produced ONLY by resolveByomProvider, consumed ONLY by the provider
@@ -45,11 +49,12 @@ export interface ByomStaticCredentials {
   secretAccessKey: string;
 }
 
-export interface ByomProviderParams {
-  model: string;
-  region?: string;
-  credentials: ByomStaticCredentials;
-}
+/** Resolved BYOM provider params — a discriminated union so the factory builds the right provider.
+ *  `bedrock` carries decrypted AWS creds + region (in-boundary); `openrouter` carries a decrypted API
+ *  key (routes to third-party upstreams). Produced ONLY by resolveByomProvider; never serialized. */
+export type ByomProviderParams =
+  | { kind: "bedrock"; model: string; region?: string; credentials: ByomStaticCredentials }
+  | { kind: "openrouter"; model: string; apiKey: string };
 
 function toPublic(c: {
   provider: string;
@@ -102,24 +107,38 @@ export async function setOrgLlmConfig(
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return { ok: false, error: "Unknown organization." };
 
-  // Encrypt creds when BOTH are supplied. Either-only is a partial credential → reject.
+  const provider = input.provider?.trim() || "bedrock";
+
+  // Encrypt the provider-appropriate secret. Bedrock = the AWS key pair (both or neither); OpenRouter =
+  // a single API key. Omitting the secret KEEPS the stored one (an edit of model/region without
+  // re-entering keys). A partial credential is rejected.
   let credentialsEncrypted: string | undefined;
-  const hasKeyId = Boolean(input.accessKeyId?.trim());
-  const hasSecret = Boolean(input.secretAccessKey?.trim());
-  if (hasKeyId !== hasSecret) {
-    return { ok: false, error: "Provide both accessKeyId and secretAccessKey, or neither." };
-  }
-  if (hasKeyId && hasSecret) {
-    if (!isEncryptionConfigured()) {
-      return { ok: false, error: "Secret encryption is not configured (set ENCRYPTION_KEY)." };
+  if (provider === "openrouter") {
+    const key = input.apiKey?.trim();
+    if (key) {
+      if (!isEncryptionConfigured()) {
+        return { ok: false, error: "Secret encryption is not configured (set ENCRYPTION_KEY)." };
+      }
+      credentialsEncrypted = encryptSecret(JSON.stringify({ apiKey: key }));
     }
-    credentialsEncrypted = encryptSecret(
-      JSON.stringify({ accessKeyId: input.accessKeyId!.trim(), secretAccessKey: input.secretAccessKey!.trim() }),
-    );
+  } else {
+    const hasKeyId = Boolean(input.accessKeyId?.trim());
+    const hasSecret = Boolean(input.secretAccessKey?.trim());
+    if (hasKeyId !== hasSecret) {
+      return { ok: false, error: "Provide both accessKeyId and secretAccessKey, or neither." };
+    }
+    if (hasKeyId && hasSecret) {
+      if (!isEncryptionConfigured()) {
+        return { ok: false, error: "Secret encryption is not configured (set ENCRYPTION_KEY)." };
+      }
+      credentialsEncrypted = encryptSecret(
+        JSON.stringify({ accessKeyId: input.accessKeyId!.trim(), secretAccessKey: input.secretAccessKey!.trim() }),
+      );
+    }
   }
 
   const base = {
-    provider: input.provider?.trim() || "bedrock",
+    provider,
     modelId: input.modelId.trim(),
     region: input.region?.trim() || null,
     authMode: input.authMode?.trim() || "static",
@@ -223,15 +242,25 @@ export async function resolveByomProvider(orgSlug: string): Promise<ByomProvider
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const c = await prisma.orgLlmConfig.findUnique({ where: { orgId } });
-  if (!c?.credentialsEncrypted || c.provider !== "bedrock") return null;
+  // No provider guard here: the switch below handles every supported BYOM provider (openrouter, bedrock).
+  if (!c?.credentialsEncrypted) return null;
   try {
-    const creds = JSON.parse(decryptSecret(c.credentialsEncrypted)) as Partial<ByomStaticCredentials>;
-    if (!creds.accessKeyId || !creds.secretAccessKey) return null;
-    return {
-      model: c.modelId,
-      ...(c.region ? { region: c.region } : {}),
-      credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
-    };
+    if (c.provider === "openrouter") {
+      const creds = JSON.parse(decryptSecret(c.credentialsEncrypted)) as { apiKey?: string };
+      if (!creds.apiKey) return null;
+      return { kind: "openrouter", model: c.modelId, apiKey: creds.apiKey };
+    }
+    if (c.provider === "bedrock") {
+      const creds = JSON.parse(decryptSecret(c.credentialsEncrypted)) as Partial<ByomStaticCredentials>;
+      if (!creds.accessKeyId || !creds.secretAccessKey) return null;
+      return {
+        kind: "bedrock",
+        model: c.modelId,
+        ...(c.region ? { region: c.region } : {}),
+        credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
+      };
+    }
+    return null; // unknown provider — never route
   } catch {
     // Tamper / wrong key / malformed — never crash a scan; fall back to the platform provider.
     return null;

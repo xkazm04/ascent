@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { applyPlaybook, unapplyPlaybook } from "@/lib/db";
-import { getSession } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 
 export const runtime = "nodejs";
@@ -23,8 +23,10 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   // (PlaybookCard → trackAsInitiative). Require the repo to belong to this org.
   const coord = parseOrgRepo(body.repo, gated.org);
   if (coord instanceof Response) return coord;
-  const session = await getSession();
-  const ok = await applyPlaybook(gated.org, id, coord.fullName, session?.login ?? null);
+  // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
+  // so this actor was recorded as null in production.
+  const actorLogin = await resolveViewerLogin();
+  const ok = await applyPlaybook(gated.org, id, coord.fullName, actorLogin);
   if (!ok) return NextResponse.json({ error: "Unknown playbook for this org." }, { status: 404 });
   return NextResponse.json({ ok: true, repo: coord.fullName });
 }

@@ -62,7 +62,7 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
           const isCurrent = i === cur;
           return (
             <div key={l.id} className="flex-1">
-              <div className="h-1.5 rounded-full" style={{ backgroundColor: reached ? LEVEL_HEX[l.id] : "#1e293b" }} />
+              <div className="h-1.5 rounded-full" style={{ backgroundColor: reached ? LEVEL_HEX[l.id] : "var(--color-divider)" }} />
               <div aria-hidden className="mt-1 text-sm leading-none" style={{ color: reached ? LEVEL_HEX[l.id] : "#475569" }}>
                 {LEVEL_GLYPH[l.id]}
               </div>

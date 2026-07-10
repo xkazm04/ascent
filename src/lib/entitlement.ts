@@ -28,6 +28,11 @@ export interface ScanEntitlement {
    *  capping on prepaid credits only wrongly denied an org's INCLUDED free scans (a Free org with 0
    *  purchased credits but its 10 monthly free scans had every bulk scan/import skipped). */
   allowanceRemaining: number;
+  /** `false` ONLY when a DB is configured and the slug matched NO org row (deletion / casing / typo).
+   *  Mirrors CreditState.orgExists so a caller can 404 a phantom slug instead of trusting `allowed`.
+   *  Optional so existing mocks/consumers that don't care are unaffected; treat `orgExists === false`
+   *  as "confirmed missing". */
+  orgExists?: boolean;
 }
 
 /**
@@ -41,12 +46,24 @@ export async function checkScanEntitlement(orgSlug: string): Promise<ScanEntitle
   const usage = state.unlimited ? 0 : await countMeteredScansThisMonth(orgSlug);
   const charge = resolveScanCharge({ plan: state.plan, usageThisMonth: usage, balance: state.balance });
   const allowance = state.unlimited ? null : scanAllowance(state.plan);
+  // A configured DB that matched NO org row (deletion / casing / typo) is an UNKNOWN organization, not a
+  // real free org with monthly headroom. The write gate (consumeScanCredit) already denies + surfaces
+  // orgExists:false, but this READ gate used to ignore orgExists entirely — so a phantom slug with usage
+  // 0 < the free allowance reported allowed:true / withinAllowance:true, and the two gates disagreed.
+  // Deny a confirmed-missing org here too (and zero its allowance) so read and write agree; a real
+  // out-of-credits org still 402s via `charge === "denied"`.
+  const orgExists = state.orgExists !== false;
   return {
-    allowed: charge !== "denied",
+    allowed: orgExists && charge !== "denied",
     unlimited: state.unlimited,
     balance: state.balance,
-    withinAllowance: charge === "allowance",
-    allowanceRemaining: allowance == null ? Number.POSITIVE_INFINITY : Math.max(0, allowance - usage),
+    withinAllowance: orgExists && charge === "allowance",
+    allowanceRemaining: !orgExists
+      ? 0
+      : allowance == null
+        ? Number.POSITIVE_INFINITY
+        : Math.max(0, allowance - usage),
+    orgExists,
   };
 }
 

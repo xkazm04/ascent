@@ -5,7 +5,8 @@
 
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit, setPassportOverrides } from "@/lib/db";
-import { PUBLIC_ORG, getSession, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
+import { PUBLIC_ORG, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
 import type { PassportOverrides } from "@/lib/analyze/passport";
 
@@ -45,12 +46,14 @@ export async function POST(request: Request) {
   });
   if (!ok) return NextResponse.json({ error: "Unknown repository (scan it first)." }, { status: 404 });
 
-  const session = await getSession();
+  // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
+  // so this audit row recorded a null actor in production.
+  const actorLogin = await resolveViewerLogin();
   await recordOrgAudit(
     "passport.overrides_set",
     orgSlug,
     { repo: fullName, criticality: body.criticality ?? null, lifecycle: body.lifecycle ?? null, rollback: body.rollback ?? null },
-    session?.login,
+    actorLogin ?? undefined,
   );
   return NextResponse.json({ ok: true });
 }

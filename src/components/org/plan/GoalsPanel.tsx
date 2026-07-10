@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ConfirmAction, goalDeleteConfirm } from "@/components/ConfirmAction";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { GoalCard, type GoalProgressView, type LinkedInitiative } from "@/components/org/shared/goalView";
 
@@ -43,6 +44,10 @@ export function GoalsPanel({
   const [error, setError] = useState<string | null>(null);
   // Local copy so a one-click-added suggestion disappears from the row without a server round-trip.
   const [picks, setPicks] = useState<GoalSuggestion[]>(suggestions);
+  // "remove" hard-deletes the goal AND its achievement history — irreversible, so it only REQUESTS
+  // deletion; the DELETE runs after an explicit confirm that names the goal.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const pendingDelete = goals.find((g) => g.id === pendingDeleteId) ?? null;
 
   async function refresh() {
     const res = await fetch(`/api/org/goals?org=${encodeURIComponent(slug)}`);
@@ -120,6 +125,21 @@ export function GoalsPanel({
         title="Goals"
         description="Time-bound targets the org steers toward — progress, pace and ETA track the fleet's latest scans."
       />
+
+      {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
+      <ConfirmAction
+        open={pendingDelete != null}
+        onCancel={() => setPendingDeleteId(null)}
+        onConfirm={() => {
+          const id = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (id) void remove(id);
+        }}
+        {...(pendingDelete
+          ? goalDeleteConfirm(pendingDelete.label)
+          : { title: "", body: "", confirmLabel: "", tone: "danger" as const })}
+      />
+
       <div className="mt-4 space-y-3">
         {goals.length === 0 && <p className="text-base text-slate-500">No goals yet — set one below.</p>}
         {goals
@@ -131,7 +151,7 @@ export function GoalsPanel({
               slug={slug}
               initiatives={initiativesByGoal[g.id]}
               action={
-                <button onClick={() => remove(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
+                <button onClick={() => setPendingDeleteId(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
                   remove
                 </button>
               }

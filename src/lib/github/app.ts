@@ -59,13 +59,24 @@ function b64url(input: string | Buffer): string {
   return Buffer.from(input).toString("base64url");
 }
 
-/** Short-lived (10 min) RS256 JWT authenticating as the App itself. */
+// github-app-installation-webhooks #4: backdate `iat` by the SAME skew budget the token cache uses
+// (TOKEN_EXPIRY_SKEW_MS = 180s), not 60s. On an under-provisioned host without reliable NTP whose clock
+// runs >60s AHEAD of GitHub's, GitHub rejects the App JWT with "'iat' is in the future" and every App call
+// (getInstallation, token mints, isOrgAdminViaInstallation) 401s — making the 180s token-cache widening
+// moot, since the App can't even mint a token. GitHub caps `exp - iat` at 10 min (600s), so with iat
+// backdated 180s, exp is held at iat+600 = now + (600-180) = now+420 to stay inside the cap.
+const JWT_IAT_BACKDATE_SEC = 180;
+const JWT_MAX_LIFETIME_SEC = 600; // GitHub's hard ceiling on exp - iat for an App JWT
+
+/** Short-lived RS256 JWT authenticating as the App itself. */
 export function createAppJwt(): string {
   const appId = process.env.GITHUB_APP_ID;
   if (!appId) throw new Error("GITHUB_APP_ID not set");
   const now = Math.floor(Date.now() / 1000);
+  const iat = now - JWT_IAT_BACKDATE_SEC;
+  const exp = iat + JWT_MAX_LIFETIME_SEC; // = now + 420; keeps exp - iat == 600 (GitHub's max)
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = b64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: appId }));
+  const payload = b64url(JSON.stringify({ iat, exp, iss: appId }));
   const data = `${header}.${payload}`;
   const signer = createSign("RSA-SHA256");
   signer.update(data);

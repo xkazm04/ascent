@@ -4,7 +4,8 @@
 
 import { NextResponse } from "next/server";
 import { getInstallation, isAppConfigured, isOrgAdminViaInstallation } from "@/lib/github/app";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { upsertInstallation } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -25,26 +26,31 @@ export async function GET(request: Request) {
   // round-trip, but getInstallation authenticates the INSTALLATION, not the CALLER. Left unauthenticated,
   // an attacker could iterate installation ids to discover which belong to this app AND seed `private`-plan
   // org rows for accounts they don't control — installation enumeration + GitHub-API/DB amplification with
-  // no throttle. When auth is configured, require a signed-in session BEFORE the GitHub round-trip (kills
-  // the unauthenticated enumeration/amplification), then gate the upsert to a caller who actually owns the
-  // resolved account: the personal account itself, or a GitHub-confirmed org admin. When auth is NOT
-  // configured (App-only / DB-less deployments with no session system) the prior behavior is preserved.
-  const authOn = isAuthConfigured();
-  const session = authOn ? await getSession() : null;
-  if (authOn && !session) {
+  // no throttle. Require a signed-in caller BEFORE the GitHub round-trip (kills the unauthenticated
+  // enumeration/amplification), then gate the upsert to a caller who actually owns the resolved account:
+  // the personal account itself, or a GitHub-confirmed org admin. When auth is NOT configured at all
+  // (App-only / DB-less deployments with no session system) the prior open behavior is preserved.
+  //
+  // The guard used to key on `isAuthConfigured()` alone — the DORMANT custom-OAuth env, unset under the
+  // ACTIVE Supabase wall — so in production authOn was false, `session` was null, and BOTH the sign-in
+  // requirement and the ownership check below were dead code. resolveViewerLogin() resolves the caller
+  // across both stacks (custom session first, then the JWT-validated Supabase viewer).
+  const authOn = authGateEnabled() || isAuthConfigured();
+  const actorLogin = authOn ? await resolveViewerLogin() : null;
+  if (authOn && !actorLogin) {
     return NextResponse.redirect(new URL("/connect?error=auth_required", request.url));
   }
 
   try {
     const info = await getInstallation(installationId);
-    if (session) {
+    if (actorLogin) {
       const accountLc = info.account.toLowerCase();
       const authorized =
-        session.login.toLowerCase() === accountLc ||
-        (await isOrgAdminViaInstallation(installationId, info.account, session.login).catch(() => false));
+        actorLogin.toLowerCase() === accountLc ||
+        (await isOrgAdminViaInstallation(installationId, info.account, actorLogin).catch(() => false));
       if (!authorized) {
         console.warn(
-          `[app/setup] ${session.login} not authorized for installation ${installationId} (account ${info.account})`,
+          `[app/setup] ${actorLogin} not authorized for installation ${installationId} (account ${info.account})`,
         );
         return NextResponse.redirect(new URL("/connect?error=forbidden", request.url));
       }

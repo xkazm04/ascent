@@ -7,6 +7,7 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { SecurityOverview } from "@/lib/org/security";
 import { FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
+import { latin1Safe } from "./latin1";
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 3 },
@@ -27,7 +28,9 @@ export function SecurityDocument({ overview }: { overview: SecurityOverview }) {
     <Document title={`Ascent security posture — ${o.org}`} author="Ascent" subject="Supply-chain & security posture">
       <Page size="A4" style={baseStyles.page}>
         <Text style={baseStyles.kicker}>Ascent · Security posture</Text>
-        <Text style={baseStyles.h1}>{o.org}</Text>
+        {/* latin1Safe: org + repo names are user data — a non-Latin-1 glyph must show as a visible "?"
+            rather than be silently dropped by the built-in Helvetica font (see ./latin1). */}
+        <Text style={baseStyles.h1}>{latin1Safe(o.org)}</Text>
         <Text style={baseStyles.meta}>{o.periodTitle} · generated {o.generatedOn} · {o.dimLabel} (D9)</Text>
 
         <View style={baseStyles.rule} />
@@ -58,10 +61,10 @@ export function SecurityDocument({ overview }: { overview: SecurityOverview }) {
             </View>
             {o.register.slice(0, 20).map((r) => (
               <View key={r.fullName} style={styles.regRow} wrap={false}>
-                <Text style={styles.regRepo}>{r.name}</Text>
+                <Text style={styles.regRepo}>{latin1Safe(r.name)}</Text>
                 <Text style={{ ...styles.regScore, fontFamily: "Helvetica-Bold", color: scoreColor(r.score) }}>{r.score}</Text>
                 <Text style={{ ...styles.regGate, color: r.gateReason ? "#dc2626" : "#16a34a" }}>
-                  {r.gateReason ? `FAIL — ${r.gateReason}` : "pass"}
+                  {r.gateReason ? `FAIL — ${latin1Safe(r.gateReason)}` : "pass"}
                 </Text>
                 <Text style={{ ...styles.regRules, ...baseStyles.muted }}>
                   {r.rules
@@ -80,7 +83,7 @@ export function SecurityDocument({ overview }: { overview: SecurityOverview }) {
           <View>
             <View style={baseStyles.rule} />
             <Text style={baseStyles.sectionH}>No default-branch protection ({o.unprotected.length})</Text>
-            <Text style={baseStyles.muted}>{o.unprotected.slice(0, 20).map((r) => r.name).join(" · ")}</Text>
+            <Text style={baseStyles.muted}>{o.unprotected.slice(0, 20).map((r) => latin1Safe(r.name)).join(" · ")}</Text>
           </View>
         )}
 

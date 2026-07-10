@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
+import { GitHubError } from "@/lib/github/source";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
@@ -44,6 +45,13 @@ export async function GET(
   // casing/percent-encoding variants of the same repo must not fragment into separate entries.
   const ownerN = normalizeRepoName(owner);
   const repoN = normalizeRepoName(repo);
+  // SECURITY (ci-gate-status-checks #1): this endpoint is unauthenticated by design — CI calls it with
+  // plain curl. Every ingest below therefore passes noAmbientToken, so a scan can never run against the
+  // ambient GITHUB_TOKEN (an operator PAT that commonly has broad read access). Without it, any
+  // anonymous caller could enumerate PRIVATE repos' full gate verdicts through the operator's
+  // credentials. Token-less ingestion of a private repo 404s, which we surface honestly below.
+  // Private repos are gated through the authenticated GitHub App check-run path (/api/app/webhook),
+  // not this endpoint. Same construction as the public badge route.
   // Rate-limiting strategy (denial-of-wallet defense that still lets real CI through):
   //  - The real-LLM path (?mock=0) is always throttled up-front with the strict SCAN_RATE_LIMIT — it
   //    spends both LLM budget and a full GitHub ingest.
@@ -65,14 +73,16 @@ export async function GET(
         const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
         if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
       }
-      report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref });
+      report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref, noAmbientToken: true });
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
       // flow and badge — a push misses the cache and re-evaluates against fresh signals instead
       // of returning a stale pass/fail (CI would otherwise gate on the pre-push score). CONDITIONAL
       // via the shared head-hint store (free 304 on an unchanged repo). Null on failure → a
       // SHA-less key (best-effort).
-      const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, process.env.GITHUB_TOKEN);
+      // Token-less by construction (see the noAmbientToken note above): resolving a head sha with the
+      // operator PAT would confirm a private repo's existence and current commit to an anonymous caller.
+      const sha = await resolveHeadWithHint({ owner: ownerN, repo: repoN }, undefined);
       // Probe ONLY the mode that was requested. The old `cacheGet(llmKey) ?? cacheGet(mockKey)` read the
       // LLM entry first regardless of mode, so a default (mock=true) CI gate could return a STOCHASTIC
       // LLM verdict — a PR flipping pass↔fail between runs with identical code, purely from which scan
@@ -86,7 +96,7 @@ export async function GET(
           const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
           if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
         }
-        report = await scanRepository(`${ownerN}/${repoN}`, { mock });
+        report = await scanRepository(`${ownerN}/${repoN}`, { mock, noAmbientToken: true });
         cacheSet(key, report);
       }
     }
@@ -103,21 +113,74 @@ export async function GET(
       ? policyFromParams(searchParams, report.archetype)
       : (await getOrgGatePolicy(ownerN).catch(() => null)) ?? policyFromParams(searchParams, report.archetype);
     const gate = evaluateGate(report, policy);
+
+    // HONESTY GUARD (ci-gate-status-checks #2): the machine-readable verdict must never present a
+    // DEGRADED scan as a confident pass. When the caller asks for the real AI grade (?mock=0) but the
+    // LLM times out / is unconfigured, scanRepository falls back to the deterministic MockProvider and
+    // stamps engine.provider = "mock" (plus a warnings caveat). evaluateGate reads ONLY scores — never
+    // the engine or warnings — so a fabricated-floor scan can still say pass:true. Because the old body
+    // omitted warnings/engine and always returned 200 on a pass, `curl --fail` saw a clean green gate
+    // indistinguishable from a genuine AI-graded pass, and CI would merge on the floor score.
+    //
+    // Detect degradation with the SAME predicate the persistence layer uses as its cache-poisoning
+    // guard (scan-finalize.ts `classifyScanResult().degradedToMock`): the engine is "mock" while the
+    // request did NOT ask for mock. Inlined rather than imported because scan-finalize pulls in @/lib/db
+    // and @/lib/access — keep this unauthenticated route's module graph lean. The DEFAULT gate path
+    // (?mock omitted → mock=true) is the DOCUMENTED deterministic rubric, not a degradation: !mock is
+    // false there, so it keeps the exact 200-pass / 422-fail contract CI keys on.
+    const degraded = report.engine.provider === "mock" && !mock;
+    // Fail closed on degradation: force a non-2xx status (503 — the requested authoritative grade could
+    // not be produced) so `curl --fail` trips and CI cannot merge on a floor score, even when the gate
+    // math would "pass". Healthy scans (a real provider, or an explicit ?mock request) are untouched.
+    // We still return the FULL verdict + an explicit `degraded: true` so a consumer that reads the body
+    // knows why (and can retry), and always surface engine/confidence/warnings so any score — healthy or
+    // degraded — is read in context (mirrors the web report's ReportNotices, which the machine path lacked).
+    const status = degraded ? 503 : gate.pass ? 200 : 422;
     return NextResponse.json(
       {
         repo: `${ownerN}/${repoN}`,
         ref: ref ?? null,
         pass: gate.pass,
+        degraded,
         level: report.level.id,
         overallScore: report.overallScore,
         posture: report.posture.id,
         archetype: report.archetype,
         policy: gate.policy,
         failures: gate.failures,
+        // Degradation signals a CI consumer needs to trust — or distrust — the verdict:
+        //   engine      — which grader actually produced it ("mock" = deterministic floor, not the AI grade);
+        //   confidence  — 0..1 repo coverage (how much of the tree we could inspect);
+        //   warnings    — non-fatal reliability caveats (LLM fallback, low coverage, skipped PR signals).
+        // All three were omitted before, so no consumer could tell a degraded pass from a real one.
+        engine: report.engine,
+        confidence: report.confidence,
+        warnings: report.warnings ?? [],
+        // `error` is what a generic CI wrapper prints on a non-2xx (scripts/maturity-gate.mjs falls back
+        // to "unknown" without it). A 503 with no explanation is as unactionable as the silent pass we
+        // just removed, so say plainly what happened and that retrying is the right move.
+        ...(degraded
+          ? {
+              error:
+                "The AI grade could not be produced (the LLM provider was unavailable, so the scan fell back to the deterministic floor). This verdict is NOT authoritative — retry the gate.",
+            }
+          : {}),
       },
-      { status: gate.pass ? 200 : 422 },
+      { status },
     );
   } catch (err) {
+    // Token-less ingest of a private (or missing) repo 404s. Say so plainly rather than reporting a
+    // generic 500 the CI operator cannot act on — and point at the surface that CAN gate a private repo.
+    // `status` is optional on GitHubError, so match the semantic code too.
+    if (err instanceof GitHubError && (err.code === "NOT_FOUND" || err.status === 404)) {
+      return NextResponse.json(
+        {
+          error:
+            "Repository not found or not publicly readable. Private repositories are gated through the GitHub App check run, not this endpoint.",
+        },
+        { status: 404 },
+      );
+    }
     console.error("[gate] evaluation failed", err);
     return NextResponse.json({ error: "Failed to evaluate the maturity gate." }, { status: 500 });
   }

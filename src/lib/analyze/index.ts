@@ -8,6 +8,7 @@ import type {
   Contributor,
   DimensionId,
   DimensionSignals,
+  PrStats,
   RepoArchetype,
   RepoSnapshot,
   Signal,
@@ -190,6 +191,7 @@ const d1: Detector = (idx) => {
   if (idx.has(/(^|\/)agents?\.md$/)) s.add(16, "Found AGENTS.md (agent guidance)");
   if (idx.has(/(^|\/)\.cursorrules$/) || idx.has(/^\.cursor\/rules\//)) s.add(14, "Found Cursor rules");
   if (idx.has(/^\.github\/copilot-instructions\.md$/)) s.add(14, "Found Copilot instructions");
+  if (idx.has(/(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing|using[-_]ai)\.mdx?$/)) s.add(8, "Found an AI-usage policy/guide");
   if (idx.has(/(^|\/)\.aider\.conf\.ya?ml$/)) s.add(10, "Found Aider config");
   if (idx.has(/(^|\/)\.windsurfrules$/) || idx.has(/^\.windsurf\//)) s.add(10, "Found Windsurf rules");
   if (idx.has(/(^|\/)\.?mcp\.json$/) || idx.has(/(^|\/)mcp\.config\./)) s.add(10, "Found MCP server config");
@@ -219,6 +221,11 @@ const SOURCE_PATH =
   /\.(ts|tsx|js|jsx|py|go|rs|java|rb|kt|cs|php|swift|scala)$/i;
 const VENDOR =
   /(^|\/)(node_modules|dist|build|vendor|\.next|out|target|\.venv)\//i;
+// Non-core trees (examples, benchmarks, fixtures, docs sites, templates). A capability found ONLY here
+// describes a sample/demo, not the repo's own pipeline — so delivery-as-code detection (D3) excludes
+// them to avoid crediting an example app's DB migrations or an SDK's feature-flag product as the repo's.
+const NONCORE =
+  /(^|\/)(examples?|benches?|fixtures?|testdata|templates?|samples?|docs?)\//i;
 // ADR / architecture-decision-record detection. ADRs count toward both D5 (Documentation) and D8
 // (AI Process — agent-readable runbooks/ADRs), so single-source the path convention here rather than
 // copy it into each detector (where one could be broadened and the other silently left behind).
@@ -234,7 +241,11 @@ const d2: Detector = (idx) => {
   const n = testFiles.length;
 
   if (n === 0) {
-    s.note("No test files detected");
+    // Rust doctests / Go tests can live inline in source with no test/ dir or *_test file the path
+    // matcher catches — credit the suite when CI actually runs the test command (reference-scan P2-2).
+    if (/cargo test|go test|\bpytest\b|npm test|make test/.test(idx.workflowText))
+      s.add(20, "Tests run in CI (no separate test files matched)");
+    else s.note("No test files detected");
   } else {
     const base = n >= 50 ? 50 : n >= 21 ? 42 : n >= 6 ? 32 : 20;
     s.add(base, `Found ${n} test file${n === 1 ? "" : "s"}`);
@@ -296,7 +307,9 @@ const d2: Detector = (idx) => {
     const cases = (body.match(/\b(it|test|describe|context)\s*\(|^\s*def\s+test_|\bfunc\s+Test[A-Z]|@Test\b|#\[test\]/gim) ?? []).length;
     const substantive = (
       body.match(
-        /\.(toBe|toEqual|toStrictEqual|toThrow|toContain|toHaveBeen[A-Za-z]*|toMatchObject|toBeGreaterThan|toBeLessThan|toBeCloseTo|toBeTruthy|toBeFalsy|toBeNull|toBeDefined|toBeInstanceOf|resolves|rejects)\b|\bassert[A-Za-z_]*\s*[(!]|\bassert\s+\w|\bt\.(Error|Errorf|Fatal|Fatalf|Fail|is|deepEqual|truthy|throws)\b|\b(EXPECT|ASSERT)_[A-Z]/gi,
+        // Adds testify (`require.NoError(`, `assert.Equal(` — the dot broke the bare `assert…` clause) to
+        // the existing Jest/Go-testing.T/GoogleTest/`assert!` patterns (reference-scan P2-2).
+        /\.(toBe|toEqual|toStrictEqual|toThrow|toContain|toHaveBeen[A-Za-z]*|toMatchObject|toBeGreaterThan|toBeLessThan|toBeCloseTo|toBeTruthy|toBeFalsy|toBeNull|toBeDefined|toBeInstanceOf|resolves|rejects)\b|\b(require|assert)\.[A-Za-z]\w*\s*\(|\bassert[A-Za-z_]*\s*[(!]|\bassert\s+\w|\bt\.(Error|Errorf|Fatal|Fatalf|Fail|is|deepEqual|truthy|throws)\b|\b(EXPECT|ASSERT)_[A-Z]/gi,
       ) ?? []
     ).length;
     if (cases >= 4 && substantive === 0) {
@@ -312,26 +325,51 @@ const d2: Detector = (idx) => {
 // ---------------------------------------------------------------------------
 // D3 — CI/CD & Automation
 // ---------------------------------------------------------------------------
-const d3: Detector = (idx) => {
+const d3: Detector = (idx, snap) => {
   const s = new Scorer();
   const hasGha = idx.has(/^\.github\/workflows\/.+\.ya?ml$/);
   const otherCi = idx.has(
     /(^|\/)(\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|jenkinsfile|\.travis\.yml|bitbucket-pipelines\.yml)/i,
   );
+  // Off-GitHub CI / merge-queue evidence. World-class Go/Rust/systems repos gate on CI + code review
+  // OUTSIDE GitHub Actions (Gerrit, bors/homu, Buildkite, LUCI), so a `.github/workflows`-only detector
+  // scored them a false 0 ("No CI pipeline detected"). Read committed markers + commit-message trailers
+  // (already in the snapshot) — the GHA path below stays byte-identical, so existing scores don't drift.
+  const commitBlob = snap.commits.map((c) => c.message).join("\n").toLowerCase();
+  const gerritCi = /reviewed-on:\s*https?:\/\/\S*(googlesource|gerrit)/.test(commitBlob) || /\nchange-id:\s*i[0-9a-f]{8,}/.test(commitBlob);
+  const borsCi = idx.has(/(^|\/)bors\.toml$/) || /trybot-result:|\bbors r\+|\br=[a-z0-9._-]+/.test(commitBlob);
+  const buildkiteCi = idx.has(/^\.buildkite\//);
+  const genericCi = idx.has(/^\.ci\//) || idx.has(/(^|\/)(cloudbuild\.ya?ml|\.teamcity\/)/i);
+  const offGhSystem = gerritCi ? "Gerrit" : borsCi ? "bors/merge-queue" : buildkiteCi ? "Buildkite" : genericCi ? "external CI" : null;
+
   if (hasGha) s.add(35, "GitHub Actions CI present");
   else if (otherCi) s.add(35, "CI pipeline present");
+  else if (offGhSystem) s.add(35, `Off-GitHub CI detected (${offGhSystem})`, "review/build gate runs outside GitHub Actions");
   else s.note("No CI pipeline detected");
 
   const wfCount = idx.count(/^\.github\/workflows\/.+\.ya?ml$/);
   if (wfCount >= 2) s.add(10, `Multiple CI workflows (${wfCount})`);
 
   const wf = idx.workflowText;
+  // For off-GitHub CI there is no workflow YAML, so the test/lint/build sub-signals below would read
+  // empty and score 0. Fall back to the build tooling the gate invokes (Makefile/justfile/Taskfile) —
+  // an off-GitHub gate with a `test`/`lint` target almost always runs it. Only consulted when GHA is
+  // ABSENT, so GHA repos are unaffected.
+  const buildScripts = offGhSystem
+    ? ((idx.content("makefile") || "") + "\n" + (idx.content("justfile") || "") + "\n" + (idx.content("taskfile.yml") || idx.content("taskfile.yaml") || "")).toLowerCase()
+    : "";
   if (/(npm|pnpm|yarn|bun) (run )?test|pytest|go test|cargo test|gradle test|jest|vitest/.test(wf))
     s.add(15, "CI runs tests");
+  else if (offGhSystem && /go test|cargo test|pytest|npm test|make test|\btest:/.test(buildScripts))
+    s.add(15, "CI runs tests", "inferred from build tooling invoked by the off-GitHub gate");
   if (/lint|eslint|ruff|flake8|golangci|prettier --check|biome/.test(wf))
     s.add(10, "CI runs linting");
+  else if (offGhSystem && /golangci|clippy|go vet|ruff|eslint|\blint:/.test(buildScripts))
+    s.add(10, "CI runs linting", "inferred from build tooling invoked by the off-GitHub gate");
   if (/(npm|pnpm|yarn|bun) (run )?build|go build|cargo build|gradle build|docker build/.test(wf))
     s.add(5, "CI runs a build");
+  else if (offGhSystem && /go build|cargo build|make build|\bbuild:/.test(buildScripts))
+    s.add(5, "CI runs a build", "inferred from build tooling invoked by the off-GitHub gate");
 
   if (
     idx.has(/(^|\/)(release-please|\.changeset\/|\.releaserc)/) ||
@@ -346,23 +384,23 @@ const d3: Detector = (idx) => {
     s.add(10, "Infrastructure-as-Code present");
 
   // Delivery-as-code: a declarative, auditable, reversible path to production — what lets
-  // autonomy compound (the L4→L5 jump). Detected from manifests/workflows, presence-only.
-  const deliver = idx.pathText + " " + idx.workflowText;
-  if (idx.has(/\.rego$/) || /conftest|open-policy-agent|\bopa\b.*policy|policy-as-code/.test(deliver))
+  // autonomy compound (the L4→L5 jump). Scope to CORE paths (exclude examples/benches/fixtures/docs/
+  // templates) so an example app's Prisma migrations or an SDK that *covers* feature-flags as a product
+  // don't read as the repo's OWN pipeline, and require specific tool evidence over bare words like
+  // "migrate"/"feature-flag"/"policy" — the reference-scan audit's D3 false-positive cluster (P1-3).
+  const corePaths = idx.lowerPaths.filter((p) => !NONCORE.test(p) && !VENDOR.test(p));
+  const deliver = corePaths.join(" ") + " " + idx.workflowText;
+  if (corePaths.some((p) => /\.rego$/.test(p)) || /conftest|open-policy-agent|policy-as-code/.test(deliver))
     s.add(8, "Policy-as-code (OPA/conftest)");
   if (
-    idx.has(/(^|\/)(\.argocd|argocd|flux-system|clusters)\//) ||
+    corePaths.some((p) => /(^|\/)(\.argocd|argocd|flux-system|clusters)\//.test(p)) ||
     /argoproj\.io|kind:\s*application\b|fluxcd|toolkit\.fluxcd\.io|kustomization\.ya?ml/.test(deliver)
   )
     s.add(8, "GitOps delivery (ArgoCD/Flux)");
-  if (
-    /argo-rollouts|kind:\s*rollout\b|flagger|launchdarkly|unleash|flagsmith|openfeature|split\.io|feature[-_ ]?flag/.test(
-      deliver,
-    )
-  )
+  if (/argo-rollouts|kind:\s*rollout\b|flagger|launchdarkly|unleash|flagsmith|openfeature|split\.io/.test(deliver))
     s.add(8, "Progressive delivery / feature flags");
   if (
-    idx.has(/(^|\/)(migrations?|migrate)\//) ||
+    corePaths.some((p) => /(^|\/)(migrations?|migrate)\/.+\.(sql|rb|py|ts|js|go)$/.test(p)) ||
     idx.has(/(^|\/)(alembic\.ini|liquibase\.properties)$/) ||
     /flyway|liquibase|alembic|prisma migrate|knex.*migrat|db:migrate|sequelize.*migrat/.test(deliver)
   )
@@ -374,16 +412,18 @@ const d3: Detector = (idx) => {
 // ---------------------------------------------------------------------------
 // D4 — Agentic Workflows (the high-maturity signal)
 // ---------------------------------------------------------------------------
-const d4: Detector = (idx) => {
+const d4: Detector = (idx, snap) => {
   const s = new Scorer();
   const wf = idx.workflowText;
   const blob = wf + " " + idx.pathText;
 
+  // AI code-review agent — match a bot CONFIG file or a bot token in WORKFLOW YAML, not a bare token in
+  // ANY tree path. The old all-paths match on generic words (`sweep`, `ellipsis`) false-fired on repos
+  // with e.g. `runtime/mgcsweep.go` — crediting golang/go & rustc a phantom AI reviewer (reference-scan
+  // P1-4). Scope the generic names to config files; keep unambiguous product tokens in workflow text.
   if (
-    idx.has(/(^|\/)\.coderabbit\.ya?ml$/) ||
-    /coderabbit|claude-code-action|anthropics\/claude|greptile|sweep|pr-agent|qodo|cubic-dev|ellipsis/.test(
-      blob,
-    )
+    idx.has(/(^|\/)(\.coderabbit\.ya?ml|sweep\.ya?ml|\.qodo\.ya?ml|\.ellipsis\.ya?ml)$/) ||
+    /coderabbit|claude-code-action|anthropics\/claude-code|greptile|pr-agent|qodo-ai|cubic-dev|ellipsis-dev/.test(wf)
   )
     s.add(35, "AI code-review agent in the pipeline");
 
@@ -407,11 +447,29 @@ const d4: Detector = (idx) => {
 
   if (idx.has(/(^|\/)\.github\/dependabot\.yml$/) || idx.has(/(^|\/)renovate\.json$/))
     s.add(10, "Dependency update bot configured");
+  // Behavioral fallback: the bot is often enabled at the org/App level with NO committed config, yet
+  // its commits flood the history — crediting them resolves the D4↔D9 "no dependency tool" contradiction
+  // (reference-scan P1-2). Slightly lower than a committed config (less auditable in-repo).
+  else if (snap && hasDependencyBotCommits(snap))
+    s.add(8, "Dependency update bot active (org/App-level, no committed config)");
 
   if (s.signals.length === 0)
     s.note("No agentic/AI-in-CI workflows detected", "e.g. AI review bots, LLM steps in CI, auto-merge");
   return s.result("D4");
 };
+
+/** Renovate/Dependabot fingerprints in recent commits — the behavioral signal that a dependency-update
+ *  bot is active even with no committed config (org/App-level enablement). Shared by D4 + the D9 battery. */
+export function hasDependencyBotCommits(snap: RepoSnapshot): boolean {
+  let n = 0;
+  for (const c of snap.commits) {
+    const login = c.authorLogin ?? "";
+    if (/dependabot(\[bot\])?$|renovate(-[\w-]+)?(\[bot\])?$/i.test(login) || /^(chore|build|fix)\(deps\)|^bumps? \[?\S+\]? from |^update \S+ (from|to) /i.test(c.message)) {
+      if (++n >= 2) return true; // require a couple so a one-off "update readme" doesn't qualify
+    }
+  }
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // D5 — Documentation & Knowledge
@@ -420,14 +478,21 @@ const d5: Detector = (idx) => {
   const s = new Scorer();
   const readme = idx.content("readme.md") || idx.content("readme") || idx.content("readme.rst");
   if (readme) {
-    const headings = (readme.match(/^#{1,3} /gm) || []).length;
+    // Count ATX (`## `), HTML (`<h2>`), and Setext (underline) headers — the section counter used to
+    // read only ATX, so HTML/Setext READMEs reported "0 sections" (reference-scan P2-3).
+    const headings =
+      (readme.match(/^#{1,3} /gm) || []).length +
+      (readme.match(/<h[1-6][\s>]/gi) || []).length +
+      (readme.match(/^[^\n]+\r?\n(={3,}|-{3,})\s*$/gm) || []).length;
     if (readme.length >= 1500) s.add(30, "Substantial README", `${readme.length} chars, ${headings} sections`);
     else s.add(15, "README present", `${readme.length} chars`);
   } else {
     s.note("No README detected");
   }
 
-  if (idx.count(/^docs?\/.*\.(md|mdx|rst)$/) >= 2) s.add(20, "Dedicated /docs with multiple pages");
+  if (idx.count(/^docs?\/.*\.(md|mdx|rst)$/) >= 2 || idx.count(/(^|\/)apps\/docs\//) >= 1)
+    s.add(20, "Dedicated /docs with multiple pages");
+  if (idx.has(/(^|\/)llms(-full)?\.(txt|md)$/)) s.add(5, "LLM-readable docs (llms.txt)");
   if (idx.has(ADR_PATH) || idx.has(ADR_HINT))
     s.add(15, "Architecture Decision Records");
   if (idx.has(/(^|\/)contributing\.md$/)) s.add(10, "CONTRIBUTING.md");
@@ -441,14 +506,26 @@ const d5: Detector = (idx) => {
 // ---------------------------------------------------------------------------
 // D6 — Code Quality & Guardrails
 // ---------------------------------------------------------------------------
-const d6: Detector = (idx) => {
+/**
+ * Off-platform code review (Gerrit / bors merge-queue) leaves trailers in commit messages even though
+ * GitHub's PR/review API reports 0% — so crediting it stops the "0% reviewed / nothing stops a merge"
+ * narrative firing on projects (golang, rust) whose review gate is stricter than any GitHub-native
+ * setup. Shared by the D6 detector (positive signal) and applyPrSignals (suppress the misleading drag).
+ */
+export function offPlatformReview(commits: { message: string }[]): string | null {
+  const blob = commits.map((c) => c.message).join("\n").toLowerCase();
+  if (/reviewed-on:\s*https?:\/\/\S*(googlesource|gerrit)/.test(blob) || /\nchange-id:\s*i[0-9a-f]{8,}/.test(blob)) return "Gerrit";
+  if (/trybot-result:|\bbors r\+|\br=[a-z0-9._-]+\b/.test(blob)) return "bors/merge-queue";
+  return null;
+}
+
+const d6: Detector = (idx, snap) => {
   const s = new Scorer();
-  if (
+  const linterConfigured =
     idx.has(/(^|\/)(\.eslintrc|eslint\.config)\.[a-z]+$/) ||
     idx.has(/(^|\/)(ruff\.toml|biome\.json|\.golangci\.ya?ml|\.rubocop\.yml)$/) ||
-    /eslint|ruff|biome|golangci|rubocop|flake8/.test(idx.manifestText)
-  )
-    s.add(20, "Linter configured");
+    /eslint|ruff|biome|golangci|rubocop|flake8/.test(idx.manifestText);
+  if (linterConfigured) s.add(20, "Linter configured");
 
   if (
     idx.has(/(^|\/)\.prettierrc/) ||
@@ -456,6 +533,17 @@ const d6: Detector = (idx) => {
     /prettier|black|gofmt|rustfmt/.test(idx.manifestText)
   )
     s.add(10, "Formatter configured");
+
+  // Guardrails enforced INLINE in CI — the Rust/Go norm (e.g. `cargo clippy -D warnings`, `go vet`,
+  // `ruff check`, `tsc --noEmit` run in a workflow) with no standalone config file. Detected #1 gap in
+  // the reference-scan audit: D6 used to read only config files + manifests, so it scored 0 and even
+  // contradicted D3's own "CI runs linting" on the same repo. Credit the full 20 when no standalone
+  // linter config was found (the gap this closes), else a small top-up (both config + CI enforcement).
+  const ciGuardrail =
+    /cargo clippy|cargo fmt|rustfmt|go vet|staticcheck|golangci-lint|ruff (check|format)|\bmypy\b|pyright|\bty check\b|eslint|biome (check|ci|lint)|prettier --check|tsc\b[^\n]*--noemit|--no-?emit|npm run (lint|typecheck|check)|(pnpm|yarn) (lint|typecheck|check)|make (lint|fmt|format|check)|task (lint|check)|taplo|spotless|treefmt/.test(
+      idx.workflowText,
+    );
+  if (ciGuardrail) s.add(linterConfigured ? 5 : 20, linterConfigured ? "Guardrails also enforced in CI" : "Lint/format/type-check enforced in CI");
 
   const tsconfig = idx.content("tsconfig.json") || "";
   if (/"strict"\s*:\s*true/.test(tsconfig)) s.add(20, "TypeScript strict mode");
@@ -471,6 +559,9 @@ const d6: Detector = (idx) => {
     s.add(15, "Pre-commit hooks");
 
   if (idx.has(/(^|\/)codeowners$/)) s.add(15, "CODEOWNERS");
+  // Off-platform review gate (Gerrit / bors) — real review discipline GitHub's PR API can't see.
+  const offReview = offPlatformReview(snap.commits);
+  if (offReview) s.add(15, `Code review via off-platform gate (${offReview})`, "commit trailers show mandatory pre-merge review");
   if (idx.has(/(^|\/)(commitlint\.config|\.commitlintrc)/) || /commitlint|conventional/.test(idx.manifestText))
     s.add(10, "Commit linting / conventions");
   if (idx.has(/(^|\/)(pull_request_template|\.github\/pull_request_template)/i))
@@ -535,12 +626,16 @@ const d7: Detector = (idx, snap, nowMs) => {
 
   s.add(5, `${commits.length} recent commits analyzed`);
 
-  // AI attribution is graded but kept moderate so it doesn't dominate (the explicit
-  // "AI usage detected" indicator surfaces the fact separately — see detectAiUsage).
-  const aiCommits = aiCommitFlags(snap).filter(Boolean).length;
-  const aiFrac = aiCommits / commits.length;
-  if (aiFrac >= 0.3) s.add(30, "Frequent AI/bot-attributed commits", `${Math.round(aiFrac * 100)}%`);
-  else if (aiCommits > 0) s.add(15, "AI/bot-attributed commits present", `${aiCommits} of ${commits.length}`);
+  // Adoption credit keys on GENUINE AI authorship (an AI co-author trailer), NOT routine automation bots
+  // (Renovate/Dependabot/Speakeasy) that also carry a [bot] login — counting the latter inflated the
+  // "AI-native" signal on repos whose only bot activity was dependency bumps (reference-scan P2-4). The
+  // full bot+AI count still drives per-contributor attribution (computeContributors) and is noted below.
+  const genuineAi = commits.filter((c) => AI_TRAILER.test(c.message)).length;
+  const botOrAi = aiCommitFlags(snap).filter(Boolean).length;
+  const aiFrac = genuineAi / commits.length;
+  if (aiFrac >= 0.3) s.add(30, "Frequent AI-assisted commits", `${Math.round(aiFrac * 100)}%`);
+  else if (genuineAi > 0) s.add(15, "AI-assisted commits present", `${genuineAi} of ${commits.length}`);
+  else if (botOrAi > 0) s.note("Automation-bot commits present (not AI-assisted authorship)", `${botOrAi} of ${commits.length}`);
 
   // Commit hygiene now carries more weight than mere AI attribution.
   const convCommits = commits.filter((c) => CONVENTIONAL.test(c.message.split("\n")[0] ?? "")).length;
@@ -564,7 +659,7 @@ const d7: Detector = (idx, snap, nowMs) => {
     }
   }
 
-  return s.result("D7", `aiCommits=${aiCommits}/${commits.length}`);
+  return s.result("D7", `aiCommits=${genuineAi}/${commits.length} (bot+ai=${botOrAi})`);
 };
 
 // ---------------------------------------------------------------------------
@@ -586,13 +681,15 @@ const d8: Detector = (idx) => {
   )
     s.add(30, "AI-output eval / golden-test harness");
 
-  // Structured prompt / agent library.
+  // Structured prompt / agent / skill library. A committed `.claude/skills/` (or `.agents/skills/`)
+  // is a mandatory, named skill library — the same high-signal harness as a prompts/ dir (P1-4).
   if (
     idx.has(/^(prompts|\.prompts)\//) ||
     idx.count(/^\.claude\/agents\//) >= 1 ||
+    idx.count(/^\.(claude|agents)\/skills?\//) >= 1 ||
     idx.count(/(^|\/)agents?\//) >= 2
   )
-    s.add(25, "Structured prompt / agent library");
+    s.add(25, "Structured prompt / agent / skill library");
 
   // Agent-readable operational docs / runbooks / ADRs.
   if (
@@ -606,9 +703,10 @@ const d8: Detector = (idx) => {
   const contributing = (idx.content("contributing.md") || "").toLowerCase();
   if (
     idx.has(/(^|\/)(pull_request_template|\.github\/pull_request_template)/) ||
+    idx.has(/(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing)\.mdx?$/) ||
     /definition of done|ai[- ]generated|co-?authored|agent/.test(contributing)
   )
-    s.add(15, "AI contribution process (PR template / DoD)");
+    s.add(15, "AI contribution process (PR template / DoD / AI policy)");
 
   // Structured tickets (Plan & Design): issue templates with acceptance criteria / DoD give an
   // agent a well-formed task to work from, not a one-line prompt.
@@ -737,19 +835,37 @@ export function analyzeSignals(
  * "Is AI in the workflow?" — surfaced as an indicator separate from the maturity score,
  * so the fact that AI is used isn't conflated with how AI-native the engineering is.
  */
-export function detectAiUsage(snap: RepoSnapshot): AiUsage {
+export function detectAiUsage(snap: RepoSnapshot, prStats?: PrStats | null): AiUsage {
   const commits = snap.commits;
-  const ai = aiCommitFlags(snap).filter(Boolean).length;
-  const frac = commits.length ? ai / commits.length : 0;
+  const botOrAi = aiCommitFlags(snap).filter(Boolean).length;
+  const frac = commits.length ? botOrAi / commits.length : 0;
+  // GENUINE AI-authored commits (an AI co-author trailer) — distinct from routine automation bots
+  // (Dependabot/Renovate) that also carry a `[bot]` login. Conflating the two made `detected` fire on
+  // a repo whose only "AI" was Renovate version bumps (the reference-scan audit's spurious "71% AI").
+  const genuineAi = commits.filter((c) => AI_TRAILER.test(c.message)).length;
   const lowerPaths = loweredTreePaths(snap);
   const hasTooling = lowerPaths.some((p) =>
     /(^|\/)(claude\.md|agents?\.md|\.cursorrules|copilot-instructions\.md)$/.test(p) ||
     /^\.(claude|cursor|windsurf)\//.test(p),
   );
+  // The AUTHORITATIVE AI signal is PR-level involvement with tool attribution (Claude/Cursor/Copilot),
+  // not the bot-commit fraction (which ≈ the Renovate/Dependabot rate). Fold it in when PR stats exist.
+  const aiInPrs = prStats && prStats.aiInvolvedRate > 0 ? prStats.aiInvolvedRate : 0;
+
   const signals: string[] = [];
-  if (ai > 0) signals.push(`${ai}/${commits.length} recent commits AI/bot-attributed`);
+  if (aiInPrs > 0) {
+    const tools = prStats?.tools?.length ? ` (${prStats.tools.map((t) => `${t.name} ${t.count}`).join(", ")})` : "";
+    signals.push(`AI involved in ${aiInPrs}% of recent PRs${tools}`);
+  }
   if (hasTooling) signals.push("AI/agent guidance committed to the repo");
-  return { detected: frac > 0 || hasTooling, commitFraction: Math.round(frac * 100) / 100, signals };
+  if (genuineAi > 0) signals.push(`${genuineAi}/${commits.length} commits carry an AI co-author trailer`);
+  const bots = botOrAi - genuineAi;
+  if (bots > 0) signals.push(`${bots}/${commits.length} commits are bot-authored (automation, not AI coding)`);
+
+  // `detected` now requires REAL evidence of AI-assisted development — PR-level AI, committed agent
+  // guidance, or a genuine AI co-author trailer — NOT the bot-commit fraction (the old false positive).
+  const detected = aiInPrs > 0 || hasTooling || genuineAi > 0;
+  return { detected, commitFraction: Math.round(frac * 100) / 100, signals };
 }
 
 /** Aggregate recent commits by author, tracking AI-attributed commits per contributor. */

@@ -1,13 +1,15 @@
 // Trajectory engine — fit a linear trend over a maturity-score time-series and project where
-// it is heading: a forward-looking GPS layered on top of the rear-view trend. Pure, dependency-
-// free, and deterministic given its inputs (never reads `Date.now()`), so it is trivially
-// unit-testable and safe to call inside server queries.
+// it is heading: a forward-looking GPS layered on top of the rear-view trend. Dependency-free and
+// deterministic given its inputs: the OLS fit reads no clock, and the only "now"-dependent output —
+// the ETA's absolute date — takes an injectable `nowMs` (default `Date.now()`), so tests pass a fixed
+// value and the module stays trivially unit-testable and safe inside server queries.
 //
 // The slope comes from an ordinary-least-squares fit over (day-offset, score). The projection ray
 // is anchored at the most recent *actual* value ("you are here") and extended along that slope;
 // the ETA is the first maturity-band boundary the ray crosses — a promotion when rising, a
-// demotion when falling. Fit quality (R²) is surfaced so consumers can judge how trustworthy a
-// straight-line read is before acting on it.
+// demotion when falling — with its days/date measured forward from `nowMs` so a stale scan gap never
+// prints a crossing date that has already elapsed. Fit quality (R²) is surfaced so consumers can judge
+// how trustworthy a straight-line read is before acting on it.
 
 import type { LevelId } from "@/lib/types";
 import { LEVELS, LEVEL_BY_ID, clamp, levelForScore } from "@/lib/maturity/model";
@@ -27,9 +29,9 @@ export interface LevelEta {
   toLevel: LevelId;
   /** The 0..100 score boundary the projection crosses. */
   boundary: number;
-  /** Whole days from the most recent observation until the crossing. */
+  /** Whole days from `nowMs` (the caller's present, default: the clock) until the crossing. */
   days: number;
-  /** Absolute ISO date (YYYY-MM-DD) of the projected crossing. */
+  /** Absolute ISO date (YYYY-MM-DD) of the projected crossing, measured forward from `nowMs`. */
   date: string;
 }
 
@@ -108,8 +110,13 @@ export function meanPerDayKey<T extends { value: number }, K>(items: readonly T[
  *
  * @param series       observations; sorted and de-duplicated by day internally.
  * @param horizonDays  how far ahead to project the headline score (default 90 ≈ a quarter).
+ * @param nowMs        the caller's "present" for anchoring the ETA (default: `Date.now()`). The slope
+ *                     fit itself never reads it — only the ETA's absolute date does — so pass a fixed
+ *                     value in tests to stay deterministic. Anchoring the ETA on NOW (not the last
+ *                     observation) is what stops a stale scan gap from printing a crossing date that has
+ *                     already elapsed (investment-simulator-forecast #4).
  */
-export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90): Forecast | null {
+export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90, nowMs: number = Date.now()): Forecast | null {
   const parsed = series
     .map((p) => ({ t: Date.parse(p.date), value: p.value }))
     .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.value))
@@ -170,12 +177,16 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90): For
     // the UI doesn't read a 2-point blip as rock-solid "100% confidence".
     lowData: n < 3,
     trajectory,
-    eta: trajectory === "flat" ? null : etaToNextLevel(current, perDay, lastT),
+    eta: trajectory === "flat" ? null : etaToNextLevel(current, perDay, lastT, nowMs),
   };
 }
 
-/** The first band boundary the projection ray crosses, anchored at `current` with slope `perDay`. */
-function etaToNextLevel(current: number, perDay: number, lastT: number): LevelEta | null {
+/**
+ * The first band boundary the projection ray crosses. The ray is anchored at (`lastT`, `current`), but
+ * the returned `days`/`date` are measured from `nowMs` — so when the latest scan is stale, a crossing
+ * the ray places before `nowMs` is reported as "already reached" (null) rather than a bogus past ETA.
+ */
+function etaToNextLevel(current: number, perDay: number, lastT: number, nowMs: number): LevelEta | null {
   if (perDay === 0) return null;
   // Bucket on the SAME rounded+clamped score levelForScore/currentLevel use (bands are contiguous
   // integers, so a fractional `current` like 64.7 sits in no band → findIndex -1 → defaulted to L1,
@@ -198,9 +209,16 @@ function etaToNextLevel(current: number, perDay: number, lastT: number): LevelEt
     toLevel = LEVELS[i - 1]!.id; // safe: i-1 >= 0, guarded above
   }
 
-  const exactDays = (boundary - score) / perDay;
-  if (!Number.isFinite(exactDays) || exactDays <= 0 || exactDays > MAX_ETA_DAYS) return null;
-  const days = Math.round(exactDays);
+  const exactDaysFromLast = (boundary - score) / perDay;
+  if (!Number.isFinite(exactDaysFromLast)) return null;
+  // Absolute instant the ray crosses the boundary, then re-measured from `nowMs` (not `lastT`). A stale
+  // scan gap (nowMs ≫ lastT) shrinks the remaining distance; once the crossing is at/behind the present,
+  // daysFromNow ≤ 0 and we return null instead of a crossing date that has already passed. When nowMs is
+  // the last observation (the pure/back-compat default anchor) this reduces to the old from-last math.
+  const crossingMs = lastT + exactDaysFromLast * DAY_MS;
+  const daysFromNow = (crossingMs - nowMs) / DAY_MS;
+  if (!Number.isFinite(daysFromNow) || daysFromNow <= 0 || daysFromNow > MAX_ETA_DAYS) return null;
+  const days = Math.round(daysFromNow);
 
   return {
     kind: rising ? "promotion" : "demotion",
@@ -208,7 +226,7 @@ function etaToNextLevel(current: number, perDay: number, lastT: number): LevelEt
     toLevel,
     boundary,
     days,
-    date: new Date(lastT + days * DAY_MS).toISOString().slice(0, 10),
+    date: new Date(nowMs + days * DAY_MS).toISOString().slice(0, 10),
   };
 }
 
@@ -259,7 +277,7 @@ export function projectGoal(opts: {
   nowMs: number;
 }): GoalProjection {
   const { series, current, target, targetDate, nowMs } = opts;
-  const fit = forecastTrajectory(series); // null when there's < 2 distinct days to fit
+  const fit = forecastTrajectory(series, 90, nowMs); // inject nowMs so the fit stays deterministic; null when < 2 distinct days
   const perDay = fit?.perDay ?? 0;
 
   const deadlineMs = targetDate ? Date.parse(targetDate) : NaN;

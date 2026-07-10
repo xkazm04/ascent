@@ -3,7 +3,9 @@
 // webhook. That makes two properties security-critical and entirely untested before this file:
 //   (1) fail-closed auth — a missing/empty CRON_SECRET must 503 (the gate already regressed to an
 //       opt-in `if (secret)` once; a forgotten env var would silently reopen a fleet-data-exfil
-//       endpoint to the internet), and a wrong bearer/?key= must 401 with NO digest built/dispatched;
+//       endpoint to the internet); the secret is accepted ONLY in the `Authorization: Bearer` header,
+//       NOT as a `?key=` query param (fleet #2 — query strings leak into logs), and a wrong/missing
+//       credential must 401 with NO digest built/dispatched;
 //   (2) per-tenant routing — org A's digest must POST to org A's OWN resolved webhook only, never to
 //       org B's channel (a shared-variable / off-by-one bug here is a cross-tenant data leak).
 // Plus the loop's resilience contracts: one org's rollup throwing must NOT abort the others
@@ -32,10 +34,16 @@ vi.mock("@/lib/db", () => ({
   getOrgRecommendations: vi.fn(async () => null),
   getOrgBenchmark: vi.fn(async () => null),
   getCreditState: vi.fn(async () => null),
-  // Last-sent guard (at-most-once per window): getAuditLog reports whether a digest already went out
-  // this window; recordOrgAudit stamps it after a successful send. Default: nothing sent yet.
+  // Early fast-path (skip rollup for an org already sent this window): getAuditLog reports whether a
+  // digest already went out. Default: nothing sent yet.
   getAuditLog: vi.fn(async () => ({ entries: [] as unknown[], nextCursor: null })),
-  recordOrgAudit: vi.fn(async () => true),
+}));
+
+// The atomic at-most-once claim (fleet #3) lives in the db submodule (not the @/lib/db barrel), so the
+// route imports it directly. Default: the run WINS the claim (claimed:true); one test flips it to lost.
+vi.mock("@/lib/db/scans-audit", () => ({
+  claimOrgAuditOnce: vi.fn(async () => ({ claimed: true, id: "clm_1" })),
+  releaseAuditClaim: vi.fn(async () => {}),
 }));
 
 // ALERTS #1: the route noise-filters BOTH gainers and regressers before the movement-gate. Mock the
@@ -73,8 +81,8 @@ import {
   getOrgBenchmark,
   getCreditState,
   getAuditLog,
-  recordOrgAudit,
 } from "@/lib/db";
+import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
 import { isWithinNoise } from "@/lib/maturity/noise";
 
@@ -90,7 +98,8 @@ const mockDispatch = vi.mocked(dispatchAlert);
 const mockBuild = vi.mocked(buildFleetDigestMessage);
 const mockHasSignal = vi.mocked(digestHasSignal);
 const mockAuditLog = vi.mocked(getAuditLog);
-const mockRecordAudit = vi.mocked(recordOrgAudit);
+const mockClaim = vi.mocked(claimOrgAuditOnce);
+const mockRelease = vi.mocked(releaseAuditClaim);
 
 const SECRET = "digest-secret-xyz";
 
@@ -136,7 +145,8 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     mockDispatch.mockResolvedValue(true);
     mockHasSignal.mockReturnValue(true);
     mockAuditLog.mockResolvedValue({ entries: [], nextCursor: null });
-    mockRecordAudit.mockResolvedValue(true);
+    mockClaim.mockResolvedValue({ claimed: true, id: "clm_1" });
+    mockRelease.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -237,17 +247,17 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     }
   });
 
-  it("accepts a correct ?key= secret and dispatches the digest", async () => {
+  it("does NOT accept a correct secret in the ?key= query param (channel removed, fleet #2) — 401, no dispatch", async () => {
+    // The secret in a query string leaks into access/CDN/proxy logs, browser history, and Referer
+    // headers. Even the CORRECT secret on that channel must be rejected — Bearer header only.
     mockListOrgs.mockResolvedValue(["orgA"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
     mockRollup.mockResolvedValue(rollupWith());
 
     const res = await GET(req({ key: SECRET }));
-    expect(res.status ?? 200).toBe(200);
-    expect(mockDispatch).toHaveBeenCalledTimes(1);
-    expect((mockDispatch.mock.calls[0][1] as { webhookUrl?: string }).webhookUrl).toBe(
-      "https://hooks.example.com/A",
-    );
+    expect(res.status).toBe(401);
+    expect(mockListOrgs).not.toHaveBeenCalled();
+    expect(mockDispatch).not.toHaveBeenCalled();
   });
 
   // ---- (5) NO-SINK orgs are skipped BEFORE any rollup work ----------------
@@ -295,25 +305,51 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect(mockDispatch).toHaveBeenCalledTimes(1);
   });
 
-  it("records a digest-sent audit entry ONLY after a successful dispatch (so a retry is idempotent)", async () => {
+  it("CLAIMS the window atomically BEFORE dispatching, and keeps the claim on a successful send (fleet #3)", async () => {
     mockListOrgs.mockResolvedValue(["orgA"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
     mockRollup.mockResolvedValue(rollupWith());
 
-    await GET(req({ auth: `Bearer ${SECRET}` }));
-    expect(mockRecordAudit).toHaveBeenCalledTimes(1);
-    expect(mockRecordAudit.mock.calls[0][0]).toBe("org.digest.sent");
-    expect(mockRecordAudit.mock.calls[0][1]).toBe("orgA");
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(body).toMatchObject({ sent: 1 });
+    // The atomic claim was taken for this org + the digest action, BEFORE the dispatch...
+    expect(mockClaim).toHaveBeenCalledTimes(1);
+    expect(mockClaim.mock.calls[0][0]).toBe("org.digest.sent");
+    expect(mockClaim.mock.calls[0][1]).toBe("orgA");
+    // ...and a successful send keeps it (no release).
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 
-  it("does NOT record a digest-sent entry when delivery failed (so the next run retries it)", async () => {
+  it("skips an org whose window was already CLAIMED by a concurrent run (claimed:false) — no dispatch (fleet #3)", async () => {
+    // The early getAuditLog fast-path is empty (both racers pass it), but the atomic claim is the real
+    // backstop: only one run wins it. The loser must skip WITHOUT sending a duplicate digest.
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockClaim.mockResolvedValue({ claimed: false, id: null });
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(body).toMatchObject({ sent: 0, skippedAlreadySent: 1 });
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockRelease).not.toHaveBeenCalled(); // we never held the claim, so nothing to release
+  });
+
+  it("RELEASES the claim when delivery failed, so the next run retries it (never a dropped digest, fleet #3)", async () => {
     mockListOrgs.mockResolvedValue(["orgA"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
     mockRollup.mockResolvedValue(rollupWith());
     mockDispatch.mockResolvedValue(false);
 
-    await GET(req({ auth: `Bearer ${SECRET}` }));
-    expect(mockRecordAudit).not.toHaveBeenCalled();
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(body).toMatchObject({ sent: 0, failed: 1 });
+    // We claimed, the send failed, so the claim is released (by its id) — the window is not left falsely
+    // marked sent.
+    expect(mockClaim).toHaveBeenCalledTimes(1);
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+    expect(mockRelease.mock.calls[0][0]).toBe("clm_1");
   });
 
   // ---- (6) PARTIAL-FAILURE ISOLATION — one org failing doesn't abort others ----

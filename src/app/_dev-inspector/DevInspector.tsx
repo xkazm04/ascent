@@ -80,6 +80,7 @@ export function DevInspector() {
     modeRef.current = mode;
   }, [mode]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot client-mount gate (dev inspector)
   useEffect(() => setMounted(true), []);
 
   const doCopy = useCallback(async (loc: string) => {

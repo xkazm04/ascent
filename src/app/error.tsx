@@ -7,59 +7,19 @@
 // document (a full-page replacement). The nearer org/[slug]/error.tsx still handles ordinary org
 // sub-page failures in-shell; this only catches what escapes those boundaries.
 //
-// An error.tsx MUST be a Client Component, so it stays self-contained (no SiteHeader/SiteFooter from
-// @/components/Brand — that pulls in @/lib/auth, which imports server-only next/headers and cannot be
-// bundled into a client component). The branded chrome lives in the (server) not-found.tsx; this
-// boundary mirrors the segment-level org error.tsx: a centered card with a prominent retry.
+// The shared RouteError card is a self-contained client component (no @/components/Brand → no server-only
+// @/lib/auth in the client bundle). fullScreen fills the viewport since this is the app-wide fallback.
 
-import { useEffect } from "react";
-import Link from "next/link";
+import { RouteError } from "@/components/ui/RouteError";
 
-export default function AppError({
-  error,
-  reset,
-}: {
-  error: Error & { digest?: string };
-  reset: () => void;
-}) {
-  useEffect(() => {
-    // Bounded telemetry: a single structured, greppable line the production log drain (Vercel captures
-    // console.error) can alert on — otherwise a client crash here is invisible until a user reports it.
-    console.error("[ascent] app-route-error", {
-      digest: error.digest,
-      message: error.message,
-      stack: error.stack,
-    });
-  }, [error]);
-
+export default function AppError(props: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <main
-      id="main"
-      className="mx-auto flex min-h-screen w-full max-w-2xl flex-1 flex-col items-center justify-center px-5 py-24 text-center"
-    >
-      <p className="font-mono text-sm uppercase tracking-[0.3em] text-danger">Error</p>
-      <h1 className="mt-4 text-3xl font-semibold text-white">Something went wrong</h1>
-      <p className="mt-3 max-w-md text-base text-slate-400">
-        An unexpected error occurred while loading this page. This is usually a transient hiccup —
-        retrying often resolves it.
-      </p>
-      {error.digest && (
-        <p className="mt-2 font-mono text-sm text-slate-500">Reference: {error.digest}</p>
-      )}
-      <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-        <button
-          onClick={() => reset()}
-          className="focus-ring rounded-md bg-accent px-4 py-2 font-medium text-on-accent transition hover:bg-accent-soft"
-        >
-          Try again
-        </button>
-        <Link
-          href="/"
-          className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
-        >
-          Back to home
-        </Link>
-      </div>
-    </main>
+    <RouteError
+      {...props}
+      fullScreen
+      title="Something went wrong"
+      description="An unexpected error occurred while loading this page. This is usually a transient hiccup — retrying often resolves it."
+      logLabel="[ascent] app-route-error"
+    />
   );
 }

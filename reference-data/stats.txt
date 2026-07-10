@@ -1,0 +1,150 @@
+==========================================================================================
+REFERENCE DATASET — QUANTITATIVE AUDIT STATS
+==========================================================================================
+
+### PER-ORG SUMMARY
+org             n eng               ovr  adt  rig levels
+rust-lang      10 claude-cli:10      37   24   44 [object Object]:10
+golang         10 claude-cli:10      20   11   24 [object Object]:10
+astral-sh      10 claude-cli:10      42   30   48 [object Object]:10
+vercel         19 claude-cli:19      57   45   63 [object Object]:19
+stripe         10 claude-cli:10      40   36   43 [object Object]:10
+grafana        10 claude-cli:10      43   31   50 [object Object]:10
+clickhouse     20 claude-cli:20      36   35   36 [object Object]:20
+tokio-rs       10 claude-cli:10      39   20   49 [object Object]:10
+cloudflare     10 claude-cli:10      47   38   52 [object Object]:10
+huggingface    10 claude-cli:10      52   47   54 [object Object]:10
+
+### PER-DIMENSION AVERAGE SCORE (by org)
+org             D1  D2  D3  D4  D5  D6  D7  D8  D9
+rust-lang       22  48  69  20  40  40  35  21  39
+golang           1  49   9  10  31  39  34   4   8
+astral-sh       24  49  66  16  44  55  60  19  60
+vercel          48  78  83  22  48  68  73  43  48
+stripe          41  53  53  15  44  44  54  23  33
+grafana         16  50  77  12  42  57  86  20  57
+clickhouse      38  43  44   7  38  42  65  16  26
+tokio-rs         7  66  70  12  49  36  60  21  37
+cloudflare      37  62  73  25  51  44  57  27  45
+huggingface     48  70  79  30  51  46  70  24  39
+FLEET           28  57  62  17  44  47  59  22  39
+
+### MODULE COMPLETENESS MATRIX (per org)
+org            prSign govern securi  teams practi benchm movers backlo discre contri
+rust-lang           ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+golang              ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+astral-sh           ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+vercel              ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+stripe              ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+grafana             ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+clickhouse          ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+tokio-rs            ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+cloudflare          ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+huggingface         ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓      ✓
+
+### PER-REPO FIELD COMPLETENESS (across 119 scans)
+   passport               0/119  (0%)
+   techStack              0/119  (0%)
+   prStats              117/119  (98%)
+   governance           119/119  (100%)
+   commitActivity       116/119  (97%)
+   discrepancies>0      108/119  (91%)
+   contributors>0       119/119  (100%)
+   roadmap>0            119/119  (100%)
+   strengths>0          119/119  (100%)
+   risks>0              119/119  (100%)
+   warnings>0             1/119  (1%)
+   usage.inputTokens      0/119  (0%)
+   aiUsage.detected      84/119  (71%)
+
+### PER-DIMENSION evidence/gaps population (across 119 scans)
+   D1 evidence=100% gaps=100% strengths=90% llmScore==0:0
+   D2 evidence=100% gaps=100% strengths=89% llmScore==0:1
+   D3 evidence=100% gaps=100% strengths=90% llmScore==0:0
+   D4 evidence=100% gaps=100% strengths=66% llmScore==0:10
+   D5 evidence=100% gaps=100% strengths=100% llmScore==0:0
+   D6 evidence=100% gaps=100% strengths=100% llmScore==0:0
+   D7 evidence=100% gaps=100% strengths=100% llmScore==0:0
+   D8 evidence=100% gaps=100% strengths=84% llmScore==0:6
+   D9 evidence=100% gaps=100% strengths=88% llmScore==0:14
+
+### SCORE DISTRIBUTION (overall)
+   L1(0-24)     30 ******************************
+   L2(25-44)    31 *******************************
+   L3(45-64)    43 *******************************************
+   L4(65-84)    15 ***************
+   L5(85-100)   0 
+
+### OUTLIERS / SPOT-CHECK CANDIDATES
+  lowest 5:
+     golang/wiki                        {
+  id: 'L1',
+  name: 'Manual',
+  band: [ 0, 24 ],
+  tagline: 'AI used ad hoc, if at all',
+  description: 'AI is used informally by individuals. No machine-readable guidance and weak guardrails, so AI output is risky to merge because little verifies it.'
+} 7
+     golang/vgo                         {
+  id: 'L1',
+  name: 'Manual',
+  band: [ 0, 24 ],
+  tagline: 'AI used ad hoc, if at all',
+  description: 'AI is used informally by individuals. No machine-readable guidance and weak guardrails, so AI output is risky to merge because little verifies it.'
+} 8
+     clickhouse/musl                    {
+  id: 'L1',
+  name: 'Manual',
+  band: [ 0, 24 ],
+  tagline: 'AI used ad hoc, if at all',
+  description: 'AI is used informally by individuals. No machine-readable guidance and weak guardrails, so AI output is risky to merge because little verifies it.'
+} 9
+     clickhouse/musl                    {
+  id: 'L1',
+  name: 'Manual',
+  band: [ 0, 24 ],
+  tagline: 'AI used ad hoc, if at all',
+  description: 'AI is used informally by individuals. No machine-readable guidance and weak guardrails, so AI output is risky to merge because little verifies it.'
+} 9
+     clickhouse/sql-mandelbrot-benchmark {
+  id: 'L1',
+  name: 'Manual',
+  band: [ 0, 24 ],
+  tagline: 'AI used ad hoc, if at all',
+  description: 'AI is used informally by individuals. No machine-readable guidance and weak guardrails, so AI output is risky to merge because little verifies it.'
+} 12
+  highest 5:
+     cloudflare/vinext                  {
+  id: 'L4',
+  name: 'Integrated',
+  band: [ 65, 84 ],
+  tagline: 'Agents in the loop, not just at the keyboard',
+  description: 'Agents are embedded in the process: AI code review, AI steps in CI, auto-fix/auto-PR, and dependency automation. Strong docs (including docs for agents), observability, and reliable CI/CD let autonomy compound.'
+} 73
+     vercel/ai                          {
+  id: 'L4',
+  name: 'Integrated',
+  band: [ 65, 84 ],
+  tagline: 'Agents in the loop, not just at the keyboard',
+  description: 'Agents are embedded in the process: AI code review, AI steps in CI, auto-fix/auto-PR, and dependency automation. Strong docs (including docs for agents), observability, and reliable CI/CD let autonomy compound.'
+} 75
+     vercel/vercel                      {
+  id: 'L4',
+  name: 'Integrated',
+  band: [ 65, 84 ],
+  tagline: 'Agents in the loop, not just at the keyboard',
+  description: 'Agents are embedded in the process: AI code review, AI steps in CI, auto-fix/auto-PR, and dependency automation. Strong docs (including docs for agents), observability, and reliable CI/CD let autonomy compound.'
+} 78
+     vercel/workflow                    {
+  id: 'L4',
+  name: 'Integrated',
+  band: [ 65, 84 ],
+  tagline: 'Agents in the loop, not just at the keyboard',
+  description: 'Agents are embedded in the process: AI code review, AI steps in CI, auto-fix/auto-PR, and dependency automation. Strong docs (including docs for agents), observability, and reliable CI/CD let autonomy compound.'
+} 81
+     grafana/loki                       {
+  id: 'L4',
+  name: 'Integrated',
+  band: [ 65, 84 ],
+  tagline: 'Agents in the loop, not just at the keyboard',
+  description: 'Agents are embedded in the process: AI code review, AI steps in CI, auto-fix/auto-PR, and dependency automation. Strong docs (including docs for agents), observability, and reliable CI/CD let autonomy compound.'
+} 82

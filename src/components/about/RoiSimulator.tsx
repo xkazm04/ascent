@@ -60,7 +60,7 @@ export function RoiSimulator() {
               max={90}
               value={t[d.key]}
               onChange={(e) => setT((p) => ({ ...p, [d.key]: Number(e.target.value) }))}
-              className="h-1 flex-1 cursor-pointer accent-[#3b9eff]"
+              className="h-1 flex-1 cursor-pointer accent-accent"
               aria-label={`Target ${d.label} score`}
             />
           </div>

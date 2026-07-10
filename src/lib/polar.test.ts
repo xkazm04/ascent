@@ -95,16 +95,29 @@ describe("polarServer", () => {
 });
 
 describe("polarEnabled", () => {
-  it("requires both a token and at least one pack", () => {
+  it("requires a token AND at least one sellable product (credit pack or plan tier)", () => {
     process.env.POLAR_ACCESS_TOKEN = "polar_sandbox_xxx";
     process.env.POLAR_CREDIT_PACKS = "prod_a=100";
+    delete process.env.POLAR_PLAN_PRODUCTS;
     expect(polarEnabled()).toBe(true);
 
+    // No token → never enabled, even with a pack configured.
     delete process.env.POLAR_ACCESS_TOKEN;
     expect(polarEnabled()).toBe(false);
 
+    // Token but NOTHING sellable (no packs, no plan products) → disabled.
     process.env.POLAR_ACCESS_TOKEN = "polar_sandbox_xxx";
     delete process.env.POLAR_CREDIT_PACKS;
+    delete process.env.POLAR_PLAN_PRODUCTS;
     expect(polarEnabled()).toBe(false);
+  });
+
+  it("is enabled for a subscription-ONLY deployment — plan products but no credit packs", () => {
+    // The bug this guards: gating on credit packs ALONE 503'd checkout and hid billing on a deployment
+    // that sells plan-tier subscriptions but no à-la-carte credit packs.
+    process.env.POLAR_ACCESS_TOKEN = "polar_sandbox_xxx";
+    delete process.env.POLAR_CREDIT_PACKS;
+    process.env.POLAR_PLAN_PRODUCTS = "prod_pro=pro";
+    expect(polarEnabled()).toBe(true);
   });
 });

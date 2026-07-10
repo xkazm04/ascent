@@ -13,7 +13,8 @@
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
-import { parseAssessment } from "@/lib/llm/provider";
+import { validateAssessment } from "@/lib/llm/provider";
+import { parseJsonLoose } from "@/lib/llm/json";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 
@@ -27,6 +28,15 @@ interface CliResult {
   result?: string;
   is_error?: boolean;
   subtype?: string;
+  // The `claude -p --output-format json` envelope reports token usage even under subscription auth.
+  // Surfacing it populates the /usage token/latency panel for claude-cli deploys (cost stays ~$0 —
+  // subscription, not per-token — but volume is no longer blank). Reference-scan P2-5.
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 }
 
 export class ClaudeCliProvider implements LLMProvider {
@@ -57,7 +67,17 @@ export class ClaudeCliProvider implements LLMProvider {
       const detail = typeof outer.result === "string" ? outer.result : raw;
       throw new Error(`Claude CLI returned an error (${outer.subtype ?? "unknown"}): ${detail.slice(0, 300)}`);
     }
-    return parseAssessment(outer.result);
+    // Report token usage (before the parse/usability check, like the other providers) so a claude-cli
+    // scan's volume + latency populate the metering columns instead of reading as null. [P2-5]
+    if (outer.usage) {
+      opts.onUsage?.({
+        inputTokens: outer.usage.input_tokens,
+        outputTokens: outer.usage.output_tokens,
+        cacheReadTokens: outer.usage.cache_read_input_tokens,
+        cacheWriteTokens: outer.usage.cache_creation_input_tokens,
+      });
+    }
+    return validateAssessment(parseJsonLoose(outer.result));
   }
 }
 

@@ -43,8 +43,13 @@ export function Modal({
   const panelRef = useRef<HTMLDivElement | null>(null);
   // Latest close/locked in a ref so the open-effect binds its listeners once per open.
   const stateRef = useRef({ onClose, locked });
-  stateRef.current = { onClose, locked };
+  // Keep the latest close/locked in the ref (synced post-commit, not during render) so the open-effect
+  // can bind its keydown listener once per open yet always read fresh values.
+  useEffect(() => {
+    stateRef.current = { onClose, locked };
+  });
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot client-mount gate for the portal
   useEffect(() => setMounted(true), []);
 
   // While open: trap Tab inside the panel, close on Escape (unless locked), lock body scroll, and

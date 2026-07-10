@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
+import { boundUsageDays } from "@/lib/db/usage";
 import { requireOrgRead } from "@/lib/authz";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
@@ -22,10 +23,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const org = searchParams.get("org") ?? "public";
   const orgLc = org.toLowerCase();
-  // Bound the window. A private (authenticated) org may request up to a year; the UNAUTHENTICATED
-  // public org is capped tighter (90d) so an anonymous caller can't repeatedly force a 365-day,
-  // ~10-aggregate full-window scan as a cheap DoS lever. Non-numeric input falls back to 30.
-  const days = Math.min(orgLc === "public" ? 90 : 365, Math.max(1, Number(searchParams.get("days")) || 30));
+  // Bound the window via the shared boundUsageDays (single-sourced with the /usage page so the two
+  // can't drift). A private (authenticated) org may request up to a year; the UNAUTHENTICATED public
+  // org is capped tighter (90d) so an anonymous caller can't repeatedly force a 365-day, ~10-aggregate
+  // full-window scan as a cheap DoS lever. Non-numeric input falls back to 30, and a FRACTIONAL ?days=
+  // is floored — an un-floored 1.5 dropped the newest day from the per-day CSV while the counts kept it.
+  const days = boundUsageDays(searchParams.get("days"), orgLc === "public");
   const format = searchParams.get("format");
 
   if (!isDbConfigured()) {

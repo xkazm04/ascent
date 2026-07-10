@@ -1,6 +1,19 @@
 import type { RecStatus } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 
+/**
+ * Result of a backlog PATCH + its follow-up refresh, returned from BacklogPanel to a row so the row can
+ * decide whether to keep or drop its optimistic override. The two flags are distinct because a PATCH can
+ * succeed while its refresh is swallowed (503/blip) — in which case the row must KEEP the optimistic
+ * value (the server already has it) rather than snap back to the stale pre-edit value (backlog #2).
+ */
+export interface PatchOutcome {
+  /** The PATCH write itself succeeded (2xx). */
+  patched: boolean;
+  /** A refresh landed a fresh authoritative snapshot after the write (or a 409 reconcile). */
+  refreshed: boolean;
+}
+
 export const STATUS_LABEL: Record<RecStatus, string> = {
   open: "Open",
   in_progress: "In progress",

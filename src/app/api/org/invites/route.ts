@@ -9,7 +9,8 @@ import { NextResponse } from "next/server";
 import { createInvite, isDbConfigured, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
-import { getSession, isSameOrigin } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,19 +62,21 @@ export async function POST(request: Request) {
   }
   const denied = await requireOrgRole(body.org, "owner");
   if (denied) return denied;
-  const session = await getSession();
+  // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so both `invitedBy` and the audit actor were recorded as null in production.
+  const actor = await resolveViewerLogin();
   const invite = await createInvite(body.org, {
     role: body.role,
     email: body.email,
     githubLogin: body.githubLogin,
-    invitedBy: session?.login ?? null,
+    invitedBy: actor,
   });
   if (!invite) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   await recordOrgAudit(
     "org.member.invited",
     body.org,
     { org: body.org, role: body.role, target: body.githubLogin?.toLowerCase() ?? body.email ?? null },
-    session?.login,
+    actor ?? undefined,
   ).catch(() => {});
   return NextResponse.json({ invite });
 }

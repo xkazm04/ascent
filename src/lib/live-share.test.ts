@@ -1,15 +1,38 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { createHmac } from "node:crypto";
+
+// Route-boundary mocks (file-scoped, hoisted). The pure-crypto describes below import none of these; they
+// isolate the mint AUTHZ gate for the POST handler. next/server → a plain Response so status/json are
+// assertable without the Next runtime.
+vi.mock("next/server", () => ({
+  NextResponse: { json: (body: unknown, init?: { status?: number }) => new Response(JSON.stringify(body), init) },
+}));
+vi.mock("@/lib/auth", () => ({ isSameOrigin: () => true }));
+// Auth-off deployment: mintedBy stays unset, so the READ gate is the only thing between an anonymous
+// same-origin caller and a private-fleet token.
+vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, getViewer: vi.fn(async () => null) }));
+// The two authz gates the route consults: canReadOrg models the READ path; requireOrgRole the owner gate
+// (OPEN — returns null — in an auth-off box, which is exactly the hole under test).
+vi.mock("@/lib/authz", () => ({
+  canReadOrg: vi.fn(async () => true),
+  requireOrgRole: vi.fn(async () => null),
+}));
+
 import {
   signLiveShareToken,
   verifyLiveShareToken,
   liveShareEnabled,
 } from "./live-share";
+import { isLiveShareRevoked, revokeLiveShareLink } from "./db/org-share";
+import { POST } from "@/app/api/org/live-share/route";
+import { canReadOrg, requireOrgRole } from "@/lib/authz";
 
 // live-share.ts is the SOLE gate on unauthenticated access to an org's full fleet rollup at
-// /live/shared/[token]. The token IS the capability: an HMAC-signed `{org, exp}` payload.
-// These tests pin the security contract so a refactor that weakens the signature/expiry check
-// (e.g. `sig === expected`, dropping the length guard, removing `exp < Date.now()`, or trusting
-// the decoded payload without verifying) ships RED instead of silently leaking cross-tenant data.
+// /live/shared/[token]. The token IS the capability: an HMAC-signed, domain-separated, REVOCABLE
+// `{aud, org, jti, exp, mintedBy?}` payload. These tests pin the security contract so a refactor that
+// weakens the signature/expiry/revocation check (e.g. `sig === expected`, dropping the length guard,
+// removing `exp < now`, honoring a revoked jti, or losing the domain label) ships RED instead of
+// silently leaking cross-tenant data.
 
 const SECRET = "test-live-share-secret-deterministic";
 
@@ -49,7 +72,7 @@ describe("live-share token", () => {
       const minted = signLiveShareToken("acme");
       expect(minted).not.toBeNull();
       const verified = verifyLiveShareToken(minted!.token);
-      expect(verified).toEqual({ org: "acme" });
+      expect(verified).toMatchObject({ org: "acme" });
     });
 
     it("canonicalizes org casing into the signed payload (Acme-Corp -> acme-corp)", () => {
@@ -60,6 +83,59 @@ describe("live-share token", () => {
     it("reports the expiresAt at now + ttl", () => {
       const minted = signLiveShareToken("acme", 1000);
       expect(minted!.expiresAt).toBe(Date.now() + 1000);
+    });
+
+    it("stamps a per-link jti and round-trips an owner binding", () => {
+      const minted = signLiveShareToken("acme", { mintedBy: "alice" });
+      expect(minted!.jti).toBeTruthy();
+      const v = verifyLiveShareToken(minted!.token);
+      expect(v!.jti).toBe(minted!.jti);
+      expect(v!.mintedBy).toBe("alice");
+    });
+
+    it("leaves mintedBy undefined for an unbound link (legacy behavior preserved)", () => {
+      expect(verifyLiveShareToken(signLiveShareToken("acme")!.token)!.mintedBy).toBeUndefined();
+    });
+  });
+
+  describe("per-link REVOCATION (#1)", () => {
+    it("refuses a revoked link immediately, without touching the global secret", () => {
+      const minted = signLiveShareToken("acme")!;
+      // Live until its jti is marked revoked.
+      expect(verifyLiveShareToken(minted.token)).not.toBeNull();
+      // The exact jti is killed → refused on the very next read (no secret rotation, no re-mint).
+      expect(verifyLiveShareToken(minted.token, { revoked: (j) => j === minted.jti })).toBeNull();
+      // A DIFFERENT link's revocation must not touch this one (per-link, not global).
+      expect(verifyLiveShareToken(minted.token, { revoked: (j) => j === "some-other-jti" })).not.toBeNull();
+    });
+
+    it("the per-link store is a safe no-op when no DB is configured (stateless, TTL-only mode)", async () => {
+      vi.stubEnv("DATABASE_URL", "");
+      vi.stubEnv("DSQL_ENDPOINT", "");
+      expect(await isLiveShareRevoked("jti-1")).toBe(false);
+      await expect(revokeLiveShareLink("jti-1")).resolves.toBeUndefined();
+      expect(await isLiveShareRevoked("")).toBe(false);
+    });
+  });
+
+  describe("TTL upper cap", () => {
+    it("clamps a year-long request to the 30-day hard cap (no link outlives a month un-revoked)", () => {
+      const minted = signLiveShareToken("acme", 365 * 24 * 60 * 60 * 1000)!; // asks for a year
+      expect(minted.expiresAt).toBe(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    });
+  });
+
+  describe("DOMAIN SEPARATION from session cookies (#4)", () => {
+    it("rejects a token whose HMAC omits the domain label (a session-cookie construction)", () => {
+      const minted = signLiveShareToken("acme")!;
+      const payload = minted.token.slice(0, minted.token.lastIndexOf("."));
+      // A session cookie signs base64url(json) with the SAME default secret but NO domain prefix. Recreate
+      // that construction over our payload; verify must reject it — the prefix is load-bearing, so a
+      // session cookie can never be mistaken for a share token even when both derive from AUTH_SECRET.
+      const noPrefixSig = createHmac("sha256", SECRET).update(payload).digest("base64url");
+      expect(verifyLiveShareToken(`${payload}.${noPrefixSig}`)).toBeNull();
+      // Sanity: the real (domain-prefixed) signature still verifies.
+      expect(verifyLiveShareToken(minted.token)).not.toBeNull();
     });
   });
 
@@ -119,7 +195,7 @@ describe("live-share token", () => {
       const { token } = signLiveShareToken("acme", 60_000)!; // 60s TTL
       // Just before expiry: still valid.
       vi.advanceTimersByTime(59_000);
-      expect(verifyLiveShareToken(token)).toEqual({ org: "acme" });
+      expect(verifyLiveShareToken(token)).toMatchObject({ org: "acme" });
       // Past expiry: rejected.
       vi.advanceTimersByTime(2_000);
       expect(verifyLiveShareToken(token)).toBeNull();
@@ -128,7 +204,7 @@ describe("live-share token", () => {
     it("accepts a not-yet-expired token", () => {
       const { token } = signLiveShareToken("acme", 10_000)!;
       vi.advanceTimersByTime(5_000);
-      expect(verifyLiveShareToken(token)).toEqual({ org: "acme" });
+      expect(verifyLiveShareToken(token)).toMatchObject({ org: "acme" });
     });
   });
 
@@ -232,5 +308,51 @@ describe("live-share token", () => {
     it("verifyLiveShareToken returns null for any token", () => {
       expect(verifyLiveShareToken("anything.atall")).toBeNull();
     });
+  });
+});
+
+describe("POST /api/org/live-share — mint gate (#2)", () => {
+  const mockCanRead = vi.mocked(canReadOrg);
+  const mockRole = vi.mocked(requireOrgRole);
+
+  function req(body: unknown) {
+    return new Request("http://localhost/api/org/live-share", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("LIVE_SHARE_SECRET", "route-mint-secret");
+    vi.stubEnv("AUTH_SECRET", "");
+    mockCanRead.mockResolvedValue(true);
+    mockRole.mockResolvedValue(null);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
+
+  it("an auth-off box that won't SERVE the org (canReadOrg=false) also won't MINT — 403, fail closed", async () => {
+    // The exact hole: requireOrgRole is OPEN (null) in an auth-off deployment, but the read gate refuses.
+    // Mint must refuse too, and must do so BEFORE it ever reaches the (open) owner gate.
+    mockCanRead.mockResolvedValue(false);
+    const res = await POST(req({ org: "acme" }));
+    expect(res.status).toBe(403);
+    expect(mockRole).not.toHaveBeenCalled();
+  });
+
+  it("mints when the read gate allows and the owner gate passes — token verifies to the org", async () => {
+    const res = await POST(req({ org: "Acme" }));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { token: string; path: string };
+    expect(verifyLiveShareToken(json.token)!.org).toBe("acme");
+    expect(json.path).toContain("/live/shared/");
+  });
+
+  it("rejects a missing org with 400", async () => {
+    const res = await POST(req({}));
+    expect(res.status).toBe(400);
   });
 });

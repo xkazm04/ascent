@@ -21,9 +21,14 @@ vi.mock("next/server", () => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
-  getSession: vi.fn(),
   isAuthConfigured: vi.fn(),
   readableOrgForOwner: vi.fn(),
+}));
+// The route resolves its caller through the ACTIVE Supabase wall now, not the dormant getSession().
+// Without mocking @/lib/access the real resolveViewerLogin runs, returns null, and every test 401s.
+vi.mock("@/lib/access", () => ({
+  authGateEnabled: vi.fn(),
+  resolveViewerLogin: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -32,10 +37,12 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { GET } from "./route";
-import { getSession, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { isDbConfigured, getRepositoryHistory } from "@/lib/db";
 
-const mockGetSession = vi.mocked(getSession);
+const mockGateEnabled = vi.mocked(authGateEnabled);
+const mockViewerLogin = vi.mocked(resolveViewerLogin);
 const mockIsAuthConfigured = vi.mocked(isAuthConfigured);
 const mockReadableOrg = vi.mocked(readableOrgForOwner);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
@@ -55,18 +62,21 @@ describe("GET /api/history — org-scoping & auth gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsDbConfigured.mockReturnValue(true);
-    // Default: auth ON, signed in. Org resolution is overridden per-test.
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue({} as Awaited<ReturnType<typeof getSession>>);
+    // Default: the PRODUCTION shape — Supabase wall on, legacy OAuth off — with a signed-in viewer.
+    mockGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockViewerLogin.mockResolvedValue("alice");
     mockReadableOrg.mockResolvedValue("public");
     mockGetHistory.mockResolvedValue(null);
   });
 
   // --- Guard (a): auth gate fires BEFORE any DB read ---------------------------------------------
 
-  it("denies (401) when auth is configured and there is no session, and never reads history", async () => {
-    mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue(null);
+  it("PROD SHAPE: denies (401) under the Supabase wall with no viewer, and never reads history", async () => {
+    // Pre-fix this returned 200: the gate keyed on the DORMANT isAuthConfigured(), false in prod.
+    mockGateEnabled.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(false);
+    mockViewerLogin.mockResolvedValue(null);
 
     const res = await get("?repo=acme/secret");
 
@@ -74,16 +84,17 @@ describe("GET /api/history — org-scoping & auth gate", () => {
     expect(mockGetHistory).not.toHaveBeenCalled();
   });
 
-  it("skips the auth gate when auth is NOT configured (local/demo) and still serves", async () => {
+  it("skips the auth gate when NO stack is live (local/demo) and still serves", async () => {
+    mockGateEnabled.mockReturnValue(false);
     mockIsAuthConfigured.mockReturnValue(false);
-    mockGetSession.mockResolvedValue(null);
+    mockViewerLogin.mockResolvedValue(null);
     mockReadableOrg.mockResolvedValue("public");
     mockGetHistory.mockResolvedValue(historyFor("acme", "repo"));
 
     const res = await get("?repo=acme/repo");
 
     expect(res.status).toBe(200);
-    expect(mockGetSession).not.toHaveBeenCalled(); // short-circuited: auth-off skips the session check
+    expect(mockViewerLogin).not.toHaveBeenCalled(); // short-circuited: auth-off skips the viewer check
   });
 
   // --- Guard (b): the resolved orgSlug flows INTO the query (the leak-prevention invariant) -------
@@ -286,7 +297,7 @@ describe("GET /api/history — CSV export escaping (cell-shift / injection)", ()
     vi.clearAllMocks();
     mockIsDbConfigured.mockReturnValue(true);
     mockIsAuthConfigured.mockReturnValue(true);
-    mockGetSession.mockResolvedValue({} as Awaited<ReturnType<typeof getSession>>);
+    mockViewerLogin.mockResolvedValue("alice");
     mockReadableOrg.mockResolvedValue("acme");
   });
 

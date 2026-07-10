@@ -18,6 +18,10 @@ function series(start: number, step: number, count: number, startDate = "2026-01
   }));
 }
 
+/** The last observation's timestamp — the ETA anchor that reproduces the "days from last scan" math
+ *  (used as an explicit `nowMs` so tests don't depend on the wall clock now that it defaults to it). */
+const atLast = (s: SeriesPoint[]) => Date.parse(s[s.length - 1]!.date);
+
 describe("forecastTrajectory", () => {
   it("returns null without at least two distinct days", () => {
     expect(forecastTrajectory([])).toBeNull();
@@ -32,7 +36,8 @@ describe("forecastTrajectory", () => {
   });
 
   it("fits a rising trend and projects a promotion ETA", () => {
-    const f = forecastTrajectory(series(50, 1, 11))!; // 50→60 over 10 days, +1/day
+    const s = series(50, 1, 11); // 50→60 over 10 days, +1/day
+    const f = forecastTrajectory(s, 90, atLast(s))!; // anchor NOW on the last obs → days-from-last math
     expect(f).not.toBeNull();
     expect(f.trajectory).toBe("rising");
     expect(f.perWeek).toBe(7);
@@ -68,7 +73,8 @@ describe("forecastTrajectory", () => {
   });
 
   it("fits a falling trend and projects a demotion ETA", () => {
-    const f = forecastTrajectory(series(60, -1, 11))!; // 60→50 over 10 days, −1/day
+    const s = series(60, -1, 11); // 60→50 over 10 days, −1/day
+    const f = forecastTrajectory(s, 90, atLast(s))!;
     expect(f.trajectory).toBe("falling");
     expect(f.perWeek).toBe(-7);
     expect(f.current).toBe(50);
@@ -77,6 +83,31 @@ describe("forecastTrajectory", () => {
     expect(f.eta!.toLevel).toBe("L2");
     expect(f.eta!.boundary).toBe(44);
     expect(f.eta!.days).toBe(6); // (44 − 50) / −1
+  });
+
+  it("anchors the ETA on nowMs, not the last scan — a stale gap never prints a past crossing (#4)", () => {
+    const s = series(50, 1, 11); // last obs 2026-01-11 at 60, +1/day; ray crosses 65 at last+5 = 2026-01-16
+    const lastMs = atLast(s);
+
+    // Fresh scan (now == last obs): 5 days out, dated forward from now — the baseline.
+    const fresh = forecastTrajectory(s, 90, lastMs)!;
+    expect(fresh.eta!.days).toBe(5);
+    expect(fresh.eta!.date).toBe("2026-01-16");
+
+    // Stale by 30 days: the ray's crossing (2026-01-16) is already ~25 days behind the present, so the
+    // OLD code printed "in ~5 days (≈ 2026-01-16)" — a past date. Now it's suppressed as already-reached.
+    const stale = forecastTrajectory(s, 90, lastMs + 30 * DAY)!;
+    expect(stale.eta).toBeNull();
+    expect(forecastHeadline(stale)).not.toMatch(/2026-01-16/);
+
+    // Stale but the crossing still lies ahead (crossing at last+40; now is last+10): the ETA is measured
+    // from NOW (30 days) and dated forward from now, never a date in the past.
+    const slow = series(50, 0.5, 21); // 50→60 over 20 days, +0.5/day; crosses 65 at last+10 → last+...
+    const slowLast = atLast(slow); // 2026-01-21, value 60
+    const ahead = forecastTrajectory(slow, 90, slowLast + 5 * DAY)!; // 5 days after the last scan
+    expect(ahead.eta).not.toBeNull();
+    expect(ahead.eta!.days).toBe(5); // (65−60)/0.5 = 10 from last, minus 5 stale = 5 from now
+    expect(Date.parse(ahead.eta!.date)).toBeGreaterThan(slowLast); // dated forward from now, not the past
   });
 
   it("treats sub-threshold drift as flat with no ETA", () => {
@@ -256,8 +287,10 @@ describe("humanizeDays", () => {
 
 describe("forecastHeadline", () => {
   it("phrases promotion, demotion, and flat reads", () => {
-    expect(forecastHeadline(forecastTrajectory(series(50, 1, 11))!)).toMatch(/On track to reach L4/);
-    expect(forecastHeadline(forecastTrajectory(series(60, -1, 11))!)).toMatch(/At risk of slipping to L2/);
+    const rise = series(50, 1, 11);
+    const fall = series(60, -1, 11);
+    expect(forecastHeadline(forecastTrajectory(rise, 90, atLast(rise))!)).toMatch(/On track to reach L4/);
+    expect(forecastHeadline(forecastTrajectory(fall, 90, atLast(fall))!)).toMatch(/At risk of slipping to L2/);
     expect(forecastHeadline(forecastTrajectory(series(50, 0, 11))!)).toMatch(/Holding around/);
   });
 });

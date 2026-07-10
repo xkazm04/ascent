@@ -28,6 +28,38 @@ export async function sessionHasInstallation(installationId: string | number): P
 }
 
 /**
+ * May the current caller cause the server to mint `owner`'s GitHub App installation token?
+ *
+ * That token reads the org's PRIVATE repositories, so this gate is strictly stronger than "may read
+ * the org dashboard": it requires a real membership in `owner`, and it never auto-allows PUBLIC_ORG
+ * (a funnel bucket, not an identity — nobody "belongs to" it, so nobody may mint through it).
+ *
+ * Every minting site used to open-code `!isAuthConfigured() || sessionOwnsOrg(owner)`. That predicate
+ * keys on the DORMANT custom-OAuth env (GITHUB_OAUTH_CLIENT_ID/SECRET + AUTH_SECRET), which is unset
+ * on the Supabase-walled production deployment — so `isAuthConfigured()` is false, `!false` is true,
+ * and the ownership check was never reached. Any caller could mint any org's token and read its
+ * private repos. Centralized here so a new minting site cannot reintroduce the same short-circuit.
+ *
+ * Call this BEFORE resolving an installation id, and when it returns false, do not fall back to the
+ * ambient GITHUB_TOKEN either (that PAT commonly has broad read access) — pass `noAmbientToken`.
+ */
+export async function canMintInstallationToken(owner: string): Promise<boolean> {
+  const slug = owner.trim().toLowerCase();
+  if (!slug || slug === PUBLIC_ORG) return false;
+  // ACTIVE Supabase login wall: a real standing in this org (>= viewer), resolved exactly like the
+  // read/write gates. A signed-in stranger gets null ⇒ false — no token, no private-repo read.
+  if (authGateEnabled()) {
+    const viewer = await getViewer();
+    if (!viewer) return false;
+    return roleAtLeast(await viewerOrgRole(slug, viewer), "viewer");
+  }
+  // Dormant custom OAuth still configured (dev boxes that set the legacy env): honor its installations.
+  if (isAuthConfigured()) return sessionOwnsOrg(slug);
+  // Fully auth-off (local / demo / e2e): open, exactly like requireOrgAccess's auth-off branch.
+  return true;
+}
+
+/**
  * Resolve the signed-in viewer's effective role in `org` under the Supabase login wall — the SHARED
  * resolver behind every gate (read / write / RBAC) so their tenant decisions can't drift. Returns the
  * role (possibly just-seeded) or null when the viewer has no standing in the org.

@@ -1,9 +1,13 @@
 "use client";
 
-// The shared tour engine, consumed by all three prototype variants. It owns the parts that are the same
-// regardless of presentation: the step cursor, cross-page redirection, and resolving + tracking the
-// on-page anchor rect. Because the tour host lives in the ORG LAYOUT (which persists across sub-page
-// navigation), the engine survives a redirect and simply re-resolves the anchor once the new page mounts.
+// The tour engine behind the guided checklist drawer. It owns the presentation-independent parts: the
+// step cursor, cross-page redirection, and resolving + tracking the on-page anchor rect. Because the host
+// lives in the ORG LAYOUT (which persists across sub-page navigation), the engine survives a redirect and
+// re-resolves the anchor once the new page mounts.
+//
+// `enabled` mirrors whether the drawer is open. While collapsed the engine keeps its cursor but does
+// nothing observable — no forced navigation, no highlight, no Escape capture — so a hidden tour never
+// yanks the page around; reopening resumes the current step and re-activates the highlight.
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -26,7 +30,11 @@ export interface TourEngine {
   exit: () => void;
 }
 
-export function useTourEngine(slug: string, steps: TourStep[], onExit: () => void): TourEngine {
+export function useTourEngine(
+  slug: string,
+  steps: TourStep[],
+  { enabled, onExit }: { enabled: boolean; onExit: () => void },
+): TourEngine {
   const router = useRouter();
   const pathname = usePathname();
   const [index, setIndex] = useState(0);
@@ -38,17 +46,17 @@ export function useTourEngine(slug: string, steps: TourStep[], onExit: () => voi
   const hrefFor = useCallback((s: TourStep) => (s.page ? `/org/${slug}/${s.page}` : `/org/${slug}`), [slug]);
   const onPage = !step || pathname === hrefFor(step);
 
-  // Redirect to the step's page when it differs. Pure side effect — the layout-mounted host persists the
-  // engine across this navigation, so advancing the cursor is all it takes to move pages.
+  // Redirect to the step's page when it differs (only while open). Pure side effect — the layout-mounted
+  // host persists the engine across this navigation, so advancing the cursor is all it takes to move pages.
   useEffect(() => {
-    if (step && pathname !== hrefFor(step)) router.push(hrefFor(step));
-  }, [step, pathname, hrefFor, router]);
+    if (enabled && step && pathname !== hrefFor(step)) router.push(hrefFor(step));
+  }, [enabled, step, pathname, hrefFor, router]);
 
   // Measure + track the anchor rect. Every setState here fires inside an rAF or an event callback (never
   // synchronously in the effect body), so it reads as DOM→React synchronization rather than a render
   // cascade. After a redirect the target mounts a beat late, so poll on rAF (bounded) until it appears.
   useEffect(() => {
-    if (!step || pathname !== hrefFor(step) || !step.anchor) return;
+    if (!enabled || !step || pathname !== hrefFor(step) || !step.anchor) return;
     const { id: stepId, anchor } = step;
     const find = () => document.querySelector<HTMLElement>(`[data-tour="${anchor}"]`);
     let raf = 0;
@@ -74,24 +82,25 @@ export function useTourEngine(slug: string, steps: TourStep[], onExit: () => voi
       window.removeEventListener("scroll", track, true);
       window.removeEventListener("resize", track);
     };
-  }, [step, pathname, hrefFor]);
+  }, [enabled, step, pathname, hrefFor]);
 
-  // Escape exits the tour from anywhere.
+  // Escape collapses the drawer — bound only while it's open.
   useEffect(() => {
+    if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onExit();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onExit]);
+  }, [enabled, onExit]);
 
   const clamp = useCallback((i: number) => Math.max(0, Math.min(steps.length - 1, i)), [steps.length]);
   const next = useCallback(() => setIndex((i) => clamp(i + 1)), [clamp]);
   const prev = useCallback(() => setIndex((i) => clamp(i - 1)), [clamp]);
   const goTo = useCallback((i: number) => setIndex(clamp(i)), [clamp]);
 
-  const rect = step && anchored?.stepId === step.id ? anchored.rect : null;
-  const seeking = !!step && (!onPage || (step.anchor != null && rect == null));
+  const rect = enabled && step && anchored?.stepId === step.id ? anchored.rect : null;
+  const seeking = enabled && !!step && (!onPage || (step.anchor != null && rect == null));
 
   return {
     step,

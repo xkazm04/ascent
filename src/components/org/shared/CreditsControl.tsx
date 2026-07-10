@@ -84,10 +84,19 @@ export function CreditsControl({
   // the Retry button clears it to re-trigger.
   useEffect(() => {
     if (!open || ledger !== null || ledgerLoading || ledgerError) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-open: raise the loading flag, then load the ledger once
     setLedgerLoading(true);
     fetch(`/api/org/credits?org=${encodeURIComponent(org)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => setLedger(d?.ledger ?? []))
+      .then((d) => {
+        setLedger(d?.ledger ?? []);
+        // Reconcile the chip from the AUTHORITATIVE server balance the SAME response already carries.
+        // `balance` was seeded once from SSR initialBalance and only bumped by local grants, so after
+        // private scans spent credits elsewhere this session it showed a stale, too-high number that the
+        // freshly-loaded ledger's newest balanceAfter visibly contradicted. Opening the popover — the one
+        // place that re-reads the truth — now self-heals it instead of throwing d.balance away.
+        if (typeof d?.balance === "number") setBalance(d.balance);
+      })
       .catch(() => setLedgerError(true))
       .finally(() => setLedgerLoading(false));
   }, [open, ledger, ledgerLoading, ledgerError, org]);
@@ -142,6 +151,11 @@ export function CreditsControl({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="dialog"
+        // WCAG 1.4.1 (use of color): the paused state can't be signalled by the amber tint ALONE — a
+        // colorblind or screen-reader user would get no cue that private scanning is stopped until they
+        // discover and open the popover. Add a text/glyph marker AND an explicit aria-label so the status
+        // survives without color; the amber styling stays as reinforcement, not the sole signal.
+        aria-label={paused ? `${balance} credits — out of credits, private scanning paused` : undefined}
         className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-sm transition ${
           paused
             ? "border-amber-500/50 bg-amber-500/10 text-amber-300 hover:border-amber-400"
@@ -150,6 +164,11 @@ export function CreditsControl({
         title="Prepaid private-scan credits"
       >
         <span className="font-semibold">{balance}</span> credits
+        {paused && (
+          <span className="inline-flex items-center gap-0.5">
+            <span aria-hidden>⚠</span> paused
+          </span>
+        )}
       </button>
 
       {open && (

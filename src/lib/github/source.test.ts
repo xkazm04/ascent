@@ -8,7 +8,15 @@
 // import and call it directly — no mocks needed.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { parseRepoUrl, GitHubPublicSource, resolveHead } from "./source";
+import type { RepoFile } from "@/lib/types";
+import {
+  parseRepoUrl,
+  GitHubPublicSource,
+  resolveHead,
+  chooseHeadSha,
+  estimateCoverage,
+  pickFilesToFetch,
+} from "./source";
 import { fetchBranchGovernance } from "./governance";
 import { fetchPullRequests, type PrNode } from "./graphql";
 import { summarizePullRequests } from "@/lib/analyze/pulls";
@@ -319,25 +327,27 @@ describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient 
     expect(rawCalls).toHaveLength(0);
   });
 
-  it("(e) LARGE repo (totalBlobs > MAX_FILES) uses the 0.4 + fetched/totalBlobs branch, capped at 0.9", async () => {
-    // 40 plain source files → totalBlobs=40 (> MAX_FILES=32); the sample bucket caps picks at 6.
-    const big = Array.from({ length: 40 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
+  it("(e) LARGE repo (totalBlobs > MAX_FILES) confidence tracks the pick SUCCESS RATE, capped 0.9 (github-repo-data-access #3)", async () => {
+    // 60 plain source files → totalBlobs=60 (> MAX_FILES=50); the sample bucket caps picks at 6.
+    const big = Array.from({ length: 60 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
     vi.stubGlobal("fetch", makeFetch(big, false, () => "ok"));
     const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
-    expect(snap.tree.length).toBe(40);
+    expect(snap.tree.length).toBe(60);
     expect(snap.files).toHaveLength(6); // sample bucket .slice(0, 6)
-    // 0.4 + fetched/totalBlobs = 0.4 + 6/40 = 0.55, under the 0.9 cap.
-    expect(snap.coverage).toBe(0.55);
+    // github-repo-data-access #3: the old `0.4 + fetched/totalBlobs = 0.5` was structurally low on ANY big
+    // repo (crying wolf + suppressing caching of healthy scans). Now `0.85 * fetchRate = 0.85 * (6/6)`, so
+    // a fully-successful big-repo ingest reads as well-covered — above the caveat/caching threshold.
+    expect(snap.coverage).toBe(0.85);
     expect(snap.coverage).toBeLessThanOrEqual(0.9);
   });
 
-  it("(e') LARGE repo where the picks blip out scores LOWER still (degrade survives the large-repo branch too)", async () => {
-    const big = Array.from({ length: 40 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
-    vi.stubGlobal("fetch", makeFetch(big, false, () => "blip")); // all 6 picks fail
+  it("(e') LARGE repo where EVERY pick blips out scores 0 — a genuine total-ingestion failure, never cached", async () => {
+    const big = Array.from({ length: 60 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
+    vi.stubGlobal("fetch", makeFetch(big, false, () => "blip")); // all 6 picks fail → fetchRate 0
     const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
     expect(snap.files).toHaveLength(0); // fetched=0
-    // 0.4 + 0/40 = 0.4 — still a finite, sub-perfect number, never 0.9.
-    expect(snap.coverage).toBe(0.4);
+    // 0.85 * 0 = 0 — a total-failure snapshot, far below any cache-pin threshold (never a false 0.9).
+    expect(snap.coverage).toBe(0);
   });
 });
 
@@ -579,6 +589,38 @@ describe("fetchBranchGovernance — rule extraction + the readable-vs-null contr
 
   it("a thrown fetch is swallowed → null (no leaked rejection into the scan)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
+    expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
+  });
+
+  it("a 200 branch read whose body FAILS to parse (truncated stream / HTML-with-200) → null, NOT protected:false (github-repo-data-access #5)", async () => {
+    // getJson does `await res.json().catch(() => null)`, so an unparseable 200 body leaves branchRes.body
+    // null → Boolean(null?.protected) = false, which used to report a genuinely-protected repo as wide open.
+    // The protection flag is only trustworthy when the body parsed into an object; otherwise → unknown → null.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url === branchUrl("main")) {
+          return {
+            status: 200,
+            ok: true,
+            json: async () => {
+              throw new SyntaxError("Unexpected token < in JSON");
+            },
+            headers: { get: () => null },
+          } as unknown as Response;
+        }
+        if (url === rulesUrl("main")) return res(FULL_RULES, { status: 200 });
+        throw new Error(`unexpected governance fetch in test: ${url}`);
+      }),
+    );
+    expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
+  });
+
+  it("a 200 branch read whose body is a NON-OBJECT (a proxy returned a JSON string) → null (github-repo-data-access #5)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      makeGovFetch({ status: 200, body: "OK" }, { status: 200, body: FULL_RULES }),
+    );
     expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
   });
 });
@@ -866,5 +908,69 @@ describe("fetchPullRequests — cursor pagination across pages, accumulating up 
     // PR 3's bad dates are dropped) — a number, never NaN, never throwing.
     expect(stats.medianHoursToMerge === null || Number.isFinite(stats.medianHoursToMerge)).toBe(true);
     expect(stats.medianHoursToFirstReview === null || Number.isFinite(stats.medianHoursToFirstReview)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Exported pure helpers — the load-bearing ingestion DECISIONS (head identity, coverage, file selection)
+// pinned directly (github-repo-data-access #2/#3/#4). No network; complements the fetchSnapshot tests above.
+// ---------------------------------------------------------------------------------------------------
+const asBlob = (path: string): RepoFile => ({ path, type: "blob" });
+
+describe("chooseHeadSha — head identity is the COMMIT sha, never the tree sha on a fetch FAILURE (#2)", () => {
+  const tree = "0000000000000000000000000000000000000000"; // a stand-in TREE object sha
+
+  it("uses the commit list's head sha when the list resolved", () => {
+    expect(chooseHeadSha({ firstCommitSha: "abc123def", commitsFailed: false, ref: "main", treeSha: tree })).toBe("abc123def");
+  });
+
+  it("falls back to the tree sha ONLY for a genuinely empty (successful) commit list", () => {
+    expect(chooseHeadSha({ firstCommitSha: undefined, commitsFailed: false, ref: "main", treeSha: tree })).toBe(tree);
+  });
+
+  it("uses a pinned full-SHA ref as its own head commit when the /commits fetch FAILED (not the tree sha)", () => {
+    const sha = "A".repeat(40);
+    expect(chooseHeadSha({ firstCommitSha: undefined, commitsFailed: true, ref: sha, treeSha: tree })).toBe(sha.toLowerCase());
+  });
+
+  it("returns null (re-resolve signal) when the fetch FAILED on a branch/tag ref — never corrupts identity", () => {
+    expect(chooseHeadSha({ firstCommitSha: undefined, commitsFailed: true, ref: "release/1.2", treeSha: tree })).toBeNull();
+  });
+});
+
+describe("estimateCoverage (exported) — no cry-wolf on big repos (#3)", () => {
+  it("a fully-ingested 500+ blob repo is NOT flagged low-coverage (old formula gave < 0.5 on file count alone)", () => {
+    const c = estimateCoverage(2000, 50, 50, false); // huge repo, every pick succeeded
+    expect(c).toBeGreaterThanOrEqual(0.5); // above the scan.ts caveat + caching threshold
+    expect(c).toBe(0.85);
+  });
+
+  it("still flags a big repo whose ingest genuinely degraded (half the picks failed)", () => {
+    expect(estimateCoverage(2000, 25, 50, false)).toBeLessThan(0.5);
+  });
+});
+
+describe("pickFilesToFetch — workflows get a RESERVED quota on top of MAX_FILES (#4)", () => {
+  // Exact-name high-signal files (mirrors source.ts's list): enough to fill the 50-slot MAX_FILES budget on
+  // their own, so under the OLD code the LAST step (workflows) was starved — re-blinding the D9 checks.
+  const exactNames = [
+    "readme.md", "readme.rst", "claude.md", "agents.md", "agent.md", ".cursorrules", ".windsurfrules",
+    ".aider.conf.yml", "package.json", "pyproject.toml", "go.mod", "cargo.toml", "pom.xml", "build.gradle",
+    "gemfile", "composer.json", "tsconfig.json", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json",
+    ".eslintrc.js", "biome.json", "ruff.toml", ".pre-commit-config.yaml", "contributing.md", "security.md",
+    "changelog.md", "codeowners", ".github/dependabot.yml", "renovate.json", ".renovaterc.json", "dockerfile",
+    "docker-compose.yml", "openapi.yaml", "openapi.json", "vercel.json",
+  ];
+
+  it("fetches every workflow even when non-workflow high-signal files already fill MAX_FILES", () => {
+    const noise: RepoFile[] = exactNames.map(asBlob);
+    for (let i = 0; i < 8; i++) noise.push(asBlob(`src/module${i}.ts`)); // source samples (capped at 6)
+    for (let i = 0; i < 6; i++) noise.push(asBlob(`tests/spec${i}.test.ts`)); // test samples (capped at 4)
+    const workflows = ["ci", "release", "codeql", "lint", "deploy"].map((n) => asBlob(`.github/workflows/${n}.yml`));
+
+    const picked = pickFilesToFetch([...noise, ...workflows]);
+
+    for (const w of workflows) expect(picked).toContain(w.path); // every workflow present despite the full budget
+    expect(picked.length).toBeGreaterThan(50); // added ON TOP of the 50-slot MAX_FILES budget
   });
 });

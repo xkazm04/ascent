@@ -32,20 +32,32 @@ function hit(key: string, limit: number, windowMs: number): { ok: boolean; retry
   const now = Date.now();
   const cutoff = now - windowMs;
   const recent = (windows.get(key) ?? []).filter((t) => t > cutoff);
+  // SELF-PERPETUATION FIX: check the cap BEFORE recording. The old code pushed `now` UNCONDITIONALLY
+  // and only then compared length, so every REJECTED request still entered the window and pushed
+  // recent[0] forward. Once the ceiling tripped, ongoing under-per-IP traffic kept re-charging the
+  // window with zero-cost rejected attempts, so a ~1s spike became a sustained full-window lockout
+  // that never drained while legit traffic stayed ≥ limit/window. Now a rejected request is NOT
+  // recorded: the window only ever holds ADMITTED requests, so it drains to real load and recovers on
+  // schedule (the (limit+1)-th admitted request still trips, exactly as before — admit iff the count
+  // BEFORE this hit is < limit, i.e. the post-push count would be ≤ limit).
+  if (recent.length >= limit) {
+    // Over cap → reject without recording. Persist the trimmed window (aged-out entries dropped, none
+    // added). Sliding window: a slot frees when the OLDEST in-window hit ages out at recent[0] +
+    // windowMs, not a fixed full-window wait — reporting windowMs unconditionally tells a caller whose
+    // oldest hit expires in 2s to back off 60s (~30× too long). recent[0] exists whenever limit ≥ 1
+    // (a real config); fall back to a 1s floor for the degenerate limit 0. Mirrors public-scan-quota.
+    windows.set(key, recent);
+    const oldest = recent[0];
+    const retryAfterSec = oldest != null ? Math.max(1, Math.ceil((oldest + windowMs - now) / 1000)) : 1;
+    return { ok: false, retryAfterSec };
+  }
   recent.push(now);
   windows.set(key, recent);
   // Opportunistic cleanup so the map can't grow unbounded across many keys.
   if (windows.size > 10_000) {
     for (const [k, v] of windows) if (v.every((t) => t <= cutoff)) windows.delete(k);
   }
-  const ok = recent.length <= limit;
-  if (ok) return { ok, retryAfterSec: 0 };
-  // Sliding window: a slot frees when the OLDEST in-window hit ages out at recent[0] + windowMs, not a
-  // fixed full-window wait. Reporting windowMs unconditionally tells a caller whose oldest hit expires
-  // in 2s to back off 60s — ~30× too long. Derive the true sliding edge (recent[0] always exists here
-  // since recent.length > limit ≥ 0), clamped to ≥1s. Mirrors public-scan-quota's resetAt logic.
-  const retryAfterSec = Math.max(1, Math.ceil((recent[0]! + windowMs - now) / 1000));
-  return { ok, retryAfterSec };
+  return { ok: true, retryAfterSec: 0 };
 }
 
 export interface RateLimitConfig {
@@ -68,13 +80,17 @@ export interface RateLimitResult {
  * Check (and record) a request against both a per-IP and a global window. Trips when EITHER is
  * exceeded.
  *
- * QUOTA #1: a request that is over its PER-IP cap must NOT consume the shared global budget. The old
- * code called hit() on the global window unconditionally (and hit() records before checking ok), so a
- * single IP flooding past its per-IP allowance still filled the global window with its already-rejected
- * requests — letting one abuser starve the global pool for every other legitimate caller (the per-IP
- * cap, meant to contain one abuser, became the lever to DoS everyone). So: charge the per-IP window
- * first; if it's over cap, reject WITHOUT touching the global window. Only when per-IP passes do we
- * charge the global window — its overshoot is real shared load, not one IP's rejected flood.
+ * QUOTA #1: a request that is over its PER-IP cap must NOT consume the shared global budget. Charge
+ * the per-IP window first; if it's over cap, reject WITHOUT touching the global window. Only when
+ * per-IP passes do we charge the global window — its overshoot is real shared load, not one IP's
+ * rejected flood. This keeps one abuser (contained by its own per-IP cap) from becoming the lever to
+ * DoS everyone via the shared pool.
+ *
+ * QUOTA #2 (self-perpetuation): hit() now checks the cap BEFORE recording, so a request rejected by
+ * EITHER window is never written into that window. A brief spike that fills the global ceiling
+ * therefore drains on schedule instead of being kept saturated by the very requests it rejects — a
+ * 1s overload no longer escalates into a sustained instance-wide 429 lockout under normal follow-on
+ * traffic. (A per-IP-rejected request still never reaches the global window, per QUOTA #1.)
  */
 export function rateLimitRequest(req: Request, cfg: RateLimitConfig): RateLimitResult {
   const ip = clientIp(req);

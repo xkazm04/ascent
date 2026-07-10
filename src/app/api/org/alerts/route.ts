@@ -19,7 +19,8 @@ import {
   setOrgAlertWebhook,
 } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
-import { getSession, isSameOrigin } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { buildTestAlertMessage, dispatchAlert, validateAlertWebhookUrl } from "@/lib/alerts";
 
 export const runtime = "nodejs";
@@ -93,7 +94,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Provide webhookUrl and/or overallDrop/dimensionDrop." }, { status: 400 });
   }
 
-  const session = await getSession();
+  // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so this audit row recorded a null actor in production.
+  const actorLogin = await resolveViewerLogin();
   const result: { ok: true; webhookUrl?: string | null; overallDrop?: number | null; dimensionDrop?: number | null } = { ok: true };
 
   // Webhook: null / "" clears the override (fall back to the global sink); anything else must validate.
@@ -114,7 +117,7 @@ export async function POST(request: Request) {
       "org.alerts.webhook",
       body.org,
       { org: body.org, action: url ? "set" : "cleared" },
-      session?.login,
+      actorLogin ?? undefined,
     ).catch(() => {});
   }
 
@@ -134,7 +137,7 @@ export async function POST(request: Request) {
       "org.alerts.thresholds",
       body.org,
       { org: body.org, overallDrop, dimensionDrop },
-      session?.login,
+      actorLogin ?? undefined,
     ).catch(() => {});
   }
 

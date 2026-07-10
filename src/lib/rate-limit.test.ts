@@ -275,6 +275,57 @@ describe("rateLimitRequest — enforce-and-trip (critical #1)", () => {
   });
 });
 
+describe("rateLimitRequest — QUOTA #2: the ceiling drains instead of self-perpetuating", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T00:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a GLOBAL-rejected request is NOT recorded, so a brief spike drains and recovers on schedule", () => {
+    // perIp huge so no single IP ever trips its own bucket — the GLOBAL ceiling is the subject here.
+    const cfg = makeConfig({ perIp: 10_000, global: 2, windowMs: WINDOW_MS });
+
+    // t0: two admitted requests fill the global window.
+    expect(rateLimitRequest(reqFromIp("10.0.0.1"), cfg).ok).toBe(true); // global 1 @ t0
+    expect(rateLimitRequest(reqFromIp("10.0.0.2"), cfg).ok).toBe(true); // global 2 @ t0 (full)
+    // t0: a 3rd request is rejected (global full) — the fix requires it NOT to be recorded.
+    expect(rateLimitRequest(reqFromIp("10.0.0.3"), cfg).ok).toBe(false);
+
+    // 30s in, sustained under-cap traffic keeps arriving — every one rejected (global still holds the
+    // two @ t0). Under the OLD record-before-check code each of these would push the window forward.
+    vi.advanceTimersByTime(WINDOW_MS / 2); // t0 + 30s
+    for (let i = 0; i < 25; i++) {
+      expect(rateLimitRequest(reqFromIp(`10.0.1.${i}`), cfg).ok).toBe(false);
+    }
+
+    // Past t0 + windowMs the ORIGINAL two hits age out. Because the intervening rejected requests were
+    // never recorded, the window is now empty and a fresh request is ADMITTED. The old code would keep
+    // this 429'd until t0 + 90s (the rejected @t0+30s hits would still occupy the window) — the
+    // sustained instance-wide lockout this fix removes.
+    vi.advanceTimersByTime(WINDOW_MS / 2 + 1); // t0 + 60_001ms
+    expect(rateLimitRequest(reqFromIp("10.0.2.7"), cfg).ok).toBe(true); // RECOVERED on schedule
+  });
+
+  it("per-IP: rejected over-cap hammering likewise does not extend the lockout past the real hit", () => {
+    const cfg = makeConfig({ perIp: 1, global: 10_000, windowMs: WINDOW_MS });
+    const ip = reqFromIp("10.9.9.9");
+    expect(rateLimitRequest(ip, cfg).ok).toBe(true); // the ONE real hit @ t0 fills per-IP(1)
+
+    // Hammer for 30s — all rejected, none recorded (advances to t0 + 30s total).
+    for (let i = 0; i < 10; i++) {
+      vi.advanceTimersByTime(3_000);
+      expect(rateLimitRequest(ip, cfg).ok).toBe(false);
+    }
+    // Advance just past t0 + windowMs so the only recorded hit (@ t0) ages out. The rejected hammering
+    // did NOT push the window forward, so the IP is admitted again exactly when its real hit expires.
+    vi.advanceTimersByTime(WINDOW_MS - 30_000 + 1); // now t0 + 60_001ms
+    expect(rateLimitRequest(ip, cfg).ok).toBe(true);
+  });
+});
+
 describe("rateLimitRequest — spoofing cannot evade the per-IP bucket (critical #2 end-to-end)", () => {
   beforeEach(() => {
     vi.useFakeTimers();

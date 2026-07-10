@@ -103,13 +103,114 @@ export function parseJsonLoose<T>(text: string): T {
     }
   }
 
-  // 3. Balanced scan over the whole text: walk every `{`/`[` start until one yields a
+  // JSONC tolerance. The `jsonc` fence tag (fenceRe) advertises tolerance the strict parses don't
+  // deliver, and real models leak two common artifacts into a PLAIN fence too: a trailing comma before
+  // a closing }/] (a token-boundary hiccup) and //-or-/* */ comments. Every strict JSON.parse above
+  // rejects both, so one trailing comma threw the whole paid assessment away for the deterministic mock
+  // floor. stripJsonc removes comments + trailing commas OUTSIDE string literals (escape-aware; string
+  // contents stay byte-exact). Computed once; only work when it actually changed something.
+  const cleaned = stripJsonc(text);
+
+  // 3. Cleaned DIRECT parse — BEFORE the balanced scan on purpose. A single well-formed object marred
+  //    only by a trailing comma/comment must parse AS A WHOLE: once the real object fails strict
+  //    parsing, the balanced scan below can mis-recover an empty `{}` from a brace that lives inside a
+  //    string value. Parsing the cleaned whole first avoids that.
+  if (cleaned !== text) {
+    try {
+      return JSON.parse(cleaned.trim()) as T;
+    } catch {
+      /* not a single clean value — fall through to the balanced scans */
+    }
+  }
+
+  // 4. Balanced scan over the whole text: walk every `{`/`[` start until one yields a
   //    complete, parseable value. This skips leading prose whose braces aren't valid JSON
   //    and handles a top-level array or a JSON object followed by trailing junk.
   const bal = balancedParse<T>(text);
   if (bal.ok) return bal.value;
 
+  // 5. Balanced scan over the cleaned text — the JSONC recovery for a value WRAPPED in prose (or a
+  //    comment containing a brace: stripping comments first means such a brace can no longer derail
+  //    extraction). Only when cleaning changed something and every strict path already failed.
+  if (cleaned !== text) {
+    const balc = balancedParse<T>(cleaned);
+    if (balc.ok) return balc.value;
+  }
+
   throw new ProviderParseError("No JSON value found in model output", text);
+}
+
+/**
+ * JSONC → JSON normalization for the recovery path only. Removes `//` line comments, `/* … *​/` block
+ * comments, and trailing commas (a `,` immediately before a closing `}`/`]`, possibly across whitespace
+ * or a stripped comment) — the JSONC artifacts strict JSON.parse rejects. A single forward pass that is
+ * STRING-AWARE (respecting `\` escapes) so a `//`, `,`, or brace INSIDE a string value is preserved
+ * byte-exact — only structure outside strings is touched. Trailing commas are handled by deferring each
+ * comma (`pendingComma`) and dropping it if the next significant token is a closer. Comments are skipped
+ * wholesale; a line comment preserves its terminating newline as whitespace.
+ */
+function stripJsonc(text: string): string {
+  let out = "";
+  let inStr = false;
+  let escaped = false;
+  let pendingComma = false; // a ',' seen outside a string, not yet emitted (may be trailing)
+  const flushComma = () => {
+    if (pendingComma) {
+      out += ",";
+      pendingComma = false;
+    }
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    const next = text[i + 1];
+    if (ch === "/" && next === "/") {
+      // Line comment: skip through (but not including) the newline, which the loop then emits as ws.
+      i += 2;
+      while (i < text.length && text[i] !== "\n") i++;
+      i--; // let the for-loop's i++ land back on the newline
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      // Block comment: skip through the closing '*''/'.
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i += 1; // consume the '*'; the for-loop's i++ consumes the '/'
+      continue;
+    }
+    if (ch === ",") {
+      flushComma(); // a prior deferred comma was a real separator (e.g. ",,")
+      pendingComma = true;
+      continue;
+    }
+    if (ch === "}" || ch === "]") {
+      pendingComma = false; // drop a trailing comma before this closer
+      out += ch;
+      continue;
+    }
+    if (ch === '"') {
+      flushComma();
+      inStr = true;
+      out += ch;
+      continue;
+    }
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
+      // Whitespace stays but does NOT resolve a pending comma (a `,\n}` is still a trailing comma).
+      out += ch;
+      continue;
+    }
+    // Any other significant char: the pending comma was a real separator.
+    flushComma();
+    out += ch;
+  }
+  flushComma(); // a comma at the very end (malformed either way) — emit so JSON.parse still reports it
+  return out;
 }
 
 /** Try every structural start index, returning the first that parses to a value. */

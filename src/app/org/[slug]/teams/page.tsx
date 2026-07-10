@@ -2,10 +2,12 @@ import { DIMS, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_GRID } fro
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { TeamsMatrix } from "@/components/org/teams/TeamsMatrix";
 import { TeamsSignals } from "@/components/org/teams/TeamsSignals";
+import { TeamsStandings } from "@/components/org/teams/TeamsStandings";
 import { TeamsUnowned } from "@/components/org/teams/TeamsUnowned";
 import { teamAnchorId } from "@/components/org/teams/teamsShared";
-import { getOrgTeamRollup } from "@/lib/db";
+import { getOrgTeamRollup, getTeamStandingsProvenance } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
+import { explainTeamStandings } from "@/lib/org/teamStandings";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +45,12 @@ export default async function TeamsPage({
     );
   }
 
+  // Deterministic "why the top leads / why the bottom lags" decomposition, derived from the same
+  // scan-gathered rollup the table renders (see explainTeamStandings). Rendered live so it always
+  // agrees with the table above; the snapshot captured at scan time supplies the provenance stamp.
+  const standings = explainTeamStandings(rollup.teams);
+  const standingsProvenance = standings ? await getTeamStandingsProvenance(slug) : null;
+
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -77,9 +85,6 @@ export default async function TeamsPage({
         />
       </div>
 
-      {/* Headline signals: knowledge leader + top pairing opportunities, linked into the matrix. */}
-      <TeamsSignals slug={slug} leader={rollup.knowledgeLeader} pairings={rollup.pairings} />
-
       {/* The matrix — every team × every dimension, sortable, rows expand to repos/champions. */}
       <div id="teams-matrix" className="mt-8 scroll-mt-24">
         <SectionHeader
@@ -89,6 +94,12 @@ export default async function TeamsPage({
         />
         <TeamsMatrix teams={rollup.teams} dims={DIMS} leaderSlug={rollup.knowledgeLeader?.slug ?? null} />
       </div>
+
+      {/* Why the top leads and the bottom lags — factor decomposition against the fleet mean. */}
+      {standings && <TeamsStandings standings={standings} capturedAt={standingsProvenance?.generatedAt ?? null} />}
+
+      {/* Headline signals: knowledge leader + top pairing opportunities, linked into the matrix. */}
+      <TeamsSignals slug={slug} leader={rollup.knowledgeLeader} pairings={rollup.pairings} />
 
       <TeamsUnowned slug={slug} unowned={rollup.unowned} />
 

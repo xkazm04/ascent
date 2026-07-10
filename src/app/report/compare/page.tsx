@@ -5,7 +5,8 @@ import { ScanComparePicker } from "@/components/report/ScanComparePicker";
 import { WhatChanged } from "@/components/report/WhatChanged";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getScanComparison, isDbConfigured } from "@/lib/db";
-import { getSessionState, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { readableOrgForOwner } from "@/lib/auth";
+import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
 import { diffScans } from "@/lib/report/compare";
 
@@ -15,7 +16,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl px-5 py-10">{children}</main>
+      <main id="main" className="mx-auto w-full max-w-5xl px-5 py-10">{children}</main>
       <SiteFooter />
     </>
   );
@@ -32,13 +33,17 @@ export default async function ComparePage({
 }) {
   const { repo, a, b } = await searchParams;
 
-  const { session, status } = await getSessionState();
-  if (isAuthConfigured() && !session) {
+  // The gate used to be `isAuthConfigured() && !session` — the DORMANT custom-OAuth predicate, false in
+  // production, so a signed-out visitor was never prompted (and readableOrgForOwner then resolved them
+  // to "public", so the page said "no scans"). resolveSignInState checks the ACTIVE Supabase wall first.
+  const { needsSignIn, provider, expired } = await resolveSignInState();
+  if (needsSignIn) {
     return (
       <Shell>
         <SignInNotice
           next={repo ? `/report/compare?repo=${encodeURIComponent(repo)}` : "/report/compare"}
-          expired={status === "expired"}
+          provider={provider}
+          expired={expired}
         />
       </Shell>
     );

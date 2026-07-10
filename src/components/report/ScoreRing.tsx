@@ -5,7 +5,8 @@
 import { useId } from "react";
 import type { MaturityLevel } from "@/lib/types";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
-import { CHART_INK, clamp01to100 } from "@/components/report/chartScale";
+import { clamp01to100 } from "@/components/report/chartScale";
+import { usePrefersReducedMotion } from "@/components/report/chartMotion";
 
 export function ScoreRing({
   score,
@@ -32,6 +33,11 @@ export function ScoreRing({
   const cx = size / 2;
   const titleId = useId();
   const descId = useId();
+  // Gate the arc sweep on reduced-motion. In RoadmapSandbox the score is driven LIVE by the
+  // projection sliders, so an un-gated 0.8s transition re-animates the ring on every drag —
+  // a WCAG 2.3.3 (Animation from Interactions) violation. Every sibling chart already gates its
+  // transitions on this hook; ScoreRing was the un-gated exception.
+  const reduced = usePrefersReducedMotion();
 
   return (
     <svg
@@ -44,7 +50,7 @@ export function ScoreRing({
       {/* Screen-reader title/desc — the arc length already encodes the score without color. */}
       <title id={titleId}>Overall maturity score</title>
       <desc id={descId}>{`Score ${displayScore} of 100. Level ${level.id} ${level.name}.`}</desc>
-      <circle cx={cx} cy={cx} r={r} fill="none" stroke={CHART_INK.grid} strokeWidth={stroke} />
+      <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--color-divider)" strokeWidth={stroke} />
       <circle
         cx={cx}
         cy={cx}
@@ -56,7 +62,7 @@ export function ScoreRing({
         strokeDasharray={c}
         strokeDashoffset={offset}
         transform={`rotate(-90 ${cx} ${cx})`}
-        style={{ transition: "stroke-dashoffset 0.8s ease" }}
+        style={{ transition: reduced ? undefined : "stroke-dashoffset 0.8s ease" }}
       />
       <text x={cx} y={cx - 6} textAnchor="middle" className="fill-white" fontSize={size * 0.26} fontWeight={700}>
         {displayScore}

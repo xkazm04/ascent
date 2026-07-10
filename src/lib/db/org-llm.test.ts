@@ -133,7 +133,14 @@ describe("resolveByomProvider — the only decrypt path", () => {
     const { prisma } = fakePrisma({ enabled: true, credentialsEncrypted: blob, provider: "bedrock", modelId: "m", region: "us-east-1" });
     mockGetPrisma.mockReturnValue(prisma);
     const params = await resolveByomProvider("acme");
-    expect(params).toEqual({ model: "m", region: "us-east-1", credentials: { accessKeyId: "AKIA", secretAccessKey: "sec" } });
+    expect(params).toEqual({ kind: "bedrock", model: "m", region: "us-east-1", credentials: { accessKeyId: "AKIA", secretAccessKey: "sec" } });
+  });
+
+  it("returns openrouter params (decrypted api key) for an active openrouter config", async () => {
+    const blob = encryptSecret(JSON.stringify({ apiKey: "sk-or-123" }));
+    const { prisma } = fakePrisma({ enabled: true, credentialsEncrypted: blob, provider: "openrouter", modelId: "openai/gpt-4o-mini", region: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    expect(await resolveByomProvider("acme")).toEqual({ kind: "openrouter", model: "openai/gpt-4o-mini", apiKey: "sk-or-123" });
   });
 
   it("returns null (no throw) on a tampered blob", async () => {

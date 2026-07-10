@@ -20,16 +20,21 @@ import {
   getInstallationIdForOwner,
   isDbConfigured,
   persistScanReport,
+  persistTeamStandings,
   recordQuotaEvent,
   recordScanOutcome,
   setRepoSchedule,
   setRepoWatch,
 } from "@/lib/db";
+// Imported from the sub-module (not the "@/lib/db" barrel) so it is a process-local advisory claim,
+// NOT the cron's DB `nextScanAt` lease — see claimRepoScan's rationale in org-watch.ts. Import repos may
+// have no Repository row yet (created mid-scan), so a DB-row claim is impossible on this path.
+import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
-import { requireOrgAccess, sessionHasInstallation, sessionOwnsOrg } from "@/lib/authz";
+import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -78,8 +83,8 @@ export async function POST(request: Request) {
   // scoped mutations — yet was the lone mutating org endpoint with no membership gate, so any
   // signed-in viewer (or anyone, on an auth-off deploy) could drain a victim org's credits and
   // inject repos/scores into its dashboard. requireOrgAccess leaves PUBLIC_ORG and auth-off
-  // deployments open, so the free funnel + local seeding are preserved; the finer sessionOwnsOrg
-  // token-mint gate below still governs PRIVATE-repo access.
+  // deployments open, so the free funnel + local seeding are preserved; the finer
+  // canMintInstallationToken gate below still governs PRIVATE-repo access.
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
 
@@ -88,30 +93,28 @@ export async function POST(request: Request) {
   const watch = body.watch ?? true;
   const schedule = body.schedule && SCHEDULES.has(body.schedule) ? body.schedule : "weekly";
 
-  // Mint an installation token (PRIVATE-repo access) ONLY for a caller who owns this org. Without
-  // this gate an anonymous request could pass any `installationId` (or rely on the org's stored
-  // install) to mint a token and read another tenant's PRIVATE repos. The public funnel is
-  // unaffected: an anonymous caller's ownsOrg is false, so no token is minted and only public repos
-  // resolve via the env GITHUB_TOKEN. Auth-off (local/demo) deployments keep the prior open behavior.
+  // Mint an installation token (PRIVATE-repo access) ONLY for a caller with real standing in this org.
+  //
+  // The old gate was `!isAuthConfigured() || sessionOwnsOrg(org)`. isAuthConfigured() keys on the
+  // DORMANT custom-OAuth env, unset in production, so `!false` made ownsOrg true for EVERY caller and
+  // the supplied-installationId check below was equally short-circuited. Since requireOrgAccess leaves
+  // PUBLIC_ORG open to any signed-in viewer, a signed-in caller could POST { org: "public",
+  // installationId: <victim's enumerable id> } and mint the victim's token — the confused deputy the
+  // comment below describes. canMintInstallationToken resolves real membership against the ACTIVE
+  // Supabase wall and never allows PUBLIC_ORG.
   let token = process.env.GITHUB_TOKEN || undefined;
   let appTokenMinted = false;
-  if (isAppConfigured()) {
-    const ownsOrg = !isAuthConfigured() || (await sessionOwnsOrg(org));
-    if (ownsOrg) {
-      // A caller-supplied installationId must belong to the session (when auth is on); otherwise
-      // fall back to the org's own stored installation.
-      const supplied = body.installationId?.trim();
-      let installationId: string | undefined;
-      if (supplied && (!isAuthConfigured() || (await sessionHasInstallation(supplied)))) {
-        installationId = supplied;
-      }
-      if (!installationId) installationId = (await getInstallationIdForOwner(org)) || undefined;
-      if (installationId) {
-        const appToken = await getInstallationToken(installationId).catch(() => undefined);
-        if (appToken) {
-          token = appToken;
-          appTokenMinted = true;
-        }
+  if (isAppConfigured() && (await canMintInstallationToken(org))) {
+    // A caller-supplied installationId is only ever a hint for THIS org; honoring an arbitrary id was
+    // the cross-tenant mint. Fall back to the org's own stored installation.
+    const stored = (await getInstallationIdForOwner(org)) || undefined;
+    const supplied = body.installationId?.trim();
+    const installationId = supplied && stored && supplied === String(stored) ? supplied : stored;
+    if (installationId) {
+      const appToken = await getInstallationToken(installationId).catch(() => undefined);
+      if (appToken) {
+        token = appToken;
+        appTokenMinted = true;
       }
     }
   }
@@ -126,7 +129,12 @@ export async function POST(request: Request) {
   // `listOrgRepos` listing below, for rate-limit relief. Auth-off (local/demo) deployments keep
   // the prior open behavior — they are operator-only by design and this is the documented
   // seeding path (scripts/seed-org.mjs).
-  const scanOpts = appTokenMinted || !isAuthConfigured() ? { token, mock } : { noAmbientToken: true, mock };
+  //
+  // The escape hatch used to be `!isAuthConfigured()`, the DORMANT predicate — true in production, so
+  // the ambient PAT was handed to every scan and the confused deputy above was fully reachable. Key it
+  // on "no auth stack is live at all" instead, which is what "auth-off local/demo" actually means.
+  const authOff = !authGateEnabled() && !isAuthConfigured();
+  const scanOpts = appTokenMinted || authOff ? { token, mock } : { noAmbientToken: true, mock };
 
   // Credits: a real-LLM import into a private org dashboard draws on prepaid credits. The default mock
   // import and the public funnel are free (mock runs no inference). Refuse up front when out of credits;
@@ -205,69 +213,93 @@ export async function POST(request: Request) {
         // to fit the 300s budget. `scanned` is incremented in single-threaded lanes — race-free.
         let scanned = 0;
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
-          // RESERVE the credit BEFORE scanning (metered, non-unlimited, non-mock imports). The atomic
-          // conditional decrement enforces the prepaid balance even under concurrency, so two in-flight
-          // imports can't both scan the same slice for free — the old path scanned first and only
-          // best-effort-debited afterwards (failure swallowed). Refunded below if the scan degrades to
-          // mock or throws.
-          let reserved = false;
-          if (metered && !unlimited) {
-            const reservation = await reserveScanCredit(org, r.fullName);
-            if (reservation.skip) {
-              skippedForCredits += 1;
-              send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
-              scanned += 1;
-              send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
-              return;
-            }
-            reserved = reservation.reserved;
+          // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the import
+          // path was missing. If another in-flight run (a second import tab, another member, or an
+          // overlapping /api/org/scan) already holds a live claim for (org, repo), skip: reserving +
+          // scanning here would debit a second credit and burn a second real-LLM ingest for the SAME
+          // repo (reserveScanCredit bounds TOTAL spend, not per-repo duplication). Released in the
+          // finally below on EVERY exit path — including a hard TTL self-heal if this process is killed.
+          const claim = claimRepoScan(org, r.fullName);
+          if (claim === null) {
+            send("repo", { repo: r.fullName, skipped: "in_progress" });
+            scanned += 1;
+            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            return;
           }
-          const refundCredit = () => refundScanCredit(org, reserved);
-          send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
           try {
-            const report = await scanRepository(r.fullName, scanOpts);
-            const persisted = await persistScanReport(report, { orgSlug: org });
-            logPartialWrites("org/import", r.fullName, persisted);
-            // Refund the reservation when nothing billable was produced: either the scan degraded to
-            // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
-            // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
-            if (shouldRefundScan(report, persisted)) await refundCredit();
-            // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
-            // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
-            // the credit and reports the repo as { error }). The notable failure is the lazy Organization
-            // upsert inside setRepoWatch losing a P2002 create race on a brand-new org's first parallel
-            // import — previously that refunded a genuinely-billed, persisted scan and flagged a scored
-            // repo "error". The sibling /api/org/watch route keeps these writes serial for the same reason.
-            if (watch) {
-              try {
-                await setRepoWatch(org, r, true);
-                if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
-              } catch (werr) {
-                console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
+            // RESERVE the credit BEFORE scanning (metered, non-unlimited, non-mock imports). The atomic
+            // conditional decrement enforces the prepaid balance even under concurrency, so two in-flight
+            // imports can't both scan the same slice for free — the old path scanned first and only
+            // best-effort-debited afterwards (failure swallowed). Refunded below if the scan degrades to
+            // mock or throws.
+            let reserved = false;
+            if (metered && !unlimited) {
+              const reservation = await reserveScanCredit(org, r.fullName);
+              if (reservation.skip) {
+                skippedForCredits += 1;
+                send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
+                scanned += 1;
+                send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+                return; // finally releases the claim
               }
+              reserved = reservation.reserved;
             }
-            send("repo", {
-              repo: r.fullName,
-              level: report.level.id,
-              overall: report.overallScore,
-              posture: report.posture.id,
-              adoption: report.adoptionScore,
-              rigor: report.rigorScore,
-              contributors: report.contributors?.length ?? 0,
-            });
-            // Only record an outcome once the repo row exists (watch=true upserts it above); the
-            // public funnel (watch=false) may not have persisted a Repository row, so skip then.
-            if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
-          } catch (err) {
-            // Scan threw — no inference to bill, so refund the reservation made above.
-            await refundCredit();
-            const msg = err instanceof Error ? err.message : "scan failed";
-            if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
-            send("repo", { repo: r.fullName, error: msg });
+            const refundCredit = () => refundScanCredit(org, reserved);
+            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            try {
+              const report = await scanRepository(r.fullName, scanOpts);
+              const persisted = await persistScanReport(report, { orgSlug: org });
+              logPartialWrites("org/import", r.fullName, persisted);
+              // Refund the reservation when nothing billable was produced: either the scan degraded to
+              // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
+              // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
+              if (shouldRefundScan(report, persisted)) await refundCredit();
+              // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
+              // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
+              // the credit and reports the repo as { error }). The notable failure is the lazy Organization
+              // upsert inside setRepoWatch losing a P2002 create race on a brand-new org's first parallel
+              // import — previously that refunded a genuinely-billed, persisted scan and flagged a scored
+              // repo "error". The sibling /api/org/watch route keeps these writes serial for the same reason.
+              if (watch) {
+                try {
+                  await setRepoWatch(org, r, true);
+                  if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
+                } catch (werr) {
+                  console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
+                }
+              }
+              send("repo", {
+                repo: r.fullName,
+                level: report.level.id,
+                overall: report.overallScore,
+                posture: report.posture.id,
+                adoption: report.adoptionScore,
+                rigor: report.rigorScore,
+                contributors: report.contributors?.length ?? 0,
+              });
+              // Only record an outcome once the repo row exists (watch=true upserts it above); the
+              // public funnel (watch=false) may not have persisted a Repository row, so skip then.
+              if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
+            } catch (err) {
+              // Scan threw — no inference to bill, so refund the reservation made above.
+              await refundCredit();
+              const msg = err instanceof Error ? err.message : "scan failed";
+              if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
+              send("repo", { repo: r.fullName, error: msg });
+            }
+            scanned += 1;
+            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+          } finally {
+            // Release on EVERY exit — normal completion, the insufficient-credits early return, or a
+            // throw from reserveScanCredit (which mapPool rethrows). A leaked claim would bar this repo
+            // from re-import for the whole TTL; only a hard process kill relies on the TTL self-heal.
+            releaseRepoScan(org, r.fullName, claim);
           }
-          scanned += 1;
-          send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
         });
+        // Capture the team-standings decomposition as a durable output of this full org import
+        // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
+        // never break the scan or the SSE result).
+        await persistTeamStandings(org).catch(() => {});
         send("result", { org, scanned, total: fullNames.length, skippedForCredits, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });

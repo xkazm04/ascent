@@ -330,14 +330,31 @@ export async function revokeOtherSessions(session: Session): Promise<boolean> {
  * The org slug a viewer is allowed to read scan data for `owner` under. Private
  * GitHub-App scans are stored under the owner's own org (login, lowercased); public
  * scans live under the shared "public" org. A viewer may read the owner's org only when
- * their session has an installation for it — otherwise they fall back to "public". This
- * is authorization derived from the session cookie (sent automatically), so it both
+ * they have a real standing in it — otherwise they fall back to "public". This both
  * prevents cross-tenant reads and avoids exposing an unauthenticated org parameter.
+ *
+ * This used to resolve authorization straight off the custom-OAuth session cookie:
+ *
+ *     const session = await getSession();
+ *     return session?.installations.some(...) ? ownerLc : "public";
+ *
+ * Under the ACTIVE Supabase wall no `ascent_session` cookie is ever minted, so getSession()
+ * is null and this ALWAYS returned "public". That silently locked every private-org member
+ * out of their own data — private-repo Trends, Compare, /api/history, the Private-tier PDF
+ * export, the report permalink, the skill/conformance reports, and passport read+PR (which
+ * 403s on `org === PUBLIC_ORG`). It is a lockout, not a leak: the private-repo guard in
+ * scans-read.ts then correctly refused to serve anything.
+ *
+ * Delegates to canReadOrg, the one read-side gate, which resolves membership against the
+ * ACTIVE wall and still honors the dormant session on a dev box that configures it.
+ * `@/lib/authz` is imported lazily because it imports this module — a static import here
+ * would close the cycle at module-init time.
  */
 export async function readableOrgForOwner(owner: string): Promise<string> {
-  const ownerLc = owner.toLowerCase();
-  const session = await getSession();
-  return session?.installations.some((i) => i.login.toLowerCase() === ownerLc) ? ownerLc : "public";
+  const ownerLc = owner.trim().toLowerCase();
+  if (!ownerLc || ownerLc === PUBLIC_ORG) return PUBLIC_ORG;
+  const { canReadOrg } = await import("@/lib/authz");
+  return (await canReadOrg(ownerLc)) ? ownerLc : PUBLIC_ORG;
 }
 
 /**

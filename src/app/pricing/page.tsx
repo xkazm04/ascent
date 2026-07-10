@@ -32,10 +32,17 @@ function ctaFor(id: PlanId): { href: string; label: string } {
 
 export const dynamic = "force-dynamic";
 
+// The prices + free allowance in the marketing/SEO copy are DERIVED from the plan model (plans.ts,
+// CRED-1) — the SAME single source the price cards and the entitlement gate read — so the numbers here
+// can never drift from what's actually charged. Previously the description hardcoded "5 free … Pro
+// $10/mo, Team $20/mo"; a price change in plans.ts left this string silently stale (and lying to buyers).
+const FREE_ALLOWANCE = PLAN_FEATURES.free.includedCredits ?? 0;
+const PRO_PRICE = planPriceLabel("pro").amount; // e.g. "$10"
+const TEAM_PRICE = planPriceLabel("team").amount; // e.g. "$20"
+
 export const metadata = {
   title: "Plans & credits — Ascent",
-  description:
-    "Every plan includes a monthly scan allowance — 5 free a month, Pro $10/mo, Team $20/mo. Scans beyond your allowance run on prepaid credits you can top up anytime.",
+  description: `Every plan includes a monthly scan allowance — ${FREE_ALLOWANCE} free a month, Pro ${PRO_PRICE}/mo, Team ${TEAM_PRICE}/mo. Scans beyond your allowance run on prepaid credits you can top up anytime.`,
 };
 
 export default function PricingPage() {
@@ -46,7 +53,7 @@ export default function PricingPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white sm:text-4xl">Plans &amp; credits</h1>
           <p className="mx-auto mt-3 max-w-2xl text-lg text-slate-400">
-            Every plan includes a <span className="text-slate-200">monthly scan allowance</span> — 5 free a month, then
+            Every plan includes a <span className="text-slate-200">monthly scan allowance</span> — {FREE_ALLOWANCE} free a month, then
             a subscription for more. Scans beyond your allowance run on prepaid credits you can{" "}
             <span className="text-slate-200">top up anytime</span>. Pick the tier that fits your fleet.
           </p>

@@ -353,6 +353,11 @@ type PrismaState = {
 const g = globalThis as unknown as {
   __ascentPrisma?: PrismaState;
   __ascentPrismaRefresh?: Promise<PrismaClient>;
+  // Post-failure mint cooldown (database-client-schema #1): epoch-ms until which the BACKGROUND refresh
+  // path must not re-kick a mint, and the running count of consecutive failures driving its exponential
+  // backoff. Kept on globalThis so the cooldown survives Next.js HMR alongside the client singleton.
+  __ascentPrismaRefreshFailUntil?: number;
+  __ascentPrismaRefreshFailCount?: number;
   // Local-dev embedded PGlite driver adapter, constructed in src/instrumentation.ts when
   // PGLITE_DATA_DIR is set. Typed loosely here so this module never statically imports the
   // (dev-only, externalized) pglite packages.
@@ -426,16 +431,57 @@ async function doRefresh(cfg: DsqlConfig): Promise<PrismaClient> {
   return next;
 }
 
-/** Single-flight token refresh: concurrent callers share one in-flight mint. */
+// database-client-schema #1: a cold-start DSQL client is seeded expiresAt:0 (STALE-NOW), so tokenIsStale()
+// stays true until our own token lands. If the STS/IAM minter is throttled or down, every getPrisma()/
+// withDb() would otherwise re-kick refresh() the instant the previous mint settled — a back-to-back retry
+// STORM that hammers the struggling minter and prolongs its own outage. The single-flight collapses
+// CONCURRENT mints but adds no gap between SEQUENTIAL failures. So after a failed mint we arm a capped
+// exponential cooldown, and the BACKGROUND (proactive) refresh path skips re-kicking within it. The
+// REACTIVE reconnect (a genuine auth-expiry, or dbHealthCheck's self-heal) is deliberately NOT gated — it
+// must recover a truly-dead token immediately, and it fires at most once per real expiry, not in a loop.
+const REFRESH_COOLDOWN_BASE_MS = 500;
+const REFRESH_COOLDOWN_MAX_MS = 10_000;
+
+/** ms left in the post-failure mint cooldown (0 when the background path may kick a fresh mint). */
+function refreshCooldownRemaining(): number {
+  const until = g.__ascentPrismaRefreshFailUntil;
+  return until && Date.now() < until ? until - Date.now() : 0;
+}
+
+/** Single-flight token refresh: concurrent callers share one in-flight mint. Records mint success/failure
+ *  so the failure cooldown (database-client-schema #1) can gate the background path. */
 function refresh(cfg: DsqlConfig): Promise<PrismaClient> {
   if (g.__ascentPrismaRefresh) return g.__ascentPrismaRefresh;
   const inflight = doRefresh(cfg);
   // Track a non-rejecting copy so a failed mint can't leave a permanently rejected promise around.
   g.__ascentPrismaRefresh = inflight;
-  void inflight.catch(() => {}).finally(() => {
+  void inflight.then(
+    () => {
+      // A successful mint clears the cooldown so normal proactive refresh resumes at once.
+      g.__ascentPrismaRefreshFailCount = 0;
+      g.__ascentPrismaRefreshFailUntil = undefined;
+    },
+    () => {
+      // A failed mint arms a capped exponential cooldown so the background path doesn't re-kick in a tight
+      // loop against a throttled/unavailable minter.
+      const n = (g.__ascentPrismaRefreshFailCount = (g.__ascentPrismaRefreshFailCount ?? 0) + 1);
+      g.__ascentPrismaRefreshFailUntil =
+        Date.now() + Math.min(REFRESH_COOLDOWN_MAX_MS, REFRESH_COOLDOWN_BASE_MS * 2 ** (n - 1));
+    },
+  ).finally(() => {
     g.__ascentPrismaRefresh = undefined;
   });
   return inflight;
+}
+
+/** Fire-and-forget PROACTIVE refresh, gated by the failure cooldown (database-client-schema #1). No-op
+ *  while a mint is already in flight (single-flight) or within the post-failure cooldown; logs on failure,
+ *  never throws — the caller keeps serving the cached (still-margin-valid) client. */
+function kickBackgroundRefresh(cfg: DsqlConfig): void {
+  if (g.__ascentPrismaRefresh || refreshCooldownRemaining() > 0) return;
+  void refresh(cfg).catch((err) =>
+    console.error("[db] DSQL IAM token refresh failed:", errorInfo(err).message),
+  );
 }
 
 function tokenIsStale(state: PrismaState | undefined, cfg: DsqlConfig): boolean {
@@ -461,9 +507,7 @@ export function getPrisma(): PrismaClient {
 
   if (g.__ascentPrisma) {
     if (cfg && tokenIsStale(g.__ascentPrisma, cfg)) {
-      void refresh(cfg).catch((err) =>
-        console.error("[db] DSQL IAM token refresh failed:", errorInfo(err).message),
-      );
+      kickBackgroundRefresh(cfg); // cooldown-gated so a throttled minter isn't hammered (#1)
     }
     return g.__ascentPrisma.client;
   }
@@ -492,11 +536,7 @@ export function getPrisma(): PrismaClient {
   // far-future expiresAt would pin the stale client and suppress ALL further refreshes (findings #2+#3).
   // At 0, every getPrisma keeps kicking the single-flighted refresh until our own token actually lands.
   g.__ascentPrisma = { client, expiresAt: cfg ? 0 : Infinity };
-  if (cfg) {
-    void refresh(cfg).catch((err) =>
-      console.error("[db] DSQL IAM token refresh failed:", errorInfo(err).message),
-    );
-  }
+  if (cfg) kickBackgroundRefresh(cfg); // cooldown-gated (#1) — the seed is stale-now, so this fires unless a recent mint just failed
   return client;
 }
 
@@ -511,7 +551,12 @@ export async function reconnectDb(): Promise<PrismaClient> {
     const previous = g.__ascentPrisma?.client;
     const client = newClient(process.env.DATABASE_URL);
     g.__ascentPrisma = { client, expiresAt: Infinity };
-    if (previous && previous !== client) void previous.$disconnect().catch(() => {});
+    // database-client-schema #2: RETIRE the old client, don't eagerly $disconnect() it. dbHealthCheck's
+    // self-heal calls reconnectDb() on ANY flaky first ping, and $disconnect() tears down the query
+    // engine/pool without a documented guarantee of draining in-flight work — so an eager disconnect here
+    // aborted concurrent users' live queries (500s) whenever a single monitoring ping blipped. Defer past
+    // the longest plausible request via retireClient(), consistent with the DSQL rotation path (doRefresh).
+    if (previous && previous !== client) retireClient(previous);
     return client;
   }
   return refresh(cfg);
@@ -540,37 +585,54 @@ export async function runWithReconnect<T>(
 }
 
 /**
- * Run a database operation with token-expiry protection. In DSQL mode it proactively refreshes a
- * stale token before the op, and on an auth-expiry error it reconnects with a fresh token and
- * retries once. The recommended entry point for production DSQL queries.
+ * Run a database operation with FULL DSQL protection — the recommended entry point for production DSQL
+ * queries. In DSQL mode it proactively refreshes a stale token before the op and, on an auth-expiry error,
+ * reconnects with a fresh token and retries once (runWithReconnect). It ALSO retries a DSQL
+ * optimistic-concurrency / serialization conflict (40001 / P2034 / OC###) with backoff (withRetry) —
+ * database-client-schema #3: a lost OCC commit is exactly the retryable failure DSQL raises under any
+ * concurrency, and a caller who wrapped a WRITE in `withDb(...)` alone previously lost it silently (the
+ * name/doc implied full coverage but only auth-expiry was handled). A serialization conflict means the
+ * transaction already rolled back, so the retry is safe; auth-expiry is a DISJOINT class (recovered by
+ * reconnect, never retried here). Callers that additionally compose withRetry (e.g. scans-persist) keep
+ * working — the extra layer just nests harmlessly. `opts.retry` tunes/injects the backoff (tests).
  */
-export function withDb<T>(op: (client: PrismaClient) => Promise<T>): Promise<T> {
+export function withDb<T>(op: (client: PrismaClient) => Promise<T>, opts?: { retry?: RetryOptions }): Promise<T> {
   const cfg = readDsqlConfig();
-  return runWithReconnect(op, {
-    getClient: async () => {
-      if (cfg && tokenIsStale(g.__ascentPrisma, cfg)) {
-        try {
-          await refresh(cfg);
-        } catch (err) {
-          // A failed PROACTIVE mint is only fatal when there is no client to fall back on. Inside
-          // the refresh margin the cached client's token is still VALID by definition, so a
-          // transient STS/IAM blip (throttle, momentary credentials hiccup) must not fail the op —
-          // that made the protected write path strictly MORE fragile than the raw getPrisma()
-          // read path, which shrugs off the same background-refresh failure. Fall through to the
-          // cached client: either the op succeeds on the still-valid token, or it throws a real
-          // auth-expiry that runWithReconnect recovers via reconnectDb — where a second mint
-          // failure is rightly fatal (the REACTIVE path is the authority on a genuinely dead token).
-          if (!g.__ascentPrisma) throw err;
-          console.warn(
-            "[db] proactive DSQL token refresh failed; continuing on the cached client:",
-            errorInfo(err).message,
-          );
+  const run = (): Promise<T> =>
+    runWithReconnect(op, {
+      getClient: async () => {
+        if (cfg && tokenIsStale(g.__ascentPrisma, cfg)) {
+          // Skip the proactive mint while within the post-failure cooldown IF a client is cached
+          // (database-client-schema #1) — inside the refresh margin the cached token is still VALID, so
+          // serving it avoids hammering a throttled minter. With NO cached client there's nothing to fall
+          // back on, so attempt the mint regardless.
+          if (refreshCooldownRemaining() > 0 && g.__ascentPrisma) {
+            // fall through to the cached client
+          } else {
+            try {
+              await refresh(cfg);
+            } catch (err) {
+              // A failed PROACTIVE mint is only fatal when there is no client to fall back on. Inside
+              // the refresh margin the cached client's token is still VALID by definition, so a
+              // transient STS/IAM blip (throttle, momentary credentials hiccup) must not fail the op —
+              // that made the protected write path strictly MORE fragile than the raw getPrisma()
+              // read path, which shrugs off the same background-refresh failure. Fall through to the
+              // cached client: either the op succeeds on the still-valid token, or it throws a real
+              // auth-expiry that runWithReconnect recovers via reconnectDb — where a second mint
+              // failure is rightly fatal (the REACTIVE path is the authority on a genuinely dead token).
+              if (!g.__ascentPrisma) throw err;
+              console.warn(
+                "[db] proactive DSQL token refresh failed; continuing on the cached client:",
+                errorInfo(err).message,
+              );
+            }
+          }
         }
-      }
-      return getPrisma();
-    },
-    reconnect: reconnectDb,
-  });
+        return getPrisma();
+      },
+      reconnect: reconnectDb,
+    });
+  return withRetry(run, { label: "withDb", ...opts?.retry });
 }
 
 /**

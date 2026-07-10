@@ -541,6 +541,37 @@ describe("persistScanReport — head-pointer recency guard (advance-on-newer, ho
     expect(data).toMatchObject({ lastScanAt: new Date(scannedAt), headSha: "sha_noetag" });
     expect(data).not.toHaveProperty("headEtag"); // untouched, not reset to null
   });
+
+  // ── ATOMICITY: the head pointer advances only once a scan is durably persisted (scan-persistence-history #1)
+  it("a FAILED scan-graph transaction does NOT advance the head pointer (no phantom head)", async () => {
+    // The scan.create throws a non-retryable error mid-transaction → the whole scan rolls back. Because the
+    // head-advance now runs only AFTER a successful commit, the repo is NOT left advertising a headSha with
+    // no Scan row — the exact strand that made getHeadHint 304 every conditional re-scan forever.
+    const boom = new Error("scan graph write failed mid-transaction");
+    const { prisma } = fakePrisma({ previousRecs: null, scanCreateThrows: boom });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null); // new sha → full persist runs, then the tx throws
+
+    await expect(persistScanReport(makeReport({ headSha: "sha_rollback" }))).rejects.toBe(boom);
+    // No head-advance updateMany ran at all — the pointer is untouched by the rolled-back scan.
+    expect(prisma.repository.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a DEDUP hit still advances the head (freshness) — a real scan for the commit already exists", async () => {
+    // On dedup the commit genuinely has a persisted scan, so refreshing headSha/headEtag/lastScanAt is
+    // safe (no phantom) and keeps the UI's "up to date" honest — but no duplicate metered row is written.
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_existing" }); // exact commit already scored
+
+    const scannedAt = "2026-06-20T00:00:00.000Z";
+    await persistScanReport(makeReport({ headSha: "sha_abc", scannedAt }), { headEtag: 'W/"e"' });
+
+    const { where, data } = headAdvanceCall(prisma);
+    expect(where.OR).toEqual([{ lastScanAt: null }, { lastScanAt: { lt: new Date(scannedAt) } }]);
+    expect(data).toMatchObject({ lastScanAt: new Date(scannedAt), headSha: "sha_abc", headEtag: 'W/"e"' });
+    expect(scanCreate).not.toHaveBeenCalled(); // dedup: no new metered row
+  });
 });
 
 // ── MEDIUM: sha-less findScanByScannedAt dedup fallback (edge-case hardening) ──────────────────────

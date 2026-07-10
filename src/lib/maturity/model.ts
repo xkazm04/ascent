@@ -12,6 +12,20 @@ import type {
   RepoArchetype,
 } from "@/lib/types";
 
+/**
+ * Rubric version — the single source of truth for "which scoring rubric produced a score".
+ *
+ * BUMP THIS (e.g. "r1" -> "r2") whenever a change here moves scores: dimension WEIGHTS (base
+ * DIMENSIONS or any ARCHETYPE_WEIGHTS lens), the dimension SET (add / remove / rename a Dx), LEVEL
+ * BANDS (LEVELS[].band), SCORE_BLEND, LLM_GUARDBAND, POSTURE_THRESHOLD, or the assessment
+ * prompt/criteria. It is folded into the scan cache key (src/lib/cache.ts, makeCacheKey), so a bump
+ * atomically busts every cached score fleet-wide — an unchanged repo re-scores under the NEW rubric
+ * instead of serving the pre-bump number for up to the 7-day cache age. Forgetting to bump it after
+ * editing a rubric knob means stale scores are served as current (the failure this constant prevents).
+ * Keep it ONE short, monotonic token; never scatter copies — this is the only place it lives.
+ */
+export const SCORING_RUBRIC_VERSION = "r1";
+
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
 

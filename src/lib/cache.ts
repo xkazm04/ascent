@@ -3,6 +3,8 @@
 // DSQL-backed persistence (see docs/ARCHITECTURE.md).
 
 import type { ScanReport } from "@/lib/types";
+import { getProvider } from "@/lib/llm";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 
 interface Entry {
   report: ScanReport;
@@ -34,6 +36,58 @@ export function normalizeRepoName(name: string): string {
 }
 
 /**
+ * The scoring configuration a cached score is a FUNCTION of. A score is only interchangeable with
+ * another when ALL of these match — swap any one and the number changes — so all three must key the
+ * cache. Before this existed, the key knew only `useLLM` (llm vs mock) + the sha, so after a model
+ * swap / `LLM_PROVIDER` change / rubric bump every unchanged repo kept serving the OLD score as
+ * current (up to the TTL / the 7-day persisted age gate), with no bulk-invalidation lever.
+ */
+export interface ScoringIdentity {
+  /** Resolved LLM provider name, or "mock" in mock mode. */
+  provider: string;
+  /** Resolved model id, or "deterministic-rubric" in mock mode. */
+  model: string;
+  /** SCORING_RUBRIC_VERSION at scoring time — see src/lib/maturity/model.ts. */
+  rubric: string;
+}
+
+/**
+ * The scoring identity the CURRENT process would produce a score under. `getProvider()` construction
+ * is side-effect-free (no network), and it reads the same env the scan pipeline does, so a reader and
+ * a writer on the same deployment resolve the identical identity — a reader and writer of one commit
+ * therefore build the identical key. In MOCK mode the score is a pure function of the deterministic
+ * rubric (the LLM provider/model are never consulted), so pinning them would only over-invalidate;
+ * only the rubric version varies there.
+ */
+export function activeScoringIdentity(useLLM: boolean): ScoringIdentity {
+  if (!useLLM) return { provider: "mock", model: "deterministic-rubric", rubric: SCORING_RUBRIC_VERSION };
+  const p = getProvider();
+  return { provider: p.name, model: p.model, rubric: SCORING_RUBRIC_VERSION };
+}
+
+/**
+ * Dependency-free FNV-1a → 8 hex chars. NOT cryptographic — it exists only to compress the
+ * provider+model+rubric triple into a short, stable, log-legible cache-key suffix instead of bloating
+ * every key (and every log line) with the full `gemini:gemini-3-flash-preview:r1` string. Deterministic
+ * across processes, so the same triple always yields the same suffix.
+ */
+function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/** Short fingerprint of the scoring identity for the cache-key suffix. NUL-joined so no field's tail
+ *  can bleed into the next (e.g. provider "a"+model "bc" can't collide with provider "ab"+model "c"). */
+function scoringFingerprint(useLLM: boolean, identity?: ScoringIdentity): string {
+  const id = identity ?? activeScoringIdentity(useLLM);
+  return shortHash(`${id.provider}\u0000${id.model}\u0000${id.rubric}`);
+}
+
+/**
  * Canonical scan-cache key. EVERY surface that reads or writes the scan cache (the scan
  * routes, the public badge, the CI gate) must build keys through this, so a single repo maps
  * to a single entry regardless of casing or percent-encoding. Otherwise `Facebook/React`,
@@ -41,21 +95,32 @@ export function normalizeRepoName(name: string): string {
  * badge can keep showing a stale mock level even after a real LLM scan exists.
  *
  * Pass the repo's current head commit `sha` to pin the entry to that commit
- * (`owner/repo@sha::mode`). A new push changes the sha, so a re-scan after a commit naturally
+ * (`owner/repo@sha::mode#fp`). A new push changes the sha, so a re-scan after a commit naturally
  * misses the cache instead of serving the pre-push score for up to the TTL. Omit it (or pass
- * null when a cheap head lookup failed) to fall back to the un-pinned `owner/repo::mode` form
+ * null when a cheap head lookup failed) to fall back to the un-pinned `owner/repo::mode#fp` form
  * — best-effort caching rather than no caching. Callers MUST resolve the sha through the same
  * resolveHead path (lookupCachedScan for the scan routes, resolveHeadWithHint for badge/gate) so
  * a reader and writer of the same commit produce the same key.
+ *
+ * The trailing `#fp` is a short fingerprint of the {provider, model, rubric} identity (see
+ * ScoringIdentity): repo/sha/mode stay legible for logs, and the score is pinned to the exact config
+ * that produced it. A model swap, an `LLM_PROVIDER` change, or a SCORING_RUBRIC_VERSION bump changes
+ * `fp`, so every prior entry becomes a MISS — which is the whole point and is SAFE: a miss just
+ * re-scans and re-caches under the new fingerprint. Do NOT "optimize" the fingerprint back out to reuse
+ * old entries; that re-introduces the fleet-wide staleness this key was widened to fix. `identity` is
+ * an explicit override for tests / a caller that already resolved it; production callers omit it and
+ * the current env-derived identity is used.
  */
 export function makeCacheKey(
   owner: string,
   repo: string,
   useLLM: boolean,
   sha?: string | null,
+  identity?: ScoringIdentity,
 ): string {
   const rev = sha ? `@${sha.toLowerCase()}` : "";
-  return `${normalizeRepoName(owner)}/${normalizeRepoName(repo)}${rev}::${useLLM ? "llm" : "mock"}`;
+  const mode = useLLM ? "llm" : "mock";
+  return `${normalizeRepoName(owner)}/${normalizeRepoName(repo)}${rev}::${mode}#${scoringFingerprint(useLLM, identity)}`;
 }
 
 export function cacheGet(key: string): ScanReport | null {

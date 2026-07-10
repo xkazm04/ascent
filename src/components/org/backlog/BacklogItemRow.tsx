@@ -1,11 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { type RecEvent, type RecStatus } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
-import { EVENT_LABEL, STATUS_ACCENT, dueLabel, eventValue } from "@/components/org/shared/backlogShared";
+import { STATUS_ACCENT, dueLabel, type PatchOutcome } from "@/components/org/shared/backlogShared";
 import { StatusSelect } from "@/components/org/shared/recStatusUi";
+import { BacklogRowHistory } from "@/components/org/backlog/BacklogItemRow.history";
 
 /**
  * Volatile per-row interaction state that must survive a regroup. The backlog re-parents rows into a
@@ -39,7 +41,7 @@ export function BacklogItemRow({
   state?: BacklogRowState;
   /** Merge a patch into this row's lifted state in the parent. */
   onState: (patch: BacklogRowState) => void;
-  onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
+  onPatch: (id: string, body: Record<string, unknown>) => Promise<PatchOutcome>;
 }) {
   // Persisted-across-remount state lives in the parent (BacklogPanel); only the truly transient
   // in-flight busy flags stay local.
@@ -49,6 +51,10 @@ export function BacklogItemRow({
   const promoted = state?.promoted ?? false;
   const [prBusy, setPrBusy] = useState(false);
   const [promoteBusy, setPromoteBusy] = useState(false);
+  // "Open draft PR" writes a real branch+commit+PR into item.repo — gate it behind a confirm naming
+  // the repo. Local (transient) state: if the row remounts on a regroup mid-confirm, the dialog just
+  // closes (the safe default), which is why this doesn't need the parent's lifted state.
+  const [confirmingPr, setConfirmingPr] = useState(false);
   // Monotonic token for the history fetch: each open/refresh bumps it; a resolved fetch only writes
   // its result if it is still the latest request. Closing the panel also bumps it, so an in-flight
   // load that resolves after the user collapsed can't re-open it.
@@ -64,12 +70,16 @@ export function BacklogItemRow({
 
   async function patchField(patch: Partial<Pick<BacklogItem, "status" | "assigneeLogin" | "targetDate">>) {
     setOverride((o) => ({ ...o, ...patch }));
-    try {
-      // Route through patchAndRefresh so an open history list also refreshes with the new timeline
-      // event (origin's behaviour) while the optimistic override keeps the value on screen until the
-      // backlog re-read lands.
-      await patchAndRefresh(item.id, patch);
-    } finally {
+    // Route through patchAndRefresh so an open history list also refreshes with the new timeline event
+    // (origin's behaviour) while the optimistic override keeps the value on screen until the backlog
+    // re-read lands.
+    const outcome = await patchAndRefresh(item.id, patch);
+    // Drop the override ONLY when the displayed server state is now authoritative: the refresh applied a
+    // fresh snapshot (success / 409 reconcile), OR the PATCH failed (revert to the old value the error
+    // explains). If the PATCH SUCCEEDED but the refresh was swallowed (503/blip), KEEP the override — the
+    // server already has the new value, so snapping back to the stale `item.*` reads as a phantom revert
+    // with no error shown (backlog #2).
+    if (outcome.refreshed || !outcome.patched) {
       setOverride((o) => {
         const next = { ...o };
         for (const k of Object.keys(patch)) delete next[k as keyof typeof next];
@@ -156,9 +166,10 @@ export function BacklogItemRow({
 
   // onPatch records a new timeline event server-side, so an already-open history list goes stale.
   // Wrap the patch to refetch history after a successful edit (and a no-op when it's collapsed).
-  async function patchAndRefresh(id: string, body: Record<string, unknown>) {
-    await onPatch(id, body);
+  async function patchAndRefresh(id: string, body: Record<string, unknown>): Promise<PatchOutcome> {
+    const outcome = await onPatch(id, body);
     if (history) void loadHistory();
+    return outcome;
   }
 
   const due = dueLabel(item);
@@ -240,7 +251,7 @@ export function BacklogItemRow({
 
         {practice && (
           <button
-            onClick={openDraftPr}
+            onClick={() => setConfirmingPr(true)}
             disabled={prBusy || saving}
             title={`Open a draft PR seeding the "${practice.label}" starter into ${item.repo}`}
             className="rounded-md border border-accent/50 bg-accent/10 px-2.5 py-1 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
@@ -278,28 +289,21 @@ export function BacklogItemRow({
         </p>
       )}
 
-      {history && (
-        <div className="mt-3 border-t border-slate-800 pt-3">
-          {history === "loading" ? (
-            <p className="font-mono text-sm text-slate-500">Loading history…</p>
-          ) : history.length === 0 ? (
-            <p className="font-mono text-sm text-slate-500">No changes recorded yet.</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {history.map((ev) => (
-                <li key={ev.id} className="flex flex-wrap items-baseline gap-x-2 text-sm text-slate-400">
-                  <span className="font-mono text-sm text-slate-600">{new Date(ev.at).toLocaleString()}</span>
-                  <span className="text-slate-300">{ev.actor ? `@${ev.actor}` : "system"}</span>
-                  <span>
-                    set {EVENT_LABEL[ev.kind] ?? ev.kind} {eventValue(ev.kind, ev.from)} → <span className="text-slate-200">{eventValue(ev.kind, ev.to)}</span>
-                  </span>
-                  {ev.note && <span className="text-slate-500">“{ev.note}”</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      {history && <BacklogRowHistory history={history} />}
+
+      {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
+      <ConfirmAction
+        open={confirmingPr}
+        busy={prBusy}
+        onCancel={() => setConfirmingPr(false)}
+        onConfirm={() => {
+          setConfirmingPr(false);
+          void openDraftPr();
+        }}
+        {...(practice
+          ? draftPrConfirm(item.repo, `the "${practice.label}" starter`)
+          : { title: "", body: "", confirmLabel: "", tone: "default" as const })}
+      />
     </div>
   );
 }

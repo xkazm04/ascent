@@ -103,7 +103,7 @@ export function PostureQuadrant({
       })}
 
       {/* plot border */}
-      <rect x={x0} y={y0} width={w} height={h} fill="none" stroke={CHART_INK.grid} strokeWidth={1} />
+      <rect x={x0} y={y0} width={w} height={h} fill="none" stroke="var(--color-divider)" strokeWidth={1} />
 
       {/* crosshair at the posture threshold */}
       <line x1={thX} y1={y0} x2={thX} y2={y0 + h} stroke={CHART_INK.crosshairDash} strokeWidth={1} strokeDasharray="3 3" />

@@ -9,15 +9,11 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Card, OrgTable, SectionHeader } from "@/components/org/shared/ui";
 import { SkillCard } from "@/components/org/skills/SkillCard";
-import { SKILL_CATEGORY_LABEL, skillCategoryLabel, type SkillCategory } from "@/lib/org/skill-categories";
+import { SkillsFilterBar } from "@/components/org/skills/SkillsPanel.FilterBar";
+import { SkillsAuthorForm } from "@/components/org/skills/SkillsPanel.AuthorForm";
+import { skillCategoryLabel, type SkillCategory } from "@/lib/org/skill-categories";
 import { SKILL_TEMPLATES } from "@/lib/org/skill-templates";
 import type { SkillAdoption, SkillRow, SkillSort } from "@/lib/db";
-
-const SORTS: { id: SkillSort; label: string }[] = [
-  { id: "recent", label: "Recently updated" },
-  { id: "downloads", label: "Most used" },
-  { id: "name", label: "Name (A–Z)" },
-];
 
 export function SkillsPanel({
   slug,
@@ -147,39 +143,15 @@ export function SkillsPanel({
         description="Your org's reusable Claude/LLM skills — author once, the whole team discovers and reuses them. Copy a skill into Claude Code, or download it as a SKILL.md."
       />
 
-      {/* Filter bar — server-filtered (search · category · sort). */}
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search skills…"
-          aria-label="Search skills"
-          className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
-        />
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          aria-label="Filter by category"
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
-        >
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {SKILL_CATEGORY_LABEL[c as SkillCategory] ?? c}
-            </option>
-          ))}
-        </select>
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SkillSort)}
-          aria-label="Sort skills"
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
-        >
-          {SORTS.map((s) => (
-            <option key={s.id} value={s.id}>{s.label}</option>
-          ))}
-        </select>
-      </div>
+      <SkillsFilterBar
+        search={search}
+        setSearch={setSearch}
+        category={category}
+        setCategory={setCategory}
+        sort={sort}
+        setSort={setSort}
+        categories={categories}
+      />
 
       <div className="mt-4">
         {skills.length === 0 ? (
@@ -240,78 +212,24 @@ export function SkillsPanel({
         )}
       </div>
 
-      {/* Author form (members on a Team+ plan) — or an upsell when the plan doesn't include the library. */}
-      {canAuthor ? (
-        <div className="mt-5 space-y-2 border-t border-slate-800 pt-4">
-          {/* Skills P3: start from a curated template instead of a blank form. */}
-          <label className="flex flex-wrap items-center gap-2 font-mono text-sm text-slate-500">
-            Start from a template
-            <select
-              value=""
-              onChange={(e) => e.target.value !== "" && applyTemplate(Number(e.target.value))}
-              className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
-            >
-              <option value="">choose a template…</option>
-              {SKILL_TEMPLATES.map((t, i) => (
-                <option key={t.name} value={i}>
-                  {SKILL_CATEGORY_LABEL[t.category]} · {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Skill name, e.g. PR review checklist"
-              className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
-            />
-            <select
-              value={formCategory}
-              onChange={(e) => setFormCategory(e.target.value as SkillCategory)}
-              className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
-            >
-              {categories.map((c) => (
-                <option key={c} value={c}>{SKILL_CATEGORY_LABEL[c as SkillCategory] ?? c}</option>
-              ))}
-            </select>
-          </div>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What it is / when to use it (optional)"
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
-          />
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Skill body (markdown / SKILL.md) — the reusable prompt or workflow"
-            rows={6}
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 placeholder:text-slate-600"
-          />
-          <input
-            value={tagsText}
-            onChange={(e) => setTagsText(e.target.value)}
-            placeholder="Tags, comma-separated (optional)"
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
-          />
-          <div className="flex justify-end">
-            <button
-              onClick={create}
-              disabled={busy || !name.trim() || !content.trim()}
-              className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
-            >
-              {busy ? "Adding…" : "Add skill"}
-            </button>
-          </div>
-        </div>
-      ) : (
-        !planAllowed && (
-          <p className="mt-5 border-t border-slate-800 pt-4 text-sm text-slate-500">
-            Authoring the Skills Library is a <span className="text-slate-300">Team-plan</span> feature. Members can browse, copy and download existing skills.
-          </p>
-        )
-      )}
+      <SkillsAuthorForm
+        canAuthor={canAuthor}
+        planAllowed={planAllowed}
+        categories={categories}
+        name={name}
+        setName={setName}
+        formCategory={formCategory}
+        setFormCategory={setFormCategory}
+        description={description}
+        setDescription={setDescription}
+        content={content}
+        setContent={setContent}
+        tagsText={tagsText}
+        setTagsText={setTagsText}
+        busy={busy}
+        create={create}
+        applyTemplate={applyTemplate}
+      />
       {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
     </Card>
   );

@@ -332,3 +332,45 @@ describe("runImportScan — request body (cost-disclosure contract, finding #3)"
     expect(JSON.parse(init.body as string).mock).toBe(false);
   });
 });
+
+describe("runImportScan — watch enrollment is App-path only (finding #2, silent-side-effect)", () => {
+  function sentBody(fetchSpy: ReturnType<typeof vi.fn>) {
+    return JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+  }
+
+  it("does NOT request a watch on the public 'free preview' funnel (no installationId)", async () => {
+    // The bug: the body hardcoded watch:true for EVERY scan, so a user scanning a public handle — told
+    // "Free preview — no prepaid credits are used" — was silently subscribed to a WEEKLY autoscan on
+    // repos they don't own. The preview path (no installationId) must now send watch:false explicitly
+    // (the server DEFAULTS watch to true, so omission would re-enable the silent enrollment).
+    const fetchSpy = vi.fn(async () => streamResponse([enc.encode(frame("result", { ok: true }))]));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { cb } = makeCallbacks();
+    await runImportScan({ org: "acme", repos: ["acme/a"] }, new AbortController(), cb);
+    const sent = sentBody(fetchSpy);
+    expect(sent.watch).toBe(false);
+    expect(sent.schedule).toBeUndefined(); // no cadence when nothing is watched
+  });
+
+  it("still enrolls the weekly watch on the App path, where the commitment IS disclosed", async () => {
+    const fetchSpy = vi.fn(async () => streamResponse([enc.encode(frame("result", { ok: true }))]));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { cb } = makeCallbacks();
+    await runImportScan({ org: "acme", repos: ["acme/a"], installationId: "inst_1" }, new AbortController(), cb);
+    const sent = sentBody(fetchSpy);
+    expect(sent.watch).toBe(true);
+    expect(sent.schedule).toBe(IMPORT_WATCH_SCHEDULE);
+  });
+
+  it("honors an explicit watch override (future disclosed opt-in)", async () => {
+    const fetchSpy = vi.fn(async () => streamResponse([enc.encode(frame("result", { ok: true }))]));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { cb } = makeCallbacks();
+    await runImportScan(
+      { org: "acme", repos: ["acme/a"], installationId: "inst_1", watch: false },
+      new AbortController(),
+      cb,
+    );
+    expect(sentBody(fetchSpy).watch).toBe(false);
+  });
+});

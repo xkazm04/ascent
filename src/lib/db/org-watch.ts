@@ -246,6 +246,73 @@ export async function advanceScheduleAfterFailure(repoId: string): Promise<void>
   });
 }
 
+// ── Per-repo in-flight scan claim (advisory, process-local, TTL) ──────────────────────────────────
+// The MANUAL scan (/api/org/scan) and import (/api/org/import) funnels have no equivalent of the
+// cron's DB-serialized {@link claimRescan} lease, so two concurrent runs — two browser tabs, two org
+// members, or a scan overlapping an import — would BOTH reserve a credit and run real LLM inference for
+// the SAME repo whenever the balance is ample. The atomic per-credit reserve (reserveScanCredit) bounds
+// TOTAL spend against the balance, NOT per-repo DUPLICATION: with credits to spare, each run debits a
+// credit and burns tokens on every repo. That is the money defect this claim closes.
+//
+// Why NOT reuse claimRescan's DB lease here? It keys on `nextScanAt <= now` (a DUE repo). A manual
+// rescan must run regardless of cadence (the repo usually isn't due), and the import funnel scans repos
+// that have NO Repository row yet (they're created mid-scan by setRepoWatch), so there is nothing in the
+// DB to conditionally-update — and bending `nextScanAt` into a lock would corrupt the autoscan schedule.
+// A dedicated scan-lock column is out of scope (no migration). So this is the finding's stated
+// alternative: a per-(org,repo) ADVISORY lock, mirroring the sibling rate-limiter (src/lib/rate-limit.ts).
+//
+// Mechanism: a module-global Map of "orgSlug\0fullName" → lease-expiry epoch-ms. claimRepoScan is an
+// ATOMIC test-and-set — there is NO `await` between reading the current claim and writing the new one,
+// so within a single Node instance two concurrent callers can never both win. It returns a fencing
+// token (the expiry it wrote) iff no LIVE claim existed, else null. TTL-based, NOT a boolean: a run that
+// dies between claim and release (serverless kill / 300s timeout — a process kill is not a thrown error,
+// so a `finally` won't run) leaves a claim that SELF-HEALS when it expires. A leaked boolean lock would
+// bar a repo from every future scan — a strictly WORSE bug than the duplicate it guards against.
+//
+// SCOPE / LIMITATION: process-local, exactly like rate-limit.ts. It fully covers same-instance
+// concurrency (the dominant case in the finding: two tabs / two members hitting one instance); it is
+// NOT a cross-instance distributed lock. The DB-serialized reserveScanCredit stays the hard money
+// ceiling underneath; this is the dedup layer on top. A cross-instance guarantee would need the same
+// Redis/Upstash the rate-limiter notes.
+const SCAN_CLAIM_TTL_MS = 15 * 60_000; // 15 min — matches claimRescan's lease; longer than any real single-repo scan
+const scanClaims = new Map<string, number>();
+const scanClaimKey = (orgSlug: string, fullName: string) => `${orgSlug.toLowerCase()}\u0000${fullName.toLowerCase()}`;
+
+/**
+ * Try to CLAIM an in-flight scan of (orgSlug, fullName) BEFORE reserving a credit or scanning, so two
+ * concurrent runs can't double-scan + double-charge the same repo. Returns a fencing TOKEN (the lease
+ * expiry) iff the caller won the claim — the caller then OWNS it and MUST call {@link releaseRepoScan}
+ * with that token on EVERY exit path (success, throw, early-return). Returns null when another in-flight
+ * run holds a LIVE (unexpired) claim: the caller must SKIP the repo (no reserve, no scan) rather than
+ * duplicate the billable work. An EXPIRED claim is treated as free and reclaimed (crash self-heal).
+ * Atomic within a process: no await between the liveness check and the set.
+ */
+export function claimRepoScan(orgSlug: string, fullName: string, ttlMs = SCAN_CLAIM_TTL_MS): number | null {
+  const key = scanClaimKey(orgSlug, fullName);
+  const now = Date.now();
+  const held = scanClaims.get(key);
+  if (held !== undefined && held > now) return null; // a LIVE claim is held by another in-flight run
+  const token = now + ttlMs;
+  scanClaims.set(key, token);
+  // Opportunistic sweep so the map can't grow unbounded across many one-shot import repos (mirrors the
+  // rate-limiter's cleanup). Only runs once the map is already large, so it's cheap in the common case.
+  if (scanClaims.size > 10_000) {
+    for (const [k, v] of scanClaims) if (v <= now) scanClaims.delete(k);
+  }
+  return token;
+}
+
+/**
+ * Release a claim taken by {@link claimRepoScan}. Pass the token it returned: the claim is cleared ONLY
+ * if it still matches, so a holder whose lease already EXPIRED (and was reclaimed by another run in the
+ * meantime) can't clobber the new owner's claim — the fencing-token guard against the classic
+ * expired-lease self-release footgun. Idempotent and safe to call for a key you no longer own.
+ */
+export function releaseRepoScan(orgSlug: string, fullName: string, token: number): void {
+  const key = scanClaimKey(orgSlug, fullName);
+  if (scanClaims.get(key) === token) scanClaims.delete(key);
+}
+
 /**
  * Record the outcome of a scan ATTEMPT on a repo so the dashboard can tell "scanning is broken"
  * (revoked token, deleted repo, rate-limited) apart from "never scanned" — previously every bulk/cron

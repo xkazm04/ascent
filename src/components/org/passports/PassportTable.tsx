@@ -48,6 +48,21 @@ function ordinalOf(r: PassportRow, key: SortKey): number | string {
   }
 }
 
+type ThSort = { key: SortKey; dir: "asc" | "desc"; onSort: (k: SortKey) => void };
+
+/** Sortable table-header cell. Declared at module scope (not inside the component) so it isn't
+ *  recreated on every render; the sort state it needs is passed in via `sort`. */
+function Th({ k, label, align = "left", sort }: { k: SortKey; label: string; align?: "left" | "right"; sort: ThSort }) {
+  return (
+    <th className={`px-3 py-2 text-${align}`}>
+      <button type="button" onClick={() => sort.onSort(k)} className="inline-flex items-center gap-1 uppercase tracking-[0.2em] transition hover:text-slate-200">
+        {label}
+        <span aria-hidden className={sort.key === k ? "text-accent" : "text-slate-700"}>{sort.key === k ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}</span>
+      </button>
+    </th>
+  );
+}
+
 export function PassportTable({ rows, focus }: { rows: PassportRow[]; focus?: { fullName: string } | null }) {
   const [sortKey, setSortKey] = useState<SortKey>("prodScore");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
@@ -58,6 +73,9 @@ export function PassportTable({ rows, focus }: { rows: PassportRow[]; focus?: { 
   // fresh object per click, so re-clicking the same point re-scrolls.
   useEffect(() => {
     if (!focus) return;
+    // Respond to an external scatter-point focus by expanding that row and scrolling it into view —
+    // both are deliberate DOM-sync side-effects that belong in an effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpanded(focus.fullName);
     rowRefs.current[focus.fullName]?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focus]);
@@ -80,14 +98,7 @@ export function PassportTable({ rows, focus }: { rows: PassportRow[]; focus?: { 
     }
   }
 
-  const Th = ({ k, label, align = "left" }: { k: SortKey; label: string; align?: "left" | "right" }) => (
-    <th className={`px-3 py-2 text-${align}`}>
-      <button type="button" onClick={() => toggle(k)} className="inline-flex items-center gap-1 uppercase tracking-[0.2em] transition hover:text-slate-200">
-        {label}
-        <span aria-hidden className={sortKey === k ? "text-accent" : "text-slate-700"}>{sortKey === k ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
-      </button>
-    </th>
-  );
+  const sort: ThSort = { key: sortKey, dir, onSort: toggle };
 
   return (
     <OrgTable
@@ -95,13 +106,13 @@ export function PassportTable({ rows, focus }: { rows: PassportRow[]; focus?: { 
       minWidth={760}
       head={
         <tr>
-          <Th k="name" label="Repo" />
-          <Th k="autoScore" label="Automation" align="right" />
-          <Th k="prodScore" label="Production" align="right" />
-          <Th k="ci" label="CI" />
-          <Th k="tests" label="Tests" />
-          <Th k="security" label="Security" />
-          <Th k="observability" label="Observability" />
+          <Th k="name" label="Repo" sort={sort} />
+          <Th k="autoScore" label="Automation" align="right" sort={sort} />
+          <Th k="prodScore" label="Production" align="right" sort={sort} />
+          <Th k="ci" label="CI" sort={sort} />
+          <Th k="tests" label="Tests" sort={sort} />
+          <Th k="security" label="Security" sort={sort} />
+          <Th k="observability" label="Observability" sort={sort} />
           <th className="w-10 px-2 py-2" aria-label="Expand row" />
         </tr>
       }

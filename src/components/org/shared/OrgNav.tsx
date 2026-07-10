@@ -42,6 +42,7 @@ export function OrgNav({ slug }: { slug: string }) {
     { label: "Govern", tabs: [
       { href: `${base}/members`, label: "Members" },
       { href: `${base}/governance`, label: "Governance" },
+      { href: `${base}/integrations`, label: "Integrations" },
       { href: `${base}/audit`, label: "Audit" },
       { href: `${base}/settings`, label: "Settings" },
     ] },

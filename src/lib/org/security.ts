@@ -3,7 +3,7 @@
 // (both already collected), into a security-first view + a "Copy for LLM" remediation brief (#6).
 // Pure assembly over @/lib/db; no new queries. Later phases add a security gate, alerts, and SBOM scans.
 
-import { getOrgGovernance, getOrgRollup, type OrgWindow } from "@/lib/db";
+import { getOrgDimensionGaps, getOrgGovernance, getOrgRollup, type OrgWindow } from "@/lib/db";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { DEFAULT_SECURITY_MIN } from "@/lib/scoring/gate";
 import type { OrgSupplyChain } from "@/lib/security/supply-chain";
@@ -15,7 +15,18 @@ export interface SecurityRepo {
   protected: boolean; // default-branch protection
 }
 
-/** One risk-register row: a scanned repo's D9 score, gate verdict, and governance rule detail. */
+/** One deterministic security control check as parsed for the register grid. */
+export interface SecurityRowCheck {
+  id: string; // stable key from the check name (e.g. "branch-protection")
+  name: string;
+  group: "posture" | "exposure";
+  risk: string;
+  /** 0..10, or null when not applicable (rendered as an n/a chip). */
+  score: number | null;
+  detail: string;
+}
+
+/** One risk-register row: a scanned repo's D9 score, gate verdict, and the deterministic check grid. */
 export interface SecurityRegisterRow {
   name: string;
   fullName: string;
@@ -24,6 +35,32 @@ export interface SecurityRegisterRow {
   gateReason: string | null;
   /** Default-branch rule detail from the latest scan, or null when governance wasn't readable. */
   rules: { protected: boolean; review: boolean; checks: boolean; signed: boolean } | null;
+  /** The deterministic Security (D9) check battery for this repo, parsed from the scan's evidence —
+   *  the graded control coverage the register grid renders. Empty for a legacy scan without it. */
+  checks: SecurityRowCheck[];
+  /** The prioritized remediation list (the check battery's gaps) — the "what to fix" text. */
+  issues: string[];
+  /** The D9 one-line summary (headline verdict), or "" when absent. */
+  summary: string;
+}
+
+/** Parse the D9 evidence lines (`Name [group/risk]: score/10 — detail`) into structured checks. */
+export function parseSecurityChecks(evidence: string[]): SecurityRowCheck[] {
+  const re = /^(.+?) \[(posture|exposure)\/(\w+)\]:\s*(n\/a|-?\d+)\/10\s*—\s*(.*)$/;
+  const out: SecurityRowCheck[] = [];
+  for (const line of evidence) {
+    const m = re.exec(line);
+    if (!m) continue;
+    out.push({
+      id: m[1]!.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+      name: m[1]!,
+      group: m[2] as "posture" | "exposure",
+      risk: m[3]!,
+      score: m[4] === "n/a" ? null : Number(m[4]),
+      detail: m[5]!,
+    });
+  }
+  return out;
 }
 
 export interface SecurityOverview {
@@ -52,9 +89,11 @@ export async function buildSecurityOverview(
   periodTitle = "all time",
   techGroupId?: string | null,
 ): Promise<SecurityOverview | null> {
-  const [rollup, gov] = await Promise.all([
+  const [rollup, gov, d9Gaps] = await Promise.all([
     getOrgRollup(orgSlug, window, null, techGroupId),
     getOrgGovernance(orgSlug, null, techGroupId),
+    // Per-repo D9 findings — the specific "what's wrong" list the register surfaces on each row.
+    getOrgDimensionGaps(orgSlug, "D9", null, techGroupId),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 
@@ -91,6 +130,7 @@ export async function buildSecurityOverview(
   const register: SecurityRegisterRow[] = repos
     .map((r) => {
       const g = govByRepo.get(r.fullName);
+      const detail = d9Gaps?.get(r.fullName);
       return {
         name: r.name,
         fullName: r.fullName,
@@ -98,6 +138,9 @@ export async function buildSecurityOverview(
         gateReason:
           r.score < minSecurity ? `Security ${r.score} < ${minSecurity}` : r.posture === "ungoverned" ? "ungoverned posture" : null,
         rules: g ? { protected: g.protected, review: g.requiredApprovals >= 1, checks: g.requiresStatusChecks, signed: g.requiresSignatures } : null,
+        checks: parseSecurityChecks(detail?.evidence ?? []),
+        issues: detail?.gaps ?? [],
+        summary: detail?.summary ?? "",
       };
     })
     // Stable sort over the score-ascending input: failing repos first, each group weakest-first.
@@ -182,7 +225,17 @@ export function securityMarkdown(o: SecurityOverview, supply?: OrgSupplyChain | 
   out.push(`- Policy: Security (D9) >= ${o.securityGate.minSecurity}, no "ungoverned" posture`);
   out.push(`- ${o.securityGate.failing} of ${o.scanned} repos FAIL the gate`);
   for (const r of o.securityGate.failingRepos) out.push(`  - ${r.name}: ${r.reason}`);
-  if (supply && supply.scanned > 0) {
+  if (supply?.degraded) {
+    // getOrgSupplyChain sets `degraded` (with scanned: 0) when the advisory fetch FAILED, precisely so a
+    // caller cannot mistake it for "no advisories". Omitting the section silently would hand the model a
+    // brief that reads as a clean supply chain and invite it to recommend nothing — the most dangerous
+    // false signal a security brief can carry. State the gap instead.
+    out.push("");
+    out.push("## Supply chain — UNKNOWN");
+    out.push(
+      "- Advisory data could NOT be fetched for this org (GitHub advisory access failed). Absence of advisories below is **not** evidence of a clean supply chain. Do not treat this section as a pass.",
+    );
+  } else if (supply && supply.scanned > 0) {
     out.push("");
     out.push(`## Supply chain (Dependabot${supply.demo ? " — demo data" : ""})`);
     out.push(`- Open advisories: ${supply.totals.critical} critical · ${supply.totals.high} high · ${supply.totals.medium} medium · ${supply.totals.low} low`);

@@ -27,6 +27,7 @@ vi.mock("@/lib/db", () => ({
   grantCredits: vi.fn(),
   isDbConfigured: () => true,
   persistScanReport: vi.fn(async () => null),
+  persistTeamStandings: vi.fn(async () => false),
   recordScanOutcome: vi.fn(async () => {}),
   setRepoSchedule: vi.fn(async () => {}),
   setRepoWatch: vi.fn(async () => {}),
@@ -43,14 +44,14 @@ vi.mock("@/lib/github/list", () => ({
   isValidRepoName: (s: string) => /^[A-Za-z0-9._-]+$/.test(s) && !s.startsWith(".") && !s.includes(".."),
 }));
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: vi.fn(() => true) }));
-vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, getViewer: vi.fn(async () => null) }));
+vi.mock("@/lib/access", () => ({ authGateEnabled: vi.fn(() => false), getViewer: vi.fn(async () => null) }));
 vi.mock("@/lib/authz", () => ({
   // Default: the caller IS authorized for the org (gate passes) so these suites can focus on token
   // discipline + the credit cap. The gate's own deny logic is unit-tested in authz.test.ts; the
   // cross-tenant-block regression test below overrides this to return a denial Response.
   requireOrgAccess: vi.fn(async () => null),
-  sessionHasInstallation: vi.fn(async () => false),
-  sessionOwnsOrg: vi.fn(async () => false),
+  // Default: the caller may NOT mint this org's installation token. authz.test.ts pins the gate itself.
+  canMintInstallationToken: vi.fn(async () => false),
 }));
 vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: true, balance: 0 })),
@@ -65,14 +66,21 @@ vi.mock("@/lib/rate-limit", () => ({
 import { POST } from "./route";
 import { scanRepository } from "@/lib/scan";
 import { isAuthConfigured } from "@/lib/auth";
-import { requireOrgAccess, sessionOwnsOrg } from "@/lib/authz";
+import { authGateEnabled } from "@/lib/access";
+import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
+import { getInstallationToken } from "@/lib/github/app";
 import { consumeScanCredit, getInstallationIdForOwner, grantCredits } from "@/lib/db";
 import { checkScanEntitlement } from "@/lib/entitlement";
+// Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
+// here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
+import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 
 const mockScan = vi.mocked(scanRepository);
 const mockAuthOn = vi.mocked(isAuthConfigured);
+const mockGateEnabled = vi.mocked(authGateEnabled);
 const mockGate = vi.mocked(requireOrgAccess);
-const mockOwnsOrg = vi.mocked(sessionOwnsOrg);
+const mockCanMint = vi.mocked(canMintInstallationToken);
+const mockMintToken = vi.mocked(getInstallationToken);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockConsume = vi.mocked(consumeScanCredit);
 const mockGrant = vi.mocked(grantCredits);
@@ -105,7 +113,9 @@ beforeEach(() => {
   process.env.GITHUB_TOKEN = "operator-pat-with-repo-scope";
   mockScan.mockResolvedValue(report);
   mockAuthOn.mockReturnValue(true);
-  mockOwnsOrg.mockResolvedValue(false);
+  mockGateEnabled.mockReturnValue(false);
+  mockCanMint.mockResolvedValue(false);
+  mockMintToken.mockResolvedValue("app-installation-token");
   mockInstallId.mockResolvedValue(null);
 });
 afterEach(() => {
@@ -122,8 +132,8 @@ describe("POST /api/org/import — ambient-token discipline", () => {
     expect(opts.noAmbientToken).toBe(true);
   });
 
-  it("scans with the minted installation token when the session owns the org", async () => {
-    mockOwnsOrg.mockResolvedValue(true);
+  it("scans with the minted installation token when the caller may mint for the org", async () => {
+    mockCanMint.mockResolvedValue(true);
     mockInstallId.mockResolvedValue("inst-1");
     await runImport({ org: "acme", repos: ["acme/app"], mock: true, watch: false });
     const opts = mockScan.mock.calls[0][1]!;
@@ -131,8 +141,37 @@ describe("POST /api/org/import — ambient-token discipline", () => {
     expect(opts.noAmbientToken).toBeUndefined();
   });
 
+  it("PROD SHAPE: Supabase wall on, legacy OAuth off — an unauthorized caller never gets the operator PAT", async () => {
+    // The regression. The escape hatch used to be `!isAuthConfigured()`, the DORMANT predicate, which
+    // is TRUE in production — so every scan received the ambient operator PAT and an authorized-for-
+    // "public" caller could exfiltrate a named private repo (the confused deputy the route documents).
+    mockGateEnabled.mockReturnValue(true);
+    mockAuthOn.mockReturnValue(false); // the production configuration
+    mockCanMint.mockResolvedValue(false);
+    await runImport({ org: "public", repos: ["victim/secret"], mock: true, watch: false });
+    const opts = mockScan.mock.calls[0][1]!;
+    expect(opts.token).toBeUndefined();
+    expect(opts.noAmbientToken).toBe(true);
+  });
+
+  it("ignores a caller-supplied installationId that is not this org's (cross-tenant mint)", async () => {
+    mockCanMint.mockResolvedValue(true);
+    mockInstallId.mockResolvedValue("inst-1"); // the org's OWN stored installation
+    await runImport({
+      org: "acme",
+      repos: ["acme/app"],
+      mock: true,
+      watch: false,
+      installationId: "victim-install-99",
+    });
+    // Minted for the org's own installation — the supplied victim id is never honored.
+    expect(mockMintToken).toHaveBeenCalledWith("inst-1");
+    expect(mockMintToken).not.toHaveBeenCalledWith("victim-install-99");
+  });
+
   it("keeps the env token on an auth-off (local/demo) deployment — the documented seeding path", async () => {
     mockAuthOn.mockReturnValue(false);
+    mockGateEnabled.mockReturnValue(false); // no auth stack live at all
     await runImport({ org: "public", repos: ["some/repo"], mock: true, watch: false });
     const opts = mockScan.mock.calls[0][1]!;
     expect(opts.token).toBe("operator-pat-with-repo-scope");
@@ -266,5 +305,47 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(mockConsume).not.toHaveBeenCalled();
     expect(mockEntitlement).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-repo in-flight claim (org-import-scan-watchlist #1): a metered import that overlaps another
+// in-flight run (a second import tab, another member, or an overlapping /api/org/scan) must NOT re-scan
+// and re-charge a repo the other run already owns. The route claims each repo before reserving/scanning.
+describe("POST /api/org/import — per-repo in-flight claim (no double-scan/charge)", () => {
+  beforeEach(() => {
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
+    mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: true });
+    mockScan.mockResolvedValue(realReport);
+    mockGrant.mockResolvedValue(0);
+  });
+
+  it("skips a repo a concurrent run already claimed — no scan, no credit — then imports once released", async () => {
+    // Stand in for the concurrent run holding the claim for (acme, acme/dup).
+    const held = claimRepoScan("acme", "acme/dup");
+    expect(held).not.toBeNull();
+
+    const first = await collectImport({ org: "acme", repos: ["acme/dup"], mock: false, watch: false });
+    // Money invariant: no real inference and no credit reserved for the contended repo.
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockGrant).not.toHaveBeenCalled();
+    expect(first.find((e) => e.event === "repo")?.data).toMatchObject({ repo: "acme/dup", skipped: "in_progress" });
+
+    // The other run completes and frees the repo; the import now scans + bills exactly once.
+    releaseRepoScan("acme", "acme/dup", held!);
+    const second = await collectImport({ org: "acme", repos: ["acme/dup"], mock: false, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    expect(second.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
+  });
+
+  it("releases the claim after a normal import, so a repo isn't locked out of the next run", async () => {
+    await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    // If the route leaked the claim, this second import would skip as in_progress. It must scan again.
+    const events = await collectImport({ org: "acme", repos: ["acme/again"], mock: false, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    expect(events.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
   });
 });

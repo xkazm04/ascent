@@ -48,6 +48,16 @@ const url = `${base}/api/gate/${repo}${qs.toString() ? `?${qs}` : ""}`;
 try {
   const res = await fetch(url);
   const body = await res.json().catch(() => ({}));
+  // A DEGRADED verdict (503): the endpoint asked for the real AI grade, the provider was unavailable, and
+  // the scan fell back to the deterministic floor. Report it as an ERROR (exit 2, "the gate could not
+  // run"), never as a failure (exit 1, "the repo is below the bar") — they mean opposite things to a human
+  // triaging a red check. Before the gate surfaced this, a fabricated floor score could pass CI silently.
+  if (body.degraded) {
+    console.error(`✖ Gate could not produce an authoritative grade for ${repo} — ${body.error ?? "the AI grade was unavailable"}`);
+    console.error(`  engine: ${body.engine?.provider ?? "?"} (expected a real provider); retry, or pass --mock for the deterministic rubric.`);
+    for (const w of body.warnings ?? []) console.error(`  - ${w}`);
+    process.exit(2);
+  }
   if (res.status >= 500) {
     console.error(`✖ Gate error (${res.status}): ${body.error ?? "unknown"}`);
     process.exit(2);

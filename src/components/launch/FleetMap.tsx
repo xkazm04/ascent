@@ -6,31 +6,12 @@ import { readSSE } from "@/lib/sse";
 import { scoreHex } from "@/lib/ui";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet, Stat } from "./FleetMapChrome";
+import { type Installation } from "./FleetMap.constants";
+import { TriageControls } from "./FleetMap.TriageControls";
+import { useFleetData } from "./useFleetData";
 import { applyScanEvent } from "./applyScanEvent";
 import { type SortKey, fleetStats, makeMatcher, orderConstellations } from "./fleetMapDerive";
-import { type Constellation, FALLER, mapRepos, RISER } from "./fleetMapStars";
-import { mergeStars } from "./mergeStars";
-
-// After a manual scan finishes, its fresh scores need a moment to land in /api/app/repos. Skip the
-// ~90s live refresh for that org until this window elapses, so the poll can't pull a still-stale
-// payload and dim a just-brightened star back down (MAP-6 race). Longer than the refresh interval so
-// at least one poll is deferred past a scan's completion.
-const SCAN_SETTLE_MS = 120_000;
-
-const LEVEL_BANDS = ["L1", "L2", "L3", "L4", "L5", "unscanned"] as const;
-const SORTS: { key: SortKey; label: string }[] = [
-  { key: "name", label: "name" },
-  { key: "maturity", label: "maturity" },
-  { key: "repos", label: "repos" },
-  { key: "movement", label: "movement" },
-];
-
-// Kept structurally identical to the session's UserInstallation, but declared locally so
-// this client component never imports the server-only auth module.
-interface Installation {
-  id: number;
-  login: string;
-}
+import { type Constellation, FALLER, RISER } from "./fleetMapStars";
 
 export function FleetMap({
   installations,
@@ -108,6 +89,7 @@ export function FleetMap({
         setConstellations((cur) => applyScanEvent(cur, login, msg));
       });
       // Mark this org just-scanned so the live refresh defers it past the propagation window.
+      // eslint-disable-next-line react-hooks/purity -- Date.now() runs in an async scan handler (post-await), not during render
       recentScan.current.set(login, Date.now());
     } catch (e) {
       // An aborted scan (Cancel / unmount / navigation) is expected — stay silent. Any other failure
@@ -121,93 +103,18 @@ export function FleetMap({
     }
   }
 
-  useEffect(() => {
-    const controller = new AbortController();
-    for (const inst of installations) {
-      const qs = new URLSearchParams({ org: inst.login, installation_id: String(inst.id) });
-      fetch(`/api/app/repos?${qs.toString()}`, { signal: controller.signal })
-        .then(async (r) => {
-          const data = (await r.json().catch(() => null)) as { repos?: unknown; error?: string } | null;
-          setConstellations((cur) =>
-            cur.map((c) =>
-              c.id !== inst.id
-                ? c
-                : r.ok
-                  ? { id: inst.id, login: inst.login, status: "done", repos: mapRepos(data?.repos) }
-                  : { id: inst.id, login: inst.login, status: "error", message: data?.error ?? `Failed (${r.status})` },
-            ),
-          );
-        })
-        .catch(() => {
-          if (controller.signal.aborted) return;
-          setConstellations((cur) =>
-            cur.map((c) =>
-              c.id === inst.id ? { id: inst.id, login: inst.login, status: "error", message: "Network error" } : c,
-            ),
-          );
-        });
-    }
-    return () => controller.abort();
-  }, [installations]);
-
-  // MAP-6: keep the constellation live — re-pull each org every ~90s while the tab is VISIBLE, patching
-  // changed stars in place (unchanged stars keep their identity via mergeStars, so they don't re-animate).
-  // Skips a hidden tab and never fights an in-flight manual scan (the SSE stream owns the stars then).
-  useEffect(() => {
-    if (installations.length === 0) return;
-    let cancelled = false;
-    async function refreshAll() {
-      if (document.visibilityState !== "visible" || scanCtrl.current) return;
-      // Snapshot the scan generation BEFORE the network round-trip. The guard above only catches a scan
-      // already in flight; a scan that starts (and the fetch resolves) after this point would otherwise
-      // commit pre-scan rows (often overall:null) over the live scores the SSE stream just painted.
-      const genAtStart = scanGen.current;
-      await Promise.all(
-        installations.map(async (inst) => {
-          try {
-            // Defer a just-scanned org until its fresh scores have propagated, so the poll can't pull
-            // a stale payload and dim a star back down (MAP-6 race). Clear the marker once elapsed.
-            const scannedAt = recentScan.current.get(inst.login);
-            if (scannedAt != null) {
-              if (Date.now() - scannedAt < SCAN_SETTLE_MS) return;
-              recentScan.current.delete(inst.login);
-            }
-            const qs = new URLSearchParams({ org: inst.login, installation_id: String(inst.id) });
-            const r = await fetch(`/api/app/repos?${qs.toString()}`);
-            if (!r.ok || cancelled) return;
-            const data = (await r.json().catch(() => null)) as { repos?: unknown } | null;
-            const fresh = mapRepos(data?.repos);
-            // Re-check the live-scan guard at COMMIT time, not just at fetch start: a manual scan that
-            // began during this round-trip now owns the stars, so don't clobber its fresh scores.
-            if (cancelled || scanCtrl.current || scanGen.current !== genAtStart) return;
-            setConstellations((cur) =>
-              cur.map((c) => (c.id === inst.id && c.status === "done" ? { ...c, repos: mergeStars(c.repos, fresh) } : c)),
-            );
-          } catch {
-            /* leave the stars as-is on a transient blip */
-          }
-        }),
-      );
-    }
-    const id = setInterval(refreshAll, 90_000);
-    // Re-pull immediately when the tab regains focus so a user returning to a backgrounded Mission
-    // Control doesn't stare at scores up to ~90s stale before the next tick (the interval no-ops while
-    // hidden). refreshAll's own visibility/scan guards keep this safe.
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refreshAll();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [installations]);
+  // Initial per-org fetch + the MAP-6 ~90s visible-tab live refresh (see useFleetData).
+  useFleetData(installations, setConstellations, scanCtrl, scanGen, recentScan);
 
   // Fleet-wide tallies that visibly climb as each org's data streams in.
   const stats = useMemo(() => fleetStats(constellations), [constellations]);
 
-  const hydrating = stats.loaded < stats.orgs;
+  // Hydration is done when every org has SETTLED — reached a terminal state (done OR error), not merely
+  // succeeded. Keying this off `stats.loaded` (done only) stuck the header on "charting…" forever whenever
+  // any org errored, since an errored org never becomes `done` (launch-fleet-map #1). An errored org still
+  // surfaces AS errored per-card (ConstellationField shows "unreachable" + its message) and in the header
+  // pill below ("· N unreachable"), so the fleet completes honestly instead of lying about progress.
+  const hydrating = stats.settled < stats.orgs;
 
   // A star matches when it passes every active filter. When no filter is active the matcher is
   // undefined, so ConstellationField renders at full brightness (no dimming).
@@ -231,7 +138,10 @@ export function FleetMap({
   }
 
   return (
-    <main className="launch-sky relative flex-1">
+    // id="main": the global skip-to-content link in app/layout.tsx targets #main. Without it the
+    // keyboard bypass silently no-ops on this page — the link focuses nothing and the user tabs through
+    // the whole header anyway.
+    <main id="main" className="launch-sky relative flex-1">
       {/* spotlight wash so the constellations feel lit from the center */}
       <div
         aria-hidden
@@ -267,75 +177,36 @@ export function FleetMap({
               role="status"
               aria-live="polite"
             >
-              {hydrating ? `charting ${stats.loaded}/${stats.orgs}…` : "fleet charted"}
+              {/* Progress counts SETTLED orgs so the fraction climbs monotonically to N/N (an errored org
+                  is progress, not a stall). On completion, surface any that never loaded as "· N unreachable"
+                  rather than pretending the whole fleet charted cleanly. aria-live stays polite. */}
+              {hydrating
+                ? `charting ${stats.settled}/${stats.orgs}…`
+                : stats.errored > 0
+                  ? `fleet charted · ${stats.errored} unreachable`
+                  : "fleet charted"}
             </span>
           </div>
         </header>
 
         {/* Triage controls — usable once more than one org is charted, where the grid gets busy. */}
         {constellations.length > 1 && (
-          <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find a repo…"
-              aria-label="Filter repositories by name"
-              className="w-40 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-sm text-slate-200 placeholder:text-slate-600"
-            />
-            <div className="flex items-center gap-1">
-              {LEVEL_BANDS.map((b) => {
-                const on = levels.has(b);
-                return (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => toggleLevel(b)}
-                    aria-pressed={on}
-                    // The "unscanned" band renders as a bare "—"; without an explicit name a screen
-                    // reader announces only the punctuation. Give it a real accessible name (the glyph
-                    // stays decorative); L1–L5 already read fine but labelling them is harmless.
-                    aria-label={b === "unscanned" ? "unscanned" : b}
-                    className={`rounded-md border px-2 py-0.5 font-mono text-sm transition ${
-                      on ? "border-accent bg-accent/15 text-white" : "border-slate-700 text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    {b === "unscanned" ? "—" : b}
-                  </button>
-                );
-              })}
-            </div>
-            <label className="flex items-center gap-1.5 font-mono text-sm text-slate-400">
-              <input type="checkbox" checked={watchedOnly} onChange={(e) => setWatchedOnly(e.target.checked)} className="accent-accent" />
-              watched only
-            </label>
-            <label className="ml-auto flex items-center gap-1.5 font-mono text-sm text-slate-500">
-              sort
-              <select
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-sm text-slate-200"
-              >
-                {SORTS.map((s) => (
-                  <option key={s.key} value={s.key}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {filterActive && (
-              <button
-                type="button"
-                onClick={() => {
-                  setQuery("");
-                  setLevels(new Set());
-                  setWatchedOnly(false);
-                }}
-                className="font-mono text-sm text-slate-500 hover:text-white"
-              >
-                clear
-              </button>
-            )}
-          </div>
+          <TriageControls
+            query={query}
+            setQuery={setQuery}
+            levels={levels}
+            toggleLevel={toggleLevel}
+            watchedOnly={watchedOnly}
+            setWatchedOnly={setWatchedOnly}
+            sortKey={sortKey}
+            setSortKey={setSortKey}
+            filterActive={filterActive}
+            onClear={() => {
+              setQuery("");
+              setLevels(new Set());
+              setWatchedOnly(false);
+            }}
+          />
         )}
 
         {constellations.length === 0 ? (

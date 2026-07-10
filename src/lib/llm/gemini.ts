@@ -16,14 +16,25 @@ export const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
 export class GeminiProvider implements LLMProvider {
   readonly name = "gemini" as const;
   readonly model: string;
-  private client: GoogleGenAI;
+  private readonly apiKey: string;
+  // Constructed lazily on first assess() (not in the constructor) so construction is side-effect-free
+  // and a keyless GeminiProvider can be CONSTRUCTED for an explicit LLM_PROVIDER=gemini selection, then
+  // fail loudly at assess() — mirroring OpenAiProvider — instead of the picker pre-collapsing to mock.
+  private client?: GoogleGenAI;
 
   constructor(apiKey: string, model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL) {
-    this.client = new GoogleGenAI({ apiKey });
+    this.apiKey = apiKey;
     this.model = model;
   }
 
   async assess(input: LlmScoreInput, opts: AssessOptions = {}): Promise<LlmAssessment> {
+    // Fail LOUD on a missing/typo'd key rather than degrade silently. For an EXPLICIT gemini selection
+    // (LLM_PROVIDER=gemini) index.ts constructs this provider unconditionally, so a keyless client must
+    // throw here — scan.ts then logs the failure and degrades through the ACCOUNTED retry → failover →
+    // mock chain (honest "Model unavailable"), not a MockProvider masquerading as gemini. Matches
+    // OpenAiProvider's "OPENAI_API_KEY is not set" guard.
+    if (!this.apiKey) throw new Error("GEMINI_API_KEY is not set.");
+    const client = (this.client ??= new GoogleGenAI({ apiKey: this.apiKey }));
     const { system, user } = buildAssessmentPrompt(input);
     // Drive the timeout through an AbortController so a hung model request is actually CANCELLED
     // (frees the socket, stops token billing) — not merely abandoned by a promise race that left the
@@ -37,7 +48,7 @@ export class GeminiProvider implements LLMProvider {
     );
     let response;
     try {
-      response = await this.client.models.generateContent({
+      response = await client.models.generateContent({
         model: this.model,
         contents: user,
         config: {

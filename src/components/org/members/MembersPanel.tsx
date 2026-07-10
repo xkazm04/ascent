@@ -53,7 +53,10 @@ export function MembersPanel({
   }
 
   async function changeRole(login: string, role: OrgRole) {
-    const prev = members;
+    // Capture ONLY this row's prior role, not a whole-array snapshot: rows mutate concurrently (each is
+    // gated by `busy === m.login`, not a global lock), so replaying a stale `members` snapshot on
+    // failure would resurrect a member another in-flight op already removed / re-role a row it changed.
+    const prevRole = members.find((m) => m.login === login)?.role;
     setBusy(login);
     setError(null);
     setMembers((ms) => ms.map((m) => (m.login === login ? { ...m, role } : m)));
@@ -68,7 +71,8 @@ export function MembersPanel({
         throw new Error(d.error ?? "Failed to update role.");
       }
     } catch (e) {
-      setMembers(prev); // roll back the optimistic change
+      // Revert just this row's role via a functional update — never a stale snapshot (finding #4).
+      if (prevRole) setMembers((ms) => ms.map((m) => (m.login === login ? { ...m, role: prevRole } : m)));
       setError(e instanceof Error ? e.message : "Failed to update role.");
     } finally {
       setBusy(null);
@@ -80,7 +84,10 @@ export function MembersPanel({
     // this runs only on an explicit confirm — matching the app's bespoke UX instead of a native
     // window.confirm dialog that can't be themed or announced.
     setConfirmRemove(null);
-    const prev = members;
+    // Remember the removed row + its position so a failed DELETE re-inserts exactly that one row via a
+    // functional update, rather than restoring a stale array that could clobber a concurrent edit (#4).
+    const idx = members.findIndex((m) => m.login === login);
+    const removed = idx >= 0 ? members[idx] : null;
     setBusy(login);
     setError(null);
     setMembers((ms) => ms.filter((m) => m.login !== login));
@@ -94,7 +101,14 @@ export function MembersPanel({
         throw new Error(d.error ?? "Failed to remove member.");
       }
     } catch (e) {
-      setMembers(prev);
+      if (removed) {
+        setMembers((ms) => {
+          if (ms.some((m) => m.login === login)) return ms; // already present — don't duplicate
+          const next = [...ms];
+          next.splice(Math.min(idx, next.length), 0, removed);
+          return next;
+        });
+      }
       setError(e instanceof Error ? e.message : "Failed to remove member.");
     } finally {
       setBusy(null);

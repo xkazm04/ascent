@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ScanReport } from "@/lib/types";
 import { freshness } from "@/lib/ui";
+import { ConfirmAction, retestConfirm } from "@/components/ConfirmAction";
 import { pillClass } from "./pill";
 
 /**
@@ -30,6 +31,11 @@ export function FreshnessControl({
     return () => clearInterval(id);
   }, []);
 
+  // The in-page "Re-test" spends a weekly scan slot on one click — gate it behind a confirm that names
+  // the repo. (Only the `onRetest` button path is metered here; the permalink `<a>` navigates to the
+  // scanner, which owns its own flow.)
+  const [confirming, setConfirming] = useState(false);
+
   // Build the re-test target from the canonical `owner/name[@headSha]` ref (matching the PDF/skill
   // links in ReportHeader) rather than the full repo.url. The full-URL form relied on `?repo=`
   // URL-normalization AND silently dropped the pinned commit, so "Re-test" on a pinned permalink
@@ -51,6 +57,7 @@ export function FreshnessControl({
   );
 
   return (
+    <>
     <div className="flex items-center gap-2 font-mono text-sm text-slate-500">
       <span className="inline-flex items-center gap-1.5">
         <svg aria-hidden viewBox="0 0 16 16" className="h-3 w-3 shrink-0" fill="none">
@@ -67,7 +74,7 @@ export function FreshnessControl({
       {onRetest ? (
         <button
           type="button"
-          onClick={onRetest}
+          onClick={() => setConfirming(true)}
           disabled={rescanning}
           aria-disabled={rescanning || undefined}
           className={`${retestClass} disabled:cursor-not-allowed disabled:opacity-50`}
@@ -82,5 +89,18 @@ export function FreshnessControl({
         </a>
       )}
     </div>
+
+    {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
+    <ConfirmAction
+      open={confirming}
+      busy={rescanning}
+      onCancel={() => setConfirming(false)}
+      onConfirm={() => {
+        setConfirming(false);
+        onRetest?.();
+      }}
+      {...retestConfirm(`${report.repo.owner}/${report.repo.name}`)}
+    />
+    </>
   );
 }

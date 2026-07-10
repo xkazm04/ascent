@@ -35,7 +35,9 @@ const RETENTION_MAX_BATCH_SIZE = 5000;
 // Soft wall-clock budget for a single purge run (data-retention #2). The /api/cron/purge function caps
 // at maxDuration=300s, so stop cleanly a bit before that: a large fleet then returns a proper (partial)
 // summary that records where it stopped, instead of being hard-killed mid-delete with no throw and no
-// summary log. Override via RETENTION_TIME_BUDGET_MS (ms). Governs the per-org loop and the trailing sweeps.
+// summary log. Override via RETENTION_TIME_BUDGET_MS (ms). Governs the per-org loop, its INNER repo/scan/
+// audit batches (data-retention #1 — a single mega-org must yield too, not only the gaps between orgs),
+// and the trailing sweeps.
 export const RETENTION_DEFAULT_TIME_BUDGET_MS = 250_000;
 /** Repos enumerated per page when pruning an org, so a fleet org's repo list is never read all at once. */
 const REPO_PAGE_SIZE = 500;
@@ -100,8 +102,15 @@ async function deleteInPages(
   selectIds: () => Promise<string[]>,
   deleteByIds: (ids: string[]) => Promise<number>,
   batchSize: number,
+  budgetExceeded?: () => boolean,
 ): Promise<void> {
   for (;;) {
+    // Yield BETWEEN batches when the run's wall-clock budget is spent (data-retention #1). A single
+    // long-watched repo (or a huge org-less audit sweep) can otherwise loop for minutes here with no
+    // budget check, blowing past the route's maxDuration and getting hard-killed mid-delete. We only
+    // stop at a batch boundary — every committed batch was its own transaction, so the partial state is
+    // safe and the next tick's re-selection resumes exactly where this one left off.
+    if (budgetExceeded?.()) break;
     const ids = await selectIds();
     if (ids.length === 0) break;
     const deleted = await deleteByIds(ids);
@@ -115,6 +124,7 @@ async function pruneRepoScans(
   repoId: string,
   max: number,
   batchSize: number,
+  budgetExceeded?: () => boolean,
 ): Promise<{ scans: number; dimensions: number; recommendations: number; events: number }> {
   let scans = 0;
   let dimensions = 0;
@@ -167,6 +177,7 @@ async function pruneRepoScans(
       return counts.sc; // progress count → zero stops the loop (a delete that removed no scan rows)
     },
     batchSize,
+    budgetExceeded, // stop between batches once the run is over budget (data-retention #1)
   );
   return { scans, dimensions, recommendations, events };
 }
@@ -176,6 +187,7 @@ async function pruneAudit(
   prisma: PrismaLike,
   where: Prisma.AuditLogWhereInput,
   batchSize: number,
+  budgetExceeded?: () => boolean,
 ): Promise<number> {
   let total = 0;
   await deleteInPages(
@@ -193,6 +205,7 @@ async function pruneAudit(
       return count;
     },
     batchSize,
+    budgetExceeded, // a large audit sweep must also yield between batches (data-retention #1)
   );
   return total;
 }
@@ -225,30 +238,34 @@ export interface PurgeSummary {
   orgsRemaining: number;
 }
 
-/** Options for {@link purgeExpiredData}. Clock + RNG are injectable so the budget/rotation are testable. */
+/** Options for {@link purgeExpiredData}. The clock is injectable so the budget + the per-tick rotation
+ *  (which is DERIVED from the clock, not from an RNG) are deterministically testable. */
 export interface PurgeOptions {
   actorId?: string;
   /** Wall-clock budget (ms) for the org loop; defaults to RETENTION_TIME_BUDGET_MS env or 250_000. */
   timeBudgetMs?: number;
-  /** Monotonic-ish clock (ms). Defaults to Date.now. */
+  /** Monotonic-ish clock (ms). Defaults to Date.now. Also seeds the per-tick rotation offset. */
   now?: () => number;
-  /** Jitter source in [0, 1). Defaults to Math.random. */
-  random?: () => number;
 }
 
 /**
- * Fisher-Yates in-place shuffle, so each cron tick rotates the org order (data-retention #2). A purge
- * that can't finish within its time budget would otherwise re-process the same head of the list every
- * run and perpetually starve the tail; rotating the start means every org is eventually reached across
- * consecutive daily runs. Stateless — needs no persisted cursor.
+ * Rotate a STABLY-ordered list in place by `offset` positions (data-retention #4). Replaces the old
+ * Fisher-Yates RANDOM shuffle: a stateless random shuffle only gives PROBABILISTIC fairness — a large
+ * org that can't drain within one tick's budget has an independent chance of landing in the unreached
+ * tail EVERY run, so it can be starved for an unbounded number of ticks (bad luck compounds). A
+ * DETERMINISTIC round-robin rotation of the fixed oldest-first order instead advances the starting point
+ * by one org per day (offset = epoch-day index) and wraps, so every org reaches the front within
+ * `length` ticks — a BOUNDED worst-case reach — while staying stateless (no persisted cursor). The input
+ * order is the query's `createdAt asc` (oldest first), so an un-rotated tick already drains the oldest
+ * data first; the rotation only guarantees the tail is eventually reached.
  */
-function shuffleInPlace<T>(arr: T[], random: () => number): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
+export function rotateForTick<T>(arr: T[], offset: number): void {
+  const n = arr.length;
+  if (n <= 1) return;
+  const k = ((Math.trunc(offset) % n) + n) % n; // normalize into [0, n), tolerating negatives
+  if (k === 0) return;
+  const rotated = arr.slice(k).concat(arr.slice(0, k));
+  for (let i = 0; i < n; i++) arr[i] = rotated[i]!;
 }
 
 /**
@@ -263,7 +280,6 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   const prisma = getPrisma();
   const defaults = envRetentionDefaults();
   const now = opts.now ?? Date.now;
-  const random = opts.random ?? Math.random;
   const timeBudgetMs =
     opts.timeBudgetMs ?? (parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS) || RETENTION_DEFAULT_TIME_BUDGET_MS);
   const startedAt = now();
@@ -275,15 +291,18 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     orderBy: { createdAt: "asc" },
   });
 
-  // Tail-org starvation guard (data-retention #2): the run is strictly sequential under the route's
-  // 300s maxDuration, and with a STABLE org order a large fleet that can't drain in one tick dies at
-  // the same prefix every run — so late-ordered orgs are NEVER reached and their retention is never
-  // enforced (the exact failure this module exists to prevent), worst for the biggest fleets. Two
-  // cheap, schema-free defenses, combined: (1) rotate the order each tick (shuffle) so no org is
-  // deterministically last, and (2) stop cleanly once a wall-clock budget is exhausted — before the
+  // Tail-org starvation guard (data-retention #2 + #4): the run is strictly sequential under the route's
+  // 300s maxDuration, and with a STABLE org order a large fleet that can't drain in one tick dies at the
+  // same prefix every run — so late-ordered orgs are NEVER reached and their retention is never enforced
+  // (the exact failure this module exists to prevent), worst for the biggest fleets. Two cheap,
+  // schema-free defenses, combined: (1) rotate the order each tick with a DETERMINISTIC round-robin
+  // (offset = epoch-day index) so every org reaches the front within `orgs.length` ticks — a BOUNDED
+  // reach, unlike the old random shuffle whose fairness was only probabilistic (a large org could be
+  // unlucky run after run), and (2) stop cleanly once a wall-clock budget is exhausted — before the
   // platform kills the function mid-delete — surfacing the unreached count so the route's non-2xx
-  // alerting (finding #1) trips. Over a few ticks every org is reached instead of never.
-  shuffleInPlace(orgs, random);
+  // alerting (finding #1) trips. The offset is seeded from `startedAt` (already read from the injectable
+  // clock) so it consumes no extra now() tick.
+  rotateForTick(orgs, Math.floor(startedAt / DAY_MS));
 
   const results: OrgPurgeResult[] = [];
   const errors: string[] = [];
@@ -310,12 +329,26 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     // Nothing to enforce for this org — skip (don't write a no-op audit entry).
     if (policy.maxScansPerRepo <= 0 && policy.auditDays <= 0) continue;
 
+    // Declare the counters OUTSIDE the try (data-retention #3). Each delete batch is its own committed
+    // transaction, so if a LATER batch/sweep throws, earlier batches are already durable — the counters
+    // hold real deletions. The old code declared these inside try and only results.push()'d at the very
+    // end, so ANY throw mid-prune discarded the org's already-committed counts: the run summary (and the
+    // rolled-up totals the compliance view reads) then UNDER-reported what was actually deleted. Hoisting
+    // them lets the catch below record the PARTIAL result instead of dropping it.
+    let scansDeleted = 0;
+    let dimensionsDeleted = 0;
+    let recommendationsDeleted = 0;
+    let recommendationEventsDeleted = 0;
+    let auditDeleted = 0;
+
     try {
-      let scansDeleted = 0;
-      let dimensionsDeleted = 0;
-      let recommendationsDeleted = 0;
-      let recommendationEventsDeleted = 0;
-      let auditDeleted = 0;
+      // Set once the wall-clock budget trips WHILE this org is being pruned (data-retention #1). The
+      // budget used to be polled only between orgs, so the one fleet org it exists to protect — thousands
+      // of repos, huge scan histories — ran its entire delete loop past maxDuration and was hard-killed
+      // mid-delete with no summary and no alert. We now poll inside the repo loop (and inside
+      // pruneRepoScans/pruneAudit) and, on a trip, stop at the next repo/batch boundary. Committed batches
+      // are durable, so this org's partial deletes are safe/resumable on the next (re-shuffled) tick.
+      let budgetStopped = false;
 
       if (policy.maxScansPerRepo > 0) {
         // Page the repo enumeration with a stable id cursor (data-retention #5): the prior single
@@ -325,7 +358,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         // last id; stop on a short page. Keep per-repo pruning serial so DSQL conflict pressure stays
         // bounded (each prune is itself batched + retry-on-conflict).
         let repoCursor: string | undefined;
-        for (;;) {
+        repoPages: for (;;) {
           const repos = await prisma.repository.findMany({
             where: { orgId: org.id },
             orderBy: { id: "asc" },
@@ -335,7 +368,14 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
           });
           if (repos.length === 0) break;
           for (const repo of repos) {
-            const r = await pruneRepoScans(prisma, repo.id, policy.maxScansPerRepo, policy.batchSize);
+            // Poll the budget BETWEEN repos (data-retention #1): stop before starting another repo's
+            // prune once the budget is spent, so a mega-org yields control instead of being hard-killed.
+            // The scans already deleted this tick stand; the unreached repos resume next tick.
+            if (overBudget()) {
+              budgetStopped = true;
+              break repoPages;
+            }
+            const r = await pruneRepoScans(prisma, repo.id, policy.maxScansPerRepo, policy.batchSize, overBudget);
             scansDeleted += r.scans;
             dimensionsDeleted += r.dimensions;
             recommendationsDeleted += r.recommendations;
@@ -346,9 +386,12 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         }
       }
 
-      if (policy.auditDays > 0) {
-        const cutoff = new Date(Date.now() - policy.auditDays * DAY_MS);
-        auditDeleted = await pruneAudit(prisma, { orgId: org.id, at: { lt: cutoff } }, policy.batchSize);
+      // Skip this org's audit sweep if the scan prune already exhausted the budget; run it otherwise,
+      // and treat a budget-interrupted (partial) sweep as a mid-org stop too (data-retention #1).
+      if (!budgetStopped && policy.auditDays > 0) {
+        const cutoff = new Date(now() - policy.auditDays * DAY_MS);
+        auditDeleted = await pruneAudit(prisma, { orgId: org.id, at: { lt: cutoff } }, policy.batchSize, overBudget);
+        if (overBudget()) budgetStopped = true;
       }
 
       // The purge job records its own audit entry (compliance trace of what was removed).
@@ -390,7 +433,40 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         recommendationEventsDeleted,
         auditDeleted,
       });
+
+      if (budgetStopped) {
+        // The budget was exhausted inside this org (data-retention #1). Surface it the SAME way the
+        // between-orgs stop does — set stoppedEarly, count the resume tail (this org included, since it
+        // may still hold stale rows), and push a `(budget):` error so the route's 207 gate trips and cron
+        // alerting pages an operator — instead of the platform hard-killing the run with no summary.
+        stoppedEarly = true;
+        orgsRemaining = orgs.length - i;
+        errors.push(
+          `(budget): retention stopped mid-org (${org.slug}) after ${Math.round((now() - startedAt) / 1000)}s with ${orgsRemaining} org(s) unprocessed this tick`,
+        );
+        break;
+      }
     } catch (err) {
+      // A prune/sweep threw AFTER some batches already committed (data-retention #3). Each batch is its
+      // own durable transaction, so record the PARTIAL counts — gated on a non-zero total, mirroring the
+      // success path's `totalDeleted > 0` audit gate — so the summary + its rolled-up totals reflect what
+      // was actually deleted this tick instead of discarding it. A throw BEFORE any delete (e.g. during
+      // selection) stays out of `results` (no all-zero noise row). The try's own results.push runs only
+      // on the success path, so this never double-counts. The self-audit trace is skipped on a throw; the
+      // error string is what pages an operator.
+      const partialDeleted =
+        scansDeleted + dimensionsDeleted + recommendationsDeleted + recommendationEventsDeleted + auditDeleted;
+      if (partialDeleted > 0) {
+        results.push({
+          orgSlug: org.slug,
+          policy,
+          scansDeleted,
+          dimensionsDeleted,
+          recommendationsDeleted,
+          recommendationEventsDeleted,
+          auditDeleted,
+        });
+      }
       errors.push(`${org.slug}: ${err instanceof Error ? err.message : "purge failed"}`);
     }
   }
@@ -402,8 +478,13 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     stoppedEarly = true;
   } else if (defaults.auditDays > 0) {
     try {
-      const cutoff = new Date(Date.now() - defaults.auditDays * DAY_MS);
-      const auditDeleted = await pruneAudit(prisma, { orgId: null, at: { lt: cutoff } }, defaults.batchSize);
+      // Compute the cutoff from the SAME injectable clock as the budget (data-retention #5): now() is
+      // opts.now ?? Date.now, so a test/simulation that advances opts.now moves the window and the budget
+      // together instead of silently diverging them. Thread overBudget in so a large org-less sweep also
+      // yields between batches, and mark stoppedEarly if it stopped short.
+      const cutoff = new Date(now() - defaults.auditDays * DAY_MS);
+      const auditDeleted = await pruneAudit(prisma, { orgId: null, at: { lt: cutoff } }, defaults.batchSize, overBudget);
+      if (overBudget()) stoppedEarly = true;
       if (auditDeleted > 0) {
         const audited = await recordAudit(PURGE_ACTION, { auditDeleted, scope: "orphan" }, { actorId: opts.actorId });
         if (!audited) {

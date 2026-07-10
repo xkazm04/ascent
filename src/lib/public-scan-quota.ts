@@ -102,9 +102,9 @@ function bucketContext(
   }
   // When neither x-real-ip nor x-forwarded-for reaches the app, clientIp returns the literal "unknown"
   // sentinel — a SINGLE shared bucket. That's the right fail-CLOSED choice for the per-minute burst
-  // limiter (bounded blast radius), but in this 7-day persistent quota it would collapse EVERY anonymous
-  // visitor into ONE weekly bucket: after the first few public scans the whole free funnel is locked out
-  // for a week (looks like an outage, not a quota). So flag it unidentifiable; the long-horizon gate then
+  // limiter (bounded blast radius), but in this 30-day persistent quota it would collapse EVERY anonymous
+  // visitor into ONE monthly bucket: after the first few public scans the whole free funnel is locked out
+  // for a month (looks like an outage, not a quota). So flag it unidentifiable; the long-horizon gate then
   // treats it as unenforceable (fail-OPEN, like the DB-unconfigured path) rather than bucketing on the
   // shared sentinel — matching the module's stated fail-open-on-uncertainty intent.
   const ip = clientIp(req);
@@ -126,14 +126,14 @@ export interface QuotaDecision {
   allowed: boolean;
   /** Free scans left in the window AFTER counting this one (0 when denied). */
   remaining: number;
-  /** Epoch-ms when the next slot frees (oldest in-window hit ages past the week); null if unknown. */
+  /** Epoch-ms when the next slot frees (oldest in-window hit ages past the 30-day window); null if unknown. */
   resetAt: number | null;
   /** The trimmed window to persist — includes `now` when allowed, unchanged when denied. */
   hits: number[];
 }
 
 /**
- * Pure rolling-window read, WITHOUT consuming a slot: trim hits older than 7 days, sort ascending,
+ * Pure rolling-window read, WITHOUT consuming a slot: trim hits older than the 30-day window, sort ascending,
  * and derive the non-consuming `{ remaining, resetAt }` plus the trimmed `recent` window. The single
  * source for the window trim + `resetAt` arithmetic that `decideQuota` (consuming) and
  * `peekPublicScanQuota` (read-only) both build on.
@@ -153,13 +153,13 @@ export function windowState(
 
 /**
  * Pure rolling-window decision: given prior hit timestamps, decide whether a new scan at `now` is
- * allowed under `limit`. Trims hits older than 7 days. Exported (and unit-tested) independently of
+ * allowed under `limit`. Trims hits older than the 30-day window. Exported (and unit-tested) independently of
  * the DB so the window math is verifiable without a database.
  */
 export function decideQuota(prior: number[], now: number, limit: number): QuotaDecision {
   const { recent } = windowState(prior, now, limit);
   if (recent.length >= limit) {
-    // Denied: the oldest in-window hit must age past the week before a slot frees.
+    // Denied: the oldest in-window hit must age past the 30-day window before a slot frees.
     return { allowed: false, remaining: 0, resetAt: recent[0]! + WINDOW_MS, hits: recent };
   }
   const hits = [...recent, now];
@@ -196,7 +196,7 @@ function retryAfterSec(resetAt: number | null, now: number): number {
 }
 
 /**
- * Check the weekly quota for the request's client IP and, when allowed, CONSUME one slot (record the
+ * Check the monthly quota for the request's client IP and, when allowed, CONSUME one slot (record the
  * hit). The read-decide-write runs inside ONE interactive transaction (see quotaTxOptions) so two
  * concurrent consumers of the same bucket genuinely conflict — one aborts with a serialization error
  * that withRetry retries against the updated window. (As separate statements each auto-committed,
@@ -211,7 +211,7 @@ export async function consumePublicScanQuota(
   const { signedIn, ipHash, unidentifiable } = bucketContext(req, identity);
   const limit = signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
   // `unidentifiable` (anonymous caller with no usable client IP) can't be bucketed without collapsing
-  // every such visitor into one shared weekly bucket, so the weekly gate is unenforceable here — allow.
+  // every such visitor into one shared monthly bucket, so the monthly gate is unenforceable here — allow.
   if (!isDbConfigured() || publicScanQuotaDisabled() || unidentifiable) {
     return { enforced: false, allowed: true, remaining: limit, retryAfterSec: 0, resetAt: null, signedIn, chargedAt: null };
   }
@@ -278,14 +278,14 @@ export interface QuotaPeek {
 
 /**
  * Read-only quota check — how many free scans are left for this caller, WITHOUT consuming a slot
- * (the read-only sibling of consumePublicScanQuota). Powers a "scans left this week" meter shown
+ * (the read-only sibling of consumePublicScanQuota). Powers a "scans left this month" meter shown
  * BEFORE the user commits to a scan. Fails open (returns the full limit) when persistence is
  * unconfigured / disabled / errors, exactly like consume.
  */
 export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity = {}): Promise<QuotaPeek> {
   const { signedIn, ipHash, scope, unidentifiable } = bucketContext(req, identity);
   const limit = signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
-  // Same carve-out as consume: an anonymous caller with no usable client IP isn't gated weekly (the
+  // Same carve-out as consume: an anonymous caller with no usable client IP isn't gated monthly (the
   // meter reports the full allowance) rather than reading a shared "unknown" bucket's depleted count.
   if (!isDbConfigured() || publicScanQuotaDisabled() || unidentifiable) {
     return { enforced: false, remaining: limit, limit, resetAt: null, scope };
@@ -301,18 +301,6 @@ export async function peekPublicScanQuota(req: Request, identity: QuotaIdentity 
     console.error("[public-scan-quota] peek failed; reporting full allowance", err);
     return { enforced: false, remaining: limit, limit, resetAt: null, scope };
   }
-}
-
-/**
- * Pure: drop the single NEWEST hit from a window — the one `consumePublicScanQuota` just appended.
- * Exported (and unit-tested) independently of the DB, like `decideQuota`. Removes exactly one entry
- * even when timestamps collide (two consumes in the same millisecond).
- */
-export function removeNewestHit(hits: number[]): number[] {
-  if (hits.length === 0) return hits;
-  const newest = Math.max(...hits);
-  const idx = hits.indexOf(newest);
-  return [...hits.slice(0, idx), ...hits.slice(idx + 1)];
 }
 
 /**
@@ -341,7 +329,7 @@ export function removeHit(hits: number[], ts: number): number[] {
  * EXACT slot this request charged. It is REQUIRED for any refund to occur: the value-keyed `removeHit`
  * is the only safe path. The old "drop the newest hit" fallback is gone — two concurrent refunds on a
  * shared/coalesced scan would each peel off a different sibling's still-live slot, removing more slots
- * than were consumed and bypassing the weekly budget (CRITICAL race). A refund called without a
+ * than were consumed and bypassing the monthly budget (CRITICAL race). A refund called without a
  * `chargedAt` (an allowed consume always yields one) is a NO-OP rather than a silent unsafe fallback.
  */
 export async function refundPublicScanQuota(
@@ -386,10 +374,16 @@ export async function refundPublicScanQuota(
 /** A ready-made 429 JSON Response for a tripped monthly quota, with Retry-After + quota headers. */
 export function monthlyQuotaExceeded(result: QuotaResult): Response {
   const scope = result.signedIn ? "user" : "anon";
+  // DERIVE the allowance from the scope that actually tripped — the SAME limit consumePublicScanQuota
+  // charged against (signed-in viewers get the elevated per-user tier). The old copy hardcoded "5",
+  // which lied on any PUBLIC_SCAN_MONTHLY_LIMIT / *_SIGNED_IN override or the elevated signed-in tier —
+  // a user-facing untruth about how many scans they get, on the exact upgrade prompt that must be
+  // trustworthy. Pluralize so a limit of 1 doesn't read "1 free scans".
+  const limit = result.signedIn ? signedInScanMonthlyLimit() : publicScanMonthlyLimit();
   // Beyond the free monthly allowance the next scan needs a paid plan (which bundles more scans) or
   // prepaid scan credits — the same allowance-then-pay shape as a private scan.
   const error =
-    "You've used your 5 free scans this month. Upgrade to Pro for more monthly scans, or add scan credits — or try again once the window resets.";
+    `You've used your ${limit} free scan${limit === 1 ? "" : "s"} this month. Upgrade to Pro for more monthly scans, or add scan credits — or try again once the window resets.`;
   return new Response(
     JSON.stringify({ error, code: "monthly_quota", remaining: 0, resetAt: result.resetAt, scope }),
     {
@@ -406,7 +400,7 @@ export function monthlyQuotaExceeded(result: QuotaResult): Response {
 }
 
 /**
- * Delete PublicScanQuota rows whose entire window has aged out (no hit newer than 7 days) — they can
+ * Delete PublicScanQuota rows whose entire window has aged out (no hit newer than the 30-day window) — they can
  * only re-grant a full allowance, so they carry no state. Called by the retention purge job so the
  * table can't grow unbounded across the IP space. Best-effort; returns the count removed (0 when
  * persistence is disabled). Batched delete via the row's updatedAt (bumped on every write).

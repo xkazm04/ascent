@@ -91,6 +91,27 @@ function report(): ScanReport {
     level: { id: "L3" },
     posture: { id: "governed" },
     archetype: "org",
+    // A genuine AI-graded scan: a real provider, high coverage, no reliability caveats. The route's
+    // degraded guard keys on engine.provider === "mock", so a real provider here keeps every existing
+    // test on the healthy 200/422 path. These fields (engine/confidence/warnings) are now surfaced in
+    // the JSON body so a CI consumer can tell a degraded verdict from a real one (ci-gate #2).
+    engine: { provider: "claude-cli", model: "claude-opus" },
+    confidence: 0.92,
+    warnings: [],
+  } as unknown as ScanReport;
+}
+
+// A scan that fell back to the deterministic MockProvider (LLM unavailable) — engine.provider "mock"
+// plus the "AI analysis was unavailable" caveat. Combined with a ?mock=0 request this is the degraded
+// case the honesty guard must NOT let silently PASS.
+function degradedReport(): ScanReport {
+  return {
+    ...report(),
+    engine: { provider: "mock", model: "deterministic" },
+    confidence: 0.4,
+    warnings: [
+      "AI analysis was unavailable, so scores reflect detected signals only (no qualitative nuance).",
+    ],
   } as unknown as ScanReport;
 }
 
@@ -257,7 +278,9 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect(mockCacheGet).not.toHaveBeenCalled();
     expect(mockCacheSet).not.toHaveBeenCalled();
     expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, ref: "deadbeef" });
+    // noAmbientToken: this endpoint is unauthenticated, so an ingest must never run against the
+    // operator PAT (which would expose private repos' verdicts to anonymous callers).
+    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, ref: "deadbeef", noAmbientToken: true });
   });
 
   // --- the non-ref path keys the cache and only scans on a miss ---------------
@@ -271,6 +294,25 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect(mockScan).not.toHaveBeenCalled(); // cache hit → no scan
   });
 
+  it("SECURITY: no ingest path may ever run against the ambient operator PAT", async () => {
+    // ci-gate-status-checks #1. This endpoint is unauthenticated by design (CI calls it with curl).
+    // scanRepository falls back to process.env.GITHUB_TOKEN unless noAmbientToken is set, so omitting
+    // it let anonymous callers enumerate PRIVATE repos' gate verdicts through the operator's
+    // credentials. Assert the invariant over EVERY scan call, on both the ref and cache-miss paths.
+    mockCacheGet.mockReturnValue(undefined);
+    mockScan.mockResolvedValue(report());
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    await get();
+    await get("?ref=deadbeef");
+
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    for (const [, opts] of mockScan.mock.calls) {
+      expect(opts?.noAmbientToken).toBe(true);
+      expect(opts?.token).toBeUndefined();
+    }
+  });
+
   it("non-ref path scans and populates the cache on a miss", async () => {
     mockCacheGet.mockReturnValue(undefined);
     mockScan.mockResolvedValue(report());
@@ -278,7 +320,7 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
 
     const res = await get();
     expect(res.status).toBe(200);
-    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true });
+    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, noAmbientToken: true });
     expect(mockCacheSet).toHaveBeenCalledTimes(1); // write-through after a miss
   });
 
@@ -295,5 +337,79 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect((params as URLSearchParams).get("min_dimension")).toBe("50");
     expect((params as URLSearchParams).get("no_ungoverned")).toBe("1");
     expect(archetype).toBe("org"); // policy is archetype-aware off the scanned report
+  });
+
+  // --- (6) DEGRADATION HONESTY (ci-gate-status-checks #2) ----------------------
+  // The dangerous failure mode: a caller asks for the real AI grade (?mock=0), the LLM is unavailable,
+  // scanRepository degrades to the deterministic MockProvider, and evaluateGate (which reads only
+  // scores) still returns pass:true. The endpoint must NOT surface that as a confident 200 pass — CI
+  // would merge on a fabricated floor score, indistinguishable from a genuine AI-graded pass.
+  it("DEGRADED: a ?mock=0 scan that fell back to the mock engine must NOT yield a silent 200 pass", async () => {
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockCacheGet.mockReturnValue(undefined); // cache MISS → route scans
+    mockScan.mockResolvedValue(degradedReport()); // LLM unavailable → deterministic mock fallback
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never); // floor "passes"
+
+    const res = await get("?mock=0");
+    const body = await res.json();
+
+    expect(res.status).not.toBe(200); // crucially NOT a green gate — curl --fail must trip
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(503); // "the requested authoritative grade could not be produced"
+    expect(body.degraded).toBe(true); // machine-readable honesty flag a CI consumer can branch on
+    // The signals that were omitted before are now present so a degraded verdict is legible.
+    expect(body.engine.provider).toBe("mock"); // the grader that actually ran (the deterministic floor)
+    expect(body.warnings.length).toBeGreaterThan(0); // the "AI analysis was unavailable" caveat is surfaced
+  });
+
+  it("DEGRADED: even a degraded scan whose gate math FAILS returns 503 (not 422) + degraded:true", async () => {
+    // A degraded verdict is untrustworthy in BOTH directions; fail closed uniformly so the status says
+    // "could not produce the grade" rather than implying the repo genuinely failed the bar.
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockCacheGet.mockReturnValue(undefined);
+    mockScan.mockResolvedValue(degradedReport());
+    mockEvaluateGate.mockReturnValue({
+      pass: false,
+      policy: {},
+      failures: [{ code: "overall", message: "x" }],
+    } as never);
+
+    const res = await get("?mock=0");
+    const body = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(body.degraded).toBe(true);
+    expect(body.pass).toBe(false); // the underlying verdict is still in the body for context
+  });
+
+  // The other half of the contract: the DEFAULT gate path runs the deterministic mock scan BY DESIGN
+  // (documented behavior). engine.provider === "mock" here is EXPECTED, not a fallback — the guard keys
+  // on `!mock`, so a default gate stays a normal 200-pass / 422-fail and the deterministic CI contract
+  // is untouched. This is the regression that a naive "mock engine ⇒ degraded" check would introduce.
+  it("DEFAULT (mock=true) with the mock engine is the documented deterministic rubric — NOT degraded, keeps 200", async () => {
+    mockCacheGet.mockReturnValue(degradedReport()); // engine.provider === "mock", but the request IS mock
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    const res = await get(); // no ?mock → mock=true (the default deterministic path)
+    const body = await res.json();
+
+    expect(res.status).toBe(200); // deterministic default gate is authoritative for what it claims to be
+    expect(body.pass).toBe(true);
+    expect(body.degraded).toBe(false);
+    expect(body.engine.provider).toBe("mock"); // surfaced + honestly labeled, but not flagged degraded
+  });
+
+  it("surfaces engine / confidence / warnings / degraded on a HEALTHY pass (context for every consumer)", async () => {
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    const res = await get(); // healthy report() from beforeEach: real provider, high coverage
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.degraded).toBe(false);
+    expect(body.engine).toEqual({ provider: "claude-cli", model: "claude-opus" });
+    expect(body.confidence).toBe(0.92);
+    expect(Array.isArray(body.warnings)).toBe(true);
+    expect(body.warnings).toEqual([]);
   });
 });

@@ -248,6 +248,29 @@ describe("removeMembership last-owner guard", () => {
   });
 });
 
+// --- Last-owner guard isolation (members-access-control.md #5) ---------------------------------------
+// The last-owner invariant ("owner count never reaches 0") is a read-then-write across two DIFFERENT
+// owner rows, so a bare transaction under stock Postgres READ COMMITTED leaves a TOCTOU open (both
+// concurrent demotions read count=2 from their own snapshot and commit). The guard must run at
+// SERIALIZABLE isolation so the count read participates in the serialization graph and one writer aborts.
+// These pin that the isolation option is actually passed (the fake $transaction ignores it, so a
+// regression that drops it would silently reopen the hole).
+describe("last-owner guard pins SERIALIZABLE isolation", () => {
+  it("setMembershipRole runs the guard transaction at Serializable", async () => {
+    const { prisma } = fakePrisma({ existingRole: "owner", ownerCount: 2 });
+    mockGetPrisma.mockReturnValue(prisma);
+    await setMembershipRole("acme", "alice", "member");
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" });
+  });
+
+  it("removeMembership runs the guard transaction at Serializable", async () => {
+    const { prisma } = fakePrisma({ existingRole: "owner", ownerCount: 2 });
+    mockGetPrisma.mockReturnValue(prisma);
+    await removeMembership("acme", "alice");
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable" });
+  });
+});
+
 // --- Canonical-identifier audit invariant (members-access-control.md HIGH #4) -------------------------
 // The owner-gated route records ONE audit row per *successful* privilege mutation, carrying canonical
 // identifiers — the resolved org id, the canonical (normalized) login — NOT a raw mixed-case client value

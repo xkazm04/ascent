@@ -26,8 +26,11 @@ export function SelectStep({
   loading: boolean;
   sourceLabel: string;
   sourceInstallId: string | null;
-  /** Prepaid balance for the source org (App path only) — null hides the balance half. */
-  credit: { balance: number; unlimited: boolean } | null;
+  /** Prepaid balance for the source org (App path only) — null hides the balance half.
+   *  `allowanceRemaining` is the org's INCLUDED free monthly scans. canRunReal counts it as headroom,
+   *  so the recurring-cost copy below must subtract the same value or a qualifying Free-tier org is
+   *  shown an inflated "pauses at zero" alarm at the exact moment it would convert (finding #1). */
+  credit: { balance: number; unlimited: boolean; allowanceRemaining?: number | null } | null;
   maxSelect: number;
   onToggle: (fullName: string) => void;
   onSelectTop: () => void;
@@ -39,7 +42,9 @@ export function SelectStep({
   const atCap = selected.size >= maxSelect;
   // The scan button also COMMITS these repos to a weekly autoscan (watch:true in the import) —
   // a recurring prepaid-credit draw that was previously invisible at this exact decision moment.
-  const monthlyCredits = importWatchMonthlyCredits(selected.size);
+  // Net the org's included free monthly scans, exactly as canRunReal does when it qualifies this org for
+  // a real scan. Passing only `count` left allowanceRemaining defaulted to 0 — the inflated alarm.
+  const monthlyCredits = importWatchMonthlyCredits(selected.size, credit?.allowanceRemaining ?? 0);
   return (
     <div key="select" className="animate-phase-in">
       {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change). */}

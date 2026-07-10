@@ -6,16 +6,25 @@
 // installations (plus "public"), so the persisted value can only ever be one the viewer can read.
 
 import { NextResponse } from "next/server";
-import {
-  ACTIVE_ORG_COOKIE,
-  getSession,
-  isSameOrigin,
-  orgOptionsForSession,
-  sessionMaxAgeSeconds,
-} from "@/lib/auth";
+import { ACTIVE_ORG_COOKIE, PUBLIC_ORG, sessionMaxAgeSeconds } from "@/lib/auth";
+import { canReadOrg } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** True when the request demonstrably comes from this same origin. */
+function isSameOrigin(request: Request): boolean {
+  const host = request.headers.get("host");
+  const origin = request.headers.get("origin");
+  if (origin) {
+    try {
+      return new URL(origin).host === host;
+    } catch {
+      return false;
+    }
+  }
+  return request.headers.get("sec-fetch-site") === "same-origin";
+}
 
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) {
@@ -25,11 +34,17 @@ export async function POST(request: Request) {
   const requested = (body.org ?? "").trim();
   if (!requested) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
 
-  // Only honor an org the viewer can actually select — never trust the client's string.
-  const match = orgOptionsForSession(await getSession()).find(
-    (o) => o.toLowerCase() === requested.toLowerCase(),
-  );
-  if (!match) return NextResponse.json({ error: "Unknown org." }, { status: 400 });
+  // Only honor an org the viewer can actually read — never trust the client's string. This used to
+  // validate against `orgOptionsForSession(getSession())`, which reads the DORMANT custom-OAuth session:
+  // under the ACTIVE Supabase wall that session is null, so the list collapsed to just ["public"] and
+  // EVERY real org switch was rejected with "Unknown org" — the org switcher was dead in production.
+  // canReadOrg is the active-path read gate (membership under the Supabase wall; PUBLIC_ORG always
+  // readable), so it accepts exactly the orgs the viewer may select. Slugs are stored lowercased.
+  const slug = requested.toLowerCase();
+  if (!(await canReadOrg(slug))) {
+    return NextResponse.json({ error: "Unknown org." }, { status: 400 });
+  }
+  const match = slug === PUBLIC_ORG.toLowerCase() ? PUBLIC_ORG : slug;
 
   const res = NextResponse.json({ org: match });
   res.cookies.set(ACTIVE_ORG_COOKIE, match, {

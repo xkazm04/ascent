@@ -171,10 +171,9 @@ export function ConstellationField({
                     fill={look.color}
                     style={style}
                   >
-                    <title>
-                      {r.fullName}
-                      {detail}
-                    </title>
+                    {/* Single text child: React 19 drops all but the first child of an SVG <title> on
+                        hydration, so a mixed {name}{detail} pair mismatches — concatenate to one string. */}
+                    <title>{`${r.fullName}${detail}`}</title>
                   </circle>
                 </a>
               );

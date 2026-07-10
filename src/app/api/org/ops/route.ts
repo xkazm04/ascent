@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { acceptDirection, isDbConfigured, listOpsState, refreshOps, rejectDirection } from "@/lib/db";
 import { AppApiError } from "@/lib/github/app";
 import { GitHubError } from "@/lib/github/source";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
@@ -36,7 +36,10 @@ export async function POST(request: Request) {
   }
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
-  const actor = (isAuthConfigured() ? (await getSession())?.login : null) ?? null;
+  // resolveViewerLogin, not the dormant-session pair: that predicate keys on the legacy custom-OAuth
+  // env, which is unset under the ACTIVE Supabase wall, so `actor` was always null in production —
+  // accepted/rejected directions were attributed to nobody.
+  const actor = await resolveViewerLogin();
 
   try {
     if (body.action === "refresh") {

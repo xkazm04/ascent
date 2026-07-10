@@ -11,6 +11,7 @@ import { diffReports } from "@/lib/scoring/engine";
 import {
   buildLowCreditsMessage,
   buildRegressionMessage,
+  claimRegressionAlert,
   creditsAlertThreshold,
   DEFAULT_THRESHOLDS,
   detectRegression,
@@ -83,7 +84,11 @@ export async function checkAndAlertRegression(
 
     let dispatched = false;
     const webhookUrl = await orgWebhook(opts.orgSlug);
-    if (isAlertConfigured(webhookUrl)) {
+    // Per-repo cooldown (fleet-alerts-digests #4): a repo flapping across the regression line would
+    // otherwise re-alert on EVERY scan. Claim the cooldown slot (check-and-stamp) only once we have a
+    // resolvable sink and are about to POST — a within-window repeat is throttled (still returns
+    // regressed:true, since the verdict + audit row above are real; only the Slack push is suppressed).
+    if (isAlertConfigured(webhookUrl) && claimRegressionAlert(fullName)) {
       const message = buildRegressionMessage({ fullName, url: reportUrl(fullName, fresh.repo.headSha) }, diff, verdict);
       dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
     }

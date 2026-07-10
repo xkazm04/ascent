@@ -113,6 +113,7 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[]) {
       findMany: vi.fn(async () => []),
     },
     scan: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma query-arg shape on a test double
       findMany: vi.fn(async (args: any) => {
         const t = args?.where?.scannedAt;
         const dir: "asc" | "desc" = args?.orderBy?.scannedAt ?? "desc";
@@ -136,6 +137,7 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[]) {
       }),
     },
     repository: {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma query-arg shape on a test double
       findMany: vi.fn(async (args: any) => {
         const end = args?.include?.scans?.where?.scannedAt?.lte as Date | undefined;
         const take = args?.include?.scans?.take ?? undefined;

@@ -9,6 +9,7 @@
 //
 // Guarded by CRON_SECRET when set. No-op without a DB.
 
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
   getAuditLog,
@@ -20,12 +21,14 @@ import {
   getOrgRollup,
   isDbConfigured,
   listOrgsWithWatchedRepos,
-  recordOrgAudit,
   type OrgWindow,
 } from "@/lib/db";
+// Direct submodule import: the atomic once-per-window claim helpers are not re-exported through the
+// @/lib/db barrel. They collapse the digest's old check-then-act idempotency guard into one conditional
+// write (fleet-alerts-digests #3).
+import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
 import { mapPool } from "@/lib/pool";
-import { requireCronAuth } from "@/lib/cron-auth";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isWithinNoise } from "@/lib/maturity/noise";
 import { levelForScore } from "@/lib/maturity/model";
@@ -50,11 +53,34 @@ const SOFT_DEADLINE_MS = 270_000;
 // migration-free, since Organization has no spare last-sent column under the junctioned DB client.
 const DIGEST_SENT_ACTION = "org.digest.sent";
 
+/**
+ * Constant-time compare for the cron secret (mirrors /api/cron/purge). A length mismatch returns false
+ * WITHOUT calling timingSafeEqual (which throws on unequal-length buffers) — the length is not the
+ * secret. Replaces a plain `!==`, a timing oracle on a token that authorizes a fleet-data-exfil endpoint.
+ */
+function secretMatches(presented: string, expected: string): boolean {
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export async function GET(request: Request) {
-  // Fail-closed CRON_SECRET gate (503 when unset, 401 on a bad credential), single-sourced so this
-  // route that pushes fleet data to an external alert sink can't drift from the other cron handlers.
-  const denied = requireCronAuth(request);
-  if (denied) return denied;
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    // Fail closed: a missing/empty CRON_SECRET must NOT leave this endpoint open. The check was
+    // opt-in (`if (secret)`), so a forgotten env var on a new deploy silently disabled auth on a
+    // route that pushes fleet data to an external alert sink. Refuse rather than run unauthed.
+    return NextResponse.json({ error: "Cron is not configured (CRON_SECRET unset)." }, { status: 503 });
+  }
+  // Accept ONLY the `Authorization: Bearer` header — the secret must NOT be accepted as a `?key=`
+  // query param (fleet-alerts-digests #2). Query strings are routinely captured by access/CDN/proxy
+  // logs, browser history, and Referer headers, so a secret on that channel can authorize a fleet-data
+  // exfil from places the Authorization header never reaches. Compare in constant time (secretMatches).
+  const auth = request.headers.get("authorization") ?? "";
+  const presented = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+  if (!presented || !secretMatches(presented, secret)) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
   if (!isDbConfigured()) return NextResponse.json({ skipped: "Database required." });
 
   const base = publicBaseUrl();
@@ -160,12 +186,22 @@ export async function GET(request: Request) {
         // reads, so a depleting balance gets a standing line there, not just the crossing alert.
         creditsRemaining: creditLow && credit ? credit.balance : null,
       });
+      // At-most-once, ATOMICALLY (fleet-alerts-digests #3): claim the window with a single conditional
+      // insert whose affected-row count decides the winner, BEFORE dispatching. The old guard read the
+      // audit log, dispatched, then stamped AFTER the send — check-then-act — so two overlapping runs (a
+      // platform retry, a re-fired schedule) both read "not sent" and both POSTed the same digest. Lost
+      // the claim → a concurrent run already owns this window; skip without dispatching.
+      const claim = await claimOrgAuditOnce(DIGEST_SENT_ACTION, org, windowStart, { weekStart: windowStart.toISOString() });
+      if (!claim.claimed) {
+        skippedAlreadySent += 1;
+        return;
+      }
       if (await dispatchAlert(msg, { webhookUrl })) {
         sent += 1;
-        // Stamp the send so a retry/overlap within this window is skipped by the guard above. Best-
-        // effort: a lost stamp at worst risks one duplicate, never a dropped digest.
-        await recordOrgAudit(DIGEST_SENT_ACTION, org, { weekStart: windowStart.toISOString() }).catch(() => {});
       } else {
+        // Delivery failed AFTER we claimed the window — RELEASE the claim so the next run retries this
+        // org, rather than the window staying falsely marked sent (which would DROP the digest).
+        await releaseAuditClaim(claim.id);
         failed += 1; // sink unresolvable at send time, non-2xx, or the deadline aborted the POST
       }
     } catch (err) {

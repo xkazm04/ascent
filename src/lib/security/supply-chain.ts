@@ -64,18 +64,39 @@ interface SupplyChainProvider {
   fetchAdvisories(owner: string, name: string, token?: string): Promise<AdvisoryCounts | null>;
 }
 
+// GitHub caps `per_page` at 100, so a repo with MORE than 100 open Dependabot alerts needs pagination —
+// the old single-page fetch silently tallied only the first 100 and UNDER-counted the advisories on the
+// most vulnerable repos (security-posture-audit-log #3), the exact repos a security brief must not
+// understate. Walk pages forward until a short page (< per_page) ends the list, with a hard ceiling so a
+// pathological repo can't loop unbounded.
+const ADVISORY_PER_PAGE = 100;
+const ADVISORY_MAX_PAGES = 20; // 2000 open advisories on one repo is already pathological
+
 const githubProvider: SupplyChainProvider = {
   name: "github",
   async fetchAdvisories(owner, name, token) {
     if (!token) return null; // needs an installation token with "Dependabot alerts: read"
+    const acc: AdvisoryCounts = { ...EMPTY };
     try {
-      const res = await fetch(
-        `https://api.github.com/repos/${owner}/${name}/dependabot/alerts?state=open&per_page=100`,
-        { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" } },
-      );
-      if (!res.ok) return null; // 403 = permission not granted, 404 = alerts disabled — degrade quietly
-      const json = (await res.json()) as unknown;
-      return Array.isArray(json) ? countAdvisories(json) : { ...EMPTY };
+      for (let page = 1; page <= ADVISORY_MAX_PAGES; page++) {
+        const res = await fetch(
+          `https://api.github.com/repos/${owner}/${name}/dependabot/alerts?state=open&per_page=${ADVISORY_PER_PAGE}&page=${page}`,
+          { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" } },
+        );
+        // A first-page failure means we have NO data for this repo → return null so it's DROPPED (never
+        // reported as a clean 0). A later-page failure keeps the pages already counted (best-effort
+        // partial) rather than throwing away a real, mostly-complete tally.
+        if (!res.ok) return page === 1 ? null : acc; // 403 = no permission, 404 = alerts disabled
+        const json = (await res.json()) as unknown;
+        if (!Array.isArray(json)) return page === 1 ? { ...EMPTY } : acc; // documented non-array = clean repo
+        const c = countAdvisories(json);
+        acc.critical += c.critical;
+        acc.high += c.high;
+        acc.medium += c.medium;
+        acc.low += c.low;
+        if (json.length < ADVISORY_PER_PAGE) break; // short (last) page — the list is exhausted
+      }
+      return acc;
     } catch {
       return null;
     }

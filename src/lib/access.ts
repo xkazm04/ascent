@@ -15,6 +15,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 // the gate's public surface (authBypassEnabled/supabaseAuthConfigured/authGateEnabled) is unchanged for
 // existing importers.
 import { authBypassEnabled, authGateEnabled, supabaseAuthConfigured } from "@/lib/env";
+import { getSession } from "@/lib/auth";
 
 export { authBypassEnabled, authGateEnabled, supabaseAuthConfigured };
 
@@ -61,6 +62,18 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     return null;
   }
 });
+
+/**
+ * The active viewer's GitHub login, or null. This is the ACTIVE auth identity (the Supabase session or
+ * the dev-bypass viewer) — distinct from the dormant custom-OAuth `getSession()`, which is null under
+ * the Supabase wall. Used as the audit actor across the org write routes: an anonymous/unauthenticated
+ * request records a null actor rather than crashing or attributing the write to the wrong identity.
+ */
+export async function resolveViewerLogin(): Promise<string | null> {
+  // Prefer the active Supabase / dev-bypass viewer; fall back to the custom-OAuth session so a
+  // deployment running the (dormant-under-Supabase) custom OAuth still resolves its actor login.
+  return (await getViewer())?.login ?? (await getSession())?.login ?? null;
+}
 
 /**
  * API-route gate, the Supabase sibling of requireOrgAccess: returns a 401 NextResponse when the

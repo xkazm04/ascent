@@ -7,6 +7,13 @@ import { resolve } from "node:path";
 export default {
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
+    // The default environment stays `node` — the overwhelming majority of the suite is pure logic and
+    // runs far faster there. A COMPONENT test opts into a DOM per file with a docblock on line 1:
+    //   // @vitest-environment jsdom
+    // Before this existed there was no jsdom at all, so JSX/CSS/a11y changes could not be regression-
+    // pinned; the bug+ui scan's 93 ui-perfectionist findings had no test coverage available to them.
+    // The setup file is inert under node (it guards on `document`), so it costs the node tests nothing.
+    setupFiles: ["./vitest.setup.dom.js"],
     // Calibrated coverage gate (`npm run test:coverage`, wired into CI). Scoped to three high-risk,
     // high-churn directories — the DB write/query layer and the two feature surfaces flagged by the
     // test-mastery scan. Each floor sits a few points BELOW the coverage measured the day it was set,

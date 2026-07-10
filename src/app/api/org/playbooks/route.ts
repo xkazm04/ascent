@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { createPlaybook, isDbConfigured, listPlaybooks } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
-import { getSession } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { isDimensionId } from "@/lib/maturity/model";
 
 export const runtime = "nodejs";
@@ -36,11 +36,13 @@ export async function POST(request: Request) {
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
   if (!isDimensionId(body.dimId)) return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
-  const session = await getSession();
+  // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
+  // so this actor was recorded as null in production.
+  const actorLogin = await resolveViewerLogin();
   const created = await createPlaybook(
     body.org,
     { title: body.title, dimId: body.dimId, summary: body.summary, steps: Array.isArray(body.steps) ? body.steps : undefined },
-    session?.login ?? null,
+    actorLogin,
   );
   return NextResponse.json(created ?? { error: "Failed to create playbook." }, { status: created ? 200 : 500 });
 }

@@ -43,7 +43,10 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
     );
   }
   return (
-    <ReportErrorBoundary>
+    // Keyed on the repo so a render error caught for one repo doesn't stick onto the next: this
+    // component instance is reused across a ?repo= change (same /report route), so without this the
+    // boundary would keep showing repo A's error card after navigating to repo B until a full reload.
+    <ReportErrorBoundary resetKeys={[repo]}>
       {/* In-place re-scan: the report below stays mounted while a "Re-test" runs; this banner shows
           live progress, or an inline retry/dismiss on failure (the prior report is kept either way).
           Keyed by `attempt` so the banner's elapsed clock resets on each re-test. */}

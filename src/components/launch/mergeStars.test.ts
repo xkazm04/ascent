@@ -62,12 +62,20 @@ describe("mergeStars", () => {
     expect(merged.map((s) => s.fullName)).toEqual(["org/c", "org/a", "org/b"]);
   });
 
-  it("retains a removed star (present only in prev) as-is", () => {
+  it("DROPS a repo that disappeared from fresh (deleted / unwatched upstream)", () => {
     const gone = star("org/gone");
     const kept = star("org/a");
+    // fresh is the full authoritative list from /api/app/repos: org/gone is absent -> it must be removed,
+    // not linger as a dead star with a dead report link.
     const merged = mergeStars([kept, gone], [star("org/a")]);
-    expect(merged.map((s) => s.fullName)).toEqual(["org/a", "org/gone"]);
-    expect(merged[1]).toBe(gone); // dropped upstream but retained with original identity
+    expect(merged.map((s) => s.fullName)).toEqual(["org/a"]);
+    expect(merged[0]).toBe(kept); // the survivor keeps its identity (unchanged fields)
+  });
+
+  it("no-ops on an EMPTY fresh so a failed/parse-empty pull can't nuke the whole constellation", () => {
+    const prev = [star("org/a"), star("org/b")];
+    const merged = mergeStars(prev, []);
+    expect(merged).toBe(prev); // same reference: nothing changed, React won't re-render
   });
 
   it("appends a new star (present only in fresh) at the tail", () => {

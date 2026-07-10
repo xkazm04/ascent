@@ -1387,3 +1387,167 @@ New structural facts:
   broadened to the union vocab; PR gate-comment footer gains the D9 floor + protected-branch condition;
   `playbooks/apply` maps a base-file collision 409→409 (was 502); initiatives `targetDate` now rejects
   invalid dates (was silently coerced to null).
+
+---
+
+## Structural facts (bug+ui scan + Wave 1, 2026-07-09)
+
+- **2026-07-09 — The two auth stacks, and which one is real.** `authGateEnabled()` (env.ts:42) =
+  `supabaseAuthConfigured() && !authBypassEnabled()` is the **ACTIVE** production wall.
+  `isAuthConfigured()` (auth.ts:85) requires `GITHUB_OAUTH_CLIENT_ID` **and** `GITHUB_OAUTH_CLIENT_SECRET`
+  **and** `AUTH_SECRET`. **`.env.production` / `.env.vercel` set neither OAuth var**, so it is permanently
+  `false` in prod and no `ascent_session` cookie is ever minted. Consequence: `!isAuthConfigured() || X`
+  ⇒ always allow; `isAuthConfigured() && X` ⇒ never fires. **Gate on `authGateEnabled()`/`getViewer()`.**
+- **2026-07-09 — `src/lib/authz.ts`'s guards are all correct.** `requireOrgAccess`, `canReadOrg`,
+  `requireOrgRead`, `requireOrgRole` all branch on `authGateEnabled()` **first**. Every dormant-predicate
+  bug found in this scan lives at a **call site**, never in authz.ts. Don't "fix" authz.ts.
+- **2026-07-09 — `resolveViewerLogin()` (access.ts:89-94) is SAFE and canonical.** It tries the dormant
+  `getSession()`, then falls through to `(await getViewer())?.login`, a JWT-validated Supabase identity.
+  It is the correct fix for the ~7-route null-actor audit cluster. ⚠ **Never await it inside a
+  `ReadableStream start()`** — its cookie-scoped reads return null there (documented at access.ts:83).
+- **2026-07-09 — `canMintInstallationToken(owner)` (authz.ts) is now the ONLY sanctioned way** to
+  authorize minting an org's GitHub App installation token. Five call sites share it.
+- **2026-07-09 — `scanRepository` silently falls back to the operator PAT.**
+  `opts.token ?? (opts.noAmbientToken ? undefined : process.env.GITHUB_TOKEN)` (scan.ts:163). That PAT
+  "commonly carries private `repo` scope". **Denying a mint without also passing `noAmbientToken` is a
+  cosmetic fix.** Public routes (badge, gate) must pass it unconditionally.
+- **2026-07-09 — `requireOrgAccess(PUBLIC_ORG)` returns null for any signed-in viewer.** Treating
+  "passed requireOrgAccess" as "is a member of a real tenant" is wrong; `PUBLIC_ORG` is a funnel bucket.
+- **2026-07-09 — `graphql.ts` computes a `partial` flag that NO consumer reads** (`fetchPrStats`,
+  pulls.ts:291, drops it). Truncated PR slices are scored and cached as authoritative → D6/D7/D8 silently
+  understated on large repos. Same shape: `supply-chain`'s `degraded` flag, unread by security/page.tsx.
+- **2026-07-09 — `/api/scan` authorizes with `authGateEnabled() && !getViewer()` (route.ts:52), which
+  checks for *a* viewer, not membership in the target org.** Any per-repo authorization must happen in
+  `resolveScanAuth`, not there.
+
+## Conventions enforced
+
+- **2026-07-09** — When a guard branches on deployment configuration, its test MUST pin the **production**
+  branch explicitly. `scan.test.ts` and `org/import/route.test.ts` both mocked `isAuthConfigured` as
+  `true` — a shape production never runs — so 3046 green tests coexisted with a live cross-tenant
+  private-repo read. See `authz.test.ts > canMintInstallationToken` for the "PROD SHAPE:" naming pattern.
+
+## Anti-patterns to avoid
+
+- **2026-07-09 — Dead-predicate authz.** A guard keyed on an env-gated *capability* predicate
+  (`isXConfigured()`) rather than an *authorization* predicate inverts to "allow" wherever that capability
+  is absent. Cost: 5 Criticals, incl. unauthenticated installation-token minting.
+- **2026-07-09 — A precise security comment above an ineffective guard.** Three of the five Wave 1 sites
+  carried comments accurately describing the attack the code failed to prevent (`org/import:120` literally
+  describes its own confused deputy). Treat an unusually careful security comment as a prompt to *verify
+  the predicate*, not as evidence the guard works.
+- **2026-07-09 — Fixing the mint without fixing the fallback.** See `noAmbientToken` above.
+
+
+## Structural facts (waves 4-7, 2026-07-09)
+
+- **2026-07-09 — `scanRepository` cache/persist is guarded by `classifyScanResult`** (scan-finalize.ts),
+  now THREE vectors: `degradedToMock`, `lowCoverage`, `partialPrSlice`. Pass the whole `ScanResultClass`
+  object to `cacheAndPersistScan` — re-assembling a subset at the call site is how a vector gets dropped.
+- **2026-07-09 — `estimateLlmCostFromTable` deliberately returns null for the WHOLE period** if any model
+  is unpriced (it refuses a half-bill). Don't "fix" it; fix the unpriced model.
+- **2026-07-09 — OpenRouter model ids are `vendor/model` slugs.** `priceForModel` strips the vendor before
+  matching. Add new families to `MODEL_PRICES` in `llm/config.ts`, and add the provider's
+  `DEFAULT_*_MODEL` to config.test.ts's "prices every shipped default model" loop.
+- **2026-07-09 — `SCORING_RUBRIC_VERSION` (maturity/model.ts) is folded into the scan cache key.** Bump it
+  whenever weights, dimensions or level bands change; that busts the cached corpus atomically.
+  The persistent tier additionally guards on the stamped engine provider+model (scan-cache.ts).
+- **2026-07-09 — `briefing-share.ts` is the REFERENCE share-token implementation** (HMAC-SHA256, timing-safe,
+  expiry-on-read, owner-binding, revocation). `live-share.ts` now mirrors it. Per-link revocation reuses the
+  `SessionRevocation` store under a namespaced `live-share:<jti>` key (GitHub logins contain no colon, so it
+  cannot collide) — no schema change needed.
+- **2026-07-09 — `claimRepoScan`/`releaseRepoScan` (db/org-watch.ts) is PROCESS-LOCAL**, like rate-limit.ts.
+  It dedups same-instance concurrent scans; it is NOT a cross-instance lock. `reserveScanCredit` remains the
+  DB-serialized money ceiling. A cross-instance guarantee needs Redis or a schema claim column.
+- **2026-07-09 — `getOrgUsageRollup`'s allocated spend is an org-level TOTAL with no per-repo breakdown.**
+  It cannot be scoped to a segment/stack filter. Never join it against filtered signals.
+
+## Conventions enforced (waves 4-7)
+
+- **2026-07-09** — Prove each new test FAILS against the pre-fix code before keeping it. The OpenRouter
+  price assertions were verified red-then-green; the config.test.ts loop over "every shipped default model"
+  had simply omitted `DEFAULT_OPENROUTER_MODEL`, which is exactly how that bug shipped.
+- **2026-07-09** — Composite map keys use a NUL separator. This is an ESTABLISHED house idiom —
+  `src/lib/integrations/otlp.ts` predates this scan and does it too, so a subagent reaching for it is
+  following the style, not erring. Write it as the `\u0000` ESCAPE, never a literal NUL byte: a literal
+  one makes git mark the file binary and silently breaks `grep` and `git diff` on it. (`otlp.ts` still
+  carries a literal one — harmless, but it is why grep skips that file.)
+
+## Anti-patterns to avoid (waves 4-7)
+
+- **2026-07-09 — A computed honesty flag with no consumer.** `partial`, `degraded`, `stoppedEarly` were all
+  set, documented, and read by nobody. The code looks careful while the system reports unearned success.
+- **2026-07-09 — Silently swallowing a write failure.** `createCheckRun`'s inline `.catch` left a required
+  PR check pending forever. Retry was the small half of that fix; removing the `.catch` was the load-bearing half.
+- **2026-07-09 — Rendering a number that cannot be computed correctly under the current filter.** Withhold it.
+
+- **2026-07-09 — vitest now has BOTH environments.** Default is `node` (fast, 3100+ pure-logic tests). A
+  component test opts in with a line-1 docblock `// @vitest-environment jsdom`; `vitest.setup.dom.js` wires
+  jest-dom + auto-cleanup and is inert under node. Pattern: `src/components/ConfirmActionDom.test.tsx`.
+  React does NOT emit an `autofocus` attribute — assert `document.activeElement`, not the markup.
+- **2026-07-09 — `src/components/ui/Modal.tsx` already provides** portal + focus trap + Escape/backdrop
+  close + focus restore + `locked`-while-busy. Build confirmations on it; never `window.confirm` (it blocks
+  and cannot be themed or announced). `ConfirmAction.tsx` is the shared destructive-action gate; add new
+  copy builders beside `segmentDeleteConfirm`, not at the call sites.
+
+- **2026-07-09 — `Reveal.tsx` must never put its hidden state in the SSR markup.** framer-motion's
+  `initial={{opacity:0}}` is baked into the server HTML. The hidden state lives in a `.js-reveal` class added
+  after client mount. Any regression here blanks `/about` and the landing page for no-JS clients and crawlers.
+- **2026-07-09 — `resolveSignInState()` (lib/signin-gate.ts) is the ONE page-level sign-in gate.** It checks
+  the ACTIVE Supabase wall first and returns the provider whose button actually works. `SignInNotice`'s
+  default provider now follows the live stack. Never write `isAuthConfigured() && !session` on a page.
+- **2026-07-09 — `viewerInstallations()` (lib/viewer-installations.ts)** resolves the viewer's GitHub App
+  installations across both stacks (dormant session inline, else `listOrgsForLogin` → `getInstallationIdForOwner`).
+  This is the primitive the deferred **org switcher** needs too.
+- **2026-07-09 — the section switcher is a `<nav>`, not a tablist.** It writes `?tab=` to the URL, so it
+  navigates. `aria-current="page"` is correct; `role="tab"` on a link is a downgrade dressed as a fix.
+
+- **2026-07-09 — `error.test.ts` invokes `AppError`/`RouteError` as a PLAIN FUNCTION** to walk the React
+  element tree (no DOM). Any hook added to `RouteError` therefore explodes there. It already mocks React's
+  `useEffect`; it now also mocks `next/navigation`. Add a mock, don't remove the hook.
+- **2026-07-09 — "Try again" on a route error must `router.refresh()` BEFORE `reset()`.** `reset()` alone
+  re-renders the client boundary against the same stale server payload, so a server-thrown error throws
+  again immediately. The ordering is asserted in `error.test.ts`.
+- **2026-07-09 — the PDF exports are Latin-1 only** (built-in Helvetica). `latin1Safe()` renders non-WinAnsi
+  glyphs as a visible `?` rather than dropping a CJK/Cyrillic contributor name silently. Registering a
+  Unicode TTF was rejected: a large runtime asset on a rendering path that must not fail.
+- **2026-07-09 — an explicit `LLM_PROVIDER=<x>` with a broken key now THROWS**, it no longer degrades to
+  mock. Mock fallback is for ABSENT config, not BROKEN config. `LLM_TIMEOUT_MS` is floored at 1s.
+- **2026-07-09 — flake watch:** with jsdom environments sharing the runner, a full-suite run occasionally
+  trips a 5s default timeout under contention (seen 1 run in 4; `auth.test.ts` passes 5/5 in isolation).
+  Re-run before treating a lone full-suite failure as a regression.
+
+## Open follow-ups (from bug+ui scan, 2026-07-09)
+
+- **CORRECTION to the 2026-06-29 list:** the **DimensionTrends stale-repo race is FIXED** (AbortController
+  + unmount abort now present). Verified 2026-07-09. Only a latent, unreachable residual remains.
+- **DONE (Waves 1-3, 2026-07-09):** the dormant-auth cluster is closed. 5 Criticals (token minting),
+  19 routes of null-actor audit attribution, `readableOrgForOwner`, and the dead invite accept page.
+  See `bug-ui-scan-2026-07-09/FIXES-WAVE-1.md` and `FIXES-WAVE-2-3.md`.
+- **DEFERRED — the org switcher.** `getActiveOrg`/`orgOptionsForSession` (auth.ts:348) derive the org list
+  from **session installations**, so under the Supabase wall it collapses to `["public"]` and
+  `POST /api/org/active` rejects every real org. Needs a data-path change, not a predicate swap:
+  `listOrgsForLogin(login)` already exists at `src/lib/db/members.ts:205`. Add `orgOptionsForViewer()`
+  (resolveViewerLogin -> listOrgsForLogin -> slugs + PUBLIC_ORG last), then swap `Brand.tsx:47-48`,
+  `org/page.tsx:14`, `usage/page.tsx:33`, `api/org/active/route.ts:42`, and make `getActiveOrg` validate
+  the ACTIVE_ORG cookie against the viewer's orgs (auth.test.ts:697 pins that invariant).
+  Deferred because it touches `Brand.tsx`, which had uncommitted WIP. Needs a clean tree.
+- **`/api/gate` no longer serves private repos** (Wave 1, deliberate) and now **503s on a degraded scan**
+  (Wave 4). If private-repo HTTP gating is a product requirement it needs an authenticated variant.
+- **DEFERRED (product decision): the paid upgrade funnel does not exist.** `/pricing`'s Pro+Team CTAs
+  dead-end at `/onboarding`; the only live checkout sells credit packs. Pro/Team cannot be bought in-app.
+- **DEFERRED (needs schema): cross-instance scan dedup.** `claimRepoScan` is process-local. Needs Redis or a
+  claim column on Repository.
+- **DEFERRED (needs schema): Polar redelivery fence.** A webhook redelivery carrying a stale *active*
+  subscription snapshot can re-grant a revoked tier. Needs a durable per-subscription version column.
+- **DEFERRED (needs schema): goals/initiatives lost-update.** The value-compare CAS only catches two admins
+  editing the SAME field. Needs `updatedAt`/version + the client sending its last-seen value.
+- **DEFERRED (needs schema): rubric version per persisted scan.** The DB cache tier guards on engine
+  provider+model but cannot check the rubric — it isn't persisted per row.
+- **NOT FIXED (out of an agent's file scope): "Export CSV" on the delivery page drops the stack filter**
+  (`components/org/ui.tsx` ExportCsvLink + `/api/org/export`).
+- **Destructive confirms still unwired (T13):** "Open draft PR" (writes into a customer repo), the
+  25-repo fleet batch, "Re-test" (spends a weekly scan slot), goal delete. `ConfirmAction` exists and is
+  wired for the segment delete; the rest is mechanical.
+- **~145 Medium/Low findings** remain per `bug-ui-scan-2026-07-09/INDEX.md` (15 themes, 9-wave plan).
+- **Context-map drift:** 7 contexts reference files that no longer exist; run `refresh_context` on them.

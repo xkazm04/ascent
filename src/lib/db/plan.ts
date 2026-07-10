@@ -313,20 +313,53 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
   return out;
 }
 
+/** Clamp a goal target into the stored 0..100 integer range (mirrors createGoal). */
+function normTarget(t: number): number {
+  return Math.max(0, Math.min(100, Math.round(t)));
+}
+
+/**
+ * Patch a goal, guarding against LOST UPDATES with an optimistic compare-and-set (no `updateAt`/version
+ * column exists on Goal and the schema is frozen here, so we can't do a whole-row version check — we
+ * reuse updateRecommendation's value-compare guard instead). The update lands ONLY if each field this
+ * patch writes still equals the value the editor last saw (`expected`), normalized the same way it is
+ * stored. Two admins editing the SAME field: the second's conditional `updateMany` matches 0 rows →
+ * GOAL_CONFLICT (the route surfaces 409) so a deliberate retarget/relabel is never silently clobbered;
+ * editing DIFFERENT fields never conflicts. When the caller sends no `expected` value for a field we
+ * fall back to the server pre-image, which still catches truly-overlapping writes (under READ COMMITTED
+ * the second updateMany re-reads the row and won't match the changed field). Throws P2025 when the id
+ * is unknown so the route 404s, matching the old `goal.update` behavior.
+ */
 export async function updateGoal(
   id: string,
   data: { status?: string; target?: number; label?: string; targetDate?: string | null },
+  expected: { status?: string; target?: number; label?: string; targetDate?: string | null } = {},
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
-  await getPrisma().goal.update({
+  const prisma = getPrisma();
+  const write: Record<string, unknown> = {
+    ...(data.status ? { status: data.status } : {}),
+    ...(typeof data.target === "number" ? { target: normTarget(data.target) } : {}),
+    ...(data.label ? { label: data.label.slice(0, 200) } : {}),
+    ...("targetDate" in data ? { targetDate: parseTargetDate(data.targetDate) } : {}),
+  };
+  const current = await prisma.goal.findUnique({
     where: { id },
-    data: {
-      ...(data.status ? { status: data.status } : {}),
-      ...(typeof data.target === "number" ? { target: Math.max(0, Math.min(100, Math.round(data.target))) } : {}),
-      ...(data.label ? { label: data.label.slice(0, 200) } : {}),
-      ...("targetDate" in data ? { targetDate: parseTargetDate(data.targetDate) } : {}),
-    },
+    select: { status: true, target: true, label: true, targetDate: true },
   });
+  if (!current) throw Object.assign(new Error("Goal not found."), { code: "P2025" });
+  if (Object.keys(write).length === 0) return true; // no-op patch; existence already confirmed
+  // Key the conditional update on the last-seen value of ONLY the fields being written (expected when
+  // supplied, else the server pre-image) — guarding untouched fields would raise false conflicts.
+  const where: Record<string, unknown> = { id };
+  if ("status" in write) where.status = expected.status != null ? expected.status : current.status;
+  if ("target" in write) where.target = typeof expected.target === "number" ? normTarget(expected.target) : current.target;
+  if ("label" in write) where.label = typeof expected.label === "string" ? expected.label.slice(0, 200) : current.label;
+  if ("targetDate" in write) where.targetDate = "targetDate" in expected ? parseTargetDate(expected.targetDate) : current.targetDate;
+  const res = await prisma.goal.updateMany({ where, data: write });
+  if (res.count === 0) {
+    throw Object.assign(new Error("Goal changed concurrently — refresh and retry."), { code: "GOAL_CONFLICT" });
+  }
   return true;
 }
 
@@ -482,21 +515,46 @@ export async function listInitiatives(orgSlug: string): Promise<InitiativeRow[] 
   });
 }
 
-/** Patch an initiative's status, owner, due date, or linked goal — only the provided fields move. */
+/** Normalize an assignee login to its stored form (trimmed, ≤100 chars, empty → null). */
+function normAssignee(a?: string | null): string | null {
+  return a?.trim().slice(0, 100) || null;
+}
+
+/**
+ * Patch an initiative's status, owner, due date, or linked goal — only the provided fields move.
+ * Same optimistic compare-and-set as updateGoal (Initiative also has no version column): the write
+ * lands only if each changed field still equals the editor's last-seen value (`expected`, else the
+ * server pre-image), so two admins moving the SAME field don't silently clobber each other — the
+ * loser gets INIT_CONFLICT → 409. Throws P2025 on an unknown id so the route 404s.
+ */
 export async function updateInitiative(
   id: string,
   patch: { status?: string; assigneeLogin?: string | null; targetDate?: string | null; goalId?: string | null },
+  expected: { status?: string; assigneeLogin?: string | null; targetDate?: string | null; goalId?: string | null } = {},
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
-  await getPrisma().initiative.update({
+  const prisma = getPrisma();
+  const write: Record<string, unknown> = {
+    ...(patch.status ? { status: patch.status } : {}),
+    ...("assigneeLogin" in patch ? { assigneeLogin: normAssignee(patch.assigneeLogin) } : {}),
+    ...("targetDate" in patch ? { targetDate: parseTargetDate(patch.targetDate) } : {}),
+    ...("goalId" in patch ? { goalId: patch.goalId || null } : {}),
+  };
+  const current = await prisma.initiative.findUnique({
     where: { id },
-    data: {
-      ...(patch.status ? { status: patch.status } : {}),
-      ...("assigneeLogin" in patch ? { assigneeLogin: patch.assigneeLogin?.trim().slice(0, 100) || null } : {}),
-      ...("targetDate" in patch ? { targetDate: parseTargetDate(patch.targetDate) } : {}),
-      ...("goalId" in patch ? { goalId: patch.goalId || null } : {}),
-    },
+    select: { status: true, assigneeLogin: true, targetDate: true, goalId: true },
   });
+  if (!current) throw Object.assign(new Error("Initiative not found."), { code: "P2025" });
+  if (Object.keys(write).length === 0) return true; // no-op patch; existence already confirmed
+  const where: Record<string, unknown> = { id };
+  if ("status" in write) where.status = expected.status != null ? expected.status : current.status;
+  if ("assigneeLogin" in write) where.assigneeLogin = "assigneeLogin" in expected ? normAssignee(expected.assigneeLogin) : current.assigneeLogin;
+  if ("targetDate" in write) where.targetDate = "targetDate" in expected ? parseTargetDate(expected.targetDate) : current.targetDate;
+  if ("goalId" in write) where.goalId = "goalId" in expected ? (expected.goalId || null) : current.goalId;
+  const res = await prisma.initiative.updateMany({ where, data: write });
+  if (res.count === 0) {
+    throw Object.assign(new Error("Initiative changed concurrently — refresh and retry."), { code: "INIT_CONFLICT" });
+  }
   return true;
 }
 

@@ -21,6 +21,14 @@ export interface ImportScanRequest {
   /** Run a deterministic PREVIEW (mock) scan vs. a real LLM scan. Onboarding runs a real scan on the
    *  App path when the org has credits (the route meters + refunds); otherwise a disclosed preview. */
   mock?: boolean;
+  /** Enroll every scanned repo in the recurring WEEKLY autoscan watch. Defaults to the App path ONLY
+   *  (an installationId is present) — the sole surface where the select step DISCLOSES the recurring
+   *  commitment ("Scanning also watches these repos… ≈N credits/month"). The public "free preview"
+   *  funnel (no installationId, shown "no prepaid credits are used") must never be silently subscribed
+   *  to weekly work it did not opt into. Failure mode this replaces: the body hardcoded watch:true for
+   *  EVERY scan, so anonymous preview users were auto-enrolled in weekly autoscans on repos they don't
+   *  own. Left overridable so a future disclosed opt-in can request it explicitly. */
+  watch?: boolean;
 }
 
 export interface ImportScanCallbacks {
@@ -63,6 +71,13 @@ export async function runImportScan(
     }, STALL_MS);
   };
 
+  // Enroll the weekly watch ONLY on the App path (installationId present) — exactly where the select
+  // step discloses the recurring commitment. The public "free preview" funnel sends no installationId,
+  // so it now requests watch:false instead of silently subscribing anonymous users to weekly autoscans.
+  // NOTE: the server still writes the watchlist/schedule behind `if (watch)` (api/org/import/route.ts:249)
+  // and DEFAULTS the field to true (route.ts:93), so the preview path must send watch:false EXPLICITLY —
+  // omission would re-enable the silent enrollment. That server code is intentionally left untouched.
+  const watch = request.watch ?? Boolean(request.installationId);
   try {
     armStall();
     const res = await fetch("/api/org/import", {
@@ -75,8 +90,10 @@ export async function runImportScan(
         // Default to preview (mock) when the caller doesn't specify — the public-handle funnel can't
         // meter credits. The App path passes mock:false explicitly when the org has credits.
         mock: request.mock ?? true,
-        watch: true,
-        schedule: IMPORT_WATCH_SCHEDULE,
+        watch,
+        // Send the cadence only when actually watching, so the body never implies a schedule the
+        // server won't set (it ignores `schedule` under watch:false anyway).
+        schedule: watch ? IMPORT_WATCH_SCHEDULE : undefined,
       }),
       signal: controller.signal,
     });

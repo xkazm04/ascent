@@ -112,10 +112,11 @@ describe("getOrgPrSignals blob resilience", () => {
     expect(res).not.toBeNull();
     expect(res!.repos).toBe(2);
     expect(res!.totalPrs).toBe(30); // 10 + 20
-    expect(res!.avgMergeRate).toBe(70); // mean(80,60)
-    expect(res!.avgSmallPrRate).toBe(60); // mean(70,50)
-    expect(res!.avgAiInvolvedRate).toBe(20); // mean(30,10)
-    expect(res!.typicalHoursToMerge).toBe(15); // mean(10,20)
+    // Analyzed-weighted (the 20-PR repo outweighs the 10-PR repo), NOT an equal-weight mean.
+    expect(res!.avgMergeRate).toBe(67); // (80·10 + 60·20)/30 = 66.7 → 67 (unweighted mean would be 70)
+    expect(res!.avgSmallPrRate).toBe(57); // (70·10 + 50·20)/30 = 56.7 → 57
+    expect(res!.avgAiInvolvedRate).toBe(17); // (30·10 + 10·20)/30 = 16.7 → 17
+    expect(res!.typicalHoursToMerge).toBe(15); // mean(10,20) — median-of-medians, left unweighted
     // tools summed across repos (both contribute copilot:3)
     expect(res!.tools).toEqual([{ name: "copilot", count: 6 }]);
   });
@@ -137,7 +138,7 @@ describe("getOrgPrSignals blob resilience", () => {
     expect(res).not.toBeNull();
     expect(res!.repos).toBe(2);
     expect(res!.totalPrs).toBe(30);
-    expect(res!.avgMergeRate).toBe(70); // mean of the GOOD rows only, not skewed by NaN
+    expect(res!.avgMergeRate).toBe(67); // analyzed-weighted (80·10 + 60·20)/30, GOOD rows only, not skewed by NaN
     expect(Number.isFinite(res!.avgMergeRate)).toBe(true);
   });
 
@@ -331,6 +332,47 @@ describe("getOrgPrSignals null-vs-zero (no-sample) semantics", () => {
   });
 });
 
+// ── getOrgPrSignals: volume-weighted fleet rates (fleet-rollups-insights #3) ──────────────────
+//
+// A "fleet rate" is analyzed-PR-weighted, not an average-of-per-repo-rates: a 1-PR toy repo must not
+// count as much as a 500-PR flagship. These pin that the weighting is applied (so a tiny repo can't
+// inflate/deflate the headline) and that nullable "no sample" rates carry no weight.
+
+describe("getOrgPrSignals volume-weighted fleet rates", () => {
+  it("weights each repo's rate by analyzed PRs, so a tiny repo can't dominate the fleet rate", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 1, mergeRate: 100, smallPrRate: 100, aiInvolvedRate: 100 }), // toy repo
+        prStats({ analyzed: 9, mergeRate: 50, smallPrRate: 50, aiInvolvedRate: 50 }),     // flagship
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // Weighted (100·1 + 50·9)/10 = 55, NOT the average-of-averages 75 the toy repo would inflate it to.
+    expect(res!.avgMergeRate).toBe(55);
+    expect(res!.avgSmallPrRate).toBe(55);
+    expect(res!.avgAiInvolvedRate).toBe(55);
+    expect(res!.avgMergeRate).not.toBe(75); // the average-of-averages regression this fix removes
+  });
+
+  it("weights nullable rates over only the SAMPLED repos (a null 'no sample' repo carries no weight)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma("prStats", [
+        prStats({ analyzed: 1, reviewedRate: 100, aiGovernedRate: 100 }),
+        prStats({ analyzed: 9, reviewedRate: 50, aiGovernedRate: 50 }),
+        prStats({ analyzed: 100, reviewedRate: null, aiGovernedRate: null }), // huge, but no sample → 0 weight
+      ]),
+    );
+
+    const res = await getOrgPrSignals("acme");
+
+    // The null-sample flagship contributes NO weight; weighted over the two sampled repos = (100·1+50·9)/10 = 55.
+    expect(res!.avgReviewedRate).toBe(55);
+    expect(res!.avgAiGovernedRate).toBe(55);
+  });
+});
+
 // ── getOrgGovernance ──────────────────────────────────────────────────────────
 
 const govExtra = (i: number) => ({ fullName: `acme/repo-${i}`, name: `repo-${i}` });
@@ -502,6 +544,33 @@ describe("getOrgActivity blob resilience and calendar-week alignment", () => {
     expect(mixed!.endWeekStartMs).toBe(Date.UTC(2026, 5, 14));
     // Oldest bucket = endWeekStartMs - (weeks-1) * 7d, matching the zero-filled grid the chart draws.
     expect(mixed!.weeks).toBe(4);
+  });
+
+  it("drops a stale repo whose latest scan predates the trailing horizon (regression: fleet-rollups-insights #4)", async () => {
+    // Fresh repo scanned this week; stale repo last scanned ~a year ago. The stale repo's weeks sit far
+    // older than the 26-week horizon anchored at the newest scan week, so it neither stretches the grid
+    // nor counts — the sparkline stays a bounded RECENT window instead of ~52 weeks that are ~90% zeros
+    // with a lone stale spike.
+    const thisWeek = new Date("2026-06-17T00:00:00Z");
+    const aYearAgo = new Date("2025-06-17T00:00:00Z"); // ~52 weeks earlier
+    mockGetPrisma.mockReturnValue(
+      fakePrisma(
+        "commitActivity",
+        [
+          JSON.stringify([1, 2, 3]),  // fresh repo (scanned this week)
+          JSON.stringify([100, 200]), // stale repo (scanned ~52 weeks ago) — dropped by the horizon
+        ],
+        { scannedAt: (i) => (i === 0 ? thisWeek : aYearAgo) },
+      ),
+    );
+
+    const res = await getOrgActivity("acme");
+
+    expect(res).not.toBeNull();
+    expect(res!.repos).toBe(1); // the stale repo contributed nothing → not counted
+    expect(res!.series).toEqual([1, 2, 3]);
+    expect(res!.total).toBe(6);
+    expect(res!.weeks).toBe(3); // bounded to the fresh repo's recent weeks, NOT stretched to ~53
   });
 });
 

@@ -8,8 +8,8 @@
 import { NextResponse } from "next/server";
 import { getOrgGatePolicy, isDbConfigured, recordOrgAudit, setOrgGatePolicy } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
-import { getSession } from "@/lib/auth";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
+import { resolveViewerLogin } from "@/lib/access";
 import { sanitizeGatePolicy } from "@/lib/scoring/gate";
 
 export const runtime = "nodejs";
@@ -35,13 +35,15 @@ export async function POST(request: Request) {
   const clean = body.policy == null ? null : sanitizeGatePolicy(body.policy);
   const stored = await setOrgGatePolicy(org, clean);
   if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
-  const session = await getSession();
+  // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so this audit row recorded a null actor in production.
+  const actorLogin = await resolveViewerLogin();
   // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
   await recordOrgAudit(
     "org.gate_policy",
     org,
     { org, action: stored ? "set" : "cleared" },
-    session?.login,
+    actorLogin ?? undefined,
   ).catch(() => {});
   return NextResponse.json({ ok: true, policy: stored });
 }

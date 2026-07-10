@@ -1,12 +1,12 @@
 // The "Security" tab — a security-first view of the fleet (Direction #2 phase 1): the Security (D9)
-// dimension across repos, branch-protection/governance coverage, and a security "Copy for LLM"
-// remediation brief. One dense risk register (score → drill-in modal, gate verdict, branch rules,
-// advisories) replaces the former stack of single-purpose cards; every repo listed links to its
-// follow-up (report, GitHub branch settings, Dependabot).
+// dimension across repos plus a security "Copy for LLM" remediation brief. The whole tab is now ONE
+// dense risk register (score → drill-in modal, gate verdict, branch rules, advisories, and the
+// specific per-repo findings the scan flagged); the former Governance-coverage and Supply-chain cards
+// were folded into the register's columns and removed.
 
 import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { Card, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { SecurityBandSpectrum } from "@/components/org/security/SecurityBandSpectrum";
@@ -51,6 +51,12 @@ export default async function OrgSecurity({
     ),
   ].join("\n");
   const supplyOn = !!supply && supply.scanned > 0;
+  // getOrgSupplyChain returns `degraded: true` with `scanned: 0` when the advisory fetch failed (GitHub
+  // auth/token failure), precisely so the caller does not mistake it for "no advisories". Nothing read
+  // that flag: `supplyOn` is false either way, `advisories` is passed as null, and the register renders
+  // a clean supply chain. A security view that reports "clean" when it could not look is the most
+  // dangerous false signal it can emit — surface it.
+  const supplyDegraded = !!supply?.degraded;
 
   return (
     <div className="space-y-6">
@@ -58,7 +64,7 @@ export default async function OrgSecurity({
         <SectionHeader
           descriptionClassName="max-w-3xl"
           title="Security"
-          description={`Where the fleet stands on Security (${sec.dimLabel}, D9) and default-branch governance. Click any score in the register for that repo's evaluation and next steps, or copy the remediation brief into Claude Code.`}
+          description={`Security engineering evidenced from each repo + its GitHub state — NOT a guarantee the code is safe. Scored by a deterministic, Scorecard-style check battery (graded controls + current vuln exposure); the register grid shows which controls are covered, per repo. Click a score for the full per-check evidence.`}
         />
         <div className="flex flex-wrap items-center gap-2">
           <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
@@ -101,131 +107,23 @@ export default async function OrgSecurity({
       <Card>
         <SectionHeader
           size="sm"
-          title="Risk register"
-          description={`All ${sec.scanned} scanned repos against the security gate — Security (D9) ≥ ${gate.minSecurity} and no "ungoverned" posture. Failing repos first.`}
+          title="Control matrix"
+          description={`All ${sec.scanned} scanned repos against the security gate (D9 ≥ ${gate.minSecurity}, not "ungoverned"), each graded 0–10 across the deterministic control battery + current vuln exposure. Failing repos first; ┃ divides posture from exposure.`}
           right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />}
         />
+        {supplyDegraded && (
+          <p role="status" className="mb-3 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-warn">
+            Vulnerability advisories couldn&apos;t be fetched for this org, so the exposure columns below are
+            blank — that is <strong>not</strong> a clean bill of health. Re-check the GitHub App installation
+            and its security-advisory access, then reload.
+          </p>
+        )}
         <SecurityRiskRegister
           org={slug}
           rows={sec.register}
           advisories={supplyOn ? supply!.repos.map((r) => ({ fullName: r.fullName, critical: r.critical, high: r.high, total: r.total })) : null}
         />
       </Card>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <SectionHeader size="sm" title="Governance coverage" />
-          {!gov ? (
-            <InlineEmpty>Governance needs a GitHub token/App to read branch protection. Connect it to see coverage.</InlineEmpty>
-          ) : (
-            <>
-              <div className="mt-3 space-y-2">
-                <GovRow label="Protected branch" rate={gov.protectedRate} />
-                <GovRow label="Requires review" rate={gov.requireReviewRate} />
-                <GovRow label="Requires status checks" rate={gov.requireChecksRate} />
-                <GovRow label="Requires signed commits" rate={gov.signedRate} />
-              </div>
-              {sec.unprotected.length > 0 && (
-                <div className="mt-4 border-t border-slate-800 pt-3">
-                  <div className="font-mono text-sm uppercase tracking-widest text-orange-300">No branch protection</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {sec.unprotected.map((r) => (
-                      <a
-                        key={r.fullName}
-                        href={`https://github.com/${r.fullName}/settings/branches`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="focus-ring rounded-md border border-orange-500/30 bg-orange-500/5 px-2 py-1 font-mono text-sm text-orange-200 transition hover:border-orange-400 hover:text-white"
-                        title={`Open ${r.fullName}'s branch-protection settings on GitHub`}
-                      >
-                        {r.name} ↗
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </Card>
-
-        <Card>
-          <SectionHeader
-            size="sm"
-            title="Supply chain"
-            description={
-              supplyOn
-                ? `Open Dependabot advisories across ${supply!.scanned} repos.${supply!.demo ? " Demo data — set SUPPLY_CHAIN_PROVIDER=github for live alerts." : ""}`
-                : "Open Dependabot advisories per repo — a separate signal that does NOT change the Security (D9) score."
-            }
-          />
-          {supplyOn ? (
-            <>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <SevChip label="Critical" n={supply!.totals.critical} color="#dc2626" />
-                <SevChip label="High" n={supply!.totals.high} color="#d97706" />
-                <SevChip label="Medium" n={supply!.totals.medium} color="#ca8a04" />
-                <SevChip label="Low" n={supply!.totals.low} color="#64748b" />
-              </div>
-              {supply!.repos.filter((r) => r.total > 0).length > 0 && (
-                <ul className="mt-3 space-y-1">
-                  {supply!.repos.filter((r) => r.total > 0).slice(0, 8).map((r) => (
-                    <li key={r.fullName} className="flex items-center justify-between gap-3 text-sm">
-                      <a
-                        href={`https://github.com/${r.fullName}/security/dependabot`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="focus-ring min-w-0 truncate font-mono text-slate-300 transition hover:text-white"
-                        title={`Open ${r.fullName}'s Dependabot alerts on GitHub`}
-                      >
-                        {r.name} ↗
-                      </a>
-                      <span className="shrink-0 font-mono text-sm text-slate-400">
-                        {r.critical > 0 ? <span className="text-red-300">{r.critical}C </span> : null}
-                        {r.high > 0 ? <span className="text-orange-300">{r.high}H </span> : null}
-                        {r.total} total
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          ) : supply?.degraded ? (
-            /* Degraded: a github-mode run couldn't authenticate (no install / token mint failed).
-               scanned:0 here means "couldn't reach GitHub", NOT "clean / not enabled" — say so
-               explicitly so a transient blip isn't read as an all-clear. */
-            <InlineEmpty>
-              Couldn’t load Dependabot advisories right now — the GitHub App installation or token was
-              unavailable for this request. This is NOT an all-clear; reload in a minute to retry.
-            </InlineEmpty>
-          ) : (
-            /* When supply-chain scanning is OFF (or no advisory data yet) say so — the tab must not
-               look like it simply lacks the feature (Nadia). A separate signal from the D9 score. */
-            <InlineEmpty>
-              {(process.env.SUPPLY_CHAIN_PROVIDER ?? "off").toLowerCase() === "off"
-                ? 'Supply-chain scanning isn’t enabled. Set SUPPLY_CHAIN_PROVIDER=github (live — needs the GitHub App’s "Dependabot alerts: read") or =mock (demo data) to surface advisory counts here.'
-                : "No Dependabot advisory data for scanned repos yet — re-scan with the supply-chain provider configured."}
-            </InlineEmpty>
-          )}
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function SevChip({ label, n, color }: { label: string; n: number; color: string }) {
-  return (
-    <span className="rounded-md border border-slate-800 bg-slate-950/40 px-3 py-1.5 font-mono text-sm" style={{ color: n > 0 ? color : "#64748b" }}>
-      {n} {label}
-    </span>
-  );
-}
-
-function GovRow({ label, rate }: { label: string; rate: number }) {
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="w-44 shrink-0 text-slate-400">{label}</span>
-      <Meter className="flex-1" value={rate} color={scoreHex(rate)} />
-      <span className="w-9 text-right font-mono tabular-nums text-slate-300">{rate}%</span>
     </div>
   );
 }

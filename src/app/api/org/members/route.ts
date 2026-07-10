@@ -12,7 +12,8 @@ import { NextResponse } from "next/server";
 import { getMembershipRole, isDbConfigured, listOrgMembers, recordOrgAudit, removeMembership, setMembershipRole } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
-import { getSession, isSameOrigin } from "@/lib/auth";
+import { isSameOrigin } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,12 +60,15 @@ export async function POST(request: Request) {
   if (outcome === "last_owner") {
     return NextResponse.json({ error: "Can't demote the last owner — assign another owner first." }, { status: 409 });
   }
-  const session = await getSession();
+  // resolveViewerLogin, not getSession: under the ACTIVE Supabase wall no ascent_session cookie exists,
+  // so getSession() returns null and every privilege change was audited with a null actor — the one
+  // action, per this file's own header, that most needs a trail.
+  const actor = await resolveViewerLogin();
   await recordOrgAudit(
     "org.member.role",
     org,
     { org, login: login.toLowerCase(), newRole: body.role, prevRole: prevRole ?? null },
-    session?.login,
+    actor ?? undefined,
   );
   return NextResponse.json({ ok: true, login: login.toLowerCase(), role: body.role });
 }
@@ -83,7 +87,7 @@ export async function DELETE(request: Request) {
   if (outcome === "last_owner") {
     return NextResponse.json({ error: "Can't remove the last owner — assign another owner first." }, { status: 409 });
   }
-  const session = await getSession();
-  await recordOrgAudit("org.member.removed", org, { org, login: login.toLowerCase() }, session?.login);
+  const actor = await resolveViewerLogin();
+  await recordOrgAudit("org.member.removed", org, { org, login: login.toLowerCase() }, actor ?? undefined);
   return NextResponse.json({ ok: true });
 }

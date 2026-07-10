@@ -64,6 +64,22 @@ export interface UsageSummary {
   lastScanAt: string | null;
 }
 
+/**
+ * Bound the caller-supplied `?days=` into the INTEGER window shared by the /usage page and the
+ * /api/usage route — the SINGLE source both call so their `since`, day axis, and counts can't drift.
+ *
+ * The floor is load-bearing: a fractional `?days=` (e.g. 1.5) was carried through verbatim, and
+ * `emptyDailySeries` then stepped the axis by fractional day offsets (i = 0.5), so the newest UTC day
+ * never landed on a generated axis key. The `scan.count` headline still counted today's scans (it keys
+ * off the same `since`), so the trend chart + finance CSV silently UNDER-reported the newest day while
+ * the "Last Nd" stat over it — chart/export disagreeing with the headline. Flooring BEFORE the `|| 30`
+ * fallback collapses 1.5 → 1; a value < 1 (0.5) falls through to the 30 default. The public funnel is
+ * capped tighter (90d) so an anonymous caller can't force the 365-day full-window aggregate.
+ */
+export function boundUsageDays(raw: string | null | undefined, isPublic: boolean): number {
+  return Math.min(isPublic ? 90 : 365, Math.max(1, Math.floor(Number(raw)) || 30));
+}
+
 export async function getUsageSummary(
   orgSlug = "public",
   periodDays = 30,

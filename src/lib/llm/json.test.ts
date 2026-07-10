@@ -138,4 +138,41 @@ describe("parseJsonLoose", () => {
     const text = "prelude {{{ noise " + '{"a":1,"b":2}';
     expect(parseJsonLoose<{ a: number; b: number }>(text)).toEqual({ a: 1, b: 2 });
   });
+
+  // --- JSONC tolerance (trailing commas + comments) — the `jsonc` fence tag is now honest ---
+
+  it("recovers an object with a trailing comma before } (a common token-boundary artifact)", () => {
+    // A single trailing comma otherwise threw the whole paid assessment away for the mock floor.
+    expect(parseJsonLoose<{ a: number; b: number }>('{"a":1,"b":2,}')).toEqual({ a: 1, b: 2 });
+  });
+
+  it("recovers a trailing comma in a nested object and array", () => {
+    const text = '{"gaps":[1,2,],"d":{"x":1,},}';
+    expect(parseJsonLoose<{ gaps: number[]; d: { x: number } }>(text)).toEqual({
+      gaps: [1, 2],
+      d: { x: 1 },
+    });
+  });
+
+  it("recovers a ```jsonc``` fence whose body has a trailing comma", () => {
+    const text = "Result:\n```jsonc\n{ \"score\": 80, }\n```";
+    expect(parseJsonLoose<{ score: number }>(text)).toEqual({ score: 80 });
+  });
+
+  it("strips // line comments and /* */ block comments (incl. a brace inside a comment)", () => {
+    const text = '{\n  "a": 1, // the a field\n  /* note: } is fine here */ "b": 2\n}';
+    expect(parseJsonLoose<{ a: number; b: number }>(text)).toEqual({ a: 1, b: 2 });
+  });
+
+  it("preserves commas, // and braces INSIDE string values (only structure is normalized)", () => {
+    const text = '{"msg": "a, b // not a comment { } ", "n": 7,}';
+    expect(parseJsonLoose<{ msg: string; n: number }>(text)).toEqual({
+      msg: "a, b // not a comment { } ",
+      n: 7,
+    });
+  });
+
+  it("still throws on genuinely unparseable JSONC (no valid value hidden by comments/commas)", () => {
+    expect(() => parseJsonLoose("// just a comment\n/* and another */")).toThrow(ProviderParseError);
+  });
 });

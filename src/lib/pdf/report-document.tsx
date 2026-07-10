@@ -6,6 +6,7 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { ScanReport } from "@/lib/types";
 import { ACCENT, FAINT, LINE, MUTED, baseStyles, scoreColor, Footer } from "./theme";
+import { latin1Safe } from "./latin1";
 
 // report-document keeps its own h1 (fontSize 22) and rule (marginVertical 16) — these legitimately
 // differ from the 24/14 used by briefing/security, so they are NOT hoisted into the shared theme.
@@ -49,18 +50,20 @@ export function ReportDocument({ report }: { report: ScanReport }) {
     <Document title={`Ascent maturity report — ${ref}`} author="Ascent" subject="AI-native engineering maturity">
       <Page size="A4" style={baseStyles.page}>
         <Text style={baseStyles.kicker}>Ascent · AI-native maturity report</Text>
-        <Text style={styles.h1}>{ref}</Text>
-        <Text style={baseStyles.meta}>{repo.url}{repo.primaryLanguage ? ` · ${repo.primaryLanguage}` : ""}{scannedAt ? ` · scanned ${scannedAt}` : ""}</Text>
+        {/* User/LLM-derived text is wrapped in latin1Safe so any non-Latin-1 glyph shows as a visible
+            "?" instead of being silently dropped by the built-in Helvetica font (see ./latin1). */}
+        <Text style={styles.h1}>{latin1Safe(ref)}</Text>
+        <Text style={baseStyles.meta}>{repo.url}{repo.primaryLanguage ? ` · ${latin1Safe(repo.primaryLanguage)}` : ""}{scannedAt ? ` · scanned ${scannedAt}` : ""}</Text>
 
         <View style={styles.rule} />
 
         <View style={styles.scoreRow}>
           <Text style={{ ...styles.scoreNum, color: scoreColor(report.overallScore) }}>{report.overallScore}</Text>
           <Text style={styles.scoreDen}>/100</Text>
-          <Text style={styles.levelPill}>{level.id} · {level.name}</Text>
+          <Text style={styles.levelPill}>{level.id} · {latin1Safe(level.name)}</Text>
         </View>
-        <Text style={styles.headline}>{report.headline}</Text>
-        <Text style={styles.levelDesc}>{level.description}</Text>
+        <Text style={styles.headline}>{latin1Safe(report.headline)}</Text>
+        <Text style={styles.levelDesc}>{latin1Safe(level.description)}</Text>
 
         <View style={styles.axesRow}>
           <View style={styles.axis}>
@@ -73,7 +76,7 @@ export function ReportDocument({ report }: { report: ScanReport }) {
           </View>
           <View style={styles.axis}>
             <Text style={styles.axisLabel}>Posture</Text>
-            <Text style={{ ...styles.axisVal, fontSize: 12, marginTop: 4 }}>{report.posture.label}</Text>
+            <Text style={{ ...styles.axisVal, fontSize: 12, marginTop: 4 }}>{latin1Safe(report.posture.label)}</Text>
           </View>
         </View>
 
@@ -87,7 +90,7 @@ export function ReportDocument({ report }: { report: ScanReport }) {
                 {report.strengths.map((s, i) => (
                   <View key={i} style={styles.bullet}>
                     <Text style={styles.bulletMark}>+</Text>
-                    <Text>{s}</Text>
+                    <Text>{latin1Safe(s)}</Text>
                   </View>
                 ))}
               </View>
@@ -97,7 +100,7 @@ export function ReportDocument({ report }: { report: ScanReport }) {
                 {report.risks.map((r, i) => (
                   <View key={i} style={styles.bullet}>
                     <Text style={styles.bulletBad}>!</Text>
-                    <Text>{r}</Text>
+                    <Text>{latin1Safe(r)}</Text>
                   </View>
                 ))}
               </View>
@@ -110,10 +113,10 @@ export function ReportDocument({ report }: { report: ScanReport }) {
         {report.dimensions.map((d) => (
           <View key={d.id} style={styles.dimRow} wrap={false}>
             <View style={styles.dimHead}>
-              <Text style={styles.dimName}>{d.id} · {d.name}</Text>
+              <Text style={styles.dimName}>{d.id} · {latin1Safe(d.name)}</Text>
               <Text style={{ fontFamily: "Helvetica-Bold", color: scoreColor(d.score) }}>{d.score}/100</Text>
             </View>
-            {d.summary ? <Text style={styles.dimSummary}>{d.summary}</Text> : null}
+            {d.summary ? <Text style={styles.dimSummary}>{latin1Safe(d.summary)}</Text> : null}
           </View>
         ))}
 

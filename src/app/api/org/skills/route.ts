@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { createOrgSkill, getCreditState, isDbConfigured, listOrgSkills, type SkillSort } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
-import { getSession } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 import { planAllowsSkillsLibrary } from "@/lib/plans";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 
@@ -54,7 +54,9 @@ export async function POST(request: Request) {
   if (!isSkillCategory(body.category)) {
     return NextResponse.json({ error: `category must be one of: ${SKILL_CATEGORIES.join(", ")}.` }, { status: 400 });
   }
-  const session = await getSession();
+  // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
+  // Supabase wall, so this actor/audit row was recorded as null in production.
+  const actorLogin = await resolveViewerLogin();
   try {
     const created = await createOrgSkill(
       body.org,
@@ -65,7 +67,7 @@ export async function POST(request: Request) {
         description: body.description,
         tags: Array.isArray(body.tags) ? body.tags : undefined,
       },
-      session?.login ?? null,
+      actorLogin,
     );
     return NextResponse.json(created ?? { error: "Failed to create skill." }, { status: created ? 200 : 500 });
   } catch (err) {

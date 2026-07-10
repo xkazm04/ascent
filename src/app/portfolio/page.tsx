@@ -35,7 +35,7 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto w-full max-w-6xl px-5 py-10">
+      <main id="main" className="mx-auto w-full max-w-6xl px-5 py-10">
         <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Portfolio</div>
         <h1 className="mt-1 text-2xl font-bold text-white">Engineering maturity across the book</h1>
         <p className="mt-2 max-w-2xl text-base text-slate-400">

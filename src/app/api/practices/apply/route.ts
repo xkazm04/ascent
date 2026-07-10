@@ -9,7 +9,8 @@ import { parseRepoUrl } from "@/lib/github/source";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { isAppConfigured } from "@/lib/github/app";
 import { getOrgId } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 
@@ -25,8 +26,12 @@ export async function POST(request: Request) {
     );
   }
   // Writing to a customer repo is sensitive — require a signed-in user when auth is configured.
-  const session = isAuthConfigured() ? await getSession() : null;
-  if (isAuthConfigured() && !session) {
+  // The sign-in check used to key on isAuthConfigured() alone -- the DORMANT custom-OAuth env, false
+  // in production -- so it never fired there and the actor below was always null. Gate whenever
+  // EITHER stack is live (Supabase wall or a dev box with the legacy OAuth configured); a fully
+  // auth-off local/demo deployment stays open, exactly as before.
+  const actorLogin = await resolveViewerLogin();
+  if ((authGateEnabled() || isAuthConfigured()) && !actorLogin) {
     return NextResponse.json({ error: "Sign in to open a starter PR." }, { status: 401 });
   }
 
@@ -54,7 +59,7 @@ export async function POST(request: Request) {
     const orgId = (await getOrgId(parsed.owner).catch(() => null)) ?? undefined;
     const result = await applyPracticeToRepo(ctx.token, parsed, body.practiceId, body.base, {
       orgId,
-      actorId: session?.login,
+      actorId: actorLogin ?? undefined,
     });
     if (result.kind === "unknown-practice") {
       return NextResponse.json({ error: `Unknown practice "${body.practiceId}".` }, { status: 404 });

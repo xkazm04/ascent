@@ -87,30 +87,35 @@ describe("buildAssessmentPrompt — PROCESS SIGNALS rate rendering (#1)", () => 
   });
 });
 
-describe("buildAssessmentPrompt — SECURITY POSTURE block (D9 GitHub-native evidence)", () => {
-  it("surfaces published advisories as a POSITIVE D9 signal and warns against file-blindness", () => {
+describe("buildAssessmentPrompt — SECURITY (D9) deterministic check battery", () => {
+  it("renders the computed D9 + posture/exposure and tells the model the number is FIXED", () => {
     const { user } = buildAssessmentPrompt(
-      input({ securityPosture: { advisoryCount: 100, advisoryCapped: true, orgSecurityPolicy: true } }),
+      input({
+        securityAssessment: {
+          d9: 52, posture: 55, exposure: 40,
+          checks: [
+            { id: "sast", name: "SAST", group: "posture", score: 0, weight: 2, risk: "medium", evidence: "No SAST wired into CI." },
+            { id: "known-vulnerabilities", name: "Known vulnerabilities", group: "exposure", score: 4, weight: 3, risk: "high", evidence: "3 open advisories." },
+          ],
+          evidence: [], gaps: ["Add CodeQL scanning."],
+        },
+      }),
     );
-    expect(user).toContain("SECURITY POSTURE");
-    expect(user).toContain("100+ published security advisories");
-    expect(user).toContain("POSITIVE D9 maturity signal");
-    expect(user).toContain("org-level SECURITY.md present");
-    // The anti-false-negative instruction: don't zero D9 just because security-as-code YAML is absent.
-    expect(user).toContain("Do not score D9 near zero");
+    expect(user).toContain("Security (D9) = 52/100 — DETERMINISTIC (posture 55/100 · exposure 40/100)");
+    expect(user).toContain("This number is FIXED; narrate it, do not re-score.");
+    expect(user).toContain("[0/10] SAST (medium): No SAST wired into CI.");
   });
 
-  it("states the honest zero when there are no advisories / no policy", () => {
+  it("shows exposure 'unknown' when the exposure axis couldn't be inspected", () => {
     const { user } = buildAssessmentPrompt(
-      input({ securityPosture: { advisoryCount: 0, advisoryCapped: false, orgSecurityPolicy: false } }),
+      input({ securityAssessment: { d9: 60, posture: 60, exposure: null, checks: [], evidence: [], gaps: [] } }),
     );
-    expect(user).toContain("no published security advisories found");
-    expect(user).toContain("no org-level SECURITY.md found");
+    expect(user).toContain("exposure unknown (dependencies not inspected)");
   });
 
-  it("degrades to the token-less note when the posture is absent", () => {
-    const { user } = buildAssessmentPrompt(input({ securityPosture: null }));
-    expect(user).toContain("GitHub-native security signals were skipped");
+  it("degrades to the token-less note when the battery didn't run", () => {
+    const { user } = buildAssessmentPrompt(input({ securityAssessment: null }));
+    expect(user).toContain("the security check battery didn't run");
   });
 });
 

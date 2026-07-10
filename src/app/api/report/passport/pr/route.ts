@@ -8,7 +8,8 @@ import { NextResponse } from "next/server";
 import { openDraftPr } from "@/lib/github/write";
 import { isAppConfigured } from "@/lib/github/app";
 import { getRepoPassport, isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { PUBLIC_ORG, getSession, isAuthConfigured, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
+import { PUBLIC_ORG, isAuthConfigured, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 
@@ -28,7 +29,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Opening a PR needs the GitHub App installed with contents + pull-request write access." }, { status: 503 });
   }
   if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
-  if (isAuthConfigured() && !(await getSession())) {
+  // Re-keyed off the dormant-only predicate: gate whenever EITHER stack is live. Under the
+  // Supabase wall the old isAuthConfigured() check never fired.
+  if ((authGateEnabled() || isAuthConfigured()) && !(await resolveViewerLogin())) {
     return NextResponse.json({ error: "Sign in to open a passport PR." }, { status: 401 });
   }
   const body = (await request.json().catch(() => ({}))) as { repo?: string; base?: string };
@@ -49,7 +52,9 @@ export async function POST(request: Request) {
   }
   // The committed file: schema pointer first, then the (override-applied) passport.
   const fileContent = JSON.stringify({ $schema: "https://ascent.dev/schemas/app-passport-0.1.json", ...passport }, null, 2) + "\n";
-  const session = await getSession();
+  // resolveViewerLogin: getSession() is null under the ACTIVE Supabase wall, so this PR-write audit
+  // row recorded a null actor in production.
+  const actorLogin = await resolveViewerLogin();
   try {
     // Install presence (403) + installation-token mint, single-sourced across the PR-write routes.
     const ctx = await requirePrWriteContext(org);
@@ -67,7 +72,7 @@ export async function POST(request: Request) {
       prTitle: "Add App Readiness Passport",
       prBody: `Seeds \`.ai/passport.json\` — the portfolio readiness scorecard Ascent derived from this repo's latest scan (automation **${passport.automationReadiness.level}** · production **${passport.productionReadiness.band}**). Descriptive + tool-naming; sibling to the agent-facing \`.ai/manifest.yaml\`. Regenerate it from a fresh scan when the stack drifts.`,
     });
-    await recordOrgAudit("passport.pr_opened", org, { repo: `${parsed.owner}/${parsed.name}`, pr: pr.number, reused: pr.reused }, session?.login);
+    await recordOrgAudit("passport.pr_opened", org, { repo: `${parsed.owner}/${parsed.name}`, pr: pr.number, reused: pr.reused }, actorLogin ?? undefined);
     return NextResponse.json(pr);
   } catch (err) {
     // Shared mapper. passport/pr keeps surfacing openDraftPr's OWN 409 message (the specific

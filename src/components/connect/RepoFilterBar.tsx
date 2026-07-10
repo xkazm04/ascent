@@ -36,14 +36,25 @@ export function RepoFilterBar({
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search repositories…"
         aria-label="Search repositories"
-        className="min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white outline-none focus:border-accent"
+        className="focus-ring min-w-[12rem] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white"
       />
       <div className="flex flex-wrap items-center gap-1.5">
-        {(["all", "public", "private"] as Visibility[]).map((v) => (
-          <button key={v} type="button" onClick={() => setVisibility(v)} className={chip(visibility === v)}>
-            {v}
-          </button>
-        ))}
+        {/* The three visibility toggles form one mutually-exclusive control: expose the active choice
+         *  programmatically (`aria-pressed`) and name the set (`role=group`), so it isn't conveyed by
+         *  the chip color alone — WCAG 4.1.2 state on a filter that changes which repos are actionable. */}
+        <div role="group" aria-label="Filter by visibility" className="flex items-center gap-1.5">
+          {(["all", "public", "private"] as Visibility[]).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setVisibility(v)}
+              aria-pressed={visibility === v}
+              className={chip(visibility === v)}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
         <button type="button" onClick={() => setWatchedOnly((w) => !w)} className={chip(watchedOnly)} aria-pressed={watchedOnly}>
           watched
         </button>
@@ -52,7 +63,7 @@ export function RepoFilterBar({
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
             aria-label="Filter by language"
-            className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 font-mono text-sm text-slate-300 outline-none focus:border-accent"
+            className="focus-ring rounded-full border border-slate-700 bg-slate-950 px-3 py-1 font-mono text-sm text-slate-300"
           >
             <option value="all">all languages</option>
             {languages.map((l) => (

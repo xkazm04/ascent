@@ -10,7 +10,8 @@ import { fetchRepoContext } from "@/lib/github/source";
 import { openDraftPr } from "@/lib/github/write";
 import { isAppConfigured } from "@/lib/github/app";
 import { applyPlaybook, getPlaybook, isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { getSession, isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
@@ -32,8 +33,12 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       { status: 503 },
     );
   }
-  const session = isAuthConfigured() ? await getSession() : null;
-  if (isAuthConfigured() && !session) {
+  // The sign-in check used to key on isAuthConfigured() alone -- the DORMANT custom-OAuth env, false
+  // in production -- so it never fired there and the actor below was always null. Gate whenever
+  // EITHER stack is live (Supabase wall or a dev box with the legacy OAuth configured); a fully
+  // auth-off local/demo deployment stays open, exactly as before.
+  const actorLogin = await resolveViewerLogin();
+  if ((authGateEnabled() || isAuthConfigured()) && !actorLogin) {
     return NextResponse.json({ error: "Sign in to open a playbook PR." }, { status: 401 });
   }
 
@@ -81,14 +86,24 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       prBody: brief,
     });
 
-    // Record the adoption mark (idempotent) so lift analytics include this repo, and audit the write.
-    await applyPlaybook(org, id, ctxRepo.fullName, session?.login ?? null);
-    await recordOrgAudit(
-      "playbook.pr_opened",
-      org,
-      { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused },
-      session?.login,
-    );
+    // The PR is now OPEN — the adoption mark + audit are BOOKKEEPING. A failure here must NOT surface as
+    // "Failed to open the playbook PR." (the outer catch's 500): the PR exists, so reporting failure sends
+    // the caller to retry and open a DUPLICATE. Record best-effort and always return the opened PR, so a
+    // "PR opened but a follow-up step failed" is distinguished from "PR not opened". (playbooks #2)
+    try {
+      await applyPlaybook(org, id, ctxRepo.fullName, actorLogin);
+      await recordOrgAudit(
+        "playbook.pr_opened",
+        org,
+        { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused },
+        actorLogin ?? undefined,
+      );
+    } catch (bookkeepErr) {
+      console.error(
+        "[playbooks/apply] PR opened but adoption/audit bookkeeping failed",
+        bookkeepErr instanceof Error ? bookkeepErr.message : bookkeepErr,
+      );
+    }
 
     return NextResponse.json(pr);
   } catch (err) {

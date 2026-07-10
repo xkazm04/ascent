@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { dueBucketFor } from "@/lib/db/org";
+import { describe, expect, it, vi } from "vitest";
+import { claimRepoScan, dueBucketFor, releaseRepoScan } from "@/lib/db/org";
 import { computeWindowDeltas, type RepoScoreSnap } from "@/lib/db/org-rollup";
 
 // Pure due-date bucketing behind the org backlog's "by due date" grouping. UTC date-only dates keep
@@ -108,5 +108,74 @@ describe("computeWindowDeltas", () => {
     expect(computeWindowDeltas([snap("x", 50)], [snap("y", 60)])).toBeNull();
     expect(computeWindowDeltas([], [snap("y", 60)])).toBeNull();
     expect(computeWindowDeltas([snap("x", 50)], [])).toBeNull();
+  });
+});
+
+// The process-local per-repo scan claim (org-import-scan-watchlist #1): the manual scan + import paths
+// had no equivalent of the cron's claimRescan lease, so two concurrent runs would double-scan + double-
+// charge the same repo. claimRepoScan is the dedup guard — an atomic, TTL-leased advisory lock. Unique
+// repo keys per test keep these hermetic against the module-global claim map (no shared reset needed).
+describe("claimRepoScan / releaseRepoScan", () => {
+  it("refuses a second concurrent claim for the same repo (the overlapping run must skip)", () => {
+    const first = claimRepoScan("acme", "acme/repo");
+    expect(first).not.toBeNull(); // the first run wins the claim
+    expect(claimRepoScan("acme", "acme/repo")).toBeNull(); // a concurrent run is refused → it skips, never scans/charges
+    // A different repo, or the same repo under a different org, is independent (per-(org,repo) key).
+    const other = claimRepoScan("acme", "acme/other");
+    const otherOrg = claimRepoScan("beta", "acme/repo");
+    expect(other).not.toBeNull();
+    expect(otherOrg).not.toBeNull();
+    releaseRepoScan("acme", "acme/repo", first!);
+    releaseRepoScan("acme", "acme/other", other!);
+    releaseRepoScan("beta", "acme/repo", otherOrg!);
+  });
+
+  it("lets a RELEASED claim be re-taken (a completed run frees the repo)", () => {
+    const first = claimRepoScan("acme", "acme/reuse");
+    expect(first).not.toBeNull();
+    releaseRepoScan("acme", "acme/reuse", first!);
+    const second = claimRepoScan("acme", "acme/reuse"); // free again once the owner released
+    expect(second).not.toBeNull();
+    releaseRepoScan("acme", "acme/reuse", second!);
+  });
+
+  it("treats org + repo case-insensitively (same logical repo can't be double-claimed by casing)", () => {
+    const t = claimRepoScan("Acme", "Acme/Repo");
+    expect(t).not.toBeNull();
+    expect(claimRepoScan("acme", "acme/repo")).toBeNull(); // same key despite casing → refused
+    releaseRepoScan("ACME", "ACME/REPO", t!);
+    const after = claimRepoScan("acme", "acme/repo"); // release is case-insensitive too → now free
+    expect(after).not.toBeNull();
+    releaseRepoScan("acme", "acme/repo", after!);
+  });
+
+  it("SELF-HEALS a crashed (never-released) claim after its TTL — a repo is never locked out forever", () => {
+    vi.useFakeTimers();
+    try {
+      const token = claimRepoScan("acme", "acme/crashed", 1000);
+      expect(token).not.toBeNull();
+      expect(claimRepoScan("acme", "acme/crashed", 1000)).toBeNull(); // blocked while the lease is live
+      vi.advanceTimersByTime(1001); // the owning process died — the lease elapses with no release
+      const reclaimed = claimRepoScan("acme", "acme/crashed", 1000); // a later run recovers the repo
+      expect(reclaimed).not.toBeNull();
+      releaseRepoScan("acme", "acme/crashed", reclaimed!);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("release ignores a STALE token — a late owner can't clobber the run that reclaimed after expiry", () => {
+    vi.useFakeTimers();
+    try {
+      const stale = claimRepoScan("acme", "acme/fence", 1000)!;
+      vi.advanceTimersByTime(1001); // stale owner's lease expired without a release
+      const fresh = claimRepoScan("acme", "acme/fence", 1000); // a new run reclaims the repo
+      expect(fresh).not.toBeNull();
+      releaseRepoScan("acme", "acme/fence", stale); // the stale owner wakes late and tries to release
+      expect(claimRepoScan("acme", "acme/fence", 1000)).toBeNull(); // must be a no-op — fresh still owns it
+      releaseRepoScan("acme", "acme/fence", fresh!);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -18,6 +18,30 @@ export interface ScanMeta {
   commitUrl?: string;
 }
 
+/** A hoverable point: its value plus the original index into the (gapped) `values` array. */
+type PresentPoint = { v: number; i: number };
+
+/** The present (non-null) points, carrying their original index so `meta`/x() stay aligned. */
+export function presentPoints(values: (number | null)[]): PresentPoint[] {
+  return values.map((v, i) => ({ v, i })).filter((p): p is PresentPoint => p.v !== null);
+}
+
+/**
+ * Delta of the hovered point vs the prior PRESENT point (gaps skipped, so this compares real
+ * scans). Returns null for the first point (active === 0), no hover (null), or a STALE/out-of-bounds
+ * index — it never dereferences an absent element. The crash this replaces: the range toggle
+ * shrinks `present` while a point is hovered, leaving `active` past the new end; the old
+ * `present[active]!.v` non-null assertion then threw mid-render and white-screened the Trends
+ * section. (useChartHover now also resets `active` on resize — this is the read-site belt to that
+ * hook's braces.)
+ */
+export function deltaAt(present: PresentPoint[], active: number | null): number | null {
+  if (active == null || active <= 0) return null;
+  const cur = present[active];
+  const prev = present[active - 1];
+  return cur && prev ? cur.v - prev.v : null;
+}
+
 /**
  * Responsive 0..100 line chart that fills its container width. A `null` value marks a
  * scan where this dimension was ABSENT (e.g. a dimension added after that scan) — it is
@@ -41,9 +65,7 @@ export function DimLine({
   const y = vScale(H, 8, 8);
 
   // Only the present points are hoverable — gaps have no value to show.
-  const present = values
-    .map((v, i) => ({ v, i }))
-    .filter((p): p is { v: number; i: number } => p.v !== null);
+  const present = presentPoints(values);
   const hover = useChartHover(present.map((p) => x(p.i)), W);
   const a = hover.active;
   const tap = useCoarseTapToOpen();
@@ -65,10 +87,11 @@ export function DimLine({
 
   const lastReal = [...values].reverse().find((v): v is number => v !== null) ?? 0;
   const drawnCount = present.length;
-  const act = a !== null ? present[a] : null;
-  // Delta vs the prior PRESENT point (gaps are skipped, so this compares real scans).
-  // safe: a is a valid index into present (from useChartHover over present), and a > 0
-  const actDelta = a !== null && a > 0 ? present[a]!.v - present[a - 1]!.v : null;
+  // `a` is kept in-bounds by useChartHover (reset on resize); still, index defensively — a stale
+  // index yields `undefined` (rendered as nothing) rather than a thrown assertion.
+  const act = a !== null ? present[a] : undefined;
+  // Delta vs the prior PRESENT point — pure, out-of-bounds-safe (see deltaAt above).
+  const actDelta = deltaAt(present, a);
 
   // Deep links for the hovered point (mirrors TrendChart): click → the pinned report where this
   // dimension moved; shift-click → the exact GitHub commit. Points without metadata stay inert.
@@ -80,9 +103,13 @@ export function DimLine({
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
-  // Present points that deep-link somewhere — exposed as real focusable links so keyboard / SR users
-  // can reach the same per-point report the pointer-only svg (role="img" + onClick) opens.
-  const linkedPoints = present.filter((p) => meta[p.i]?.href);
+  // Screen-reader equivalent of the whole trajectory: EVERY present point's score (+ short date),
+  // not just the ones that deep-link. Previously this list was filtered to href-bearing points, so a
+  // repo with no pinned-report links rendered zero SR items and the historical series was invisible to
+  // assistive tech (only the svg's "currently N of 100" survived). Points that DO carry a permalink are
+  // still wrapped in a real <a>, so keyboard / SR users keep the same per-point report the pointer-only
+  // svg (role="img" + onClick) opens; unlinked points contribute their value as plain text.
+  const srPoints = present;
 
   return (
     <div className="relative mt-2">
@@ -118,7 +145,7 @@ export function DimLine({
           <rect key={band.min} x={0} y={band.top} width={W} height={band.height} fill={band.color} />
         ))}
         {BAND_EDGES.filter((e) => e > 0 && e < 100).map((b) => (
-          <line key={b} x1={0} x2={W} y1={y(b)} y2={y(b)} stroke={CHART_INK.grid} strokeWidth={1} strokeDasharray="2 4" />
+          <line key={b} x1={0} x2={W} y1={y(b)} y2={y(b)} stroke="var(--color-divider)" strokeWidth={1} strokeDasharray="2 4" />
         ))}
         {/* One mid-scale reference so the sparkline reads as a quantitative chart, not a floating
             squiggle — the L4 "Integrated" threshold (65) anchors the otherwise-unlabeled bands. */}
@@ -150,16 +177,15 @@ export function DimLine({
           />
         </ChartTooltip>
       )}
-      {linkedPoints.length > 0 && (
+      {srPoints.length > 0 && (
         <ul className="sr-only">
-          {linkedPoints.map((p) => {
-            const mp = meta[p.i]!; // filtered to href-bearing points above
-            const when = srDate(mp.at);
+          {srPoints.map((p) => {
+            const mp = meta[p.i];
+            const when = mp?.at ? srDate(mp.at) : "";
+            const label = `${name ? name + " " : ""}${p.v} of 100${when ? ` on ${when}` : ""}`;
             return (
               <li key={p.i}>
-                <a href={mp.href}>
-                  {`${name ? name + " " : ""}${p.v} of 100${when ? ` on ${when}` : ""} — open this scan's report`}
-                </a>
+                {mp?.href ? <a href={mp.href}>{`${label} — open this scan's report`}</a> : label}
               </li>
             );
           })}

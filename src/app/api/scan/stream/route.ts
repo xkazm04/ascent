@@ -64,7 +64,9 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { token, orgSlug } = await resolveScanAuth(parsed, body.installationId);
+  // noAmbientToken: the owner is an installed org this caller may not mint for — never downgrade to
+  // the operator PAT, which would leak the private repo the mint gate just denied.
+  const { token, orgSlug, noAmbientToken } = await resolveScanAuth(parsed, body.installationId);
 
   // Supabase login wall. In production (Supabase configured + bypass hard-off, via authGateEnabled)
   // EVERY scan requires a signed-in viewer — LLM cost is easily abused, so the public funnel is gated
@@ -159,6 +161,7 @@ export async function POST(request: Request) {
         const runScan = (signal: AbortSignal) =>
           scanRepository(url, {
             token,
+            noAmbientToken,
             mock,
             onProgress: (p) => send("progress", p),
             // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan
@@ -178,7 +181,12 @@ export async function POST(request: Request) {
         // Derive the cache-poisoning guards — shared with /api/scan via classifyScanResult.
         // degradedToMock: a transient LLM failure fell back to MockProvider but the lookup key is still
         // ::llm. lowCoverage: silent per-file fetch failures degraded coverage without failing the LLM.
-        const { degradedToMock, lowCoverage } = classifyScanResult(report, mock);
+        const resultClass = classifyScanResult(report, mock);
+        const { degradedToMock, lowCoverage, partialPrSlice } = resultClass;
+        // Whether cacheAndPersistScan will actually store this report. Keep this in step with its
+        // `authoritative` guard: the completion email links a permalink that only resolves once the
+        // report is persisted, so every poisoning vector must suppress the mail too.
+        const willPersist = !degradedToMock && !lowCoverage && !partialPrSlice;
         // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not
         // the product the slot pays for — refund it, mirroring the credit rule ("a degrade-to-mock
         // run is free").
@@ -186,7 +194,8 @@ export async function POST(request: Request) {
         // Cache + persist behind the shared guards: skip BOTH caches on a degraded/low-coverage report
         // (getScanReportByCommit's DB tier would otherwise re-serve the floor cross-instance under ::llm).
         // The stream surfaces nothing from the result, so the deduped/persistedOk return is ignored here.
-        await cacheAndPersistScan(report, { degradedToMock, lowCoverage }, {
+        // Pass the whole guard object so a new poisoning vector (e.g. partialPrSlice) can't be dropped.
+        await cacheAndPersistScan(report, resultClass, {
           tag: "scan/stream",
           repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
           orgSlug,
@@ -204,7 +213,7 @@ export async function POST(request: Request) {
         // permalink wouldn't resolve. Recipient is the trusted account email, or the user-supplied
         // custom address ONLY when the account has none. Best-effort: dispatchScanCompletionEmail
         // never throws and is time-bounded, so a flaky SES call can't fail or delay-close the scan.
-        if (notifyTo && !degradedToMock && !lowCoverage) {
+        if (notifyTo && willPersist) {
           const full = `${report.repo.owner}/${report.repo.name}`;
           const url = `${publicBaseUrl()}${reportPermalink(full, report.repo.headSha)}`;
           await dispatchScanCompletionEmail({ to: notifyTo, repoFullName: full, url, report });

@@ -6,6 +6,7 @@
 // framing is shared with lib/live-share.ts (WAR-4) via lib/signed-share.ts.
 
 import { resolveShareSecret, signShareToken, verifyShareToken } from "./signed-share";
+import { resolveWindow } from "./window";
 
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — a board cycle; shortened from 14d to bound a leaked link's exposure window (briefing-share #5)
 
@@ -34,6 +35,17 @@ export interface BriefingShareParams {
   // shared links. Set only under the enforced Supabase wall (where membership is the seeded source of
   // truth); other auth modes leave it undefined and keep the prior stateless behavior.
   mintedBy?: string;
+  // Finding B (clock-drift): the RESOLVED window frozen as absolute instants at mint time (ISO strings).
+  // Carrying only the range KEY (30d/90d/quarter) let the recipient's page recompute `start` against
+  // THEIR clock — a board member opening a "Last 90 days" link days later saw a different 90-day window
+  // (different numbers) than the owner shared. `winStart` is the absolute start (null/absent = all-time,
+  // no lower bound); `winEnd` is the absolute end — an open-ended relative/all-time end (null = "now") is
+  // pinned to the mint instant so post-share scans don't leak in either. On sign these are COMPUTED here
+  // (any caller-supplied value is ignored); on verify they are echoed back. A token minted before this
+  // change carries neither → the reader falls back to recomputing (the prior drifting behavior, kept so
+  // already-minted live links don't break).
+  winStart?: string;
+  winEnd?: string;
 }
 
 /** Mint a `payload.sig` token carrying the org + window, valid for `ttlMs`. Null without a secret. */
@@ -41,8 +53,16 @@ export function signBriefingShareToken(p: BriefingShareParams, ttlMs: number = D
   const secret = shareSecret();
   if (!secret) return null;
   const expiresAt = Date.now() + ttlMs;
+  // Finding B: freeze the resolved window into the payload NOW (mint time) so "the window travels" —
+  // the recipient re-runs the exact period the owner shared instead of resolveWindow re-floating it to
+  // their clock on read. An open-ended end (null = "now", i.e. every relative preset + all-time) is
+  // pinned to the mint instant. Range key + from/to still travel too, for the human title label and so a
+  // legacy reader that ignores winStart/winEnd still resolves something.
+  const w = resolveWindow({ range: p.range, from: p.from, to: p.to });
+  const winStart = w.start ? w.start.toISOString() : null;
+  const winEnd = (w.end ?? new Date()).toISOString();
   const token = signShareToken(
-    { org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, segment: p.segment, stack: p.stack, mintedBy: p.mintedBy, exp: expiresAt },
+    { org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, winStart, winEnd, segment: p.segment, stack: p.stack, mintedBy: p.mintedBy, exp: expiresAt },
     secret,
   );
   return { token, expiresAt };
@@ -55,6 +75,8 @@ export function verifyBriefingShareToken(token: string): BriefingShareParams | n
     range?: unknown;
     from?: unknown;
     to?: unknown;
+    winStart?: unknown;
+    winEnd?: unknown;
     segment?: unknown;
     stack?: unknown;
     mintedBy?: unknown;
@@ -67,6 +89,11 @@ export function verifyBriefingShareToken(token: string): BriefingShareParams | n
     range: typeof p.range === "string" ? p.range : undefined,
     from: typeof p.from === "string" ? p.from : undefined,
     to: typeof p.to === "string" ? p.to : undefined,
+    // Finding B: the frozen absolute window. `winEnd` being a string is the signal that this token
+    // froze its window (always set on new tokens, incl. all-time); its ABSENCE marks a legacy token so
+    // the reader falls back to recomputing. `winStart` is absent/non-string for an all-time (null) start.
+    winStart: typeof p.winStart === "string" ? p.winStart : undefined,
+    winEnd: typeof p.winEnd === "string" ? p.winEnd : undefined,
     segment: typeof p.segment === "string" ? p.segment : undefined,
     stack: typeof p.stack === "string" ? p.stack : undefined,
     mintedBy: typeof p.mintedBy === "string" ? p.mintedBy : undefined,
