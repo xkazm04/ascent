@@ -16,15 +16,30 @@ const constructed: FakeClient[] = [];
 let fakeClientQueue: Array<{ pingError?: unknown }> = [];
 let fakeClientSeq = 0;
 
+// The pg driver adapter (used for real Postgres / DSQL): client.ts now builds every non-PGlite client
+// with `new PrismaClient({ adapter: new PrismaPg({ connectionString }) })` instead of `{ datasourceUrl }`
+// (Rust-free query path — required on Windows-ARM). Mock PrismaPg so the effective URL is capturable.
+vi.mock("@prisma/adapter-pg", () => {
+  class PrismaPg {
+    connectionString?: string;
+    constructor(opts?: { connectionString?: string }) {
+      this.connectionString = opts?.connectionString;
+    }
+  }
+  return { PrismaPg };
+});
+
 vi.mock("@prisma/client", () => {
   class PrismaClient {
     id: number;
     datasourceUrl?: string;
     $queryRaw: ReturnType<typeof vi.fn>;
     $disconnect: ReturnType<typeof vi.fn>;
-    constructor(opts?: { datasourceUrl?: string }) {
+    constructor(opts?: { datasourceUrl?: string; adapter?: { connectionString?: string } }) {
       this.id = ++fakeClientSeq;
-      this.datasourceUrl = opts?.datasourceUrl;
+      // The effective connection URL now arrives via the pg adapter's connectionString; keep exposing it
+      // as `datasourceUrl` so tests assert the resolved URL regardless of adapter-vs-datasourceUrl wiring.
+      this.datasourceUrl = opts?.datasourceUrl ?? opts?.adapter?.connectionString;
       const program = fakeClientQueue.shift();
       this.$queryRaw = vi.fn(async () => {
         if (program?.pingError !== undefined) throw program.pingError;

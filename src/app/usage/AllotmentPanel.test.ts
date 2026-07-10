@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { allotmentRead } from "./AllotmentPanel";
 
 describe("allotmentRead — burn-vs-allotment right-sizing", () => {
-  it("returns null only for the unlimited (Enterprise) plan; Free now has a 10/mo allowance to track", () => {
+  it("returns null only for the unlimited (Enterprise) plan; Free now has a 5/mo allowance to track", () => {
     expect(allotmentRead("enterprise", 5000, 30)).toBeNull();
     const free = allotmentRead("free", 5, 30)!;
-    expect(free.included).toBe(10);
+    expect(free.included).toBe(5);
     expect(free.monthlyBurn).toBe(5);
   });
 
