@@ -6,6 +6,7 @@
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
+import { latin1Safe } from "./latin1";
 
 /** EXEC-5 white-label: an org's brand overrides the Ascent defaults in the PDF. All optional. */
 export interface BriefingBranding {
@@ -85,14 +86,17 @@ function MoveLine({ tone, m }: { tone: "up" | "down"; m: BriefingMove }) {
 export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefing; branding?: BriefingBranding }) {
   const b = briefing;
   const accent = branding?.brandColor || ACCENT;
-  const brandLabel = branding?.brandName || "Ascent";
+  // latin1Safe: the white-label brand name + org name are user-supplied free text; a non-Latin-1 glyph
+  // must show as a visible "?" rather than being silently dropped by the built-in Helvetica (see ./latin1).
+  const brandLabel = latin1Safe(branding?.brandName || "Ascent");
+  const org = latin1Safe(b.org);
   return (
-    <Document title={`${brandLabel} executive briefing — ${b.org}`} author={brandLabel} subject="AI-native engineering maturity">
+    <Document title={`${brandLabel} executive briefing — ${org}`} author={brandLabel} subject="AI-native engineering maturity">
       <Page size="A4" style={styles.page}>
         {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, not an HTML img (no alt) */}
         {branding?.logoUrl ? <Image src={branding.logoUrl} style={{ height: 28, marginBottom: 8 }} /> : null}
         <Text style={{ ...styles.kicker, color: accent }}>{brandLabel} · Executive briefing</Text>
-        <Text style={styles.h1}>{b.org}</Text>
+        <Text style={styles.h1}>{org}</Text>
         <Text style={styles.meta}>{b.periodTitle} · generated {b.generatedOn}</Text>
 
         <View style={styles.rule} />
@@ -110,7 +114,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         {b.periodDelta != null && (
           <Text style={styles.line}>Change vs {b.periodTitle} start: {b.periodDelta >= 0 ? "+" : ""}{b.periodDelta}</Text>
         )}
-        {b.forecastHeadline ? <Text style={styles.traj}>Trajectory: {b.forecastHeadline}</Text> : null}
+        {b.forecastHeadline ? <Text style={styles.traj}>Trajectory: {latin1Safe(b.forecastHeadline)}</Text> : null}
         {/* The same trend-confidence hedge the exec page + LLM markdown carry — so the board PDF can't
             present a noisy, low-R² projection as a firm headline (briefing.ts forecastConfidenceNote). */}
         {b.forecastHeadline && forecastConfidenceNote(b.forecastConfidence) ? (
@@ -186,7 +190,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
             <Text style={styles.sectionH}>Goals</Text>
             {b.goals.map((g) => (
               <View key={g.label} style={styles.goalRow} wrap={false}>
-                <Text style={styles.goalLabel}>{g.label}</Text>
+                <Text style={styles.goalLabel}>{latin1Safe(g.label)}</Text>
                 <Text style={styles.muted}>
                   {g.current}/{g.target} ({g.pct}%, {g.pace}{g.etaDays != null ? `, ETA ~${g.etaDays}d` : ""})
                 </Text>

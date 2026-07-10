@@ -5,6 +5,7 @@
 
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { SecurityOverview } from "@/lib/org/security";
+import { latin1Safe } from "./latin1";
 
 const ACCENT = "#2563eb";
 const INK = "#0f172a";
@@ -61,7 +62,9 @@ export function SecurityDocument({ overview }: { overview: SecurityOverview }) {
     <Document title={`Ascent security posture — ${o.org}`} author="Ascent" subject="Supply-chain & security posture">
       <Page size="A4" style={styles.page}>
         <Text style={styles.kicker}>Ascent · Security posture</Text>
-        <Text style={styles.h1}>{o.org}</Text>
+        {/* latin1Safe: org + repo names are user data — a non-Latin-1 glyph must show as a visible "?"
+            rather than be silently dropped by the built-in Helvetica font (see ./latin1). */}
+        <Text style={styles.h1}>{latin1Safe(o.org)}</Text>
         <Text style={styles.meta}>{o.periodTitle} · generated {o.generatedOn} · {o.dimLabel} (D9)</Text>
 
         <View style={styles.rule} />
@@ -92,10 +95,10 @@ export function SecurityDocument({ overview }: { overview: SecurityOverview }) {
             </View>
             {o.register.slice(0, 20).map((r) => (
               <View key={r.fullName} style={styles.regRow} wrap={false}>
-                <Text style={styles.regRepo}>{r.name}</Text>
+                <Text style={styles.regRepo}>{latin1Safe(r.name)}</Text>
                 <Text style={{ ...styles.regScore, fontFamily: "Helvetica-Bold", color: scoreColor(r.score) }}>{r.score}</Text>
                 <Text style={{ ...styles.regGate, color: r.gateReason ? "#dc2626" : "#16a34a" }}>
-                  {r.gateReason ? `FAIL — ${r.gateReason}` : "pass"}
+                  {r.gateReason ? `FAIL — ${latin1Safe(r.gateReason)}` : "pass"}
                 </Text>
                 <Text style={{ ...styles.regRules, ...styles.muted }}>
                   {r.rules
@@ -114,7 +117,7 @@ export function SecurityDocument({ overview }: { overview: SecurityOverview }) {
           <View>
             <View style={styles.rule} />
             <Text style={styles.sectionH}>No default-branch protection ({o.unprotected.length})</Text>
-            <Text style={styles.muted}>{o.unprotected.slice(0, 20).map((r) => r.name).join(" · ")}</Text>
+            <Text style={styles.muted}>{o.unprotected.slice(0, 20).map((r) => latin1Safe(r.name)).join(" · ")}</Text>
           </View>
         )}
 

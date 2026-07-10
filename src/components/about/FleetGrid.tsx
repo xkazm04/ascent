@@ -36,6 +36,18 @@ export function FleetGrid() {
   const shown = seg === "All" ? REPOS : REPOS.filter((r) => r.segment === seg);
   const dist = LEVELS.map((l) => ({ id: l.id, n: shown.filter((r) => levelForScore(r.score).id === l.id).length }));
 
+  // ABOUT #1: switching segment can strand the current inspection. If the pinned/hovered cell falls
+  // OUTSIDE the new slice it becomes `disabled` (off-slice), so its own clear-toggle can never fire and
+  // hover is frozen (pinned stays true) — leaving a stale readout that can't be dismissed. Drop the
+  // pin + inspection whenever the inspected repo isn't part of the newly selected segment.
+  const selectSeg = (s: Seg | "All") => {
+    setSeg(s);
+    if (inspect && s !== "All" && inspect.segment !== s) {
+      setPinned(false);
+      setInspect(null);
+    }
+  };
+
   return (
     <div ref={ref}>
       <div className="mb-3 flex flex-wrap gap-1">
@@ -43,7 +55,7 @@ export function FleetGrid() {
           <button
             key={s}
             type="button"
-            onClick={() => setSeg(s)}
+            onClick={() => selectSeg(s)}
             className={`focus-ring rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wider transition ${
               seg === s ? "bg-accent/15 text-accent" : "text-slate-500 hover:text-white"
             }`}

@@ -8,6 +8,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export function RouteError({
   error,
@@ -30,9 +31,19 @@ export function RouteError({
   /** Root boundary: fill the viewport (the app-wide fallback). Segment boundary: compact in-shell card. */
   fullScreen?: boolean;
 }) {
+  const router = useRouter();
   useEffect(() => {
     console.error(logLabel, { digest: error.digest, message: error.message, stack: error.stack });
   }, [error, logLabel]);
+
+  // "Try again" recovery: reset() alone only re-renders the boundary with the SAME, still-cached server
+  // output, so a SERVER-thrown error (the common case here) re-throws immediately and looks unrecoverable.
+  // router.refresh() first re-runs the server components with fresh data, THEN reset() re-renders the
+  // boundary against that fresh result — the real recovery. (app-shell-seo-error-pages #3)
+  const retry = () => {
+    router.refresh();
+    reset();
+  };
 
   const inner = (
     <>
@@ -42,7 +53,7 @@ export function RouteError({
       {error.digest && <p className="mt-2 font-mono text-sm text-slate-500">Reference: {error.digest}</p>}
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <button
-          onClick={() => reset()}
+          onClick={retry}
           className="focus-ring rounded-md bg-accent px-4 py-2 font-medium text-on-accent transition hover:bg-accent-soft"
         >
           Try again

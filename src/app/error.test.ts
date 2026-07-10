@@ -26,6 +26,14 @@ vi.mock("react", async () => {
   return { ...actual, useEffect: () => {} };
 });
 
+// RouteError also calls useRouter(): "Try again" now runs router.refresh() BEFORE reset(), because
+// reset() alone only re-renders the client boundary and cannot recover a SERVER-thrown error — the
+// stale server payload is re-used and the page throws again. useRouter reads a React context, so it
+// blows up when the component is invoked as a plain function (as this suite deliberately does). Stub
+// it, and capture the spy so the reset-wiring assertions below can prove refresh is ordered first.
+const mockRefresh = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mockRefresh }) }));
+
 // Import AFTER the mock is registered so the component closes over the no-op useEffect.
 const { default: AppError } = await import("./error");
 
@@ -118,6 +126,17 @@ describe("AppError — reset wiring", () => {
     expect(reset).not.toHaveBeenCalled();
     btn!.props.onClick?.();
     expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes the server payload BEFORE resetting the boundary", () => {
+    // reset() alone re-renders the client boundary against the SAME stale server payload, so a
+    // server-thrown error throws again immediately and "Try again" does nothing. router.refresh()
+    // re-runs the server components first; the order is the whole fix.
+    mockRefresh.mockClear();
+    tryAgainButton(tree(makeError(), reset))!.props.onClick?.();
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(mockRefresh.mock.invocationCallOrder[0]).toBeLessThan(reset.mock.invocationCallOrder[0]);
   });
 
   it("the only reset-invoking control is the Try again button (not the home link)", () => {

@@ -91,14 +91,24 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       prBody: brief,
     });
 
-    // Record the adoption mark (idempotent) so lift analytics include this repo, and audit the write.
-    await applyPlaybook(org, id, ctxRepo.fullName, actorLogin);
-    await recordOrgAudit(
-      "playbook.pr_opened",
-      org,
-      { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused },
-      actorLogin ?? undefined,
-    );
+    // The PR is now OPEN — the adoption mark + audit are BOOKKEEPING. A failure here must NOT surface as
+    // "Failed to open the playbook PR." (the outer catch's 500): the PR exists, so reporting failure sends
+    // the caller to retry and open a DUPLICATE. Record best-effort and always return the opened PR, so a
+    // "PR opened but a follow-up step failed" is distinguished from "PR not opened". (playbooks #2)
+    try {
+      await applyPlaybook(org, id, ctxRepo.fullName, actorLogin);
+      await recordOrgAudit(
+        "playbook.pr_opened",
+        org,
+        { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused },
+        actorLogin ?? undefined,
+      );
+    } catch (bookkeepErr) {
+      console.error(
+        "[playbooks/apply] PR opened but adoption/audit bookkeeping failed",
+        bookkeepErr instanceof Error ? bookkeepErr.message : bookkeepErr,
+      );
+    }
 
     return NextResponse.json(pr);
   } catch (err) {

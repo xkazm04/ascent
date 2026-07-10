@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { AppPassport, PersistedRecommendation, ScanReport } from "@/lib/types";
 import type { RepositoryHistory } from "@/lib/db/scans";
@@ -128,10 +128,8 @@ export function ReportView({
   // The active section is URL-backed (?tab=…) so a report tab is shareable, bookmarkable, and survives
   // Back/forward + refresh — a report is an artifact people link to, and the org dashboard already keeps
   // its scope in the URL. `scoring` is the default and stays clean (no param). An unknown or unavailable
-  // tab (e.g. ?tab=contributors on a scan with no activity) falls back to scoring. `router.replace` with
-  // scroll:false swaps the tab without a history-stack entry per click or a scroll jump.
+  // tab (e.g. ?tab=contributors on a scan with no activity) falls back to scoring.
   const params = useSearchParams();
-  const router = useRouter();
   const pathname = usePathname();
   const validTabs: ReportTab[] = ["scoring", "dimensions", "roadmap", "sandbox", ...(showActivity ? (["contributors"] as const) : [])];
   const tabParam = params.get("tab") as ReportTab | null;
@@ -141,7 +139,12 @@ export function ReportView({
     if (t === "scoring") next.delete("tab");
     else next.set("tab", t);
     const qs = next.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // Use the native History API rather than router.replace(): the /report page is `force-dynamic`, so
+    // a router navigation on every section click refetched the entire server tree (ReportShell's
+    // SiteHeader/SiteFooter auth reads) even though the panels are 100% client-rendered off this `tab`.
+    // history.replaceState updates the shareable URL with ZERO server work and still syncs useSearchParams
+    // in Next's App Router (so `tab` above recomputes on the next render). (report-report-shell-tabs #4)
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
   };
   const tabs: { id: ReportTab; label: string }[] = [
     { id: "scoring", label: "Scoring" },
