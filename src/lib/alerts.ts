@@ -120,6 +120,56 @@ export function detectRegression(
   return { regressed, severity, reasons };
 }
 
+// --- Per-repo regression-alert cooldown (fleet-alerts-digests #4) ----------------------------------
+// A repo whose overall score oscillates ACROSS the regression threshold (a flapping test, a noisy LLM
+// re-grade, a dependency that lands then reverts) fires a fresh Slack alert on EVERY autoscan/push
+// re-scan — the pager fatigue that trains a team to mute the exact channel the alert layer exists to
+// keep credible. Suppress a repeat regression alert for the SAME repo inside a cooldown window.
+// Best-effort + in-memory: a cooldown is spam-suppression, not a correctness guarantee, so a cold
+// serverless start (empty map) at worst re-sends once — never drops a distinct new regression. Keyed by
+// repo fullName; the map is globalThis-pinned so it survives Next.js HMR and a warm serverless instance.
+const DEFAULT_REGRESSION_COOLDOWN_MINUTES = 360; // 6h between repeat alerts for one repo
+
+/** Cooldown window (ms) between regression alerts for the SAME repo. REGRESSION_COOLDOWN_MINUTES
+ *  (non-negative integer minutes), default 360 (6h); an explicit 0 disables the cooldown (every
+ *  regression alerts). Blank/missing → default, never 0 (same blank-vs-zero rule as the cost rates). */
+export function regressionCooldownMs(): number {
+  const raw = process.env.REGRESSION_COOLDOWN_MINUTES;
+  if (raw == null || raw.trim() === "") return DEFAULT_REGRESSION_COOLDOWN_MINUTES * 60_000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) * 60_000 : DEFAULT_REGRESSION_COOLDOWN_MINUTES * 60_000;
+}
+
+// globalThis-pinned so the cooldown survives HMR (dev) and a warm serverless instance (prod) — a plain
+// module const would reset on every reload and defeat the throttle.
+const cooldownGlobal = globalThis as typeof globalThis & { __ascentRegressionCooldownAt?: Map<string, number> };
+const regressionCooldownAt: Map<string, number> = (cooldownGlobal.__ascentRegressionCooldownAt ??= new Map());
+
+/**
+ * Check-and-STAMP the per-repo regression cooldown as ONE indivisible step (JS's single-threaded event
+ * loop makes the read+write atomic): returns true when an alert may be sent now — and records `now` as
+ * the last-sent time so the NEXT call within the window is suppressed — or false when the repo is still
+ * inside its cooldown window. Stamping at the claim (not after a successful POST) also collapses the rare
+ * overlapping-rescan case to a single alert. A cooldown of 0 always allows (feature disabled). Pure given
+ * its args; `now` is injectable for tests.
+ */
+export function claimRegressionAlert(
+  repoFullName: string,
+  cooldownMs: number = regressionCooldownMs(),
+  now: number = Date.now(),
+): boolean {
+  if (cooldownMs <= 0) return true; // disabled → never throttle
+  const last = regressionCooldownAt.get(repoFullName);
+  if (last != null && now - last < cooldownMs) return false; // still cooling down
+  regressionCooldownAt.set(repoFullName, now);
+  return true;
+}
+
+/** Test-only: clear the in-memory cooldown map so a suite's cases don't leak stamps into each other. */
+export function __resetRegressionCooldowns(): void {
+  regressionCooldownAt.clear();
+}
+
 export interface RepoAlertRef {
   fullName: string;
   /** Absolute or relative link to the report/what-changed view. */

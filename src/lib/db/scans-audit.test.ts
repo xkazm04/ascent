@@ -19,7 +19,7 @@ vi.mock("@/lib/db/client", () => ({
   withRetry: (fn: () => unknown) => fn(),
 }));
 
-import { getAuditLog } from "./scans-audit";
+import { getAuditLog, claimOrgAuditOnce, releaseAuditClaim } from "./scans-audit";
 
 /**
  * Fake prisma capturing the audit query. `organization.findUnique` resolves a slug→id map (so
@@ -82,6 +82,24 @@ describe("getAuditLog org-scoping (cross-tenant isolation)", () => {
     // The org filter is present and is the acme id — the foreign org's id is never queried.
     expect(where.orgId).toBe("org_acme");
     expect(JSON.stringify(where)).not.toContain("org_evil");
+  });
+
+  it("normalizes a mixed-case slug before resolving, so the read agrees with the lower-cased write (audit-log #4)", async () => {
+    // Org rows are persisted lower-cased; the WRITE path (recordOrgAudit → getOrgId → getOrgBySlug)
+    // already lower-cases, but the READ path did NOT — so a mixed-case slug (`/org/MyOrg`, an API
+    // caller's raw casing) missed the canonical row and returned an EMPTY trail even though entries were
+    // written under org_my. getAuditLog now normalizes first, so those entries are no longer invisible.
+    const { prisma, findManyCalls } = fakePrisma({
+      slugToId: { myorg: "org_my" },
+      rows: [row("a1", "2026-01-02T00:00:00.000Z")],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const page = await getAuditLog("MyOrg");
+
+    expect(page!.entries.map((e) => e.id)).toEqual(["a1"]); // trail is found, not empty
+    const where = findManyCalls[0].where as Prisma.AuditLogWhereInput;
+    expect(where.orgId).toBe("org_my");
   });
 
   it("returns an empty page (and never queries auditLog) when the org slug doesn't resolve", async () => {
@@ -225,5 +243,71 @@ describe("getAuditLog keyset pagination", () => {
     const page = await getAuditLog("acme", { limit: 25 });
 
     expect(page!.nextCursor).toBeNull();
+  });
+});
+
+// claimOrgAuditOnce collapses the digest cron's old check-then-act idempotency guard (read getAuditLog,
+// dispatch, THEN recordOrgAudit) into ONE conditional insert whose affected-row outcome decides the
+// winner — so two overlapping runs can't both send the same weekly digest (fleet-alerts-digests #3).
+// getOrgId (real) resolves the slug→id via the mocked prisma's organization.findUnique.
+describe("claimOrgAuditOnce / releaseAuditClaim — atomic once-per-window claim (fleet #3)", () => {
+  function claimPrisma(opts: { orgId: string | null; existing?: { id: string } | null }) {
+    const tx = {
+      auditLog: {
+        findFirst: vi.fn(async () => opts.existing ?? null),
+        create: vi.fn(async () => ({ id: "audit_new" })),
+      },
+    };
+    const del = vi.fn(async () => ({}));
+    const prisma = {
+      organization: { findUnique: vi.fn(async () => (opts.orgId ? { id: opts.orgId } : null)) },
+      auditLog: { delete: del },
+      $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
+    };
+    return { prisma, tx, del };
+  }
+
+  it("CLAIMS the window when no marker exists in-window: inserts and returns claimed:true + id", async () => {
+    const { prisma, tx } = claimPrisma({ orgId: "org_1", existing: null });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const since = new Date("2026-01-01T00:00:00.000Z");
+    const res = await claimOrgAuditOnce("org.digest.sent", "claim-a", since, { weekStart: "x" });
+
+    expect(res).toEqual({ claimed: true, id: "audit_new" });
+    // The conditional check is scoped to (action, orgId, at >= since), then the insert runs.
+    expect(tx.auditLog.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { action: "org.digest.sent", orgId: "org_1", at: { gte: since } } }),
+    );
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT claim when a marker already exists in-window: claimed:false, inserts nothing (loser skips)", async () => {
+    const { prisma, tx } = claimPrisma({ orgId: "org_1", existing: { id: "already_sent" } });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await claimOrgAuditOnce("org.digest.sent", "claim-b", new Date(0), {});
+    expect(res).toEqual({ claimed: false, id: null });
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("fails CLOSED (claimed:false) when the org can't be resolved — never sends without a durable claim", async () => {
+    const { prisma, tx } = claimPrisma({ orgId: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    const res = await claimOrgAuditOnce("org.digest.sent", "claim-ghost", new Date(0), {});
+    expect(res).toEqual({ claimed: false, id: null });
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("releaseAuditClaim deletes the marker by id, and is a no-op for a null id", async () => {
+    const { prisma, del } = claimPrisma({ orgId: "org_1" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await releaseAuditClaim("audit_1");
+    expect(del).toHaveBeenCalledWith({ where: { id: "audit_1" } });
+
+    del.mockClear();
+    await releaseAuditClaim(null);
+    expect(del).not.toHaveBeenCalled();
   });
 });

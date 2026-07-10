@@ -157,10 +157,54 @@ export async function upsertStickyComment(input: StickyCommentInput): Promise<{ 
     }
   }
 
-  const created = await githubAppFetch<{ html_url: string }>(
+  // No marked comment found (or the prior one was deleted) — create a new one. Under CONCURRENT PR events
+  // (two pushes, a synchronize racing a labeled) both handlers can reach here having each seen no marker,
+  // and both POST — stacking DUPLICATE bot comments, the exact thing this sticky upsert exists to prevent
+  // (ci-gate-status-checks #4). GitHub offers no atomic find-or-create on issue comments, so we make the
+  // operation idempotent on the stable `marker` by RECONCILING right after the create.
+  const created = await githubAppFetch<{ id: number; html_url: string }>(
     `/repos/${owner}/${repo}/issues/${prNumber}/comments`,
     token,
     { method: "POST", body: JSON.stringify({ body }) },
   );
-  return { url: created.html_url, updated: false };
+  return reconcileStickyComment(input, created.id, created.html_url);
+}
+
+/**
+ * Converge concurrent sticky-comment creates to a SINGLE comment (ci-gate-status-checks #4). Re-scan the
+ * thread for every comment carrying our `marker`: with no race there's exactly one (the one we just
+ * created) and this is a no-op single request. Under a race there are ≥2, so keep the EARLIEST (lowest
+ * id — GitHub comment ids are monotonic with creation) as canonical and DELETE the rest WE could have
+ * created, so racing handlers deterministically agree on the same surviving comment regardless of
+ * interleaving. Best-effort deletes (a concurrent reconcile may have already removed one → 404, ignored).
+ */
+async function reconcileStickyComment(
+  input: StickyCommentInput,
+  createdId: number,
+  createdUrl: string,
+): Promise<{ url: string; updated: boolean }> {
+  const { token, owner, repo, prNumber, marker } = input;
+  const PER_PAGE = 100;
+  const MAX_PAGES = 50;
+  const marked: { id: number; url: string }[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const comments = await githubAppFetch<{ id: number; body: string; html_url: string }[]>(
+      `/repos/${owner}/${repo}/issues/${prNumber}/comments?per_page=${PER_PAGE}&page=${page}`,
+      token,
+    );
+    for (const c of comments) if (typeof c.body === "string" && c.body.includes(marker)) marked.push({ id: c.id, url: c.html_url });
+    if (comments.length < PER_PAGE) break;
+  }
+  // No duplicate (the common, uncontended path) — the comment we created stands.
+  if (marked.length <= 1) return { url: createdUrl, updated: false };
+
+  const canonical = marked.reduce((a, b) => (b.id < a.id ? b : a));
+  // Delete every duplicate that is NOT the canonical. We only ever created comments with this marker, so
+  // deleting the non-canonical marked comments removes the racers' (and possibly our own) extras.
+  for (const c of marked) {
+    if (c.id === canonical.id) continue;
+    await githubAppFetch(`/repos/${owner}/${repo}/issues/comments/${c.id}`, token, { method: "DELETE" }).catch(() => {});
+  }
+  // Report the surviving canonical comment's URL — it may be an earlier racer's, not ours.
+  return { url: canonical.url, updated: false };
 }

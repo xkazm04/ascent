@@ -1,16 +1,19 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   detectRegression,
   buildRegressionMessage,
   buildFleetDigestMessage,
   buildLowCreditsMessage,
+  claimRegressionAlert,
   creditsAlertThreshold,
   dispatchAlert,
   digestHasSignal,
   isAlertConfigured,
   isLowCreditsCrossing,
+  regressionCooldownMs,
   resolveAlertWebhook,
   validateAlertWebhookUrl,
+  __resetRegressionCooldowns,
   DEFAULT_THRESHOLDS,
   type AlertMessage,
   type FleetDigestInput,
@@ -37,6 +40,67 @@ function diff(over: Partial<ScanDiff> = {}): ScanDiff {
   };
   return { ...base, ...over };
 }
+
+// Per-repo regression cooldown (fleet-alerts-digests #4). Pure check-and-stamp with an injectable clock,
+// so the flapping-repo throttle is pinned deterministically. Reset the module map between cases.
+describe("claimRegressionAlert — per-repo cooldown", () => {
+  const COOLDOWN = 60_000; // 1 min window for the tests
+  beforeEach(() => __resetRegressionCooldowns());
+  afterEach(() => __resetRegressionCooldowns());
+
+  it("allows the first alert for a repo and STAMPS the window (the next within it is throttled)", () => {
+    expect(claimRegressionAlert("acme/api", COOLDOWN, 1_000)).toBe(true);
+    // A second attempt 30s later is inside the 60s window → throttled.
+    expect(claimRegressionAlert("acme/api", COOLDOWN, 31_000)).toBe(false);
+  });
+
+  it("re-allows once the window has fully elapsed (>= cooldownMs since the last stamp)", () => {
+    expect(claimRegressionAlert("acme/api", COOLDOWN, 1_000)).toBe(true);
+    expect(claimRegressionAlert("acme/api", COOLDOWN, 60_000)).toBe(false); // 59s later — still cooling
+    expect(claimRegressionAlert("acme/api", COOLDOWN, 61_000)).toBe(true); // 60s later — window elapsed
+  });
+
+  it("tracks each repo independently (one repo's cooldown never throttles another)", () => {
+    expect(claimRegressionAlert("acme/api", COOLDOWN, 1_000)).toBe(true);
+    expect(claimRegressionAlert("acme/web", COOLDOWN, 1_000)).toBe(true); // different repo, not throttled
+    expect(claimRegressionAlert("acme/api", COOLDOWN, 2_000)).toBe(false); // same repo, still cooling
+  });
+
+  it("a cooldown of 0 disables throttling — every regression alerts", () => {
+    expect(claimRegressionAlert("acme/api", 0, 1_000)).toBe(true);
+    expect(claimRegressionAlert("acme/api", 0, 1_001)).toBe(true);
+    expect(claimRegressionAlert("acme/api", 0, 1_002)).toBe(true);
+  });
+});
+
+describe("regressionCooldownMs — env parsing", () => {
+  const saved = process.env.REGRESSION_COOLDOWN_MINUTES;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.REGRESSION_COOLDOWN_MINUTES;
+    else process.env.REGRESSION_COOLDOWN_MINUTES = saved;
+  });
+
+  it("defaults to 6h when unset or blank (default, never 0)", () => {
+    delete process.env.REGRESSION_COOLDOWN_MINUTES;
+    expect(regressionCooldownMs()).toBe(360 * 60_000);
+    process.env.REGRESSION_COOLDOWN_MINUTES = "   ";
+    expect(regressionCooldownMs()).toBe(360 * 60_000);
+  });
+
+  it("parses a configured minute value and honors an explicit 0 (disabled)", () => {
+    process.env.REGRESSION_COOLDOWN_MINUTES = "15";
+    expect(regressionCooldownMs()).toBe(15 * 60_000);
+    process.env.REGRESSION_COOLDOWN_MINUTES = "0";
+    expect(regressionCooldownMs()).toBe(0);
+  });
+
+  it("falls back to the default on a negative / non-numeric value", () => {
+    process.env.REGRESSION_COOLDOWN_MINUTES = "-5";
+    expect(regressionCooldownMs()).toBe(360 * 60_000);
+    process.env.REGRESSION_COOLDOWN_MINUTES = "not-a-number";
+    expect(regressionCooldownMs()).toBe(360 * 60_000);
+  });
+});
 
 describe("detectRegression", () => {
   it("flags a level demotion as critical", () => {

@@ -20,6 +20,9 @@ vi.mock("@/lib/alerts", () => ({
   detectRegression: vi.fn(),
   dispatchAlert: vi.fn(),
   buildRegressionMessage: vi.fn(() => ({ text: "msg", blocks: [] })),
+  // Per-repo cooldown gate (fleet #4). Default = allowed (claim wins); one test flips it to false to
+  // pin that a repo inside its cooldown window is throttled (verdict still real, no POST).
+  claimRegressionAlert: vi.fn(() => true),
   // isAlertConfigured mirrors the real "a non-empty url counts" semantics so the gate is exercised
   // honestly rather than hard-wired true.
   isAlertConfigured: vi.fn((url?: string | null) => !!(url && url.trim())),
@@ -44,6 +47,7 @@ import {
   dispatchAlert,
   buildRegressionMessage,
   buildLowCreditsMessage,
+  claimRegressionAlert,
   creditsAlertThreshold,
   isLowCreditsCrossing,
 } from "@/lib/alerts";
@@ -53,6 +57,7 @@ const mockDiff = vi.mocked(diffReports);
 const mockDetect = vi.mocked(detectRegression);
 const mockDispatch = vi.mocked(dispatchAlert);
 const mockBuildMsg = vi.mocked(buildRegressionMessage);
+const mockClaimCooldown = vi.mocked(claimRegressionAlert);
 const mockThresholds = vi.mocked(getOrgAlertThresholds);
 const mockWebhook = vi.mocked(getOrgAlertWebhook);
 const mockAudit = vi.mocked(recordAudit);
@@ -86,6 +91,7 @@ beforeEach(() => {
   mockThresholds.mockResolvedValue({ overallDrop: 5, dimensionDrop: 15 } as never);
   mockAudit.mockResolvedValue(undefined as never);
   mockDispatch.mockResolvedValue(true);
+  mockClaimCooldown.mockReturnValue(true); // default: not throttled (cooldown slot claimed)
 });
 
 describe("checkAndAlertRegression — gate correctness", () => {
@@ -117,6 +123,23 @@ describe("checkAndAlertRegression — gate correctness", () => {
     expect(mockAudit).toHaveBeenCalledTimes(1);
     // The gate must NOT POST when no sink resolves — pins against an inverted isAlertConfigured gate.
     expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it("throttles a repeat regression for a repo inside its cooldown window: verdict is real, but NO dispatch (fleet #4)", async () => {
+    // A flapping repo would otherwise re-alert every scan. When the per-repo cooldown slot is NOT
+    // claimable (still cooling down), the regression is still detected + AUDITED (so it's tracked), but
+    // the Slack push is suppressed — only the pager spam is throttled, never the record.
+    mockDetect.mockReturnValue(REGRESSED);
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+    mockClaimCooldown.mockReturnValue(false); // repo is within its cooldown window
+
+    const out = await checkAndAlertRegression(report("acme", "api"), report("acme", "api"), { orgSlug: "acme" });
+
+    expect(out.regressed).toBe(true);
+    expect(out.dispatched).toBe(false);
+    expect(mockAudit).toHaveBeenCalledTimes(1); // still tracked
+    expect(mockClaimCooldown).toHaveBeenCalledWith("acme/api"); // cooldown keyed by the repo fullName
+    expect(mockDispatch).not.toHaveBeenCalled(); // throttled — no duplicate alert
   });
 });
 

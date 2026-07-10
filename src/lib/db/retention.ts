@@ -238,30 +238,34 @@ export interface PurgeSummary {
   orgsRemaining: number;
 }
 
-/** Options for {@link purgeExpiredData}. Clock + RNG are injectable so the budget/rotation are testable. */
+/** Options for {@link purgeExpiredData}. The clock is injectable so the budget + the per-tick rotation
+ *  (which is DERIVED from the clock, not from an RNG) are deterministically testable. */
 export interface PurgeOptions {
   actorId?: string;
   /** Wall-clock budget (ms) for the org loop; defaults to RETENTION_TIME_BUDGET_MS env or 250_000. */
   timeBudgetMs?: number;
-  /** Monotonic-ish clock (ms). Defaults to Date.now. */
+  /** Monotonic-ish clock (ms). Defaults to Date.now. Also seeds the per-tick rotation offset. */
   now?: () => number;
-  /** Jitter source in [0, 1). Defaults to Math.random. */
-  random?: () => number;
 }
 
 /**
- * Fisher-Yates in-place shuffle, so each cron tick rotates the org order (data-retention #2). A purge
- * that can't finish within its time budget would otherwise re-process the same head of the list every
- * run and perpetually starve the tail; rotating the start means every org is eventually reached across
- * consecutive daily runs. Stateless — needs no persisted cursor.
+ * Rotate a STABLY-ordered list in place by `offset` positions (data-retention #4). Replaces the old
+ * Fisher-Yates RANDOM shuffle: a stateless random shuffle only gives PROBABILISTIC fairness — a large
+ * org that can't drain within one tick's budget has an independent chance of landing in the unreached
+ * tail EVERY run, so it can be starved for an unbounded number of ticks (bad luck compounds). A
+ * DETERMINISTIC round-robin rotation of the fixed oldest-first order instead advances the starting point
+ * by one org per day (offset = epoch-day index) and wraps, so every org reaches the front within
+ * `length` ticks — a BOUNDED worst-case reach — while staying stateless (no persisted cursor). The input
+ * order is the query's `createdAt asc` (oldest first), so an un-rotated tick already drains the oldest
+ * data first; the rotation only guarantees the tail is eventually reached.
  */
-function shuffleInPlace<T>(arr: T[], random: () => number): void {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    const tmp = arr[i]!;
-    arr[i] = arr[j]!;
-    arr[j] = tmp;
-  }
+export function rotateForTick<T>(arr: T[], offset: number): void {
+  const n = arr.length;
+  if (n <= 1) return;
+  const k = ((Math.trunc(offset) % n) + n) % n; // normalize into [0, n), tolerating negatives
+  if (k === 0) return;
+  const rotated = arr.slice(k).concat(arr.slice(0, k));
+  for (let i = 0; i < n; i++) arr[i] = rotated[i]!;
 }
 
 /**
@@ -276,7 +280,6 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   const prisma = getPrisma();
   const defaults = envRetentionDefaults();
   const now = opts.now ?? Date.now;
-  const random = opts.random ?? Math.random;
   const timeBudgetMs =
     opts.timeBudgetMs ?? (parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS) || RETENTION_DEFAULT_TIME_BUDGET_MS);
   const startedAt = now();
@@ -288,15 +291,18 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     orderBy: { createdAt: "asc" },
   });
 
-  // Tail-org starvation guard (data-retention #2): the run is strictly sequential under the route's
-  // 300s maxDuration, and with a STABLE org order a large fleet that can't drain in one tick dies at
-  // the same prefix every run — so late-ordered orgs are NEVER reached and their retention is never
-  // enforced (the exact failure this module exists to prevent), worst for the biggest fleets. Two
-  // cheap, schema-free defenses, combined: (1) rotate the order each tick (shuffle) so no org is
-  // deterministically last, and (2) stop cleanly once a wall-clock budget is exhausted — before the
+  // Tail-org starvation guard (data-retention #2 + #4): the run is strictly sequential under the route's
+  // 300s maxDuration, and with a STABLE org order a large fleet that can't drain in one tick dies at the
+  // same prefix every run — so late-ordered orgs are NEVER reached and their retention is never enforced
+  // (the exact failure this module exists to prevent), worst for the biggest fleets. Two cheap,
+  // schema-free defenses, combined: (1) rotate the order each tick with a DETERMINISTIC round-robin
+  // (offset = epoch-day index) so every org reaches the front within `orgs.length` ticks — a BOUNDED
+  // reach, unlike the old random shuffle whose fairness was only probabilistic (a large org could be
+  // unlucky run after run), and (2) stop cleanly once a wall-clock budget is exhausted — before the
   // platform kills the function mid-delete — surfacing the unreached count so the route's non-2xx
-  // alerting (finding #1) trips. Over a few ticks every org is reached instead of never.
-  shuffleInPlace(orgs, random);
+  // alerting (finding #1) trips. The offset is seeded from `startedAt` (already read from the injectable
+  // clock) so it consumes no extra now() tick.
+  rotateForTick(orgs, Math.floor(startedAt / DAY_MS));
 
   const results: OrgPurgeResult[] = [];
   const errors: string[] = [];
@@ -323,12 +329,19 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     // Nothing to enforce for this org — skip (don't write a no-op audit entry).
     if (policy.maxScansPerRepo <= 0 && policy.auditDays <= 0) continue;
 
+    // Declare the counters OUTSIDE the try (data-retention #3). Each delete batch is its own committed
+    // transaction, so if a LATER batch/sweep throws, earlier batches are already durable — the counters
+    // hold real deletions. The old code declared these inside try and only results.push()'d at the very
+    // end, so ANY throw mid-prune discarded the org's already-committed counts: the run summary (and the
+    // rolled-up totals the compliance view reads) then UNDER-reported what was actually deleted. Hoisting
+    // them lets the catch below record the PARTIAL result instead of dropping it.
+    let scansDeleted = 0;
+    let dimensionsDeleted = 0;
+    let recommendationsDeleted = 0;
+    let recommendationEventsDeleted = 0;
+    let auditDeleted = 0;
+
     try {
-      let scansDeleted = 0;
-      let dimensionsDeleted = 0;
-      let recommendationsDeleted = 0;
-      let recommendationEventsDeleted = 0;
-      let auditDeleted = 0;
       // Set once the wall-clock budget trips WHILE this org is being pruned (data-retention #1). The
       // budget used to be polled only between orgs, so the one fleet org it exists to protect — thousands
       // of repos, huge scan histories — ran its entire delete loop past maxDuration and was hard-killed
@@ -434,6 +447,26 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         break;
       }
     } catch (err) {
+      // A prune/sweep threw AFTER some batches already committed (data-retention #3). Each batch is its
+      // own durable transaction, so record the PARTIAL counts — gated on a non-zero total, mirroring the
+      // success path's `totalDeleted > 0` audit gate — so the summary + its rolled-up totals reflect what
+      // was actually deleted this tick instead of discarding it. A throw BEFORE any delete (e.g. during
+      // selection) stays out of `results` (no all-zero noise row). The try's own results.push runs only
+      // on the success path, so this never double-counts. The self-audit trace is skipped on a throw; the
+      // error string is what pages an operator.
+      const partialDeleted =
+        scansDeleted + dimensionsDeleted + recommendationsDeleted + recommendationEventsDeleted + auditDeleted;
+      if (partialDeleted > 0) {
+        results.push({
+          orgSlug: org.slug,
+          policy,
+          scansDeleted,
+          dimensionsDeleted,
+          recommendationsDeleted,
+          recommendationEventsDeleted,
+          auditDeleted,
+        });
+      }
       errors.push(`${org.slug}: ${err instanceof Error ? err.message : "purge failed"}`);
     }
   }

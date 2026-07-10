@@ -213,6 +213,29 @@ describe("getOrgSupplyChain — successful fetch returns the real vuln tally", (
     expect(sc.totals).toEqual({ critical: 1, high: 1, medium: 0, low: 1, total: 3 });
   });
 
+  it("paginates past per_page=100 and SUMS every page — a heavily-vulnerable repo is not under-counted (audit-log #3)", async () => {
+    mockRollup.mockResolvedValue(rollup([repo("mono")]));
+    // Page 1 is a FULL page of 100 criticals (forces a second fetch); page 2 has 5 highs (a SHORT page,
+    // so the walk stops). The old single-page fetch tallied only the first 100 and dropped the rest.
+    const page1 = Array.from({ length: 100 }, () => alert("critical"));
+    const page2 = Array.from({ length: 5 }, () => alert("high"));
+    const fetchMock = vi.fn(async (url: string) => {
+      const page = new URL(url).searchParams.get("page");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => (page === "1" ? page1 : page === "2" ? page2 : []),
+      } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const sc = (await getOrgSupplyChain("org-paginate"))!;
+    // BOTH pages are tallied: 100 critical + 5 high (105 total) — not truncated at the 100-item cap.
+    expect(sc.repos[0]).toMatchObject({ name: "mono", critical: 100, high: 5, total: 105 });
+    // A full first page → a second fetch; the short second page ends the loop (no third request).
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("sorts repos worst-first: critical-desc, then high-desc", async () => {
     mockRollup.mockResolvedValue(rollup([repo("low-risk"), repo("crit-heavy"), repo("high-heavy")]));
     const fetchMock = vi

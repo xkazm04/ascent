@@ -1,9 +1,10 @@
 // Audit-trail writes + the org-dashboard audit-log query (keyset-paginated, scan-enriched).
 
 import { Prisma } from "@prisma/client";
-import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { resolveOrgId } from "@/lib/db/scans-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
 
 /**
@@ -62,6 +63,83 @@ export async function recordOrgAudit(
 ): Promise<boolean> {
   const orgId = (await getOrgId(slug).catch(() => null)) ?? undefined;
   return recordAudit(action, meta, { orgId, actorId });
+}
+
+/** The outcome of an atomic once-per-window audit claim (see {@link claimOrgAuditOnce}). */
+export interface AuditClaim {
+  /** True when THIS caller inserted the marker (won the window). False when one already existed — a
+   *  concurrent run / retry beat us, so the caller must NOT perform the once-only side effect. */
+  claimed: boolean;
+  /** The inserted marker's id when we claimed — pass to {@link releaseAuditClaim} to UNDO the claim if
+   *  the guarded side effect (e.g. the digest POST) then fails, so the next run retries. null otherwise. */
+  id: string | null;
+}
+
+/**
+ * Atomically claim a once-per-window org action (fleet-alerts-digests #3). The digest cron's old guard
+ * was check-then-ACT — read getAuditLog, dispatch, THEN recordOrgAudit after the send — so two
+ * overlapping runs (a platform retry, a re-fired schedule) both read "not sent", both dispatched, and an
+ * org received the SAME weekly digest twice; a crash between the send and the stamp did the same on the
+ * next run. This collapses the read+write into ONE conditional insert whose affected-row count decides
+ * the winner: insert the marker only when no entry for (action, orgId) exists at/after `since`. The
+ * find-then-create runs inside a transaction wrapped in withRetry, so on Aurora DSQL two racing claims
+ * conflict on their overlapping read/write sets and the loser re-runs, sees the winner's marker, and
+ * returns claimed:false (rather than both inserting). Fails CLOSED (claimed:false) when persistence is
+ * off, the org can't be resolved, or the write errors — a missed positive-push digest self-heals next
+ * window, whereas sending without a durable claim would reintroduce the duplicate this fix removes.
+ */
+export async function claimOrgAuditOnce(
+  action: string,
+  slug: string,
+  since: Date,
+  meta: Record<string, unknown>,
+  actorId?: string,
+): Promise<AuditClaim> {
+  if (!isDbConfigured()) return { claimed: false, id: null };
+  const orgId = (await getOrgId(slug).catch(() => null)) ?? null;
+  if (!orgId) return { claimed: false, id: null }; // unknown org → can't scope an at-most-once marker
+  const prisma = getPrisma();
+  try {
+    return await withRetry(
+      () =>
+        prisma.$transaction(async (tx) => {
+          const existing = await tx.auditLog.findFirst({
+            where: { action, orgId, at: { gte: since } },
+            select: { id: true },
+          });
+          if (existing) return { claimed: false, id: null };
+          const at = new Date();
+          const signedMeta = withAuditSignature({ action, orgId, actorId: actorId ?? null, createdAt: at.toISOString(), meta });
+          const row = await tx.auditLog.create({
+            data: { action, meta: JSON.stringify(signedMeta), orgId, actorId: actorId ?? null, at },
+            select: { id: true },
+          });
+          return { claimed: true, id: row.id };
+        }),
+      { label: "audit.claim-once" },
+    );
+  } catch (err) {
+    console.error("[db] claimOrgAuditOnce failed — treating as NOT claimed (fail-closed)", {
+      action,
+      slug,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { claimed: false, id: null };
+  }
+}
+
+/**
+ * Release a claim from {@link claimOrgAuditOnce} when the guarded side effect FAILED, so the window is
+ * not left falsely marked "done" and the next run retries it. Best-effort: a lost release at worst drops
+ * one window's side effect (recovered next window), never spams. No-op for a null id / DB-less.
+ */
+export async function releaseAuditClaim(id: string | null): Promise<void> {
+  if (!id || !isDbConfigured()) return;
+  try {
+    await getPrisma().auditLog.delete({ where: { id } });
+  } catch (err) {
+    console.error("[db] releaseAuditClaim failed", { id, error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 // ---- Audit log query (org dashboard viewer) ---------------------------------
@@ -158,7 +236,13 @@ export async function getAuditLog(
 ): Promise<AuditLogPage | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  // Normalize the slug BEFORE resolving the org (security-posture-audit-log #4). The WRITE path
+  // (recordOrgAudit → getOrgId → getOrgBySlug) already trims+lowercases, but resolveOrgId did NOT — so a
+  // mixed-case slug reaching this read (`/org/MyOrg`, an API caller's raw casing) missed the canonical
+  // lower-cased row, returned no orgId, and the whole trail + its CSV export came back EMPTY even though
+  // the entries were written under the correct orgId. Normalizing here makes the read agree with the
+  // write so those entries are no longer invisible.
+  const orgId = await resolveOrgId(normalizeOrgSlug(orgSlug));
   if (!orgId) return { entries: [], nextCursor: null };
 
   const limit = Math.min(100, Math.max(1, query.limit ?? 25));

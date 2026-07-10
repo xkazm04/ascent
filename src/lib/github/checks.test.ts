@@ -16,7 +16,7 @@ vi.mock("@/lib/github/app", async () => {
   return { ...actual, githubAppFetch: vi.fn() }; // keep the real AppApiError
 });
 
-import { createCheckRun } from "./checks";
+import { createCheckRun, upsertStickyComment } from "./checks";
 import { githubAppFetch } from "@/lib/github/app";
 
 const mockFetch = vi.mocked(githubAppFetch);
@@ -89,5 +89,95 @@ describe("createCheckRun — bounded retry", () => {
     mockFetch.mockResolvedValueOnce(ok);
     await expect(createCheckRun(input())).resolves.toEqual({ url: ok.html_url, id: 1 });
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// upsertStickyComment must be idempotent on the stable `marker` (ci-gate-status-checks #4): concurrent PR
+// events (two pushes, a synchronize racing a labeled) can BOTH miss the marker and BOTH create, stacking
+// duplicate bot comments. We reconcile after the create — keep the earliest (lowest-id) marked comment,
+// delete the rest — so racing handlers converge on ONE comment. githubAppFetch is mocked and routed by
+// method so we can drive the found/created/raced branches.
+const MARKER = "<!-- ascent-gate -->";
+const sticky = (over: Partial<{ prNumber: number; body: string }> = {}) => ({
+  token: "t",
+  owner: "acme",
+  repo: "app",
+  prNumber: 7,
+  marker: MARKER,
+  body: "gate body",
+  ...over,
+});
+
+describe("upsertStickyComment — idempotent find-or-create on the marker", () => {
+  it("PATCHes the existing marked comment in place (no new comment) when one is already present", async () => {
+    const patched: number[] = [];
+    mockFetch.mockImplementation(async (path: string, _t: string, init?: { method?: string }) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET") return [{ id: 55, body: `old ${MARKER}`, html_url: "u55" }];
+      if (method === "PATCH") {
+        patched.push(Number(path.split("/").pop()));
+        return { html_url: "u55-updated" };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+
+    const out = await upsertStickyComment(sticky());
+    expect(out).toEqual({ url: "u55-updated", updated: true });
+    expect(patched).toEqual([55]); // updated in place, never a new POST
+  });
+
+  it("creates a new comment when none exists; the post-create reconcile is a single scan with NO delete", async () => {
+    let created = false;
+    const deleted: number[] = [];
+    mockFetch.mockImplementation(async (path: string, _t: string, init?: { method?: string }) => {
+      const method = init?.method ?? "GET";
+      if (method === "DELETE") {
+        deleted.push(Number(path.split("/").pop()));
+        return {};
+      }
+      // Before the create: no marker → take the create path. After: reconcile sees only OUR comment.
+      if (method === "GET") return created ? [{ id: 10, body: `b ${MARKER}`, html_url: "u10" }] : [];
+      if (method === "POST") {
+        created = true;
+        return { id: 10, html_url: "u10" };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+
+    const out = await upsertStickyComment(sticky());
+    expect(out).toEqual({ url: "u10", updated: false });
+    expect(deleted).toEqual([]); // no duplicate → nothing deleted
+  });
+
+  it("reconciles a concurrent duplicate: keeps the EARLIEST (lowest-id) comment and deletes the racer's extra", async () => {
+    // Simulate the race: our first scan sees no marker (the other handler's comment isn't visible yet),
+    // so we create id=200. The reconcile scan then sees BOTH the earlier racer (id=100) and ours (id=200).
+    let created = false;
+    const deleted: number[] = [];
+    mockFetch.mockImplementation(async (path: string, _t: string, init?: { method?: string }) => {
+      const method = init?.method ?? "GET";
+      if (method === "DELETE") {
+        deleted.push(Number(path.split("/").pop()));
+        return {};
+      }
+      if (method === "GET") {
+        return created
+          ? [
+              { id: 100, body: `earlier ${MARKER}`, html_url: "u100" },
+              { id: 200, body: `ours ${MARKER}`, html_url: "u200" },
+            ]
+          : [];
+      }
+      if (method === "POST") {
+        created = true;
+        return { id: 200, html_url: "u200" };
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+
+    const out = await upsertStickyComment(sticky());
+    // Converged on the earliest comment; our later duplicate was deleted — one sticky comment survives.
+    expect(out).toEqual({ url: "u100", updated: false });
+    expect(deleted).toEqual([200]);
   });
 });
