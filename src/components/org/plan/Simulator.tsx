@@ -71,7 +71,10 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       // looked identical to "no suggestions" — the user re-clicked with no idea why. Surface the reason.
       // (investment-simulator-forecast #3)
       if (!res.ok) throw new Error(data.error ?? "Couldn't rank moves.");
-      setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0).slice(0, 5));
+      // Keep a move that promotes a repo across a band even when its fleet-AVERAGE lift rounds to 0:
+      // gain is a diff of two rounded integers, so a real promotion (64→65, L3→L4) can read gain=0 yet
+      // promotions>0. Dropping it hid the single most valuable recommendation (investment #2).
+      setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0 || r.promotions > 0).slice(0, 5));
     } catch (e) {
       setRankError(e instanceof Error ? e.message : "Couldn't rank moves.");
     } finally {
@@ -79,15 +82,26 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     }
   }
 
+  // Invalidate a computed projection once ANY input it was derived from (dimension, target, scope,
+  // extra legs) changes: the on-screen numbers would otherwise be stale, and "Track as initiative"
+  // sources its repo scope from the LIVE `scope` — so an edited-but-not-re-simulated scenario could
+  // persist an initiative whose scope disagrees with what was projected/reviewed (investment #3).
+  function invalidate() {
+    setResult(null);
+    setGoalImpacts([]);
+    setTracked(false);
+    setTrackError(null);
+  }
+
   function loadMove(r: InvestmentRank) {
     setDimId(r.dimId);
     setTarget(r.target);
     setExtras([]);
-    setResult(null);
-    setGoalImpacts([]);
+    invalidate();
   }
 
   function toggle(fullName: string) {
+    invalidate();
     setScope((s) => {
       const next = new Set(s);
       if (next.has(fullName)) next.delete(fullName);
@@ -100,12 +114,17 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const used = new Set([dimId, ...extras.map((e) => e.dimId)]);
   function addDimension() {
     const next = dims.find((d) => !used.has(d.id));
-    if (next) setExtras((xs) => [...xs, { dimId: next.id, target: 70 }]);
+    if (next) {
+      invalidate();
+      setExtras((xs) => [...xs, { dimId: next.id, target: 70 }]);
+    }
   }
   function updateExtra(idx: number, patch: Partial<{ dimId: string; target: number }>) {
+    invalidate();
     setExtras((xs) => xs.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
   }
   function removeExtra(idx: number) {
+    invalidate();
     setExtras((xs) => xs.filter((_, i) => i !== idx));
   }
 
@@ -190,7 +209,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <span className="font-mono text-sm text-slate-500">Raise</span>
-        <select aria-label="Dimension to raise" value={dimId} onChange={(e) => setDimId(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
+        <select aria-label="Dimension to raise" value={dimId} onChange={(e) => { invalidate(); setDimId(e.target.value); }} className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
           {dims.map((d) => (
             <option key={d.id} value={d.id}>
               {d.id} · {d.label} (avg {d.avg})
@@ -198,7 +217,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
           ))}
         </select>
         <span className="font-mono text-sm text-slate-500">to</span>
-        <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => setTarget(Number(e.target.value))} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
+        <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => { invalidate(); setTarget(Number(e.target.value)); }} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
         <span className="font-mono text-sm text-slate-500">across</span>
         <button onClick={() => setShowRepos((s) => !s)} className="rounded-lg border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white">
           {scopeLabel} ▾
@@ -250,8 +269,8 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       {showRepos && (
         <div className="mt-3 max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40 p-3">
           <div className="mb-2 flex gap-3 font-mono text-sm text-slate-500">
-            <button onClick={() => setScope(new Set())} className="hover:text-white">all</button>
-            <button onClick={() => setScope(new Set(repos.map((r) => r.fullName)))} className="hover:text-white">select all</button>
+            <button onClick={() => { invalidate(); setScope(new Set()); }} className="hover:text-white">all</button>
+            <button onClick={() => { invalidate(); setScope(new Set(repos.map((r) => r.fullName))); }} className="hover:text-white">select all</button>
           </div>
           <div className="grid gap-1 sm:grid-cols-2">
             {repos.map((r) => (

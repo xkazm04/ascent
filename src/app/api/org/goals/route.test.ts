@@ -30,12 +30,13 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
   requireOrgRead: vi.fn(async () => null),
+  requireOrgRole: vi.fn(async () => null),
 }));
 
 import { POST } from "./route";
 import { PATCH as GOAL_PATCH, DELETE as GOAL_DELETE } from "./[id]/route";
 import { PATCH as INIT_PATCH } from "../initiatives/[id]/route";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import {
   createGoal,
   getGoalOrgSlug,
@@ -46,6 +47,7 @@ import {
 } from "@/lib/db";
 
 const mockAccess = vi.mocked(requireOrgAccess);
+const mockRole = vi.mocked(requireOrgRole);
 const mockCreate = vi.mocked(createGoal);
 const mockGoalOrg = vi.mocked(getGoalOrgSlug);
 const mockUpdate = vi.mocked(updateGoal);
@@ -93,6 +95,7 @@ function patchInitiative(id: string, body: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAccess.mockResolvedValue(null);
+  mockRole.mockResolvedValue(null); // admin gate passes by default (DELETE)
   mockCreate.mockResolvedValue({ id: "goal-new" } as Awaited<ReturnType<typeof createGoal>>);
   mockGoalOrg.mockResolvedValue("acme");
   mockUpdate.mockResolvedValue(undefined as Awaited<ReturnType<typeof updateGoal>>);
@@ -150,13 +153,31 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it("DENIES a cross-tenant delete with NO write", async () => {
+  it("DENIES a cross-tenant delete with NO write (DELETE gates via requireOrgRole on the true org)", async () => {
     mockGoalOrg.mockResolvedValue("victim");
-    mockAccess.mockImplementation(async (org) => (org === "victim" ? FORBIDDEN() : null));
+    mockRole.mockImplementation(async (org) => (org === "victim" ? FORBIDDEN() : null));
     const res = await deleteGoalReq("goal-1");
     expect(res.status).toBe(403);
-    expect(mockAccess).toHaveBeenCalledWith("victim");
+    expect(mockRole).toHaveBeenCalledWith("victim", "admin");
     expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("DELETE requires the admin role — a member-level caller is refused, goal NOT deleted (goals #2)", async () => {
+    // requireOrgRole(org, "admin") denies a member/viewer; the destructive delete must never run.
+    mockRole.mockResolvedValue(
+      Response.json({ error: "This action requires the admin role in this organization." }, { status: 403 }) as never,
+    );
+    const res = await deleteGoalReq("goal-1");
+    expect(res.status).toBe(403);
+    expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("allows an authorized admin delete", async () => {
+    const res = await deleteGoalReq("goal-1");
+    expect(res.status).toBe(200);
+    expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockDelete).toHaveBeenCalledTimes(1);
   });
 
   it("404s when the goal does not exist, before any authz side effect", async () => {

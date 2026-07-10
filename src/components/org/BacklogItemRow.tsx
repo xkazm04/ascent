@@ -5,7 +5,7 @@ import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { REC_STATUSES, type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
-import { STATUS_ACCENT, STATUS_LABEL, dueLabel } from "@/components/org/backlogShared";
+import { STATUS_ACCENT, STATUS_LABEL, dueLabel, type PatchOutcome } from "@/components/org/backlogShared";
 import { BacklogRowHistory } from "@/components/org/BacklogItemRow.history";
 
 /**
@@ -40,7 +40,7 @@ export function BacklogItemRow({
   state?: BacklogRowState;
   /** Merge a patch into this row's lifted state in the parent. */
   onState: (patch: BacklogRowState) => void;
-  onPatch: (id: string, body: Record<string, unknown>) => Promise<void>;
+  onPatch: (id: string, body: Record<string, unknown>) => Promise<PatchOutcome>;
 }) {
   // Persisted-across-remount state lives in the parent (BacklogPanel); only the truly transient
   // in-flight busy flags stay local.
@@ -69,12 +69,16 @@ export function BacklogItemRow({
 
   async function patchField(patch: Partial<Pick<BacklogItem, "status" | "assigneeLogin" | "targetDate">>) {
     setOverride((o) => ({ ...o, ...patch }));
-    try {
-      // Route through patchAndRefresh so an open history list also refreshes with the new timeline
-      // event (origin's behaviour) while the optimistic override keeps the value on screen until the
-      // backlog re-read lands.
-      await patchAndRefresh(item.id, patch);
-    } finally {
+    // Route through patchAndRefresh so an open history list also refreshes with the new timeline event
+    // (origin's behaviour) while the optimistic override keeps the value on screen until the backlog
+    // re-read lands.
+    const outcome = await patchAndRefresh(item.id, patch);
+    // Drop the override ONLY when the displayed server state is now authoritative: the refresh applied a
+    // fresh snapshot (success / 409 reconcile), OR the PATCH failed (revert to the old value the error
+    // explains). If the PATCH SUCCEEDED but the refresh was swallowed (503/blip), KEEP the override — the
+    // server already has the new value, so snapping back to the stale `item.*` reads as a phantom revert
+    // with no error shown (backlog #2).
+    if (outcome.refreshed || !outcome.patched) {
       setOverride((o) => {
         const next = { ...o };
         for (const k of Object.keys(patch)) delete next[k as keyof typeof next];
@@ -161,9 +165,10 @@ export function BacklogItemRow({
 
   // onPatch records a new timeline event server-side, so an already-open history list goes stale.
   // Wrap the patch to refetch history after a successful edit (and a no-op when it's collapsed).
-  async function patchAndRefresh(id: string, body: Record<string, unknown>) {
-    await onPatch(id, body);
+  async function patchAndRefresh(id: string, body: Record<string, unknown>): Promise<PatchOutcome> {
+    const outcome = await onPatch(id, body);
     if (history) void loadHistory();
+    return outcome;
   }
 
   const due = dueLabel(item);

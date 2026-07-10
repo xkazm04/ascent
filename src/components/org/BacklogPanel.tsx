@@ -5,6 +5,7 @@ import { Card } from "@/components/org/ui";
 import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
 import { OwnerHeader, SummaryStrip } from "@/components/org/BacklogSummary";
 import { BacklogItemRow, type BacklogRowState } from "@/components/org/BacklogItemRow";
+import type { PatchOutcome } from "@/components/org/backlogShared";
 
 // Impact-word tiebreak ranking for the "Projected points" cross-repo sort.
 const IMPACT_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
@@ -42,19 +43,23 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
       return next;
     });
 
-  const refresh = useCallback(async () => {
+  // Returns whether a fresh authoritative snapshot was actually applied, so a caller can tell "the
+  // server view is now current" from "the refresh was swallowed" (backlog #2).
+  const refresh = useCallback(async (): Promise<boolean> => {
     const seq = ++refreshSeq.current;
     const res = await fetch(`/api/org/backlog?org=${encodeURIComponent(slug)}`);
-    if (!res.ok) return;
+    if (!res.ok) return false;
     const data = (await res.json()) as { backlog: OrgBacklog | null };
     // Drop a stale response: a later edit's refresh has already superseded this one, so applying this
     // older snapshot would revert the newer edit. Only the most-recent refresh wins.
-    if (seq !== refreshSeq.current) return;
-    if (data.backlog) setBacklog(data.backlog);
+    if (seq !== refreshSeq.current) return false;
+    if (!data.backlog) return false;
+    setBacklog(data.backlog);
+    return true;
   }, [slug]);
 
   const patch = useCallback(
-    async (id: string, body: Record<string, unknown>) => {
+    async (id: string, body: Record<string, unknown>): Promise<PatchOutcome> => {
       setSaving(id, true);
       setErrors((e) => {
         if (!e[id]) return e;
@@ -73,12 +78,14 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
           setErrors((e) => ({ ...e, [id]: msg }));
           // On a 409 optimistic-lock conflict, pull the authoritative current state so the user sees
           // what actually persisted (and the reverted control reflects it) before retrying.
-          if (res.status === 409) await refresh();
-          return;
+          const refreshed = res.status === 409 ? await refresh() : false;
+          return { patched: false, refreshed };
         }
-        await refresh();
+        const refreshed = await refresh();
+        return { patched: true, refreshed };
       } catch {
         setErrors((e) => ({ ...e, [id]: "Network error — check your connection and retry." }));
+        return { patched: false, refreshed: false };
       } finally {
         setSaving(id, false);
       }
