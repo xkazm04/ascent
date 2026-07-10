@@ -89,6 +89,29 @@ describe("getProvider with LLM_PROVIDER=openai/claude-cli — trust the explicit
   });
 });
 
+describe("getProvider with LLM_PROVIDER=gemini — explicit selection must not silently mock (#5)", () => {
+  it("returns the REAL GeminiProvider even with no key, so a bad key fails loudly at assess()", () => {
+    vi.stubEnv("LLM_PROVIDER", "gemini");
+    // GEMINI_API_KEY/GOOGLE_API_KEY are stubbed empty by the top-level beforeEach. The old
+    // geminiOrMock() shortcut returned a MockProvider here (intendedProvider='mock' → no llmFailed
+    // warning, no fallback SSE — the operator saw floor scores as real). An EXPLICIT selection must
+    // return the real provider and fail visibly at assess() instead.
+    expect(getProvider().name).toBe("gemini");
+  });
+
+  it("still returns the real GeminiProvider when a key IS present", () => {
+    vi.stubEnv("LLM_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    expect(getProvider().name).toBe("gemini");
+  });
+
+  it("AUTO (default) still degrades to mock when keyless — absent config is not broken config", () => {
+    // The auto/default path is unchanged: no key → mock is correct there (not 'success theater').
+    vi.stubEnv("LLM_PROVIDER", "auto");
+    expect(getProvider().name).toBe("mock");
+  });
+});
+
 describe("providerAvailable('claude-cli') — matches assess()'s throw gate (llm-provider-abstraction #1)", () => {
   // assess() throws whenever NODE_ENV === "production" (the dynamic import is dead-code-pruned by the
   // prod build), so availability MUST use the SAME signal — not VERCEL. Otherwise a non-Vercel prod

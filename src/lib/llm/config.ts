@@ -13,14 +13,28 @@ export function envNumber(name: string, fallback: number): number {
 }
 
 /**
+ * Floor for the per-call LLM timeout (ms). `LLM_TIMEOUT_MS=0` reads intuitively as "no timeout /
+ * disabled", but `envNumber` accepts 0 (and negatives) as finite, so it flowed straight into
+ * `setTimeout(abort, 0)` — the AbortController then fired on the very next tick, cancelling EVERY
+ * gemini/bedrock/openai/openrouter call before it could answer and silently routing 100% of scans to
+ * the deterministic mock floor (disclosed only by the generic "Model unavailable" caveat — very hard
+ * to diagnose). A 0/negative/tiny timeout is a misconfiguration, not "no timeout": there is
+ * deliberately NO unbounded option (an untimed call would eat scan.ts's whole 90s budget and starve
+ * the retry + failover steps). So clamp to a floor large enough that a real request can actually
+ * complete. 1s is well below any healthy provider round-trip yet still bounds a hung call.
+ */
+const MIN_LLM_TIMEOUT_MS = 1_000;
+
+/**
  * Per-call LLM request timeout (ms), the single source the real providers (gemini/bedrock/openai)
  * read. Read at CALL time via envNumber so a test can stub LLM_TIMEOUT_MS without module-load
  * ordering games, and so it obeys the same parsing rules as every other knob — `envNumber` treats
  * blank as the fallback and guards Number.isFinite (unlike the old `Number(env) || 60_000`, which
- * coerced a deliberately-configured 0 back to the default). Default 60s.
+ * coerced a deliberately-configured 0 back to the default). The result is floored to
+ * MIN_LLM_TIMEOUT_MS so a 0/negative/tiny value can't instant-abort every scan to mock. Default 60s.
  */
 export function llmTimeoutMs(): number {
-  return envNumber("LLM_TIMEOUT_MS", 60_000);
+  return Math.max(MIN_LLM_TIMEOUT_MS, envNumber("LLM_TIMEOUT_MS", 60_000));
 }
 
 /**

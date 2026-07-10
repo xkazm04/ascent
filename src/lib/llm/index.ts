@@ -146,9 +146,17 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       if (choice === "openrouter") return new OpenRouterProvider();
       return new LazyClaudeCliProvider();
     case "gemini":
-      return geminiOrMock();
+      // EXPLICIT gemini selection: construct the REAL provider unconditionally, mirroring the
+      // bedrock/openai branches above. geminiOrMock()'s keyless→mock shortcut (correct for `auto`) made
+      // intendedProvider="mock" downstream when the key was missing/typo'd, which suppressed the
+      // llmFailed warning + the fallback SSE entirely — the operator believed real AI was scoring while
+      // it served the deterministic floor. A keyless GeminiProvider now fails LOUD at assess() and
+      // degrades through the accounted retry → failover → mock chain (honest caveat). GEMINI_API_KEY or
+      // its GOOGLE_API_KEY alias, else "" so the assess() keyless guard fires.
+      return new GeminiProvider(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "");
     case "auto":
     default:
+      // AUTO/default: absent config → mock is CORRECT here (not "broken config"), so keep geminiOrMock().
       return geminiOrMock();
   }
 }

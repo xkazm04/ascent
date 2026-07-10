@@ -9,7 +9,7 @@ import { DEFAULT_GEMINI_MODEL } from "./gemini";
 import { DEFAULT_OPENAI_MODEL } from "./openai";
 import { DEFAULT_CLAUDE_MODEL } from "./claude-cli";
 import { DEFAULT_OPENROUTER_MODEL } from "./openrouter";
-import { priceForModel, billableInputTokens, thinkingBudgetTokens, withLlmTimeout } from "./config";
+import { priceForModel, billableInputTokens, thinkingBudgetTokens, withLlmTimeout, llmTimeoutMs } from "./config";
 import { afterEach, beforeEach, vi } from "vitest";
 
 describe("priceForModel", () => {
@@ -142,6 +142,34 @@ describe("thinkingBudgetTokens (opt-in extended thinking — Tiger P2-6c)", () =
       vi.stubEnv("LLM_THINKING_BUDGET", v);
       expect(thinkingBudgetTokens()).toBe(0);
     }
+  });
+});
+
+describe("llmTimeoutMs (per-call timeout, floored so a misconfig can't instant-abort every scan)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("defaults to 60s when unset/blank", () => {
+    vi.stubEnv("LLM_TIMEOUT_MS", "");
+    expect(llmTimeoutMs()).toBe(60_000);
+  });
+
+  it("honors a configured value above the floor", () => {
+    vi.stubEnv("LLM_TIMEOUT_MS", "30000");
+    expect(llmTimeoutMs()).toBe(30_000);
+  });
+
+  it("floors LLM_TIMEOUT_MS=0 to 1s instead of 0 (0ms would abort every call on the next tick → mock)", () => {
+    // The whole point of the fix: a well-meant `=0` ('no timeout') must NOT resolve to a 0ms
+    // AbortController that instant-aborts every gemini/bedrock/openai call to the deterministic floor.
+    vi.stubEnv("LLM_TIMEOUT_MS", "0");
+    expect(llmTimeoutMs()).toBe(1_000);
+  });
+
+  it("floors negative and sub-second values to 1s (both are misconfigurations)", () => {
+    vi.stubEnv("LLM_TIMEOUT_MS", "-5000");
+    expect(llmTimeoutMs()).toBe(1_000);
+    vi.stubEnv("LLM_TIMEOUT_MS", "250");
+    expect(llmTimeoutMs()).toBe(1_000);
   });
 });
 
