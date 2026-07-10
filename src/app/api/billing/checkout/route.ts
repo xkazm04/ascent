@@ -17,7 +17,7 @@
 
 import { NextResponse } from "next/server";
 import { creditsForProduct, getPolar, planForProduct, polarEnabled } from "@/lib/polar";
-import { getOrgId, isDbConfigured } from "@/lib/db";
+import { getOrgId, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { isSameOrigin } from "@/lib/auth";
 import { publicBaseUrl } from "@/lib/site";
 
@@ -64,9 +64,25 @@ export async function GET(request: Request) {
   // no auth needed (the grant amount is still webhook-authoritative). Skipped when there's no DB to
   // check against (the org can't exist either, but we can't verify — don't block the documented
   // gift/seed path).
-  if (isDbConfigured() && !(await getOrgId(org).catch(() => null))) {
-    // Uniform message — don't echo the slug back, so the response can't be used as an existence oracle.
-    return NextResponse.json({ error: "Unknown organization. Create it before purchasing credits." }, { status: 404 });
+  if (isDbConfigured()) {
+    let orgId: string | null;
+    try {
+      orgId = await getOrgId(org);
+    } catch (err) {
+      // A DB read FAILURE is NOT proof the org is absent. The old `.catch(() => null)` collapsed a
+      // transient DB blip into "not found" and told a paying user "Unknown organization. Create it…" —
+      // a dead-end for a real, existing org. Distinguish the two: a DB-unavailable read is a retryable
+      // 503 ("try again"), not a misleading 404. A genuinely unexpected error still propagates (500).
+      if (isDbUnavailableError(err)) {
+        console.error("[billing/checkout] org lookup failed (db unavailable)", err instanceof Error ? err.message : err);
+        return NextResponse.json({ error: "Couldn't verify the organization right now. Please try again." }, { status: 503 });
+      }
+      throw err;
+    }
+    if (!orgId) {
+      // Uniform message — don't echo the slug back, so the response can't be used as an existence oracle.
+      return NextResponse.json({ error: "Unknown organization. Create it before purchasing credits." }, { status: 404 });
+    }
   }
 
   const polar = getPolar();

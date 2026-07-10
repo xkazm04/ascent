@@ -88,9 +88,14 @@ export function planForProduct(productId: string | null | undefined): PlanId | n
   return planProducts().find((p) => p.productId === productId)?.plan ?? null;
 }
 
-/** True when a Polar checkout can run: a token is set AND at least one pack is configured to sell. */
+/** True when a Polar checkout can run: a token is set AND at least one SELLABLE product is configured —
+ *  a credit pack (POLAR_CREDIT_PACKS) OR a plan-tier subscription (POLAR_PLAN_PRODUCTS). Gating on credit
+ *  packs ALONE wrongly disabled checkout (503) and hid the buy UI on a subscription-ONLY deployment that
+ *  sells plan tiers but no à-la-carte credits — a real, supported config. Either catalog being non-empty
+ *  is enough; the "Buy credits" pack list stays keyed off creditPacks(), so a plan-only deployment still
+ *  shows no empty pack picker. */
 export function polarEnabled(): boolean {
-  return polarToken() !== null && creditPacks().length > 0;
+  return polarToken() !== null && (creditPacks().length > 0 || planProducts().length > 0);
 }
 
 /** A configured Polar client (sandbox/production), or null when no access token is set. */

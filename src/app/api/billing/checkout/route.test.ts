@@ -26,13 +26,14 @@ vi.mock("@/lib/polar", () => ({
 vi.mock("@/lib/db", () => ({
   getOrgId: vi.fn(async () => "org_1"),
   isDbConfigured: vi.fn(() => true),
+  isDbUnavailableError: vi.fn(() => false),
 }));
 vi.mock("@/lib/auth", () => ({ isSameOrigin: vi.fn(() => true) }));
 vi.mock("@/lib/site", () => ({ publicBaseUrl: vi.fn(() => "https://ascent.test") }));
 
 import { GET } from "./route";
 import { polarEnabled, getPolar, creditsForProduct, planForProduct } from "@/lib/polar";
-import { getOrgId, isDbConfigured } from "@/lib/db";
+import { getOrgId, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { isSameOrigin } from "@/lib/auth";
 
 const mockPolarEnabled = vi.mocked(polarEnabled);
@@ -41,6 +42,7 @@ const mockCredits = vi.mocked(creditsForProduct);
 const mockPlan = vi.mocked(planForProduct);
 const mockGetOrgId = vi.mocked(getOrgId);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
+const mockIsDbUnavailable = vi.mocked(isDbUnavailableError);
 const mockSameOrigin = vi.mocked(isSameOrigin);
 
 const create = vi.fn(async () => ({ url: "https://polar.test/checkout/abc" }));
@@ -56,6 +58,7 @@ beforeEach(() => {
   mockCredits.mockReturnValue(100);
   mockPlan.mockReturnValue(null);
   mockIsDbConfigured.mockReturnValue(true);
+  mockIsDbUnavailable.mockReturnValue(false);
   mockGetOrgId.mockResolvedValue("org_1");
   create.mockResolvedValue({ url: "https://polar.test/checkout/abc" });
   mockGetPolar.mockReturnValue({ checkouts: { create } } as unknown as ReturnType<typeof getPolar>);
@@ -104,6 +107,22 @@ describe("GET /api/billing/checkout — money-in guards", () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).not.toContain("ghost"); // must not echo the slug back
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("503 (retryable), NOT a misleading 404, when the org lookup fails on an unavailable DB", async () => {
+    // A DB blip mustn't tell a paying user their existing org "doesn't exist" — surface a try-again 503.
+    mockGetOrgId.mockRejectedValue(new Error("Can't reach database server at `localhost:5432`"));
+    mockIsDbUnavailable.mockReturnValue(true);
+    const res = await GET(req("org=acme&pack=prod_1"));
+    expect(res.status).toBe(503);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rethrows (does not 404 or mint a session) when the org lookup throws a non-availability error", async () => {
+    mockGetOrgId.mockRejectedValue(new Error("boom"));
+    mockIsDbUnavailable.mockReturnValue(false);
+    await expect(GET(req("org=acme&pack=prod_1"))).rejects.toThrow("boom");
     expect(create).not.toHaveBeenCalled();
   });
 

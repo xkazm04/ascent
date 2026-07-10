@@ -217,7 +217,18 @@ export function RepoSegmentsPanel({
     });
     setSegments((s) => s.map((x) => (x.id === autoSeg ? { ...x, repoCount: x.repoCount + addedRepos.length } : x)));
     try {
-      await bulkTagRepos(autoSeg, { org: slug, fullNames: matched, member: true });
+      const changed = await bulkTagRepos(autoSeg, { org: slug, fullNames: matched, member: true });
+      // Reconcile the optimistic count with the SERVER's authoritative result. We bumped repoCount by
+      // addedRepos.length (what the CLIENT believed was new), but the server only created `changed`
+      // membership rows — fewer when some matched repos aren't the org's (an unknown fullName) or were
+      // already tagged server-side. Trusting the client count leaves the chip permanently OVERSTATING the
+      // segment (and skews the "N repos" summary + Overview). Correct by the delta so the visible count
+      // matches what actually persisted.
+      if (changed !== addedRepos.length) {
+        setSegments((s) =>
+          s.map((x) => (x.id === autoSeg ? { ...x, repoCount: Math.max(0, x.repoCount + (changed - addedRepos.length)) } : x)),
+        );
+      }
     } catch (e) {
       // Undo only the memberships THIS call added (functional updaters, so a concurrent toggle of an
       // unrelated repo isn't clobbered) and back out the count bump.
