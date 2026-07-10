@@ -8,6 +8,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { sanitizeGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
 
 /** Parse the serialized gatePolicy TEXT column; tolerant of legacy non-string (parsed object) values. */
@@ -34,14 +35,14 @@ export async function getOrgGatePolicy(orgSlug: string): Promise<GatePolicy | nu
 export async function setOrgGatePolicy(orgSlug: string, policy: GatePolicy | null): Promise<GatePolicy | null | undefined> {
   if (!isDbConfigured()) return undefined;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return undefined;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return undefined;
   const clean = policy ? sanitizeGatePolicy(policy) : null;
   // null clears the column; otherwise store the sanitized policy as serialized JSON (TEXT column,
   // no-jsonb contract). undefined would skip the field, so a "clear" must be an explicit null.
   const gatePolicy: string | null = clean === null ? null : JSON.stringify(clean);
   await prisma.organization.update({
-    where: { id: org.id },
+    where: { id: orgId },
     // Cast: `gatePolicy` is now String? in schema.prisma, but the generated Prisma client is shared
     // (node_modules junctions to the main checkout) and still typed Json? until `prisma generate` is
     // re-run after this schema change. The runtime value is a plain JSON string — correct for the TEXT

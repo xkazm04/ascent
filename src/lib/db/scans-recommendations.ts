@@ -48,7 +48,13 @@ export async function updateRecommendation(
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
 
-  const current = await prisma.recommendation.findUnique({ where: { id } });
+  // ONE read of the row AND its owning-org chain (Recommendation -> Scan -> Repository.orgId): the
+  // patch/pre-image logic below reads the row's scalars, and the audit row's tenant scope reads the
+  // joined orgId — both from a single findUnique instead of two reads of the same row.
+  const current = await prisma.recommendation.findUnique({
+    where: { id },
+    include: { scan: { select: { repo: { select: { orgId: true } } } } },
+  });
   if (!current) {
     // Mirror the P2025 a missing-row update would throw, so callers' not-found handling is uniform.
     throw new Prisma.PrismaClientKnownRequestError("Recommendation not found", {
@@ -62,11 +68,7 @@ export async function updateRecommendation(
   // the audit viewer — re-opening the compliance gap the in-transaction audit was added to close. The
   // recommendation -> scan -> repo -> org chain is the tenant scope. (actorId stays null: the actor is
   // a login string carried in `meta`, not a resolvable User FK.)
-  const orgChain = await prisma.recommendation.findUnique({
-    where: { id },
-    select: { scan: { select: { repo: { select: { orgId: true } } } } },
-  });
-  const orgId = orgChain?.scan?.repo?.orgId ?? null;
+  const orgId = current.scan?.repo?.orgId ?? null;
 
   const actor = opts.actor?.trim() || null;
   const note = opts.note?.trim() || null;

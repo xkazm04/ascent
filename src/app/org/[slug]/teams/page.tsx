@@ -21,14 +21,12 @@ export default async function TeamsPage({
   const sp = await searchParams;
 
   // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
-  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
+  const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
 
   const rollup = await getOrgTeamRollup(slug, segmentId, techGroupId);
 
-  const hasFilters = segments.length > 0 || techGroups.length > 0;
-  const filterBar = hasFilters && (
-    <ScopeFilterBar segments={segments} segmentId={segmentId} techGroups={techGroups} activeStack={activeStack} />
-  );
+  const hasFilters = barProps.segments.length > 0 || barProps.techGroups.length > 0;
+  const filterBar = hasFilters && <ScopeFilterBar {...barProps} />;
 
   if (!rollup || rollup.teams.length === 0) {
     return (

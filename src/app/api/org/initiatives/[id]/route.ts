@@ -3,9 +3,9 @@
 // date, or link/unlink the steering Goal it serves. Only the provided fields change.
 
 import { NextResponse } from "next/server";
-import { getInitiativeOrgSlug, isDbConfigured, updateInitiative } from "@/lib/db";
-import { requireOrgAccess } from "@/lib/authz";
+import { getInitiativeOrgSlug, updateInitiative } from "@/lib/db";
 import { REC_STATUSES } from "@/lib/types";
+import { invalidTargetDate, rowGate } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,12 +14,9 @@ export const dynamic = "force-dynamic";
 const STATUSES = new Set<string>(REC_STATUSES);
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Initiatives require a database." }, { status: 503 });
   const { id } = await ctx.params;
-  const org = await getInitiativeOrgSlug(id);
-  if (!org) return NextResponse.json({ error: "Initiative not found." }, { status: 404 });
-  const denied = await requireOrgAccess(org);
-  if (denied) return denied;
+  const blocked = await rowGate({ resourceLabel: "Initiatives", notFound: "Initiative not found.", getOrgSlug: getInitiativeOrgSlug, id });
+  if (blocked) return blocked;
   const body = (await request.json().catch(() => ({}))) as {
     status?: string;
     assigneeLogin?: string | null;
@@ -29,6 +26,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   if (body.status !== undefined && !STATUSES.has(body.status)) {
     return NextResponse.json({ error: `status must be one of: ${[...STATUSES].join(", ")}.` }, { status: 400 });
   }
+  const badDate = invalidTargetDate(body.targetDate);
+  if (badDate) return badDate;
   const patch: { status?: string; assigneeLogin?: string | null; targetDate?: string | null; goalId?: string | null } = {};
   if (body.status !== undefined) patch.status = body.status;
   if ("assigneeLogin" in body) patch.assigneeLogin = body.assigneeLogin ?? null;

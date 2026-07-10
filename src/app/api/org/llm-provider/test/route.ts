@@ -7,8 +7,7 @@
 import { NextResponse } from "next/server";
 import { getCreditState, getOrgLlmConfig, isDbConfigured, recordOrgLlmValidation } from "@/lib/db";
 import { getStoredByomCredentials } from "@/lib/db/org-llm";
-import { requireOrgRole } from "@/lib/authz";
-import { isSameOrigin } from "@/lib/auth";
+import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { testBedrockConnection } from "@/lib/llm/bedrock";
@@ -18,18 +17,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "BYOM requires a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as {
-    org?: string;
-    modelId?: string;
-    region?: string;
-    accessKeyId?: string;
-    secretAccessKey?: string;
-  };
-  if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "owner");
-  if (denied) return denied;
-  const credit = await getCreditState(body.org).catch(() => null);
+  const gate = await requireOrgOwnerPost<{ modelId?: string; region?: string; accessKeyId?: string; secretAccessKey?: string }>(request);
+  if (gate instanceof NextResponse) return gate;
+  const { org, body } = gate;
+  const credit = await getCreditState(org).catch(() => null);
   if (!planAllowsByom(credit?.plan)) {
     return NextResponse.json({ error: "BYOM is an Enterprise-plan feature." }, { status: 403 });
   }
@@ -45,17 +36,17 @@ export async function POST(request: Request) {
   const credentials =
     hasKeyId && hasSecret
       ? { accessKeyId: body.accessKeyId!.trim(), secretAccessKey: body.secretAccessKey!.trim() }
-      : await getStoredByomCredentials(body.org);
+      : await getStoredByomCredentials(org);
   if (!credentials) {
     return NextResponse.json({ error: "No credentials to test — enter your AWS keys first." }, { status: 400 });
   }
 
-  const stored = await getOrgLlmConfig(body.org);
+  const stored = await getOrgLlmConfig(org);
   const model = body.modelId?.trim() || stored?.modelId;
   const region = body.region?.trim() || stored?.region || undefined;
   if (!model) return NextResponse.json({ error: "Provide a modelId." }, { status: 400 });
 
   const result = await testBedrockConnection({ model, region, credentials });
-  await recordOrgLlmValidation(body.org, result.ok, result.error).catch(() => {});
+  await recordOrgLlmValidation(org, result.ok, result.error).catch(() => {});
   return NextResponse.json(result, { status: result.ok ? 200 : 502 });
 }

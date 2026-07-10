@@ -4,10 +4,6 @@
 // One blip sits beyond the wave's reach (WAVE_MAX) — the risk left open. Blip coordinates + derived
 // frames are pre-computed integers (no per-frame trig) → deterministic. Paced to ~30% speed.
 
-export const W = 960;
-export const H = 540;
-export const FPS = 30;
-export const DURATION = 330;
 export const CX = 480;
 export const CY = 280;
 export const R = 195;

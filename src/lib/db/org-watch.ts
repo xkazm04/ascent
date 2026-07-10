@@ -1,6 +1,7 @@
 // Enterprise org layer: watchlist + scan scheduling. All guarded by DATABASE_URL.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { segmentScope } from "@/lib/db/org-shared";
 import type { Schedule } from "@/components/connect/installationRepoTypes";
 
@@ -18,10 +19,10 @@ function nextScanFor(schedule: string): Date | null {
 export async function isRepoWatched(orgSlug: string, fullName: string): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return false;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
   const repo = await prisma.repository.findUnique({
-    where: { orgId_fullName: { orgId: org.id, fullName } },
+    where: { orgId_fullName: { orgId, fullName } },
     select: { watched: true },
   });
   return Boolean(repo?.watched);
@@ -68,10 +69,10 @@ export async function setRepoWatch(orgSlug: string, repo: RepoRef, watched: bool
 export async function setRepoSchedule(orgSlug: string, fullName: string, schedule: string): Promise<void> {
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return;
   await prisma.repository.updateMany({
-    where: { orgId: org.id, fullName },
+    where: { orgId, fullName },
     data: { scanSchedule: schedule, nextScanAt: nextScanFor(schedule) },
   });
 }
@@ -259,10 +260,10 @@ export async function recordScanOutcome(
 ): Promise<void> {
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return;
   await prisma.repository.updateMany({
-    where: { orgId: org.id, fullName },
+    where: { orgId, fullName },
     data: {
       lastScanStatus: outcome.ok ? "ok" : "error",
       lastScanError: outcome.ok ? null : (outcome.error ?? "scan failed").slice(0, 500),
@@ -283,11 +284,11 @@ export async function recordConformance(
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return false;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
   const clamp = (n: number) => Math.max(0, Math.trunc(Number.isFinite(n) ? n : 0));
   const res = await prisma.repository.updateMany({
-    where: { orgId: org.id, fullName },
+    where: { orgId, fullName },
     data: {
       aiConformance: Math.min(100, clamp(c.score)),
       aiConformanceFails: clamp(c.fails),
@@ -302,10 +303,10 @@ export async function recordConformance(
 export async function listWatchedRepos(orgSlug: string): Promise<RepoRef[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug } });
-  if (!org) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
   const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, watched: true },
+    where: { orgId, watched: true },
     select: { owner: true, name: true, fullName: true, url: true, isPrivate: true, lastScanAt: true },
     orderBy: { fullName: "asc" },
   });

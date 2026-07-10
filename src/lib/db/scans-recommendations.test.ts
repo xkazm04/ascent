@@ -43,9 +43,9 @@ function recRow(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 /**
- * Fake prisma for updateRecommendation. The top-level client serves the pre-transaction reads:
- *   - findUnique(where:{id})                  -> the current row (or null to force P2025)
- *   - findUnique(where:{id}, select:{...org}) -> the org-resolution chain
+ * Fake prisma for updateRecommendation. The top-level client serves ONE pre-transaction read:
+ *   - findUnique(where:{id}, include:{...org}) -> the current row WITH its scan->repo->orgId chain
+ *     merged in (or null to force P2025)
  * $transaction(fn) runs fn(tx) against a tx whose update / event-createMany / auditLog.create are
  * spies, so a test can assert all three landed on the SAME tx object (one atomic commit).
  *
@@ -84,9 +84,10 @@ function fakePrisma(
 
   const orgChain = { scan: { repo: { orgId } } };
 
-  // findUnique is called twice: bare {where} -> current row; with a `select` -> the org chain.
-  const findUnique = vi.fn(async (args: { where: { id: string }; select?: unknown }) =>
-    args.select ? (current ? orgChain : null) : current,
+  // ONE findUnique({ where, include: {...org} }) now serves both the row scalars AND the org chain,
+  // so the mock returns the current row with its scan->repo->orgId merged in (null -> P2025).
+  const findUnique = vi.fn(async (_args: { where: { id: string }; include?: unknown }) =>
+    current ? { ...current, ...orgChain } : null,
   );
 
   const prisma = {

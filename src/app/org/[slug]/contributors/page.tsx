@@ -181,10 +181,10 @@ export default async function ContributorInsightsPage({
   const sp = await searchParams;
 
   // Optional segment + tech-stack scope (bogus id/key → whole fleet); the two filters compose.
-  const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
+  const { segments, segmentId, techGroups, activeStack, techGroupId, barProps } = await resolveOrgScope(slug, sp);
 
   const hasFilters = segments.length > 0 || techGroups.length > 0;
-  const filterBar = hasFilters && <ScopeFilterBar segments={segments} segmentId={segmentId} techGroups={techGroups} activeStack={activeStack} />;
+  const filterBar = hasFilters && <ScopeFilterBar {...barProps} />;
 
   const insights = await getContributorInsights(slug, segmentId, techGroupId);
   if (!insights || insights.totalContributors === 0) {

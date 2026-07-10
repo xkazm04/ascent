@@ -5,22 +5,20 @@
 // No-op / null when persistence is off, like the rest of src/lib/db.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { bumpCounter } from "@/lib/db/best-effort";
 
 export type QuotaEventKind = "quota_deny" | "rate_limit";
 
 /** Best-effort: bump the (kind, scope) tally. Swallows every error. */
 export async function recordQuotaEvent(kind: QuotaEventKind, scope: string): Promise<void> {
-  if (!isDbConfigured()) return;
   const s = (scope || "unknown").toLowerCase().slice(0, 60);
-  try {
-    await getPrisma().quotaEvent.upsert({
+  await bumpCounter(() =>
+    getPrisma().quotaEvent.upsert({
       where: { kind_scope: { kind, scope: s } },
       update: { count: { increment: 1 }, lastSeen: new Date() },
       create: { kind, scope: s, count: 1 },
-    });
-  } catch {
-    /* observability is best-effort — never surface to the rejecting path */
-  }
+    }),
+  );
 }
 
 export interface QuotaEventTotals {

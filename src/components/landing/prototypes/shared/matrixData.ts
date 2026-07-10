@@ -11,7 +11,6 @@ export interface MatrixRow {
   name: string;
   axis: Axis;
   description: string;
-  base: number; // base (org-default) weight, 0..1
   solo: number;
   team: number;
   org: number;
@@ -34,7 +33,6 @@ export function buildMatrixRows(): MatrixRow[] {
     name: d.name,
     axis: d.axis,
     description: d.description,
-    base: d.weight,
     solo: ARCHETYPE_WEIGHTS.solo[d.id],
     team: ARCHETYPE_WEIGHTS.team[d.id],
     org: ARCHETYPE_WEIGHTS.org[d.id],

@@ -135,6 +135,27 @@ export interface AlertMessage {
 
 const SEV_EMOJI: Record<AlertSeverity, string> = { critical: "🔻", warning: "⚠️" };
 
+/** A Slack Block-Kit `section` block with an `mrkdwn` text body — the shape the four message builders
+ *  restated inline ~7 times. Pure; returns a fresh object each call. */
+function mrkdwnSection(text: string): { type: "section"; text: { type: "mrkdwn"; text: string } } {
+  return { type: "section", text: { type: "mrkdwn", text } };
+}
+
+/** A Slack Block-Kit `context` block carrying a single `<url|label>` mrkdwn link — the footer the
+ *  builders restated 3 times. Pure. */
+function linkContext(url: string, label: string): { type: "context"; elements: { type: "mrkdwn"; text: string }[] } {
+  return { type: "context", elements: [{ type: "mrkdwn", text: `<${url}|${label}>` }] };
+}
+
+/** Format a signed integer with an explicit leading sign for non-negatives (`+5`, `-3`, `0` → `+0`).
+ *  Single-sources the `${n > 0 ? "+" : ""}${n}` idiom buildFleetDigestMessage restated three times.
+ *  The boundary is `>= 0` to match the `gain` site; the two delta sites are only reached for a NONZERO
+ *  move (a 0 overall delta renders as "no change" before this is called), so they never observe 0 —
+ *  unifying on `>= 0` reproduces every previously-emitted string byte-for-byte. */
+function signed(n: number): string {
+  return n >= 0 ? `+${n}` : String(n);
+}
+
 /**
  * Build a Slack-compatible alert message from a regression verdict. Pure — no env, no Date.
  * The top movement attributions from the diff are included so the alert explains *why* the
@@ -152,14 +173,14 @@ export function buildRegressionMessage(repo: RepoAlertRef, diff: ScanDiff, verdi
   const text = textParts.join("\n");
 
   const blocks: unknown[] = [
-    { type: "section", text: { type: "mrkdwn", text: `*${headline}*` } },
-    { type: "section", text: { type: "mrkdwn", text: reasonLines.join("\n") } },
+    mrkdwnSection(`*${headline}*`),
+    mrkdwnSection(reasonLines.join("\n")),
   ];
   if (why.length) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*Why:*\n${why.map((m) => `• ${m}`).join("\n")}` } });
+    blocks.push(mrkdwnSection(`*Why:*\n${why.map((m) => `• ${m}`).join("\n")}`));
   }
   if (repo.url) {
-    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${repo.url}|View report>` }] });
+    blocks.push(linkContext(repo.url, "View report"));
   }
   return { text, blocks };
 }
@@ -197,12 +218,12 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
       : isWithinNoise(d.overallDelta)
         ? d.overallDelta === 0
           ? " (no change this week)"
-          : ` (${d.overallDelta > 0 ? "+" : ""}${d.overallDelta} — within noise this week)`
-        : ` (${d.overallDelta > 0 ? "+" : ""}${d.overallDelta} this week)`;
+          : ` (${signed(d.overallDelta)} — within noise this week)`
+        : ` (${signed(d.overallDelta)} this week)`;
   const headline = `📊 Ascent weekly digest: ${d.org}`;
   const pctile = d.percentile != null ? ` · ${d.percentile}th pctile` : "";
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} — ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
-  const gain = (m: { name: string; delta: number }) => `• ${m.name} ${m.delta >= 0 ? "+" : ""}${m.delta}`;
+  const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
 
   const lines: string[] = [headline, summary.replace(/\*/g, "")];
   if (d.trajectory) lines.push(d.trajectory);
@@ -215,23 +236,21 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   if (d.url) lines.push("", d.url);
 
   const blocks: unknown[] = [
-    { type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${summary}${d.trajectory ? `\n_${d.trajectory}_` : ""}` } },
+    mrkdwnSection(`*${headline}*\n${summary}${d.trajectory ? `\n_${d.trajectory}_` : ""}`),
   ];
   const mv: string[] = [];
   if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
   if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
-  if (mv.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: mv.join("\n\n") } });
+  if (mv.length) blocks.push(mrkdwnSection(mv.join("\n\n")));
   if (d.topRecommendation)
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: `*Highest-leverage gap:* ${d.topRecommendation.title} _(affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})_` },
-    });
+    blocks.push(
+      mrkdwnSection(
+        `*Highest-leverage gap:* ${d.topRecommendation.title} _(affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})_`,
+      ),
+    );
   if (d.creditsRemaining != null)
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: `*Credits remaining:* ${d.creditsRemaining} — top up to keep autoscans flowing` },
-    });
-  if (d.url) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${d.url}|Open the dashboard>` }] });
+    blocks.push(mrkdwnSection(`*Credits remaining:* ${d.creditsRemaining} — top up to keep autoscans flowing`));
+  if (d.url) blocks.push(linkContext(d.url, "Open the dashboard"));
   return { text: lines.join("\n"), blocks };
 }
 
@@ -283,8 +302,8 @@ export function buildLowCreditsMessage(d: LowCreditsInput): AlertMessage {
 
   const textParts = [headline, body];
   if (d.url) textParts.push("", d.url);
-  const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${body}` } }];
-  if (d.url) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `<${d.url}|Manage credits>` }] });
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${body}`)];
+  if (d.url) blocks.push(linkContext(d.url, "Manage credits"));
   return { text: textParts.join("\n"), blocks };
 }
 
@@ -298,7 +317,7 @@ export function buildTestAlertMessage(org: string): AlertMessage {
   const body = "If you can read this in your channel, alert routing works. Regression, low-credit and weekly-digest alerts will arrive here.";
   return {
     text: `${headline}\n${body}`,
-    blocks: [{ type: "section", text: { type: "mrkdwn", text: `*${headline}*\n${body}` } }],
+    blocks: [mrkdwnSection(`*${headline}*\n${body}`)],
   };
 }
 

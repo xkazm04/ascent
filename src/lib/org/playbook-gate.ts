@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { getPlaybookOrgSlug, isDbConfigured } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import { parseRepoUrl } from "@/lib/github/source";
 import type { OrgRole } from "@/lib/db/members";
 
 /**
@@ -25,4 +26,24 @@ export async function resolvePlaybookOrg(
   const denied = min === "member" ? await requireOrgAccess(org) : await requireOrgRole(org, min);
   if (denied) return denied;
   return { org };
+}
+
+/**
+ * Tenant gate on a caller-supplied repo coordinate for the playbook write routes. Parses
+ * `owner/name` and requires the owner to BE the playbook's `org` (case-insensitive) — without this a
+ * member could record / open a PR against a foreign or typo'd repo under the org's playbook (a
+ * cross-tenant write / inflated-adoption bug). Returns the validated coordinate on success, or a
+ * `Response` (400) to return verbatim (callers branch on `instanceof Response`). Shared by
+ * [id]/repos and [id]/apply so their two 400 messages + the owner-match rule can't drift.
+ */
+export function parseOrgRepo(
+  repo: string | undefined,
+  org: string,
+): { fullName: string; owner: string; repo: string } | Response {
+  const parsed = parseRepoUrl(repo ?? "");
+  if (!parsed) return NextResponse.json({ error: "Provide { repo: 'owner/name' }." }, { status: 400 });
+  if (parsed.owner.toLowerCase() !== org.toLowerCase()) {
+    return NextResponse.json({ error: `Repo must belong to ${org}.` }, { status: 400 });
+  }
+  return { fullName: `${parsed.owner}/${parsed.repo}`, owner: parsed.owner, repo: parsed.repo };
 }

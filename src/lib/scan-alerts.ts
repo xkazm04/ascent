@@ -20,6 +20,7 @@ import {
   type RegressionVerdict,
 } from "@/lib/alerts";
 import { getOrgAlertThresholds, getOrgAlertWebhook, recordAudit, reportPermalink } from "@/lib/db";
+import { publicBaseUrl } from "@/lib/site";
 
 export interface RegressionOutcome {
   regressed: boolean;
@@ -28,14 +29,9 @@ export interface RegressionOutcome {
   dispatched: boolean;
 }
 
-/** Public base URL for absolute links in pushed alerts ("" when none is configured). */
-function publicBase(): string {
-  return (process.env.ASCENT_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-}
-
 /** Absolute report URL when a public base is configured, else the relative permalink. */
 function reportUrl(fullName: string, headSha?: string | null): string {
-  return `${publicBase()}${reportPermalink(fullName, headSha)}`;
+  return `${publicBaseUrl()}${reportPermalink(fullName, headSha)}`;
 }
 
 /** Best-effort per-org sink lookup — alert routing must never throw into the scan path. */
@@ -116,7 +112,7 @@ export async function maybeAlertLowCredits(
     if (!isLowCreditsCrossing(balanceAfter, creditsAlertThreshold())) return false;
     const webhookUrl = await orgWebhook(orgSlug);
     if (!isAlertConfigured(webhookUrl)) return false;
-    const base = publicBase();
+    const base = publicBaseUrl();
     const message = buildLowCreditsMessage({
       org: orgSlug,
       balance: balanceAfter,

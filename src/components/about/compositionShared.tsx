@@ -7,10 +7,18 @@
 
 export const MONO = "var(--font-mono), ui-monospace, monospace";
 
+/** Shared playback envelope for the /about Remotion diagrams — the champion network and the risk radar
+ *  both render on one 960×540 canvas at 30fps and play a single ~11s shot (no loop). Single-sourced so
+ *  the two Players can't drift out of canvas scale or timing. */
+export const W = 960;
+export const H = 540;
+export const FPS = 30;
+export const DURATION = 330;
+
 export const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-/** Parse a `#rrggbb` string into an [r,g,b] triple. */
-export function hexToRgb(h: string): [number, number, number] {
+/** Parse a `#rrggbb` string into an [r,g,b] triple. Module-private — only `lerpHex` (below) needs it. */
+function hexToRgb(h: string): [number, number, number] {
   const n = parseInt(h.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }

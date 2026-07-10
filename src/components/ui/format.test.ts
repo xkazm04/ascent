@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deltaHex, signedDelta, fmtDelta, toneFor } from "./format";
+import { deltaHex, signedDelta, fmtDelta, toneFor, shortDate, shortDateSafe } from "./format";
 
 describe("delta formatters (noise-aware)", () => {
   it("deltaHex mutes flat + within-noise deltas to slate", () => {
@@ -30,5 +30,25 @@ describe("delta formatters (noise-aware)", () => {
     expect(toneFor(-2)).toBe("flat");
     expect(toneFor(8)).toBe("rising");
     expect(toneFor(-5)).toBe("falling");
+  });
+});
+
+describe("short date formatters", () => {
+  it("shortDate emits the {month:'short', day:'numeric'} locale string (single-sourced)", () => {
+    const d = new Date(2024, 5, 9); // local date — no TZ ambiguity
+    // Locale-agnostic: assert the helper is exactly the inlined call it replaced.
+    expect(shortDate(d)).toBe(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+  });
+
+  it("shortDateSafe returns '' for an unparseable/invalid value (the guard the call sites need)", () => {
+    expect(shortDateSafe("not a date")).toBe("");
+    expect(shortDateSafe("")).toBe("");
+    expect(shortDateSafe(NaN)).toBe("");
+  });
+
+  it("shortDateSafe equals shortDate(new Date(value)) for a valid ISO timestamp", () => {
+    const iso = "2024-06-09T12:00:00.000Z";
+    expect(shortDateSafe(iso)).toBe(shortDate(new Date(iso)));
+    expect(shortDateSafe(iso)).not.toBe("");
   });
 });

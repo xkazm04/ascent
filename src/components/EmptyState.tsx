@@ -80,3 +80,34 @@ export function EmptyState({
     </div>
   );
 }
+
+/**
+ * The "scan this repo / go home" empty+error state shared by the per-repo trends and compare pages.
+ * An EmptyState whose actions are an optional "Scan {repo}" primary link followed by "← Home"; only
+ * the leading icon differs per page (📈 trends, 🔀 compare), so it's a prop. Server/client safe.
+ */
+export function RepoScanNotice({
+  icon,
+  title,
+  body,
+  repo,
+}: {
+  icon: string;
+  title: string;
+  body: string;
+  repo?: string;
+}) {
+  return (
+    <EmptyState
+      icon={icon}
+      title={title}
+      body={body}
+      actions={[
+        ...(repo
+          ? [{ label: `Scan ${repo}`, href: `/report?repo=${encodeURIComponent(repo)}`, primary: true }]
+          : []),
+        { label: "← Home", href: "/" },
+      ]}
+    />
+  );
+}

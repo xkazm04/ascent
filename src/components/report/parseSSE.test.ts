@@ -1,21 +1,22 @@
-// Tests for the report-shell SSE frame parser (`parseSSE`, exported from ReportClientStatus.tsx)
-// and the stream-drain framing it feeds (the `FRAME = /\r?\n\r?\n/` splitter + final trailing-frame
-// flush in ReportClient.tsx:199-228). Test Mastery repo-report-shell finding #4.
+// Tests for the SSE frame parser as consumed by the report shell (`parseSSE`, now the single shared
+// `@/lib/sse` implementation) and the stream-drain framing useReportScan feeds it (the
+// `FRAME = /\r?\n\r?\n/` splitter + final trailing-frame flush in useReportScan.ts:221-248).
 //
-// `parseSSE` here is NOT the same function as `src/lib/sse.ts` `parseSSE` (org war-room) or the
-// inline parser in onboarding `runImportScan`: this one JOINS multiple `data:` lines with "\n" so a
-// pretty-printed multi-line JSON payload still parses — the others concat with `.trim()` and would
-// corrupt it. So this is a distinct, untested trust surface.
+// `parseSSE` is now ONE function (`@/lib/sse`), shared by every SSE consumer (org war-room,
+// onboarding import, and this report shell): it JOINS multiple `data:` lines with "\n" so a
+// pretty-printed multi-line JSON payload still parses, and is CRLF-tolerant. (`@/lib/sse.test.ts`
+// owns the parser's unit cases; this file pins the report shell's distinct DRAIN framing — the
+// trailing non-blank-terminated flush, which readSSE deliberately does NOT do.)
 //
 // `parseSSE` is a pure exported fn → imported and fed crafted SSE text. The drain loop lives inside
-// a React effect and can't be imported without a source change (forbidden here), so we reproduce its
-// exact framing logic in `drainSSE` (same regex + same trailing-tail flush as the source) AND drive
-// the buffering through a real Node `ReadableStream` to pin the split-across-chunks invariant.
+// a React effect and can't be imported without a source change, so we reproduce its exact framing
+// logic here (same regex + same trailing-tail flush as the source) AND drive the buffering through a
+// real Node `ReadableStream` to pin the split-across-chunks invariant.
 //
 // This repo has no jsdom: tests run in Node, which provides ReadableStream/TextDecoder/TextEncoder.
 
 import { describe, it, expect } from "vitest";
-import { parseSSE } from "./ReportClientStatus";
+import { parseSSE } from "@/lib/sse";
 
 const enc = new TextEncoder();
 

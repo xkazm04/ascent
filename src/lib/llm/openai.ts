@@ -12,7 +12,7 @@ import { validateAssessment, isAssessmentUsable } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
-import { envNumber, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { envNumber, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -44,7 +44,7 @@ export class OpenAiProvider implements LLMProvider {
         headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
         body: JSON.stringify({
           model: this.model,
-          temperature: envNumber("LLM_TEMPERATURE", 0.2),
+          temperature: llmTemperature(),
           // Give the reply room to complete the multi-KB assessment JSON. The OpenAI-compatible self-
           // hosted targets this module supports (vLLM, Ollama, LM Studio) often default to a SMALL
           // completion cap (Ollama's num_predict ≈ 128), which truncates the JSON mid-object →

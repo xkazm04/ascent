@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { DeckSection } from "@/components/deck/DeckSection";
 import { ScoreGauge } from "@/components/landing/prototypes/index/ScoreGauge";
 import { LEVELS, DIMENSIONS } from "@/lib/maturity/model";
 import { useCountUp } from "@/components/landing/prototypes/shared/useCountUp";
@@ -30,7 +31,7 @@ export function AboutHero({ bg }: { bg?: string }) {
   // If the backdrop asset ever fails to load, fall back to the CSS strata/glow rather than a broken image.
   const [bgFailed, setBgFailed] = useState(false);
   return (
-    <section id="hero" className="relative isolate flex min-h-screen snap-start items-center overflow-hidden">
+    <DeckSection id="hero" variant="hero">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="strata absolute inset-0 opacity-40" />
         {bg && !bgFailed && (
@@ -90,6 +91,6 @@ export function AboutHero({ bg }: { bg?: string }) {
           <ScoreGauge size={300} className="max-w-full" />
         </div>
       </div>
-    </section>
+    </DeckSection>
   );
 }

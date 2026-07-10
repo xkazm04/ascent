@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { CREDIT_ESTIMATE_NOTE, estimateMonthlyCredits, scheduledRunsPerMonth } from "@/lib/credit-estimate";
+import { WatchCostTail } from "@/components/credit/WatchCostTail";
 import { appConfigureUrl } from "@/lib/ui";
 import { RepoFilterBar } from "./RepoFilterBar";
 import { RepoListSkeleton } from "./RepoListSkeleton";
 import { RepoRow } from "./RepoRow";
 import { SCHEDULES, type AppRepo, type RepoState, type Visibility } from "./installationRepoTypes";
-import { applyWatchOptimistic, filterRepos, patchRepoState, rollbackWatch, summarizeBulkWatch } from "./watchState";
+import { filterRepos, patchRepoState, summarizeBulkWatch } from "./watchState";
 
 type View =
   | { status: "loading" }
@@ -163,29 +164,15 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     }
   }
 
+  // The single optimistic-update / rollback transform: merge `next` onto the matched row. The pure
+  // next-state logic — and its watch/schedule rollback semantics — live in watchState.ts so they're
+  // unit-testable; `applyWatchOptimistic`/`rollbackWatch` there are explicit aliases of patchRepoState,
+  // so the optimistic flip and the exact-prior-value rollback are the SAME transform fed different
+  // payloads. Used for the optimistic flip, the rollback, and the bulk watch/schedule paths.
   function patch(fullName: string, next: Partial<RepoState>) {
     setView((v) =>
       v.status === "done"
         ? { status: "done", repos: patchRepoState(v.repos, fullName, next) }
-        : v,
-    );
-  }
-
-  // Optimistic flip → requested value. Same setState/view-guard orchestration as `patch`; the pure
-  // next-state transform lives in watchState.ts so the watch/schedule rollback logic is unit-testable.
-  function patchOptimistic(fullName: string, next: Partial<RepoState>) {
-    setView((v) =>
-      v.status === "done"
-        ? { status: "done", repos: applyWatchOptimistic(v.repos, fullName, next) }
-        : v,
-    );
-  }
-
-  // Rollback → exact prior value, so a non-2xx/network failure can't masquerade as a saved change.
-  function patchRollback(fullName: string, prev: Partial<RepoState>) {
-    setView((v) =>
-      v.status === "done"
-        ? { status: "done", repos: rollbackWatch(v.repos, fullName, prev) }
         : v,
     );
   }
@@ -216,7 +203,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   async function toggleWatch(r: AppRepo, watched: boolean) {
     const prevWatched = r.state?.watched ?? false;
     const seq = (watchSeq.current[r.fullName] = (watchSeq.current[r.fullName] ?? 0) + 1);
-    patchOptimistic(r.fullName, { watched });
+    patch(r.fullName, { watched });
     setRowError(r.fullName, null);
     setWatchPending((p) => ({ ...p, [r.fullName]: true }));
     try {
@@ -227,12 +214,12 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       });
       if (watchSeq.current[r.fullName] !== seq) return; // superseded by a newer toggle — it owns the row
       if (!res.ok) {
-        patchRollback(r.fullName, { watched: prevWatched });
+        patch(r.fullName, { watched: prevWatched });
         setRowError(r.fullName, `Couldn't ${watched ? "watch" : "unwatch"} — not saved. Try again.`);
       }
     } catch {
       if (watchSeq.current[r.fullName] !== seq) return; // superseded — don't roll back a newer change
-      patchRollback(r.fullName, { watched: prevWatched });
+      patch(r.fullName, { watched: prevWatched });
       setRowError(r.fullName, "Network error — change not saved. Try again.");
     } finally {
       setWatchPending((p) => {
@@ -249,7 +236,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     if (watchPending[r.fullName]) return;
     const prevSchedule = r.state?.scanSchedule ?? "off";
     const seq = (scheduleSeq.current[r.fullName] = (scheduleSeq.current[r.fullName] ?? 0) + 1);
-    patchOptimistic(r.fullName, { scanSchedule: schedule });
+    patch(r.fullName, { scanSchedule: schedule });
     setRowError(r.fullName, null);
     try {
       const res = await fetch("/api/org/schedule", {
@@ -259,12 +246,12 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       });
       if (scheduleSeq.current[r.fullName] !== seq) return; // superseded by a newer schedule change
       if (!res.ok) {
-        patchRollback(r.fullName, { scanSchedule: prevSchedule });
+        patch(r.fullName, { scanSchedule: prevSchedule });
         setRowError(r.fullName, "Couldn't change the schedule — not saved. Try again.");
       }
     } catch {
       if (scheduleSeq.current[r.fullName] !== seq) return; // superseded — don't roll back a newer change
-      patchRollback(r.fullName, { scanSchedule: prevSchedule });
+      patch(r.fullName, { scanSchedule: prevSchedule });
       setRowError(r.fullName, "Network error — schedule not saved. Try again.");
     }
   }
@@ -401,8 +388,6 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
   const scheduledRuns = scheduledRunsPerMonth(repoStates);
   const allowanceRemaining = credit && !credit.unlimited ? Math.max(0, credit.allowanceRemaining) : 0;
   const monthlyCredits = estimateMonthlyCredits(repoStates, allowanceRemaining);
-  const underAMonth =
-    credit != null && !credit.unlimited && monthlyCredits > 0 && credit.balance < monthlyCredits;
 
   return (
     <div className="animate-fade-up">
@@ -437,18 +422,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
           ) : (
             <>Each scheduled autoscan run draws 1 prepaid credit beyond your free monthly allowance</>
           )}
-          {credit != null &&
-            (credit.unlimited ? (
-              <> · unlimited plan</>
-            ) : (
-              <>
-                {" "}
-                · balance: <span className="font-mono text-slate-300">{credit.balance}</span>
-              </>
-            ))}
-          {underAMonth && (
-            <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
-          )}
+          <WatchCostTail credit={credit} monthlyCredits={monthlyCredits} />
         </p>
       )}
 

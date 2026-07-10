@@ -93,8 +93,10 @@ describe("buildSegmentComparison", () => {
  * A fakePrisma scoped to a single owning org. `ownerOrgId` is the org that actually owns the segment
  * and the repos; `segment.findFirst` / `repository.findUnique` / `repository.findMany` only match when
  * the supplied `where.orgId` equals it — exactly like a real per-tenant DB. `organization.findUnique`
- * (used by resolveOrgId) maps a slug → its id via `slugToId`. Every write method is a spy so we can
- * assert it was (or, for cross-tenant, was NOT) called.
+ * (used by the canonical getOrgId resolver) maps a slug → its id via `slugToId`. Resolution is
+ * case-insensitive — mirroring production, where org rows are stored lower-cased and getOrgId queries
+ * with a normalized (trim + lower-case) slug — so a fixture keyed `A` still resolves a caller's `A`.
+ * Every write method is a spy so we can assert it was (or, for cross-tenant, was NOT) called.
  */
 function fakePrisma(opts: {
   ownerOrgId: string;
@@ -117,7 +119,8 @@ function fakePrisma(opts: {
   const prisma = {
     organization: {
       findUnique: vi.fn(async ({ where }: { where: { slug: string } }) => {
-        const id = opts.slugToId[where.slug];
+        const key = Object.keys(opts.slugToId).find((s) => s.toLowerCase() === where.slug.trim().toLowerCase());
+        const id = key ? opts.slugToId[key] : undefined;
         return id ? { id } : null;
       }),
     },

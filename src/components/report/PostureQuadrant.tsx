@@ -5,7 +5,7 @@
 import type { Posture } from "@/lib/types";
 import { POSTURE_THRESHOLD } from "@/lib/maturity/model";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
-import { linScale } from "@/components/report/chartScale";
+import { CHART_INK, linScale } from "@/components/report/chartScale";
 
 const QUAD_TINT: Record<Posture["id"], string> = {
   "ai-native": "#22c55e",
@@ -103,11 +103,11 @@ export function PostureQuadrant({
       })}
 
       {/* plot border */}
-      <rect x={x0} y={y0} width={w} height={h} fill="none" stroke="#1e293b" strokeWidth={1} />
+      <rect x={x0} y={y0} width={w} height={h} fill="none" stroke={CHART_INK.grid} strokeWidth={1} />
 
       {/* crosshair at the posture threshold */}
-      <line x1={thX} y1={y0} x2={thX} y2={y0 + h} stroke="#334155" strokeWidth={1} strokeDasharray="3 3" />
-      <line x1={x0} y1={thY} x2={x0 + w} y2={thY} stroke="#334155" strokeWidth={1} strokeDasharray="3 3" />
+      <line x1={thX} y1={y0} x2={thX} y2={y0 + h} stroke={CHART_INK.crosshairDash} strokeWidth={1} strokeDasharray="3 3" />
+      <line x1={x0} y1={thY} x2={x0 + w} y2={thY} stroke={CHART_INK.crosshairDash} strokeWidth={1} strokeDasharray="3 3" />
 
       {/* quadrant labels */}
       {regions.map((r) => (
@@ -144,7 +144,7 @@ export function PostureQuadrant({
       {hasTrail && (
         <g style={{ opacity: animate ? 1 : 0, transition }}>
           <line x1={prevX} y1={prevY} x2={dotX} y2={dotY} stroke={color} strokeWidth={1.5} strokeDasharray="2 3" opacity={0.5} />
-          <circle cx={prevX} cy={prevY} r={3} fill="#0b1322" stroke={color} strokeWidth={1.5} opacity={0.7} />
+          <circle cx={prevX} cy={prevY} r={3} fill={CHART_INK.canvas} stroke={color} strokeWidth={1.5} opacity={0.7} />
         </g>
       )}
 
@@ -157,7 +157,7 @@ export function PostureQuadrant({
         }}
       >
         <circle r={13} fill={color} opacity={0.18} />
-        <circle r={6} fill={color} stroke="#0b1322" strokeWidth={1.5} />
+        <circle r={6} fill={color} stroke={CHART_INK.canvas} strokeWidth={1.5} />
       </g>
     </svg>
   );

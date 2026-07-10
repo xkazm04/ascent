@@ -8,6 +8,7 @@
 // API → open a draft PR (or return the already-open one for this head).
 
 import { AppApiError, githubAppFetch } from "@/lib/github/app";
+import { encodePathSegments } from "@/lib/github/host";
 
 export interface OpenPrInput {
   token: string; // installation access token
@@ -52,7 +53,7 @@ async function refSha(token: string, owner: string, repo: string, branch: string
 async function existingFileSha(token: string, owner: string, repo: string, path: string, branch: string): Promise<string | null> {
   try {
     const file = await githubAppFetch<{ sha: string }>(
-      `/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(branch)}`,
+      `/repos/${owner}/${repo}/contents/${encodePathSegments(path)}?ref=${encodeURIComponent(branch)}`,
       token,
     );
     return file.sha ?? null;
@@ -99,7 +100,7 @@ export async function openDraftPr(input: OpenPrInput): Promise<OpenPrResult> {
 
   // Create or update the file on the branch.
   const sha = await existingFileSha(token, owner, repo, path, branch);
-  await githubAppFetch(`/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}`, token, {
+  await githubAppFetch(`/repos/${owner}/${repo}/contents/${encodePathSegments(path)}`, token, {
     method: "PUT",
     body: JSON.stringify({ message: commitMessage, content: enc(content), branch, ...(sha ? { sha } : {}) }),
   });

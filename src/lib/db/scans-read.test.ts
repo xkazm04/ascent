@@ -36,25 +36,62 @@ vi.mock("@/lib/db/client", () => ({
   dbReadSafe: <T,>(fn: () => Promise<T>) => fn(),
 }));
 
-// resolveOrgId is the only scans-shared seam getScanReportByCommit needs to reach the scan row;
-// the rest are kept real-ish but inert (reconstruction never calls toPersistedRec on this path).
-vi.mock("@/lib/db/scans-shared", () => ({
-  DEFAULT_ORG_SLUG: "public",
-  canonicalRepoFullName: (owner: string, name: string) => `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`,
-  resolveOrgId: vi.fn(async () => "org_1"),
-  toPersistedRec: vi.fn(),
-  // parseStringArray now lives in scans-shared (the dependency sink) and scans-read imports it from
-  // here; provide the REAL implementation so the resilience assertions below exercise it unchanged.
-  parseStringArray: (s: string | null | undefined): string[] => {
-    if (!s) return [];
+// resolveOrgId is the only scans-shared seam getScanReportByCommit needs to MOCK (to reach the scan
+// row). The JSON parsers (parseJson/parseStringArray) and toPersistedRec are provided as their REAL
+// implementations so the resilience assertions below exercise the production decode unchanged — these
+// all live in scans-shared (the dependency sink) and scans-read imports them from here. NOTE:
+// getScanReportByCommit routes its roadmap mapping through the canonical toPersistedRec, so it must be
+// real here (not an inert vi.fn) for the roadmap.explore resilience assertions to hold.
+vi.mock("@/lib/db/scans-shared", () => {
+  // The canonical JSON.parse-with-fallback primitive (null/empty/malformed → null). parseStringArray,
+  // toPersistedRec, and scans-read's object/number/discrepancy parsers all build on it.
+  const parseJson = <T,>(s: string | null | undefined): T | null => {
+    if (!s) return null;
     try {
-      const p = JSON.parse(s);
-      return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
+      return JSON.parse(s) as T;
     } catch {
-      return [];
+      return null;
     }
-  },
-}));
+  };
+  const parseStringArray = (s: string | null | undefined): string[] => {
+    const p = parseJson<unknown>(s);
+    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
+  };
+  const toPersistedRec = (r: {
+    id: string;
+    title: string;
+    dimId: string;
+    impact: string;
+    effort: string;
+    rationale: string;
+    explore?: string;
+    levelUnlock: string | null;
+    status: string;
+    assigneeLogin?: string | null;
+    targetDate?: Date | null;
+  }) => ({
+    id: r.id,
+    title: r.title,
+    dimension: r.dimId,
+    impact: r.impact,
+    effort: r.effort,
+    rationale: r.rationale,
+    explore: parseStringArray(r.explore),
+    levelUnlock: r.levelUnlock ?? undefined,
+    status: r.status,
+    assigneeLogin: r.assigneeLogin ?? null,
+    targetDate: r.targetDate ? r.targetDate.toISOString().slice(0, 10) : null,
+  });
+  return {
+    DEFAULT_ORG_SLUG: "public",
+    canonicalRepoFullName: (owner: string, name: string) =>
+      `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`,
+    resolveOrgId: vi.fn(async () => "org_1"),
+    parseJson,
+    parseStringArray,
+    toPersistedRec,
+  };
+});
 
 import { getScanReportByCommit } from "./scans-read";
 

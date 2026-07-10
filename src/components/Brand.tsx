@@ -6,7 +6,7 @@ import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
-import { demoOrgHref } from "@/lib/site";
+import { demoOrgHref, SITE_TAGLINE_TITLE } from "@/lib/site";
 import { scoreHex } from "@/lib/ui";
 
 /** Generated ascending-chevron mark + mono wordmark (Altimeter identity). */
@@ -226,7 +226,7 @@ export function SiteFooter() {
       <div className="mx-auto max-w-6xl px-5">
         <Logo className="justify-center opacity-80" />
         <p className="mt-3 font-mono text-sm uppercase tracking-widest text-slate-400">
-          The maturity index for AI-native engineering
+          {SITE_TAGLINE_TITLE}
         </p>
         <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
           <Link href="/leaderboard" className="focus-ring rounded-sm hover:text-accent">

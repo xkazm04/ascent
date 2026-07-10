@@ -2,16 +2,16 @@
 // a board member a briefing without giving them an account. The token IS the capability: an
 // HMAC-signed `{org, range, from, to, exp}` payload (the window travels so the recipient sees the same
 // period). The shared page (/share/briefing/[token]) verifies it and re-runs buildExecBriefing
-// READ-ONLY, exposing only what the briefing tab shows. Inert without a signing secret. Mirrors
-// lib/live-share.ts (WAR-4).
+// READ-ONLY, exposing only what the briefing tab shows. Inert without a signing secret. The HMAC
+// framing is shared with lib/live-share.ts (WAR-4) via lib/signed-share.ts.
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { resolveShareSecret, signShareToken, verifyShareToken } from "./signed-share";
 
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — a board cycle; shortened from 14d to bound a leaked link's exposure window (briefing-share #5)
 
 /** Signing secret: a dedicated BRIEFING_SHARE_SECRET, else the existing AUTH_SECRET. Null = off. */
 function shareSecret(): string | null {
-  return (process.env.BRIEFING_SHARE_SECRET || process.env.AUTH_SECRET || "").trim() || null;
+  return resolveShareSecret("BRIEFING_SHARE_SECRET");
 }
 
 export function briefingShareEnabled(): boolean {
@@ -36,54 +36,39 @@ export interface BriefingShareParams {
   mintedBy?: string;
 }
 
-function sign(payload: string, secret: string): string {
-  return createHmac("sha256", secret).update(payload).digest("base64url");
-}
-
 /** Mint a `payload.sig` token carrying the org + window, valid for `ttlMs`. Null without a secret. */
 export function signBriefingShareToken(p: BriefingShareParams, ttlMs: number = DEFAULT_TTL_MS): { token: string; expiresAt: number } | null {
   const secret = shareSecret();
   if (!secret) return null;
   const expiresAt = Date.now() + ttlMs;
-  const payload = Buffer.from(
-    JSON.stringify({ org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, segment: p.segment, stack: p.stack, mintedBy: p.mintedBy, exp: expiresAt }),
-  ).toString("base64url");
-  return { token: `${payload}.${sign(payload, secret)}`, expiresAt };
+  const token = signShareToken(
+    { org: p.org.toLowerCase(), range: p.range, from: p.from, to: p.to, segment: p.segment, stack: p.stack, mintedBy: p.mintedBy, exp: expiresAt },
+    secret,
+  );
+  return { token, expiresAt };
 }
 
 /** Verify a share token: signature must match (timing-safe) and it must not be expired. */
 export function verifyBriefingShareToken(token: string): BriefingShareParams | null {
-  const secret = shareSecret();
-  if (!secret || !token) return null;
-  const dot = token.lastIndexOf(".");
-  if (dot <= 0) return null;
-  const payload = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
-  const a = Buffer.from(sig);
-  const b = Buffer.from(sign(payload, secret));
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  try {
-    const p = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
-      org?: unknown;
-      range?: unknown;
-      from?: unknown;
-      to?: unknown;
-      segment?: unknown;
-      stack?: unknown;
-      mintedBy?: unknown;
-      exp?: unknown;
-    };
-    if (typeof p.org !== "string" || typeof p.exp !== "number" || p.exp < Date.now()) return null;
-    return {
-      org: p.org,
-      range: typeof p.range === "string" ? p.range : undefined,
-      from: typeof p.from === "string" ? p.from : undefined,
-      to: typeof p.to === "string" ? p.to : undefined,
-      segment: typeof p.segment === "string" ? p.segment : undefined,
-      stack: typeof p.stack === "string" ? p.stack : undefined,
-      mintedBy: typeof p.mintedBy === "string" ? p.mintedBy : undefined,
-    };
-  } catch {
-    return null;
-  }
+  const p = verifyShareToken(token, shareSecret()) as {
+    org?: unknown;
+    range?: unknown;
+    from?: unknown;
+    to?: unknown;
+    segment?: unknown;
+    stack?: unknown;
+    mintedBy?: unknown;
+    exp?: unknown;
+  } | null;
+  if (!p) return null;
+  if (typeof p.org !== "string" || typeof p.exp !== "number" || p.exp < Date.now()) return null;
+  return {
+    org: p.org,
+    range: typeof p.range === "string" ? p.range : undefined,
+    from: typeof p.from === "string" ? p.from : undefined,
+    to: typeof p.to === "string" ? p.to : undefined,
+    segment: typeof p.segment === "string" ? p.segment : undefined,
+    stack: typeof p.stack === "string" ? p.stack : undefined,
+    mintedBy: typeof p.mintedBy === "string" ? p.mintedBy : undefined,
+  };
 }

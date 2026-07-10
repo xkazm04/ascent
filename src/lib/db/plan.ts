@@ -6,8 +6,9 @@
 // Every function is a no-op / null when DATABASE_URL is unset, like the rest of src/lib/db.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
+import { meanPerDayKey, projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
 import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims, type SimFix } from "@/lib/scoring/orgsim";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 
@@ -36,11 +37,6 @@ interface FleetSnapshot {
   avgRigor: number;
   dimAvg: Record<string, number>;
   repos: SnapshotRepo[];
-}
-
-async function resolveOrgId(slug: string): Promise<string | null> {
-  const org = await getPrisma().organization.findUnique({ where: { slug }, select: { id: true } });
-  return org?.id ?? null;
 }
 
 /** Build the latest-scan snapshot once; goals/initiatives/simulate all read from it. */
@@ -110,20 +106,14 @@ function repoValueFor(metric: string, r: SnapshotRepo): number {
   return r.dims[metric] ?? 0;
 }
 
-/** Collapse timestamped observations to one per-day mean — the shape forecastTrajectory fits. */
+/** Collapse timestamped observations to one per-day mean — the shape forecastTrajectory fits. Shares
+ *  the per-day-mean accumulation with forecastTrajectory via meanPerDayKey (keyed by ISO `YYYY-MM-DD`),
+ *  then rounds each day's mean to an int. */
 function dailyAvg(points: { at: Date; value: number }[]): SeriesPoint[] {
-  const byDay: Record<string, { sum: number; n: number }> = {};
-  for (const p of points) {
-    const day = p.at.toISOString().slice(0, 10);
-    (byDay[day] ||= { sum: 0, n: 0 }).sum += p.value;
-    byDay[day].n += 1;
-  }
-  return Object.keys(byDay)
+  const byDay = meanPerDayKey(points, (p) => p.at.toISOString().slice(0, 10));
+  return [...byDay.keys()]
     .sort()
-    .map((date) => {
-      const entry = byDay[date]!; // safe: date comes from Object.keys(byDay)
-      return { date, value: Math.round(entry.sum / entry.n) };
-    });
+    .map((date) => ({ date, value: Math.round(byDay.get(date)!) })); // safe: date ∈ byDay.keys()
 }
 
 /**
@@ -249,7 +239,7 @@ export async function createGoal(
 export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const [goals, snap] = await Promise.all([
     prisma.goal.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
@@ -346,11 +336,20 @@ export async function deleteGoal(id: string): Promise<boolean> {
   return true;
 }
 
-/** The owning org's slug for a goal id (for the per-row tenant gate on /api/org/goals/:id). Null = unknown id. */
-export async function getGoalOrgSlug(id: string): Promise<string | null> {
+/**
+ * Resolve the owning org's slug for a planning row via a delegate-specific findUnique thunk. Shared by
+ * the goal/initiative per-row tenant gates so the "no DB ⇒ null / unknown id ⇒ null" contract is
+ * single-sourced. Null = persistence unconfigured or id unknown.
+ */
+async function ownerOrgSlug(find: () => Promise<{ org: { slug: string } } | null>): Promise<string | null> {
   if (!isDbConfigured()) return null;
-  const g = await getPrisma().goal.findUnique({ where: { id }, select: { org: { select: { slug: true } } } });
-  return g?.org.slug ?? null;
+  const row = await find();
+  return row?.org.slug ?? null;
+}
+
+/** The owning org's slug for a goal id (for the per-row tenant gate on /api/org/goals/:id). Null = unknown id. */
+export function getGoalOrgSlug(id: string): Promise<string | null> {
+  return ownerOrgSlug(() => getPrisma().goal.findUnique({ where: { id }, select: { org: { select: { slug: true } } } }));
 }
 
 // ── Initiatives ──────────────────────────────────────────────────────────────
@@ -447,7 +446,7 @@ export async function createInitiative(
 export async function listInitiatives(orgSlug: string): Promise<InitiativeRow[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const [rows, snap, goals, playbooks] = await Promise.all([
     prisma.initiative.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
@@ -502,10 +501,8 @@ export async function updateInitiative(
 }
 
 /** The owning org's slug for an initiative id (per-row tenant gate on /api/org/initiatives/:id). Null = unknown id. */
-export async function getInitiativeOrgSlug(id: string): Promise<string | null> {
-  if (!isDbConfigured()) return null;
-  const i = await getPrisma().initiative.findUnique({ where: { id }, select: { org: { select: { slug: true } } } });
-  return i?.org.slug ?? null;
+export function getInitiativeOrgSlug(id: string): Promise<string | null> {
+  return ownerOrgSlug(() => getPrisma().initiative.findUnique({ where: { id }, select: { org: { select: { slug: true } } } }));
 }
 
 // ── What-if simulator ──────────────────────────────────────────────────────
@@ -522,7 +519,7 @@ export async function simulateOrgFixes(
 ): Promise<FleetProjection | null> {
   if (!isDbConfigured()) return null;
   if (fixes.length === 0) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const snap = await fleetSnapshot(orgId);
   if (snap.repos.length === 0) return null;
@@ -562,7 +559,7 @@ export async function goalImpactsForScenario(
   after: { avgOverall: number; avgAdoption: number; avgRigor: number },
 ): Promise<GoalImpact[] | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const AXIS = new Set(["overall", "adoption", "rigor"]);
   const goals = (await getPrisma().goal.findMany({ where: { orgId, status: "active" } })).filter((g) => AXIS.has(g.metric));
@@ -608,7 +605,7 @@ export async function rankOrgInvestments(
   repoFullNames: string[],
 ): Promise<InvestmentRank[] | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await resolveOrgId(orgSlug);
+  const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const snap = await fleetSnapshot(orgId);
   if (snap.repos.length === 0) return null;

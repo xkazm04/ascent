@@ -4,7 +4,7 @@
 // same-origin; rejected for the public funnel (overrides are an org-owned-repo concern). Empty clears.
 
 import { NextResponse } from "next/server";
-import { getOrgId, isDbConfigured, recordAudit, setPassportOverrides } from "@/lib/db";
+import { isDbConfigured, recordOrgAudit, setPassportOverrides } from "@/lib/db";
 import { PUBLIC_ORG, getSession, isSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRole } from "@/lib/authz";
 import type { PassportOverrides } from "@/lib/analyze/passport";
@@ -46,11 +46,11 @@ export async function POST(request: Request) {
   if (!ok) return NextResponse.json({ error: "Unknown repository (scan it first)." }, { status: 404 });
 
   const session = await getSession();
-  const orgId = (await getOrgId(orgSlug.toLowerCase()).catch(() => null)) ?? undefined;
-  await recordAudit(
+  await recordOrgAudit(
     "passport.overrides_set",
+    orgSlug,
     { repo: fullName, criticality: body.criticality ?? null, lifecycle: body.lifecycle ?? null, rollback: body.rollback ?? null },
-    { orgId, actorId: session?.login },
+    session?.login,
   );
   return NextResponse.json({ ok: true });
 }

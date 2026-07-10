@@ -9,7 +9,7 @@ import { POSTURE_META } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
 
 // Re-exported from the brand kit so existing `@/components/org/ui` importers keep resolving them.
-export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE, toneFor } from "@/components/ui";
+export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE } from "@/components/ui";
 
 // Derived from the canonical, ordered posture taxonomy (maturity/model) so a new/renamed posture
 // flows through automatically — mirrors how DIMS is derived from DIMENSION_SHORT. Previously these

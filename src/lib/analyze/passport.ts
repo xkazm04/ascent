@@ -10,6 +10,7 @@
 // never claim an enforcement we couldn't observe. See docs/concepts/2026-06-22-app-passport-scan-integration.md.
 
 import type { AppPassport, AutomationLevel, Criticality, Governance, Lifecycle, PrStats, ProductionBand, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
+import { AI_TOOL_ALT } from "./ai-tools";
 
 export type { AppPassport, AutomationLevel, ProductionBand } from "@/lib/types";
 
@@ -179,8 +180,16 @@ function detectSelfVerify(p: ReturnType<typeof probes>): AppPassport["automation
   };
 }
 
+// Tool-name alternations sourced from the single AI vocabulary (ai-tools.ts) so passport's
+// "AI in workflow" recognizes the same tools as commit/PR attribution; keeps the `[bot]`
+// co-author clause this detector also matched on.
+const AI_WORKFLOW_TRAILER = new RegExp(
+  `co-authored-by:\\s*(${AI_TOOL_ALT}|.*\\[bot\\])|generated with \\[?(${AI_TOOL_ALT})|(${AI_TOOL_ALT})`,
+  "i",
+);
+
 function detectAiInWorkflow(snap: Snap, prStats: PrStats | null | undefined): boolean {
-  const trailer = snap.commits.some((c) => /co-authored-by:\s*(claude|.*\[bot\])|generated with \[?claude|copilot/i.test(c.message ?? ""));
+  const trailer = snap.commits.some((c) => AI_WORKFLOW_TRAILER.test(c.message ?? ""));
   return trailer || (prStats?.aiInvolvedRate ?? 0) > 0;
 }
 

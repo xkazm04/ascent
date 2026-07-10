@@ -76,6 +76,30 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
+ * Collapse keyed observations to one MEAN value per day-key, at full precision (no rounding).
+ * Single-sources the `{ sum, n }`-per-key accumulation shared by `forecastTrajectory` below (which
+ * keys by integer day-offset for its OLS x-axis) and `plan.ts`'s `dailyAvg` (which keys by ISO
+ * `YYYY-MM-DD` and rounds each mean afterwards). Returns a Map in first-seen insertion order;
+ * callers sort the keys themselves. Generic over the key so each caller keeps its own day semantics.
+ */
+export function meanPerDayKey<T extends { value: number }, K>(items: readonly T[], keyOf: (item: T) => K): Map<K, number> {
+  const acc = new Map<K, { sum: number; n: number }>();
+  for (const it of items) {
+    const k = keyOf(it);
+    const e = acc.get(k);
+    if (e) {
+      e.sum += it.value;
+      e.n += 1;
+    } else {
+      acc.set(k, { sum: it.value, n: 1 });
+    }
+  }
+  const out = new Map<K, number>();
+  for (const [k, e] of acc) out.set(k, e.sum / e.n);
+  return out;
+}
+
+/**
  * Fit a linear trajectory to a maturity-score series and project it forward.
  *
  * Returns null when there isn't enough signal to fit a line (fewer than two distinct calendar
@@ -94,17 +118,10 @@ export function forecastTrajectory(series: SeriesPoint[], horizonDays = 90): For
 
   // Collapse to one point per calendar day (mean), indexed by whole days from the first day.
   const firstT = parsed[0]!.t; // safe: parsed.length >= 2 checked above
-  const byDay = new Map<number, { sum: number; n: number }>();
-  for (const p of parsed) {
-    const day = Math.floor((p.t - firstT) / DAY_MS);
-    const e = byDay.get(day) ?? { sum: 0, n: 0 };
-    e.sum += p.value;
-    e.n += 1;
-    byDay.set(day, e);
-  }
-  const xs = [...byDay.keys()].sort((a, b) => a - b);
+  const dayMeans = meanPerDayKey(parsed, (p) => Math.floor((p.t - firstT) / DAY_MS));
+  const xs = [...dayMeans.keys()].sort((a, b) => a - b);
   if (xs.length < 2) return null; // every observation landed on one day → no slope to read
-  const ys = xs.map((d) => byDay.get(d)!.sum / byDay.get(d)!.n);
+  const ys = xs.map((d) => dayMeans.get(d)!); // safe: d ∈ dayMeans.keys()
 
   // Ordinary least squares over (dayOffset, score).
   const n = xs.length;

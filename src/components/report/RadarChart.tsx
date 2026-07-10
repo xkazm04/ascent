@@ -7,6 +7,7 @@ import type { DimensionId, DimensionResult } from "@/lib/types";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { ChartTooltip } from "@/components/report/chartHover";
+import { CHART_INK } from "@/components/report/chartScale";
 
 export function RadarChart({
   dimensions,
@@ -118,14 +119,14 @@ export function RadarChart({
           key={rg}
           points={dimensions.map((_, i) => point(i, rg).map((v) => v.toFixed(1)).join(",")).join(" ")}
           fill="none"
-          stroke="#1e293b"
+          stroke={CHART_INK.grid}
           strokeWidth={1}
         />
       ))}
       {/* axes */}
       {dimensions.map((_, i) => {
         const [x, y] = point(i, 1);
-        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="#1e293b" strokeWidth={1} />;
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke={CHART_INK.grid} strokeWidth={1} />;
       })}
       {/* data polygon */}
       <polygon points={dataPath} fill="rgba(59,158,255,0.22)" stroke="#3b9eff" strokeWidth={2} />

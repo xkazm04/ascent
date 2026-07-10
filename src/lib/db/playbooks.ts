@@ -5,6 +5,7 @@
 
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 
 export interface PlaybookRow {
   id: string;
@@ -48,9 +49,9 @@ function cleanSteps(steps: string[] | undefined): string {
 export async function listPlaybooks(orgSlug: string): Promise<PlaybookRow[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return [];
-  const rows = await prisma.playbook.findMany({ where: { orgId: org.id, archived: false }, orderBy: { createdAt: "desc" } });
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const rows = await prisma.playbook.findMany({ where: { orgId, archived: false }, orderBy: { createdAt: "desc" } });
   return rows.map((p) => ({
     id: p.id,
     title: p.title,
@@ -147,15 +148,15 @@ export async function applyPlaybook(
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return false;
-  const pb = await prisma.playbook.findFirst({ where: { id: playbookId, orgId: org.id }, select: { id: true, version: true } });
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
+  const pb = await prisma.playbook.findFirst({ where: { id: playbookId, orgId }, select: { id: true, version: true } });
   if (!pb) return false;
   // Stamp the version adopted, so a repo on an older version is visible once the playbook is edited.
   await prisma.playbookApplication.upsert({
     where: { playbookId_repoFullName: { playbookId, repoFullName } },
     update: { appliedBy: appliedBy ?? null, appliedVersion: pb.version, appliedAt: new Date() },
-    create: { playbookId, orgId: org.id, repoFullName, appliedBy: appliedBy ?? null, appliedVersion: pb.version },
+    create: { playbookId, orgId, repoFullName, appliedBy: appliedBy ?? null, appliedVersion: pb.version },
   });
   return true;
 }
@@ -183,18 +184,18 @@ export interface PlaybookAdoption {
 export async function getPlaybookAdoption(orgSlug: string): Promise<Record<string, PlaybookAdoption>> {
   if (!isDbConfigured()) return {};
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return {};
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return {};
 
   const [playbooks, apps] = await Promise.all([
-    prisma.playbook.findMany({ where: { orgId: org.id }, select: { id: true, dimId: true } }),
-    prisma.playbookApplication.findMany({ where: { orgId: org.id }, select: { playbookId: true, repoFullName: true, appliedAt: true } }),
+    prisma.playbook.findMany({ where: { orgId }, select: { id: true, dimId: true } }),
+    prisma.playbookApplication.findMany({ where: { orgId }, select: { playbookId: true, repoFullName: true, appliedAt: true } }),
   ]);
   if (apps.length === 0) return {};
   const dimByPlaybook = new Map(playbooks.map((p) => [p.id, p.dimId]));
 
   const fullNames = [...new Set(apps.map((a) => a.repoFullName))];
-  const repos = await prisma.repository.findMany({ where: { orgId: org.id, fullName: { in: fullNames } }, select: { id: true, fullName: true } });
+  const repos = await prisma.repository.findMany({ where: { orgId, fullName: { in: fullNames } }, select: { id: true, fullName: true } });
   const repoIdByName = new Map(repos.map((r) => [r.fullName, r.id]));
 
   // Per applied repo, the timeline of each dimension's score (oldest→newest), to find before/after.

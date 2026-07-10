@@ -11,6 +11,7 @@ import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { ScoreGauge } from "./ScoreGauge";
 import { ScanModal } from "./ScanModal";
 import { demoOrgHref } from "@/lib/site";
+import { DeckSection } from "@/components/deck/DeckSection";
 import type { LandingData } from "../types";
 
 function RuleStat({ value, label }: { value: string; label: string }) {
@@ -29,7 +30,7 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
   // which points at a seeded org, still shows).
   const sampleRepo = exampleRepos?.[0] ?? null;
   return (
-    <section id="hero" className="relative isolate flex min-h-screen snap-start items-center overflow-hidden">
+    <DeckSection id="hero" variant="hero">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         {/* GPT Image 2 editorial paper-relief backdrop (hybrid), weighted right behind the index ring.
             No `priority`: this 40%-opacity decorative backdrop is NOT the LCP element (the H1/CTA text is),
@@ -98,6 +99,6 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
           <div className="px-4 sm:px-8"><RuleStat value="0–100" label="Index scale" /></div>
         </div>
       </div>
-    </section>
+    </DeckSection>
   );
 }

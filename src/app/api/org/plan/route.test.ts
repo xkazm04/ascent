@@ -21,16 +21,14 @@ vi.mock("next/server", () => ({
 
 const {
   mockIsDbConfigured,
-  mockGetOrgId,
-  mockRecordAudit,
+  mockRecordOrgAudit,
   mockSetOrgPlan,
   mockRequireOrgRole,
   mockGetSession,
   mockIsSameOrigin,
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
-  mockGetOrgId: vi.fn(),
-  mockRecordAudit: vi.fn(),
+  mockRecordOrgAudit: vi.fn(),
   mockSetOrgPlan: vi.fn(),
   mockRequireOrgRole: vi.fn(),
   mockGetSession: vi.fn(),
@@ -39,8 +37,7 @@ const {
 
 vi.mock("@/lib/db", () => ({
   isDbConfigured: mockIsDbConfigured,
-  getOrgId: mockGetOrgId,
-  recordAudit: mockRecordAudit,
+  recordOrgAudit: mockRecordOrgAudit,
   setOrgPlan: mockSetOrgPlan,
 }));
 
@@ -68,8 +65,7 @@ beforeEach(() => {
   mockIsSameOrigin.mockReturnValue(true);
   mockRequireOrgRole.mockResolvedValue(null); // owner access granted
   mockSetOrgPlan.mockResolvedValue(true);
-  mockGetOrgId.mockResolvedValue("org_acme");
-  mockRecordAudit.mockResolvedValue(true);
+  mockRecordOrgAudit.mockResolvedValue(true);
   mockGetSession.mockResolvedValue({ login: "alice" });
 });
 
@@ -77,11 +73,12 @@ describe("POST /api/org/plan — actor attribution (SEC #1)", () => {
   it("records the actor in the dedicated actorId column, not meta.actor", async () => {
     const res = await POST(req({ org: "acme", plan: "free" }));
     expect(res.status).toBe(200);
-    expect(mockRecordAudit).toHaveBeenCalledTimes(1);
-    const [action, meta, opts] = mockRecordAudit.mock.calls[0];
+    expect(mockRecordOrgAudit).toHaveBeenCalledTimes(1);
+    // recordOrgAudit(action, slug, meta, actorId) — actor is the dedicated positional arg.
+    const [action, , meta, actorId] = mockRecordOrgAudit.mock.calls[0];
     expect(action).toBe("org.plan");
     // The actor must be in the filterable/visible column...
-    expect(opts.actorId).toBe("alice");
+    expect(actorId).toBe("alice");
     // ...and NOT shoved into meta where the viewer never reads it.
     expect(meta.actor).toBeUndefined();
   });
@@ -90,7 +87,7 @@ describe("POST /api/org/plan — actor attribution (SEC #1)", () => {
     mockGetSession.mockResolvedValue(null);
     const res = await POST(req({ org: "acme", plan: "free" }));
     expect(res.status).toBe(200);
-    const [, , opts] = mockRecordAudit.mock.calls[0];
-    expect(opts.actorId).toBeUndefined();
+    const [, , , actorId] = mockRecordOrgAudit.mock.calls[0];
+    expect(actorId).toBeUndefined();
   });
 });

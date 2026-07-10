@@ -5,7 +5,7 @@
 
 import type { ScanReport } from "@/lib/types";
 import type { GateResult } from "@/lib/scoring/gate";
-import { effectiveFloor, failsFloor } from "@/lib/scoring/gate";
+import { describeGatePolicy, effectiveFloor, failsFloor } from "@/lib/scoring/gate";
 import type { ScanDiff } from "@/lib/report/compare";
 import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { signedDelta } from "@/components/ui/format";
@@ -131,11 +131,11 @@ export function buildGateComment(
   );
 
   const summary = lines.join("\n");
-  const policyBits: string[] = [];
-  if (gate.policy.minLevel) policyBits.push(`min ${gate.policy.minLevel}`);
-  if (typeof gate.policy.minOverall === "number") policyBits.push(`min overall ${gate.policy.minOverall}`);
-  if (typeof gate.policy.minDimension === "number") policyBits.push(`no dim < ${gate.policy.minDimension}`);
-  if (gate.policy.forbidPostures?.length) policyBits.push(`forbid ${gate.policy.forbidPostures.join("/")}`);
+  // Derive the footer chips from the SAME canonical condition enumeration the governance dashboard /
+  // gate URL / CI snippet use (describeGatePolicy), so the footer can't silently advertise a weaker
+  // bar than the gate enforces. This now includes the per-dimension Security (D9) floor and the
+  // protected-branch requirement, which the old hand-rolled list omitted.
+  const policyBits = describeGatePolicy(gate.policy).map((c) => c.bit);
 
   // Provider/mode now lives in `summary` (above), so the footer carries only the policy — no dupe.
   const commentBody = [

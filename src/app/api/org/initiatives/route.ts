@@ -3,25 +3,21 @@
 // Tracked, scoped programs of work — usually created from a fleet recommendation.
 
 import { NextResponse } from "next/server";
-import { createInitiative, isDbConfigured, listInitiatives } from "@/lib/db";
-import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
+import { createInitiative, listInitiatives } from "@/lib/db";
+import { requireOrgAccess } from "@/lib/authz";
 import { isDimensionId } from "@/lib/maturity/model";
+import { createdResponse, dbGuard, invalidTargetDate, listOrgRoute } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Initiatives require a database." }, { status: 503 });
-  const org = new URL(request.url).searchParams.get("org");
-  if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
-  const denied = await requireOrgRead(org);
-  if (denied) return denied;
-  const items = await listInitiatives(org);
-  return NextResponse.json({ initiatives: items ?? [] });
+  return listOrgRoute(request, { resourceLabel: "Initiatives", key: "initiatives", load: listInitiatives });
 }
 
 export async function POST(request: Request) {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Initiatives require a database." }, { status: 503 });
+  const guard = dbGuard("Initiatives");
+  if (guard) return guard;
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     title?: string;
@@ -40,6 +36,8 @@ export async function POST(request: Request) {
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
   if (!isDimensionId(body.dimId)) return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
+  const badDate = invalidTargetDate(body.targetDate);
+  if (badDate) return badDate;
   const created = await createInitiative(body.org, {
     title: body.title,
     dimId: body.dimId,
@@ -51,5 +49,5 @@ export async function POST(request: Request) {
     goalId: typeof body.goalId === "string" ? body.goalId : null,
     playbookId: typeof body.playbookId === "string" ? body.playbookId : null,
   });
-  return NextResponse.json(created ?? { error: "Failed to create initiative." }, { status: created ? 200 : 500 });
+  return createdResponse(created, "initiative");
 }

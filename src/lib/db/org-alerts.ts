@@ -5,7 +5,22 @@
 // org URL → global env → no-op (see resolveAlertWebhook in src/lib/alerts.ts). Guarded by
 // DATABASE_URL like the rest of the db layer.
 
+import type { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
+
+/**
+ * Resolve the org (canonical {@link getOrgId} lookup), then apply a partial update to its row.
+ * Returns false when persistence is off or the org is unknown (so the setters can return undefined),
+ * true on a successful update. Factors the resolve→guard→update tail both setters repeated.
+ */
+async function updateOrgById(orgSlug: string, data: Prisma.OrganizationUpdateInput): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
+  await getPrisma().organization.update({ where: { id: orgId }, data });
+  return true;
+}
 
 /** The org's configured alert webhook URL, or null (unset / unknown org / DB-less). */
 export async function getOrgAlertWebhook(orgSlug: string): Promise<string | null> {
@@ -22,12 +37,7 @@ export async function getOrgAlertWebhook(orgSlug: string): Promise<string | null
  * the org doesn't exist. Validation (https, length) is the API route's job — this is storage only.
  */
 export async function setOrgAlertWebhook(orgSlug: string, url: string | null): Promise<string | null | undefined> {
-  if (!isDbConfigured()) return undefined;
-  const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return undefined;
-  await prisma.organization.update({ where: { id: org.id }, data: { alertWebhookUrl: url } });
-  return url;
+  return (await updateOrgById(orgSlug, { alertWebhookUrl: url })) ? url : undefined;
 }
 
 /** Per-org regression sensitivity overrides (points); null = inherit DEFAULT_THRESHOLDS. */
@@ -51,13 +61,6 @@ export async function setOrgAlertThresholds(
   orgSlug: string,
   t: OrgAlertThresholds,
 ): Promise<OrgAlertThresholds | undefined> {
-  if (!isDbConfigured()) return undefined;
-  const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug.toLowerCase() }, select: { id: true } });
-  if (!org) return undefined;
-  await prisma.organization.update({
-    where: { id: org.id },
-    data: { alertOverallDrop: t.overallDrop, alertDimensionDrop: t.dimensionDrop },
-  });
-  return t;
+  const updated = await updateOrgById(orgSlug, { alertOverallDrop: t.overallDrop, alertDimensionDrop: t.dimensionDrop });
+  return updated ? t : undefined;
 }

@@ -6,9 +6,10 @@
 // changes the bar that blocks merges across the org. The stored value is sanitized on write.
 
 import { NextResponse } from "next/server";
-import { getOrgGatePolicy, getOrgId, isDbConfigured, recordAudit, setOrgGatePolicy } from "@/lib/db";
-import { requireOrgRead, requireOrgRole } from "@/lib/authz";
-import { getSession, isSameOrigin } from "@/lib/auth";
+import { getOrgGatePolicy, isDbConfigured, recordOrgAudit, setOrgGatePolicy } from "@/lib/db";
+import { requireOrgRead } from "@/lib/authz";
+import { getSession } from "@/lib/auth";
+import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { sanitizeGatePolicy } from "@/lib/scoring/gate";
 
 export const runtime = "nodejs";
@@ -25,24 +26,22 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Gate policy requires a database." }, { status: 503 });
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "Cross-origin request rejected." }, { status: 403 });
-  const body = (await request.json().catch(() => ({}))) as { org?: string; policy?: unknown };
-  if (!body.org) return NextResponse.json({ error: "Provide { org, policy }." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "owner");
-  if (denied) return denied;
+  const gate = await requireOrgOwnerPost<{ policy?: unknown }>(request, { missingOrgError: "Provide { org, policy }." });
+  if (gate instanceof NextResponse) return gate;
+  const { org, body } = gate;
 
   // null clears (back to the archetype default); anything else is sanitized — an all-invalid object
   // sanitizes to null, which also clears (a no-op policy is the default).
   const clean = body.policy == null ? null : sanitizeGatePolicy(body.policy);
-  const stored = await setOrgGatePolicy(body.org, clean);
+  const stored = await setOrgGatePolicy(org, clean);
   if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
   const session = await getSession();
-  const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
   // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
-  await recordAudit(
+  await recordOrgAudit(
     "org.gate_policy",
-    { org: body.org, action: stored ? "set" : "cleared" },
-    { orgId, actorId: session?.login },
+    org,
+    { org, action: stored ? "set" : "cleared" },
+    session?.login,
   ).catch(() => {});
   return NextResponse.json({ ok: true, policy: stored });
 }

@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { DIMENSION_COUNT, LEVEL_COUNT, SITE_TAGLINE } from "@/lib/site";
 
 // SHELL-3: Web App Manifest so Ascent is an installable PWA shell (Add to Home Screen / desktop
 // install) with brand chrome on the splash + task switcher. No service worker — installability only
@@ -11,10 +12,9 @@ import type { MetadataRoute } from "next";
 // type is declared accordingly.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Ascent — the maturity index for AI-native engineering",
+    name: `Ascent — ${SITE_TAGLINE}`,
     short_name: "Ascent",
-    description:
-      "Score how AI-native your engineering org is from a GitHub repo — a 5-level maturity ladder across 9 dimensions, with evidence and a roadmap.",
+    description: `Score how AI-native your engineering org is from a GitHub repo — a ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap.`,
     start_url: "/",
     display: "standalone",
     background_color: "#080d1a",

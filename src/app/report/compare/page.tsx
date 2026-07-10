@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
-import { EmptyState } from "@/components/EmptyState";
+import { RepoScanNotice } from "@/components/EmptyState";
 import { ScanComparePicker } from "@/components/report/ScanComparePicker";
 import { WhatChanged } from "@/components/report/WhatChanged";
 import { parseRepoUrl } from "@/lib/github/source";
@@ -22,19 +22,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 function Notice({ title, body, repo }: { title: string; body: string; repo?: string }) {
-  return (
-    <EmptyState
-      icon="🔀"
-      title={title}
-      body={body}
-      actions={[
-        ...(repo
-          ? [{ label: `Scan ${repo}`, href: `/report?repo=${encodeURIComponent(repo)}`, primary: true }]
-          : []),
-        { label: "← Home", href: "/" },
-      ]}
-    />
-  );
+  return <RepoScanNotice icon="🔀" title={title} body={body} repo={repo} />;
 }
 
 export default async function ComparePage({

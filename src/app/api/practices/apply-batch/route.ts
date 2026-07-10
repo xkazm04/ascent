@@ -9,10 +9,11 @@
 import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
-import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { getInstallationIdForOwner, getOrgId, isDbConfigured } from "@/lib/db";
+import { AppApiError, isAppConfigured } from "@/lib/github/app";
+import { getOrgId } from "@/lib/db";
 import { getSession, isAuthConfigured } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
+import { requirePrWriteContext } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
 export const runtime = "nodejs";
@@ -65,19 +66,15 @@ export async function POST(request: Request) {
   const denied = await requireOrgAccess(owner);
   if (denied) return denied;
 
-  const installId = isDbConfigured() ? await getInstallationIdForOwner(owner).catch(() => null) : null;
-  if (!installId) {
-    return NextResponse.json(
-      { error: `Ascent isn't installed on ${owner}. Install the GitHub App (with write access) to open PRs.` },
-      { status: 403 },
-    );
-  }
-
   const batch = parsed.slice(0, MAX_BATCH);
   const skipped = parsed.length - batch.length;
 
   try {
-    const token = await getInstallationToken(installId);
+    // Install presence (403) + installation-token mint, single-sourced across the PR-write routes. A
+    // mint failure throws into the catch below, which keeps THIS route's own "couldn't mint" 502 copy.
+    const ctx = await requirePrWriteContext(owner);
+    if (ctx instanceof Response) return ctx;
+    const { token } = ctx;
     const orgId = (await getOrgId(owner.toLowerCase()).catch(() => null)) ?? undefined;
 
     // Bounded fan-out; the per-repo worker owns its errors so one failure can't abort the pool.

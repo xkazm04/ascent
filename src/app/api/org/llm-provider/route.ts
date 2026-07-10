@@ -9,10 +9,9 @@ import { NextResponse } from "next/server";
 import {
   disableOrgLlmConfig,
   getCreditState,
-  getOrgId,
   getOrgLlmConfig,
   isDbConfigured,
-  recordAudit,
+  recordOrgAudit,
   setOrgLlmConfig,
 } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
@@ -78,12 +77,12 @@ export async function POST(request: Request) {
     session?.login ?? null,
   );
   if (!res.ok) return NextResponse.json({ error: res.error ?? "Failed to save." }, { status: 400 });
-  const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
   // Audit the config change WITHOUT the secret — model/region/enabled + whether creds were rotated.
-  await recordAudit(
+  await recordOrgAudit(
     "org.llm_provider.updated",
+    body.org,
     { provider: "bedrock", modelId: body.modelId.trim(), region: body.region ?? null, enabled: body.enabled ?? false, credsRotated: Boolean(body.accessKeyId) },
-    { orgId, actorId: session?.login },
+    session?.login,
   );
   return NextResponse.json({ ok: true });
 }
@@ -97,7 +96,6 @@ export async function DELETE(request: Request) {
   if (denied) return denied;
   await disableOrgLlmConfig(body.org);
   const session = await getSession();
-  const orgId = (await getOrgId(body.org.toLowerCase()).catch(() => null)) ?? undefined;
-  await recordAudit("org.llm_provider.disabled", { provider: "bedrock" }, { orgId, actorId: session?.login });
+  await recordOrgAudit("org.llm_provider.disabled", body.org, { provider: "bedrock" }, session?.login);
   return NextResponse.json({ ok: true });
 }

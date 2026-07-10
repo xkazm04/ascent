@@ -6,6 +6,7 @@
 
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { getOrgId } from "@/lib/db/org-rollup";
 import { isSkillCategory, normalizeSkillCategory } from "@/lib/org/skill-categories";
 
 /** How the list is ordered. `recent` (default) = last edited; `downloads` = most used. */
@@ -93,10 +94,10 @@ function toRow(s: Prisma.OrgSkillGetPayload<{ include: { _count: { select: { ado
 export async function listOrgSkills(orgSlug: string, opts: SkillListOpts = {}): Promise<SkillRow[] | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
 
-  const where: Prisma.OrgSkillWhereInput = { orgId: org.id, archived: false };
+  const where: Prisma.OrgSkillWhereInput = { orgId, archived: false };
   if (isSkillCategory(opts.category)) where.category = opts.category;
   const search = opts.search?.trim();
   if (search) {
@@ -202,10 +203,10 @@ export interface SkillAdoption {
 export async function getOrgSkillAdoption(orgSlug: string): Promise<Record<string, SkillAdoption>> {
   if (!isDbConfigured()) return {};
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return {};
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return {};
   const apps = await prisma.orgSkillAdoption.findMany({
-    where: { orgId: org.id },
+    where: { orgId },
     select: { skillId: true, repoFullName: true },
   });
   const out: Record<string, SkillAdoption> = {};
@@ -229,14 +230,14 @@ export async function adoptOrgSkill(
 ): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
-  if (!org) return false;
-  const skill = await prisma.orgSkill.findFirst({ where: { id: skillId, orgId: org.id }, select: { id: true } });
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
+  const skill = await prisma.orgSkill.findFirst({ where: { id: skillId, orgId }, select: { id: true } });
   if (!skill) return false;
   await prisma.orgSkillAdoption.upsert({
     where: { skillId_repoFullName: { skillId, repoFullName } },
     update: { adoptedBy: adoptedBy ?? null, adoptedAt: new Date() },
-    create: { skillId, orgId: org.id, repoFullName, adoptedBy: adoptedBy ?? null },
+    create: { skillId, orgId, repoFullName, adoptedBy: adoptedBy ?? null },
   });
   return true;
 }

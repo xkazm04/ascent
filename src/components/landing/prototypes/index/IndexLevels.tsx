@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
 import { HairlineGrid, SectionHeading, Surface } from "@/components/ui";
+import { DeckSection } from "@/components/deck/DeckSection";
 import type { LevelId } from "@/lib/types";
 
 // Recharts (+ its d3 deps) is the single heaviest dependency that would otherwise ride the homepage's
@@ -21,7 +22,7 @@ const TrajectoryChart = dynamic(() => import("./TrajectoryChart").then((m) => m.
 
 export function IndexLevels() {
   return (
-    <section id="levels" className="flex min-h-screen snap-start flex-col justify-center pb-10 pt-14">
+    <DeckSection id="levels">
       <SectionHeading
         size="page"
         kicker="The ladder"
@@ -45,6 +46,6 @@ export function IndexLevels() {
           </div>
         ))}
       </HairlineGrid>
-    </section>
+    </DeckSection>
   );
 }

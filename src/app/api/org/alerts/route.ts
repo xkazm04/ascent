@@ -13,9 +13,8 @@ import { NextResponse } from "next/server";
 import {
   getOrgAlertThresholds,
   getOrgAlertWebhook,
-  getOrgId,
   isDbConfigured,
-  recordAudit,
+  recordOrgAudit,
   setOrgAlertThresholds,
   setOrgAlertWebhook,
 } from "@/lib/db";
@@ -95,7 +94,6 @@ export async function POST(request: Request) {
   }
 
   const session = await getSession();
-  const orgId = (await getOrgId(body.org).catch(() => null)) ?? undefined;
   const result: { ok: true; webhookUrl?: string | null; overallDrop?: number | null; dimensionDrop?: number | null } = { ok: true };
 
   // Webhook: null / "" clears the override (fall back to the global sink); anything else must validate.
@@ -112,10 +110,11 @@ export async function POST(request: Request) {
     if (stored === undefined) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
     result.webhookUrl = stored;
     // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
-    await recordAudit(
+    await recordOrgAudit(
       "org.alerts.webhook",
+      body.org,
       { org: body.org, action: url ? "set" : "cleared" },
-      { orgId, actorId: session?.login },
+      session?.login,
     ).catch(() => {});
   }
 
@@ -131,10 +130,11 @@ export async function POST(request: Request) {
     result.overallDrop = stored.overallDrop;
     result.dimensionDrop = stored.dimensionDrop;
     // SEC #1: actor goes in the dedicated `actorId` column so the viewer/filter can surface it.
-    await recordAudit(
+    await recordOrgAudit(
       "org.alerts.thresholds",
+      body.org,
       { org: body.org, overallDrop, dimensionDrop },
-      { orgId, actorId: session?.login },
+      session?.login,
     ).catch(() => {});
   }
 

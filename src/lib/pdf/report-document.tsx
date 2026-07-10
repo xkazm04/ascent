@@ -5,25 +5,12 @@
 
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { ScanReport } from "@/lib/types";
+import { ACCENT, FAINT, LINE, MUTED, baseStyles, scoreColor, Footer } from "./theme";
 
-const ACCENT = "#2563eb";
-const INK = "#0f172a";
-const MUTED = "#475569";
-const FAINT = "#94a3b8";
-const LINE = "#e2e8f0";
-
-function scoreColor(score: number): string {
-  if (score >= 80) return "#16a34a";
-  if (score >= 60) return ACCENT;
-  if (score >= 40) return "#d97706";
-  return "#dc2626";
-}
-
+// report-document keeps its own h1 (fontSize 22) and rule (marginVertical 16) — these legitimately
+// differ from the 24/14 used by briefing/security, so they are NOT hoisted into the shared theme.
 const styles = StyleSheet.create({
-  page: { paddingVertical: 44, paddingHorizontal: 48, fontSize: 10, color: INK, fontFamily: "Helvetica", lineHeight: 1.45 },
-  kicker: { fontSize: 9, letterSpacing: 3, color: ACCENT, fontFamily: "Helvetica-Bold", textTransform: "uppercase" },
   h1: { fontSize: 22, fontFamily: "Helvetica-Bold", marginTop: 6 },
-  url: { fontSize: 9, color: FAINT, marginTop: 2 },
   rule: { borderBottomWidth: 1, borderBottomColor: LINE, marginVertical: 16 },
   scoreRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
   scoreNum: { fontSize: 46, fontFamily: "Helvetica-Bold" },
@@ -35,7 +22,6 @@ const styles = StyleSheet.create({
   axis: { flexDirection: "column" },
   axisLabel: { fontSize: 8, letterSpacing: 2, color: FAINT, textTransform: "uppercase" },
   axisVal: { fontSize: 16, fontFamily: "Helvetica-Bold", marginTop: 2 },
-  sectionH: { fontSize: 12, fontFamily: "Helvetica-Bold", marginBottom: 6 },
   twoCol: { flexDirection: "row", gap: 24, marginTop: 4 },
   col: { flexDirection: "column", width: "50%" },
   bullet: { flexDirection: "row", gap: 5, marginBottom: 3 },
@@ -45,7 +31,6 @@ const styles = StyleSheet.create({
   dimHead: { flexDirection: "row", justifyContent: "space-between" },
   dimName: { fontFamily: "Helvetica-Bold" },
   dimSummary: { color: MUTED, marginTop: 1 },
-  footer: { position: "absolute", bottom: 24, left: 48, right: 48, flexDirection: "row", justifyContent: "space-between", fontSize: 8, color: FAINT, borderTopWidth: 1, borderTopColor: LINE, paddingTop: 8 },
 });
 
 export function ReportDocument({ report }: { report: ScanReport }) {
@@ -62,10 +47,10 @@ export function ReportDocument({ report }: { report: ScanReport }) {
 
   return (
     <Document title={`Ascent maturity report — ${ref}`} author="Ascent" subject="AI-native engineering maturity">
-      <Page size="A4" style={styles.page}>
-        <Text style={styles.kicker}>Ascent · AI-native maturity report</Text>
+      <Page size="A4" style={baseStyles.page}>
+        <Text style={baseStyles.kicker}>Ascent · AI-native maturity report</Text>
         <Text style={styles.h1}>{ref}</Text>
-        <Text style={styles.url}>{repo.url}{repo.primaryLanguage ? ` · ${repo.primaryLanguage}` : ""}{scannedAt ? ` · scanned ${scannedAt}` : ""}</Text>
+        <Text style={baseStyles.meta}>{repo.url}{repo.primaryLanguage ? ` · ${repo.primaryLanguage}` : ""}{scannedAt ? ` · scanned ${scannedAt}` : ""}</Text>
 
         <View style={styles.rule} />
 
@@ -97,7 +82,7 @@ export function ReportDocument({ report }: { report: ScanReport }) {
             <View style={styles.rule} />
             <View style={styles.twoCol}>
               <View style={styles.col}>
-                <Text style={styles.sectionH}>Strengths</Text>
+                <Text style={baseStyles.sectionH}>Strengths</Text>
                 {report.strengths.length === 0 && <Text style={{ color: FAINT }}>None surfaced.</Text>}
                 {report.strengths.map((s, i) => (
                   <View key={i} style={styles.bullet}>
@@ -107,7 +92,7 @@ export function ReportDocument({ report }: { report: ScanReport }) {
                 ))}
               </View>
               <View style={styles.col}>
-                <Text style={styles.sectionH}>Risks & gaps</Text>
+                <Text style={baseStyles.sectionH}>Risks & gaps</Text>
                 {report.risks.length === 0 && <Text style={{ color: FAINT }}>None surfaced.</Text>}
                 {report.risks.map((r, i) => (
                   <View key={i} style={styles.bullet}>
@@ -121,7 +106,7 @@ export function ReportDocument({ report }: { report: ScanReport }) {
         )}
 
         <View style={styles.rule} />
-        <Text style={styles.sectionH}>Scoring by dimension</Text>
+        <Text style={baseStyles.sectionH}>Scoring by dimension</Text>
         {report.dimensions.map((d) => (
           <View key={d.id} style={styles.dimRow} wrap={false}>
             <View style={styles.dimHead}>
@@ -132,10 +117,7 @@ export function ReportDocument({ report }: { report: ScanReport }) {
           </View>
         ))}
 
-        <View style={styles.footer} fixed>
-          <Text>Scored by Ascent · engine: {report.engine.provider} · coverage {Math.round(report.confidence * 100)}%</Text>
-          <Text render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
-        </View>
+        <Footer note={`Scored by Ascent · engine: ${report.engine.provider} · coverage ${Math.round(report.confidence * 100)}%`} />
       </Page>
     </Document>
   );

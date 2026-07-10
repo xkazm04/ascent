@@ -4,10 +4,6 @@
 // isolated cluster) never heal — they're the weak links that remain. All deterministic → identical
 // every render/frame.
 
-export const W = 960;
-export const H = 540;
-export const FPS = 30;
-export const DURATION = 330;
 export const HEAL = 72; // frames for a link to transition weak → strong (~30% of the original speed)
 const INTRO = 73;
 const STEP = 56; // frames per BFS hop

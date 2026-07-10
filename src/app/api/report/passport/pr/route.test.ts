@@ -24,8 +24,7 @@ const h = vi.hoisted(() => ({
   getRepoPassport: vi.fn(),
   getInstallationIdForOwner: vi.fn(),
   getInstallationToken: vi.fn(),
-  getOrgId: vi.fn(),
-  recordAudit: vi.fn(),
+  recordOrgAudit: vi.fn(),
   openDraftPr: vi.fn(),
 }));
 
@@ -41,7 +40,7 @@ vi.mock("@/lib/github/app", () => ({
   isAppConfigured: h.isAppConfigured,
 }));
 vi.mock("@/lib/db", () => ({
-  isDbConfigured: h.isDbConfigured, getRepoPassport: h.getRepoPassport, getInstallationIdForOwner: h.getInstallationIdForOwner, getOrgId: h.getOrgId, recordAudit: h.recordAudit,
+  isDbConfigured: h.isDbConfigured, getRepoPassport: h.getRepoPassport, getInstallationIdForOwner: h.getInstallationIdForOwner, recordOrgAudit: h.recordOrgAudit,
 }));
 vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public", readableOrgForOwner: h.readableOrgForOwner, isSameOrigin: h.isSameOrigin, isAuthConfigured: h.isAuthConfigured, getSession: h.getSession }));
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: h.requireOrgAccess }));
@@ -64,8 +63,7 @@ beforeEach(() => {
   h.getRepoPassport.mockResolvedValue(passport);
   h.getInstallationIdForOwner.mockResolvedValue("inst1");
   h.getInstallationToken.mockResolvedValue("tok");
-  h.getOrgId.mockResolvedValue("org_acme");
-  h.recordAudit.mockResolvedValue(undefined);
+  h.recordOrgAudit.mockResolvedValue(undefined);
   h.openDraftPr.mockResolvedValue({ url: "https://github.com/acme/web/pull/7", number: 7, reused: false });
 });
 
@@ -111,7 +109,7 @@ describe("POST /api/report/passport/pr — commit", () => {
     expect(arg).toMatchObject({ owner: "acme", repo: "web", path: ".ai/passport.json" });
     expect(arg.content).toContain("app-passport-0.1.json"); // $schema pointer
     expect(arg.content).toContain('"app-passport"');
-    expect(h.recordAudit.mock.calls[0][0]).toBe("passport.pr_opened");
+    expect(h.recordOrgAudit.mock.calls[0][0]).toBe("passport.pr_opened");
   });
 
   it("surfaces a 409 clobber from openDraftPr (won't overwrite an existing .ai/passport.json)", async () => {

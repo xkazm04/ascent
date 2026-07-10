@@ -26,8 +26,7 @@ const {
   mockGetCreditState,
   mockUpdateOrgSkill,
   mockArchiveOrgSkill,
-  mockGetOrgId,
-  mockRecordAudit,
+  mockRecordOrgAudit,
   mockRequireOrgAccess,
   mockRequireOrgRole,
   mockGetSession,
@@ -37,8 +36,7 @@ const {
   mockGetCreditState: vi.fn(),
   mockUpdateOrgSkill: vi.fn(),
   mockArchiveOrgSkill: vi.fn(),
-  mockGetOrgId: vi.fn(),
-  mockRecordAudit: vi.fn(),
+  mockRecordOrgAudit: vi.fn(),
   mockRequireOrgAccess: vi.fn(),
   mockRequireOrgRole: vi.fn(),
   mockGetSession: vi.fn(),
@@ -50,8 +48,7 @@ vi.mock("@/lib/db", () => ({
   getCreditState: mockGetCreditState,
   updateOrgSkill: mockUpdateOrgSkill,
   archiveOrgSkill: mockArchiveOrgSkill,
-  getOrgId: mockGetOrgId,
-  recordAudit: mockRecordAudit,
+  recordOrgAudit: mockRecordOrgAudit,
   getOrgSkill: vi.fn(),
 }));
 vi.mock("@/lib/authz", () => ({
@@ -80,8 +77,7 @@ beforeEach(() => {
   mockGetCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
   mockUpdateOrgSkill.mockResolvedValue(undefined);
   mockArchiveOrgSkill.mockResolvedValue(undefined);
-  mockGetOrgId.mockResolvedValue("org_acme");
-  mockRecordAudit.mockResolvedValue(undefined);
+  mockRecordOrgAudit.mockResolvedValue(undefined);
   mockGetSession.mockResolvedValue({ login: "alice" });
 });
 
@@ -155,7 +151,7 @@ describe("PATCH — body validation + forwarding", () => {
 
   it("audits the edit + maps P2025->404, P2002->409, other->500", async () => {
     expect((await PATCH(patchReq({ name: "x" }), ctx("s1"))).status).toBe(200);
-    expect(mockRecordAudit.mock.calls[0][0]).toBe("org_skill.updated");
+    expect(mockRecordOrgAudit.mock.calls[0][0]).toBe("org_skill.updated");
     mockUpdateOrgSkill.mockRejectedValueOnce({ code: "P2025" });
     expect((await PATCH(patchReq({ name: "x" }), ctx("s1"))).status).toBe(404);
     mockUpdateOrgSkill.mockRejectedValueOnce({ code: "P2002" });
