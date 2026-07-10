@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Meter, SectionHeader, signedDelta as signed } from "@/components/org/ui";
+import { Card, Meter, SectionHeader, signedDelta as signed } from "@/components/org/shared/ui";
 import { scoreHex } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
 import { humanizeDays } from "@/lib/maturity/forecast";

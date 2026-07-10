@@ -8,10 +8,10 @@
 // honored for data consistency with the other tabs, but this page renders no stack UI. Passports
 // come from scans (P1), so a never-scanned / pre-passport repo simply isn't listed.
 
-import { ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/ui";
-import { SegmentSelector } from "@/components/org/SegmentSelector";
-import { PassportPortfolio } from "@/components/org/PassportPortfolio";
-import type { PassportRow } from "@/components/org/PassportTable";
+import { ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { SegmentSelector } from "@/components/org/shared/SegmentSelector";
+import { PassportPortfolio } from "@/components/org/passports/PassportPortfolio";
+import type { PassportRow } from "@/components/org/passports/PassportTable";
 import { getOrgRollup } from "@/lib/db";
 import { passportStackChips } from "@/lib/org/passport-display";
 import { resolveOrgScope } from "@/lib/org/scope";

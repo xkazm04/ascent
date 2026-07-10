@@ -1,5 +1,5 @@
-import { Card, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_LEDGER } from "@/components/org/ui";
-import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
+import { Card, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_LEDGER } from "@/components/org/shared/ui";
+import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { DeliveryPriorities } from "@/components/org/delivery/DeliveryPriorities";
 import { PrSignalsBand } from "@/components/org/delivery/PrSignalsBand";
 import { PrRepoTable } from "@/components/org/delivery/PrRepoTable";

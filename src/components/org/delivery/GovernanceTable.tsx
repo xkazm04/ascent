@@ -5,7 +5,7 @@
 // into a native <details> summary line. Repo names link into their full reports. Server-safe, no JS.
 
 import Link from "next/link";
-import { OrgTable } from "@/components/org/ui";
+import { OrgTable } from "@/components/org/shared/ui";
 import type { OrgGovernance, RepoGovernance } from "@/lib/db";
 
 /** A repo counts as governed when merging is actually gated: protection on, ≥1 approving review,

@@ -3,8 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { REC_STATUSES } from "@/lib/types";
-import { Card, Meter, SectionHeader } from "@/components/org/ui";
-import { STATUS_LABEL } from "@/components/org/backlogShared";
+import { Card, Meter, SectionHeader } from "@/components/org/shared/ui";
+import { STATUS_LABEL } from "@/components/org/shared/backlogShared";
 
 export interface InitiativeView {
   id: string;

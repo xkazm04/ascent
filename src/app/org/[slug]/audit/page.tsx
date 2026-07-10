@@ -2,8 +2,8 @@
 // DB/auth/empty state, so this just loads the first page server-side and hands it to the
 // client viewer for filtering + keyset pagination.
 
-import { SectionEmpty, SectionHeader } from "@/components/org/ui";
-import { AuditLogViewer } from "@/components/org/AuditLogViewer";
+import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { AuditLogViewer } from "@/components/org/audit/AuditLogViewer";
 import { getAuditLog } from "@/lib/db";
 
 export const dynamic = "force-dynamic";

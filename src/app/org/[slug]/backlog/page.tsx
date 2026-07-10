@@ -4,8 +4,8 @@
 // DB/auth/empty state, so this loads the backlog server-side and hands it to the client panel for
 // grouping, inline edits (status / assignee / due date), and per-item activity history.
 
-import { SectionEmpty, SectionHeader } from "@/components/org/ui";
-import { BacklogPanel } from "@/components/org/BacklogPanel";
+import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { BacklogPanel } from "@/components/org/backlog/BacklogPanel";
 import { getOrgBacklog } from "@/lib/db";
 
 export const dynamic = "force-dynamic";

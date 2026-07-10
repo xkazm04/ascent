@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ReportShell } from "@/components/report/ReportShell";
 import { EmptyState } from "@/components/EmptyState";
 import { DimensionTrends } from "@/components/report/DimensionTrends";
-import { Trajectory } from "@/components/org/Trajectory";
+import { Trajectory } from "@/components/org/overview/Trajectory";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
 import { getSessionState, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";

@@ -5,7 +5,7 @@
 // no JS) so the page stays short without hiding data.
 
 import Link from "next/link";
-import { OrgTable, fmtHours } from "@/components/org/ui";
+import { OrgTable, fmtHours } from "@/components/org/shared/ui";
 import { scoreHex } from "@/lib/ui";
 import type { PrRepoRow } from "@/lib/db";
 

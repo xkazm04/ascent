@@ -3,7 +3,7 @@
 // the highest-leverage fleet moves), and the calibration detector backlog (the LLM auditor's
 // suspected detector misses, aggregated — the loop that keeps the scoring honest).
 
-import { Card, SectionEmpty, SectionHeader } from "@/components/org/ui";
+import { Card, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { GoalsPanel } from "@/components/org/plan/GoalsPanel";
 import { Simulator } from "@/components/org/plan/Simulator";
 import { InitiativesPanel } from "@/components/org/plan/InitiativesPanel";

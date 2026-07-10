@@ -2,8 +2,8 @@
 // (seeding patterns in low-AI teams) and the jump to the full contributor detail. Server-safe.
 
 import Link from "next/link";
-import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/champions";
+import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared/ui";
+import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { scoreHex } from "@/lib/ui";
 

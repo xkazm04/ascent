@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { Surface, Kicker } from "@/components/ui";
-import { fmtHours } from "@/components/org/ui";
+import { fmtHours } from "@/components/org/shared/ui";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { scoreHex } from "@/lib/ui";
 

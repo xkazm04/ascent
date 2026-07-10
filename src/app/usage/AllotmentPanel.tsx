@@ -6,7 +6,7 @@
 // Server-safe (no hooks). Renders nothing for unlimited (Enterprise) or allotment-less (Free) plans.
 
 import { planFeatures } from "@/lib/plans";
-import { Meter } from "@/components/org/ui";
+import { Meter } from "@/components/org/shared/ui";
 
 /** Whether the org is idle (a smaller tier may fit), comfortable, or near the cap (top-up before the 402). */
 export type AllotmentFit = "under" | "ok" | "over";

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Card, SectionHeader } from "@/components/org/ui";
-import { GoalCard, type GoalProgressView, type LinkedInitiative } from "@/components/org/plan/goalView";
+import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { GoalCard, type GoalProgressView, type LinkedInitiative } from "@/components/org/shared/goalView";
 
 interface MetricOption {
   value: string;

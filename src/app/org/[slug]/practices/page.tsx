@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { Card, Meter, SectionEmpty, SectionHeader } from "@/components/org/ui";
-import { PracticeApply } from "@/components/org/PracticeApply";
-import { PlaybooksPanel } from "@/components/org/PlaybooksPanel";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { Card, Meter, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { PracticeApply } from "@/components/org/practices/PracticeApply";
+import { PlaybooksPanel } from "@/components/org/practices/PlaybooksPanel";
+import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { getOrgPractices, getOrgRollup, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { DIMENSIONS } from "@/lib/maturity/model";

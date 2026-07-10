@@ -6,10 +6,10 @@
 
 import Link from "next/link";
 import { buildAdoptionOverview, adoptionMarkdown } from "@/lib/org/adoption";
-import { SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { Surface, Kicker } from "@/components/ui";
-import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
-import { CHAMPION_MIN_POP } from "@/components/org/champions";
+import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";

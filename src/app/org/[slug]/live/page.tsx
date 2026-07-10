@@ -3,15 +3,15 @@
 // /api/org/scan SSE stream and animates the wall (headline tiles, leaderboard, posture mix,
 // movers ticker, AI-Native bursts) as results land. The org layout supplies the auth/DB guards.
 
-import { LiveWarRoom } from "@/components/org/LiveWarRoom";
-import { toLiveRepoSeeds } from "@/components/org/liveWarRoomShared";
-import { buildFleetTimetable } from "@/components/org/fleetTimetable";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { LiveWarRoom } from "@/components/org/live/LiveWarRoom";
+import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
+import { buildFleetTimetable } from "@/components/org/live/fleetTimetable";
+import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { getOrgRepoHistories, getOrgRollup, listGoals, listOpsState } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
 import { liveShareEnabled } from "@/lib/live-share";
-import type { GoalProgressView } from "@/components/org/plan/goalView";
+import type { GoalProgressView } from "@/components/org/shared/goalView";
 
 export const dynamic = "force-dynamic";
 

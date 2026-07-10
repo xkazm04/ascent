@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { TimeRangeSelector } from "@/components/org/TimeRangeSelector";
-import { DIMS, OrgEmpty } from "@/components/org/ui";
-import { RepoCategoryRollup } from "@/components/org/RepoCategoryRollup";
-import { RepoDimensionHeatmap } from "@/components/org/RepoDimensionHeatmap";
-import { buildTrajectories } from "@/components/org/repoTrajectory";
+import { TimeRangeSelector } from "@/components/org/overview/TimeRangeSelector";
+import { DIMS, OrgEmpty } from "@/components/org/shared/ui";
+import { RepoCategoryRollup } from "@/components/org/overview/RepoCategoryRollup";
+import { RepoDimensionHeatmap } from "@/components/org/overview/RepoDimensionHeatmap";
+import { buildTrajectories } from "@/components/org/overview/repoTrajectory";
 import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { canReadOrg } from "@/lib/authz";

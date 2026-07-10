@@ -4,9 +4,9 @@
 
 import Link from "next/link";
 import { buildGovernanceOverview, ciActionYaml, governanceMarkdown } from "@/lib/org/governance";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { GatePolicyEditor } from "@/components/org/GatePolicyEditor";
+import { GatePolicyEditor } from "@/components/org/governance/GatePolicyEditor";
 import { getOrgGatePolicy, isDbConfigured } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { scoreHex } from "@/lib/ui";

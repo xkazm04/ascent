@@ -3,7 +3,7 @@
 // (who to enable, which team leads). Server-safe.
 
 import Link from "next/link";
-import { Card, SectionHeader } from "@/components/org/ui";
+import { Card, SectionHeader } from "@/components/org/shared/ui";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 
 export const BAND = { high: "#16a34a", some: "#3b9eff", none: "#64748b" } as const;

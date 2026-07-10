@@ -5,7 +5,7 @@
 // fetched. Deliberately NOT a card grid: one list surface, severity carried by a labelled chip.
 
 import { Surface } from "@/components/ui";
-import { fmtHours } from "@/components/org/ui";
+import { fmtHours } from "@/components/org/shared/ui";
 import { REVIEW_TARGET } from "@/components/org/delivery/PrSignalsBand";
 import type { OrgGovernance, OrgPrSignals } from "@/lib/db";
 

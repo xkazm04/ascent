@@ -6,11 +6,11 @@
 
 import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
+import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { SecurityBandSpectrum } from "@/components/org/SecurityBandSpectrum";
-import { SecurityRiskRegister } from "@/components/org/SecurityRiskRegister";
+import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
+import { SecurityBandSpectrum } from "@/components/org/security/SecurityBandSpectrum";
+import { SecurityRiskRegister } from "@/components/org/security/SecurityRiskRegister";
 import { resolveStackScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";

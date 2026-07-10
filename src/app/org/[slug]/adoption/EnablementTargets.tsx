@@ -3,7 +3,7 @@
 // is OPT-IN (default collapsed) with the same "inputs, not a to-do list" framing as the Contributors
 // tab's individual drill-down — never a passive scoreboard. Server-safe (native <details>).
 
-import { OrgTable } from "@/components/org/ui";
+import { OrgTable } from "@/components/org/shared/ui";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { timeAgo } from "@/lib/ui";
 

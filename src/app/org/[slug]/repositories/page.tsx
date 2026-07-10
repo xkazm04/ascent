@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/org/ui";
-import { POSTURE_HEX } from "@/components/org/liveWarRoomShared";
-import { FleetTabs } from "@/components/org/FleetTabs";
-import { SegmentsSection } from "@/components/org/SegmentsSection";
-import { RepoSegmentsPanel } from "@/components/org/RepoSegmentsPanel";
-import { RepoLeaderboard } from "@/components/org/RepoLeaderboard";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
+import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
+import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
+import { FleetTabs } from "@/components/org/repositories/FleetTabs";
+import { SegmentsSection } from "@/components/org/repositories/SegmentsSection";
+import { RepoSegmentsPanel } from "@/components/org/repositories/RepoSegmentsPanel";
+import { RepoLeaderboard } from "@/components/org/repositories/RepoLeaderboard";
+import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";

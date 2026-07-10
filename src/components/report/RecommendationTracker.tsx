@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
 import { ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/roadmapPieces";
 import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
-import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/backlogShared";
+import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/shared/backlogShared";
 import { Surface } from "@/components/ui";
 
 /** A per-row save failure: the change the user attempted, and whether it's recoverable. */

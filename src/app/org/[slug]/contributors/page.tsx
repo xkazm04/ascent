@@ -1,6 +1,6 @@
-import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
-import { ExportCsvLink, MeterRow, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/champions";
+import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { ExportCsvLink, MeterRow, OrgTable, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import { getContributorInsights, type ContributorInsights } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex, timeAgo } from "@/lib/ui";

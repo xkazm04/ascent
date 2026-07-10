@@ -1,9 +1,9 @@
-import { DIMS, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
-import { ScopeFilterBar } from "@/components/org/ScopeFilterBar";
-import { TeamsMatrix } from "@/components/org/TeamsMatrix";
-import { TeamsSignals } from "@/components/org/TeamsSignals";
-import { TeamsUnowned } from "@/components/org/TeamsUnowned";
-import { teamAnchorId } from "@/components/org/teamsShared";
+import { DIMS, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { TeamsMatrix } from "@/components/org/teams/TeamsMatrix";
+import { TeamsSignals } from "@/components/org/teams/TeamsSignals";
+import { TeamsUnowned } from "@/components/org/teams/TeamsUnowned";
+import { teamAnchorId } from "@/components/org/teams/teamsShared";
 import { getOrgTeamRollup } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex } from "@/lib/ui";

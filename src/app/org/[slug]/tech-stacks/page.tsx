@@ -5,10 +5,10 @@
 // auth/DB guards. Stacks are auto-derived (no creation here) — when there are none, point to scanning.
 
 import Link from "next/link";
-import { StackComparePanel } from "@/components/org/StackComparePanel";
-import { TechStacksAnalysis } from "@/components/org/TechStacksAnalysis";
-import { TechStackComparePicker } from "@/components/org/TechStackComparePicker";
-import { DIMS, SectionEmpty, SectionHeader } from "@/components/org/ui";
+import { StackComparePanel } from "@/components/org/tech-stacks/StackComparePanel";
+import { TechStacksAnalysis } from "@/components/org/tech-stacks/TechStacksAnalysis";
+import { TechStackComparePicker } from "@/components/org/tech-stacks/TechStackComparePicker";
+import { DIMS, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { compareTechStacks, listTechStackGroups, listTechStackSummaries } from "@/lib/db";
 
 export const dynamic = "force-dynamic";

@@ -4,9 +4,9 @@
 // org's current standing but can't trigger scans (/api/org/scan stays session-gated). Exposes only the
 // same rollup the dashboard shows. noindex so a leaked link isn't crawled.
 
-import { LiveWarRoom } from "@/components/org/LiveWarRoom";
-import { toLiveRepoSeeds } from "@/components/org/liveWarRoomShared";
-import { buildFleetTimetable } from "@/components/org/fleetTimetable";
+import { LiveWarRoom } from "@/components/org/live/LiveWarRoom";
+import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
+import { buildFleetTimetable } from "@/components/org/live/fleetTimetable";
 import { getOrgRepoHistories, getOrgRollup, isDbConfigured } from "@/lib/db";
 import { verifyLiveShareToken } from "@/lib/live-share";
 

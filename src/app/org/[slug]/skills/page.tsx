@@ -1,4 +1,4 @@
-import { SkillsPanel } from "@/components/org/SkillsPanel";
+import { SkillsPanel } from "@/components/org/skills/SkillsPanel";
 import { getCreditState, getOrgRollup, getOrgSkillAdoption, listOrgSkills } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { planAllowsSkillsLibrary } from "@/lib/plans";

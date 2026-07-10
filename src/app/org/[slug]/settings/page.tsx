@@ -1,5 +1,5 @@
-import { LlmProviderSettings } from "@/components/org/LlmProviderSettings";
-import { OrgEmpty, SectionHeader } from "@/components/org/ui";
+import { LlmProviderSettings } from "@/components/org/settings/LlmProviderSettings";
+import { OrgEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { getCreditState, getOrgLlmConfig } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { planAllowsByom } from "@/lib/plans";

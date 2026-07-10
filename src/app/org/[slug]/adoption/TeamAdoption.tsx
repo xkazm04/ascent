@@ -3,7 +3,7 @@
 // Server-safe.
 
 import Link from "next/link";
-import { Card, InlineEmpty, MeterRow, SectionHeader } from "@/components/org/ui";
+import { Card, InlineEmpty, MeterRow, SectionHeader } from "@/components/org/shared/ui";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { scoreHex } from "@/lib/ui";
 

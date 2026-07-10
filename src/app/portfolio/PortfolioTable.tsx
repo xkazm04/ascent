@@ -4,7 +4,7 @@
 // a low-confidence (few-points) trend is flagged "noisy" so a quarterly-cadence book isn't over-read.
 
 import Link from "next/link";
-import { Tile, OrgTable, TILE_GRID, postureLabel, DIRECTION_TONE } from "@/components/org/ui";
+import { Tile, OrgTable, TILE_GRID, postureLabel, DIRECTION_TONE } from "@/components/org/shared/ui";
 import { scoreHex } from "@/lib/ui";
 import type { Portfolio, PortfolioCompany } from "@/lib/org/portfolio";
 

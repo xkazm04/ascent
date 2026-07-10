@@ -1,10 +1,10 @@
 import { OrgHeader, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
-import { OrgNav } from "@/components/org/OrgNav";
-import { OrgScanButton } from "@/components/org/OrgScanButton";
-import { CreditsControl } from "@/components/org/CreditsControl";
-import { AlertsControl } from "@/components/org/AlertsControl";
-import { OrgEmpty } from "@/components/org/ui";
+import { OrgNav } from "@/components/org/shared/OrgNav";
+import { OrgScanButton } from "@/components/org/shared/OrgScanButton";
+import { CreditsControl } from "@/components/org/shared/CreditsControl";
+import { AlertsControl } from "@/components/org/shared/AlertsControl";
+import { OrgEmpty } from "@/components/org/shared/ui";
 import { OnboardingLab } from "@/components/onboarding/tour/OnboardingLab";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";

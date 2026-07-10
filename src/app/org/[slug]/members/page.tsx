@@ -2,8 +2,8 @@
 // access for every sub-page; this page adds the owner-role check (members list is sensitive) and
 // hands the data to the client panel for inline role changes + removal.
 
-import { SectionEmpty } from "@/components/org/ui";
-import { MembersPanel } from "@/components/org/MembersPanel";
+import { SectionEmpty } from "@/components/org/shared/ui";
+import { MembersPanel } from "@/components/org/members/MembersPanel";
 import { isDbConfigured, listOrgMembers, listPendingInvites } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { getSession } from "@/lib/auth";

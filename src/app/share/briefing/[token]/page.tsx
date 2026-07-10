@@ -4,8 +4,8 @@
 // Exposes only what the Briefing tab shows. noindex so a leaked link isn't crawled.
 
 import { SiteFooter, SiteHeader } from "@/components/Brand";
-import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
-import { DimRow, PriorPeriodGrid } from "@/components/org/briefingShared";
+import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { DimRow, PriorPeriodGrid } from "@/components/org/executive/briefingShared";
 import { buildExecBriefing, engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";

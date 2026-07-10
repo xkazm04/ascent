@@ -4,13 +4,13 @@
 
 import Link from "next/link";
 import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
-import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/ui";
-import { DimRow, MoveRow, PriorPeriodGrid, practiceHref } from "@/components/org/briefingShared";
+import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { DimRow, MoveRow, PriorPeriodGrid, practiceHref } from "@/components/org/executive/briefingShared";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { BriefingShareButton } from "@/components/org/BriefingShareButton";
-import { BrandingSettings } from "@/components/org/BrandingSettings";
-import { TechStackSelector } from "@/components/org/TechStackSelector";
-import { OrgLeverageMoves } from "@/components/org/OrgLeverageMoves";
+import { BriefingShareButton } from "@/components/org/executive/BriefingShareButton";
+import { BrandingSettings } from "@/components/org/executive/BrandingSettings";
+import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
+import { OrgLeverageMoves } from "@/components/org/executive/OrgLeverageMoves";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding, getOrgRecommendations } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
