@@ -24,7 +24,9 @@ export function dbGuard(resourceLabel: string): NextResponse | null {
  * value was silently coerced to null before this gate existed there).
  */
 export function invalidTargetDate(value: string | null | undefined): NextResponse | null {
-  if (value != null && Number.isNaN(Date.parse(value))) {
+  // A calendar day only (YYYY-MM-DD). Date.parse alone also accepts full datetimes/offsets, which the
+  // DateTime column silently truncates on read — so require the bare-day shape too (goals-initiatives #5).
+  if (value != null && !(/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)))) {
     return NextResponse.json({ error: "targetDate must be an ISO date (YYYY-MM-DD)." }, { status: 400 });
   }
   return null;

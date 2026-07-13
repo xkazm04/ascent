@@ -442,7 +442,17 @@ export async function getScanComparison(
   // making every delta read backward (a real improvement shows as a regression). The page renders a
   // missing `before` gracefully.
   const defaultBeforeId = scans[afterIdx + 1]?.id ?? null;
-  const beforeId = opts.beforeId && ids.has(opts.beforeId) ? opts.beforeId : defaultBeforeId;
+  // Honor an explicit `beforeId` ONLY when it is OLDER than `after` (a HIGHER index in the newest-first
+  // list). A `beforeId` that is NEWER than — or the same as — `afterId` would invert the time axis so
+  // every delta reads backward (a real improvement shows as a regression) — the same forward-baseline
+  // hazard the default guard above avoids, reached here through an explicit (stale/hand-edited/shared)
+  // query param that sidestepped it. Fall back to the default older baseline in that case.
+  // (scan-persistence-history #7)
+  let beforeId = defaultBeforeId;
+  if (opts.beforeId && ids.has(opts.beforeId)) {
+    const beforeIdx = scans.findIndex((s) => s.id === opts.beforeId);
+    if (beforeIdx > afterIdx) beforeId = opts.beforeId;
+  }
 
   const [after, before] = await Promise.all([
     loadComparableScan(prisma, repo.id, afterId),

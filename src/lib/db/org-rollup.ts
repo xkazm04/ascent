@@ -607,12 +607,14 @@ export interface OrgHeaderSummary {
   scannedCount: number;
   watchedCount: number;
   avgOverall: number;
+  /** Tenant flavor — "personal" swaps the shell to the individual-workspace nav subset. */
+  kind: "org" | "personal";
 }
 
 export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSummary | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true } });
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true, kind: true } });
   if (!org) return null;
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] },
@@ -627,6 +629,7 @@ export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSum
     scannedCount: scannedScores.length,
     watchedCount: repos.filter((r) => r.watched).length,
     avgOverall: roundedMean(scannedScores),
+    kind: org.kind === "personal" ? "personal" : "org",
   };
 }
 
@@ -659,7 +662,9 @@ export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segme
   });
   return groups
     .map((g) => ({ provider: g.engineProvider, count: g._count as number }))
-    .sort((a, b) => b.count - a.count);
+    // Stable tiebreak on provider so two engines with the same count render in a deterministic order
+    // instead of the DB's arbitrary groupBy order (fleet-rollups-insights #6).
+    .sort((a, b) => b.count - a.count || a.provider.localeCompare(b.provider));
 }
 
 /** How many recommendations the org ACTIONED in the window — engagement (any status change) and

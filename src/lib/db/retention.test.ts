@@ -1018,6 +1018,36 @@ describe("purgeExpiredData — wall-clock budget + rotation (tail-org starvation
     expect(summary!.errors.some((e) => e.startsWith("(budget):"))).toBe(true);
   });
 
+  it("orgsRemaining counts only CONFIGURED orgs in the resume tail, not no-op orgs (data-retention #6)", async () => {
+    // Tail = org_2 (no retention window → a no-op skip next tick) + org_3 (configured). Only org_3 is
+    // real remaining work, so the resume tail must read 1, not the raw 2 the old `orgs.length - i` gave.
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "a", retentionMaxScans: 1, retentionAuditDays: 0 }, // configured
+          { id: "org_2", slug: "b", retentionMaxScans: 0, retentionAuditDays: 0 }, // no-op (unconfigured)
+          { id: "org_3", slug: "c", retentionMaxScans: 1, retentionAuditDays: 0 }, // configured
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) },
+      scan: { findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const clock = [0, 0, 999, 999]; // startedAt=0, process org_1, then over budget before org_2
+    let t = 0;
+    const summary = await purgeExpiredData({
+      timeBudgetMs: 100,
+      now: () => clock[Math.min(t++, clock.length - 1)]!,
+    });
+
+    expect(summary!.stoppedEarly).toBe(true);
+    expect(summary!.orgsProcessed).toBe(1); // org_1 processed this tick
+    expect(summary!.orgsRemaining).toBe(1); // org_2 is a no-op and is NOT counted; only org_3 remains
+    expect(summary!.errors.some((e) => e.includes("1 org(s) unprocessed"))).toBe(true);
+  });
+
   it("processes every org and reports stoppedEarly:false when the budget is ample", async () => {
     const prisma = {
       organization: {

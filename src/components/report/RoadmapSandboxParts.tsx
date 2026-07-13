@@ -235,12 +235,15 @@ export function RoadmapSimulators({
   report,
   overrides,
   path,
+  appliedItems,
   onTry,
 }: {
   report: ScanReport;
   overrides: Overrides;
   path: ReturnType<typeof cheapestPathToNextLevel>;
-  onTry: (id: DimensionId) => void;
+  /** Indices of the roadmap items the user actually clicked "Try it" on (roadmap #6). */
+  appliedItems: Set<number>;
+  onTry: (id: DimensionId, index: number) => void;
 }) {
   const onPath = new Set(path.steps.map((s) => s.dimension));
   return (
@@ -249,7 +252,10 @@ export function RoadmapSimulators({
       <ul className="mt-3 space-y-2">
         {report.roadmap.map((item: LlmRoadmapItem, i) => {
           const dimName = DIMENSION_BY_ID[item.dimension]?.name ?? item.dimension;
-          const applied = (overrides[item.dimension] ?? -1) === 100;
+          // Per ITEM, not per dimension: only "Applied" when THIS item was tried AND its dimension is
+          // still maxed (a reset clears the maxed state, so it also un-applies). A sibling item on the
+          // same dimension the user never clicked stays "Try it →". (roadmap #6)
+          const applied = appliedItems.has(i) && (overrides[item.dimension] ?? -1) === 100;
           const unlocks = onPath.has(item.dimension);
           return (
             <li
@@ -272,7 +278,7 @@ export function RoadmapSimulators({
               </div>
               <button
                 type="button"
-                onClick={() => onTry(item.dimension)}
+                onClick={() => onTry(item.dimension, i)}
                 aria-pressed={applied}
                 className={`shrink-0 rounded-lg border px-2.5 py-1 text-sm font-medium transition ${
                   applied

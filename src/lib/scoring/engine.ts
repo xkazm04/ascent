@@ -26,6 +26,7 @@ import {
   LLM_GUARDBAND,
   SCORE_BLEND,
   axisScore,
+  axisMeasured,
   clamp,
   levelForScore,
   levelIndex,
@@ -191,8 +192,25 @@ export function assembleReport(
   // dimensions are present this predicate always returns true, so a healthy full scan is unchanged.
   const present = new Set(dimensions.map((d) => d.id));
   const scoreFor = (id: DimensionId) => scoreById.get(id) ?? 0;
-  const adoptionScore = axisScore("adoption", scoreFor, archetype, (id) => present.has(id));
-  const rigorScore = axisScore("rigor", scoreFor, archetype, (id) => present.has(id));
+  const isPresent = (id: DimensionId) => present.has(id);
+  const adoptionScore = axisScore("adoption", scoreFor, archetype, isPresent);
+  const rigorScore = axisScore("rigor", scoreFor, archetype, isPresent);
+
+  // A fully-unmeasured axis (every detector on it failed) scores a fabricated 0 from axisScore, which
+  // postureFor would then read as a genuine "low on this axis" and SILENTLY place the repo in the wrong
+  // quadrant (maturity-model-scoring-engine #7). We can't null the persisted axis number, so instead we
+  // detect the unmeasured axis and surface it as a warning — excluding it from a posture the report would
+  // otherwise present as confident. (When only ONE axis is measured the whole scan is already degraded;
+  // the total-failure case is warned separately above.)
+  const adoptionMeasured = axisMeasured("adoption", archetype, isPresent);
+  const rigorMeasured = axisMeasured("rigor", archetype, isPresent);
+  if (dimensions.length > 0 && (!adoptionMeasured || !rigorMeasured)) {
+    const axisName = !adoptionMeasured ? "Adoption" : "Rigor";
+    warnings.push(
+      `The ${axisName} axis could not be measured — no dimension on it was scored, so its axis score is a ` +
+        `placeholder 0, not a real reading. The posture quadrant is not reliable on that axis.`,
+    );
+  }
 
   const roadmap = assessment.roadmap.length
     ? assessment.roadmap

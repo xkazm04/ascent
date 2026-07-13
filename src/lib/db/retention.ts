@@ -315,10 +315,20 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   // governs the trailing org-less / public-scan-quota sweeps below.
   const overBudget = () => now() - startedAt >= timeBudgetMs;
 
+  // Count only the orgs from `from` onward that actually have a policy to enforce (data-retention #6):
+  // an org whose effective window is 0/0 is skipped as a no-op below, so counting it as "unprocessed"
+  // over-states the resume tail and inflates the `(budget):` message — an operator reads N orgs left
+  // when most do nothing. The next tick would skip them instantly anyway, so they aren't real work.
+  const configuredRemaining = (from: number) =>
+    orgs.slice(from).reduce((n, o) => {
+      const p = resolveRetention(defaults, o);
+      return n + (p.maxScansPerRepo > 0 || p.auditDays > 0 ? 1 : 0);
+    }, 0);
+
   for (let i = 0; i < orgs.length; i++) {
     if (overBudget()) {
       stoppedEarly = true;
-      orgsRemaining = orgs.length - i;
+      orgsRemaining = configuredRemaining(i);
       errors.push(
         `(budget): retention stopped after ${Math.round((now() - startedAt) / 1000)}s with ${orgsRemaining} org(s) unprocessed this tick`,
       );
@@ -440,7 +450,7 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
         // may still hold stale rows), and push a `(budget):` error so the route's 207 gate trips and cron
         // alerting pages an operator — instead of the platform hard-killing the run with no summary.
         stoppedEarly = true;
-        orgsRemaining = orgs.length - i;
+        orgsRemaining = configuredRemaining(i); // includes THIS org (still configured, may hold stale rows)
         errors.push(
           `(budget): retention stopped mid-org (${org.slug}) after ${Math.round((now() - startedAt) / 1000)}s with ${orgsRemaining} org(s) unprocessed this tick`,
         );

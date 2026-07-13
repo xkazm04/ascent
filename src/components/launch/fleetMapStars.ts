@@ -27,6 +27,10 @@ interface ApiRepo {
 
 export const MAX_STARS = 80;
 export const SKELETON_STARS = 9;
+/** Above this many total fleet stars the per-star twinkle is a steady-state repaint (up to N×MAX_STARS
+ *  nodes animating forever). Past the cap the field renders static (still honoring reduced-motion for
+ *  everyone) — the constellations read the same, without the large-fleet paint cost. (launch-fleet-map #7) */
+export const DENSE_FLEET_STARS = 240;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 export const CENTER = 60;
 export const ACCENT = "#3b9eff";
@@ -48,12 +52,26 @@ function hash01(s: string): number {
   return (h >>> 0) / 4294967296;
 }
 
-/** Phyllotaxis (sunflower) placement — organic, star-map-like spread inside the 120×120 field. */
+/** Memo of placed positions, keyed by the ONLY inputs that move a star: (index, total, seed). A live
+ *  SSE frame rewrites a star's score/level but never its index/total/seed, so every unchanged star is a
+ *  Map hit and recomputes zero trig/hashes — only a star whose layout genuinely shifted (a repo added or
+ *  removed changes `total`, hence every key) is placed again. Deterministic ⇒ the cached value equals what
+ *  the pure math would return, so SSR/CSR still agree. Bounded by MAX_STARS × repos × distinct totals seen.
+ *  (launch-fleet-map #3: the whole constellation re-rendered on every frame, recomputing all positions.) */
+const positionCache = new Map<string, { cx: number; cy: number }>();
+
+/** Phyllotaxis (sunflower) placement — organic, star-map-like spread inside the 120×120 field. Memoized
+ *  by (i, total, seed) so a score-only re-render doesn't recompute any position (see positionCache). */
 export function starPosition(i: number, total: number, seed: string): { cx: number; cy: number } {
+  const key = `${i}:${total}:${seed}`;
+  const cached = positionCache.get(key);
+  if (cached) return cached;
   const jitter = hash01(seed);
   const angle = i * GOLDEN + jitter * 0.6;
   const radius = 13 + Math.sqrt((i + 0.6) / Math.max(total, 1)) * 42; // ~13..55
-  return { cx: CENTER + Math.cos(angle) * radius, cy: CENTER + Math.sin(angle) * radius };
+  const pos = { cx: CENTER + Math.cos(angle) * radius, cy: CENTER + Math.sin(angle) * radius };
+  positionCache.set(key, pos);
+  return pos;
 }
 
 /** Maturity → brightness: brighter, larger, fully-saturated stars for higher-scoring repos. */

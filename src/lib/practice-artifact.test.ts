@@ -165,3 +165,32 @@ describe("buildArtifact", () => {
     expect(a.body).toContain("TODO");
   });
 });
+
+// practices #7 — repo-supplied metadata (description / name / branch) is committed VERBATIM into a file
+// in the customer's repo. A hostile value must be neutralized so it can't break out of the surrounding
+// markdown/YAML structure or inject content.
+describe("buildArtifact — repo-metadata is escaped before it lands in the committed file", () => {
+  it("strips code-span/HTML breakers and collapses newlines from a hostile description", () => {
+    const hostile = "Legit desc `code`\n## Injected heading <img src=x onerror=alert(1)>";
+    const a = buildArtifact("agent-guidance", { fullName: "acme/api", name: "api", description: hostile })!;
+    // Backticks and angle brackets are removed; the newline is collapsed so the injected `##` can never
+    // begin a heading line (it survives only as inline literal text, not markdown structure).
+    expect(a.body).not.toContain("`code`");
+    expect(a.body).not.toContain("<img");
+    expect(a.body).not.toContain("\n## Injected heading");
+    // The benign words survive (sanitized, not dropped wholesale).
+    expect(a.body).toContain("Legit desc");
+  });
+
+  it("neutralizes backticks in the repo name embedded in a heading", () => {
+    const a = buildArtifact("test-discipline", { fullName: "acme/`evil`", name: "`evil`", description: "d" })!;
+    expect(a.body).not.toContain("`evil`");
+    expect(a.body).toContain("evil");
+  });
+
+  it("YAML-quotes the default branch in the CI workflow so it can't inject sequence items", () => {
+    const a = buildArtifact("ci-gates", { fullName: "acme/api", name: "api", primaryLanguage: "Go", defaultBranch: "main" })!;
+    // The branch is emitted as a quoted YAML scalar (JSON.stringify), not a bare token.
+    expect(a.body).toContain('branches: ["main"]');
+  });
+});

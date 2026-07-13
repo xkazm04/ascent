@@ -9,6 +9,9 @@
  * - **Formula injection**: a cell whose first char is `=`, `+`, `-`, or `@` is executed as a live
  *   formula by Excel / Google Sheets when the CSV is opened. Such values are prefixed with a single
  *   quote (the standard neutralizer) and quoted, so the leading `'` is unambiguously data, not syntax.
+ *   A plain number is EXEMPT: a legitimate negative/signed value (e.g. a `-40` avgDelta or `+3`) begins
+ *   with `-`/`+` but is data, not a formula — neutralizing it would corrupt the exported figure. Only a
+ *   non-numeric leading `=`/`+`/`-`/`@` (e.g. `-1+cmd`, `=HYPERLINK(...)`) is guarded.
  * - **RFC-4180 quoting**: by default a field is quoted only when it contains `"`, `,`, or newline
  *   (embedded quotes doubled). Pass `alwaysQuote` to quote every field uniformly (the audit trail
  *   does this so a value that later gains a comma can't shift the column count).
@@ -22,7 +25,9 @@ export function csvField(v: unknown, alwaysQuote = false): string {
   } catch {
     s = "";
   }
-  if (/^[=+\-@]/.test(s)) return `"'${s.replace(/"/g, '""')}"`;
+  // A pure signed number (integer, decimal, or scientific) can't be a formula — leave it intact.
+  const isNumeric = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s);
+  if (!isNumeric && /^[=+\-@]/.test(s)) return `"'${s.replace(/"/g, '""')}"`;
   if (alwaysQuote || /[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

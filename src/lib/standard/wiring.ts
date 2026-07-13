@@ -20,6 +20,12 @@ export function buildConformanceWiring(): GeneratedFile {
 name: ai-conformance
 on:
   pull_request:
+# Least-privilege GITHUB_TOKEN: this workflow only checks out the code and runs the in-repo doctor, so
+# it needs read access to repo contents and nothing else. Declaring it explicitly drops the token to
+# read-only even on repos whose org default is the broad read/write token — a supply-chain guardrail
+# for a workflow Ascent generates into every adopting repo.
+permissions:
+  contents: read
 jobs:
   conformance:
     runs-on: ubuntu-latest

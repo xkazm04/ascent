@@ -311,6 +311,27 @@ export function axisScore(
   return clamp(Math.round(dims.reduce((a, d) => a + scoreFor(d.id) * (lensW[d.id] ?? 0), 0) / wsum));
 }
 
+/**
+ * Was this axis actually MEASURED — i.e. did at least one of its dimensions survive to be scored
+ * (present under `isPresent`, with positive lens weight)? (maturity-model-scoring-engine #7.)
+ *
+ * `axisScore` has to return a plain `number`, so when an ENTIRE axis is dropped (every detector on it
+ * failed) it falls back to `0` — indistinguishable from a genuine "scored 0 on this axis". `postureFor`
+ * then reads that fabricated 0 as "low adoption/rigor" and silently places the repo in the wrong
+ * quadrant. This companion lets the engine tell "unmeasured" apart from "measured as 0" WITHOUT changing
+ * axisScore's return type (which several call sites consume as a number), so a fully-unmeasured axis can
+ * be surfaced/excluded rather than asserted as a real low reading. With the default (everything present)
+ * this is always true, so a full scan is unaffected.
+ */
+export function axisMeasured(
+  axis: Axis,
+  archetype: RepoArchetype,
+  isPresent: (id: DimensionId) => boolean = () => true,
+): boolean {
+  const lensW = weightsFor(archetype);
+  return DIMENSIONS.some((d) => d.axis === axis && isPresent(d.id) && (lensW[d.id] ?? 0) > 0);
+}
+
 // ---- Two-axis posture (Adoption × Rigor) --------------------------------------
 
 export const POSTURE_THRESHOLD = 50;

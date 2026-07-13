@@ -12,12 +12,16 @@ import { getOrgId } from "@/lib/db/org-rollup";
 import { sanitizeGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
 
 /** Parse the serialized gatePolicy TEXT column; tolerant of legacy non-string (parsed object) values. */
-function parseStoredGatePolicy(raw: unknown): unknown {
+function parseStoredGatePolicy(raw: unknown, orgSlug: string): unknown {
   if (typeof raw !== "string") return raw; // legacy jsonb row read back as an object — pass through
   try {
     return JSON.parse(raw);
   } catch {
-    return null; // corrupt/non-JSON text → treated as unset (sanitize would reject it anyway)
+    // Fail VISIBLY, not silently: still fall back safely (return null → the archetype default, which
+    // sanitize would reject anyway), but log it so an operator sees that this org's configured gate
+    // quietly reverted, instead of it surfacing as "the security bar mysteriously stopped applying".
+    console.error(`[org-gate] corrupt stored gatePolicy for org "${orgSlug}" — falling back to the archetype default`);
+    return null;
   }
 }
 
@@ -28,7 +32,7 @@ export async function getOrgGatePolicy(orgSlug: string): Promise<GatePolicy | nu
     where: { slug: orgSlug.toLowerCase() },
     select: { gatePolicy: true },
   });
-  return org?.gatePolicy ? sanitizeGatePolicy(parseStoredGatePolicy(org.gatePolicy)) : null;
+  return org?.gatePolicy ? sanitizeGatePolicy(parseStoredGatePolicy(org.gatePolicy, orgSlug)) : null;
 }
 
 /** Set (policy) or clear (null) the org's gate policy. undefined = unknown org. */

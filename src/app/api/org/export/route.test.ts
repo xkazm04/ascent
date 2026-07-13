@@ -212,6 +212,15 @@ describe("GET /api/org/export — authorized export", () => {
     expect(res.headers.get("content-disposition")).toBeNull();
   });
 
+  it("returns 404 when the passports rollup lookup itself returns null (matches its sibling branches)", async () => {
+    mockGetOrgRollup.mockResolvedValue(null as never);
+
+    const res = await get("?org=acme&kind=passports&format=csv");
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
   it("returns 404 (not a header-only 200) when the contributor lookup itself returns null", async () => {
     // null = the lookup failed / was unavailable; an org with genuinely zero contributors returns a
     // present object with an empty array (still 200). Don't let a backend miss masquerade as success.

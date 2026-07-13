@@ -48,3 +48,22 @@ describe("ConstellationField star touch targets", () => {
     }
   });
 });
+
+describe("ConstellationField large-fleet twinkle cap (#7)", () => {
+  it("twinkles by default (small fleet)", () => {
+    const { container } = render(<ConstellationField c={doneConstellation()} />);
+    const stars = Array.from(container.querySelectorAll("circle.launch-star"));
+    expect(stars.length).toBe(3);
+    // No star opts out of the animation when the fleet is small.
+    for (const s of stars) expect(s.classList.contains("launch-star-static")).toBe(false);
+  });
+
+  it("renders stars static (no twinkle animation) when animateStars is off", () => {
+    const { container } = render(<ConstellationField c={doneConstellation()} animateStars={false} />);
+    const stars = Array.from(container.querySelectorAll("circle.launch-star"));
+    expect(stars.length).toBe(3);
+    // Still `launch-star` (look/opacity preserved) but also `launch-star-static` (animation: none) — the
+    // large-fleet steady-state-repaint cap FleetMap applies past DENSE_FLEET_STARS.
+    for (const s of stars) expect(s.classList.contains("launch-star-static")).toBe(true);
+  });
+});
