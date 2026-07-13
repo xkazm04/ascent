@@ -173,7 +173,7 @@ export function RecommendationTracker({
                 {saving && <RowSpinner />}
                 <StatusSelect
                   value={item.status}
-                  disabled={saving}
+                  busy={saving}
                   onChange={(status) => setStatus(item.id, status)}
                   aria-label="Recommendation status"
                 />

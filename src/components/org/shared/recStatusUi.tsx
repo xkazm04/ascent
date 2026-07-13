@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { REC_STATUSES, type RecStatus } from "@/lib/types";
-import { STATUS_ACCENT, STATUS_LABEL } from "@/components/org/shared/backlogShared";
+import { STATUS_LABEL } from "@/components/org/shared/backlogShared";
 
 /**
  * Per-id saving + error bookkeeping shared by the two recommendation-status editors — the per-repo
@@ -49,14 +49,20 @@ export function useSavingIds<E = string>() {
  */
 export function StatusSelect({
   value,
-  disabled,
+  disabled = false,
+  busy = false,
   onChange,
   "aria-label": ariaLabel,
   "data-focus-key": dataFocusKey,
   statuses = REC_STATUSES,
 }: {
   value: RecStatus;
-  disabled: boolean;
+  disabled?: boolean;
+  /** Save-in-flight: marks aria-busy and no-ops overlapping changes, but stays FOCUSABLE — a native
+   *  `disabled` on the focused control blurs it, dropping keyboard/SR focus to <body> on every save
+   *  (roadmap-recommendation-tracking #2). Consumers that instead re-group+remount the row on save use
+   *  `disabled` + the data-focus-key restore path; those that save in place pass `busy`. */
+  busy?: boolean;
   onChange: (status: RecStatus) => void;
   "aria-label": string;
   /** Stable key so a parent can restore focus to THIS control after a refresh remounts the row. */
@@ -67,11 +73,16 @@ export function StatusSelect({
     <select
       value={value}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value as RecStatus)}
+      aria-busy={busy || undefined}
+      onChange={(e) => {
+        if (!busy) onChange(e.target.value as RecStatus);
+      }}
       aria-label={ariaLabel}
       data-focus-key={dataFocusKey}
+      // #6: no forced inline accent colour — the dark status accents (Open #64748b, Dismissed #475569) on
+      // the near-black field fell below WCAG AA. The option label carries the status; consumers add their
+      // own non-colour state cue (the backlog row's left-edge bar).
       className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-      style={{ color: STATUS_ACCENT[value] }}
     >
       {statuses.map((s) => (
         <option key={s} value={s} className="text-slate-200">
