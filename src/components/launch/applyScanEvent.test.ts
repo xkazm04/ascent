@@ -72,6 +72,15 @@ describe("applyScanEvent — SSE event filter (the sole live-maturity write path
     }
   });
 
+  it("an EMPTY overall (null / '' / boolean) is a no-op — never paints a fake 0 over a real score", () => {
+    // `Number(null)`, `Number("")`, `Number(false)` all coerce to a finite 0; a blank streamed field
+    // must leave the repo's seeded score untouched, not overwrite it with a bogus zero.
+    const before = fleet();
+    for (const overall of [null, "", "   ", false, true]) {
+      expect(applyScanEvent(before, "globex", msg("repo", { repo: "globex/api", overall }))).toBe(before);
+    }
+  });
+
   it("an event for an org that isn't `done` (loading/error) does not write any repo's score", () => {
     const before = fleet();
     // acme is loading, initech is errored — neither has a repos[] to write to.
