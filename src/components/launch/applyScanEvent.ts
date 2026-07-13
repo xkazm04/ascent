@@ -20,7 +20,17 @@ export function applyScanEvent(
   const { event, data } = msg;
   if (event !== "repo" || !data || data.error || data.skipped || !data.repo) return constellations;
   const fullName = String(data.repo);
-  const overall = Number(data.overall);
+  // Strictly parse the streamed score: a real finite number, or a non-empty numeric string. An empty
+  // numeric field (null / "" / a boolean) must stay "unknown" — a no-op here — never be painted onto
+  // the map as a fake 0. (`Number(null)`, `Number("")` and `Number(false)` are each a finite 0 that
+  // would overwrite a repo's real seeded score with a bogus zero.)
+  const rawOverall = data.overall;
+  const overall =
+    typeof rawOverall === "number"
+      ? rawOverall
+      : typeof rawOverall === "string" && rawOverall.trim() !== ""
+        ? Number(rawOverall)
+        : NaN;
   if (!Number.isFinite(overall)) return constellations;
   const level = data.level != null ? String(data.level) : null;
   // A live scan carries the new absolute score but no recomputed 30-day window delta, so the old

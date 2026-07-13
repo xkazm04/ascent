@@ -8,6 +8,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import { LEVELS, LEVEL_BY_ID, POSTURE_THRESHOLD } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
 import { RAMP_STOPS, bandMid } from "../shared/levelRamp";
+import { TrajectoryPlaceholder } from "./TrajectoryPlaceholder";
 import { usePrefersReducedMotion, useReplayOnView } from "@/components/report/chartMotion";
 import type { LevelId } from "@/lib/types";
 
@@ -121,7 +122,7 @@ export function TrajectoryChart() {
           </LineChart>
         </ResponsiveContainer>
       ) : (
-        <div className="h-full w-full animate-pulse rounded-xl bg-slate-900/40" />
+        <TrajectoryPlaceholder />
       )}
     </div>
   );

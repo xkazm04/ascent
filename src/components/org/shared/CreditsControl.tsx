@@ -148,7 +148,13 @@ export function CreditsControl({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          // Reset a stale grant error when (re)opening — a failed top-up used to leave "Top-up failed."
+          // pinned inside the popover, so closing and reopening it showed a fresh dialog still accusing
+          // the user of a failure that belonged to the previous session.
+          if (!open) setError(null);
+          setOpen((o) => !o);
+        }}
         aria-expanded={open}
         aria-haspopup="dialog"
         // WCAG 1.4.1 (use of color): the paused state can't be signalled by the amber tint ALONE — a

@@ -132,6 +132,11 @@ export function SelectStep({
             <button
               onClick={onScan}
               disabled={selected.size === 0}
+              // Finding #6: a disabled Scan button gave no reason — the user was left guessing why the
+              // primary CTA was dead. Surface WHY it's off (nothing selected) via a native title tooltip
+              // AND an aria-describedby → the visible hint below, so mouse, keyboard, and SR users all get it.
+              title={selected.size === 0 ? "Select at least one repository above to scan" : undefined}
+              aria-describedby={selected.size === 0 ? "scan-disabled-reason" : undefined}
               className="focus-ring rounded-lg bg-accent px-5 py-2.5 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:opacity-50"
             >
               Scan {selected.size} {selected.size === 1 ? "repo" : "repos"}
@@ -142,6 +147,11 @@ export function SelectStep({
             >
               Back
             </button>
+            {selected.size === 0 && (
+              <span id="scan-disabled-reason" className="text-sm text-slate-500">
+                Select at least one repository above to scan.
+              </span>
+            )}
           </div>
           {/* Cost disclosure AT the commitment button — but ONLY on the metered App path. Scanning a
               public handle (no installation) forces a preview (mock): it sets no credit account and is

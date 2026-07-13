@@ -9,15 +9,17 @@ import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_HEX } from "@/lib/ui";
 import { HairlineGrid, SectionHeading, Surface } from "@/components/ui";
 import { DeckSection } from "@/components/deck/DeckSection";
+import { TrajectoryPlaceholder } from "./TrajectoryPlaceholder";
 import type { LevelId } from "@/lib/types";
 
 // Recharts (+ its d3 deps) is the single heaviest dependency that would otherwise ride the homepage's
 // first load — and it powers only this below-the-fold deck section. Load it in its own client chunk
-// (ssr:false, valid here since this is a Client Component) so `/` ships without it; the chart already
-// self-defers rendering until scrolled into view, so the sized placeholder matches its at-rest state.
+// (ssr:false, valid here since this is a Client Component) so `/` ships without it. The loading
+// fallback is the SAME shared placeholder the chart paints at rest (before it scrolls into view), so
+// the slot never jumps between "chunk streaming" and "waiting to animate".
 const TrajectoryChart = dynamic(() => import("./TrajectoryChart").then((m) => m.TrajectoryChart), {
   ssr: false,
-  loading: () => <div className="h-[360px] w-full" />,
+  loading: () => <TrajectoryPlaceholder />,
 });
 
 export function IndexLevels() {

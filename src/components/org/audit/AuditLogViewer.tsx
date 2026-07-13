@@ -9,6 +9,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import type { AuditLogEntry, AuditLogPage } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
+import { EmptyState } from "@/components/EmptyState";
 
 // One ordered list of the audit actions the app actually records, driving BOTH the badge metadata
 // and the filter dropdown — so they can't drift apart (the prior bug keyed on
@@ -50,7 +51,11 @@ function Details({ entry }: { entry: AuditLogEntry }) {
     const permalink = s.repo ? `/report/${s.repo}${s.headSha ? `@${s.headSha}` : ""}` : null;
     return (
       <div className="flex flex-wrap items-center gap-2">
-        {s.repo && <span className="font-mono text-sm text-white">{s.repo}</span>}
+        {s.repo && (
+          <span className="max-w-[16rem] truncate font-mono text-sm text-white" title={s.repo}>
+            {s.repo}
+          </span>
+        )}
         {s.level && (
           <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-300">
             {s.level}
@@ -71,7 +76,7 @@ function Details({ entry }: { entry: AuditLogEntry }) {
   const id = typeof entry.meta.id === "string" ? entry.meta.id : null;
   if (status) {
     return (
-      <span className="font-mono text-sm text-slate-300">
+      <span className="block max-w-[22rem] truncate font-mono text-sm text-slate-300" title={status}>
         {id ? `${id.slice(0, 8)}… → ` : ""}
         <span className="text-white">{status}</span>
       </span>
@@ -196,10 +201,31 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
         </div>
       )}
 
-      {entries.length === 0 ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-base text-slate-400">
-          No entries match this filter.
-        </div>
+      {/* Pending state: while a fetch is in flight the rows below are STALE (a just-applied filter hasn't
+          landed yet). Dim them, mark the region aria-busy, and float an announced "Loading…" pill so the
+          user knows the table is refreshing instead of trusting rows that no longer match the filter. */}
+      <div
+        aria-busy={loading}
+        className={`relative transition-opacity duration-150 ${loading ? "opacity-50" : ""}`}
+      >
+        {loading && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center">
+            <span
+              role="status"
+              aria-live="polite"
+              className="mt-4 rounded-full border border-slate-700 bg-slate-900/90 px-3 py-1 font-mono text-sm text-slate-300 shadow-lg"
+            >
+              Loading…
+            </span>
+          </div>
+        )}
+        {entries.length === 0 ? (
+        <EmptyState
+          variant="section"
+          icon="🗒️"
+          title="No audit entries"
+          body={loading ? "Loading…" : "No entries match this filter."}
+        />
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-slate-800">
           <table className="w-full min-w-[640px] text-base">
@@ -220,10 +246,15 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
                   <td className="px-3 py-2">
                     <ActionBadge action={e.action} />
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-sm text-slate-400">
-                    {e.actorId ?? "—"}
+                  <td className="px-3 py-2">
+                    <div
+                      className="max-w-[12rem] truncate font-mono text-sm text-slate-400"
+                      title={e.actorId ?? undefined}
+                    >
+                      {e.actorId ?? "—"}
+                    </div>
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="max-w-[24rem] px-4 py-2">
                     <Details entry={e} />
                   </td>
                 </tr>
@@ -232,6 +263,7 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
           </table>
         </div>
       )}
+      </div>
 
       {cursor && (
         <div className="mt-4 flex justify-center">

@@ -58,7 +58,14 @@ export function EmptyState({
       {title != null &&
         (section ? <div className={titleCls}>{title}</div> : <h1 className={titleCls}>{title}</h1>)}
       {alert}
-      {body != null && <p className={bodyCls}>{body}</p>}
+      {body != null &&
+        (typeof body === "string" ? (
+          // Plain copy stays a paragraph. A non-string body may be block content (a <div>, a list),
+          // which is invalid — and can render wrong — nested in a <p>, so give it a <div> wrapper.
+          <p className={bodyCls}>{body}</p>
+        ) : (
+          <div className={bodyCls}>{body}</div>
+        ))}
       {(actions.length > 0 || children) && (
         <div className={`flex flex-wrap items-center justify-center gap-3 ${section ? "mt-3" : "mt-6"}`}>
           {children}
