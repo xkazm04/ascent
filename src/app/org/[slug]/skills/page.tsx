@@ -1,5 +1,6 @@
 import { SkillsPanel } from "@/components/org/skills/SkillsPanel";
-import { getCreditState, getOrgRollup, getOrgSkillAdoption, listOrgSkills } from "@/lib/db";
+import { ApiTokensPanel } from "@/components/org/skills/ApiTokensPanel";
+import { getCreditState, getOrgRollup, getOrgSkillAdoption, listOrgApiTokens, listOrgSkills, SKILL_TOKEN_SCOPES } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { planAllowsSkillsLibrary } from "@/lib/plans";
 import { SKILL_CATEGORIES } from "@/lib/org/skill-categories";
@@ -19,6 +20,8 @@ export default async function OrgSkills({ params }: { params: Promise<{ slug: st
   ]);
   const planAllowed = planAllowsSkillsLibrary(credit?.plan);
   const repoOptions = (rollup?.repos ?? []).map((r) => r.fullName).sort();
+  // Tokens are a member capability (machine access to the library) — only fetch/render for members.
+  const tokens = isMember ? await listOrgApiTokens(slug) : [];
 
   return (
     <div className="space-y-6">
@@ -32,6 +35,7 @@ export default async function OrgSkills({ params }: { params: Promise<{ slug: st
         isAdmin={isAdmin}
         planAllowed={planAllowed}
       />
+      {isMember && <ApiTokensPanel slug={slug} initial={tokens} scopes={SKILL_TOKEN_SCOPES} />}
     </div>
   );
 }

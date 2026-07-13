@@ -5,7 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { getOrgSkill, getOrgSkillOrgSlug, isDbConfigured, recordSkillDownload } from "@/lib/db";
-import { requireOrgRead } from "@/lib/authz";
+import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,16 +17,20 @@ function safeFilename(name: string): string {
   return `${base || "skill"}.SKILL.md`;
 }
 
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Skills require a database." }, { status: 503 });
   const { id } = await ctx.params;
   const org = await getOrgSkillOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
-  const denied = await requireOrgRead(org);
-  if (denied) return denied;
+  const auth = await authorizeOrgApi(request, org, { scope: "skills:read", mode: "read" });
+  if (isDenied(auth)) return auth.denied;
   const skill = await getOrgSkill(id);
   if (!skill) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
-  void recordSkillDownload(id); // fire-and-forget — must not block the download
+  // `?count=0` lets the sync CLI fetch a changed body WITHOUT counting a use (it reports a `sync` event
+  // instead) — so a background sync never inflates the "most used" tally the way a human download should.
+  if (new URL(request.url).searchParams.get("count") !== "0") {
+    void recordSkillDownload(id); // fire-and-forget — must not block the download
+  }
   return new NextResponse(skill.content, {
     headers: {
       "content-type": "text/markdown; charset=utf-8",
@@ -35,13 +39,13 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   });
 }
 
-export async function POST(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Skills require a database." }, { status: 503 });
   const { id } = await ctx.params;
   const org = await getOrgSkillOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
-  const denied = await requireOrgRead(org);
-  if (denied) return denied;
+  const auth = await authorizeOrgApi(request, org, { scope: "skills:read", mode: "read" });
+  if (isDenied(auth)) return auth.denied;
   await recordSkillDownload(id);
   return NextResponse.json({ ok: true });
 }

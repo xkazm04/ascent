@@ -74,6 +74,7 @@ model Organization {
   playbooks    Playbook[]
   invites      Invite[]
   orgSkills    OrgSkill[]
+  orgApiTokens OrgApiToken[]
   techGroups   TechStackGroup[]
   llmConfig    OrgLlmConfig?
 }
@@ -599,6 +600,7 @@ model OrgSkill {
   category      String // one of src/lib/org/skill-categories.ts (validated on write)
   tags          String   @default("[]") // JSON string[] — secondary, optional refinement
   version       Int      @default(1) // bumped on a content edit (mirror Playbook), the change-history anchor
+  contentHash   String   @default("") // sha256 hex of `content` — the sync-manifest change key (diff without shipping the body)
   archived      Boolean  @default(false) // soft archive, not hard delete
   downloadCount Int      @default(0) // denormalized rolling tally for DB-side sort-by-downloads (§8.8)
   createdBy     String? // GitHub login of the author
@@ -642,6 +644,45 @@ model OrgSkillDownload {
   lastSeen DateTime @updatedAt
 
   @@unique([skillId])
+}
+
+// Append-only per-use event for an org skill (Feature 2 sync telemetry). One row per reported use so
+// "use rate" can be sliced by repo / type / source — richer than the denormalized OrgSkillDownload
+// counter (which stays as the hot sort key, bumped in the same path). No FKs (relationMode="prisma").
+model OrgSkillEvent {
+  id        String   @id @default(uuid())
+  skillId   String
+  orgId     String // denormalized for org-scoped rollups
+  type      String // download | sync | invoke
+  repo      String? // reporting repo full name (owner/name), when known
+  source    String? // reporting client: cli | hook | ci | web
+  createdAt DateTime @default(now())
+
+  @@index([skillId])
+  @@index([orgId, createdAt])
+}
+
+// Org-scoped API token for MACHINE access to the Skills Library (a dev repo / CLI / CI registering,
+// downloading, or reporting usage without a browser session). Only the SHA-256 hash is stored — the raw
+// `askl_…` value is shown ONCE at creation and never again (mirror Invite.token's capability model).
+// `scopes` is a comma-joined subset of skills:read | skills:write | telemetry:write. Verified per-request
+// by src/lib/api-token-auth.ts. No FKs (relationMode="prisma").
+model OrgApiToken {
+  id          String    @id @default(uuid())
+  orgId       String
+  name        String // human label ("CI", "laptop")
+  tokenHash   String // sha256 hex of the raw token — the lookup key
+  tokenPrefix String // leading chars of the raw token, for display ("askl_ab12cd…")
+  scopes      String // comma-joined scope list
+  createdBy   String? // GitHub login of the minter
+  lastUsedAt  DateTime?
+  revokedAt   DateTime? // soft-revoke; a revoked token fails verification but stays for the audit trail
+  createdAt   DateTime  @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([tokenHash])
+  @@index([orgId])
 }
 
 // Auto-derived tech-stack group (Feature 3b) — a parallel, immutable grouping of an org's repos by

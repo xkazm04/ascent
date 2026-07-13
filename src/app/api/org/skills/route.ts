@@ -5,8 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { createOrgSkill, getCreditState, isDbConfigured, listOrgSkills, type SkillSort } from "@/lib/db";
-import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
-import { resolveViewerLogin } from "@/lib/access";
+import { authorizeOrgApi, isDenied, principalLogin } from "@/lib/api-token-auth";
 import { planAllowsSkillsLibrary } from "@/lib/plans";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 
@@ -20,8 +19,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const org = url.searchParams.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
-  const denied = await requireOrgRead(org);
-  if (denied) return denied;
+  const auth = await authorizeOrgApi(request, org, { scope: "skills:read", mode: "read" });
+  if (isDenied(auth)) return auth.denied;
   const sortParam = url.searchParams.get("sort");
   const skills = await listOrgSkills(org, {
     category: url.searchParams.get("category") ?? undefined,
@@ -44,9 +43,10 @@ export async function POST(request: Request) {
   if (!body.org || !body.name?.trim() || !body.content?.trim() || !body.category) {
     return NextResponse.json({ error: "Provide { org, name, category, content }." }, { status: 400 });
   }
-  const denied = await requireOrgAccess(body.org);
-  if (denied) return denied;
-  // Entitlement: authoring the library is a Team-and-up feature (reads stay open to all members).
+  const auth = await authorizeOrgApi(request, body.org, { scope: "skills:write", mode: "write" });
+  if (isDenied(auth)) return auth.denied;
+  // Entitlement: authoring the library is a Team-and-up feature (reads stay open to all members). This
+  // still applies to a `skills:write` token — the token supplies identity, not an entitlement bypass.
   const credit = await getCreditState(body.org).catch(() => null);
   if (!planAllowsSkillsLibrary(credit?.plan)) {
     return NextResponse.json({ error: "The Skills Library is a Team-plan feature." }, { status: 403 });
@@ -54,9 +54,9 @@ export async function POST(request: Request) {
   if (!isSkillCategory(body.category)) {
     return NextResponse.json({ error: `category must be one of: ${SKILL_CATEGORIES.join(", ")}.` }, { status: 400 });
   }
-  // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
-  // Supabase wall, so this actor/audit row was recorded as null in production.
-  const actorLogin = await resolveViewerLogin();
+  // The audit actor is the token label for a machine call, else the Supabase viewer (the dormant
+  // custom-OAuth session is null under the ACTIVE Supabase wall).
+  const actorLogin = await principalLogin(auth.principal);
   try {
     const created = await createOrgSkill(
       body.org,

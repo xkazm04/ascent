@@ -4,6 +4,7 @@
 // JSON string[]; this module is the single place skill fields are (de)serialized + bounded. DISTINCT
 // from src/lib/db/skill-history.ts (the per-repo onboarding-SKILL.md generation log) — no coupling.
 
+import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
@@ -21,6 +22,8 @@ export interface SkillRow {
   tags: string[];
   /** Bumped on each content edit — the change-history anchor. */
   version: number;
+  /** sha256 hex of `content` — the sync-manifest change key (diff without shipping the body). */
+  contentHash: string;
   /** Denormalized rolling download/use tally (the sort key). */
   downloadCount: number;
   /** Distinct repos that have adopted this skill (from the adoption relation count). */
@@ -67,6 +70,8 @@ function cleanTags(tags: string[] | undefined): string {
 const cleanName = (s: string) => s.trim().slice(0, 200);
 const cleanDescription = (s: string | undefined) => (s ?? "").trim().slice(0, 1000);
 const cleanContent = (s: string) => s.slice(0, MAX_CONTENT);
+/** Manifest change key — hash the STORED (already-capped) content so it matches what a client downloads. */
+const hashContent = (s: string) => createHash("sha256").update(cleanContent(s)).digest("hex");
 
 function toRow(s: Prisma.OrgSkillGetPayload<{ include: { _count: { select: { adoptions: true } } } }>): SkillRow {
   return {
@@ -77,6 +82,7 @@ function toRow(s: Prisma.OrgSkillGetPayload<{ include: { _count: { select: { ado
     category: s.category,
     tags: parseTags(s.tags),
     version: s.version,
+    contentHash: s.contentHash,
     downloadCount: s.downloadCount,
     adoptionCount: s._count.adoptions,
     createdBy: s.createdBy,
@@ -158,6 +164,7 @@ export async function createOrgSkill(
       name: cleanName(input.name),
       description: cleanDescription(input.description),
       content: cleanContent(input.content),
+      contentHash: hashContent(input.content),
       category: normalizeSkillCategory(input.category),
       tags: cleanTags(input.tags),
       createdBy: createdBy ?? null,
@@ -176,7 +183,10 @@ export async function updateOrgSkill(
   const data: Prisma.OrgSkillUpdateInput = {};
   if (patch.name !== undefined) data.name = cleanName(patch.name);
   if (patch.description !== undefined) data.description = cleanDescription(patch.description);
-  if (patch.content !== undefined) data.content = cleanContent(patch.content);
+  if (patch.content !== undefined) {
+    data.content = cleanContent(patch.content);
+    data.contentHash = hashContent(patch.content); // keep the manifest key in lockstep with the body
+  }
   if (patch.category !== undefined) data.category = normalizeSkillCategory(patch.category);
   if (patch.tags !== undefined) data.tags = cleanTags(patch.tags);
   if (patch.archived !== undefined) data.archived = patch.archived;
@@ -246,6 +256,153 @@ export async function adoptOrgSkill(
 export async function unadoptOrgSkill(skillId: string, repoFullName: string): Promise<void> {
   if (!isDbConfigured()) return;
   await getPrisma().orgSkillAdoption.deleteMany({ where: { skillId, repoFullName } });
+}
+
+/** One light row per non-archived skill for the sync manifest — enough for a client to diff (by
+ *  version/contentHash) WITHOUT shipping every body. Null when persistence is off; [] for an unknown org. */
+export interface SkillManifestEntry {
+  id: string;
+  name: string;
+  category: string;
+  version: number;
+  contentHash: string;
+  updatedAt: string;
+}
+
+export async function listOrgSkillManifest(orgSlug: string): Promise<SkillManifestEntry[] | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const rows = await getPrisma().orgSkill.findMany({
+    where: { orgId, archived: false },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, category: true, version: true, contentHash: true, updatedAt: true },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    category: r.category,
+    version: r.version,
+    contentHash: r.contentHash,
+    updatedAt: r.updatedAt.toISOString(),
+  }));
+}
+
+/** Outcome of a CLI/CI `push` (register-or-update by name). `conflict` carries the CURRENT server version
+ *  so the client can rebase; `unchanged` means an identical body was re-pushed (idempotent, no bump). */
+export type SkillPushResult =
+  | { status: "created" | "updated" | "unchanged" | "conflict"; id: string; version: number };
+
+/**
+ * Register a skill by name, or update the existing one with optimistic concurrency. When `baseVersion`
+ * is supplied and no longer matches the server's version, returns `conflict` (no write) so a stale push
+ * can't clobber a newer edit — the CLI's edit-safety guarantee. An identical body (same contentHash) is a
+ * no-op `unchanged` so re-running `sync`/`push` never churns the version.
+ */
+export async function pushOrgSkill(
+  orgSlug: string,
+  input: SkillInput,
+  opts: { baseVersion?: number; createdBy?: string | null } = {},
+): Promise<SkillPushResult | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const org = await prisma.organization.upsert({
+    where: { slug: orgSlug },
+    update: {},
+    create: { slug: orgSlug, name: orgSlug },
+    select: { id: true },
+  });
+  const name = cleanName(input.name);
+  const existing = await prisma.orgSkill.findFirst({
+    where: { orgId: org.id, name },
+    select: { id: true, version: true, contentHash: true },
+  });
+  if (!existing) {
+    const created = await prisma.orgSkill.create({
+      data: {
+        orgId: org.id,
+        name,
+        description: cleanDescription(input.description),
+        content: cleanContent(input.content),
+        contentHash: hashContent(input.content),
+        category: normalizeSkillCategory(input.category),
+        tags: cleanTags(input.tags),
+        createdBy: opts.createdBy ?? null,
+      },
+      select: { id: true, version: true },
+    });
+    return { status: "created", id: created.id, version: created.version };
+  }
+  if (opts.baseVersion !== undefined && opts.baseVersion !== existing.version) {
+    return { status: "conflict", id: existing.id, version: existing.version };
+  }
+  if (hashContent(input.content) === existing.contentHash) {
+    return { status: "unchanged", id: existing.id, version: existing.version };
+  }
+  const updated = await prisma.orgSkill.update({
+    where: { id: existing.id },
+    data: {
+      description: cleanDescription(input.description),
+      content: cleanContent(input.content),
+      contentHash: hashContent(input.content),
+      category: normalizeSkillCategory(input.category),
+      tags: cleanTags(input.tags),
+      version: { increment: 1 },
+    },
+    select: { id: true, version: true },
+  });
+  return { status: "updated", id: updated.id, version: updated.version };
+}
+
+export type SkillEventType = "download" | "sync" | "invoke";
+export function isSkillEventType(v: string): v is SkillEventType {
+  return v === "download" || v === "sync" || v === "invoke";
+}
+export interface SkillEventInput {
+  skillId: string;
+  type: SkillEventType;
+  repo?: string | null;
+  source?: string | null;
+}
+
+/**
+ * Record a BATCH of usage events (the telemetry endpoint). Events are filtered to skills that actually
+ * belong to `orgSlug` — the tenant boundary, and it drops forged/unknown ids. Real uses (download /
+ * invoke) additionally bump the rolling `OrgSkillDownload` tally + the denormalized `downloadCount` sort
+ * key; a passive `sync` is logged but never inflates "most used". Best-effort throughout (mirrors
+ * recordSkillDownload) — telemetry must never fail the caller's real work.
+ */
+export async function recordSkillEvents(orgSlug: string, events: SkillEventInput[]): Promise<{ recorded: number }> {
+  if (!isDbConfigured()) return { recorded: 0 };
+  const prisma = getPrisma();
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return { recorded: 0 };
+  const ids = Array.from(new Set(events.map((e) => e.skillId).filter(Boolean)));
+  if (!ids.length) return { recorded: 0 };
+  const owned = await prisma.orgSkill.findMany({ where: { id: { in: ids }, orgId }, select: { id: true } });
+  const ownedSet = new Set(owned.map((s) => s.id));
+  const valid = events.filter((e) => ownedSet.has(e.skillId) && isSkillEventType(e.type));
+  if (!valid.length) return { recorded: 0 };
+  const clip = (v?: string | null) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
+  try {
+    const now = new Date();
+    await prisma.orgSkillEvent.createMany({
+      data: valid.map((e) => ({ skillId: e.skillId, orgId, type: e.type, repo: clip(e.repo), source: clip(e.source), createdAt: now })),
+    });
+    const useCounts = new Map<string, number>();
+    for (const e of valid) {
+      if (e.type === "download" || e.type === "invoke") useCounts.set(e.skillId, (useCounts.get(e.skillId) ?? 0) + 1);
+    }
+    for (const [skillId, count] of useCounts) {
+      await prisma.$transaction([
+        prisma.orgSkillDownload.upsert({ where: { skillId }, update: { count: { increment: count }, lastSeen: now }, create: { skillId, count } }),
+        prisma.orgSkill.update({ where: { id: skillId }, data: { downloadCount: { increment: count } } }),
+      ]);
+    }
+  } catch {
+    /* telemetry is best-effort — never surface to the caller */
+  }
+  return { recorded: valid.length };
 }
 
 /**

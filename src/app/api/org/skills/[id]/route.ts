@@ -1,9 +1,9 @@
-// GET    /api/org/skills/:id                            -> { skill }   (read-gated)
+// GET    /api/org/skills/:id                            -> { skill }   (read-gated; token-aware)
 // PATCH  /api/org/skills/:id { name?, description?, content?, category?, tags?, archived? } -> { ok }
-// DELETE /api/org/skills/:id                            -> { ok }      (admin · soft-archive)
+// DELETE /api/org/skills/:id                            -> { ok }      (admin · soft-archive · SESSION only)
 // Per-row org gate: the owning org is resolved FROM the skill (getOrgSkillOrgSlug), then authorized.
-// PATCH is member-level + Team+; DELETE is destructive (admin) + Team+ and soft-archives (never a hard
-// delete, so adoption history survives). Mirrors the playbooks [id] route + the branding plan-gate.
+// GET/PATCH accept an `askl_` bearer (skills:read / skills:write) OR a session; PATCH is member-level +
+// Team+. DELETE is destructive (admin) and stays SESSION-only — a machine token never hard-archives.
 
 import { NextResponse } from "next/server";
 import {
@@ -15,46 +15,46 @@ import {
   recordOrgAudit,
   updateOrgSkill,
 } from "@/lib/db";
-import { requireOrgAccess, requireOrgRead, requireOrgRole } from "@/lib/authz";
+import { requireOrgRole } from "@/lib/authz";
+import { authorizeOrgApi, isDenied, principalLogin, type OrgApiPrincipal } from "@/lib/api-token-auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { planAllowsSkillsLibrary } from "@/lib/plans";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
-import type { OrgRole } from "@/lib/db/members";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Resolve+authorize the skill's owning org for a write. Returns the org slug, or a NextResponse to
- *  send back (503 no-db / 404 unknown / gate 401-403 / 403 plan). Reads use requireOrgRead inline. */
-async function gateWrite(id: string, min: OrgRole): Promise<{ org: string } | NextResponse> {
-  if (!isDbConfigured()) return NextResponse.json({ error: "Skills require a database." }, { status: 503 });
-  const org = await getOrgSkillOrgSlug(id);
-  if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
-  const denied = min === "member" ? await requireOrgAccess(org) : await requireOrgRole(org, min);
-  if (denied) return denied;
+/** Plan gate shared by write paths — authoring the library is a Team-and-up feature. */
+async function planDenied(org: string): Promise<NextResponse | null> {
   const credit = await getCreditState(org).catch(() => null);
   if (!planAllowsSkillsLibrary(credit?.plan)) {
     return NextResponse.json({ error: "The Skills Library is a Team-plan feature." }, { status: 403 });
   }
-  return { org };
+  return null;
 }
 
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Skills require a database." }, { status: 503 });
   const { id } = await ctx.params;
   const org = await getOrgSkillOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
-  const denied = await requireOrgRead(org);
-  if (denied) return denied;
+  const auth = await authorizeOrgApi(request, org, { scope: "skills:read", mode: "read" });
+  if (isDenied(auth)) return auth.denied;
   const skill = await getOrgSkill(id);
   if (!skill) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
   return NextResponse.json({ skill });
 }
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Skills require a database." }, { status: 503 });
   const { id } = await ctx.params;
-  const g = await gateWrite(id, "member");
-  if (g instanceof Response) return g;
+  const org = await getOrgSkillOrgSlug(id);
+  if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
+  const auth = await authorizeOrgApi(request, org, { scope: "skills:write", mode: "write" });
+  if (isDenied(auth)) return auth.denied;
+  const planGate = await planDenied(org);
+  if (planGate) return planGate;
+
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
     description?: string;
@@ -75,11 +75,9 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       tags: Array.isArray(body.tags) ? body.tags : undefined,
       archived: body.archived,
     });
-    // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
-    // Supabase wall, so this actor/audit row was recorded as null in production.
-    const actorLogin = await resolveViewerLogin();
+    const actorLogin = await principalLogin(auth.principal as OrgApiPrincipal);
     const changed = Object.keys(body).filter((k) => body[k as keyof typeof body] !== undefined);
-    await recordOrgAudit("org_skill.updated", g.org, { skillId: id, changed }, actorLogin ?? undefined);
+    await recordOrgAudit("org_skill.updated", org, { skillId: id, changed }, actorLogin ?? undefined);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const code = (err as { code?: string }).code;
@@ -90,15 +88,19 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
 }
 
 export async function DELETE(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+  if (!isDbConfigured()) return NextResponse.json({ error: "Skills require a database." }, { status: 503 });
   const { id } = await ctx.params;
-  const g = await gateWrite(id, "admin");
-  if (g instanceof Response) return g;
+  const org = await getOrgSkillOrgSlug(id);
+  if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
+  // Destructive: session + admin only (no token path) — a machine credential never archives a skill.
+  const denied = await requireOrgRole(org, "admin");
+  if (denied) return denied;
+  const planGate = await planDenied(org);
+  if (planGate) return planGate;
   try {
     await archiveOrgSkill(id);
-    // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
-    // Supabase wall, so this actor/audit row was recorded as null in production.
     const actorLogin = await resolveViewerLogin();
-    await recordOrgAudit("org_skill.archived", g.org, { skillId: id }, actorLogin ?? undefined);
+    await recordOrgAudit("org_skill.archived", org, { skillId: id }, actorLogin ?? undefined);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Skill not found." }, { status: 404 });

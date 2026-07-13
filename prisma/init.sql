@@ -612,6 +612,7 @@ CREATE TABLE "OrgSkill" (
     "category" TEXT NOT NULL,
     "tags" TEXT NOT NULL DEFAULT '[]',
     "version" INTEGER NOT NULL DEFAULT 1,
+    "contentHash" TEXT NOT NULL DEFAULT '',
     "archived" BOOLEAN NOT NULL DEFAULT false,
     "downloadCount" INTEGER NOT NULL DEFAULT 0,
     "createdBy" TEXT,
@@ -663,6 +664,47 @@ CREATE UNIQUE INDEX "OrgSkillAdoption_skillId_repoFullName_key" ON "OrgSkillAdop
 
 -- CreateIndex
 CREATE UNIQUE INDEX "OrgSkillDownload_skillId_key" ON "OrgSkillDownload"("skillId");
+
+-- CreateTable: append-only per-use event for an org skill (Feature 2 sync telemetry).
+CREATE TABLE "OrgSkillEvent" (
+    "id" TEXT NOT NULL,
+    "skillId" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "repo" TEXT,
+    "source" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgSkillEvent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "OrgSkillEvent_skillId_idx" ON "OrgSkillEvent"("skillId");
+
+-- CreateIndex
+CREATE INDEX "OrgSkillEvent_orgId_createdAt_idx" ON "OrgSkillEvent"("orgId", "createdAt");
+
+-- CreateTable: org-scoped API token for machine access to the Skills Library (hash-at-rest).
+CREATE TABLE "OrgApiToken" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "tokenHash" TEXT NOT NULL,
+    "tokenPrefix" TEXT NOT NULL,
+    "scopes" TEXT NOT NULL,
+    "createdBy" TEXT,
+    "lastUsedAt" TIMESTAMP(3),
+    "revokedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgApiToken_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgApiToken_tokenHash_key" ON "OrgApiToken"("tokenHash");
+
+-- CreateIndex
+CREATE INDEX "OrgApiToken_orgId_idx" ON "OrgApiToken"("orgId");
 
 
 -- CreateTable: auto-derived tech-stack groups (Feature 3b) — repos grouped by detected stack.
