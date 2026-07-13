@@ -76,7 +76,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
           <Link
             key={c.fullName}
             href={c.href}
-            className={`focus-ring group items-center py-4 transition ${GRID}`}
+            className={`focus-ring group items-center py-4 transition hover:bg-white/[0.02] ${GRID}`}
           >
             <span className="font-mono text-sm tabular-nums text-slate-600">{String(i + 1).padStart(2, "0")}</span>
             <span className="min-w-0">
