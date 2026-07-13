@@ -151,7 +151,11 @@ export function ConstellationField({
                   className="launch-star-link"
                   aria-label={`Open report for ${r.fullName}${detail}`}
                 >
-                  <circle cx={cx} cy={cy} r={Math.max(look.r + 1.4, 3)} fill="transparent" />
+                  {/* Invisible touch target — grows the HIT area, never the visible star (that stays
+                      `look.r`). The map's 120-unit viewBox renders ~250–350px wide on a phone (~2.1–2.9
+                      px/unit), so a ≥6-unit radius = ≥12px = a ≥24px-diameter tap target down to a 320px
+                      screen, clearing the WCAG 2.2 target-size minimum the old r≈3 (~15px) fell short of. */}
+                  <circle cx={cx} cy={cy} r={Math.max(look.r + 3, 6)} fill="transparent" />
                   {moved != null && (
                     <circle
                       cx={cx}

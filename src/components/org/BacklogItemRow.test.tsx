@@ -76,4 +76,14 @@ describe("BacklogItemRow accessibility", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Owner" }), { target: { value: "alice" } });
     expect(onEditField).toHaveBeenCalledWith("b1:owner");
   });
+
+  it("#4: truncates a long title (within a min-w-0 flex item) with the full text on hover", () => {
+    const long = "A".repeat(200);
+    renderRow({ item: item({ title: long }) });
+    const title = screen.getByText(long);
+    // truncate on the block + min-w-0 on the flex ancestor is what stops a long title forcing the row wide.
+    expect(title).toHaveClass("truncate");
+    expect(title).toHaveAttribute("title", long);
+    expect(title.parentElement).toHaveClass("min-w-0");
+  });
 });

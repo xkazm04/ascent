@@ -150,7 +150,9 @@ export function PlaybookCard({
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
+        {/* break-words lets a long unbroken playbook title wrap within this min-w-0 flex item instead
+            of overflowing the card; the title stays fully visible (it sits inline with the dim badge). */}
+        <div className="min-w-0 break-words">
           <span className="font-medium text-white">{p.title}</span>
           <span className="ml-2 rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
             {p.dimId} · {dimLabel}

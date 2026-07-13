@@ -162,7 +162,9 @@ export function RecommendationTracker({
               {announcements[item.id] ?? ""}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className={`font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
+              {/* min-w-0 lets this flex item shrink; break-words then wraps a long unbroken rec title
+                  instead of overflowing the row (a rec title is descriptive text — wrap, don't clip). */}
+              <h3 className={`min-w-0 break-words font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
                 {item.title}
               </h3>
               <div className="flex items-center gap-2 text-sm">

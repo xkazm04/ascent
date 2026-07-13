@@ -74,4 +74,12 @@ describe("RecommendationTracker status <select> (roadmap #2)", () => {
     const patchCalls = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "PATCH");
     expect(patchCalls).toHaveLength(1);
   });
+
+  it("#4: wraps a long recommendation title (min-w-0 + break-words), never overflowing the row", () => {
+    const long = "R".repeat(200);
+    render(<RecommendationTracker items={[item({ title: long })]} report={report} />);
+    const h3 = screen.getByRole("heading", { level: 3, name: long });
+    expect(h3).toHaveClass("min-w-0");
+    expect(h3).toHaveClass("break-words");
+  });
 });

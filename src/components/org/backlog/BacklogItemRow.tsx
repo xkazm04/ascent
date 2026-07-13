@@ -192,7 +192,9 @@ export function BacklogItemRow({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="font-medium text-white">{item.title}</div>
+          {/* min-w-0 on this flex item (above) lets the block title truncate: a long unbroken title
+              now ellipsises to one line instead of forcing the row wide; full text on hover. */}
+          <div className="truncate font-medium text-white" title={item.title}>{item.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-sm text-slate-500">
             <span className="text-slate-400">{item.repo}</span>
             <span>· {item.dimId} {item.dimLabel}</span>

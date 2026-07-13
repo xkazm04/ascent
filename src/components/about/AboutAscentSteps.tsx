@@ -50,7 +50,28 @@ export function AboutAscentSteps() {
   });
 
   return (
-    <svg viewBox={`0 0 ${vbWidth} 360`} className="h-auto w-full" role="img" aria-label={`The ${n}-level ascent from manual to autonomous, governed delivery.`}>
+    <>
+      {/* MOBILE (< sm): the staircase is a fixed 960-wide viewBox scaled to fit, so on a phone its
+          labels collapse to ~5px — unreadable. Below sm we render the SAME ladder as a legible stacked
+          list instead (same L#, name and unlock text), so the information reflows rather than shrinking
+          into illegibility. The SVG staircase returns from sm up, where it has the width to breathe. */}
+      <ol className="flex flex-col gap-2 sm:hidden" aria-label={`The ${n}-level ascent from manual to autonomous, governed delivery.`}>
+        {LEVELS.map((l) => (
+          <li
+            key={l.id}
+            className="flex items-baseline gap-3 rounded-md border-l-2 bg-white/[0.02] py-2 pl-3 pr-2"
+            style={{ borderColor: LEVEL_HEX[l.id] }}
+          >
+            <span className="font-mono text-sm font-bold" style={{ color: LEVEL_HEX[l.id] }}>
+              {l.id}
+            </span>
+            <span className="font-mono text-sm text-slate-200">{l.name}</span>
+            <span className="ml-auto text-right font-mono text-xs text-slate-500">{UNLOCK[l.id]}</span>
+          </li>
+        ))}
+      </ol>
+
+      <svg viewBox={`0 0 ${vbWidth} 360`} className="hidden h-auto w-full sm:block" role="img" aria-label={`The ${n}-level ascent from manual to autonomous, governed delivery.`}>
       {steps.map((s, i) => {
         const color = LEVEL_HEX[s.id];
         const mid = s.x + STEP_W / 2;
@@ -100,6 +121,7 @@ export function AboutAscentSteps() {
         })}
         viewport={{ once: false, margin: "-80px" }}
       />
-    </svg>
+      </svg>
+    </>
   );
 }
