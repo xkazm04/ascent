@@ -607,14 +607,12 @@ export interface OrgHeaderSummary {
   scannedCount: number;
   watchedCount: number;
   avgOverall: number;
-  /** Tenant flavor — "personal" swaps the shell to the individual-workspace nav subset. */
-  kind: "org" | "personal";
 }
 
 export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSummary | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true, kind: true } });
+  const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true } });
   if (!org) return null;
   const repos = await prisma.repository.findMany({
     where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] },
@@ -629,7 +627,6 @@ export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSum
     scannedCount: scannedScores.length,
     watchedCount: repos.filter((r) => r.watched).length,
     avgOverall: roundedMean(scannedScores),
-    kind: org.kind === "personal" ? "personal" : "org",
   };
 }
 
