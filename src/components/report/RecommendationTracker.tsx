@@ -73,6 +73,11 @@ export function RecommendationTracker({
   }
 
   async function setStatus(id: string, status: RecStatus) {
+    // Re-entrancy guard: ignore a change fired while this row's save is still in flight. The status
+    // <select> is no longer `disabled` during a save (disabling the focused control blurred it, dropping
+    // keyboard/SR focus to <body> — roadmap-recommendation-tracking #2), so this guard is now what
+    // prevents a second overlapping PATCH on the same row.
+    if (savingIds.has(id)) return;
     const row = items.find((i) => i.id === id);
     const title = row?.title ?? "Recommendation";
     // Capture ONLY this row's prior status for a targeted rollback. Reverting to a whole-list

@@ -276,8 +276,15 @@ export function AlertsControl({ org }: { org: string }) {
                   </button>
                 )}
               </div>
-              {notice && <p className="mt-2 text-sm text-emerald-300">{notice}</p>}
-              {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+              {/* fleet-alerts-digests #6: a PERSISTENT polite live region so Save / Clear / Send-test
+                  results (and errors) are announced to screen readers. Previously these were plain
+                  <p>s that mounted on demand — no SR voiced them, so a keyboard/SR admin got no
+                  confirmation the webhook saved or the test delivered. The container is always mounted
+                  while the form is open so the announcement fires reliably when its text changes. */}
+              <div role="status" aria-live="polite" className={notice || error ? "mt-2 text-sm" : "sr-only"}>
+                {notice && <span className="text-emerald-300">{notice}</span>}
+                {error && <span className="text-danger">{error}</span>}
+              </div>
             </>
           )}
         </div>

@@ -25,10 +25,10 @@ export function AboutCTA() {
                   Connect your GitHub org and Ascent scores the fleet in minutes — or explore the live demo first.
                 </p>
                 <div className="mt-7 flex flex-wrap justify-center gap-3">
-                  <Link href="/connect" className="rounded-xl bg-accent px-6 py-3 font-semibold text-on-accent transition hover:bg-accent-soft">
+                  <Link href="/connect" className="focus-ring rounded-xl bg-accent px-6 py-3 font-semibold text-on-accent transition hover:bg-accent-soft">
                     Scan your org
                   </Link>
-                  <Link href={demoOrgHref()} className="rounded-xl border border-divider px-6 py-3 font-medium text-slate-200 transition hover:border-accent hover:text-white">
+                  <Link href={demoOrgHref()} className="focus-ring rounded-xl border border-divider px-6 py-3 font-medium text-slate-200 transition hover:border-accent hover:text-white">
                     Explore the demo →
                   </Link>
                 </div>

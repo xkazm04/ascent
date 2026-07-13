@@ -9,12 +9,37 @@ function fmtHours(h: number | null): string {
   return `${(h / 24).toFixed(1)}d`;
 }
 
-function PrMetric({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) {
+function PrMetric({
+  label,
+  value,
+  color,
+  hint,
+  elevated = false,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+  hint?: string;
+  /** Flags a metric whose value crossed a concerning threshold. The warn COLOR alone can't carry that
+   *  signal (WCAG 1.4.1) — a colorblind or low-contrast reader gets no cue — so we render an explicit
+   *  "▲ elevated" glyph+text marker in addition to the tint, never instead of it. */
+  elevated?: boolean;
+}) {
   return (
     <div className="rounded-xl border border-divider bg-slate-950/40 p-3">
       <Kicker tone="muted">{label}</Kicker>
-      <div className="mt-1 font-mono text-xl font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
-        {value}
+      <div className="mt-1 flex items-baseline gap-1.5">
+        <span className="font-mono text-xl font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
+          {value}
+        </span>
+        {elevated && (
+          <span
+            className="font-mono text-xs font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-warn)" }}
+          >
+            <span aria-hidden>▲ </span>elevated
+          </span>
+        )}
       </div>
       {hint && <div className="mt-0.5 text-sm text-slate-500">{hint}</div>}
     </div>
@@ -49,7 +74,13 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
         <PrMetric label="Small PRs" value={`${stats.smallPrRate}%`} color={scoreHex(stats.smallPrRate)} hint="≤200 lines" />
         <PrMetric label="Time to merge" value={fmtHours(stats.medianHoursToMerge)} hint="median" />
         <PrMetric label="Time to review" value={fmtHours(stats.medianHoursToFirstReview)} hint="median 1st" />
-        <PrMetric label="Revert rate" value={`${stats.revertRate}%`} color={stats.revertRate > 10 ? "var(--color-warn)" : "#fff"} hint="reverted PRs" />
+        <PrMetric
+          label="Revert rate"
+          value={`${stats.revertRate}%`}
+          color={stats.revertRate > 10 ? "var(--color-warn)" : "#fff"}
+          elevated={stats.revertRate > 10}
+          hint="reverted PRs"
+        />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-sm text-slate-500">
         <span>avg {stats.avgLineChanges} lines · {stats.avgChangedFiles} files</span>

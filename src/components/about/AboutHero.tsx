@@ -65,13 +65,13 @@ export function AboutHero({ bg }: { bg?: string }) {
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
               href="/connect"
-              className="rounded-xl bg-accent px-5 py-2.5 font-semibold text-on-accent transition hover:bg-accent-soft"
+              className="focus-ring rounded-xl bg-accent px-5 py-2.5 font-semibold text-on-accent transition hover:bg-accent-soft"
             >
               Scan your org
             </Link>
             <Link
               href={demoOrgHref()}
-              className="rounded-xl border border-divider px-5 py-2.5 font-medium text-slate-200 transition hover:border-accent hover:text-white"
+              className="focus-ring rounded-xl border border-divider px-5 py-2.5 font-medium text-slate-200 transition hover:border-accent hover:text-white"
             >
               Explore the live demo →
             </Link>

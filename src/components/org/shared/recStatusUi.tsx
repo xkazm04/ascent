@@ -52,12 +52,15 @@ export function StatusSelect({
   disabled,
   onChange,
   "aria-label": ariaLabel,
+  "data-focus-key": dataFocusKey,
   statuses = REC_STATUSES,
 }: {
   value: RecStatus;
   disabled: boolean;
   onChange: (status: RecStatus) => void;
   "aria-label": string;
+  /** Stable key so a parent can restore focus to THIS control after a refresh remounts the row. */
+  "data-focus-key"?: string;
   statuses?: RecStatus[];
 }) {
   return (
@@ -66,6 +69,7 @@ export function StatusSelect({
       disabled={disabled}
       onChange={(e) => onChange(e.target.value as RecStatus)}
       aria-label={ariaLabel}
+      data-focus-key={dataFocusKey}
       className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
       style={{ color: STATUS_ACCENT[value] }}
     >

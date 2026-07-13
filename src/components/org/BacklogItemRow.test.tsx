@@ -1,0 +1,79 @@
+// @vitest-environment jsdom
+//
+// Pins two backlog-management a11y fixes at the row level:
+//  #6 — the status <select> must NOT force the status accent as inline text colour; the dark accents on
+//       the near-black field fell below WCAG AA. Status is cued by the row's left-edge bar instead.
+//  #3 — editing an inline control signals the parent (onEditField) with a stable `${id}:field` key so
+//       the parent can restore keyboard focus after the edit re-groups the row into a different Card and
+//       remounts it (the remount otherwise strands focus on <body>). The controls carry data-focus-key.
+
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import type { BacklogItem } from "@/lib/db";
+import { BacklogItemRow } from "./BacklogItemRow";
+
+afterEach(() => vi.restoreAllMocks());
+
+function item(over: Partial<BacklogItem> = {}): BacklogItem {
+  return {
+    id: "b1",
+    title: "Add tests",
+    dimId: "D1",
+    dimLabel: "Testing",
+    impact: "high",
+    effort: "low",
+    status: "open",
+    assigneeLogin: null,
+    targetDate: null,
+    dueBucket: "no_date",
+    dueInDays: null,
+    overdue: false,
+    repo: "acme/web",
+    repoName: "web",
+    lastActivityAt: "2026-01-01T00:00:00Z",
+    projectedPoints: null,
+    unlocks: null,
+    ...over,
+  };
+}
+
+function renderRow(over: Partial<Parameters<typeof BacklogItemRow>[0]> = {}) {
+  const onEditField = vi.fn();
+  const onPatch = vi.fn().mockResolvedValue({ patched: true, refreshed: true });
+  render(
+    <BacklogItemRow
+      org="acme"
+      item={item()}
+      assignees={["alice"]}
+      saving={false}
+      onState={() => {}}
+      onPatch={onPatch}
+      onEditField={onEditField}
+      {...over}
+    />,
+  );
+  return { onEditField, onPatch };
+}
+
+describe("BacklogItemRow accessibility", () => {
+  it("#6: renders the status select without the low-contrast inline accent colour", () => {
+    renderRow();
+    const status = screen.getByRole("combobox", { name: "Status" }) as HTMLSelectElement;
+    // No forced inline text colour (the accent fell below WCAG AA on the dark field); slate token via class.
+    expect(status.style.color).toBe("");
+    expect(status).toHaveAttribute("data-focus-key", "b1:status");
+  });
+
+  it("#3: exposes a stable data-focus-key on every inline control for focus restore", () => {
+    renderRow();
+    expect(screen.getByRole("combobox", { name: "Status" })).toHaveAttribute("data-focus-key", "b1:status");
+    expect(screen.getByRole("combobox", { name: "Owner" })).toHaveAttribute("data-focus-key", "b1:owner");
+    expect(screen.getByLabelText("Due date")).toHaveAttribute("data-focus-key", "b1:due");
+  });
+
+  it("#3: signals the parent which control was edited so focus can be restored after a remount", () => {
+    const { onEditField } = renderRow();
+    fireEvent.change(screen.getByRole("combobox", { name: "Owner" }), { target: { value: "alice" } });
+    expect(onEditField).toHaveBeenCalledWith("b1:owner");
+  });
+});

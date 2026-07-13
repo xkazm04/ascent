@@ -99,3 +99,57 @@ describe("BacklogPanel — optimistic override lifetime (DOM)", () => {
     expect(screen.getByText("server unavailable")).toBeInTheDocument();
   });
 });
+
+// ── backlog-management #3: focus restore across the regroup remount ────────────────────────────────
+// An inline owner edit re-groups the row into a different owner Card, unmounting+remounting it, which
+// would strand keyboard/SR focus on <body>. The panel records the edited control and, once the refresh
+// re-renders the moved row, restores focus to it by its stable data-focus-key.
+
+function ownerGroupOf(login: string, items: BacklogItem[]) {
+  return { login, open: items.length, inProgress: 0, done: 0, dismissed: 0, overdue: 0, active: items.length, items };
+}
+
+function backlogWith(owner: "alice" | "bob"): OrgBacklog {
+  const it: BacklogItem = { ...item, assigneeLogin: owner };
+  return {
+    ...backlog,
+    assigned: 1,
+    unassigned: 0,
+    byOwner:
+      owner === "alice"
+        ? [ownerGroupOf("alice", [it]), ownerGroupOf("bob", [])]
+        : [ownerGroupOf("alice", []), ownerGroupOf("bob", [it])],
+    assignees: ["alice", "bob"],
+  };
+}
+
+describe("BacklogPanel — focus restore across a regroup remount (#3)", () => {
+  it("returns keyboard focus to the moved row's owner control after the edit remounts it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const u = String(url);
+        if (u.includes("/api/recommendations/")) return ok(); // PATCH succeeds
+        if (u.includes("/api/org/backlog")) return new Response(JSON.stringify({ backlog: backlogWith("bob") }), { status: 200 });
+        return ok();
+      }),
+    );
+    render(<BacklogPanel slug="acme" initial={backlogWith("alice")} />);
+
+    const owner = screen.getByLabelText("Owner") as HTMLSelectElement;
+    owner.focus();
+    expect(document.activeElement).toBe(owner);
+
+    await act(async () => {
+      owner.value = "bob";
+      owner.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    // After PATCH → refresh → remount, focus lands on the NEW (moved) owner control, not <body>.
+    await waitFor(() => {
+      const moved = document.querySelector<HTMLElement>('[data-focus-key="rec1:owner"]');
+      expect(moved).not.toBeNull();
+      expect(document.activeElement).toBe(moved);
+    });
+  });
+});
