@@ -211,7 +211,7 @@ export function ReportView({
 
       {/* Activation nudge: the report is the peak-engagement moment — pull a first-timer toward the
           org rollup + an account (or a signed-in viewer toward the fleet view) instead of dead-ending. */}
-      <ReportConversionCta />
+      <ReportConversionCta repo={repoFull} />
 
       <div className="flex justify-center pt-2">
         <Link

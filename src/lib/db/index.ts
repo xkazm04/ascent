@@ -372,6 +372,7 @@ export {
   type PersonalScanPoint,
 } from "@/lib/db/personal";
 export { getPersonalSecurityRows, type PersonalSecurityRow } from "@/lib/db/personal-security";
+export { getPersonalPassports, type PersonalPassport } from "@/lib/db/personal-passports";
 export {
   getPersonalBacklog,
   setPersonalOverlay,

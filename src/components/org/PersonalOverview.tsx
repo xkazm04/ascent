@@ -8,8 +8,9 @@ import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { Sparkline } from "@/components/org/repositories/Sparkline";
 import { Trajectory } from "@/components/org/overview/Trajectory";
 import { AddRepoForm, UntrackButton } from "@/components/org/PersonalWatchControls";
+import { PassportCard } from "@/components/org/passports/PassportCard";
 import { EmptyState } from "@/components/EmptyState";
-import { getPersonalUsage, getPersonalWatchlist, PERSONAL_WATCH_LIMIT, type PersonalMeter, type PersonalRepo } from "@/lib/db";
+import { getPersonalPassports, getPersonalUsage, getPersonalWatchlist, PERSONAL_WATCH_LIMIT, type PersonalMeter, type PersonalRepo } from "@/lib/db";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 
@@ -95,7 +96,11 @@ function UsageChip({ label, meter }: { label: string; meter: PersonalMeter }) {
 }
 
 export async function PersonalOverview({ slug }: { slug: string }) {
-  const [repos, usage] = await Promise.all([getPersonalWatchlist(slug), getPersonalUsage(slug)]);
+  const [repos, usage, passports] = await Promise.all([
+    getPersonalWatchlist(slug),
+    getPersonalUsage(slug),
+    getPersonalPassports(slug),
+  ]);
   if (repos === null) {
     return (
       <EmptyState
@@ -154,6 +159,19 @@ export async function PersonalOverview({ slug }: { slug: string }) {
             <div key={r.fullName}>
               <div className="mb-1.5 font-mono text-sm uppercase tracking-widest text-slate-500">{r.fullName}</div>
               <Trajectory forecast={r.forecast!} />
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* App Readiness Passports — the same cards the repo's own org (and the report hero) show,
+          via the public-corpus lens. Read-only here: overrides belong to the repo's owning org. */}
+      {passports && passports.length > 0 && (
+        <section aria-label="App Readiness Passports" className="grid gap-4 lg:grid-cols-2">
+          {passports.map((p) => (
+            <div key={p.fullName}>
+              <div className="mb-1.5 font-mono text-sm uppercase tracking-widest text-slate-500">{p.fullName}</div>
+              <PassportCard passport={p.passport} repo={p.fullName} />
             </div>
           ))}
         </section>

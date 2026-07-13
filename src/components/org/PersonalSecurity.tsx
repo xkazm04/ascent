@@ -7,9 +7,11 @@
 import Link from "next/link";
 import { Card, SectionEmpty, SectionHeader, MeterRow } from "@/components/org/shared/ui";
 import { SecurityFindings } from "@/components/org/SecurityFindings";
+import { CopyForLlm } from "@/components/CopyForLlm";
 import { getPersonalSecurityRows } from "@/lib/db";
 import { decisionMap } from "@/lib/org/decision-map";
 import { parseSecurityChecks } from "@/lib/org/security";
+import { DEFAULT_SECURITY_MIN } from "@/lib/scoring/gate";
 import { scoreHex } from "@/lib/ui";
 
 export async function PersonalSecurity({ slug }: { slug: string }) {
@@ -25,12 +27,21 @@ export async function PersonalSecurity({ slug }: { slug: string }) {
 
   const withChecks = rows.map((r) => ({ ...r, checks: parseSecurityChecks(r.evidence) }));
 
+  // The same paste-ready CI enforcement the org security tab offers — arguably MORE useful solo: a
+  // maintainer wires their own pipeline directly, no fleet policy needed. One line per tracked repo.
+  const gateSnippet = [
+    `# Ascent security gate — non-zero exit when Security (D9) < ${DEFAULT_SECURITY_MIN} or the posture is "ungoverned".`,
+    `# Add the line for your repo to CI; set ASCENT_URL to this Ascent instance.`,
+    ...rows.map((r) => `curl -sf "$ASCENT_URL/api/gate/${r.fullName}?security=1"`),
+  ].join("\n");
+
   return (
     <div className="space-y-6">
       <SectionHeader
         descriptionClassName="max-w-3xl"
         title="Security"
         description="Security (D9) across your tracked repos, weakest first — from each repo's latest public scan. Decide each failing control below: accept the work, or dismiss with a reason. Your reasons calibrate your own rescans; they never change what other watchers see."
+        right={<CopyForLlm text={gateSnippet} label="Copy CI gate snippet" />}
       />
 
       <Card>

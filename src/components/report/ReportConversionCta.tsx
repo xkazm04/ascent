@@ -11,10 +11,37 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Surface, Kicker } from "@/components/ui";
 
-export function ReportConversionCta() {
+export function ReportConversionCta({ repo }: { repo?: string }) {
   // null = unresolved; the card stays hidden until we know which side of the funnel the viewer is on,
   // so a signed-in viewer never momentarily sees the "sign in" copy (and vice versa).
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  // Individual-tier exit: "idle" → "busy" → "tracked" (now a link into the workspace); errors show
+  // the API's message (cap reached, not public) instead of failing silently.
+  const [track, setTrack] = useState<"idle" | "busy" | "tracked">("idle");
+  const [trackError, setTrackError] = useState<string | null>(null);
+
+  async function trackRepo() {
+    if (!repo || track !== "idle") return;
+    setTrack("busy");
+    setTrackError(null);
+    try {
+      const res = await fetch("/api/me/watch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo, watched: true }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setTrackError(body.error ?? "Couldn't track the repo. Try again.");
+        setTrack("idle");
+        return;
+      }
+      setTrack("tracked");
+    } catch {
+      setTrackError("Network error. Try again.");
+      setTrack("idle");
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -51,6 +78,28 @@ export function ReportConversionCta() {
           >
             {signedIn ? "Scan your org" : "Scan your whole org"} <span aria-hidden>→</span>
           </Link>
+          {/* Individual-tier exit: a signed-in viewer can pull THIS repo into their personal
+              workspace right here — the lens over the shared public corpus, so tracking is free and
+              instant (a pointer row, not a re-scan). */}
+          {signedIn && repo && (
+            track === "tracked" ? (
+              <Link
+                href="/me"
+                className="focus-ring inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 px-4 py-2.5 text-base text-emerald-300 transition hover:border-emerald-400 hover:text-emerald-200"
+              >
+                In your workspace <span aria-hidden>→</span>
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={trackRepo}
+                disabled={track === "busy"}
+                className="focus-ring inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+              >
+                {track === "busy" ? "Tracking…" : "Track this repo"}
+              </button>
+            )
+          )}
           {!signedIn && (
             <Link
               href="/connect"
@@ -61,6 +110,11 @@ export function ReportConversionCta() {
           )}
         </div>
       </div>
+      {trackError && (
+        <p role="alert" className="relative mt-2 text-sm text-rose-400">
+          {trackError}
+        </p>
+      )}
     </Surface>
   );
 }
