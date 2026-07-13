@@ -6,6 +6,9 @@
 // facts, and the named stack. All data ships with the row (cached passport) — no fetch on expand.
 
 import Link from "next/link";
+import { DecisionControl } from "@/components/org/DecisionControl";
+import { blockerKey } from "@/lib/org/findings";
+import type { DecisionMap } from "@/lib/org/decision-map";
 
 export interface PassportDetail {
   purpose: string;
@@ -23,20 +26,54 @@ export interface PassportDetail {
   confidence: number;
 }
 
-function BlockerList({ title, items, allClear }: { title: string; items: string[]; allClear: string }) {
+// Each blocker is a decidable finding: fix it, or record why it doesn't apply here. Both axes share
+// one key space (blockerKey hashes the repo + the normalized blocker text), so a blocker listed on
+// both automation and production is ONE decision, made once, reflected in both lists.
+function BlockerList({
+  title,
+  items,
+  allClear,
+  org,
+  fullName,
+  decisions,
+}: {
+  title: string;
+  items: string[];
+  allClear: string;
+  org: string;
+  fullName: string;
+  decisions: DecisionMap;
+}) {
   return (
     <div>
       <div className="font-mono text-xs uppercase tracking-widest text-slate-500">{title}</div>
       {items.length === 0 ? (
         <p className="mt-1.5 text-sm text-emerald-400/80">{allClear}</p>
       ) : (
-        <ul className="mt-1.5 space-y-1.5">
-          {items.map((b) => (
-            <li key={b} className="flex gap-2 text-sm text-slate-300">
-              <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
-              {b}
-            </li>
-          ))}
+        <ul className="mt-1.5 space-y-2.5">
+          {items.map((b) => {
+            const key = blockerKey(fullName, b);
+            const decision = decisions[key];
+            return (
+              <li key={b} className={`text-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
+                <span className="flex gap-2">
+                  <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
+                  {b}
+                </span>
+                <div className="ml-4 mt-1.5">
+                  <DecisionControl
+                    org={org}
+                    module="passports"
+                    itemKey={key}
+                    title={b}
+                    status={decision?.status ?? "open"}
+                    rationale={decision?.rationale}
+                    decidedBy={decision?.decidedBy}
+                  />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -62,15 +99,39 @@ function FactRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-export function PassportRowDetail({ fullName, detail }: { fullName: string; detail: PassportDetail }) {
+export function PassportRowDetail({
+  fullName,
+  detail,
+  org,
+  decisions,
+}: {
+  fullName: string;
+  detail: PassportDetail;
+  org: string;
+  decisions: DecisionMap;
+}) {
   const d = detail;
   const sv = d.selfVerify;
   return (
     <div className="grid gap-5 border-l-2 border-accent/40 bg-surface/30 px-4 py-4 md:grid-cols-2">
-      {/* Left: what to fix, per axis — the passport's own follow-up list */}
+      {/* Left: what to fix, per axis — the passport's own follow-up list, now decidable */}
       <div className="space-y-4">
-        <BlockerList title="Automation blockers" items={d.autoBlockers} allClear="No automation blockers — agents can work here." />
-        <BlockerList title="Production blockers" items={d.prodBlockers} allClear="No production blockers on record." />
+        <BlockerList
+          title="Automation blockers"
+          items={d.autoBlockers}
+          allClear="No automation blockers — agents can work here."
+          org={org}
+          fullName={fullName}
+          decisions={decisions}
+        />
+        <BlockerList
+          title="Production blockers"
+          items={d.prodBlockers}
+          allClear="No production blockers on record."
+          org={org}
+          fullName={fullName}
+          decisions={decisions}
+        />
       </div>
 
       {/* Right: the observed facts behind the sub-scale enums */}

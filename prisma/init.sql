@@ -18,6 +18,7 @@ CREATE TABLE "Organization" (
     "slug" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "plan" TEXT NOT NULL DEFAULT 'free',
+    "kind" TEXT NOT NULL DEFAULT 'org',
     "scanCredits" INTEGER NOT NULL DEFAULT 0,
     "retentionMaxScans" INTEGER,
     "retentionAuditDays" INTEGER,
@@ -707,6 +708,70 @@ CREATE UNIQUE INDEX "OrgApiToken_tokenHash_key" ON "OrgApiToken"("tokenHash");
 CREATE INDEX "OrgApiToken_orgId_idx" ON "OrgApiToken"("orgId");
 
 
+-- CreateTable: Shared Org Memory (Memory-as-a-Service MVP) — the org's durable, agent-readable
+-- knowledge store. `orgId` leads every query (the tenant boundary); `namespace` groups within an org.
+-- `supersededBy` + `confidence` + `source` are the anti-memory-poisoning triad. See prisma/schema.prisma.
+CREATE TABLE "OrgMemory" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "namespace" TEXT,
+    "content" TEXT NOT NULL,
+    "kind" TEXT NOT NULL DEFAULT 'semantic',
+    "visibility" TEXT NOT NULL DEFAULT 'shared',
+    "source" TEXT,
+    "confidence" DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    "tags" TEXT NOT NULL DEFAULT '[]',
+    "supersededBy" TEXT,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "archived" BOOLEAN NOT NULL DEFAULT false,
+    "accessCount" INTEGER NOT NULL DEFAULT 0,
+    "expiresAt" TIMESTAMP(3),
+    "createdBy" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgMemory_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "OrgMemory_orgId_archived_idx" ON "OrgMemory"("orgId", "archived");
+
+-- CreateIndex
+CREATE INDEX "OrgMemory_orgId_namespace_idx" ON "OrgMemory"("orgId", "namespace");
+
+-- CreateIndex
+CREATE INDEX "OrgMemory_orgId_kind_idx" ON "OrgMemory"("orgId", "kind");
+
+
+-- CreateTable: human decisions on derived findings (security checks, unowned repos, passport
+-- blockers, solo-maintained repos) — the state layer behind the org rail's badges.
+CREATE TABLE "OrgDecision" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "module" TEXT NOT NULL,
+    "itemKey" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "rationale" TEXT NOT NULL DEFAULT '',
+    "title" TEXT NOT NULL DEFAULT '',
+    "decidedBy" TEXT,
+    "memoryId" TEXT,
+    "snoozedUntil" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgDecision_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrgDecision_orgId_module_itemKey_key" ON "OrgDecision"("orgId", "module", "itemKey");
+
+-- CreateIndex
+CREATE INDEX "OrgDecision_orgId_status_idx" ON "OrgDecision"("orgId", "status");
+
+-- CreateIndex
+CREATE INDEX "OrgDecision_orgId_module_idx" ON "OrgDecision"("orgId", "module");
+
+
 -- CreateTable: auto-derived tech-stack groups (Feature 3b) — repos grouped by detected stack.
 CREATE TABLE "TechStackGroup" (
     "id" TEXT NOT NULL,
@@ -808,6 +873,28 @@ CREATE UNIQUE INDEX "AiUsageRecord_orgId_source_scope_scopeKey_periodStart_key" 
 -- CreateIndex
 CREATE INDEX "AiUsageRecord_orgId_source_idx" ON "AiUsageRecord"("orgId", "source");
 
+
+-- CreateTable
+CREATE TABLE "RecommendationOverlay" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repoFullName" TEXT NOT NULL,
+    "dimId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "targetDate" TIMESTAMP(3),
+    "note" TEXT NOT NULL DEFAULT '',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "RecommendationOverlay_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RecommendationOverlay_orgId_repoFullName_dimId_title_key" ON "RecommendationOverlay"("orgId", "repoFullName", "dimId", "title");
+
+-- CreateIndex
+CREATE INDEX "RecommendationOverlay_orgId_repoFullName_idx" ON "RecommendationOverlay"("orgId", "repoFullName");
 
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the

@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PassportScatter, type ScatterPoint } from "@/components/org/passports/PassportScatter";
 import { PassportTable, type PassportRow } from "@/components/org/passports/PassportTable";
+import type { DecisionMap } from "@/lib/org/decision-map";
 import { PassportBlockerPareto } from "@/components/org/passports/PassportBlockerPareto";
 import { COHORT_META, cohortOf, type PassportCohort } from "@/lib/org/passport-display";
 
@@ -38,7 +39,7 @@ function PhaseReplay({ dep, className, children }: { dep: unknown; className?: s
   );
 }
 
-export function PassportPortfolio({ rows, org }: { rows: PassportRow[]; org: string }) {
+export function PassportPortfolio({ rows, org, decisions }: { rows: PassportRow[]; org: string; decisions: DecisionMap }) {
   const [filter, setFilter] = useState<PassportCohort | null>(null);
   const [focus, setFocus] = useState<{ fullName: string } | null>(null);
 
@@ -96,7 +97,7 @@ export function PassportPortfolio({ rows, org }: { rows: PassportRow[]; org: str
             No repos in the {scopeLabel} cohort for the current scope — click the highlighted quadrant again (or the ✕ above) to clear it.
           </p>
         ) : (
-          <PassportTable rows={visible} focus={focus} />
+          <PassportTable rows={visible} focus={focus} org={org} decisions={decisions} />
         )}
       </PhaseReplay>
     </div>

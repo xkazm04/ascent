@@ -1,67 +1,19 @@
 "use client";
 
-// Grouped left-navigation rail — the canonical section nav for data-dense surfaces (org dashboards,
-// the repo report) that have outgrown a horizontal tab bar. Vertical + grouped on lg+, and degrades
-// to a horizontal scroller on small screens. Items can be route links (`href`) or in-component tabs
-// (`onSelect`), so the same rail serves the route-based org nav and the state-based report tabs.
+// Grouped left-navigation rail — the flat section nav for data-dense surfaces (the repo report) that
+// have outgrown a horizontal tab bar. Vertical + grouped on lg+, and degrades to a horizontal scroller
+// on small screens. When the group count grows past what one column can hold, reach for the two-level
+// SectionRailNav instead (the org dashboard's nav).
 
-import Link from "next/link";
 import { Kicker } from "./Kicker";
+import { NavItem } from "./navItem";
+import type { SideNavItem } from "./navItem";
 
-export interface SideNavItem {
-  label: React.ReactNode;
-  /** Route-based item (org). */
-  href?: string;
-  /** State-based item (report tabs). */
-  onSelect?: () => void;
-  active: boolean;
-  /** Optional trailing hint (a count/badge). */
-  hint?: React.ReactNode;
-}
+export type { SideNavItem } from "./navItem";
 
 export interface SideNavGroup {
   label?: string;
   items: SideNavItem[];
-}
-
-function itemClass(active: boolean): string {
-  return (
-    "focus-ring relative flex items-center justify-between gap-2 whitespace-nowrap rounded-md px-3 py-1.5 " +
-    "text-base font-medium transition " +
-    (active
-      ? // mobile: an accent-tinted pill; lg: a left accent bar (the rail marker) over a faint wash
-        "bg-accent/10 text-white lg:before:absolute lg:before:inset-y-1 lg:before:left-0 lg:before:w-0.5 lg:before:rounded-full lg:before:bg-accent"
-      : "text-slate-400 hover:bg-surface/60 hover:text-white")
-  );
-}
-
-function ItemBody({ item }: { item: SideNavItem }) {
-  return (
-    <>
-      <span>{item.label}</span>
-      {item.hint != null && <span className="font-mono text-xs text-slate-500">{item.hint}</span>}
-    </>
-  );
-}
-
-function NavItem({ item }: { item: SideNavItem }) {
-  const cls = itemClass(item.active);
-  if (item.href) {
-    return (
-      <Link href={item.href} aria-current={item.active ? "page" : undefined} className={cls}>
-        <ItemBody item={item} />
-      </Link>
-    );
-  }
-  // State-based tab (report): selecting it swaps in-component state rather than navigating, so
-  // `aria-current="page"` (announced as "current page") is the wrong token. Use `aria-current="true"`
-  // — "the current item within a set" — which a screen reader announces as "current" without implying
-  // a page navigation that never happens.
-  return (
-    <button type="button" onClick={item.onSelect} aria-current={item.active ? "true" : undefined} className={cls}>
-      <ItemBody item={item} />
-    </button>
-  );
 }
 
 export function SideNav({

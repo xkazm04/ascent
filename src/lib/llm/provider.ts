@@ -5,6 +5,7 @@
 //   - ClaudeCliProvider (local dev / eval only)         -> src/lib/llm/claude-cli.ts
 //   - MockProvider      (keyless demo & CI)             -> src/lib/llm/mock.ts
 // Swapping providers is a config change, never a rewrite.
+import type { DecisionNote } from "@/lib/db/org-decisions";
 
 import type {
   DimensionId,
@@ -34,6 +35,10 @@ export interface LlmScoreInput {
   files: FetchedFile[];
   commitSample: string[];
   archetype: RepoArchetype;
+  /** Findings this org already judged on this repo, with the reasons — the Shared Org Memory loop's
+   *  read side. Injected into the per-repo user message so a re-scan stops raising a gap a human has
+   *  explicitly closed ("no CI because it's a docs-only mirror"). Empty/absent for an unscoped scan. */
+  orgDecisions?: DecisionNote[];
   /** PR review/velocity/AI-governance stats — already fetched and folded into the deterministic
    *  D3/D6/D7/D8 scores. Threaded here so the LLM auditor sees the same behavioral evidence instead
    *  of reasoning blind about review discipline. Null when scanned without a token. */

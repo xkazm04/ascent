@@ -34,7 +34,7 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
-import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
+import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -87,6 +87,10 @@ export async function POST(request: Request) {
   // canMintInstallationToken gate below still governs PRIVATE-repo access.
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
+  // Import scans + persists a whole repo set UNDER this org — for a personal workspace that would
+  // fork public repos' shared series and bypass /api/me/watch's verify + cap (the lens invariant).
+  const notFleet = await requireFleetOrg(org);
+  if (notFleet) return notFleet;
 
   const count = Math.min(100, Math.max(1, body.count ?? 20));
   const mock = body.mock ?? true;

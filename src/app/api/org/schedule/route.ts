@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, setRepoSchedule, setWatchedSchedule } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { SCHEDULES } from "@/components/connect/installationRepoTypes";
 
 export const runtime = "nodejs";
@@ -36,6 +36,10 @@ export async function POST(request: Request) {
   // autoscan cadence — otherwise anyone could schedule token-spending scans for any org.
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
+  // Autoscans persist scans UNDER the org — for a personal workspace that would fork the shared
+  // public series (the lens invariant), so cadence stays a fleet capability.
+  const notFleet = await requireFleetOrg(body.org);
+  if (notFleet) return notFleet;
   try {
     if (body.fullName) {
       await setRepoSchedule(body.org, body.fullName, body.schedule);

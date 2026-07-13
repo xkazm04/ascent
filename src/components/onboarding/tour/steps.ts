@@ -51,7 +51,7 @@ export const DEMO_TOUR_STEPS: TourStep[] = [
     anchor: "modules-nav",
     kicker: "Modules · 1",
     title: "Each module is a lens",
-    body: "The rail groups the deep-dives: Fleet, Intelligence (Security, Adoption, Delivery), Plan, and Govern. Same fleet — one facet at a time.",
+    body: "The rail groups the deep-dives: Fleet, Intelligence (Security, Adoption, Delivery), Plan, and Govern. Pick a group to reveal its modules — same fleet, one facet at a time.",
   },
   {
     id: "modules-briefing",

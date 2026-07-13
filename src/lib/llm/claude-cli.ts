@@ -39,6 +39,29 @@ interface CliResult {
   };
 }
 
+/**
+ * Unwrap the `claude -p --output-format json` envelope, or throw with the diagnosable reason. Shared by
+ * assess() and {@link runClaudePrompt} so both surface the SAME failure text for a "/login"
+ * subscription-auth prompt, rate-limit output, or a missing binary — instead of each collapsing every
+ * non-JSON outcome into its own opaque error. Returns the envelope (result guaranteed to be a string).
+ */
+function unwrapCliEnvelope(raw: string): CliResult & { result: string } {
+  let outer: CliResult;
+  try {
+    outer = JSON.parse(raw) as CliResult;
+  } catch {
+    // Preserve the actual stdout so the diagnosable reason survives (a "/login" subscription-auth
+    // prompt, rate-limit text, a CLI-not-installed message) instead of collapsing every non-JSON
+    // outcome into one opaque error that reads as "model unavailable, deterministic scores."
+    throw new Error(`Claude CLI did not return a JSON envelope: ${raw.slice(0, 300) || "(empty stdout)"}`);
+  }
+  if (outer.is_error || typeof outer.result !== "string") {
+    const detail = typeof outer.result === "string" ? outer.result : raw;
+    throw new Error(`Claude CLI returned an error (${outer.subtype ?? "unknown"}): ${detail.slice(0, 300)}`);
+  }
+  return outer as CliResult & { result: string };
+}
+
 export class ClaudeCliProvider implements LLMProvider {
   readonly name = "claude-cli" as const;
   readonly model: string;
@@ -54,19 +77,7 @@ export class ClaudeCliProvider implements LLMProvider {
     const prompt = `${system}\n\n${user}`;
 
     const raw = await runClaude(this.model, prompt, opts.signal);
-    let outer: CliResult;
-    try {
-      outer = JSON.parse(raw) as CliResult;
-    } catch {
-      // Preserve the actual stdout so the diagnosable reason survives (a "/login" subscription-auth
-      // prompt, rate-limit text, a CLI-not-installed message) instead of collapsing every non-JSON
-      // outcome into one opaque error that reads as "model unavailable, deterministic scores."
-      throw new Error(`Claude CLI did not return a JSON envelope: ${raw.slice(0, 300) || "(empty stdout)"}`);
-    }
-    if (outer.is_error || typeof outer.result !== "string") {
-      const detail = typeof outer.result === "string" ? outer.result : raw;
-      throw new Error(`Claude CLI returned an error (${outer.subtype ?? "unknown"}): ${detail.slice(0, 300)}`);
-    }
+    const outer = unwrapCliEnvelope(raw);
     // Report token usage (before the parse/usability check, like the other providers) so a claude-cli
     // scan's volume + latency populate the metering columns instead of reading as null. [P2-5]
     if (outer.usage) {
@@ -81,7 +92,36 @@ export class ClaudeCliProvider implements LLMProvider {
   }
 }
 
-function runClaude(model: string, stdin: string, signal?: AbortSignal): Promise<string> {
+/**
+ * General-purpose "prompt in → model text out" call against the same local `claude` CLI, for the
+ * non-scan surfaces that need a single judgment rather than a full LlmAssessment (today: the Shared Org
+ * Memory write-intelligence pass — see src/lib/memory/consolidation.ts). Deliberately returns the RAW
+ * `.result` string: each caller owns its own schema and parses/validates it (with parseJsonLoose),
+ * exactly as assess() does, so this seam stays contract-free.
+ *
+ * LOCAL-DEV-ONLY, like the rest of this module: callers must gate on providerAvailable("claude-cli")
+ * and reach it through a `NODE_ENV !== "production"` dynamic import, so the prod build dead-code-prunes
+ * this file (and its child_process.spawn) out of the Node File Trace.
+ *
+ * `timeoutMs` defaults to the scan-sized CLI_TIMEOUT_MS (10 min). An INTERACTIVE caller (a user waiting
+ * on a UI action) should pass something far smaller — a duplicate check that hangs for ten minutes is a
+ * broken page, not a slow one.
+ */
+export async function runClaudePrompt(
+  prompt: string,
+  opts: { model?: string; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<string> {
+  const model = opts.model || process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL;
+  const raw = await runClaude(model, prompt, opts.signal, opts.timeoutMs);
+  return unwrapCliEnvelope(raw).result;
+}
+
+function runClaude(
+  model: string,
+  stdin: string,
+  signal?: AbortSignal,
+  timeoutMs: number = CLI_TIMEOUT_MS,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason ?? new Error("Claude CLI aborted."));
@@ -119,7 +159,7 @@ function runClaude(model: string, stdin: string, signal?: AbortSignal): Promise<
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error("Claude CLI timed out."));
-    }, CLI_TIMEOUT_MS);
+    }, timeoutMs);
 
     // Client disconnected — kill the spawned process so an abandoned scan doesn't keep a
     // (subscription-billed) CLI run going to completion.

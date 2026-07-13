@@ -18,7 +18,7 @@ import {
 import { requireOrgRole } from "@/lib/authz";
 import { authorizeOrgApi, isDenied, principalLogin, type OrgApiPrincipal } from "@/lib/api-token-auth";
 import { resolveViewerLogin } from "@/lib/access";
-import { planAllowsSkillsLibrary } from "@/lib/plans";
+import { workspaceAllowsSkills } from "@/lib/db";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 
 export const runtime = "nodejs";
@@ -27,7 +27,8 @@ export const dynamic = "force-dynamic";
 /** Plan gate shared by write paths — authoring the library is a Team-and-up feature. */
 async function planDenied(org: string): Promise<NextResponse | null> {
   const credit = await getCreditState(org).catch(() => null);
-  if (!planAllowsSkillsLibrary(credit?.plan)) {
+  // Team+ orgs, or a personal workspace (free-with-limits — edits/archives don't grow the library).
+  if (!(await workspaceAllowsSkills(org, credit?.plan))) {
     return NextResponse.json({ error: "The Skills Library is a Team-plan feature." }, { status: 403 });
   }
   return null;

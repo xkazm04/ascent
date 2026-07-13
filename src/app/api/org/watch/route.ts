@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, setRepoWatch } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +37,10 @@ export async function POST(request: Request) {
   // deploy) may change its watchlist. Without this, anyone could toggle watch flags for any org.
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
+  // Personal workspaces watch via /api/me/watch (public-repo verify + free-tier cap) — this fleet
+  // path would bypass both and de-tenant the lens.
+  const notFleet = await requireFleetOrg(body.org);
+  if (notFleet) return notFleet;
 
   const watched = Boolean(body.watched);
 

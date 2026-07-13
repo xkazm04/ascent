@@ -4,6 +4,8 @@ import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 import { getContributorInsights, type ContributorInsights } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { scoreHex, timeAgo } from "@/lib/ui";
+import { DecisionControl } from "@/components/org/DecisionControl";
+import { decisionMap, type DecisionMap } from "@/lib/org/decision-map";
 
 export const dynamic = "force-dynamic";
 
@@ -119,8 +121,17 @@ function IndividualInvolvement({
 }
 
 // Concentration / bus factor — how spread out each repo's commits are; high top-share or bus-factor 1
-// flags key-person risk.
-function ConcentrationTable({ rows }: { rows: ContributorInsights["concentration"] }) {
+// flags key-person risk. A key-person repo is a DECISION, not just a warning chip: accept the risk,
+// dismiss it with a reason, or snooze — and it leaves the org rail's Contributors badge either way.
+function ConcentrationTable({
+  slug,
+  rows,
+  decisions,
+}: {
+  slug: string;
+  rows: ContributorInsights["concentration"];
+  decisions: DecisionMap;
+}) {
   return (
     <div className="mt-8">
       <SectionHeader
@@ -142,6 +153,7 @@ function ConcentrationTable({ rows }: { rows: ContributorInsights["concentration
             <th className="px-3 py-2 text-left">Top contributor</th>
             <th className="px-3 py-2 text-left">Top share</th>
             <th className="px-3 py-2 text-right">Bus factor</th>
+            <th className="px-3 py-2 text-left">Decision</th>
           </tr>
         }
       >
@@ -162,6 +174,22 @@ function ConcentrationTable({ rows }: { rows: ContributorInsights["concentration
             </td>
             <td className="px-3 py-2 text-right font-mono tabular-nums" style={{ color: r.busFactor <= 1 ? "var(--color-warn)" : undefined }}>
               {r.busFactor}
+            </td>
+            <td className="px-3 py-2">
+              {/* Only solo-maintained repos are findings — the rest have nothing to decide. */}
+              {r.soloMaintainer ? (
+                <DecisionControl
+                  org={slug}
+                  module="contributors"
+                  itemKey={r.fullName}
+                  title={`${r.fullName} is solo-maintained`}
+                  status={decisions[r.fullName]?.status ?? "open"}
+                  rationale={decisions[r.fullName]?.rationale}
+                  decidedBy={decisions[r.fullName]?.decidedBy}
+                />
+              ) : (
+                <span className="text-slate-600">—</span>
+              )}
             </td>
           </tr>
         ))}
@@ -186,7 +214,10 @@ export default async function ContributorInsightsPage({
   const hasFilters = segments.length > 0 || techGroups.length > 0;
   const filterBar = hasFilters && <ScopeFilterBar {...barProps} />;
 
-  const insights = await getContributorInsights(slug, segmentId, techGroupId);
+  const [insights, decisions] = await Promise.all([
+    getContributorInsights(slug, segmentId, techGroupId),
+    decisionMap(slug, "contributors"),
+  ]);
   if (!insights || insights.totalContributors === 0) {
     return (
       <div>
@@ -223,7 +254,7 @@ export default async function ContributorInsightsPage({
 
         <IndividualInvolvement insights={insights} slug={slug} segmentId={segmentId} />
 
-        <ConcentrationTable rows={insights.concentration} />
+        <ConcentrationTable slug={slug} rows={insights.concentration} decisions={decisions} />
 
         <p className="mt-6 max-w-3xl rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-base text-slate-400">
           <span className="text-slate-300">How to read this:</span> these are inputs to explore, never directives. Someone active

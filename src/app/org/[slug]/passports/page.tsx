@@ -13,6 +13,7 @@ import { SegmentSelector } from "@/components/org/shared/SegmentSelector";
 import { PassportPortfolio } from "@/components/org/passports/PassportPortfolio";
 import type { PassportRow } from "@/components/org/passports/PassportTable";
 import { getOrgRollup } from "@/lib/db";
+import { decisionMap } from "@/lib/org/decision-map";
 import { passportStackChips } from "@/lib/org/passport-display";
 import { resolveOrgScope } from "@/lib/org/scope";
 
@@ -28,7 +29,10 @@ export default async function OrgPassports({
   const { slug } = await params;
   const sp = await searchParams;
   const { segments, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
-  const rollup = await getOrgRollup(slug, undefined, segmentId, techGroupId);
+  const [rollup, decisions] = await Promise.all([
+    getOrgRollup(slug, undefined, segmentId, techGroupId),
+    decisionMap(slug, "passports"),
+  ]);
 
   const withPassport = (rollup?.repos ?? []).filter((r) => r.passport);
   // The table row carries the passport's full actionable depth (blockers, self-verify, CI/tests/
@@ -81,7 +85,7 @@ export default async function OrgPassports({
           No passports yet for this view. Passports are produced by scans — scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
         </SectionEmpty>
       ) : (
-        <PassportPortfolio rows={rows} org={slug} />
+        <PassportPortfolio rows={rows} org={slug} decisions={decisions} />
       )}
     </div>
   );

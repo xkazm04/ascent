@@ -9,7 +9,7 @@ import { getInstallationIdForOwner, isByomActive, isDbConfigured, listWatchedRep
 // NOT the cron's DB `nextScanAt` lease — see claimRepoScan's rationale in org-watch.ts.
 import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { requireOrgAccess } from "@/lib/authz";
+import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -38,6 +38,10 @@ export async function POST(request: Request) {
   // a bulk scan that reads the org's (possibly private) watched repos and spends its token budget.
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
+  // A bulk scan PERSISTS under this org — for a personal workspace that would fork each public
+  // repo's shared series (the lens invariant). Personal rescans ride the public report flow.
+  const notFleet = await requireFleetOrg(org);
+  if (notFleet) return notFleet;
 
   let repos = await listWatchedRepos(org);
   // Optional scope so "Scan all watched" isn't the only mode — both avoid burning the org's token

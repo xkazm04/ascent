@@ -1,6 +1,7 @@
 // Builds the prompt sent to any LLM provider. Kept provider-agnostic so Gemini and
 // (Phase 2) Bedrock share identical instructions and output contract.
 
+import type { DecisionNote } from "@/lib/db/org-decisions";
 import type { LlmScoreInput } from "@/lib/llm/provider";
 import type { Governance, PrStats, SecurityAssessment } from "@/lib/types";
 import { formatSignal } from "@/lib/types";
@@ -79,6 +80,28 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + "\n…[truncated]" : s;
 }
 
+/** Bound the decisions block so a heavily-triaged repo can't crowd its own code out of the window. */
+const DECISION_RATIONALE_CHARS = 240;
+
+/**
+ * Standing decisions this org has already made about this repo, so the model stops re-raising gaps a
+ * human has explicitly judged and closed. This is the read side of the Shared Org Memory loop: a
+ * dismissed finding carries the REASON it was dismissed, and that reason is exactly the context a
+ * fresh scan lacks ("no CI because it's a docs-only mirror").
+ *
+ * Rendered into the per-repo USER message, never the SYSTEM prefix — SYSTEM is byte-identical across
+ * every scan so providers can cache it, and per-repo decisions would shatter that cache.
+ *
+ * Framed as calibration, not instruction: a dismissal is evidence about context, not a licence to
+ * inflate a score. Left to itself the model happily reads "the team dismissed this" as "this is fine".
+ */
+function decisionsBlock(decisions: DecisionNote[]): string {
+  const lines = decisions.map(
+    (d) => `- [${d.module} · ${d.status}] ${d.title}\n    reason: ${truncate(d.rationale.trim(), DECISION_RATIONALE_CHARS)}`,
+  );
+  return `\nSTANDING DECISIONS (this org already judged these findings on this repo — treat each as context you were missing, not as a reason to raise the score; do NOT re-raise a dismissed finding in the roadmap unless new evidence contradicts its stated reason):\n${lines.join("\n")}\n`;
+}
+
 // TASK + output contract — stable instructions with NO per-repo data. Lives in the SYSTEM prompt (not
 // the user message) so it forms part of the cacheable prefix every provider can reuse across scans. The
 // evidence it judges arrives separately in the user message, so it says "the provided evidence", not
@@ -130,7 +153,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
   system: string;
   user: string;
 } {
-  const { repo, signals, files, commitSample, archetype, prStats, governance, securityAssessment, stackFit, techStack } = input;
+  const { repo, signals, files, commitSample, archetype, prStats, governance, securityAssessment, stackFit, techStack, orgDecisions } = input;
 
   const signalBlock = signals
     .map((s) => {
@@ -171,7 +194,7 @@ REPOSITORY
 - Language: ${repo.primaryLanguage ?? "unknown"} | Stars: ${repo.stars} | Last push: ${repo.pushedAt ?? "?"}
 - Description: ${repo.description ?? "(none)"}
 - Inferred run-style: ${archetype} (solo/early, team/product, or org/platform) — judge maturity in this context.
-${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}${techStack ? `\nDETECTED TECH STACK (parsed from manifests — sanity-check the evidence against it; flag in discrepancies any stack-vs-evidence mismatch, e.g. a claimed backend with no tests/CI, or a frontend with no build pipeline):\n- Languages: ${techStack.languages.join(", ") || "unknown"}\n- Frameworks: ${techStack.frameworks.join(", ") || "none detected"}\n- Roles: ${techStack.roles.join(", ")}${techStack.backendLanguage ? ` (backend: ${techStack.backendLanguage})` : ""}\n` : ""}
+${orgDecisions && orgDecisions.length > 0 ? decisionsBlock(orgDecisions) : ""}${stackFit ? `\nSTACK-FIT CAVEAT (this repo's stack is one the published rubric under-reads — calibrate the affected dimensions accordingly; do NOT penalize for conventions this stack legitimately doesn't use, and let the roadmap/discrepancies reflect the stack):\n${stackFit.caveat}\n` : ""}${techStack ? `\nDETECTED TECH STACK (parsed from manifests — sanity-check the evidence against it; flag in discrepancies any stack-vs-evidence mismatch, e.g. a claimed backend with no tests/CI, or a frontend with no build pipeline):\n- Languages: ${techStack.languages.join(", ") || "unknown"}\n- Frameworks: ${techStack.frameworks.join(", ") || "none detected"}\n- Roles: ${techStack.roles.join(", ")}${techStack.backendLanguage ? ` (backend: ${techStack.backendLanguage})` : ""}\n` : ""}
 DETERMINISTIC SIGNALS (computed from the repo; treat as ground truth and calibrate to these):
 ${signalBlock}
 

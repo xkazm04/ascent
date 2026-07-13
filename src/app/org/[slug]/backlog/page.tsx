@@ -6,12 +6,18 @@
 
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { BacklogPanel } from "@/components/org/backlog/BacklogPanel";
-import { getOrgBacklog } from "@/lib/db";
+import { PersonalBacklog } from "@/components/org/PersonalBacklog";
+import { getOrgBacklog, isPersonalOrg } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrgBacklog({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+
+  // A PERSONAL workspace tracks the viewer's private overlay on shared public-corpus
+  // recommendations — the org backlog's Recommendation rows live on scans this org doesn't have.
+  if (await isPersonalOrg(slug)) return <PersonalBacklog slug={slug} />;
+
   const backlog = await getOrgBacklog(slug);
 
   if (!backlog || backlog.tracked === 0) {

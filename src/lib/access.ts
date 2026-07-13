@@ -15,7 +15,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 // the gate's public surface (authBypassEnabled/supabaseAuthConfigured/authGateEnabled) is unchanged for
 // existing importers.
 import { authBypassEnabled, authGateEnabled, supabaseAuthConfigured } from "@/lib/env";
-import { getSession } from "@/lib/auth";
 
 export { authBypassEnabled, authGateEnabled, supabaseAuthConfigured };
 
@@ -64,18 +63,6 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
 });
 
 /**
- * The active viewer's GitHub login, or null. This is the ACTIVE auth identity (the Supabase session or
- * the dev-bypass viewer) — distinct from the dormant custom-OAuth `getSession()`, which is null under
- * the Supabase wall. Used as the audit actor across the org write routes: an anonymous/unauthenticated
- * request records a null actor rather than crashing or attributing the write to the wrong identity.
- */
-export async function resolveViewerLogin(): Promise<string | null> {
-  // Prefer the active Supabase / dev-bypass viewer; fall back to the custom-OAuth session so a
-  // deployment running the (dormant-under-Supabase) custom OAuth still resolves its actor login.
-  return (await getViewer())?.login ?? (await getSession())?.login ?? null;
-}
-
-/**
  * API-route gate, the Supabase sibling of requireOrgAccess: returns a 401 NextResponse when the
  * login wall is enforced and there is no viewer, or null when the request may proceed. No-op (null)
  * when the gate is disabled (Supabase unconfigured / bypass on), so existing open behavior is kept.
@@ -84,4 +71,24 @@ export async function requireViewer(): Promise<NextResponse | null> {
   if (!authGateEnabled()) return null;
   if (await getViewer()) return null;
   return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
+}
+
+/**
+ * The login of whoever is making this request, across BOTH auth stacks: the custom-OAuth session wins,
+ * then the Supabase / dev-bypass viewer, else null (anonymous). The same precedence the org layout and
+ * the header already open-code (`session?.login ?? viewer?.login`), lifted here so the surfaces that
+ * key DATA on identity — today Shared Org Memory's `visibility='private'` filter, which must never
+ * show one author another's scratch — agree on who the caller is instead of each re-deriving it.
+ *
+ * Must be awaited in a route/render body, never inside a ReadableStream start(): the cookie-scoped
+ * reads it depends on return null there (see memory: getviewer-not-in-sse-start).
+ *
+ * `getSession` is imported lazily so this module keeps its (Edge-safe, supabase-only) import graph —
+ * `@/lib/auth` pulls the Node crypto/session stack that `proxy.ts` must not statically depend on.
+ */
+export async function resolveViewerLogin(): Promise<string | null> {
+  const { getSession } = await import("@/lib/auth");
+  const session = await getSession();
+  if (session?.login) return session.login;
+  return (await getViewer())?.login ?? null;
 }

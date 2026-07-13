@@ -194,6 +194,11 @@ async function runScan(
     }
   };
 
+  // Individual tier (decision 5): a signed-in viewer's public-funnel scan reads THEIR personal-org
+  // standing decisions into the prompt; org/private scans (orgSlug !== "public") keep org scoping.
+  // getViewer is request-cached, so this re-resolve after the gates above is free.
+  const decisionViewer = orgSlug === "public" ? await getViewer() : null;
+
   // Pass the head sha resolved for the cache key so the scored commit matches the key (no SHA
   // drift if a push lands mid-scan). Null/SHA-less lookups pass undefined → default behavior.
   const doScan = (signal?: AbortSignal) =>
@@ -203,6 +208,7 @@ async function runScan(
       mock: opts.mock,
       signal,
       headSha: lookup?.headSha ?? undefined,
+      decisionOrgSlug: decisionViewer ? decisionViewer.login.trim().toLowerCase() : undefined,
     });
   // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto one
   // run so two callers don't each pay a full ingest + LLM. The token (private) path is per-tenant and

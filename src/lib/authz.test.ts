@@ -335,7 +335,8 @@ describe("requireOrgRole under the Supabase login wall (cross-tenant takeover fi
     mockGetMembershipRole.mockResolvedValue(null);
     mockOrgHasOwner.mockResolvedValue(false);
     expect(await requireOrgRole("alice", "owner")).toBeNull();
-    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("alice", "alice", undefined);
+    // The personal-namespace claim also flavors the org row as an individual workspace.
+    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("alice", "alice", undefined, { kind: "personal" });
   });
 
   it("GitHub-confirmed org admin: claims an unowned ORG installation; a non-admin does not", async () => {
@@ -346,7 +347,8 @@ describe("requireOrgRole under the Supabase login wall (cross-tenant takeover fi
     mockIsOrgAdminViaInstallation.mockResolvedValue(true);
     expect(await requireOrgRole("acme", "owner")).toBeNull();
     expect(mockIsOrgAdminViaInstallation).toHaveBeenCalledWith(123, "acme", "alice");
-    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("acme", "alice", undefined);
+    // An install-verified ORG claim is a real organization — no personal flavoring.
+    expect(mockEnsureOwnerMembership).toHaveBeenCalledWith("acme", "alice", undefined, undefined);
 
     // A viewer GitHub says is NOT an admin gets no claim — fail closed.
     mockEnsureOwnerMembership.mockClear();

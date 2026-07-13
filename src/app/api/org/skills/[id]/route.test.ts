@@ -24,39 +24,45 @@ const {
   mockIsDbConfigured,
   mockGetOrgSkillOrgSlug,
   mockGetCreditState,
+  mockWorkspaceAllowsSkills,
   mockUpdateOrgSkill,
   mockArchiveOrgSkill,
   mockRecordOrgAudit,
-  mockRequireOrgAccess,
   mockRequireOrgRole,
-  mockGetSession,
+  mockAuthorizeOrgApi,
+  mockPrincipalLogin,
+  mockResolveViewerLogin,
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetOrgSkillOrgSlug: vi.fn(),
   mockGetCreditState: vi.fn(),
+  mockWorkspaceAllowsSkills: vi.fn(),
   mockUpdateOrgSkill: vi.fn(),
   mockArchiveOrgSkill: vi.fn(),
   mockRecordOrgAudit: vi.fn(),
-  mockRequireOrgAccess: vi.fn(),
   mockRequireOrgRole: vi.fn(),
-  mockGetSession: vi.fn(),
+  mockAuthorizeOrgApi: vi.fn(),
+  mockPrincipalLogin: vi.fn(),
+  mockResolveViewerLogin: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
   isDbConfigured: mockIsDbConfigured,
   getOrgSkillOrgSlug: mockGetOrgSkillOrgSlug,
   getCreditState: mockGetCreditState,
+  workspaceAllowsSkills: mockWorkspaceAllowsSkills,
   updateOrgSkill: mockUpdateOrgSkill,
   archiveOrgSkill: mockArchiveOrgSkill,
   recordOrgAudit: mockRecordOrgAudit,
   getOrgSkill: vi.fn(),
 }));
-vi.mock("@/lib/authz", () => ({
-  requireOrgAccess: mockRequireOrgAccess,
-  requireOrgRead: vi.fn(),
-  requireOrgRole: mockRequireOrgRole,
-}));
-vi.mock("@/lib/auth", () => ({ getSession: mockGetSession }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: mockRequireOrgRole }));
+vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
+// isDenied is a pure type guard ("denied" in r) — kept real; only the network/identity calls are mocked.
+vi.mock("@/lib/api-token-auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-token-auth")>();
+  return { ...actual, authorizeOrgApi: mockAuthorizeOrgApi, principalLogin: mockPrincipalLogin };
+});
 
 import { PATCH, DELETE } from "./route";
 
@@ -72,24 +78,26 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockIsDbConfigured.mockReturnValue(true);
   mockGetOrgSkillOrgSlug.mockResolvedValue("acme");
-  mockRequireOrgAccess.mockResolvedValue(null);
+  mockAuthorizeOrgApi.mockResolvedValue({ principal: { via: "session", login: "alice" } });
+  mockPrincipalLogin.mockResolvedValue("alice");
+  mockResolveViewerLogin.mockResolvedValue("alice");
   mockRequireOrgRole.mockResolvedValue(null);
   mockGetCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
+  mockWorkspaceAllowsSkills.mockResolvedValue(true);
   mockUpdateOrgSkill.mockResolvedValue(undefined);
   mockArchiveOrgSkill.mockResolvedValue(undefined);
   mockRecordOrgAudit.mockResolvedValue(undefined);
-  mockGetSession.mockResolvedValue({ login: "alice" });
 });
 
 describe("PATCH /api/org/skills/[id] — per-row gate + plan", () => {
   it("resolves the gate from the skill's TRUE owning org (member-level)", async () => {
     await PATCH(patchReq({ name: "x" }), ctx("s1"));
     expect(mockGetOrgSkillOrgSlug).toHaveBeenCalledWith("s1");
-    expect(mockRequireOrgAccess).toHaveBeenCalledWith("acme");
+    expect(mockAuthorizeOrgApi).toHaveBeenCalledWith(expect.anything(), "acme", { scope: "skills:write", mode: "write" });
   });
 
   it("denies a non-member verbatim, no write", async () => {
-    mockRequireOrgAccess.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
+    mockAuthorizeOrgApi.mockResolvedValue({ denied: Response.json({ error: "no" }, { status: 403 }) });
     const res = await PATCH(patchReq({ name: "evil" }), ctx("s1"));
     expect(res.status).toBe(403);
     expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
@@ -97,6 +105,7 @@ describe("PATCH /api/org/skills/[id] — per-row gate + plan", () => {
 
   it("403 on a non-Team plan, no write", async () => {
     mockGetCreditState.mockResolvedValue({ plan: "pro", balance: 0, unlimited: false });
+    mockWorkspaceAllowsSkills.mockResolvedValue(false);
     const res = await PATCH(patchReq({ name: "x" }), ctx("s1"));
     expect(res.status).toBe(403);
     expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
@@ -106,7 +115,7 @@ describe("PATCH /api/org/skills/[id] — per-row gate + plan", () => {
     mockGetOrgSkillOrgSlug.mockResolvedValue(null);
     const res = await PATCH(patchReq({ name: "x" }), ctx("ghost"));
     expect(res.status).toBe(404);
-    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockAuthorizeOrgApi).not.toHaveBeenCalled();
     expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
   });
 
@@ -122,7 +131,7 @@ describe("PATCH — body validation + forwarding", () => {
   it("rejects a bad category with 400 AFTER the gate, no write", async () => {
     const res = await PATCH(patchReq({ category: "bogus" }), ctx("s1"));
     expect(res.status).toBe(400);
-    expect(mockRequireOrgAccess).toHaveBeenCalledWith("acme");
+    expect(mockAuthorizeOrgApi).toHaveBeenCalledWith(expect.anything(), "acme", { scope: "skills:write", mode: "write" });
     expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
   });
 
@@ -166,7 +175,7 @@ describe("DELETE /api/org/skills/[id] — admin gate + soft archive", () => {
     const res = await DELETE(new Request("http://t", { method: "DELETE" }), ctx("s1"));
     expect(res.status).toBe(200);
     expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
-    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockAuthorizeOrgApi).not.toHaveBeenCalled();
     expect(mockArchiveOrgSkill).toHaveBeenCalledWith("s1");
   });
 
