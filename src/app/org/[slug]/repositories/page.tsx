@@ -6,9 +6,10 @@ import { SegmentsSection } from "@/components/org/repositories/SegmentsSection";
 import { RepoSegmentsPanel } from "@/components/org/repositories/RepoSegmentsPanel";
 import { RepoLeaderboard } from "@/components/org/repositories/RepoLeaderboard";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
-import { getOrgRollup, getRepoSegmentMap, listSegments } from "@/lib/db";
+import { getOrgRollup, getRepoSegmentMap, isPersonalOrg, listSegments } from "@/lib/db";
 import { resolveStackScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,11 @@ export default async function OrgRepositories({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
+
+  // A PERSONAL workspace's repo list IS its overview (the watchlist lens) — this fleet leaderboard
+  // would table scan-less pointer rows and offer watch/schedule/segment controls the fleet APIs
+  // refuse for personal orgs (requireFleetOrg).
+  if (await isPersonalOrg(slug)) redirect(`/org/${slug}`);
 
   // Consolidated Fleet page: the Segments view is now the "?tab=segments" tab of this route (the old
   // standalone /segments route redirects here, and the left-rail "Segments" item is gone). Branch

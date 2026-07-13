@@ -11,6 +11,10 @@ import { CopyForLlm } from "@/components/CopyForLlm";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { SecurityBandSpectrum } from "@/components/org/security/SecurityBandSpectrum";
 import { SecurityRiskRegister } from "@/components/org/security/SecurityRiskRegister";
+import { SecurityFindings } from "@/components/org/SecurityFindings";
+import { PersonalSecurity } from "@/components/org/PersonalSecurity";
+import { isPersonalOrg } from "@/lib/db";
+import { decisionMap } from "@/lib/org/decision-map";
 import { resolveStackScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
@@ -26,12 +30,18 @@ export default async function OrgSecurity({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
+
+  // A PERSONAL workspace gets the lens edition: watched repos' D9 from the public corpus, with the
+  // same decidable-findings list writing decisions to the viewer's own org (see PersonalSecurity).
+  if (await isPersonalOrg(slug)) return <PersonalSecurity slug={slug} />;
+
   const period = await resolveOrgWindow(sp);
   // Optional tech-stack scope (Feature 3b): "Frontend security vs Backend" — scope the whole overview.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const [sec, supply] = await Promise.all([
+  const [sec, supply, decisions] = await Promise.all([
     buildSecurityOverview(slug, { start: period.start, end: period.end }, period.title, techGroupId),
     getOrgSupplyChain(slug, techGroupId),
+    decisionMap(slug, "security"),
   ]);
 
   if (!sec) {
@@ -123,6 +133,8 @@ export default async function OrgSecurity({
           rows={sec.register}
           advisories={supplyOn ? supply!.repos.map((r) => ({ fullName: r.fullName, critical: r.critical, high: r.high, total: r.total })) : null}
         />
+        {/* The grid says which controls fail; this is where you decide what to do about each one. */}
+        <SecurityFindings org={slug} rows={sec.register} decisions={decisions} />
       </Card>
     </div>
   );

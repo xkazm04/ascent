@@ -30,7 +30,12 @@ vi.mock("@/lib/github/app", () => ({
   getInstallationToken: vi.fn(async () => "tok"),
   isAppConfigured: () => true,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({
+  requireOrgAccess: vi.fn(async () => null),
+  // Default: the target org IS a fleet org (not personal), so this suite's bulk-scan scenarios pass the
+  // gate unimpeded. requireFleetOrg's own deny logic is exercised where the personal-workspace tests live.
+  requireFleetOrg: vi.fn(async () => null),
+}));
 vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 })),
   paymentRequired: vi.fn(),

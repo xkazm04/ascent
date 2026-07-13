@@ -4,7 +4,8 @@ import { DIMS, OrgEmpty } from "@/components/org/shared/ui";
 import { RepoCategoryRollup } from "@/components/org/overview/RepoCategoryRollup";
 import { RepoDimensionHeatmap } from "@/components/org/overview/RepoDimensionHeatmap";
 import { buildTrajectories } from "@/components/org/overview/repoTrajectory";
-import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
+import { getOrgHeaderSummary, getOrgRepoHistories, getOrgRollup } from "@/lib/db";
+import { PersonalOverview } from "@/components/org/PersonalOverview";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
@@ -42,6 +43,13 @@ export default async function OrgOverview({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
+
+  // A PERSONAL workspace renders the individual overview — the watchlist lens over the shared public
+  // corpus — instead of the fleet rollup (whose reads would find nothing: a personal org holds pointer
+  // rows, never scans). One cheap read; the layout already ran the same query for the shell.
+  const headerSummary = await getOrgHeaderSummary(slug);
+  if (headerSummary?.kind === "personal") return <PersonalOverview slug={slug} />;
+
   // An explicit ?range= wins (shareable links stay authoritative); otherwise the remembered period
   // cookie, then the default. Shared with every org tab via resolveOrgWindow so the range carries across.
   const period = await resolveOrgWindow(sp);

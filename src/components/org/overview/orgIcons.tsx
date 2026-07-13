@@ -81,6 +81,70 @@ export function StackRoleIcon({ role, size = 16, className }: { role: StackRole 
   );
 }
 
+// Section glyphs for the org rail's first level — one per module group (OrgNav). Sized 18 there, so
+// they read at a glance beside a 10px mono label.
+
+export function OverviewIcon({ size = 18, className }: IconProps) {
+  // Gauge — the fleet's headline read.
+  return (
+    <Svg size={size} className={className}>
+      <path d="M3.4 18a9 9 0 1 1 17.2 0" />
+      <path d="M12 14l3.6-3.6" />
+    </Svg>
+  );
+}
+
+export function FleetIcon({ size = 18, className }: IconProps) {
+  // Layers — repositories as strata.
+  return (
+    <Svg size={size} className={className}>
+      <path d="M12 3 3 7.5 12 12l9-4.5L12 3Z" />
+      <path d="m3 13.5 9 4.5 9-4.5" />
+    </Svg>
+  );
+}
+
+export function IntelligenceIcon({ size = 18, className }: IconProps) {
+  // Trending line — the analysis lenses.
+  return (
+    <Svg size={size} className={className}>
+      <path d="M3 16.5 9 10l4 3.5 7-8" />
+      <path d="M15.5 5.5H20V10" />
+    </Svg>
+  );
+}
+
+export function PlanIcon({ size = 18, className }: IconProps) {
+  // Clipboard list — practices, plan, backlog.
+  return (
+    <Svg size={size} className={className}>
+      <path d="M9 4H7.5A1.5 1.5 0 0 0 6 5.5v14A1.5 1.5 0 0 0 7.5 21h9a1.5 1.5 0 0 0 1.5-1.5v-14A1.5 1.5 0 0 0 16.5 4H15" />
+      <rect x="9" y="2.5" width="6" height="3" rx="1" />
+      <path d="M9.5 11h5" />
+      <path d="M9.5 15h3.5" />
+    </Svg>
+  );
+}
+
+export function LibraryIcon({ size = 18, className }: IconProps) {
+  // Book — the skills library.
+  return (
+    <Svg size={size} className={className}>
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" />
+    </Svg>
+  );
+}
+
+export function GovernIcon({ size = 18, className }: IconProps) {
+  // Shield check — access, policy, audit.
+  return (
+    <Svg size={size} className={className}>
+      <path d="M12 3 5 6v5.5c0 4.2 2.9 7.9 7 8.7 4.1-.8 7-4.5 7-8.7V6l-7-3Z" />
+      <path d="m9.2 11.8 2 2 3.6-3.6" />
+    </Svg>
+  );
+}
+
 export function FilterIcon({ size = 14, className }: IconProps) {
   return (
     <Svg size={size} className={className}>

@@ -163,6 +163,10 @@ export async function POST(request: Request) {
             token,
             noAmbientToken,
             mock,
+            // Individual tier (decision 5): a signed-in viewer's public-funnel scan reads THEIR
+            // personal-org standing decisions into the prompt (viewer was resolved in request scope
+            // above — cookies aren't readable in start()). Org-persisted scans keep org scoping.
+            decisionOrgSlug: orgSlug === "public" && viewer ? viewer.login.trim().toLowerCase() : undefined,
             onProgress: (p) => send("progress", p),
             // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan
             // can't key the report under a different commit than it actually scored.

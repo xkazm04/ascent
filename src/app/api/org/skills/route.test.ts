@@ -23,17 +23,19 @@ const {
   mockListOrgSkills,
   mockCreateOrgSkill,
   mockGetCreditState,
-  mockRequireOrgAccess,
-  mockRequireOrgRead,
-  mockGetSession,
+  mockWorkspaceAllowsSkills,
+  mockPersonalSkillCapReached,
+  mockAuthorizeOrgApi,
+  mockPrincipalLogin,
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockListOrgSkills: vi.fn(),
   mockCreateOrgSkill: vi.fn(),
   mockGetCreditState: vi.fn(),
-  mockRequireOrgAccess: vi.fn(),
-  mockRequireOrgRead: vi.fn(),
-  mockGetSession: vi.fn(),
+  mockWorkspaceAllowsSkills: vi.fn(),
+  mockPersonalSkillCapReached: vi.fn(),
+  mockAuthorizeOrgApi: vi.fn(),
+  mockPrincipalLogin: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -41,12 +43,15 @@ vi.mock("@/lib/db", () => ({
   listOrgSkills: mockListOrgSkills,
   createOrgSkill: mockCreateOrgSkill,
   getCreditState: mockGetCreditState,
+  workspaceAllowsSkills: mockWorkspaceAllowsSkills,
+  personalSkillCapReached: mockPersonalSkillCapReached,
+  PERSONAL_SKILL_LIMIT: 5,
 }));
-vi.mock("@/lib/authz", () => ({
-  requireOrgAccess: mockRequireOrgAccess,
-  requireOrgRead: mockRequireOrgRead,
-}));
-vi.mock("@/lib/auth", () => ({ getSession: mockGetSession }));
+// isDenied is a pure type guard ("denied" in r) — kept real; only the network/identity calls are mocked.
+vi.mock("@/lib/api-token-auth", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-token-auth")>();
+  return { ...actual, authorizeOrgApi: mockAuthorizeOrgApi, principalLogin: mockPrincipalLogin };
+});
 
 import { GET, POST } from "./route";
 
@@ -61,12 +66,13 @@ const valid = { org: "acme", name: "PR review", category: "workflow", content: "
 beforeEach(() => {
   vi.clearAllMocks();
   mockIsDbConfigured.mockReturnValue(true);
-  mockRequireOrgAccess.mockResolvedValue(null);
-  mockRequireOrgRead.mockResolvedValue(null);
+  mockAuthorizeOrgApi.mockResolvedValue({ principal: { via: "session", login: "alice" } });
+  mockPrincipalLogin.mockResolvedValue("alice");
   mockGetCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
+  mockWorkspaceAllowsSkills.mockResolvedValue(true);
+  mockPersonalSkillCapReached.mockResolvedValue(false);
   mockCreateOrgSkill.mockResolvedValue({ id: "skill_1" });
   mockListOrgSkills.mockResolvedValue([]);
-  mockGetSession.mockResolvedValue({ login: "alice" });
 });
 
 describe("POST /api/org/skills — auth chain + order", () => {
@@ -74,17 +80,17 @@ describe("POST /api/org/skills — auth chain + order", () => {
     mockIsDbConfigured.mockReturnValue(false);
     const res = await POST(postReq(valid));
     expect(res.status).toBe(503);
-    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockAuthorizeOrgApi).not.toHaveBeenCalled();
   });
 
   it("400 on missing required fields", async () => {
     const res = await POST(postReq({ org: "acme", name: "x" }));
     expect(res.status).toBe(400);
-    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockAuthorizeOrgApi).not.toHaveBeenCalled();
   });
 
   it("denies a non-member verbatim and never writes", async () => {
-    mockRequireOrgAccess.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
+    mockAuthorizeOrgApi.mockResolvedValue({ denied: Response.json({ error: "no" }, { status: 403 }) });
     const res = await POST(postReq(valid));
     expect(res.status).toBe(403);
     expect(mockGetCreditState).not.toHaveBeenCalled();
@@ -93,6 +99,7 @@ describe("POST /api/org/skills — auth chain + order", () => {
 
   it("403 on a non-Team plan (gate passed) and never writes", async () => {
     mockGetCreditState.mockResolvedValue({ plan: "free", balance: 0, unlimited: false });
+    mockWorkspaceAllowsSkills.mockResolvedValue(false);
     const res = await POST(postReq(valid));
     expect(res.status).toBe(403);
     expect(mockCreateOrgSkill).not.toHaveBeenCalled();
@@ -101,7 +108,7 @@ describe("POST /api/org/skills — auth chain + order", () => {
   it("400 on an invalid category (after member + plan pass), no write", async () => {
     const res = await POST(postReq({ ...valid, category: "bogus" }));
     expect(res.status).toBe(400);
-    expect(mockRequireOrgAccess).toHaveBeenCalledWith("acme");
+    expect(mockAuthorizeOrgApi).toHaveBeenCalledWith(expect.anything(), "acme", { scope: "skills:write", mode: "write" });
     expect(mockCreateOrgSkill).not.toHaveBeenCalled();
   });
 
@@ -138,7 +145,7 @@ describe("GET /api/org/skills — read gate", () => {
   });
 
   it("denies an unauthorized reader verbatim", async () => {
-    mockRequireOrgRead.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
+    mockAuthorizeOrgApi.mockResolvedValue({ denied: Response.json({ error: "no" }, { status: 403 }) });
     const res = await GET(new Request("http://t/api/org/skills?org=acme"));
     expect(res.status).toBe(403);
     expect(mockListOrgSkills).not.toHaveBeenCalled();

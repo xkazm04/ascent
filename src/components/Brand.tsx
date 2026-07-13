@@ -168,6 +168,16 @@ export function SiteHeader() {
  * straight into page content and never repeats these controls. Actions are passed in by the layout
  * (which owns their data); the account cluster is shared with SiteHeader via HeaderAccount.
  */
+/**
+ * The org dashboard's horizontal shell — the sticky header bar and the page's <main> share it so the
+ * logo/actions stay aligned with the content beneath them. Deliberately wider than the marketing
+ * shell's max-w-7xl: the dashboard is a data surface, and that cap stranded most of a wide display in
+ * dead side margin while the two-level rail took its 240px out of the module content. 120rem still
+ * holds table rows and prose to a readable measure. The cap only binds above 1920px, so laptops and
+ * ordinary desktops simply fill the viewport.
+ */
+export const ORG_SHELL = "mx-auto w-full max-w-[120rem] px-5";
+
 export function OrgHeader({
   slug,
   levelId,
@@ -185,7 +195,7 @@ export function OrgHeader({
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-divider/70 bg-ink/80 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3">
+      <div className={`${ORG_SHELL} flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3`}>
         <div className="flex min-w-0 items-center gap-3">
           <Link href="/" className="focus-ring shrink-0 rounded-sm" title="Ascent home">
             <Logo />

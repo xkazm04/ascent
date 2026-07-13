@@ -7,6 +7,7 @@ import { TeamsUnowned } from "@/components/org/teams/TeamsUnowned";
 import { teamAnchorId } from "@/components/org/teams/teamsShared";
 import { getOrgTeamRollup, getTeamStandingsProvenance } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
+import { decisionMap } from "@/lib/org/decision-map";
 import { explainTeamStandings } from "@/lib/org/teamStandings";
 import { scoreHex } from "@/lib/ui";
 
@@ -25,7 +26,10 @@ export default async function TeamsPage({
   // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
   const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
 
-  const rollup = await getOrgTeamRollup(slug, segmentId, techGroupId);
+  const [rollup, decisions] = await Promise.all([
+    getOrgTeamRollup(slug, segmentId, techGroupId),
+    decisionMap(slug, "teams"),
+  ]);
 
   const hasFilters = barProps.segments.length > 0 || barProps.techGroups.length > 0;
   const filterBar = hasFilters && <ScopeFilterBar {...barProps} />;
@@ -40,7 +44,7 @@ export default async function TeamsPage({
             : "No team attribution yet. Teams are parsed from each repo's CODEOWNERS file at scan time — add a CODEOWNERS that assigns paths to @org/team owners, then re-scan and this view fills in."}
         </SectionEmpty>
         {/* The fix-it list: exactly which scanned repos need a CODEOWNERS owner, with the snippet. */}
-        {rollup && <TeamsUnowned slug={slug} unowned={rollup.unowned} />}
+        {rollup && <TeamsUnowned slug={slug} unowned={rollup.unowned} decisions={decisions} />}
       </div>
     );
   }
@@ -101,7 +105,7 @@ export default async function TeamsPage({
       {/* Headline signals: knowledge leader + top pairing opportunities, linked into the matrix. */}
       <TeamsSignals slug={slug} leader={rollup.knowledgeLeader} pairings={rollup.pairings} />
 
-      <TeamsUnowned slug={slug} unowned={rollup.unowned} />
+      <TeamsUnowned slug={slug} unowned={rollup.unowned} decisions={decisions} />
 
       <p className="mt-6 max-w-3xl font-mono text-sm text-slate-600">
         Attribution parses CODEOWNERS at scan time; a repo counts toward every team that owns part of it, so numbers reflect

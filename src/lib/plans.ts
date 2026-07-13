@@ -163,6 +163,14 @@ export function planAllowsSkillsLibrary(plan: string | null | undefined): boolea
   return id === "team" || id === "enterprise";
 }
 
+/** Plans that may WRITE to the Shared Org Memory (Memory-as-a-Service MVP) — Team and up, for parity
+ *  with the Skills Library: the durable org knowledge store is a team asset, so authoring is the gated
+ *  capability while reads stay open to every member (a memory nobody can read is worthless). */
+export function planAllowsMemory(plan: string | null | undefined): boolean {
+  const id = plan && isPlanId(plan) ? plan : "free";
+  return id === "team" || id === "enterprise";
+}
+
 /** Plans that may connect their own LLM (BYOM / Bedrock — Feature 1) — Enterprise-only (§8.4): it's the
  *  marquee enterprise unlock (inference in the org's own AWS account/bill). A downgrade dormants any
  *  saved config (the provider resolver + settings route both gate on this). */

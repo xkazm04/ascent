@@ -165,7 +165,11 @@ export async function listDueRescans(limit = 100): Promise<DueRescan[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
   const due = await prisma.repository.findMany({
-    where: { watched: true, scanSchedule: { not: "off" }, nextScanAt: { lte: new Date() } },
+    // Personal workspaces are excluded defensively: an autoscan would persist the scan UNDER the
+    // personal org, forking the public repo's shared series (the individual-tier lens invariant).
+    // The schedule APIs already refuse personal orgs (requireFleetOrg); this keeps a row that
+    // slipped a schedule in anyway (legacy data, direct write) from ever burning cron budget on it.
+    where: { watched: true, scanSchedule: { not: "off" }, nextScanAt: { lte: new Date() }, org: { kind: { not: "personal" } } },
     select: { id: true, fullName: true, scanSchedule: true, org: { select: { slug: true } } },
     orderBy: { nextScanAt: "asc" },
     take: limit * 4, // wider candidate pool to interleave; capped back to `limit` below

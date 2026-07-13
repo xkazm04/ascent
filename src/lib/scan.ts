@@ -34,7 +34,7 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 import { extractTeamOwnership } from "@/lib/github/codeowners";
 import type { Governance, PrStats, ScanReport, SecurityExposure, SecurityPosture, TokenUsage } from "@/lib/types";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
-import { getInstallationIdForOwner } from "@/lib/db";
+import { decisionsForRepo, getInstallationIdForOwner } from "@/lib/db";
 import { canMintInstallationToken } from "@/lib/authz";
 
 /** Backoff before a single LLM retry — fixed (no jitter) to keep the scan path deterministic-friendly. */
@@ -68,6 +68,16 @@ export interface ScanOptions {
    * to mock, §8.2). Omitted / "public" uses the env-driven platform provider, unchanged.
    */
   orgSlug?: string;
+  /**
+   * Where to read STANDING DECISIONS from (individual tier, decision 5). Defaults to `orgSlug`
+   * (org scans keep reading their own org). The public funnel sets this to the signed-in viewer's
+   * PERSONAL org so their accepted/dismissed findings calibrate THEIR rescans — decisions are read
+   * per-viewer, never from other individuals' workspaces. Note the resulting report is still the
+   * SHARED public-corpus scan (persisted under "public", commit-deduped, possibly served to
+   * coalesced concurrent callers): a decision is calibration context the prompt explicitly frames
+   * as "not a reason to raise the score", not a private re-scoring.
+   */
+  decisionOrgSlug?: string;
   /**
    * When true, do NOT fall back to the ambient `process.env.GITHUB_TOKEN` if no explicit `token`
    * is given. Public, unauthenticated surfaces (the README badge) set this so a private repo can't
@@ -257,12 +267,24 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // TECH_STACK_PROMPT flag is on (Option B) — default off keeps scans byte-identical.
   const techStack = extractTechStack(snapshot);
 
+  // Standing decisions already made about this repo (accepted/dismissed/snoozed findings and WHY).
+  // Best-effort: a decision store that's unreachable must never fail a scan, and an unscoped
+  // ("public") scan simply has none. This closes the Shared Org Memory loop — the human's reason for
+  // dismissing a finding becomes context the next assessment reads instead of re-raising the gap.
+  // decisionOrgSlug (individual tier) points the read at the TRIGGERING viewer's personal org on the
+  // public funnel; org scans keep reading their own org via the orgSlug fallback.
+  const decisionSlug = opts.decisionOrgSlug ?? opts.orgSlug;
+  const orgDecisions = decisionSlug
+    ? await decisionsForRepo(decisionSlug, `${snapshot.meta.owner}/${snapshot.meta.name}`).catch(() => [])
+    : [];
+
   const scoreInput: LlmScoreInput = {
     repo: snapshot.meta,
     signals,
     files: snapshot.files,
     commitSample: snapshot.commits.map((c) => c.message).slice(0, 15),
     archetype,
+    ...(orgDecisions.length > 0 ? { orgDecisions } : {}),
     // Already fetched above and folded into the deterministic D3/D6/D7/D8 scores — also hand them to
     // the LLM auditor so it reasons about review/governance with the real evidence (MAT-1).
     prStats,

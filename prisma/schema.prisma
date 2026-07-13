@@ -32,6 +32,12 @@ model Organization {
   slug               String   @unique
   name               String
   plan               String   @default("free") // free | pro | team | enterprise
+  // Tenant flavor: "org" (a GitHub organization fleet) or "personal" (an individual's workspace,
+  // slug = their GitHub login). A personal org holds watch-pointer Repository rows only — a public
+  // repo's scan series stays in the shared "public" org (the personal dashboard is a lens over that
+  // corpus, never a second copy). Stamped by the identity-bound personal-namespace claim in
+  // src/lib/authz.ts; drives the personal nav subset and (later) personal-tier limits.
+  kind               String   @default("org") // org | personal
   // Prepaid private-scan credit balance. Public scans are free + unmetered; each private (installation)
   // scan that runs real LLM inference debits one credit (see src/lib/db/credits.ts + src/lib/entitlement.ts).
   // `enterprise` plan is treated as unlimited (no debit). Credits are granted out-of-band (a Polar
@@ -75,8 +81,47 @@ model Organization {
   invites      Invite[]
   orgSkills    OrgSkill[]
   orgApiTokens OrgApiToken[]
+  orgMemories  OrgMemory[]
+  orgDecisions OrgDecision[]
+  recOverlays  RecommendationOverlay[]
   techGroups   TechStackGroup[]
   llmConfig    OrgLlmConfig?
+}
+
+// A human decision on a DERIVED finding — the state layer that turns a read-only signal (a failing
+// security check, a repo with no CODEOWNERS, a passport blocker, a solo-maintained repo) into an
+// actionable item that can be closed. Those findings are recomputed from scan data on every render and
+// own no row of their own, so before this model there was nowhere to record "we looked at this and
+// decided". A rail badge is a promise that the number goes down when you act; this is what lets it.
+//
+// `itemKey` is the finding's DETERMINISTIC identity within its module (see src/lib/org/findings.ts) —
+// e.g. "acme/api::branch-protection". It must be recomputed to the same string on the next scan, or the
+// decision orphans and the finding silently reappears. Hence keys are built from stable ids (repo
+// fullName, check id) and only fall back to hashing free text when nothing stable exists.
+//
+// A decision is an UPSERT on (orgId, module, itemKey) — re-deciding an item edits its row rather than
+// appending, and `status: "open"` means "reopened", not "never touched" (an undecided finding has NO
+// row at all, which is what keeps this table sparse). `memoryId` points at the OrgMemory row written
+// through on each decision, so the rationale reaches connected agents and the scan prompt.
+model OrgDecision {
+  id        String   @id @default(uuid())
+  orgId     String
+  module    String // security | teams | passports | contributors
+  itemKey   String // deterministic identity of the finding within (orgId, module)
+  status    String   @default("open") // open | accepted | dismissed | snoozed
+  rationale String   @default("") // why — the payload agents actually learn from
+  title     String   @default("") // the finding's human title at decision time (survives its disappearance)
+  decidedBy String? // GitHub login
+  memoryId  String? // the OrgMemory row this decision wrote through to
+  snoozedUntil DateTime? // set when status = snoozed; the item re-enters the badge after this
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, module, itemKey])
+  @@index([orgId, status])
+  @@index([orgId, module])
 }
 
 // Append-only ledger of scan-credit movements — the trustworthy record behind Organization.scanCredits.
@@ -414,6 +459,32 @@ model RecommendationEvent {
   @@index([createdAt])
 }
 
+// A PERSONAL-workspace overlay on a shared public-corpus recommendation (individual tier, decision 3).
+// Public-repo recommendations live on scans in the shared "public" org, where their status/assignee
+// columns are a SHARED surface — an individual tracking someone else's repo must not mutate them.
+// This row is one viewer's private standing on one recommendation, keyed by the personal org plus the
+// recommendation's STABLE identity (repoFullName + dimId + title — the same match key
+// matchRecommendations uses to carry status across re-scans), NOT the scan-bound Recommendation.id,
+// so an overlay survives every re-scan without pointing at a dead row. Sparse: no row = untouched
+// ("open"). Upsert on the unique; reads join at render time (see src/lib/db/personal-backlog.ts).
+model RecommendationOverlay {
+  id           String    @id @default(uuid())
+  orgId        String // the PERSONAL org (the viewer's workspace) — the tenant scope
+  repoFullName String // "owner/name" in the shared public corpus
+  dimId        String
+  title        String
+  status       String    @default("open") // RecStatus: open | in_progress | done | dismissed
+  targetDate   DateTime? // personal due date (null = open-ended)
+  note         String    @default("") // private context; feeds the Phase-3 decisions/memory loop
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, repoFullName, dimId, title])
+  @@index([orgId, repoFullName])
+}
+
 model AuditLog {
   id      String   @id @default(uuid())
   orgId   String?
@@ -683,6 +754,46 @@ model OrgApiToken {
 
   @@unique([tokenHash])
   @@index([orgId])
+}
+
+// Shared Org Memory (Memory-as-a-Service MVP) — the org's durable, agent-readable knowledge store:
+// decisions, findings, procedures and summaries that would otherwise evaporate per session. A faithful
+// subset of docs/memory-as-a-service-design.md §3, scoped to what the existing stack proves cheaply:
+// the ORG is the tenant (orgId leads every query, exactly as `project_id` leads the doc's PK), and
+// `namespace` is the in-org grouping tag that stands in for the doc's first-class Project until vectors
+// + project-scoped API keys earn their keep (§10 build order: prove isolation before embeddings).
+//
+// The anti-memory-poisoning triad from §3 is present from day one, because shared memory AMPLIFIES bad
+// writes: `source`+`createdBy` (provenance — who wrote this), `confidence` (trust score to rank and
+// prune on), and `supersededBy` (a correction writes a NEW row and points the old one at it, so history
+// and auditability survive instead of leaving a wrong memory beside its fix). Reads drop
+// `supersededBy != null` (§7.4) and expired rows (§8 TTL). `visibility='private'` is the doc's
+// agent-private scratch, filtered to its author. `tags` is TEXT JSON (no jsonb — the DSQL-safety
+// contract this schema keeps). See src/lib/db/org-memory.ts + src/lib/memory/consolidation.ts.
+model OrgMemory {
+  id           String    @id @default(uuid())
+  orgId        String
+  namespace    String? // optional in-org grouping tag (the doc's "project" stand-in); null = org-wide
+  content      String // the memory body (the searchable payload); <= 20KB
+  kind         String    @default("semantic") // episodic | semantic | procedural | summary
+  visibility   String    @default("shared") // shared (whole org) | private (author-only)
+  source       String? // provenance: the agent/tool/human that produced it
+  confidence   Float     @default(1.0) // 0..1 trust score — ranking + pruning
+  tags         String    @default("[]") // JSON string[] — secondary, open-ended refinement
+  supersededBy String? // id of the memory that replaced this one (versioning); null = current
+  version      Int       @default(1)
+  archived     Boolean   @default(false) // soft archive, never a hard delete
+  accessCount  Int       @default(0) // denormalized recall/copy tally
+  expiresAt    DateTime? // TTL for ephemeral/scratch memory; null = permanent
+  createdBy    String? // GitHub login of the author
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, archived])
+  @@index([orgId, namespace])
+  @@index([orgId, kind])
 }
 
 // Auto-derived tech-stack group (Feature 3b) — a parallel, immutable grouping of an org's repos by

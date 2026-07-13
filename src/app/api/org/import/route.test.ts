@@ -52,6 +52,9 @@ vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
   // Default: the caller may NOT mint this org's installation token. authz.test.ts pins the gate itself.
   canMintInstallationToken: vi.fn(async () => false),
+  // Default: the target org IS a fleet org (not personal), so this suite's fleet-import scenarios pass
+  // the gate unimpeded. requireFleetOrg's own deny logic is exercised where the personal-workspace tests live.
+  requireFleetOrg: vi.fn(async () => null),
 }));
 vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: true, balance: 0 })),

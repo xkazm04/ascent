@@ -284,6 +284,22 @@ export {
   type VerifiedApiToken,
 } from "@/lib/db/org-api-tokens";
 export {
+  listOrgMemories,
+  listOrgMemoryNamespaces,
+  getOrgMemory,
+  getOrgMemoryOrgSlug,
+  createOrgMemory,
+  updateOrgMemory,
+  archiveOrgMemory,
+  candidateOrgMemories,
+  recordMemoryRecall,
+  SupersedeTargetNotFoundError,
+  type MemoryRow,
+  type MemoryInput,
+  type MemorySort,
+  type MemoryListOpts,
+} from "@/lib/db/org-memory";
+export {
   syncTechStackGroups,
   listTechStackGroups,
   getTechGroupIdByKey,
@@ -324,3 +340,43 @@ export {
   type OpsPrItem,
   type OpsAcceptResult,
 } from "@/lib/db/improvement";
+
+export { getOrgNavCounts, type OrgNavCounts } from "@/lib/db/org-nav-counts";
+export {
+  decide,
+  listDecisions,
+  resolvedKeys,
+  isDecisionStatus,
+  isResolved,
+  DECISION_STATUSES,
+  type DecisionStatus,
+  type DecisionRow,
+  type DecideInput,
+} from "@/lib/db/org-decisions";
+export { decisionsForRepo, type DecisionNote } from "@/lib/db/org-decisions";
+export {
+  getPersonalWatchlist,
+  countPersonalWatched,
+  isPersonalOrg,
+  workspaceAllowsMemory,
+  workspaceAllowsSkills,
+  personalMemoryCapReached,
+  personalSkillCapReached,
+  getPersonalUsage,
+  type PersonalUsage,
+  type PersonalMeter,
+  PERSONAL_WATCH_LIMIT,
+  PERSONAL_MEMORY_LIMIT,
+  PERSONAL_SKILL_LIMIT,
+  type PersonalRepo,
+  type PersonalScanPoint,
+} from "@/lib/db/personal";
+export { getPersonalSecurityRows, type PersonalSecurityRow } from "@/lib/db/personal-security";
+export {
+  getPersonalBacklog,
+  setPersonalOverlay,
+  OverlayRepoNotWatchedError,
+  type PersonalBacklog,
+  type PersonalBacklogRepo,
+  type PersonalBacklogItem,
+} from "@/lib/db/personal-backlog";

@@ -4,9 +4,17 @@
 // member-gated AND requires a Team+ plan (authoring is the gated capability; reads stay open — §8.6).
 
 import { NextResponse } from "next/server";
-import { createOrgSkill, getCreditState, isDbConfigured, listOrgSkills, type SkillSort } from "@/lib/db";
+import {
+  createOrgSkill,
+  getCreditState,
+  isDbConfigured,
+  listOrgSkills,
+  personalSkillCapReached,
+  workspaceAllowsSkills,
+  PERSONAL_SKILL_LIMIT,
+  type SkillSort,
+} from "@/lib/db";
 import { authorizeOrgApi, isDenied, principalLogin } from "@/lib/api-token-auth";
-import { planAllowsSkillsLibrary } from "@/lib/plans";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 
 export const runtime = "nodejs";
@@ -45,11 +53,18 @@ export async function POST(request: Request) {
   }
   const auth = await authorizeOrgApi(request, body.org, { scope: "skills:write", mode: "write" });
   if (isDenied(auth)) return auth.denied;
-  // Entitlement: authoring the library is a Team-and-up feature (reads stay open to all members). This
+  // Entitlement: authoring an ORG's library is a Team-and-up feature (reads stay open to all members);
+  // a PERSONAL workspace authors free-with-limits (individual tier, decision 4) — capped below. This
   // still applies to a `skills:write` token — the token supplies identity, not an entitlement bypass.
   const credit = await getCreditState(body.org).catch(() => null);
-  if (!planAllowsSkillsLibrary(credit?.plan)) {
+  if (!(await workspaceAllowsSkills(body.org, credit?.plan))) {
     return NextResponse.json({ error: "The Skills Library is a Team-plan feature." }, { status: 403 });
+  }
+  if (await personalSkillCapReached(body.org, credit?.plan)) {
+    return NextResponse.json(
+      { error: `Personal skills are capped at ${PERSONAL_SKILL_LIMIT}. Archive one to author another.` },
+      { status: 402 },
+    );
   }
   if (!isSkillCategory(body.category)) {
     return NextResponse.json({ error: `category must be one of: ${SKILL_CATEGORIES.join(", ")}.` }, { status: 400 });

@@ -12,6 +12,7 @@ import Link from "next/link";
 import { OrgTable } from "@/components/org/shared/ui";
 import { bandColor, bandLabel } from "@/lib/org/passport-display";
 import { PassportRowDetail, type PassportDetail } from "@/components/org/passports/PassportRowDetail";
+import type { DecisionMap } from "@/lib/org/decision-map";
 import { scoreHex } from "@/lib/ui";
 
 export interface PassportRow {
@@ -63,7 +64,17 @@ function Th({ k, label, align = "left", sort }: { k: SortKey; label: string; ali
   );
 }
 
-export function PassportTable({ rows, focus }: { rows: PassportRow[]; focus?: { fullName: string } | null }) {
+export function PassportTable({
+  rows,
+  focus,
+  org,
+  decisions,
+}: {
+  rows: PassportRow[];
+  focus?: { fullName: string } | null;
+  org: string;
+  decisions: DecisionMap;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("prodScore");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -172,7 +183,7 @@ export function PassportTable({ rows, focus }: { rows: PassportRow[]; focus?: { 
                     rule); the min-h-0 overflow-hidden child is what the 0fr→1fr row clamps. */}
                 <div className="animate-expand-down">
                   <div className="min-h-0 overflow-hidden">
-                    <PassportRowDetail fullName={r.fullName} detail={r.detail} />
+                    <PassportRowDetail fullName={r.fullName} detail={r.detail} org={org} decisions={decisions} />
                   </div>
                 </div>
               </td>

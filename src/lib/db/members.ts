@@ -114,7 +114,7 @@ export async function getMembershipRole(orgSlug: string, login: string): Promise
  * being vestigial and an admin/invite flow has a real owner to build on. Best-effort — callers ignore
  * failures (it must never block a read).
  */
-export async function ensureOwnerMembership(orgSlug: string, login: string, name?: string | null): Promise<void> {
+export async function ensureOwnerMembership(orgSlug: string, login: string, name?: string | null, opts?: { kind?: "personal" }): Promise<void> {
   if (!isDbConfigured()) return;
   const prisma = getPrisma();
   const gh = normalizeLogin(login);
@@ -122,14 +122,18 @@ export async function ensureOwnerMembership(orgSlug: string, login: string, name
   const userId = await ensureUserId(prisma, gh, name);
   const org = await prisma.organization.upsert({
     where: { slug: orgSlug },
-    update: {},
+    // `kind: "personal"` is stamped on UPDATE too (not just create): the scan pipeline's ensureOrgId
+    // may have materialized this slug earlier as a default "org" row, and only the identity-bound
+    // personal-namespace claim (login === slug, verified in authz.viewerOrgRole) passes `opts.kind` —
+    // so the stamp can never re-flavor a real organization.
+    update: opts?.kind ? { kind: opts.kind } : {},
     // Set `plan` to the canonical schema default ("free"; see prisma Organization.plan @default) rather
     // than leaving it implicit. The owner-seed path used to create a plan-less org, so whether the watch
     // path or this one won the create race decided the org's effective plan (retentionCutoff reads it) —
     // pin it here so first-touch is deterministic and a future schema-default change can't silently
     // repoint new orgs. (org-watch's ensureOrg still uses a legacy "private" string, which planFeatures
     // also resolves to the free tier — reconciling that outlier + backfilling old rows is out of scope.)
-    create: { slug: orgSlug, name: orgSlug, plan: "free" },
+    create: { slug: orgSlug, name: orgSlug, plan: "free", ...(opts?.kind ? { kind: opts.kind } : {}) },
     select: { id: true },
   });
   await prisma.membership.upsert({

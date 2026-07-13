@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { getSession, isAuthConfigured, PUBLIC_ORG } from "@/lib/auth";
 import { authGateEnabled, getViewer, requireViewer, type Viewer } from "@/lib/access";
 import { envBool } from "@/lib/env";
-import { getInstallationIdForOwner, isDbConfigured } from "@/lib/db";
+import { getInstallationIdForOwner, isDbConfigured, isPersonalOrg } from "@/lib/db";
 import { isAppConfigured, isOrgAdminViaInstallation } from "@/lib/github/app";
 import { ensureOwnerMembership, getMembershipRole, orgHasOwner, roleAtLeast, type OrgRole } from "@/lib/db/members";
 
@@ -80,7 +80,8 @@ async function viewerOrgRole(slug: string, viewer: Viewer): Promise<OrgRole | nu
   // Only an as-yet-unowned org is eligible for the identity-bound bootstrap; an owned org is a hard
   // wall (membership/invite only) — the cross-tenant-takeover invariant.
   if (await orgHasOwner(slug)) return null;
-  let entitled = slug === viewer.login.trim().toLowerCase();
+  const personal = slug === viewer.login.trim().toLowerCase();
+  let entitled = personal;
   if (!entitled && isAppConfigured() && isDbConfigured()) {
     // GitHub-verified onboarding for an ORG installation — the install-verified claim the lazy
     // first-touch seeding lacked. Fails closed on any error / missing permission.
@@ -88,7 +89,9 @@ async function viewerOrgRole(slug: string, viewer: Viewer): Promise<OrgRole | nu
     if (installId) entitled = await isOrgAdminViaInstallation(installId, slug, viewer.login).catch(() => false);
   }
   if (!entitled) return null;
-  await ensureOwnerMembership(slug, viewer.login, viewer.name).catch(() => {});
+  // The personal-namespace claim also flavors the org row as the viewer's individual workspace
+  // (kind: "personal") — the tenant discriminator behind the personal nav subset and tier limits.
+  await ensureOwnerMembership(slug, viewer.login, viewer.name, personal ? { kind: "personal" } : undefined).catch(() => {});
   return "owner";
 }
 
@@ -177,6 +180,23 @@ export async function requireOrgRead(org: string): Promise<NextResponse | null> 
   }
   return NextResponse.json(
     { error: "Per-organization data requires authentication to be configured." },
+    { status: 403 },
+  );
+}
+
+/**
+ * Reject a PERSONAL workspace from a FLEET-scoped org API (watch / schedule / scan / import) — the
+ * individual-tier lens guard. Those routes write repos, schedules and SCANS under the target org,
+ * which for a personal org would (a) persist a duplicate scan series outside the shared public
+ * corpus (the lens invariant: a public repo's series lives in the "public" org only), and (b) bypass
+ * /api/me/watch's public-repo verification and free-tier caps — its owner passes requireOrgAccess,
+ * so without this the side door is wide open. Call AFTER requireOrgAccess. Returns a 403
+ * NextResponse to send back, or null when `org` is a real (fleet) org.
+ */
+export async function requireFleetOrg(org: string): Promise<NextResponse | null> {
+  if (!(await isPersonalOrg(org))) return null;
+  return NextResponse.json(
+    { error: "This is a fleet operation. Personal workspaces track repos via /api/me/watch and rescan through the public report flow." },
     { status: 403 },
   );
 }

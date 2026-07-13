@@ -1,4 +1,4 @@
-import { OrgHeader, SiteHeader } from "@/components/Brand";
+import { ORG_SHELL, OrgHeader, SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
 import { OrgNav } from "@/components/org/shared/OrgNav";
 import { OrgScanButton } from "@/components/org/shared/OrgScanButton";
@@ -8,6 +8,7 @@ import { OrgEmpty } from "@/components/org/shared/ui";
 import { OnboardingChecklist } from "@/components/onboarding/tour/OnboardingChecklist";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
+import { getNavCounts } from "@/lib/org/nav-counts";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authBypassEnabled, authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
@@ -110,8 +111,9 @@ export default async function OrgLayout({
   let credit: Awaited<ReturnType<typeof getCreditState>> | null;
   let myRole: Awaited<ReturnType<typeof getMembershipRole>> | null;
   let usageThisMonth: number;
+  let navCounts: Awaited<ReturnType<typeof getNavCounts>>;
   try {
-    [summary, credit, myRole, usageThisMonth] = await Promise.all([
+    [summary, credit, myRole, usageThisMonth, navCounts] = await Promise.all([
       getOrgHeaderSummary(slug),
       slug === "public" ? Promise.resolve(null) : getCreditState(slug),
       // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
@@ -120,6 +122,9 @@ export default async function OrgLayout({
       // Month-to-date metered scans, so the credits chip knows the plan's free allowance still covers
       // scans at balance 0 (and doesn't falsely warn "paused"). Free for the public org.
       slug === "public" ? Promise.resolve(0) : countMeteredScansThisMonth(slug).catch(() => 0),
+      // Rail badges (items awaiting a decision). Non-critical chrome, so a failure degrades to an
+      // unbadged rail rather than 500-ing the shell — same posture as myRole/usageThisMonth above.
+      getNavCounts(slug).catch(() => null),
     ]);
   } catch (err) {
     if (isDbUnavailableError(err)) {
@@ -134,7 +139,9 @@ export default async function OrgLayout({
     }
     throw err;
   }
-  if (!summary || summary.repoCount === 0) {
+  // A PERSONAL workspace renders its shell even with zero repos — the overview's add-repo form IS the
+  // empty state (pointing an individual at /connect, the GitHub-App install flow, would be wrong).
+  if (!summary || (summary.repoCount === 0 && summary.kind !== "personal")) {
     return (
       <Frame>
         <OrgEmpty title={`No data for ${slug}`} body="Watch some repositories on /connect and run a scan, then this dashboard fills in." href="/connect" cta="Go to Connect" />
@@ -185,19 +192,24 @@ export default async function OrgLayout({
           allowanceRemaining={allowanceRemaining}
         />
       )}
-      <div data-tour="scan-scope">
-        <OrgScanButton org={slug} watchedCount={watched} />
-      </div>
+      {/* The bulk org-scan persists scans UNDER this org — correct for a fleet, wrong for a personal
+          workspace (its repos' series live in the shared public corpus; rescans go through the public
+          report flow until the Phase-3 persist/decision org split lands). */}
+      {summary.kind !== "personal" && (
+        <div data-tour="scan-scope">
+          <OrgScanButton org={slug} watchedCount={watched} />
+        </div>
+      )}
     </>
   );
 
   return (
     <>
       <OrgHeader slug={slug} levelId={level.id} score={summary.avgOverall} role={myRole} actions={actions} />
-      <main id="main" className="mx-auto w-full max-w-7xl px-5 py-8">
-        <div className="lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-8">
+      <main id="main" className={`${ORG_SHELL} py-8`}>
+        <div className="lg:grid lg:grid-cols-[264px_minmax(0,1fr)] lg:gap-6">
           <aside data-tour="modules-nav" className="lg:sticky lg:top-20 lg:self-start">
-            <OrgNav slug={slug} />
+            <OrgNav slug={slug} counts={navCounts ?? undefined} kind={summary.kind} />
           </aside>
           <div className="animate-fade-up">{children}</div>
         </div>

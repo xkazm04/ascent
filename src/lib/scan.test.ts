@@ -53,11 +53,18 @@ vi.mock("@/lib/authz", async (importActual) => {
     canMintInstallationToken: (owner: string) => authControl.canMintInstallationToken(owner),
   };
 });
+// Standing-decision read seam (individual tier): scanRepository resolves the slug it reads decisions
+// from (decisionOrgSlug ?? orgSlug); this spy pins WHICH slug that is per funnel.
+const dbControl = {
+  decisionsForRepo: vi.fn<(slug: string, fullName: string) => Promise<never[]>>(),
+};
+
 vi.mock("@/lib/db", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/db")>();
   return {
     ...actual,
     getInstallationIdForOwner: (owner: string) => authControl.getInstallationIdForOwner(owner),
+    decisionsForRepo: (slug: string, fullName: string) => dbControl.decisionsForRepo(slug, fullName),
   };
 });
 
@@ -475,5 +482,37 @@ describe("resolveScanAuth — authorize-before-mint cross-tenant gate (#4)", () 
     // Degrades, but never to the operator PAT — the owner is an installed (private-capable) org.
     expect(res).toEqual({ orgSlug: "public", noAmbientToken: true });
     expect(res.token).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Standing-decision scoping (individual tier, decision 5): the slug scanRepository
+// reads decisions from is decisionOrgSlug ?? orgSlug. The public funnel passes the
+// TRIGGERING viewer's personal org; org scans keep their own slug; an anonymous
+// public scan reads nothing. A regression here either leaks one viewer's decisions
+// into everyone's scans or silently stops injecting them at all.
+// ---------------------------------------------------------------------------
+describe("scanRepository — standing-decision scoping (decisionOrgSlug)", () => {
+  beforeEach(() => {
+    dbControl.decisionsForRepo.mockReset();
+    dbControl.decisionsForRepo.mockResolvedValue([]);
+  });
+
+  it("reads from decisionOrgSlug when set (the viewer's personal org on the public funnel)", async () => {
+    const { source } = mockSource("a".repeat(40));
+    await scanRepository("o/r", { mock: true, source, now: NOW, orgSlug: "public", decisionOrgSlug: "alice" });
+    expect(dbControl.decisionsForRepo).toHaveBeenCalledWith("alice", "o/r");
+  });
+
+  it("falls back to orgSlug when decisionOrgSlug is absent (org scans unchanged)", async () => {
+    const { source } = mockSource("b".repeat(40));
+    await scanRepository("o/r", { mock: true, source, now: NOW, orgSlug: "acme" });
+    expect(dbControl.decisionsForRepo).toHaveBeenCalledWith("acme", "o/r");
+  });
+
+  it("skips the read entirely when neither slug is set (anonymous public scan)", async () => {
+    const { source } = mockSource("c".repeat(40));
+    await scanRepository("o/r", { mock: true, source, now: NOW });
+    expect(dbControl.decisionsForRepo).not.toHaveBeenCalled();
   });
 });
