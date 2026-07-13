@@ -73,6 +73,11 @@ export function RecommendationTracker({
   }
 
   async function setStatus(id: string, status: RecStatus) {
+    // Re-entrancy guard: ignore a change fired while this row's save is still in flight. The status
+    // <select> is no longer `disabled` during a save (disabling the focused control blurred it, dropping
+    // keyboard/SR focus to <body> — roadmap-recommendation-tracking #2), so this guard is now what
+    // prevents a second overlapping PATCH on the same row.
+    if (savingIds.has(id)) return;
     const row = items.find((i) => i.id === id);
     const title = row?.title ?? "Recommendation";
     // Capture ONLY this row's prior status for a targeted rollback. Reverting to a whole-list
@@ -157,7 +162,9 @@ export function RecommendationTracker({
               {announcements[item.id] ?? ""}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className={`font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
+              {/* min-w-0 lets this flex item shrink; break-words then wraps a long unbroken rec title
+                  instead of overflowing the row (a rec title is descriptive text — wrap, don't clip). */}
+              <h3 className={`min-w-0 break-words font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
                 {item.title}
               </h3>
               <div className="flex items-center gap-2 text-sm">
@@ -166,7 +173,7 @@ export function RecommendationTracker({
                 {saving && <RowSpinner />}
                 <StatusSelect
                   value={item.status}
-                  disabled={saving}
+                  busy={saving}
                   onChange={(status) => setStatus(item.id, status)}
                   aria-label="Recommendation status"
                 />

@@ -161,7 +161,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
           aria-label="Repository to apply this practice to"
           // Disabled during a preview/apply so the selection can't change out from under an in-flight
           // request — the core fix for the stale-preview-applied-to-the-wrong-repo race.
-          disabled={busy !== null}
+          disabled={busy !== null || batchBusy}
           onChange={(e) => {
             setRepo(e.target.value);
             setArtifact(null);
@@ -178,7 +178,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
         </select>
         <button
           onClick={preview}
-          disabled={busy !== null}
+          disabled={busy !== null || batchBusy}
           className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
         >
           {busy === "preview" ? "Generating…" : "Preview starter"}
@@ -186,7 +186,7 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
         {artifact && artifact.repo === repo && (
           <button
             onClick={apply}
-            disabled={busy !== null}
+            disabled={busy !== null || batchBusy}
             className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
           >
             {busy === "apply" ? "Opening PR…" : "Open draft PR →"}
@@ -252,7 +252,9 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
               </div>
               <button
                 onClick={() => setConfirmingBatch(true)}
-                disabled={batchBusy || selected.size === 0}
+                // Mutually locked with the single-repo apply (practices #5): while a preview/apply is
+                // in flight, block the batch so the two can't double-write concurrently.
+                disabled={batchBusy || busy !== null || selected.size === 0}
                 className="mt-3 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
               >
                 {batchBusy
@@ -260,12 +262,26 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
                   : `Open draft PRs across ${selected.size} repo${selected.size === 1 ? "" : "s"} →`}
               </button>
               {batchError && <p className="mt-2 text-sm text-orange-300">{batchError}</p>}
-              {batchSummary && batchSummary.skipped > 0 && (
-                <p className="mt-2 text-sm text-amber-300">
-                  Opened {batchSummary.attempted} of {batchSummary.attempted + batchSummary.skipped} —{" "}
-                  {batchSummary.skipped} over the per-batch cap of {MAX_BATCH} (neediest repos first). Re-run to open the rest.
-                </p>
-              )}
+              {batchSummary &&
+                batchResults &&
+                (() => {
+                  // Report the count that ACTUALLY opened (results.ok), not `attempted` — a repo that
+                  // failed inside the pool is still counted in `attempted`, so "Opened {attempted}"
+                  // was crediting failures as opened PRs (practices #6). Stay silent on a clean run
+                  // (every repo opened, nothing over the cap); the per-repo ✓ list already shows those.
+                  const opened = batchResults.filter((r) => r.ok).length;
+                  const failed = batchResults.length - opened;
+                  if (failed === 0 && batchSummary.skipped === 0) return null;
+                  return (
+                    <p className="mt-2 text-sm text-amber-300">
+                      Opened {opened} of {batchSummary.attempted} attempted
+                      {failed > 0 ? ` (${failed} failed)` : ""}
+                      {batchSummary.skipped > 0
+                        ? ` — ${batchSummary.skipped} more over the per-batch cap of ${MAX_BATCH} (neediest repos first). Re-run to open the rest.`
+                        : ""}
+                    </p>
+                  );
+                })()}
               {batchResults && (
                 <ul className="mt-2 space-y-1">
                   {batchResults.map((res) => (

@@ -20,15 +20,23 @@ export interface StatProps {
   deltaLabel?: string;
   /** Active goal: target + a precomputed pace verdict (label + color). */
   goal?: { target: number; label: string; color: string };
+  /**
+   * Opt out of thousands-grouping for a numeric `value`. By default a raw `number` value is rendered
+   * with `.toLocaleString()` so a large count reads `4,823,019`, not `4823019` — matching every
+   * `.toLocaleString()` call site. Set `raw` for an already-formatted or identifier-like number (a
+   * year, an id) that must render its exact digits. Non-number values (strings/nodes) are untouched.
+   */
+  raw?: boolean;
   className?: string;
 }
 
-export function Stat({ label, value, sub, color = "#fff", delta, deltaLabel, goal, className = "" }: StatProps) {
+export function Stat({ label, value, sub, color = "#fff", delta, deltaLabel, goal, raw = false, className = "" }: StatProps) {
+  const display = typeof value === "number" && !raw ? value.toLocaleString() : value;
   return (
     <div className={className}>
       <div className="font-mono text-[13px] uppercase leading-snug tracking-[0.12em] text-slate-400">{label}</div>
       <div className="mt-0.5 font-mono text-2xl font-bold tabular-nums" style={{ color }}>
-        {value}
+        {display}
       </div>
       {sub && <div className="mt-0.5 text-sm text-slate-500">{sub}</div>}
       {delta != null && (

@@ -18,7 +18,7 @@ import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
 // contact mailto when one is configured, else the About page (labeled honestly as "Learn more").
 const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim();
 const CTA_CLASS =
-  "mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20";
+  "focus-ring mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20";
 
 function ctaFor(id: PlanId): { href: string; label: string } {
   if (id === "free") return { href: "/", label: "Scan a repo free" };

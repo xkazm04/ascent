@@ -25,9 +25,11 @@ export function ReportHeader({
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div>
+      {/* min-w-0 lets this column shrink on a narrow viewport; break-words then lets a long unbroken
+          owner/name break instead of forcing horizontal overflow of the header (mobile). */}
+      <div className="min-w-0">
         <Kicker tone="muted">Repository report</Kicker>
-        <h1 className="mt-2 text-2xl font-bold text-white">
+        <h1 className="mt-2 break-words text-2xl font-bold text-white">
           <a href={repo.url} target="_blank" rel="noreferrer" className="hover:text-accent">
             {repo.owner}/{repo.name}
           </a>

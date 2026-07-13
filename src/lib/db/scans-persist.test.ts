@@ -477,6 +477,9 @@ describe("persistScanReport — head-pointer recency guard (advance-on-newer, ho
     expect(where.OR).toEqual([
       { lastScanAt: null },
       { lastScanAt: { lt: new Date(scannedAt) } },
+      // Exact-timestamp tiebreak (scan-persistence-history #4): a newer commit sharing lastScanAt to the
+      // ms still advances the head, but only onto a DIFFERENT sha (an idempotent replay stays a no-op).
+      { lastScanAt: new Date(scannedAt), headSha: { not: "sha_newer" } },
     ]);
     // headSha + headEtag advance TOGETHER in the same write (so they can't tear apart), with the new
     // lastScanAt — the head pointer now references the just-persisted newer scan.
@@ -508,6 +511,7 @@ describe("persistScanReport — head-pointer recency guard (advance-on-newer, ho
     expect(where.OR).toEqual([
       { lastScanAt: null },
       { lastScanAt: { lt: new Date(olderScannedAt) } },
+      { lastScanAt: new Date(olderScannedAt), headSha: { not: "sha_older" } },
     ]);
     expect(prisma.repository.updateMany).toHaveResolvedWith({ count: 0 });
     expect(res?.headSha).toBe("sha_older"); // the scan still records its own sha; the repo head did not roll back
@@ -568,7 +572,11 @@ describe("persistScanReport — head-pointer recency guard (advance-on-newer, ho
     await persistScanReport(makeReport({ headSha: "sha_abc", scannedAt }), { headEtag: 'W/"e"' });
 
     const { where, data } = headAdvanceCall(prisma);
-    expect(where.OR).toEqual([{ lastScanAt: null }, { lastScanAt: { lt: new Date(scannedAt) } }]);
+    expect(where.OR).toEqual([
+      { lastScanAt: null },
+      { lastScanAt: { lt: new Date(scannedAt) } },
+      { lastScanAt: new Date(scannedAt), headSha: { not: "sha_abc" } },
+    ]);
     expect(data).toMatchObject({ lastScanAt: new Date(scannedAt), headSha: "sha_abc", headEtag: 'W/"e"' });
     expect(scanCreate).not.toHaveBeenCalled(); // dedup: no new metered row
   });

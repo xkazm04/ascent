@@ -1,9 +1,9 @@
 "use client";
 
 // The Index — the editorial rating-instrument direction, laid out as a full-viewport scroll-snap
-// deck (see IndexLanding). Masthead hero with the index ring, the org edition, a live register, the
-// levels flight-path, the dimension scorecard, and the price table. Each content section reveals on
-// entry (Reveal) for movement as you snap to it.
+// deck (see IndexLanding). Masthead hero with the index ring, the org edition, the register gallery,
+// the levels flight-path, and the dimension scorecard. Each content section reveals on entry (Reveal)
+// for movement as you snap to it.
 
 import type { LandingData } from "../types";
 import { IndexHero } from "./IndexHero";

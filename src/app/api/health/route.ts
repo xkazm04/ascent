@@ -25,13 +25,25 @@ function autoscanReadiness() {
   return { ready: cronSecret && githubApp && db, cronSecret, githubApp, db };
 }
 
-export async function GET() {
-  const autoscan = autoscanReadiness();
-  // The active persistence backend ("dsql" | "postgres" | "pglite" | "disabled") — names the AWS
-  // database in use for monitoring + the hackathon architecture story (Aurora DSQL in production).
-  const dbMode = getDbMode();
+// The detailed fields (dbMode, autoscan readiness) describe deployment TOPOLOGY — the specific backend
+// in use and which operational secrets/config are present — which shouldn't be handed to an anonymous
+// caller. Expose them only to an internal caller presenting the CRON_SECRET bearer (the same credential
+// the monitor / Vercel cron already carries). When no CRON_SECRET is configured (local/dev/demo) there
+// is nothing to protect, so details stay open — matching the prior always-on behavior for those setups.
+function isInternalCaller(request: Request): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true;
+  return request.headers.get("authorization") === `Bearer ${secret}`;
+}
+
+export async function GET(request: Request) {
+  // Only an internal caller sees the topology fields; an anonymous probe gets the minimal liveness
+  // shape (status + db [+ reconnected]) — still enough to monitor uptime and self-healing.
+  const detail = isInternalCaller(request)
+    ? { dbMode: getDbMode(), autoscan: autoscanReadiness() }
+    : {};
   if (!isDbConfigured()) {
-    return NextResponse.json({ status: "ok", db: "disabled", dbMode, autoscan });
+    return NextResponse.json({ status: "ok", db: "disabled", ...detail });
   }
   try {
     const result = await dbHealthCheck();
@@ -45,9 +57,8 @@ export async function GET() {
       {
         status: result.ok ? "ok" : "error",
         db: result.ok ? "up" : "down",
-        dbMode,
         reconnected: result.reconnected,
-        autoscan,
+        ...detail,
       },
       { status: result.ok ? 200 : 503 },
     );
@@ -58,7 +69,7 @@ export async function GET() {
     // degraded shape only, identical to the resolved-failure body (no `err` in the response).
     console.error("[health] database check threw", err);
     return NextResponse.json(
-      { status: "error", db: "down", dbMode, reconnected: false, autoscan },
+      { status: "error", db: "down", reconnected: false, ...detail },
       { status: 503 },
     );
   }

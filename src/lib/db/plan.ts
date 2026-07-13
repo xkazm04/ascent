@@ -458,6 +458,17 @@ export async function createInitiative(
     await prisma.initiative.update({ where: { id: existing.id }, data: { repos: JSON.stringify(mergedRepos) } });
     return { id: existing.id };
   }
+  // Tenant-scope the goal link (goals-initiatives #7): a goalId must reference a Goal in THIS org, or
+  // we'd persist a cross-org foreign key. The PATCH route rejects a foreign id with a 400; the create
+  // route has no channel to surface that, so drop the out-of-org link (and log it) rather than store it.
+  let goalId = input.goalId ?? null;
+  if (goalId) {
+    const linked = await prisma.goal.findUnique({ where: { id: goalId }, select: { orgId: true } });
+    if (!linked || linked.orgId !== org.id) {
+      console.warn(`[initiatives] dropping cross-org goalId "${goalId}" on create for org "${orgSlug}"`);
+      goalId = null;
+    }
+  }
   const created = await prisma.initiative.create({
     data: {
       orgId: org.id,
@@ -468,7 +479,7 @@ export async function createInitiative(
       repos: JSON.stringify(input.repos.slice(0, 200)),
       assigneeLogin: input.assigneeLogin?.trim().slice(0, 100) || null,
       targetDate: parseTargetDate(input.targetDate),
-      goalId: input.goalId ?? null,
+      goalId,
       playbookId: input.playbookId ?? null,
     },
     select: { id: true },

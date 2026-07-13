@@ -36,6 +36,33 @@ describe("CreditsControl balance reconciliation", () => {
   });
 });
 
+describe("CreditsControl grant error resets on reopen (credits-entitlements #4)", () => {
+  it("clears a stale 'Top-up failed.' from a prior session when the popover is reopened", async () => {
+    // Ledger loads fine on open; the grant POST fails. The failure message must NOT survive a
+    // close→reopen — a fresh popover accusing the user of a failure that already passed is confusing.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        typeof url === "string" && url.includes("/grant")
+          ? Promise.resolve({ ok: false, json: async () => ({ error: "Top-up failed." }) })
+          : Promise.resolve({ ok: true, json: async () => ({ balance: 100, ledger: [] }) }),
+      ),
+    );
+
+    render(<CreditsControl org="acme" initialBalance={100} unlimited={false} grantsEnabled />);
+
+    const trigger = screen.getByRole("button", { name: "100 credits" });
+    fireEvent.click(trigger); // open
+    fireEvent.click(screen.getByRole("button", { name: "+50" })); // failing grant
+
+    await waitFor(() => expect(screen.getByText("Top-up failed.")).toBeInTheDocument());
+
+    fireEvent.click(trigger); // close
+    fireEvent.click(trigger); // reopen — the stale error must be gone
+    expect(screen.queryByText("Top-up failed.")).toBeNull();
+  });
+});
+
 describe("CreditsControl paused state (not color-alone)", () => {
   it("marks the paused chip with text + an aria-label, beyond the amber tint", () => {
     // balance 0 AND no free allowance left → paused.

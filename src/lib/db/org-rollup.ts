@@ -659,7 +659,9 @@ export async function getOrgEngineMix(orgSlug: string, window?: OrgWindow, segme
   });
   return groups
     .map((g) => ({ provider: g.engineProvider, count: g._count as number }))
-    .sort((a, b) => b.count - a.count);
+    // Stable tiebreak on provider so two engines with the same count render in a deterministic order
+    // instead of the DB's arbitrary groupBy order (fleet-rollups-insights #6).
+    .sort((a, b) => b.count - a.count || a.provider.localeCompare(b.provider));
 }
 
 /** How many recommendations the org ACTIONED in the window — engagement (any status change) and

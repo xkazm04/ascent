@@ -49,12 +49,17 @@ export async function GET(request: Request) {
     // One row per passport — the Passports tab's table plus the row-detail facts (blockers joined
     // with "; " so the CSV stays one-line-per-repo).
     const rollup = await getOrgRollup(org, undefined, segmentId);
+    // Same null contract as the sibling branches: null = unknown org / lookup unavailable → 404, not a
+    // header-only 200 that dresses a backend miss up as an empty-but-successful export.
+    if (!rollup) {
+      return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
+    }
     header = [
       "repo", "name", "automationLevel", "automationScore", "productionBand", "productionScore",
       "ci", "ciProvider", "tests", "coveragePct", "security", "observability",
       "migrations", "iac", "rollback", "automationBlockers", "productionBlockers",
     ];
-    rows = (rollup?.repos ?? [])
+    rows = rollup.repos
       .filter((r) => r.passport)
       .map((r) => {
         const auto = r.passport!.automationReadiness;

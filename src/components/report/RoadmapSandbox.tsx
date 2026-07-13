@@ -27,6 +27,11 @@ import {
 export function RoadmapSandbox({ report }: { report: ScanReport }) {
   const [open, setOpen] = useState(false);
   const [overrides, setOverrides] = useState<Overrides>({});
+  // Which roadmap ITEMS the user actually clicked "Try it" on — tracked per item index, not per
+  // dimension. Several roadmap items can target the SAME dimension; keying "Applied ✓" off the
+  // dimension override alone lit up every sibling item the moment one was tried (a false positive that
+  // implied unrelated recommendations were applied). (roadmap-recommendation-tracking #6)
+  const [appliedItems, setAppliedItems] = useState<Set<number>>(() => new Set());
   const panelId = useId();
 
   // Live recompute — pure, cheap (9 dimensions), re-run on every slider tick.
@@ -73,7 +78,10 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
       delete next[id];
       return next;
     });
-  const resetAll = () => setOverrides({});
+  const resetAll = () => {
+    setOverrides({});
+    setAppliedItems(new Set());
+  };
   const closeAllGaps = () =>
     setOverrides(Object.fromEntries(report.dimensions.map((d) => [d.id, 100])) as Overrides);
 
@@ -192,7 +200,11 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
               report={report}
               overrides={overrides}
               path={path}
-              onTry={(id) => setDim(id, 100)}
+              appliedItems={appliedItems}
+              onTry={(id, i) => {
+                setDim(id, 100);
+                setAppliedItems((s) => new Set(s).add(i));
+              }}
             />
           )}
         </div>

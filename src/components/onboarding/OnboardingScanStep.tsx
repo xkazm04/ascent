@@ -232,7 +232,11 @@ export function ScanStep({
                   Added as viewer: {invited.map((l) => `@${l}`).join(", ")}
                 </p>
               )}
-              {inviteErr && <p className="mt-2 font-mono text-sm text-orange-300">{inviteErr}</p>}
+              {inviteErr && (
+                <p role="alert" className="mt-2 font-mono text-sm text-danger-soft">
+                  {inviteErr}
+                </p>
+              )}
             </div>
           )}
 

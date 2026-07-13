@@ -80,4 +80,24 @@ describe("getScanComparison — baseline never reaches forward in time", () => {
     expect(cmp!.after?.id).toBe("idA");
     expect(cmp!.before?.id).toBe("idB"); // the next-older scan, baseline in the past
   });
+
+  it("an explicit beforeId NEWER than after is rejected (no axis inversion) — falls back to the older default (#7)", async () => {
+    const prisma = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // after = idB (middle); beforeId = idA is NEWER than idB → honoring it would invert the axis.
+    const cmp = await getScanComparison("o", "r", { afterId: "idB", beforeId: "idA" });
+    expect(cmp!.after?.id).toBe("idB");
+    expect(cmp!.before?.id).toBe("idC"); // fell back to the scan OLDER than idB, not the newer idA
+  });
+
+  it("an explicit beforeId OLDER than after is still honored", async () => {
+    const prisma = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // after = idA (newest); beforeId = idC (oldest) is older than idA → a valid explicit baseline.
+    const cmp = await getScanComparison("o", "r", { afterId: "idA", beforeId: "idC" });
+    expect(cmp!.after?.id).toBe("idA");
+    expect(cmp!.before?.id).toBe("idC");
+  });
 });

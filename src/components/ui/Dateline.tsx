@@ -15,13 +15,13 @@ export function Dateline({
   className?: string;
 }) {
   return (
-    <div className={`flex items-center justify-between border-b border-divider pb-4 ${className}`}>
+    // flex-wrap (not `hidden sm:inline` on the right): on a narrow viewport the metadata WRAPS onto its
+    // own line beneath `left` instead of being dropped, so the information reflows rather than vanishing.
+    // gap-y keeps the wrapped row from crowding the left label; justify-between still spreads them on one
+    // line when both fit.
+    <div className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-divider pb-4 ${className}`}>
       <Kicker tone="muted">{left}</Kicker>
-      {right != null && (
-        <Kicker tone="muted" className="hidden sm:inline">
-          {right}
-        </Kicker>
-      )}
+      {right != null && <Kicker tone="muted">{right}</Kicker>}
     </div>
   );
 }

@@ -176,6 +176,45 @@ describe("GET /api/history — org-scoping & auth gate", () => {
     expect(mockReadableOrg).not.toHaveBeenCalled();
     expect(mockGetHistory).not.toHaveBeenCalled();
   });
+
+  // --- ETag folds the WHOLE series (trends-comparison #6) -----------------------------------------
+  // An in-place fix to an OLDER scan (same id, same count, newest untouched) must still bust the cache.
+  // The old validator signed only the newest scan, so a corrected historical row returned a 304 forever.
+
+  const twoScan = (olderOverall: number) =>
+    ({
+      repo: { owner: "acme", name: "repo", fullName: "acme/repo" },
+      scans: [
+        { id: "new", scannedAt: "2026-02-01T00:00:00.000Z", overallScore: 90, level: "L5", dimensions: [] },
+        { id: "old", scannedAt: "2026-01-01T00:00:00.000Z", overallScore: olderOverall, level: "L2", dimensions: [] },
+      ],
+    }) as unknown as Awaited<ReturnType<typeof getRepositoryHistory>>;
+
+  it("changes the ETag when an OLDER scan is corrected in place (newest unchanged)", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+
+    mockGetHistory.mockResolvedValue(twoScan(40));
+    const etagBefore = (await get("?repo=acme/repo")).headers.get("etag");
+    mockGetHistory.mockResolvedValue(twoScan(55)); // only the OLDER row's score changed
+    const etagAfter = (await get("?repo=acme/repo")).headers.get("etag");
+
+    expect(etagBefore).toBeTruthy();
+    expect(etagAfter).not.toBe(etagBefore); // the historical fix busts the cache
+  });
+
+  it("serves a 304 only when the whole series is byte-identical", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetHistory.mockResolvedValue(twoScan(40));
+
+    const etag = (await get("?repo=acme/repo")).headers.get("etag")!;
+    const same = await get("?repo=acme/repo", { "if-none-match": etag });
+    expect(same.status).toBe(304);
+
+    // After a historical correction, the stale ETag no longer matches → a full 200, not a 304.
+    mockGetHistory.mockResolvedValue(twoScan(55));
+    const stale = await get("?repo=acme/repo", { "if-none-match": etag });
+    expect(stale.status).toBe(200);
+  });
 });
 
 // --------------------------------------------------------------------------------------------------

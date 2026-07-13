@@ -16,6 +16,10 @@ import { safeFilenameSegment } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Server-side PDF rendering (@react-pdf) is CPU-bound and can outrun the platform's default function
+// window on a large report; give it the same headroom the other write/render routes take so a slow
+// render returns a PDF instead of a truncated 504 (pdf-llm-export #7).
+export const maxDuration = 60;
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "PDF export requires a database." }, { status: 503 });

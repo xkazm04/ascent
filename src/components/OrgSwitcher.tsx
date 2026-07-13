@@ -17,6 +17,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
 
   async function choose(org: string) {
     setOpen(false);
+    setError(null); // clear any prior failure so a fresh attempt starts clean
     if (org.toLowerCase() === active.toLowerCase()) return;
     setBusy(true);
     try {
@@ -45,13 +47,19 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        // The switch was rejected (e.g. no longer a member) — surface a VISIBLE, announced error instead
+        // of silently swallowing it. Previously the menu just closed and nothing changed: a dead click.
+        setError(`Couldn't switch to ${labelFor(org)}. Please try again.`);
+        return;
+      }
       // On an org-scoped route, switch which org is being viewed; otherwise re-render the
       // current route so server components re-read the now-updated active-org cookie.
       if (pathname.startsWith("/org/")) router.push(`/org/${encodeURIComponent(org)}`);
       else router.refresh();
     } catch {
-      /* leave the menu closed; the cookie simply wasn't changed */
+      // Network/parse failure — the cookie wasn't changed. Tell the user rather than swallow it.
+      setError(`Couldn't switch to ${labelFor(org)}. Please try again.`);
     } finally {
       setBusy(false);
     }
@@ -61,7 +69,10 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) setError(null); // opening the menu clears a stale failure banner
+          setOpen((o) => !o);
+        }}
         disabled={busy}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -103,6 +114,14 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
               </button>
             );
           })}
+        </div>
+      )}
+      {error && (
+        <div
+          role="alert"
+          className="absolute right-0 top-full z-40 mt-2 max-w-[16rem] rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300 shadow-xl"
+        >
+          {error}
         </div>
       )}
     </div>

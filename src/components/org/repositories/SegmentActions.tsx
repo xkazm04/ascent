@@ -28,6 +28,9 @@ export function SegmentActions({ org, segmentId, repos }: { org: string; segment
 
   async function setSchedule(schedule: string) {
     if (!schedule) return;
+    // Snapshot the prior selection so a server rejection (403 / validation / network) can REVERT the
+    // dropdown — otherwise it keeps displaying a cadence the server never accepted, i.e. phantom state.
+    const prevCadence = cadence;
     setCadence(schedule);
     setCadenceBusy(true);
     setNote(null);
@@ -42,6 +45,7 @@ export function SegmentActions({ org, segmentId, repos }: { org: string; segment
       setNote(`Cadence ${schedule} set for ${d.updated ?? "the segment's"} watched repo(s).`);
       router.refresh();
     } catch (e) {
+      setCadence(prevCadence); // the server didn't take it — don't leave the rejected value selected
       setNote(e instanceof Error ? e.message : "Failed to set cadence.");
     } finally {
       setCadenceBusy(false);

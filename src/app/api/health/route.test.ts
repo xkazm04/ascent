@@ -1,18 +1,19 @@
-// GET /api/health — the unauthenticated liveness endpoint. The single security-grade invariant here
-// is the no-error-leak guard: the route's own comment (route.ts:34-37) forbids spreading the
-// `dbHealthCheck()` result into the public body because `result.error` carries the raw DB error
-// string (Prisma/Postgres/DSQL internals, connection host/port, IAM-auth failure text) and the
-// endpoint has NO auth gate. That rule lives only in a comment — this test makes CI enforce it.
+// GET /api/health — the unauthenticated liveness endpoint. Two security-grade invariants here:
+//   1. No-error-leak: the route's own comment forbids spreading the `dbHealthCheck()` result into the
+//      public body because `result.error` carries the raw DB error string (Prisma/Postgres/DSQL
+//      internals, connection host/port, IAM-auth failure text) and the endpoint has NO auth gate.
+//   2. Topology gating (app-shell-seo #4): the DETAILED fields — `dbMode` (the specific backend) and
+//      `autoscan` readiness (which operational secrets/config are present) — describe deployment
+//      topology and are exposed ONLY to an internal caller presenting the CRON_SECRET bearer. An
+//      anonymous probe gets the minimal liveness shape. When no CRON_SECRET is configured (dev/demo)
+//      there's nothing to protect, so details stay open.
 //
 // We mock the db check to (a) succeed → 200 / db:"up", and (b) throw a DB error whose message embeds
-// secret-ish substrings (connection string + "password=" + DSQL host + port + "token expired"). We
-// then assert the serialized response body NEVER contains any of those substrings, that the status
-// is the degraded 503, and that the body shape is exactly the safe liveness shape. We also pin the
-// `isDbConfigured()===false` early return (200 / db:"disabled") and the autoscan readiness truth.
-//
-// next/server is mocked with a tiny NextResponse whose .json() returns a real Response, so we can
-// read body+status without the Next runtime. @/lib/db and @/lib/github/app are mocked so no real DB
-// or GitHub App config is touched — dbHealthCheck is fully under test control.
+// secret-ish substrings. We then assert the serialized body NEVER contains those substrings, that the
+// status is the degraded 503, and that the body shape is exactly the safe liveness shape — minimal for
+// anonymous, detailed for internal. next/server is mocked with a tiny NextResponse whose .json()
+// returns a real Response; @/lib/db and @/lib/github/app are mocked so no real DB / GitHub App config
+// is touched — dbHealthCheck is fully under test control.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -33,8 +34,8 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/db", () => ({
   dbHealthCheck: mockDbHealthCheck,
   isDbConfigured: mockIsDbConfigured,
-  // The route now reports the active backend; a fixed safe value keeps the no-leak assertions honest
-  // (getDbMode only ever returns the mode enum — "dsql"/"postgres"/… — never the endpoint/credentials).
+  // The route reports the active backend to internal callers; a fixed safe value keeps the no-leak
+  // assertions honest (getDbMode only ever returns the mode enum — never the endpoint/credentials).
   getDbMode: () => "postgres",
 }));
 
@@ -62,14 +63,16 @@ const SECRET_SUBSTRINGS = [
   "Can't reach database server",
 ];
 
+const CRON = "cron-secret";
 const ENV_KEYS = ["CRON_SECRET", "DATABASE_URL", "DSQL_ENDPOINT"] as const;
 let savedEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
   savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
   vi.clearAllMocks();
-  // Default to a fully-configured, healthy deployment; individual tests override.
-  process.env.CRON_SECRET = "cron-secret";
+  // Default to a fully-configured, healthy deployment with CRON_SECRET set (so anonymous callers get
+  // the gated/minimal shape); individual tests override.
+  process.env.CRON_SECRET = CRON;
   mockIsAppConfigured.mockReturnValue(true);
   mockIsDbConfigured.mockReturnValue(true);
   mockDbHealthCheck.mockResolvedValue({ ok: true, reconnected: false });
@@ -82,35 +85,50 @@ afterEach(() => {
   }
 });
 
-async function callGet() {
-  const res = await GET();
+function request(auth?: string) {
+  return new Request("http://localhost/api/health", auth ? { headers: { authorization: auth } } : {});
+}
+async function callGet(auth?: string) {
+  const res = await GET(request(auth));
   const text = await res.text();
   return { status: res.status, text, body: JSON.parse(text) as Record<string, unknown> };
 }
+// An internal caller presents the CRON_SECRET bearer; anonymous callers omit it.
+const callInternal = () => callGet(`Bearer ${CRON}`);
 
 describe("GET /api/health — healthy DB", () => {
-  it("returns 200 with the safe liveness shape (db:'up', status:'ok')", async () => {
+  it("anonymous: 200 with the MINIMAL liveness shape (no dbMode / autoscan topology)", async () => {
     mockDbHealthCheck.mockResolvedValue({ ok: true, reconnected: false });
     const { status, body } = await callGet();
     expect(status).toBe(200);
     expect(body.status).toBe("ok");
     expect(body.db).toBe("up");
     expect(body.reconnected).toBe(false);
+    // The topology fields are gated out for an anonymous probe.
+    expect("dbMode" in body).toBe(false);
+    expect("autoscan" in body).toBe(false);
+    expect(Object.keys(body).sort()).toEqual(["db", "reconnected", "status"]);
   });
 
-  it("works with no auth — GET() takes no request/auth and still answers", async () => {
-    // The handler signature is `GET()` with no auth gate; an anonymous call resolves a body.
-    await expect(GET()).resolves.toBeInstanceOf(Response);
+  it("internal (CRON_SECRET bearer): 200 with the detailed shape including dbMode + autoscan", async () => {
+    const { status, body } = await callInternal();
+    expect(status).toBe(200);
+    expect(body.db).toBe("up");
+    expect(body.dbMode).toBe("postgres");
+    expect(body.autoscan).toBeTypeOf("object");
+  });
+
+  it("works with no auth — an anonymous GET still resolves a Response", async () => {
+    await expect(GET(request())).resolves.toBeInstanceOf(Response);
   });
 });
 
 describe("GET /api/health — DB check fails (the no-leak invariant)", () => {
-  it("returns degraded 503 / db:'down' but the body NEVER contains the raw DB error or connection string", async () => {
+  it("internal: degraded 503 / db:'down' but the body NEVER contains the raw DB error or connection string", async () => {
     mockDbHealthCheck.mockResolvedValue({ ok: false, reconnected: true, error: LEAKY_ERROR });
 
-    const { status, text, body } = await callGet();
+    const { status, text, body } = await callInternal();
 
-    // Degraded, generic status.
     expect(status).toBe(503);
     expect(body.status).toBe("error");
     expect(body.db).toBe("down");
@@ -119,50 +137,81 @@ describe("GET /api/health — DB check fails (the no-leak invariant)", () => {
     for (const secret of SECRET_SUBSTRINGS) {
       expect(text).not.toContain(secret);
     }
-    // And the raw error message in full is absent.
     expect(text).not.toContain(LEAKY_ERROR);
 
-    // No field is derived from result.error — the body has only the safe keys.
+    // No field is derived from result.error — the internal body has only the safe keys.
     expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "dbMode", "reconnected", "status"]);
     expect("error" in body).toBe(false);
   });
 
-  it("when dbHealthCheck THROWS, the route catches it and returns a generic 503 with NO leaked error", async () => {
-    // The real `dbHealthCheck()` (src/lib/db/client.ts) catches internally and ALWAYS resolves to
-    // `{ ok, reconnected, error? }`. But the route must not RELY on that — a future refactor (or an
-    // unexpected throw) could make it reject. The route now wraps dbHealthCheck in try/catch and emits
-    // the generic degraded shape so the rejection never reaches the framework's error serializer (a
-    // leak on this unauthenticated endpoint). This test asserts that defense: a thrown LEAKY_ERROR
-    // surfaces as a clean 503 / db:"down" with none of the secret substrings in the body.
-    mockDbHealthCheck.mockRejectedValue(new Error(LEAKY_ERROR));
+  it("anonymous: degraded 503 with the minimal shape and no leak, no topology", async () => {
+    mockDbHealthCheck.mockResolvedValue({ ok: false, reconnected: true, error: LEAKY_ERROR });
 
     const { status, text, body } = await callGet();
 
-    // Degraded, generic status — the throw is swallowed and mapped to the safe failure shape.
     expect(status).toBe(503);
     expect(body.status).toBe("error");
     expect(body.db).toBe("down");
+    for (const secret of SECRET_SUBSTRINGS) {
+      expect(text).not.toContain(secret);
+    }
+    expect(Object.keys(body).sort()).toEqual(["db", "reconnected", "status"]);
+  });
 
-    // THE INVARIANT on the throwing path: no secret-ish substring of the thrown error leaks.
+  it("when dbHealthCheck THROWS, the route catches it and returns a generic 503 with NO leaked error", async () => {
+    // The real `dbHealthCheck()` catches internally and ALWAYS resolves, but the route must not RELY on
+    // that — it wraps the call in try/catch and emits the generic degraded shape so a rejection never
+    // reaches the framework's error serializer (a leak on this unauthenticated endpoint).
+    mockDbHealthCheck.mockRejectedValue(new Error(LEAKY_ERROR));
+
+    const { status, text, body } = await callInternal();
+
+    expect(status).toBe(503);
+    expect(body.status).toBe("error");
+    expect(body.db).toBe("down");
     for (const secret of SECRET_SUBSTRINGS) {
       expect(text).not.toContain(secret);
     }
     expect(text).not.toContain(LEAKY_ERROR);
-
-    // Body has only the safe keys — nothing derived from the thrown error.
     expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "dbMode", "reconnected", "status"]);
     expect("error" in body).toBe(false);
   });
 });
 
 describe("GET /api/health — persistence disabled", () => {
-  it("returns 200 / db:'disabled' without ever calling dbHealthCheck", async () => {
+  it("anonymous: 200 / db:'disabled' with the minimal shape (no dbMode) and no dbHealthCheck call", async () => {
     mockIsDbConfigured.mockReturnValue(false);
     const { status, body } = await callGet();
     expect(status).toBe(200);
     expect(body.status).toBe("ok");
     expect(body.db).toBe("disabled");
+    expect("dbMode" in body).toBe(false);
     expect(mockDbHealthCheck).not.toHaveBeenCalled();
+  });
+
+  it("internal: 200 / db:'disabled' still reports dbMode for a monitor", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    const { body } = await callInternal();
+    expect(body.db).toBe("disabled");
+    expect(body.dbMode).toBe("postgres");
+  });
+});
+
+describe("GET /api/health — topology gating (app-shell-seo #4)", () => {
+  it("a wrong/missing bearer is treated as anonymous — no topology leaks", async () => {
+    const { body: wrong } = await callGet("Bearer nope");
+    expect("dbMode" in wrong).toBe(false);
+    expect("autoscan" in wrong).toBe(false);
+
+    const { body: none } = await callGet();
+    expect("dbMode" in none).toBe(false);
+  });
+
+  it("when CRON_SECRET is unset (dev/demo), there's nothing to gate — details are open to anyone", async () => {
+    delete process.env.CRON_SECRET;
+    const { body } = await callGet();
+    expect(body.dbMode).toBe("postgres");
+    expect(body.autoscan).toBeTypeOf("object");
   });
 });
 
@@ -174,13 +223,15 @@ describe("GET /api/health — autoscan readiness tripwire", () => {
       const app = Boolean(mask & 2);
       const db = Boolean(mask & 4);
 
-      if (cron) process.env.CRON_SECRET = "cron-secret";
+      if (cron) process.env.CRON_SECRET = CRON;
       else delete process.env.CRON_SECRET;
       mockIsAppConfigured.mockReturnValue(app);
       mockIsDbConfigured.mockReturnValue(db);
       mockDbHealthCheck.mockResolvedValue({ ok: true, reconnected: false });
 
-      const { body } = await callGet();
+      // Always present the bearer: when cron is set it authenticates; when cron is unset the endpoint
+      // is open — either way this caller sees the autoscan detail so the tripwire is observable.
+      const { body } = await callGet(`Bearer ${CRON}`);
       const autoscan = body.autoscan as Record<string, boolean>;
       expect(autoscan.cronSecret).toBe(cron);
       expect(autoscan.githubApp).toBe(app);

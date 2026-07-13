@@ -72,6 +72,15 @@ describe("applyScanEvent — SSE event filter (the sole live-maturity write path
     }
   });
 
+  it("an EMPTY overall (null / '' / boolean) is a no-op — never paints a fake 0 over a real score", () => {
+    // `Number(null)`, `Number("")`, `Number(false)` all coerce to a finite 0; a blank streamed field
+    // must leave the repo's seeded score untouched, not overwrite it with a bogus zero.
+    const before = fleet();
+    for (const overall of [null, "", "   ", false, true]) {
+      expect(applyScanEvent(before, "globex", msg("repo", { repo: "globex/api", overall }))).toBe(before);
+    }
+  });
+
   it("an event for an org that isn't `done` (loading/error) does not write any repo's score", () => {
     const before = fleet();
     // acme is loading, initech is errored — neither has a repos[] to write to.
@@ -81,13 +90,20 @@ describe("applyScanEvent — SSE event filter (the sole live-maturity write path
     expect(applyScanEvent(before, "initech", msg("repo", { repo: "initech/y", overall: 70 }))).toStrictEqual(before);
   });
 
-  it("an event for a repo not present in the org leaves every repo unchanged (no spurious add)", () => {
+  it("#6: a scanned repo NOT on the map yet is APPENDED as a new star, not silently dropped", () => {
     const before = fleet();
-    const after = applyScanEvent(before, "globex", msg("repo", { repo: "globex/ghost", overall: 70 }));
+    const after = applyScanEvent(before, "globex", msg("repo", { repo: "globex/ghost", overall: 70, level: "L3" }));
     const globex = after[1];
     if (globex.status !== "done") throw new Error("unreachable");
-    expect(globex.repos).toHaveLength(2);
-    expect(globex.repos.map((r) => r.overall)).toEqual([null, 40]);
+    expect(globex.repos).toHaveLength(3); // the scan result surfaces instead of being lost
+    const added = globex.repos.find((r) => r.fullName === "globex/ghost")!;
+    expect(added.overall).toBe(70);
+    expect(added.level).toBe("L3");
+    // Not on the watchlist as far as this client knows, and no measured 30-day delta yet.
+    expect(added.watched).toBe(false);
+    expect(added.dOverall).toBeNull();
+    // Pre-existing stars are untouched.
+    expect(globex.repos.find((r) => r.fullName === "globex/api")!.overall).toBe(40);
   });
 
   it("does not double-apply: re-running the same event yields an equal repo and never duplicates a star", () => {

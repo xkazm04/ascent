@@ -11,7 +11,7 @@ import { TriageControls } from "./FleetMap.TriageControls";
 import { useFleetData } from "./useFleetData";
 import { applyScanEvent } from "./applyScanEvent";
 import { type SortKey, fleetStats, makeMatcher, orderConstellations } from "./fleetMapDerive";
-import { type Constellation, FALLER, RISER } from "./fleetMapStars";
+import { type Constellation, DENSE_FLEET_STARS, FALLER, RISER } from "./fleetMapStars";
 
 export function FleetMap({
   installations,
@@ -108,6 +108,9 @@ export function FleetMap({
 
   // Fleet-wide tallies that visibly climb as each org's data streams in.
   const stats = useMemo(() => fleetStats(constellations), [constellations]);
+  // Past the density cap, stop the per-star twinkle (launch-fleet-map #7): a large fleet is otherwise
+  // N×MAX_STARS nodes repainting forever. Reduced-motion is honored in CSS independently of this.
+  const animateStars = stats.repos <= DENSE_FLEET_STARS;
 
   // Hydration is done when every org has SETTLED — reached a terminal state (done OR error), not merely
   // succeeded. Keying this off `stats.loaded` (done only) stuck the header on "charting…" forever whenever
@@ -218,6 +221,7 @@ export function FleetMap({
                 key={c.id}
                 c={c}
                 matcher={matcher}
+                animateStars={animateStars}
                 onScan={() => scanOrg(c.login)}
                 scanning={scanning === c.login}
                 scanDisabled={scanning !== null && scanning !== c.login}

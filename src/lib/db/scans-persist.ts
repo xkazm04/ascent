@@ -160,7 +160,20 @@ export async function persistScanReport(
   if (opts.headEtag != null) headAdvance.headEtag = opts.headEtag;
   const advanceHead = () =>
     prisma.repository.updateMany({
-      where: { id: repo.id, OR: [{ lastScanAt: null }, { lastScanAt: { lt: scannedAtDate } }] },
+      where: {
+        id: repo.id,
+        OR: [
+          { lastScanAt: null },
+          { lastScanAt: { lt: scannedAtDate } },
+          // Exact-timestamp tiebreak (scan-persistence-history #4): a genuinely NEWER commit can share
+          // the stored head's `lastScanAt` to the millisecond (seeded/snapshot data, or two scans landing
+          // in the same tick). The strict `<` above dropped it, so the head never advanced to the latest
+          // commit and getHeadHint kept 304'ing conditional re-scans against a stale sha. Admit the equal
+          // case ONLY when it moves to a DIFFERENT head sha — so it advances to the new commit while a pure
+          // idempotent replay (same sha, e.g. a withRetry re-run) stays a no-op.
+          ...(headSha ? [{ lastScanAt: scannedAtDate, headSha: { not: headSha } }] : []),
+        ],
+      },
       data: headAdvance,
     });
 
@@ -421,7 +434,13 @@ export async function persistScanReport(
     // Reconcile this repo's auto-derived tech-stack group memberships (Feature 3b) from the detected
     // stack. Best-effort — grouping is display metadata and must never break a scan persist; a
     // transient failure self-corrects on the next scan (sync is idempotent).
-    await syncTechStackGroups(orgId, repo.id, report.techStack).catch(() => {});
+    await syncTechStackGroups(orgId, repo.id, report.techStack).catch((err) => {
+      // Best-effort — grouping is display metadata and must never break a scan persist. But swallowing
+      // it SILENTLY hid a persistent misconfiguration (a broken group rule, a systematically failing
+      // sync) with no signal at all; log it so monitoring can see repeated failures. It self-corrects
+      // on the next scan (sync is idempotent). (scan-persistence-history #6)
+      console.warn(`[scans-persist] tech-stack group sync failed for repo ${repo.id} (org ${orgId}):`, err);
+    });
 
     return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha, failures: { audit: false, contributors: 0 } };
   }, { label: "persistScanReport:scan" }));

@@ -155,6 +155,18 @@ describe("POST /api/org/playbooks/[id]/apply — 409 won't-overwrite mapping", (
     expect(mockAudit).not.toHaveBeenCalled();
   });
 
+  it("maps a 404 AppApiError (missing repo/branch) to 404, not 502", async () => {
+    mockDraftPr.mockRejectedValue(new AppApiError(404, "/repos/acme/repo", "not found"));
+    const res = await apply("acme/repo");
+    expect(res.status).toBe(404);
+  });
+
+  it("keeps a 5xx upstream as a 502 bad-gateway", async () => {
+    mockDraftPr.mockRejectedValue(new AppApiError(500, "/repos/acme/repo/pulls", "boom"));
+    const res = await apply("acme/repo");
+    expect(res.status).toBe(502);
+  });
+
   it("maps a 403 AppApiError (missing write scope) to 403 with the permissions hint", async () => {
     mockDraftPr.mockRejectedValue(new AppApiError(403, "/repos/acme/repo/pulls", "forbidden"));
     const res = await apply("acme/repo");

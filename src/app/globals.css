@@ -303,6 +303,11 @@ body {
 .launch-star {
   animation: ascent-twinkle 3.6s ease-in-out infinite;
 }
+/* Large-fleet cap: FleetMap adds this once the fleet exceeds DENSE_FLEET_STARS so the field stops
+   its N×MAX_STARS steady-state repaint (launch-fleet-map #7). Stars keep their static look/opacity. */
+.launch-star-static {
+  animation: none;
+}
 /* A star is a link to its repo report — cursor, hover brighten, and a keyboard focus ring. */
 .launch-star-link {
   cursor: pointer;

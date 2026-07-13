@@ -92,11 +92,13 @@ export function IndexHero({ exampleRepos, auth = null, gated = false }: LandingD
           </div>
         </div>
 
-        {/* hairline stat ledger */}
-        <div className="mt-14 grid grid-cols-3 divide-x divide-divider border-y border-divider py-6">
-          <div className="px-4 sm:px-8"><RuleStat value={String(LEVELS.length)} label="Levels" /></div>
-          <div className="px-4 sm:px-8"><RuleStat value={String(DIMENSIONS.length)} label="Dimensions" /></div>
-          <div className="px-4 sm:px-8"><RuleStat value="0–100" label="Index scale" /></div>
+        {/* hairline stat ledger — a fixed 3-column grid crowded "0–100" into overflow on the narrowest
+            phones (≤320px). Stack to a single divided column below sm (dividers flip from vertical to
+            horizontal) so each stat keeps its full width; three side-by-side columns return from sm up. */}
+        <div className="mt-14 grid grid-cols-1 divide-y divide-divider border-y border-divider py-6 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="px-4 py-3 sm:px-8 sm:py-0"><RuleStat value={String(LEVELS.length)} label="Levels" /></div>
+          <div className="px-4 py-3 sm:px-8 sm:py-0"><RuleStat value={String(DIMENSIONS.length)} label="Dimensions" /></div>
+          <div className="px-4 py-3 sm:px-8 sm:py-0"><RuleStat value="0–100" label="Index scale" /></div>
         </div>
       </div>
     </DeckSection>

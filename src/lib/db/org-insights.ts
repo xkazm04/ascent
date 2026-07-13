@@ -160,10 +160,13 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     }
   }
 
+  // Stable `fullName` tiebreak on each single-key sort (fleet-rollups-insights #6): repos with an equal
+  // delta / level-change otherwise render in the query's arbitrary order, so the same fleet reshuffles
+  // between renders.
   return {
-    gainers: moves.filter((m) => m.dOverall > 0).sort((a, b) => b.dOverall - a.dOverall),
-    regressers: moves.filter((m) => m.dOverall < 0).sort((a, b) => a.dOverall - b.dOverall),
-    levelChanges: moves.filter((m) => m.levelDelta !== 0).sort((a, b) => b.levelDelta - a.levelDelta),
+    gainers: moves.filter((m) => m.dOverall > 0).sort((a, b) => b.dOverall - a.dOverall || a.fullName.localeCompare(b.fullName)),
+    regressers: moves.filter((m) => m.dOverall < 0).sort((a, b) => a.dOverall - b.dOverall || a.fullName.localeCompare(b.fullName)),
+    levelChanges: moves.filter((m) => m.levelDelta !== 0).sort((a, b) => b.levelDelta - a.levelDelta || a.fullName.localeCompare(b.fullName)),
     comparedRepos: moves.length,
   };
 }
@@ -566,6 +569,10 @@ export interface OrgBenchmark {
 
 /** Minimum same-language peer ORGS before a cohort percentile is statistically worth showing. */
 const COHORT_MIN = 5;
+/** Upper bound on the cross-tenant corpus materialized into Node for a benchmark (fleet-rollups-insights
+ *  #5). The corpus is a percentile SAMPLE, not an exact population, so a bounded recent slice is enough —
+ *  and it caps the cross-org read so one tenant's benchmark can't pull the entire fleet into memory. */
+const BENCHMARK_CORPUS_CAP = 5000;
 /** Minimum peer-org count before the headline percentile is worth showing — same discipline as
  *  COHORT_MIN: a 1–4 org corpus yields a confidently-wrong "you beat 100% of orgs". (Percentiles
  *  now rank org-mean vs other-org-means, so the floor counts ORGS, not repos.) */
@@ -588,8 +595,15 @@ export async function getOrgBenchmark(orgSlug: string): Promise<OrgBenchmark | n
 
   // Latest scan + primary language per repo, for every repo NOT in this org. `orgId` is carried so the
   // percentile comparison can be done org-vs-org (like-for-like), not org-mean-vs-repo-distribution.
+  // Capped + filtered (fleet-rollups-insights #5): the old query pulled EVERY other org's repos (and
+  // their latest scan) into Node uncapped — a cross-tenant memory blow-up that grows with the whole
+  // corpus, not this tenant. Bound it to the most-recently-active CORPUS_CAP scored repos (`updatedAt`
+  // bumps on every scan upsert) and require `scans: { some: {} }` so the cap budget isn't spent on
+  // never-scanned repos the loop below discards anyway. A representative recent sample, not the universe.
   const repos = await prisma.repository.findMany({
-    where: { orgId: { not: org.id } },
+    where: { orgId: { not: org.id }, scans: { some: {} } },
+    orderBy: { updatedAt: "desc" },
+    take: BENCHMARK_CORPUS_CAP,
     select: {
       orgId: true,
       primaryLanguage: true,
@@ -857,7 +871,9 @@ export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | nu
       }
     }
   }
-  repoSpecific.sort((a, b) => b.delta - a.delta);
+  // Stable tiebreak (fleet-rollups-insights #6): equal-delta outliers otherwise slice(0,12) in arbitrary
+  // order, so which outliers survive the cap could differ run-to-run. fullName then dimId make it fixed.
+  repoSpecific.sort((a, b) => b.delta - a.delta || a.fullName.localeCompare(b.fullName) || a.dimId.localeCompare(b.dimId));
 
   return { scanned, commonGaps, repoSpecific: repoSpecific.slice(0, 12) };
 }

@@ -24,6 +24,7 @@ export function ConstellationField({
   scanDisabled = false,
   scanError,
   matcher,
+  animateStars = true,
 }: {
   c: Constellation;
   /** Scan this org's watched repos from the map (MAP-2); omitted = no scan affordance. */
@@ -35,6 +36,10 @@ export function ConstellationField({
   scanError?: string;
   /** When set, stars that fail the predicate are dimmed (not removed) — the fleet filter (MAP-4). */
   matcher?: (r: RepoStar) => boolean;
+  /** Twinkle the hydrated stars. FleetMap turns this OFF once the fleet is large (launch-fleet-map #7):
+   *  N×MAX_STARS forever-animating nodes is a steady-state repaint. Reduced-motion is honored via CSS
+   *  regardless of this flag. */
+  animateStars?: boolean;
 }) {
   const repos = c.status === "done" ? c.repos.slice(0, MAX_STARS) : [];
   const scanned = c.status === "done" ? c.repos.filter((r) => r.overall != null).length : 0;
@@ -151,7 +156,11 @@ export function ConstellationField({
                   className="launch-star-link"
                   aria-label={`Open report for ${r.fullName}${detail}`}
                 >
-                  <circle cx={cx} cy={cy} r={Math.max(look.r + 1.4, 3)} fill="transparent" />
+                  {/* Invisible touch target — grows the HIT area, never the visible star (that stays
+                      `look.r`). The map's 120-unit viewBox renders ~250–350px wide on a phone (~2.1–2.9
+                      px/unit), so a ≥6-unit radius = ≥12px = a ≥24px-diameter tap target down to a 320px
+                      screen, clearing the WCAG 2.2 target-size minimum the old r≈3 (~15px) fell short of. */}
+                  <circle cx={cx} cy={cy} r={Math.max(look.r + 3, 6)} fill="transparent" />
                   {moved != null && (
                     <circle
                       cx={cx}
@@ -164,7 +173,7 @@ export function ConstellationField({
                     />
                   )}
                   <circle
-                    className="launch-star"
+                    className={animateStars ? "launch-star" : "launch-star launch-star-static"}
                     cx={cx}
                     cy={cy}
                     r={look.r}

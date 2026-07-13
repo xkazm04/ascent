@@ -160,6 +160,13 @@ describe("conformance wiring (one script, two layers)", () => {
     const w = buildConformanceWiring();
     expect(w.body).not.toMatch(/branches:\s*\[(main|master|trunk)\]/);
   });
+
+  it("declares a least-privilege permissions block (read-only contents) — supply-chain guardrail (#7)", () => {
+    const w = buildConformanceWiring();
+    // A generated workflow with NO permissions block inherits the org default (often read/write); pin it
+    // to the minimum the doctor gate needs: read the checked-out code, nothing else.
+    expect(w.body).toMatch(/permissions:\s*\n\s*contents:\s*read/);
+  });
 });
 
 describe("maintain (self-maintaining upkeep)", () => {

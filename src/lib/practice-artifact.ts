@@ -67,6 +67,18 @@ function shape(p: PracticeDef): string {
   return p.starter.map((s) => `- [ ] ${s}`).join("\n");
 }
 
+/**
+ * Neutralize repo-supplied text before it is interpolated into a markdown artifact we COMMIT to the
+ * customer's repo (practices #7). Collapse to a single line and drop the characters that could break
+ * out of the surrounding structure — backticks (escape a code span into a code block / injected
+ * content) and angle brackets (raw HTML). The repo name/fullName/branch are GitHub-charset-constrained
+ * anyway, but `description` is free-form user text and is the real injection vector; sanitize all
+ * repo-supplied strings uniformly (defense in depth). Ordinary punctuation is preserved.
+ */
+function safeText(s: string): string {
+  return s.replace(/[\r\n\t]+/g, " ").replace(/[`<>]/g, "").trim();
+}
+
 const TODO = "<!-- TODO: fill in for this repo -->";
 
 function ciWorkflow(ctx: RepoContext, cmd: LangCommands): string {
@@ -85,7 +97,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [${ctx.defaultBranch ?? "main"}]
+    branches: [${JSON.stringify(ctx.defaultBranch ?? "main")}]
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -103,7 +115,12 @@ export function buildArtifact(practiceId: string, ctx: RepoContext): ArtifactSpe
   const p = PRACTICES.find((x) => x.id === practiceId);
   if (!p) return null;
   const cmd = commandsFor(ctx.primaryLanguage);
-  const desc = ctx.description?.trim() || TODO;
+  // Escape every repo-supplied field before it lands in the committed file (practices #7). The TODO
+  // fallback is a trusted literal, so only the real description is sanitized.
+  const name = safeText(ctx.name);
+  const fullName = safeText(ctx.fullName);
+  const rawDesc = ctx.description?.trim();
+  const desc = rawDesc ? safeText(rawDesc) : TODO;
 
   // Per-practice file path + body. The starter checklist is woven in as the backbone so the
   // generated artifact stays consistent with what the Practice Library promised.
@@ -113,7 +130,7 @@ export function buildArtifact(practiceId: string, ctx: RepoContext): ArtifactSpe
   switch (p.id) {
     case "agent-guidance":
       path = "AGENTS.md";
-      body = `# ${ctx.name} — agent guidance
+      body = `# ${name} — agent guidance
 
 > Machine-readable context so any AI contribution lands consistent and on-spec. Replace the
 > ${"`<...>`"} / TODO placeholders with this repo's specifics.
@@ -151,7 +168,7 @@ ${TODO}
 
     case "test-discipline":
       path = "docs/TESTING.md";
-      body = `# Testing guide — ${ctx.name}
+      body = `# Testing guide — ${name}
 
 The guardrail that makes AI-generated changes safe to merge.
 
@@ -231,7 +248,7 @@ ${TODO}
 
     case "legible-history":
       path = "docs/COMMIT_CONVENTIONS.md";
-      body = `# Commit conventions — ${ctx.name}
+      body = `# Commit conventions — ${name}
 
 A legible, attributable history lets you see where AI helped and how it fared, and gives
 automation reliable signals.
@@ -250,7 +267,7 @@ stays honest about how the work was produced.
 
     case "ai-harness":
       path = "docs/AI_HARNESS.md";
-      body = `# AI process & harness — ${ctx.name}
+      body = `# AI process & harness — ${name}
 
 Turns ad-hoc prompting into a repeatable, trustworthy part of how the team ships.
 
@@ -270,7 +287,7 @@ ${TODO} — describe the Definition-of-Done an AI-generated change must meet bef
 
     case "supply-chain-security":
       path = "SECURITY.md";
-      body = `# Security policy — ${ctx.name}
+      body = `# Security policy — ${name}
 
 The shift-left guardrail against the vulnerable or secret-leaking code AI can confidently produce.
 
@@ -305,7 +322,7 @@ ${TODO} — link the CI workflows that enforce the above (SAST, dependency/secre
     commitMessage: `chore: add ${p.label.toLowerCase()} starter (via Ascent)`,
     branch,
     prTitle: `Add ${p.label} starter`,
-    prBody: `This draft seeds the **${p.label}** practice into \`${ctx.fullName}\`.
+    prBody: `This draft seeds the **${p.label}** practice into \`${fullName}\`.
 
 > _${p.what}_
 

@@ -604,6 +604,53 @@ describe("assembleReport — failed detector excluded from the overall (#2)", ()
 });
 
 // ---------------------------------------------------------------------------
+// assembleReport — a FULLY-UNMEASURED axis is flagged, not silently posture-labeled (#7)
+//
+// When every detector on ONE axis fails, axisScore returns a placeholder 0 (it must return a number),
+// which postureFor would read as a genuine "low on this axis" and silently mis-place the quadrant. The
+// engine now detects the unmeasured axis (axisMeasured) and surfaces a warning so the posture isn't
+// trusted on that axis — without changing axisScore's numeric contract its other callers depend on.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — fully-unmeasured axis flagged (#7)", () => {
+  it("every ADOPTION-axis detector failing → adoption score is a placeholder 0 and a warning marks it unmeasured", () => {
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    const llm: Record<string, number> = {};
+    for (const d of DIMENSIONS) {
+      if (d.axis === "adoption") {
+        spec[d.id] = { signalScore: 0, failed: true }; // D1/D4/D7 all threw → adoption axis fully dropped
+      } else {
+        spec[d.id] = { signalScore: 80 };
+        llm[d.id] = 80;
+      }
+    }
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith(llm), eng, AT, "org");
+
+    // The adoption axis has NO measured dimension → its stored score is the placeholder 0 (not a reading),
+    // while rigor is genuinely measured. Without the guard the posture reads a confident "Solid but Manual".
+    expect(report.adoptionScore).toBe(0);
+    expect(report.rigorScore).toBeGreaterThan(0);
+    // The unmeasured-axis warning fires, so the posture is not SILENTLY trusted on the dropped axis.
+    expect((report.warnings ?? []).some((w) => /Adoption axis could not be measured/i.test(w))).toBe(true);
+  });
+
+  it("does NOT fire when both axes retain at least one measured dimension", () => {
+    const spec: Record<string, { signalScore: number; failed?: boolean }> = {};
+    const llm: Record<string, number> = {};
+    for (const d of DIMENSIONS) {
+      if (d.id === "D1" || d.id === "D2") {
+        spec[d.id] = { signalScore: 60 }; // D1 (adoption) + D2 (rigor) survive → both axes measured
+        llm[d.id] = 60;
+      } else {
+        spec[d.id] = { signalScore: 0, failed: true };
+      }
+    }
+    const report = assembleReport(snapWithCoverage(1), signalsWith(spec), assessmentWith(llm), eng, AT, "org");
+    expect((report.warnings ?? []).some((w) => /axis could not be measured/i.test(w))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // applyGovernanceSignals — default-branch governance fold into D6/D3/D8 (#3)
 //
 // ZERO prior tests. The governance fold feeds the rigor axis the CI gate blocks on, so a

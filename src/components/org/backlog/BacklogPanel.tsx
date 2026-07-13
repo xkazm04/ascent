@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/org/shared/ui";
 import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
 import { OwnerHeader, SummaryStrip } from "@/components/org/backlog/BacklogSummary";
@@ -33,6 +33,23 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
   // server re-read that wholesale-replaces the backlog; without sequencing, a slower-arriving OLDER
   // snapshot can clobber a newer one when two items are edited in quick succession (lost edit).
   const refreshSeq = useRef(0);
+
+  // backlog-management #3: an inline owner/due edit re-groups its row into a different Card, which
+  // UNMOUNTS+remounts the row and strands keyboard/SR focus on <body>. A row records the control it's
+  // editing here (`${id}:field`); once the refresh re-renders the (possibly moved) row, the effect
+  // below restores focus to that control by its stable `data-focus-key`. The parent never remounts, so
+  // it's the reliable place to own this. React 19 batches the refresh's setBacklog with the save-flag
+  // clear into one commit, so the restored control is already re-enabled when we focus it.
+  const pendingFocus = useRef<string | null>(null);
+  const onEditField = useCallback((key: string) => {
+    pendingFocus.current = key;
+  }, []);
+  useEffect(() => {
+    const key = pendingFocus.current;
+    if (!key) return;
+    pendingFocus.current = null;
+    document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(key)}"]`)?.focus();
+  }, [backlog]);
 
   // Returns whether a fresh authoritative snapshot was actually applied, so a caller can tell "the
   // server view is now current" from "the refresh was swallowed" (backlog #2).
@@ -162,6 +179,7 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
                     state={rowStates[item.id]}
                     onState={(patch) => setRowState(item.id, patch)}
                     onPatch={patch}
+                    onEditField={onEditField}
                   />
                 ))}
               </div>

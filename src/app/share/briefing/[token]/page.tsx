@@ -3,7 +3,7 @@
 // Outside the /org layout (no session gate); the token is the capability and carries the window.
 // Exposes only what the Briefing tab shows. noindex so a leaked link isn't crawled.
 
-import { SiteFooter, SiteHeader } from "@/components/Brand";
+import { Logo } from "@/components/Brand";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { DimRow, PriorPeriodGrid } from "@/components/org/executive/briefingShared";
 import { buildExecBriefing, engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
@@ -16,15 +16,41 @@ import { scoreHex } from "@/lib/ui";
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
 
+// A minimal branded frame for the anonymous share view. The full marketing SiteHeader/SiteFooter
+// (Pricing / About / Sign-in, the org switcher, footer funnel links) is wrong here: the viewer is a
+// board member holding a capability token, with no account and nowhere to sign in — so we show only
+// the brand mark and a "shared briefing" label, no navigation into the funnel.
+function ShareHeader() {
+  return (
+    <header className="border-b border-divider/70 bg-ink/80 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
+        <Logo />
+        <span className="font-mono text-xs uppercase tracking-widest text-slate-500">Shared briefing</span>
+      </div>
+    </header>
+  );
+}
+
+function ShareFooter() {
+  return (
+    <footer className="mt-auto border-t border-divider/70 py-6 text-center">
+      <Logo className="justify-center opacity-70" />
+      <p className="mt-2 font-mono text-xs uppercase tracking-widest text-slate-500">
+        The maturity index for AI-native engineering
+      </p>
+    </footer>
+  );
+}
+
 function Notice({ title, body }: { title: string; body: string }) {
   return (
     <>
-      <SiteHeader />
+      <ShareHeader />
       <main id="main" className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center px-5 text-center">
         <h1 className="text-xl font-bold text-white">{title}</h1>
         <p className="mt-2 text-base text-slate-400">{body}</p>
       </main>
-      <SiteFooter />
+      <ShareFooter />
     </>
   );
 }
@@ -74,7 +100,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
 
   return (
     <>
-      <SiteHeader />
+      <ShareHeader />
       <main id="main" className="mx-auto w-full max-w-5xl px-5 py-10">
         <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2 font-mono text-sm text-slate-500">
           Read-only shared briefing · {briefing.periodTitle}
@@ -159,7 +185,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           )}
         </Card>
       </main>
-      <SiteFooter />
+      <ShareFooter />
     </>
   );
 }

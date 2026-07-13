@@ -60,6 +60,27 @@ describe("classifyRepoEvent", () => {
     const ev = classifyRepoEvent({ repo: "acme/api", overall: 0, adoption: 0, rigor: 0 });
     expect(ev).toMatchObject({ kind: "scored", overall: 0, adoption: 0, rigor: 0 });
   });
+
+  it("rejects an EMPTY overall (null / '' / boolean) as invalid — never a fake 0", () => {
+    // `Number(null)`, `Number("")`, `Number(false)` are each a finite 0; a blank field must stay
+    // "unknown", not be coerced into a real zero score.
+    for (const overall of [null, "", "   ", false, true]) {
+      expect(classifyRepoEvent({ repo: "acme/api", overall })).toEqual({ kind: "invalid" });
+    }
+  });
+
+  it("nulls an EMPTY secondary axis instead of coercing it to a fake 0", () => {
+    // overall is real; adoption is blank ("") and rigor is null — both must read "unknown" (null),
+    // not a bogus 0 the way `Number("")`/`Number(null)` would have.
+    expect(classifyRepoEvent({ repo: "acme/api", overall: 40, adoption: "", rigor: null })).toEqual({
+      kind: "scored",
+      overall: 40,
+      adoption: null,
+      rigor: null,
+      level: null,
+      posture: null,
+    });
+  });
 });
 
 // The PostureMix bars must show each posture's TRUE share of the whole scored fleet (count/total*100),

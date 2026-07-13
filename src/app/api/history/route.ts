@@ -111,13 +111,25 @@ export async function GET(request: Request) {
     // re-transfer an unchanged series. Caching is `private` (not `s-maxage`): the payload is
     // org-scoped and may be auth-gated, so it must never sit in a shared proxy cache where another
     // tenant could receive it.
-    // Fold a content signature of the newest scan (scannedAt + overallScore) into the validator, not
-    // just (mode, count, newest id): a malformed newest row later CORRECTED in place — same id, same
-    // total count — left the weak ETag unchanged, so a client holding it got a 304 forever and never
-    // saw the fix. The signature changes when the newest row's timestamp or score changes.
-    const newest = payload.scans[0];
-    const sig = newest ? `${newest.id}-${newest.scannedAt}-${newest.overallScore}` : "none";
-    const etag = `W/"h${includeDimensions ? "f" : "l"}${payload.scans.length}-${sig}"`;
+    // Fold a content signature of the WHOLE series into the validator, not just the newest scan: an
+    // in-place fix to an OLDER row (same id, same total count, newest untouched) must still bust the
+    // cache. Signing only the newest scan (scannedAt + overallScore) left a client holding the ETag a
+    // 304 forever after any historical correction — it never saw the fix (trends-comparison #6). Hash a
+    // compact per-scan projection of every point (id, timestamp, overall, level, and each dimension score
+    // when dimensions are included) so a corrected value anywhere in the series changes the tag.
+    const seriesSig = payload.scans.length
+      ? sha256Hex(
+          payload.scans
+            .map(
+              (s) =>
+                `${s.id}:${s.scannedAt}:${s.overallScore}:${s.level}:${(s.dimensions ?? [])
+                  .map((d) => `${d.dimId}=${d.score}`)
+                  .join(",")}`,
+            )
+            .join("|"),
+        ).slice(0, 24)
+      : "none";
+    const etag = `W/"h${includeDimensions ? "f" : "l"}${payload.scans.length}-${seriesSig}"`;
     const headers: Record<string, string> = {
       etag,
       "cache-control": "private, max-age=30, stale-while-revalidate=300",

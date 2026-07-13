@@ -19,7 +19,7 @@
 //   4. NO CRASH ON OMITTED OPTIONALS — every prop is optional; building the tree with none must not throw.
 
 import { describe, it, expect } from "vitest";
-import { isValidElement, type ReactElement, type ReactNode } from "react";
+import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { EmptyState, type EmptyStateAction } from "./EmptyState";
 
 // ── React element-tree walker (pure; mirrors error.test.ts / report-document.test.ts) ───────────────
@@ -91,6 +91,26 @@ describe("EmptyState — core props render", () => {
   it("renders the alert node when provided", () => {
     const els = tree({ title: "T", alert: "Your session expired" });
     expect(els.some((el) => textOf(el).includes("Your session expired"))).toBe(true);
+  });
+});
+
+describe("EmptyState — body block-content safety (valid HTML)", () => {
+  it("renders a plain string body inside a <p>", () => {
+    const els = tree({ title: "T", body: "just some copy" });
+    const p = els.find((el) => el.type === "p");
+    expect(p).toBeDefined();
+    expect(textOf(p!)).toBe("just some copy");
+  });
+
+  it("renders a non-string (block) body inside a <div>, never nested in a <p>", () => {
+    const body = createElement("ul", {}, createElement("li", {}, "line one"));
+    const els = tree({ title: "T", body });
+    // The block list must actually render…
+    const ul = els.find((el) => el.type === "ul");
+    expect(ul).toBeDefined();
+    // …but never inside a <p> (block-in-<p> is invalid HTML the browser would re-parent/mis-render).
+    const pWrappingBlock = els.find((el) => el.type === "p" && textOf(el).includes("line one"));
+    expect(pWrappingBlock).toBeUndefined();
   });
 });
 

@@ -76,7 +76,15 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
                   {d.billable > 0 && (
                     <div style={{ height: `${billH}%`, backgroundColor: BILLABLE }} className="rounded-t-sm transition group-hover:brightness-125" />
                   )}
-                  {d.free > 0 && <div style={{ height: `${freeH}%`, backgroundColor: FREE }} className="transition group-hover:brightness-125" />}
+                  {/* Round whichever segment is on top: when there's no billable cap above it, the free
+                      segment is the crown of the bar and takes the same rounded top the billable cap has,
+                      so free-only days don't read as square-topped next to rounded billable days. */}
+                  {d.free > 0 && (
+                    <div
+                      style={{ height: `${freeH}%`, backgroundColor: FREE }}
+                      className={`transition group-hover:brightness-125 ${d.billable > 0 ? "" : "rounded-t-sm"}`}
+                    />
+                  )}
                   {total === 0 && <div className="h-px bg-slate-800" />}
                 </div>
               );

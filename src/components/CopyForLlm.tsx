@@ -58,23 +58,30 @@ export function CopyForLlm({
   }
 
   return (
-    <button
-      type="button"
-      onClick={copy}
-      title="Copy a markdown briefing to paste into Claude Code or another LLM"
-      aria-label={ariaLabel ?? label}
-      aria-live="polite"
-      className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
-        copied
-          ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
-          : failed
-            ? "border-danger/50 text-danger"
-            : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
-      } ${className}`}
-    >
-      <span aria-hidden>{copied ? "✓" : failed ? "⚠" : "⧉"}</span>
-      {copied ? "Copied" : failed ? "Copy failed" : label}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={copy}
+        title="Copy a markdown briefing to paste into Claude Code or another LLM"
+        aria-label={ariaLabel ?? label}
+        className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
+          copied
+            ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+            : failed
+              ? "border-danger/50 text-danger"
+              : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
+        } ${className}`}
+      >
+        <span aria-hidden>{copied ? "✓" : failed ? "⚠" : "⧉"}</span>
+        {copied ? "Copied" : failed ? "Copy failed" : label}
+      </button>
+      {/* pdf-llm-export #2: the button's accessible NAME is a fixed aria-label, so its visible
+          Copied / Copy-failed swap was invisible to screen readers (and aria-live on the button
+          itself is unreliable). Announce the outcome through a dedicated polite live region. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {copied ? "Copied to clipboard." : failed ? "Copy failed." : ""}
+      </span>
+    </>
   );
 }
 

@@ -37,6 +37,11 @@ export async function DELETE(request: Request, ctx: { params: Promise<{ id: stri
   if (!body.repo?.trim()) return NextResponse.json({ error: "Provide { repo }." }, { status: 400 });
   const gated = await resolvePlaybookOrg(id);
   if (gated instanceof Response) return gated;
-  await unapplyPlaybook(id, body.repo.trim());
+  // Mirror POST (playbooks #6) via the shared parseOrgRepo: normalize + tenant-check the repo. The mark
+  // was stored under the canonical `owner/repo` fullName, so the unmark must normalize the SAME way to
+  // actually match it — and a member must not be able to aim an unmark at a cross-tenant repo coordinate.
+  const coord = parseOrgRepo(body.repo, gated.org);
+  if (coord instanceof Response) return coord;
+  await unapplyPlaybook(id, coord.fullName);
   return NextResponse.json({ ok: true });
 }

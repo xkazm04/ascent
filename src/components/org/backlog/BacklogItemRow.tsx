@@ -31,6 +31,7 @@ export function BacklogItemRow({
   state,
   onState,
   onPatch,
+  onEditField,
 }: {
   org: string;
   item: BacklogItem;
@@ -42,6 +43,10 @@ export function BacklogItemRow({
   /** Merge a patch into this row's lifted state in the parent. */
   onState: (patch: BacklogRowState) => void;
   onPatch: (id: string, body: Record<string, unknown>) => Promise<PatchOutcome>;
+  /** Tell the parent which inline control is being edited (`${id}:status|owner|due`) so it can
+   *  restore keyboard focus after the edit re-groups this row into a different Card and remounts it,
+   *  which otherwise drops focus to <body> (backlog-management #3). */
+  onEditField: (focusKey: string) => void;
 }) {
   // Persisted-across-remount state lives in the parent (BacklogPanel); only the truly transient
   // in-flight busy flags stay local.
@@ -69,6 +74,11 @@ export function BacklogItemRow({
   const shown = { ...item, ...override };
 
   async function patchField(patch: Partial<Pick<BacklogItem, "status" | "assigneeLogin" | "targetDate">>) {
+    // Record which control the user is on so the parent can return focus here after the PATCH's
+    // backlog re-read re-groups this row into a different owner/due Card and remounts it — the remount
+    // otherwise strands keyboard/SR focus on <body> (backlog-management #3).
+    const field = "status" in patch ? "status" : "assigneeLogin" in patch ? "owner" : "due";
+    onEditField(`${item.id}:${field}`);
     setOverride((o) => ({ ...o, ...patch }));
     // Route through patchAndRefresh so an open history list also refreshes with the new timeline event
     // (origin's behaviour) while the optimistic override keeps the value on screen until the backlog
@@ -182,7 +192,9 @@ export function BacklogItemRow({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="font-medium text-white">{item.title}</div>
+          {/* min-w-0 on this flex item (above) lets the block title truncate: a long unbroken title
+              now ellipsises to one line instead of forcing the row wide; full text on hover. */}
+          <div className="truncate font-medium text-white" title={item.title}>{item.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-sm text-slate-500">
             <span className="text-slate-400">{item.repo}</span>
             <span>· {item.dimId} {item.dimLabel}</span>
@@ -216,6 +228,7 @@ export function BacklogItemRow({
             disabled={saving}
             onChange={(status) => patchField({ status })}
             aria-label="Status"
+            data-focus-key={`${item.id}:status`}
           />
         </label>
 
@@ -226,6 +239,7 @@ export function BacklogItemRow({
             disabled={saving}
             onChange={(e) => patchField({ assigneeLogin: e.target.value || null })}
             aria-label="Owner"
+            data-focus-key={`${item.id}:owner`}
             className="max-w-[10rem] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
           >
             <option value="">Unassigned</option>
@@ -245,6 +259,7 @@ export function BacklogItemRow({
             disabled={saving}
             onChange={(e) => patchField({ targetDate: e.target.value || null })}
             aria-label="Due date"
+            data-focus-key={`${item.id}:due`}
             className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
           />
         </label>

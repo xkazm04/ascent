@@ -30,9 +30,11 @@ export function SegmentComparePicker({ options, a, b }: { options: Opt[]; a: str
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {/* Disable the option already chosen on the OTHER side so A and B can never be the same segment
+          (comparing a slice to itself is a meaningless all-zero diff). */}
       <select value={a} onChange={(e) => navigate({ a: e.target.value, b })} aria-label="Segment A" className={selectCls}>
         {options.map((o) => (
-          <option key={o.id} value={o.id}>
+          <option key={o.id} value={o.id} disabled={o.id === b}>
             {o.name}
           </option>
         ))}
@@ -41,7 +43,7 @@ export function SegmentComparePicker({ options, a, b }: { options: Opt[]; a: str
       <select value={b ?? ""} onChange={(e) => navigate({ a, b: e.target.value || null })} aria-label="Segment B" className={selectCls}>
         <option value="">Whole fleet</option>
         {options.map((o) => (
-          <option key={o.id} value={o.id}>
+          <option key={o.id} value={o.id} disabled={o.id === a}>
             {o.name}
           </option>
         ))}

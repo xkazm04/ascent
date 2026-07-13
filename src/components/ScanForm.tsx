@@ -222,9 +222,13 @@ export function ScanForm({
           (the placeholder disappears the moment the user types). */}
       <p className="mt-1.5 font-mono text-sm text-slate-500 sm:hidden">github.com/owner/repo</p>
 
-      {/* Inline validation message, wired to the input via aria-describedby. */}
+      {/* Inline validation message, wired to the input via aria-describedby AND exposed as a live
+          alert. Without role="alert" the message was silent to screen readers: it appears only after a
+          submit, focus stays on the input/button, and a bare <p> in the a11y tree is never announced on
+          insertion — so a non-sighted user got the shake with no idea WHY the scan didn't start.
+          role="alert" (assertive live region) announces it the moment it renders. */}
       {error && (
-        <p id={errorId} className="mt-2 animate-fade-up text-base text-danger">
+        <p id={errorId} role="alert" className="mt-2 animate-fade-up text-base text-danger">
           {error}
         </p>
       )}

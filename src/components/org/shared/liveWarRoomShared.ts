@@ -113,9 +113,20 @@ export type RepoEventClass =
     }
   | { kind: "invalid" };
 
-const finiteOrNull = (v: unknown): number | null => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+/**
+ * Strictly parse a streamed numeric field: a real finite `number`, or a non-empty numeric string.
+ * null / undefined / "" (or whitespace) / a boolean each coerce to null — an empty input must stay
+ * "unknown", never a fake `0`. (`Number(null)`, `Number("")` and `Number(false)` are all a finite
+ * `0` that the old `Number(v)` guard accepted, painting a real zero score over a blank field.) A
+ * genuine `0` is a measurement and is kept.
+ */
+const strictFinite = (v: unknown): number | null => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 };
 
 /**
@@ -128,13 +139,13 @@ const finiteOrNull = (v: unknown): number | null => {
 export function classifyRepoEvent(d: Record<string, unknown>): RepoEventClass {
   if (d.error) return { kind: "error", message: String(d.error) };
   if (d.skipped) return { kind: "skipped", reason: String(d.skipped) };
-  const overall = Number(d.overall);
-  if (!Number.isFinite(overall)) return { kind: "invalid" };
+  const overall = strictFinite(d.overall);
+  if (overall === null) return { kind: "invalid" };
   return {
     kind: "scored",
     overall,
-    adoption: finiteOrNull(d.adoption),
-    rigor: finiteOrNull(d.rigor),
+    adoption: strictFinite(d.adoption),
+    rigor: strictFinite(d.rigor),
     level: d.level != null ? String(d.level) : null,
     posture: d.posture != null ? String(d.posture) : null,
   };
