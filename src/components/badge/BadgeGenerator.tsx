@@ -27,6 +27,13 @@ type Kind = "level" | "score" | "gate";
 type Format = "markdown" | "html" | "asciidoc";
 
 const STYLES: readonly Style[] = BADGE_STYLES;
+// The gate badge's pass bar. Without an explicit min_level the badge route evaluates the
+// archetype-dependent DEFAULT policy — a bar the badge author never saw or chose, which silently
+// changes if the repo's detected archetype changes (usage-metering-public-badge 2026-07-16 #1). The
+// generator therefore always pins an explicit min_level on gate URLs and states what "pass" means.
+// L3 default matches the CI snippet on the same page (`min-level: L3`).
+const MIN_LEVELS = ["L1", "L2", "L3", "L4", "L5"] as const;
+type MinLevel = (typeof MIN_LEVELS)[number];
 const FORMATS: { id: Format; label: string }[] = [
   { id: "markdown", label: "Markdown" },
   { id: "html", label: "HTML" },
@@ -37,6 +44,7 @@ export function BadgeGenerator() {
   const [input, setInput] = useState("");
   const [style, setStyle] = useState<Style>("flat");
   const [kind, setKind] = useState<Kind>("level");
+  const [minLevel, setMinLevel] = useState<MinLevel>("L3");
   const [format, setFormat] = useState<Format>("markdown");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
@@ -48,11 +56,16 @@ export function BadgeGenerator() {
     if (!parsed) return "";
     const qs = new URLSearchParams();
     if (style !== "flat") qs.set("style", style);
-    if (kind === "gate") qs.set("gate", "1");
+    if (kind === "gate") {
+      qs.set("gate", "1");
+      // Always disclose the policy on the URL: a bare ?gate=1 evaluates an undisclosed
+      // archetype-dependent default the README reader (and author) can't state.
+      qs.set("min_level", minLevel);
+    }
     if (kind === "score") qs.set("metric", "score");
     const q = qs.toString();
     return `${origin}/api/badge/${parsed.owner}/${parsed.repo}${q ? `?${q}` : ""}`;
-  }, [parsed, style, kind, origin]);
+  }, [parsed, style, kind, minLevel, origin]);
 
   // The live <img> must NOT be tallied as a real README impression. The badge route counts an origin
   // hit ONLY on the CANONICAL, no-query path — and the default level/flat preview IS that path — so
@@ -140,6 +153,16 @@ export function BadgeGenerator() {
               </button>
             ))}
           </div>
+          {kind === "gate" && (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Pass bar</span>
+              {MIN_LEVELS.map((l) => (
+                <button key={l} type="button" onClick={() => setMinLevel(l)} className={chip(minLevel === l)}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -157,6 +180,14 @@ export function BadgeGenerator() {
             <span className="text-base text-slate-500">Enter a repository to preview its badge.</span>
           )}
         </div>
+        {kind === "gate" && (
+          // Say what "pass" means, right where the verdict is previewed — the criteria must never be
+          // an undisclosed default the badge author can't state.
+          <p className="mt-2 text-sm text-slate-500">
+            Pass means: minimum overall level <span className="font-mono text-slate-300">{minLevel}</span> — the
+            badge shows ✓ pass / ✗ fail against this bar.
+          </p>
+        )}
       </div>
 
       {/* Snippet + copy */}
