@@ -130,7 +130,14 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     // discipline was never measurable — null, NOT a fabricated "0% reviewed" that would drag D6
     // and feed the LLM auditor a stated falsehood (same measured-zero vs no-sample class as
     // aiGovernedRate below and the failed-detector exclusion).
-    reviewedRate: mergedHuman > 0 ? pct(reviewedHumanMerged, mergedHuman) : null,
+    // Minimum-sample floor (ambiguity-ui 2026-07-16 maturity #2): the SAME >= 5 floor as
+    // aiGovernedRate, for the same statistical reason — at 1–4 human-merged PRs a single
+    // unreviewed (e.g. self-merged) PR swings the rate 25–100pts, drags D6 through prRigor's 0.5
+    // weight, and can flip the rigor axis / posture near the 50 threshold off a meaningless
+    // sample. Below the floor the rate is null ("not measurable"), and applyPrSignals
+    // renormalizes prRigor over the measurable hygiene/stability terms. Keep this floor in
+    // lockstep with aiGovernedRate's `>= 5` below.
+    reviewedRate: mergedHuman >= 5 ? pct(reviewedHumanMerged, mergedHuman) : null,
     avgReviews: analyzed ? Math.round((reviewsSum / analyzed) * 10) / 10 : 0,
     avgComments: analyzed ? Math.round((commentsSum / analyzed) * 10) / 10 : 0,
     medianHoursToMerge: median(ttm),
@@ -173,8 +180,8 @@ export function applyPrSignals(
   const reviewedRate = opts?.offPlatformReview ? null : pr.reviewedRate;
 
   // PR-derived rigor: review discipline dominates; PR hygiene + stability round it out.
-  // When review coverage has NO sample (reviewedRate null — zero human-authored merged PRs, or
-  // off-platform review), drop the review term and renormalize the remaining weights (0.3/0.5 and
+  // When review coverage has NO usable sample (reviewedRate null — fewer than 5 human-authored
+  // merged PRs, or off-platform review), drop the review term and renormalize the remaining weights (0.3/0.5 and
   // 0.2/0.5) so the measurable hygiene/stability signals still count without a fabricated 0% dragging D6.
   const stability = Math.max(0, 100 - pr.revertRate * 6);
   const prRigor = clamp(
@@ -195,7 +202,7 @@ export function applyPrSignals(
               reviewedRate == null
                 ? opts?.offPlatformReview
                   ? "PR review coverage n/a (review runs off-GitHub — credited in D6)"
-                  : "PR review coverage n/a (no human-merged PRs in window)"
+                  : "PR review coverage n/a (fewer than 5 human-merged PRs in window)"
                 : `PR review coverage ${reviewedRate}%`,
             detail: `${pr.merged} merged · ${pr.smallPrRate}% small · ${pr.revertRate}% reverted`,
           },
