@@ -85,9 +85,39 @@ export function FleetMap({
         setScanError((m) => ({ ...m, [login]: "Scan failed to start." }));
         return;
       }
+      // Tally the stream's outcomes OUTSIDE the state updater (updaters can re-run under StrictMode):
+      // a 200 stream that applies zero scores used to revert "Scanning…" → "Scan" with no message —
+      // indistinguishable from "nothing watched", the exact silent-reversion failure the !res.ok branch
+      // above exists to prevent. Count applicable repo events vs skipped/errored ones so the scan always
+      // ends with an explicit outcome. (ambiguity-ui-scan-2026-07-16 launch-fleet-map #1)
+      let applied = 0;
+      let inapplicable = 0;
+      let firstReason: string | null = null;
       await readSSE(res.body, (msg) => {
+        if (msg.event === "repo" && msg.data) {
+          if (msg.data.error || msg.data.skipped) {
+            inapplicable += 1;
+            if (firstReason === null) {
+              const reason = msg.data.error ?? msg.data.skipped;
+              if (typeof reason === "string" && reason.trim()) firstReason = reason.trim();
+            }
+          } else if (msg.data.repo) {
+            applied += 1;
+          }
+        }
         setConstellations((cur) => applyScanEvent(cur, login, msg));
       });
+      if (applied === 0) {
+        // Scan ran but nothing landed on the map — say why instead of silently reverting. The per-repo
+        // skip/error reasons the server streamed were previously discarded invisibly.
+        setScanError((m) => ({
+          ...m,
+          [login]:
+            inapplicable > 0
+              ? `Scan finished, but no scores updated — ${inapplicable} repo${inapplicable === 1 ? "" : "s"} skipped or errored${firstReason ? ` (${firstReason})` : ""}.`
+              : "No watched repos to scan — open the org and watch some repos first.",
+        }));
+      }
       // Mark this org just-scanned so the live refresh defers it past the propagation window.
       // eslint-disable-next-line react-hooks/purity -- Date.now() runs in an async scan handler (post-await), not during render
       recentScan.current.set(login, Date.now());
