@@ -4,8 +4,19 @@
 // ONE request, instead of N REST round-trips — essential for mass org scans. GraphQL has no
 // anonymous access, so this requires a token; callers skip PR ingestion gracefully when none
 // is available (public tokenless scans).
+//
+// Error taxonomy (ambiguity-ui-scan-2026-07-16 github-repo-data-access #2) — mirrors the REST layers'
+// typed classification so a rate-limited org scan is distinguishable from partial data or a generic
+// failure. GitHub's GraphQL rate limit surfaces TWO ways, both mapped to GitHubError("RATE_LIMITED"):
+//   - transport-level: HTTP 403/429 (Retry-After forwarded as retryAfterSec when present);
+//   - in-band: HTTP 200 with `errors[].type === "RATE_LIMITED"` — even alongside partial `data`,
+//     because a quota-starved slice must not be cached/scored as merely "partial".
+// A no-data response whose errors are all NOT_FOUND throws GitHubError("NOT_FOUND"); other failures
+// throw GitHubError("UPSTREAM"). Node-level errors (a PR that failed to resolve) with usable data keep
+// the partial-result path below.
 
 import { fetchWithTimeout, githubGraphqlUrl } from "@/lib/github/host";
+import { GitHubError } from "@/lib/github/source";
 
 const GRAPHQL = githubGraphqlUrl();
 const TIMEOUT_MS = 15_000;
@@ -66,17 +77,48 @@ async function githubGraphql<T>(
     TIMEOUT_MS,
     signal,
   );
-  if (!res.ok) throw new Error(`GitHub GraphQL ${res.status}`);
-  const json = (await res.json()) as { data?: T; errors?: { message: string }[] };
+  if (!res.ok) {
+    // Transport-level classification (see the module-header taxonomy): 403/429 — or any non-OK status
+    // carrying Retry-After — is the rate limit, surfaced as the same typed error the REST layer throws
+    // so callers can back off / say "add a token, wait N seconds" instead of failing opaquely.
+    const retryAfterRaw = res.headers.get("retry-after");
+    const retryAfterSec = retryAfterRaw != null && /^\d+$/.test(retryAfterRaw) ? Number(retryAfterRaw) : undefined;
+    if (res.status === 403 || res.status === 429 || retryAfterSec !== undefined) {
+      throw new GitHubError(
+        "RATE_LIMITED",
+        "GitHub GraphQL rate limit hit. Add a GITHUB_TOKEN with more headroom, or try again later.",
+        res.status,
+        retryAfterSec,
+      );
+    }
+    throw new GitHubError("UPSTREAM", `GitHub GraphQL ${res.status}`, res.status);
+  }
+  const json = (await res.json()) as { data?: T; errors?: { message: string; type?: string }[] };
+  // In-band rate limit: GitHub's GraphQL quota often answers HTTP 200 with errors[].type =
+  // "RATE_LIMITED" — sometimes alongside partial `data`. That is quota exhaustion, NOT node-resolution
+  // noise: reinterpreting it as a "partial result" let a quota-starved PR slice be scored/cached as
+  // merely thin. Classify it FIRST, before the partial-data preference below.
+  if (json.errors?.some((e) => e.type === "RATE_LIMITED")) {
+    throw new GitHubError(
+      "RATE_LIMITED",
+      `GitHub GraphQL rate limit hit: ${json.errors.map((e) => e.message).join("; ")}`,
+      res.status,
+    );
+  }
   // GitHub GraphQL can return BOTH partial `data` AND `errors` (e.g. one PR node failed to
   // resolve). Discarding the whole response on any error throws away usable PR signals and fails
   // the scan over one bad node. Prefer partial data: throw only when there is NO data at all;
   // otherwise log the errors, flag the result as partial, and return what resolved so callers can
   // surface the gap instead of treating a degraded slice as complete.
   if (!json.data) {
-    throw new Error(
-      json.errors?.length ? json.errors.map((e) => e.message).join("; ") : "GraphQL returned no data",
-    );
+    if (!json.errors?.length) throw new GitHubError("UPSTREAM", "GraphQL returned no data", res.status);
+    const message = json.errors.map((e) => e.message).join("; ");
+    // All-NOT_FOUND with no data = the queried resource doesn't exist (or isn't visible) — a distinct,
+    // caller-actionable condition vs a generic upstream failure.
+    if (json.errors.every((e) => e.type === "NOT_FOUND")) {
+      throw new GitHubError("NOT_FOUND", message, res.status);
+    }
+    throw new GitHubError("UPSTREAM", message, res.status);
   }
   const partial = Boolean(json.errors?.length);
   if (partial) {
