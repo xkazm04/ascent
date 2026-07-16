@@ -91,6 +91,13 @@ describe("adoptionMarkdown", () => {
     expect(bare).not.toContain("## Team adoption");
     expect(bare).not.toContain("## Enablement cohort");
   });
+
+  it("omits the AI-champions section (no empty header, no names) when the builder withheld it", () => {
+    // Mirrors the CHAMPION_MIN_POP guard: a small-population overview arrives with champions: [].
+    const bare = adoptionMarkdown({ ...fixture, champions: [], enablement: [] });
+    expect(bare).not.toContain("## AI champions");
+    expect(bare).not.toContain("alice");
+  });
 });
 
 // ── buildAdoptionOverview: the engine that PRODUCES the overview from the aggregates ──────────────
@@ -283,6 +290,37 @@ describe("buildAdoptionOverview", () => {
     // The only low team has 0 contributors (nothing to enable) → null.
     mockGetOrgTeamRollup.mockResolvedValueOnce(rollupOf([team("platform", 61), team("ghost", 0, 0)]));
     expect((await buildAdoptionOverview("acme"))!.teamPairing).toBeNull();
+  });
+
+  it("withholds ALL named individuals (champions + enablement) below CHAMPION_MIN_POP — including in the LLM brief", async () => {
+    // 2 contributors < CHAMPION_MIN_POP (3): naming the org's one AI user a "champion" and its one
+    // zero-AI person an "enablement target" is exactly the small-population surveillance ranking the
+    // page suppresses. The guard now lives in the builder so the Copy-for-LLM brief inherits it.
+    const contributors = [c("ada", 80, 50), { ...c("zed", 0, 40), name: "Zed" }];
+    mockGetContributorInsights.mockResolvedValue(insightsOf(contributors));
+
+    const o = await buildAdoptionOverview("tiny");
+    expect(o).not.toBeNull();
+    expect(o!.champions).toEqual([]);
+    expect(o!.enablement).toEqual([]);
+    // Aggregates survive — only the NAMED lists are withheld.
+    expect(o!.distribution).toEqual({ high: 1, some: 0, none: 1 });
+
+    // The one-click brief carries no individual names or headers for the withheld lists.
+    const md = adoptionMarkdown(o!);
+    expect(md).not.toContain("ada");
+    expect(md).not.toContain("zed");
+    expect(md).not.toContain("## AI champions");
+    expect(md).not.toContain("## Enablement cohort");
+  });
+
+  it("still names champions + enablement at exactly CHAMPION_MIN_POP contributors", async () => {
+    const contributors = [c("ada", 80, 50), c("bob", 60, 30), { ...c("zed", 0, 40), name: "Zed" }];
+    mockGetContributorInsights.mockResolvedValue(insightsOf(contributors));
+
+    const o = await buildAdoptionOverview("acme");
+    expect(o!.champions.map((ch) => ch.login)).toContain("ada");
+    expect(o!.enablement.map((e) => e.login)).toEqual(["zed"]);
   });
 
   it("threads the segment/stack scope into every aggregate it assembles", async () => {

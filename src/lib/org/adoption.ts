@@ -5,6 +5,7 @@
 // fabricated causal ROI. Powers /org/[slug]/adoption + its Copy-for-LLM brief.
 
 import { getContributorInsights, getOrgPrSignals, getOrgTeamRollup } from "@/lib/db";
+import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
 
 export interface AdoptionChampion {
   login: string;
@@ -89,11 +90,20 @@ export async function buildAdoptionOverview(
     else distribution.none += 1;
   }
 
+  // CHAMPION_MIN_POP privacy guard, applied at the SOURCE so every consumer (page, ChampionsCard,
+  // the Copy-for-LLM brief) inherits it: below the population floor, naming individuals — either as
+  // celebrated champions or as a zero-AI enablement cohort — is a surveillance-y ranking of 1–2
+  // identifiable people. The guard used to live only in the React layer, so adoptionMarkdown leaked
+  // the named lists the page deliberately suppressed.
+  const namingAllowed = insights.totalContributors >= CHAMPION_MIN_POP;
+
   // insights.contributors is sorted by commits desc, so filter order = volume order (leverage order).
-  const enablement: EnablementTarget[] = insights.contributors
-    .filter((c) => c.aiShare === 0 && c.commits >= ENABLEMENT_MIN_COMMITS)
-    .slice(0, ENABLEMENT_LIMIT)
-    .map((c) => ({ login: c.login, name: c.name, commits: c.commits, repos: c.repos, lastActiveAt: c.lastActiveAt }));
+  const enablement: EnablementTarget[] = !namingAllowed
+    ? []
+    : insights.contributors
+        .filter((c) => c.aiShare === 0 && c.commits >= ENABLEMENT_MIN_COMMITS)
+        .slice(0, ENABLEMENT_LIMIT)
+        .map((c) => ({ login: c.login, name: c.name, commits: c.commits, repos: c.repos, lastActiveAt: c.lastActiveAt }));
 
   const adoptionTeams: AdoptionTeam[] = (teams?.teams ?? [])
     .map((t) => ({
@@ -123,9 +133,11 @@ export async function buildAdoptionOverview(
     contributors: { total: insights.totalContributors, aiActive: insights.aiActive, aiActiveShare: insights.aiActiveShare },
     orgAiShare: insights.orgAiShare,
     distribution,
-    champions: insights.champions
-      .slice(0, 6)
-      .map((c) => ({ login: c.login, aiShare: c.aiShare, commits: c.commits, aiCommits: c.aiCommits, repos: c.repos })),
+    champions: !namingAllowed
+      ? []
+      : insights.champions
+          .slice(0, 6)
+          .map((c) => ({ login: c.login, aiShare: c.aiShare, commits: c.commits, aiCommits: c.aiCommits, repos: c.repos })),
     delivery: pr
       ? {
           typicalHoursToMerge: pr.typicalHoursToMerge,
@@ -176,9 +188,14 @@ export function adoptionMarkdown(a: AdoptionOverview): string {
       `- ${d.typicalHoursToMerge != null ? `${d.typicalHoursToMerge}h typical PR merge time · ` : ""}${d.reviewedRate != null ? `${d.reviewedRate}% reviewed · ` : ""}${d.mergeRate}% merged · ${d.aiInvolvedRate}% AI-involved PRs (${d.prs} PRs)${d.aiGovernedRate != null ? ` · ${d.aiGovernedRate}% of AI PRs human-reviewed` : ""}`,
     );
   }
-  out.push("");
-  out.push("## AI champions");
-  for (const c of a.champions) out.push(`- ${c.login}: ${c.aiShare}% AI (${c.aiCommits}/${c.commits} commits across ${c.repos} repos)`);
+  // Named-individual sections mirror the page's CHAMPION_MIN_POP guard: when the builder withheld
+  // the lists (small population), the brief must not carry an empty header implying suppression is a
+  // data gap — it simply omits the sections, exactly like the page.
+  if (a.champions.length) {
+    out.push("");
+    out.push("## AI champions");
+    for (const c of a.champions) out.push(`- ${c.login}: ${c.aiShare}% AI (${c.aiCommits}/${c.commits} commits across ${c.repos} repos)`);
+  }
   if (a.enablement.length) {
     out.push("");
     out.push("## Enablement cohort (no AI-attributed commits yet)");
