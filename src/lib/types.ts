@@ -24,6 +24,13 @@ export type RecStatus = "open" | "in_progress" | "done" | "dismissed";
 
 export const REC_STATUSES: RecStatus[] = ["open", "in_progress", "done", "dismissed"];
 
+/** The full goal status vocabulary. `listGoals` owns the active<->achieved transition (current vs
+ *  target); the PATCH route accepts an explicit override but only within this set. There is no
+ *  "archived" state — nothing ever sets it, so no surface may filter on it (goals-initiatives #1). */
+export type GoalStatus = "active" | "achieved";
+
+export const GOAL_STATUSES: GoalStatus[] = ["active", "achieved"];
+
 /** What a RecommendationEvent records: a status change, a (re)assignment, or a due-date change. */
 export type RecEventKind = "status" | "assignee" | "target_date";
 

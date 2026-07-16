@@ -338,6 +338,7 @@ export async function updateGoal(
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
   const write: Record<string, unknown> = {
+    // Written verbatim — the PATCH route is the validation gate (GOAL_STATUSES in @/lib/types).
     ...(data.status ? { status: data.status } : {}),
     ...(typeof data.target === "number" ? { target: normTarget(data.target) } : {}),
     ...(data.label ? { label: data.label.slice(0, 200) } : {}),
