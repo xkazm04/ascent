@@ -31,6 +31,23 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   if (body.dimId !== undefined && !isDimensionId(body.dimId)) {
     return NextResponse.json({ error: "dimId must be D1..D9." }, { status: 400 });
   }
+  // POST-parity: create rejects a blank title, so update must too — updatePlaybook trims and would
+  // persist "", corrupting the card header, "Roll out:" initiative titles, PR titles, and the branch
+  // slug (playbooks 07-16 #1).
+  if (body.title !== undefined && !(typeof body.title === "string" && body.title.trim())) {
+    return NextResponse.json({ error: "title must be a non-empty string." }, { status: 400 });
+  }
+  // An empty patch used to run a no-op Prisma update and still record a `playbook.updated` audit
+  // with changed: [] — reject it before the write so the audit trail only holds real edits.
+  if (
+    body.title === undefined &&
+    body.dimId === undefined &&
+    body.summary === undefined &&
+    body.steps === undefined &&
+    body.archived === undefined
+  ) {
+    return NextResponse.json({ error: "Provide at least one of { title, dimId, summary, steps, archived }." }, { status: 400 });
+  }
   try {
     await updatePlaybook(id, {
       title: body.title,

@@ -143,6 +143,22 @@ describe("PATCH — body validation fires AFTER the gate", () => {
     expect(mockUpdatePlaybook).not.toHaveBeenCalled();
   });
 
+  // POST-parity (playbooks 07-16 #1): PATCH must not let a member blank the title updatePlaybook
+  // would otherwise persist as "".
+  it("rejects a blank title with 400 and does not write", async () => {
+    const res = await PATCH(patchReq({ title: "   " }), ctx("p1"));
+    expect(res.status).toBe(400);
+    expect(mockUpdatePlaybook).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty patch body with 400 — no no-op write, no changed:[] audit row", async () => {
+    const res = await PATCH(patchReq({}), ctx("p1"));
+    expect(res.status).toBe(400);
+    expect(mockUpdatePlaybook).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
   it("does NOT validate dimId when the caller is unauthorized (gate wins)", async () => {
     mockRequireOrgAccess.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
     const res = await PATCH(patchReq({ dimId: "X9" }), ctx("p1"));

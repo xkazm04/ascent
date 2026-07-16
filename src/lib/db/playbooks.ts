@@ -97,7 +97,9 @@ export async function updatePlaybook(
 ): Promise<void> {
   if (!isDbConfigured()) return;
   const data: Prisma.PlaybookUpdateInput = {};
-  if (patch.title !== undefined) data.title = patch.title.trim().slice(0, 200);
+  // Never persist a blank title (the PATCH route 400s first; this is the safety net for any other
+  // caller) — a nameless playbook corrupts cards, initiative/PR titles, and branch slugs.
+  if (patch.title !== undefined && patch.title.trim()) data.title = patch.title.trim().slice(0, 200);
   if (patch.dimId !== undefined) data.dimId = patch.dimId;
   if (patch.summary !== undefined) data.summary = patch.summary.trim().slice(0, 1000);
   if (patch.steps !== undefined) data.steps = cleanSteps(patch.steps);
