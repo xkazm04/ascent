@@ -541,19 +541,18 @@ describe("fetchBranchGovernance — rule extraction + the readable-vs-null contr
     expect(gov!.ruleCount).toBe(1);
   });
 
-  it("one call 200 / one 404 → readable:true object (a partial read is still authoritative, not null)", async () => {
-    // branch 200, rules 404: readable === (200 || 404===200) === true. The rules array is empty (404
-    // body isn't an array) so PR flags are false — but the result is a real object, NOT the null="unknown".
+  it("branch 200 / rules 404 → null (a failed rulesets read is 'rules unknown', never fabricated 'no rules')", async () => {
+    // PREVIOUSLY pinned the opposite: a rules-read failure yielded a readable:true object with
+    // ruleCount:0 — a confident false negative on 6 ruleset-derived signals for exactly the
+    // restricted-token repos most likely to deny the rules API. The rulesets read now gets the same
+    // guard as the branch read: non-200 (or non-array body) → governance unknown → null.
+    // A 200 with a genuinely empty array remains a real "no rules" (test above).
+    // (ambiguity-ui-scan-2026-07-16 github-repo-data-access #1)
     vi.stubGlobal(
       "fetch",
       makeGovFetch({ status: 200, body: { protected: true } }, { status: 404, body: { message: "Not Found" } }),
     );
-    const gov = await fetchBranchGovernance("o", "r", "main", "tok");
-    expect(gov).not.toBeNull();
-    expect(gov!.readable).toBe(true);
-    expect(gov!.protected).toBe(true);
-    expect(gov!.requiresPullRequest).toBe(false);
-    expect(gov!.ruleCount).toBe(0);
+    expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
   });
 
   it("the protection-bearing branch read DENIED (branch 404 / rules 200) → null, NOT a false protected:false (github-repo-data-access #4)", async () => {
