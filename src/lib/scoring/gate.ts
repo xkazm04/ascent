@@ -340,45 +340,101 @@ export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateRe
   return { pass: failures.length === 0, policy, failures };
 }
 
+// A query-param floor must satisfy the SAME numeric contract as sanitizeGatePolicy's floorScore:
+// finite, truncated to an int, and 0 < n <= 100. Anything else (empty/0/NaN/fractional/out-of-range
+// like ?min_overall=150 or ?min_security=999) is "not a usable floor" → undefined, so the caller falls
+// back to the archetype default rather than installing an always-pass (<=0) or unreachable (>100)
+// floor that silently turns the gate into an always-pass or always-fail wall. (ci-gate-status-checks #5)
+const floorParam = (params: URLSearchParams, name: string): number | undefined => {
+  if (params.get(name) == null) return undefined;
+  const n = Number(params.get(name));
+  return Number.isFinite(n) && n > 0 && n <= 100 ? Math.trunc(n) : undefined;
+};
+
+/**
+ * ONLY the policy fields the query string explicitly requests — no archetype fallback for anything
+ * unset. This is the params-as-an-OVERLAY view: the gate endpoint merges it over a persisted org
+ * policy via {@link tightenGatePolicy}, where padding the unset fields with archetype defaults would
+ * silently drag a deliberately-relaxed org bar back toward the default. (ci-gate 2026-07-16 #1)
+ */
+export function explicitPolicyFromParams(params: URLSearchParams): GatePolicy {
+  const minLevel = params.get("min_level");
+  const noUngoverned = params.get("no_ungoverned");
+  const requireProtection = params.get("require_protection");
+
+  // Security gate: `?security=1` (default D9 floor) or `?min_security=N` (explicit floor). Both pin a
+  // per-dimension floor on Security (D9) AND forbid the "ungoverned" posture — the security policy.
+  // An out-of-range/empty/0 min_security is dropped (undefined) so it neither requests an impossible
+  // floor nor is mistaken for "floor=0"; `?security=1` still falls back to DEFAULT_SECURITY_MIN.
+  const minSecurity = floorParam(params, "min_security");
+  const wantSecurity = params.get("security") === "1" || params.get("security") === "true" || minSecurity !== undefined;
+
+  const pol: GatePolicy = {};
+  if (isLevelId(minLevel)) pol.minLevel = minLevel;
+  const minOverall = floorParam(params, "min_overall");
+  if (minOverall !== undefined) pol.minOverall = minOverall;
+  const minDimension = floorParam(params, "min_dimension");
+  if (minDimension !== undefined) pol.minDimension = minDimension;
+  if (wantSecurity) pol.minDimensionFor = { [SECURITY_DIM]: minSecurity ?? DEFAULT_SECURITY_MIN };
+  if (noUngoverned === "1" || noUngoverned === "true" || wantSecurity) pol.forbidPostures = ["ungoverned"];
+  if (requireProtection === "1" || requireProtection === "true") pol.requireProtectedBranch = true;
+  return pol;
+}
+
 /**
  * Build a policy from URL query params, falling back to the archetype default for anything
  * unset — so the badge and CI endpoint accept e.g. `?min_level=L4&min_dimension=50&no_ungoverned=1`.
  */
 export function policyFromParams(params: URLSearchParams, archetype: RepoArchetype): GatePolicy {
   const base = defaultGatePolicy(archetype);
-  const minLevel = params.get("min_level");
-  const noUngoverned = params.get("no_ungoverned");
-  const requireProtection = params.get("require_protection");
-
-  // A query-param floor must satisfy the SAME numeric contract as sanitizeGatePolicy's floorScore:
-  // finite, truncated to an int, and 0 < n <= 100. Anything else (empty/0/NaN/fractional/out-of-range
-  // like ?min_overall=150 or ?min_security=999) is "not a usable floor" → undefined, so the caller falls
-  // back to the archetype default rather than installing an always-pass (<=0) or unreachable (>100)
-  // floor that silently turns the gate into an always-pass or always-fail wall. (ci-gate-status-checks #5)
-  const floorParam = (name: string): number | undefined => {
-    if (params.get(name) == null) return undefined;
-    const n = Number(params.get(name));
-    return Number.isFinite(n) && n > 0 && n <= 100 ? Math.trunc(n) : undefined;
-  };
-
-  // Security gate: `?security=1` (default D9 floor) or `?min_security=N` (explicit floor). Both pin a
-  // per-dimension floor on Security (D9) AND forbid the "ungoverned" posture — the security policy.
-  // An out-of-range/empty/0 min_security is dropped (undefined) so it neither requests an impossible
-  // floor nor is mistaken for "floor=0"; `?security=1` still falls back to DEFAULT_SECURITY_MIN.
-  const minSecurity = floorParam("min_security");
-  const wantSecurity = params.get("security") === "1" || params.get("security") === "true" || minSecurity !== undefined;
-  const securityFloor = minSecurity ?? DEFAULT_SECURITY_MIN;
-
+  const p = explicitPolicyFromParams(params);
   return {
-    minLevel: isLevelId(minLevel) ? minLevel : base.minLevel,
+    minLevel: p.minLevel ?? base.minLevel,
     // A <=0 / >100 / fractional / invalid value falls back to the archetype default rather than
     // installing an always-pass (<=0) or unreachable (>100) floor.
-    minOverall: floorParam("min_overall") ?? base.minOverall,
-    minDimension: floorParam("min_dimension") ?? base.minDimension,
-    minDimensionFor: wantSecurity ? { [SECURITY_DIM]: securityFloor } : base.minDimensionFor,
-    forbidPostures:
-      noUngoverned === "1" || noUngoverned === "true" || wantSecurity ? ["ungoverned"] : base.forbidPostures,
-    requireProtectedBranch:
-      requireProtection === "1" || requireProtection === "true" ? true : base.requireProtectedBranch,
+    minOverall: p.minOverall ?? base.minOverall,
+    minDimension: p.minDimension ?? base.minDimension,
+    minDimensionFor: p.minDimensionFor ?? base.minDimensionFor,
+    forbidPostures: p.forbidPostures ?? base.forbidPostures,
+    requireProtectedBranch: p.requireProtectedBranch ?? base.requireProtectedBranch,
   };
+}
+
+/**
+ * Combine two policies into the STRICTEST of both — the merge the UNAUTHENTICATED gate endpoint uses
+ * so a query param can TIGHTEN a persisted org policy per-request but never weaken or silently drop
+ * it (ambiguity-ui 2026-07-16 ci-gate #1: previously ONE policy param replaced the entire persisted
+ * policy, letting any anonymous caller — or a PR author editing the workflow URL — lower the org's
+ * configured bar). Field rules: numeric floors take the max; minLevel takes the higher level;
+ * per-dimension floors union with a per-key max; forbidPostures union; requireProtectedBranch ORs.
+ * A field neither side sets stays unset.
+ */
+export function tightenGatePolicy(a: GatePolicy, b: GatePolicy): GatePolicy {
+  const maxOpt = (x?: number, y?: number): number | undefined =>
+    x === undefined ? y : y === undefined ? x : Math.max(x, y);
+  const pol: GatePolicy = {};
+  const minLevel =
+    a.minLevel && b.minLevel
+      ? levelNum(a.minLevel) >= levelNum(b.minLevel)
+        ? a.minLevel
+        : b.minLevel
+      : a.minLevel ?? b.minLevel;
+  if (minLevel) pol.minLevel = minLevel;
+  const minOverall = maxOpt(a.minOverall, b.minOverall);
+  if (minOverall !== undefined) pol.minOverall = minOverall;
+  const minDimension = maxOpt(a.minDimension, b.minDimension);
+  if (minDimension !== undefined) pol.minDimension = minDimension;
+  const dimIds = new Set([...Object.keys(a.minDimensionFor ?? {}), ...Object.keys(b.minDimensionFor ?? {})]);
+  if (dimIds.size) {
+    const floors: Partial<Record<DimensionId, number>> = {};
+    for (const id of dimIds) {
+      const floor = maxOpt(a.minDimensionFor?.[id as DimensionId], b.minDimensionFor?.[id as DimensionId]);
+      if (floor !== undefined) floors[id as DimensionId] = floor;
+    }
+    if (Object.keys(floors).length) pol.minDimensionFor = floors;
+  }
+  const postures = [...new Set([...(a.forbidPostures ?? []), ...(b.forbidPostures ?? [])])];
+  if (postures.length) pol.forbidPostures = postures;
+  if (a.requireProtectedBranch || b.requireProtectedBranch) pol.requireProtectedBranch = true;
+  return pol;
 }
