@@ -45,6 +45,7 @@ export function OnboardingFlow({
     announce,
     credit,
     previewScan,
+    previewCause,
     invitedCount,
     setInvitedCount,
     creditSkipped,
@@ -130,6 +131,7 @@ export function OnboardingFlow({
         error={error}
         announce={announce}
         preview={previewScan}
+        previewCause={previewCause}
         creditSkipped={creditSkipped}
         checklistSteps={checklistSteps()}
         inviteOrg={sourceInstallId ? sourceLabel : null}

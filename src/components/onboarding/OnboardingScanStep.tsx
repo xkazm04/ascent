@@ -25,6 +25,7 @@ export function ScanStep({
   error,
   announce,
   preview = false,
+  previewCause = null,
   creditSkipped = 0,
   checklistSteps,
   onCancel,
@@ -40,6 +41,10 @@ export function ScanStep({
   /** The scan was a deterministic PREVIEW (mock), not a real LLM scan — disclosed so the numbers
    *  aren't mistaken for live scores. */
   preview?: boolean;
+  /** WHY the run was a preview, when the default explanation would misdiagnose: "credit_unknown"
+   *  means the credit read failed (balance unknown, fail-closed) — the user may well have the App
+   *  installed AND credits, so the banner must not tell them to install/top up. */
+  previewCause?: "credit_unknown" | null;
   /** Repos the server deferred for insufficient credits — disclosed on the done screen so the run
    *  isn't presented as complete coverage when some repos were skipped. */
   creditSkipped?: number;
@@ -165,8 +170,22 @@ export function ScanStep({
 
       {phase === "done" && preview && (
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
-          These are <strong>preview</strong> scores — a fast, illustrative estimate. For live numbers,
-          install the GitHub App and run a real scan (it draws prepaid credits) from the dashboard.
+          {previewCause === "credit_unknown" ? (
+            // The credit read failed (balance unknown) — the user may have the App AND credits, so the
+            // default "install the App" recovery copy would misdiagnose. Explain the real cause + the
+            // real recovery: nothing was charged; scan again once the balance is readable.
+            <>
+              These are <strong>preview</strong> scores — we couldn&apos;t verify your credit balance
+              (a temporary error), so this scan ran as a free preview and <strong>no credits were
+              used</strong>. Your setup is fine: use &quot;Scan another&quot; or rescan from the
+              dashboard to retry with live numbers.
+            </>
+          ) : (
+            <>
+              These are <strong>preview</strong> scores — a fast, illustrative estimate. For live numbers,
+              install the GitHub App and run a real scan (it draws prepaid credits) from the dashboard.
+            </>
+          )}
         </p>
       )}
 
