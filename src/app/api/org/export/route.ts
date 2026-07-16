@@ -29,9 +29,16 @@ export async function GET(request: Request) {
   const denied = await requireOrgRead(org);
   if (denied) return denied;
 
-  // Validate the optional segment against the org's segments (bogus id → whole fleet), like the pages.
+  // Validate the optional segment against the org's segments. Unlike the pages (where a bogus id
+  // degrades inside UI that shows which scope is active), this is a data-egress surface: a CSV leaves
+  // the app carrying no scope marker, so silently falling back to the WHOLE fleet on a stale/renamed/
+  // typo'd segment id over-exports exactly the slice the caller didn't ask for. Explicit request →
+  // explicit failure: fail closed with a 400 instead.
   const segParam = searchParams.get("segment");
   const segmentId = segParam ? (await listSegments(org))?.find((s) => s.id === segParam)?.id ?? null : null;
+  if (segParam && !segmentId) {
+    return NextResponse.json({ error: "Unknown segment for this org." }, { status: 400 });
+  }
 
   let header: string[];
   let rows: unknown[][];
@@ -108,13 +115,16 @@ export async function GET(request: Request) {
   }
 
   if (searchParams.get("format") === "csv") {
+    // A segment-scoped CSV must be distinguishable from a full-fleet one once it leaves the app —
+    // encode the scope in the filename (whole-org exports keep the historical name unchanged).
+    const scopeSuffix = segmentId ? `-${safeFilenameSlug(segmentId, "segment")}` : "";
     return new NextResponse(toCsv(header, rows), {
       headers: {
         "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}.csv"`,
+        "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}${scopeSuffix}.csv"`,
         "cache-control": "private, no-store",
       },
     });
   }
-  return NextResponse.json({ org, kind, header, rows }, { headers: { "cache-control": "private, no-store" } });
+  return NextResponse.json({ org, kind, segment: segmentId, header, rows }, { headers: { "cache-control": "private, no-store" } });
 }

@@ -240,6 +240,33 @@ describe("GET /api/org/export — authorized export", () => {
     expect(res.status).toBe(404);
   });
 
+  it("returns 400 (fail closed, never whole-fleet) when ?segment= doesn't resolve for this org", async () => {
+    // Old behavior: a stale/renamed/typo'd segment id resolved to null = NO filter, silently exporting
+    // the ENTIRE fleet under a URL the caller believed was segment-scoped. Explicit request → explicit failure.
+    mockListSegments.mockResolvedValue([{ id: "seg_real", name: "Payments" }] as never);
+
+    const res = await get("?org=acme&kind=contributors&segment=seg_deleted&format=csv");
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Unknown segment for this org." });
+    // The full-fleet read must never fire behind an unresolvable scope.
+    expect(mockGetContributorInsights).not.toHaveBeenCalled();
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("scopes the read AND marks the filename + envelope when ?segment= resolves", async () => {
+    mockListSegments.mockResolvedValue([{ id: "seg_real", name: "Payments" }] as never);
+
+    const csv = await get("?org=acme&kind=contributors&segment=seg_real&format=csv");
+    expect(csv.status).toBe(200);
+    expect(mockGetContributorInsights).toHaveBeenCalledWith("acme", "seg_real");
+    // A segment export is no longer byte-indistinguishable from a full-fleet one once forwarded.
+    expect(csv.headers.get("content-disposition")).toBe('attachment; filename="ascent-contributors-acme-seg-real.csv"');
+
+    const json = await (await get("?org=acme&kind=contributors&segment=seg_real")).json();
+    expect(json.segment).toBe("seg_real");
+  });
+
   it("still serves a header-only 200 for a genuinely empty (non-null) dataset", async () => {
     mockGetContributorInsights.mockResolvedValue({ contributors: [] } as never);
 
