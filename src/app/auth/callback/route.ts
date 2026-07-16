@@ -31,6 +31,12 @@ export async function GET(request: Request) {
     console.error("[auth/callback] code exchange failed", error.message);
   }
 
-  // No code, or the exchange failed — send the user home with a flag the UI can surface.
-  return NextResponse.redirect(new URL("/?auth_error=1", origin));
+  // No code, or the exchange failed. This used to redirect to `/?auth_error=1` — a flag NO page or
+  // component ever read, so every real-world sign-in failure (consent-screen cancel, expired code,
+  // Supabase outage) was a silent dead-end back on the home page. Land on /connect instead, whose
+  // error banner already renders these codes — the same taxonomy the custom-OAuth flow uses — and
+  // distinguish a user-cancelled consent screen (`error=access_denied`, forwarded by Supabase/GitHub)
+  // from a genuine exchange failure so a deliberate cancel isn't misreported as breakage.
+  const denied = url.searchParams.get("error") === "access_denied";
+  return NextResponse.redirect(new URL(`/connect?error=${denied ? "denied" : "oauth_failed"}`, origin));
 }
