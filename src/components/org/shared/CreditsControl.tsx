@@ -42,6 +42,10 @@ export function CreditsControl({
   allowanceRemaining?: number;
 }) {
   const [balance, setBalance] = useState(initialBalance);
+  // Live copy of the monthly free allowance, seeded from the SSR prop and reconciled by the popover
+  // fetch alongside `balance` — the paused/covered-by-allowance state machine derives from BOTH inputs,
+  // so refreshing only one left the pause messaging frozen at page-load truth all session.
+  const [allowanceLeft, setAllowanceLeft] = useState(allowanceRemaining);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +100,12 @@ export function CreditsControl({
         // freshly-loaded ledger's newest balanceAfter visibly contradicted. Opening the popover — the one
         // place that re-reads the truth — now self-heals it instead of throwing d.balance away.
         if (typeof d?.balance === "number") setBalance(d.balance);
+        // Reconcile the allowance the SAME way — `paused` / `coveredByAllowance` derive from balance
+        // AND allowanceRemaining, so healing only the balance kept stale "N free scans left — scans
+        // keep running" (or a stale "paused" nudge after the month rolled over) all session. The route
+        // serializes Infinity as null, but null only occurs with `unlimited`, which renders a
+        // different branch entirely — so a non-number here safely means 0.
+        if (d) setAllowanceLeft(typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : 0);
       })
       .catch(() => setLedgerError(true))
       .finally(() => setLedgerLoading(false));
@@ -139,7 +149,7 @@ export function CreditsControl({
   // A 0 prepaid balance only PAUSES scanning when the monthly free allowance is also spent. While the
   // allowance still covers scans, consumeScanCredit charges nothing (charge === "allowance"), so the
   // chip must not cry "out of credits / paused" — that falsely nudges toward unnecessary top-ups.
-  const freeScansLeft = Math.max(0, allowanceRemaining);
+  const freeScansLeft = Math.max(0, allowanceLeft);
   const paused = balance <= 0 && freeScansLeft <= 0;
   const coveredByAllowance = balance <= 0 && freeScansLeft > 0;
 
