@@ -58,7 +58,16 @@ export async function fetchBranchGovernance(
     if (branchRes.body == null || typeof branchRes.body !== "object") return null;
 
     const isProtected = Boolean((branchRes.body as { protected?: boolean } | null)?.protected);
-    const rules: Rule[] = Array.isArray(rulesRes.body) ? (rulesRes.body as Rule[]) : [];
+
+    // Mirror the branch-read guard for the RULESETS read: a non-200 (403 restricted token, 404 GHES
+    // without the rules API, 500) or a body that isn't an array must be "rules UNKNOWN → governance
+    // omitted", never fabricated as "zero active rules". The old `Array.isArray ? body : []` conflation
+    // returned requiresPullRequest:false / requiresStatusChecks:false / ruleCount:0 with readable:true —
+    // a confident false negative on 6 governance signals for exactly the locked-down enterprise repos
+    // most likely to restrict the token. A 200 with a genuinely empty array remains a real "no rules".
+    // (ambiguity-ui-scan-2026-07-16 github-repo-data-access #1)
+    if (rulesRes.status !== 200 || !Array.isArray(rulesRes.body)) return null;
+    const rules: Rule[] = rulesRes.body as Rule[];
     const byType = (t: string) => rules.find((r) => r.type === t);
 
     const pr = byType("pull_request");
