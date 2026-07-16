@@ -184,6 +184,7 @@ if (process.argv.includes('--json')) {
       // loop is closed while the dashboard silently never updates.
       const data = await res.json().catch(() => ({}));
       if (!res.ok) console.error('Conformance report rejected: HTTP ' + res.status + (data && data.error ? ' - ' + data.error : ''));
+      else if (data && data.stale) console.error('Conformance report ignored as stale: this commit was already superseded by a newer reported commit, so the dashboard score was not overwritten.');
       else if (data && data.recorded === false) console.error('Conformance report accepted but NOT recorded: this repo is not watched under its org in Ascent yet - watch it, then re-report.');
       else console.log('Reported conformance to Ascent.');
     } catch (err) {

@@ -343,31 +343,89 @@ export async function recordScanOutcome(
   });
 }
 
+/** Outcome of a conformance ingest: `recorded` = the Repository row was updated; `stale` = the
+ *  report was IGNORED because its headSha was already reported before a newer commit (a re-run of
+ *  an old CI workflow must not clobber the newest score). */
+export interface ConformanceOutcome {
+  recorded: boolean;
+  stale: boolean;
+}
+
 /**
  * Record a `.ai/` standard conformance report (from the repo's doctor) onto the Repository row, so
  * the adopt→verify→re-score loop closes in-app. No-op without a DB or when the repo isn't tracked
- * under this org (updateMany matches 0). Returns whether a row was updated. Mirrors recordScanOutcome.
+ * under this org (updateMany matches 0). Mirrors recordScanOutcome.
+ *
+ * Ordering (ai-native-standard #2): every accepted report is also appended to the AuditLog as a
+ * `conformance.reported` row carrying the commit sha, and that ledger orders re-runs — an incoming
+ * sha that was already reported BEFORE the repo's latest report is a stale CI re-run (a retried
+ * 2-week-old workflow, a backport branch) and is skipped instead of clobbering the newest score.
+ * Reports without a headSha (older doctors, non-CI runs) remain last-write-wins — the ledger can't
+ * order what it can't identify; the trade-off is deliberate and visible via `sha: null` ledger rows.
  */
 export async function recordConformance(
   orgSlug: string,
   fullName: string,
-  c: { score: number; fails: number; warns: number },
-): Promise<boolean> {
-  if (!isDbConfigured()) return false;
+  c: { score: number; fails: number; warns: number; headSha?: string | null },
+): Promise<ConformanceOutcome> {
+  if (!isDbConfigured()) return { recorded: false, stale: false };
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
-  if (!orgId) return false;
+  if (!orgId) return { recorded: false, stale: false };
+  const headSha = c.headSha?.trim().toLowerCase() || null;
+  // `meta` is a JSON string; these exact-fragment matches work because the ledger writer below
+  // serializes with a stable key order and shas/fullNames contain no JSON-escapable characters.
+  const repoTag = `"repo":${JSON.stringify(fullName)}`;
+  if (headSha) {
+    const latest = await prisma.auditLog.findFirst({
+      where: { orgId, action: "conformance.reported", meta: { contains: repoTag } },
+      orderBy: [{ at: "desc" }, { id: "desc" }],
+      select: { meta: true },
+    });
+    let latestSha: string | null = null;
+    try {
+      latestSha = (JSON.parse(latest?.meta ?? "{}") as { sha?: string | null }).sha ?? null;
+    } catch {
+      latestSha = null;
+    }
+    if (latestSha && latestSha !== headSha) {
+      const seenBefore = await prisma.auditLog.findFirst({
+        where: {
+          orgId,
+          action: "conformance.reported",
+          AND: [{ meta: { contains: repoTag } }, { meta: { contains: `"sha":"${headSha}"` } }],
+        },
+        select: { id: true },
+      });
+      if (seenBefore) return { recorded: false, stale: true };
+    }
+  }
   const clamp = (n: number) => Math.max(0, Math.trunc(Number.isFinite(n) ? n : 0));
+  const score = Math.min(100, clamp(c.score));
+  const fails = clamp(c.fails);
+  const warns = clamp(c.warns);
   const res = await prisma.repository.updateMany({
     where: { orgId, fullName },
     data: {
-      aiConformance: Math.min(100, clamp(c.score)),
-      aiConformanceFails: clamp(c.fails),
-      aiConformanceWarns: clamp(c.warns),
+      aiConformance: score,
+      aiConformanceFails: fails,
+      aiConformanceWarns: warns,
       aiConformanceAt: new Date(),
     },
   });
-  return res.count > 0;
+  if (res.count > 0) {
+    // Append to the ledger AFTER a successful row update, so untracked-repo reports (recorded:false)
+    // never seed ordering state. Stable key order — the ordering reads above depend on it.
+    await prisma.auditLog.create({
+      data: {
+        orgId,
+        actorId: null,
+        action: "conformance.reported",
+        meta: JSON.stringify({ repo: fullName, sha: headSha, score, fails, warns }),
+      },
+    });
+  }
+  return { recorded: res.count > 0, stale: false };
 }
 
 /** Watched repos for an org (for bulk scan / cron). */
