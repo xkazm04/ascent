@@ -14,13 +14,20 @@ export async function upsertInstallation(opts: {
   if (!isDbConfigured()) return;
   const slug = opts.login.toLowerCase();
   const installId = String(opts.installationId);
+  // Plan policy (github-app-installation-webhooks #1): installing the App is NOT an entitlement
+  // grant — billing (Polar; see POLAR_PLAN_PRODUCTS / src/lib/db/org.ts) is the sole plan
+  // authority. New rows get the canonical platform default ("free", the schema default; matches
+  // members.ts's owner-seed path), and `update` deliberately omits `plan` so an installation event
+  // can never upgrade OR downgrade an existing org. Historical rows may still carry the legacy
+  // "private" string this path used to mint — planFeatures() resolves any non-PlanId (incl.
+  // "private") to the free tier, so those rows are feature-equivalent to "free".
   const update = { githubInstallId: installId, name: opts.login };
   const prisma = getPrisma();
   try {
     await prisma.organization.upsert({
       where: { slug },
       update,
-      create: { slug, name: opts.login, plan: "private", githubInstallId: installId },
+      create: { slug, name: opts.login, plan: "free", githubInstallId: installId },
     });
   } catch (err) {
     // The setup callback (GET /api/app/setup) and the installation webhook can upsert the same

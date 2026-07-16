@@ -32,7 +32,11 @@ async function ensureOrg(slug: string) {
   return getPrisma().organization.upsert({
     where: { slug },
     update: {},
-    create: { slug, name: slug === "public" ? "Public Scans" : slug, plan: "private" },
+    // Plan is the canonical platform default ("free") — billing owns upgrades. This path used to
+    // mint the legacy non-PlanId string "private" (which planFeatures resolved to the free tier
+    // anyway); aligned with installations.ts/members.ts so first-touch order can't change the
+    // stored plan (github-app-installation-webhooks #1).
+    create: { slug, name: slug === "public" ? "Public Scans" : slug, plan: "free" },
   });
 }
 

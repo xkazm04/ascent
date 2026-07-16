@@ -43,6 +43,18 @@ describe("upsertInstallation", () => {
     expect(organization.update).not.toHaveBeenCalled();
   });
 
+  // Plan policy (github-app-installation-webhooks 07-16 #1): installing the App must not mint an
+  // entitlement. Create uses the platform default plan; update never carries `plan` at all, so an
+  // installation event can neither upgrade nor downgrade an existing org.
+  it("creates new orgs on the DEFAULT plan (never the legacy 'private' grant) and never touches plan on update", async () => {
+    organization.upsert.mockResolvedValueOnce({});
+    await upsertInstallation({ login: "Acme", installationId: 42 });
+
+    const arg = organization.upsert.mock.calls[0][0];
+    expect(arg.create.plan).toBe("free");
+    expect(arg.update).not.toHaveProperty("plan");
+  });
+
   it("retries as an update when a concurrent insert races to P2002", async () => {
     organization.upsert.mockRejectedValueOnce(p2002());
     organization.update.mockResolvedValueOnce({});
