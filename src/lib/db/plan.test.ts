@@ -893,6 +893,50 @@ function fakeCasModel(opts: { current: Record<string, unknown> | null; stored?: 
   return { findUnique, updateMany };
 }
 
+describe("createInitiative — promote idempotency (backlog-management #1)", () => {
+  // The only pre-fix guard against double-promotion was a client-session `promoted` flag; the server
+  // now dedupes on (org, title, dimId), merging newly-scoped repos into the existing initiative.
+  function fakeInitiativePrisma(existing: { id: string; repos: string } | null) {
+    return {
+      organization: { upsert: vi.fn(async () => ({ id: ORG_ID })) },
+      goal: { findUnique: vi.fn(async () => null) },
+      initiative: {
+        findFirst: vi.fn(async () => existing),
+        update: vi.fn(async () => ({})),
+        create: vi.fn(async () => ({ id: "init_new" })),
+      },
+    };
+  }
+
+  it("re-promoting the same (org, title, dim) reuses the existing initiative and merges repos — no duplicate row", async () => {
+    const prisma = fakeInitiativePrisma({ id: "init_1", repos: JSON.stringify(["acme/api"]) });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await createInitiative(ORG_SLUG, { title: "Add CI gate", dimId: "D2", repos: ["acme/web"] });
+
+    expect(out).toEqual({ id: "init_1" }); // existing id returned, so the caller links to the canonical row
+    expect(prisma.initiative.create).not.toHaveBeenCalled();
+    expect(prisma.initiative.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orgId: ORG_ID, title: "Add CI gate", dimId: "D2" } }),
+    );
+    // The new repo scope is merged into the existing initiative, not lost.
+    const upd = prisma.initiative.update.mock.calls[0][0] as { where: { id: string }; data: { repos: string } };
+    expect(upd.where).toEqual({ id: "init_1" });
+    expect(JSON.parse(upd.data.repos).sort()).toEqual(["acme/api", "acme/web"]);
+  });
+
+  it("creates a fresh initiative when no (org, title, dim) match exists", async () => {
+    const prisma = fakeInitiativePrisma(null);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await createInitiative(ORG_SLUG, { title: "Add CI gate", dimId: "D2", repos: ["acme/api"] });
+
+    expect(out).toEqual({ id: "init_new" });
+    expect(prisma.initiative.create).toHaveBeenCalledTimes(1);
+    expect(prisma.initiative.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("updateGoal — optimistic compare-and-set", () => {
   const base = { status: "active", target: 50, label: "old", targetDate: null };
 
