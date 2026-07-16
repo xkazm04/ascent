@@ -25,6 +25,7 @@ vi.mock("@/lib/db", () => ({
   consumeScanCredit: vi.fn(),
   getInstallationIdForOwner: vi.fn(async () => null),
   grantCredits: vi.fn(),
+  isByomActive: vi.fn(async () => false),
   isDbConfigured: () => true,
   persistScanReport: vi.fn(async () => null),
   persistTeamStandings: vi.fn(async () => false),
@@ -72,7 +73,7 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled } from "@/lib/access";
 import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
 import { getInstallationToken } from "@/lib/github/app";
-import { consumeScanCredit, getInstallationIdForOwner, grantCredits } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive } from "@/lib/db";
 import { checkScanEntitlement } from "@/lib/entitlement";
 // Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
 // here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
@@ -88,6 +89,7 @@ const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockConsume = vi.mocked(consumeScanCredit);
 const mockGrant = vi.mocked(grantCredits);
 const mockEntitlement = vi.mocked(checkScanEntitlement);
+const mockByom = vi.mocked(isByomActive);
 
 const report = {
   engine: { provider: "mock", model: "m" },
@@ -120,6 +122,7 @@ beforeEach(() => {
   mockCanMint.mockResolvedValue(false);
   mockMintToken.mockResolvedValue("app-installation-token");
   mockInstallId.mockResolvedValue(null);
+  mockByom.mockResolvedValue(false);
 });
 afterEach(() => {
   if (savedToken === undefined) delete process.env.GITHUB_TOKEN;
@@ -308,6 +311,28 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(mockConsume).not.toHaveBeenCalled();
     expect(mockEntitlement).not.toHaveBeenCalled();
+  });
+
+  // BYOM parity with /api/org/scan and /api/cron/rescan (org-import-scan-watchlist 2026-07-16 #1):
+  // an org scanning on its OWN Bedrock is billed by AWS, so a real-LLM import must reserve ZERO
+  // platform credits and never be truncated by the platform balance.
+  it("exempts a BYOM org from metering — no entitlement gate, no credit reserved, full batch scans", async () => {
+    mockByom.mockResolvedValue(true);
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 0, allowanceRemaining: 0 });
+    const events = await collectImport({ org: "acme", repos: ["acme/a", "acme/b"], mock: false, watch: false });
+    // Old behavior: metered = !mock && org !== "public" → balance 0 meant paymentRequired/slice(0,0).
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    expect(mockEntitlement).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(events.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 2, skippedForCredits: 0 });
+  });
+
+  it("passes orgSlug to scanRepository so a BYOM org's inference runs on ITS provider, not the platform's", async () => {
+    // The scan route passes orgSlug (getProviderForOrg + standing decisions); import omitted it, so
+    // scanRepository resolved the provider for `undefined` and fell back to the platform provider.
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
+    await collectImport({ org: "acme", repos: ["acme/a"], mock: false, watch: false });
+    expect(mockScan.mock.calls[0][1]).toMatchObject({ orgSlug: "acme" });
   });
 });
 

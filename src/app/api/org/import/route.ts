@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import {
   getInstallationIdForOwner,
+  isByomActive,
   isDbConfigured,
   persistScanReport,
   persistTeamStandings,
@@ -138,12 +139,22 @@ export async function POST(request: Request) {
   // the ambient PAT was handed to every scan and the confused deputy above was fully reachable. Key it
   // on "no auth stack is live at all" instead, which is what "auth-off local/demo" actually means.
   const authOff = !authGateEnabled() && !isAuthConfigured();
-  const scanOpts = appTokenMinted || authOff ? { token, mock } : { noAmbientToken: true, mock };
+  // `orgSlug` mirrors /api/org/scan: scanRepository resolves the LLM provider via
+  // getProviderForOrg(opts.orgSlug) (BYOM orgs run on their OWN Bedrock) and reads the org's standing
+  // decisions (decisionSlug defaults to orgSlug). Omitting it made every import run on the PLATFORM
+  // provider — even for a BYOM org whose inference is billed to its AWS account.
+  const scanOpts = appTokenMinted || authOff
+    ? { token, mock, orgSlug: org }
+    : { noAmbientToken: true, mock, orgSlug: org };
 
   // Credits: a real-LLM import into a private org dashboard draws on prepaid credits. The default mock
   // import and the public funnel are free (mock runs no inference). Refuse up front when out of credits;
   // the per-repo slice below caps the batch to the balance. Enterprise is unlimited.
-  const metered = !mock && org !== "public";
+  // BYOM (parity with /api/org/scan and /api/cron/rescan): when the org scans on its OWN Bedrock,
+  // inference is billed to its AWS account, so the platform never charges a scan credit — without this
+  // term a BYOM org's import reserved platform credits per repo (or truncated the batch at balance 0).
+  const byom = await isByomActive(org).catch(() => false);
+  const metered = !mock && org !== "public" && !byom;
   // Supabase login wall on the PRIVATE/metered import path only — a real-inference import into a
   // tenant org is a gated "org feature". The free funnel (mock import, or the shared public org)
   // stays open / no-signup. Mirrors the scan-route gate (orgSlug !== "public").
