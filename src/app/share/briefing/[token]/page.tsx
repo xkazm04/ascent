@@ -91,7 +91,20 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's
   // per-client read-only link shows that client's data — not the whole org. Feature 3b: the same for the
   // tech-stack scope (resolve the carried KEY → group id within the org).
-  const techGroupId = await getTechGroupIdByKey(verified.org, verified.stack ?? null).catch(() => null);
+  // FAIL CLOSED on an unresolvable stack scope: the resolver returns null both for "no scope requested"
+  // and for "requested but renamed/deleted/DB hiccup" — and a null filter means the WHOLE org. A link
+  // the owner deliberately narrowed must never widen to full-fleet numbers, so treat an unresolvable
+  // key like an invalid token instead of proceeding unscoped.
+  const stackKey = verified.stack ?? null;
+  const techGroupId = await getTechGroupIdByKey(verified.org, stackKey).catch(() => null);
+  if (stackKey && !techGroupId) {
+    return (
+      <Notice
+        title="Link expired or invalid"
+        body="The scope this briefing was shared with no longer exists. Ask an org owner for a fresh link."
+      />
+    );
+  }
   const briefing = await buildExecBriefing(verified.org, { start, end }, period.title, verified.segment ?? null, techGroupId).catch(() => null);
   if (!briefing) {
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;

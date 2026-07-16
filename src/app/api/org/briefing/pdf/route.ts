@@ -35,7 +35,14 @@ export async function GET(request: Request) {
   // A reseller can scope the briefing to one client via ?segment=<id> — a per-client deliverable.
   const segmentId = sp.get("segment");
   // ?stack=<key> scopes the deliverable to one tech-stack group (Feature 3b) — carried from the page.
-  const techGroupId = await getTechGroupIdByKey(org, sp.get("stack")).catch(() => null);
+  // FAIL CLOSED on an unresolvable scope: `null` from the resolver is overloaded ("no scope requested"
+  // vs "requested but renamed/deleted/DB hiccup"), and passing it through would silently render the
+  // WHOLE-org briefing under a URL the owner scoped down. Only `null-because-absent` stays unscoped.
+  const stackKey = sp.get("stack");
+  const techGroupId = await getTechGroupIdByKey(org, stackKey).catch(() => null);
+  if (stackKey && !techGroupId) {
+    return NextResponse.json({ error: "Unknown tech-stack scope for this organization." }, { status: 404 });
+  }
   const briefing = await buildExecBriefing(org, { start: period.start, end: period.end }, period.title, segmentId, techGroupId).catch(
     () => null,
   );
