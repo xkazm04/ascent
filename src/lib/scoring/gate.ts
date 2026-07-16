@@ -216,11 +216,30 @@ interface NormalizedGate {
 function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): GateFailure[] {
   const failures: GateFailure[] = [];
 
-  if (pol.minLevel && g.level < levelNum(pol.minLevel)) {
-    failures.push({ code: "level", message: `${g.levelLabel} is below the required ${pol.minLevel}.` });
+  // Fail-closed applies to EVERY criterion, not only the dimension floors (ambiguity-ui 2026-07-16
+  // ci-gate #2). A plain `<` comparison lets malformed input slip the gate: `NaN < 40 === false`, so
+  // a partially corrupt persisted report (missing overallScore) or a malformed level id sailed past
+  // minOverall/minLevel and could produce pass:true — while evaluateGateLite parsed the same level as
+  // 0 and FAILED it, the exact verdict drift this shared evaluator exists to prevent. An unscored
+  // level normalizes to 0 in both wrappers (never a real band — levels are L1..L5), and a non-finite
+  // overall reuses belowFloor, so both criteria now fail closed with an explicit "unscored" message.
+  if (pol.minLevel) {
+    if (!Number.isFinite(g.level) || g.level <= 0) {
+      failures.push({
+        code: "level",
+        message: `The maturity level is unscored — failing the required ${pol.minLevel} (fail-closed).`,
+      });
+    } else if (g.level < levelNum(pol.minLevel)) {
+      failures.push({ code: "level", message: `${g.levelLabel} is below the required ${pol.minLevel}.` });
+    }
   }
-  if (typeof pol.minOverall === "number" && g.overall < pol.minOverall) {
-    failures.push({ code: "overall", message: `Overall score ${g.overall} is below the required ${pol.minOverall}.` });
+  if (typeof pol.minOverall === "number" && belowFloor(g.overall, pol.minOverall)) {
+    failures.push({
+      code: "overall",
+      message: Number.isFinite(g.overall)
+        ? `Overall score ${g.overall} is below the required ${pol.minOverall}.`
+        : `Overall score is unscored — failing the required ${pol.minOverall} (fail-closed).`,
+    });
   }
   if (typeof pol.minDimension === "number") {
     const min = pol.minDimension;
@@ -266,7 +285,9 @@ export function evaluateGate(report: ScanReport, policy?: GatePolicy): GateResul
   const pol = policy ?? defaultGatePolicy(report.archetype);
   const failures = evaluateNormalized(
     {
-      level: levelNum(report.level.id),
+      // `|| 0` aligns the malformed-level parse with evaluateGateLite's (a bogus level id → NaN → 0
+      // → fail-closed under any minLevel), so the two evaluators agree on corrupt input.
+      level: levelNum(report.level.id) || 0,
       levelLabel: `Overall level ${report.level.id}`,
       overall: report.overallScore,
       posture: { id: report.posture.id, label: report.posture.label },

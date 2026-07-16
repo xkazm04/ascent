@@ -2,7 +2,7 @@
 // parsing and evaluation: a D9 (Security) floor plus a forbidden "ungoverned" posture.
 
 import { describe, it, expect } from "vitest";
-import { policyFromParams, evaluateGate, sanitizeGatePolicy, defaultGatePolicy, DEFAULT_SECURITY_MIN } from "./gate";
+import { policyFromParams, evaluateGate, evaluateGateLite, sanitizeGatePolicy, defaultGatePolicy, DEFAULT_SECURITY_MIN } from "./gate";
 import type { GatePolicy } from "./gate";
 import type { DimensionResult, ScanReport } from "@/lib/types";
 
@@ -71,6 +71,49 @@ describe("empty/zero security floor + fail-closed dimensions (CIGATE #2, #3)", (
     const res = evaluateGate(report({ d9: NaN }), pol);
     expect(res.pass).toBe(false);
     expect(res.failures.some((f) => f.code === "dimension" && f.message.includes("D9") && /unscored/i.test(f.message))).toBe(true);
+  });
+});
+
+// Fail-closed must cover EVERY criterion (ambiguity-ui 2026-07-16 ci-gate #2): before this fix a
+// NaN overallScore or a malformed level id sailed past minOverall/minLevel in evaluateGate
+// (`NaN < 40 === false`) while evaluateGateLite parsed the same level as 0 and failed it — the two
+// evaluators disagreeing on the exact input the fail-closed doctrine targets.
+describe("fail-closed minOverall / minLevel — both evaluators agree (ci-gate 2026-07-16 #2)", () => {
+  const liteSnap = (o: { level?: string; overall?: number }) => ({
+    level: o.level ?? "L4",
+    overall: o.overall ?? 70,
+    posture: "ai-native",
+    dims: [{ dimId: "D1", score: 80 }],
+  });
+
+  it("evaluateGate: a NaN overallScore FAILS minOverall (was a silent pass)", () => {
+    const res = evaluateGate(report({ d9: 80, overall: NaN }), { minOverall: 40 });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "overall" && /unscored/i.test(f.message))).toBe(true);
+  });
+
+  it("evaluateGate: a malformed level id FAILS minLevel (was a silent pass)", () => {
+    const res = evaluateGate(report({ d9: 80, level: "Lx" }), { minLevel: "L3" });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "level" && /unscored/i.test(f.message))).toBe(true);
+  });
+
+  it("evaluateGateLite: a NaN overall FAILS minOverall the same way", () => {
+    const res = evaluateGateLite(liteSnap({ overall: NaN }), { minOverall: 40 });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "overall" && /unscored/i.test(f.message))).toBe(true);
+  });
+
+  it("evaluateGateLite: a malformed level FAILS minLevel the same way", () => {
+    const res = evaluateGateLite(liteSnap({ level: "Lx" }), { minLevel: "L3" });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "level" && /unscored/i.test(f.message))).toBe(true);
+  });
+
+  it("healthy scores are untouched: a finite overall/level still passes/fails on the plain comparison", () => {
+    expect(evaluateGate(report({ d9: 80, overall: 70, level: "L4" }), { minOverall: 40, minLevel: "L3" }).pass).toBe(true);
+    const res = evaluateGate(report({ d9: 80, overall: 30, level: "L2" }), { minOverall: 40, minLevel: "L3" });
+    expect(res.failures.map((f) => f.code).sort()).toEqual(["level", "overall"]);
   });
 });
 
