@@ -93,7 +93,7 @@ vi.mock("@/lib/db/scans-shared", () => {
   };
 });
 
-import { getScanReportByCommit } from "./scans-read";
+import { getLatestRecommendations, getScanReportByCommit } from "./scans-read";
 
 // ── Faked Prisma returning ONE scan row whose JSON columns we craft per-test ──────────────────────
 
@@ -372,5 +372,63 @@ describe("getScanReportByCommit — corrupt-row resilience (the load-bearing inv
     // The surrounding report still assembled with its non-JSON fields intact.
     expect(r.overallScore).toBe(70);
     expect(r.headline).toBe("ok");
+  });
+});
+
+// ── getLatestRecommendations — the public-org private-repo guard (defense in depth) ───────────────
+// getRepositoryHistory, getScanComparison, and getScanReportByCommit all refuse to serve a PRIVATE
+// repo's data out of the shared public org (the anonymous read surface); getLatestRecommendations was
+// the fourth public-org reader and shipped without the guard — serving roadmap titles, rationales
+// (which can quote private code/evidence), assignee logins, and target dates for a legacy private row
+// persisted under the public org. These tests pin the guard so it can't be dropped a second time.
+
+describe("getLatestRecommendations — public-org private-repo guard", () => {
+  function prismaWithRepo(isPrivate: boolean) {
+    const base = fakePrismaWithColumns({});
+    const repo = {
+      id: "repo_1",
+      owner: "acme",
+      name: "widget",
+      url: "https://github.com/acme/widget",
+      stars: 5,
+      primaryLanguage: "TypeScript",
+      isPrivate,
+      contributors: [],
+    };
+    base.repository.findUnique = vi.fn(async () => repo);
+    return base;
+  }
+
+  it("returns null and never reads the scan when the repo is PRIVATE under the shared public org", async () => {
+    const prisma = prismaWithRepo(true);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // No orgSlug → defaults to DEFAULT_ORG_SLUG ("public"), the anonymous read surface.
+    const res = await getLatestRecommendations("acme", "widget");
+
+    expect(res).toBeNull();
+    // Fail closed BEFORE the scan/recommendations read — no roadmap bytes are even fetched.
+    expect(prisma.scan.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("still serves the roadmap for a public repo under the public org (guard is private-only)", async () => {
+    const prisma = prismaWithRepo(false);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getLatestRecommendations("acme", "widget");
+
+    expect(res).not.toBeNull();
+    expect(res!.scanId).toBe("scan_1");
+    expect(prisma.scan.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it("still serves a PRIVATE repo under a member-scoped (non-public) org", async () => {
+    const prisma = prismaWithRepo(true);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getLatestRecommendations("acme", "widget", { orgSlug: "acme-corp" });
+
+    expect(res).not.toBeNull();
+    expect(prisma.scan.findFirst).toHaveBeenCalledTimes(1);
   });
 });
