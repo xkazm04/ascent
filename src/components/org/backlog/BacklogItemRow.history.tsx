@@ -19,9 +19,15 @@ export function BacklogRowHistory({ history }: { history: RecEvent[] | "loading"
             <li key={ev.id} className="flex flex-wrap items-baseline gap-x-2 text-sm text-slate-400">
               <span className="font-mono text-sm text-slate-600">{new Date(ev.at).toLocaleString()}</span>
               <span className="text-slate-300">{ev.actor ? `@${ev.actor}` : "system"}</span>
-              <span>
-                set {EVENT_LABEL[ev.kind] ?? ev.kind} {eventValue(ev.kind, ev.from)} → <span className="text-slate-200">{eventValue(ev.kind, ev.to)}</span>
-              </span>
+              {ev.kind === "note" ? (
+                // A standalone note event (a comment on a patch that changed no field) has no
+                // from/to — render it as a plain comment, not "set … — → —".
+                <span>noted</span>
+              ) : (
+                <span>
+                  set {EVENT_LABEL[ev.kind] ?? ev.kind} {eventValue(ev.kind, ev.from)} → <span className="text-slate-200">{eventValue(ev.kind, ev.to)}</span>
+                </span>
+              )}
               {ev.note && <span className="text-slate-500">“{ev.note}”</span>}
             </li>
           ))}

@@ -32,6 +32,7 @@ export const EVENT_LABEL: Record<string, string> = {
   status: "Status",
   assignee: "Owner",
   target_date: "Due date",
+  note: "Note",
 };
 
 /** Render a stored event value for display — status ids become labels; null reads as a dash. */

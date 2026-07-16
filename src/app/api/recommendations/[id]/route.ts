@@ -4,9 +4,14 @@
 // dismissed), assignee (a GitHub login, or null to clear), and/or due date (YYYY-MM-DD, or null) —
 // and records each change on the recommendation's activity timeline, attributed to the signed-in
 // user. Back-compatible with the status-only body the per-repo report tracker sends.
+//
+// `note` contract: an optional comment (≤ REC_NOTE_MAX_LENGTH chars — longer is a 400, never a
+// silent truncation). It rides the FIRST change event of the patch; when the patch changes nothing
+// (including a note-only body), it is written as a dedicated "note" timeline event — a note is
+// never accepted and then silently discarded.
 
 import { NextResponse } from "next/server";
-import { REC_STATUSES, type RecStatus } from "@/lib/types";
+import { REC_NOTE_MAX_LENGTH, REC_STATUSES, type RecStatus } from "@/lib/types";
 import { getRecommendationOrgSlug, isDbConfigured, updateRecommendation, type RecommendationPatch } from "@/lib/db";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
@@ -97,14 +102,27 @@ export async function PATCH(
     patch.targetDate = body.targetDate;
   }
 
-  if (Object.keys(patch).length === 0) {
+  // The note contract (roadmap-recommendation-tracking 07-16 #1): a note is never silently lost.
+  // It must be a string; an over-long note is REJECTED (the old silent .slice(0, 500) ate the tail
+  // with a 200), and a note-only body is a valid patch — it becomes a dedicated "note" timeline
+  // event instead of the old 400.
+  if (body.note !== undefined && body.note !== null && typeof body.note !== "string") {
+    return NextResponse.json({ error: "note must be a string or null." }, { status: 400 });
+  }
+  const note = typeof body.note === "string" ? body.note.trim() : null;
+  if (note && note.length > REC_NOTE_MAX_LENGTH) {
     return NextResponse.json(
-      { error: "Provide at least one of: status, assigneeLogin, targetDate." },
+      { error: `note must be at most ${REC_NOTE_MAX_LENGTH} characters (got ${note.length}).` },
       { status: 400 },
     );
   }
 
-  const note = typeof body.note === "string" ? body.note.slice(0, 500) : null;
+  if (Object.keys(patch).length === 0 && !note) {
+    return NextResponse.json(
+      { error: "Provide at least one of: status, assigneeLogin, targetDate, note." },
+      { status: 400 },
+    );
+  }
 
   try {
     const updated = await updateRecommendation(id, patch, { actor: actorLogin, note });

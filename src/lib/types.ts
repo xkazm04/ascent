@@ -31,10 +31,16 @@ export type GoalStatus = "active" | "achieved";
 
 export const GOAL_STATUSES: GoalStatus[] = ["active", "achieved"];
 
-/** What a RecommendationEvent records: a status change, a (re)assignment, or a due-date change. */
-export type RecEventKind = "status" | "assignee" | "target_date";
+/** What a RecommendationEvent records: a status change, a (re)assignment, a due-date change, or a
+ *  standalone note (a comment that arrived with a patch that changed no field — notes are never
+ *  silently dropped; see roadmap-recommendation-tracking #1). */
+export type RecEventKind = "status" | "assignee" | "target_date" | "note";
 
-export const REC_EVENT_KINDS: RecEventKind[] = ["status", "assignee", "target_date"];
+export const REC_EVENT_KINDS: RecEventKind[] = ["status", "assignee", "target_date", "note"];
+
+/** Max length of a recommendation-patch note. Longer notes are REJECTED with a 400 (never silently
+ *  truncated — a lost tail is data loss the caller can't see). */
+export const REC_NOTE_MAX_LENGTH = 500;
 
 /** A roadmap recommendation that has been persisted (has an id + trackable status). */
 export interface PersistedRecommendation {
