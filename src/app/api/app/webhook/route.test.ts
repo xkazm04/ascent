@@ -557,16 +557,19 @@ describe("POST /api/app/webhook — PR maturity gate outcomes (runPrGate)", () =
     expect(mockStickyComment).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to the default branch and STILL posts a real check when the head ref is unreachable", async () => {
+  it("falls back to the default branch and STILL posts a check when the head ref is unreachable — flagged as NOT head-scored", async () => {
     authorize();
     // First scan (head ref) rejects — a fork PR head unreachable via the base repo's tree API. The gate
-    // must NOT give up: it re-scans the default branch and still posts a check (no baseline diff).
+    // must NOT give up: it re-scans the default branch and still posts a check (no baseline diff). But
+    // that verdict describes the DEFAULT BRANCH, not the PR — buildGateComment must receive
+    // scoredHead:false so it posts a neutral, honestly-framed check, never a confident per-PR verdict
+    // (github-app-installation-webhooks 2026-07-16 #3).
     mockScan.mockRejectedValueOnce(new Error("head ref 404"));
     mockScan.mockResolvedValueOnce({ repo: { headSha: "defaultsha" } } as Awaited<ReturnType<typeof scanRepository>>);
     mockEvaluateGate.mockReturnValue({} as ReturnType<typeof evaluateGate>);
     mockBuildComment.mockReturnValue({
-      conclusion: "success",
-      title: "Passed (default)",
+      conclusion: "neutral",
+      title: "Default branch passed — PR head not scored",
       summary: "s",
       commentBody: "b",
     } as ReturnType<typeof buildGateComment>);
@@ -576,12 +579,42 @@ describe("POST /api/app/webhook — PR maturity gate outcomes (runPrGate)", () =
     await runDeferred();
 
     // Two scans: the failed head ref, then the default-branch fallback (no `ref`). No baseline diff is
-    // computed when the head wasn't scored, so diffReports is never called — but a real check still posts.
+    // computed when the head wasn't scored, so diffReports is never called — but a check still posts.
     expect(mockScan).toHaveBeenCalledTimes(2);
     expect(mockScan).toHaveBeenNthCalledWith(2, "acme/repo", expect.not.objectContaining({ ref: expect.anything() }));
     expect(mockDiffReports).not.toHaveBeenCalled();
+    // The fallback is flagged so the comment builder can post an honest neutral check.
+    expect(mockBuildComment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      null,
+      expect.objectContaining({ scoredHead: false }),
+    );
     expect(mockCreateCheckRun).toHaveBeenCalledTimes(1);
-    expect((mockCreateCheckRun.mock.calls[0][0] as { conclusion: string }).conclusion).toBe("success");
+    expect((mockCreateCheckRun.mock.calls[0][0] as { conclusion: string }).conclusion).toBe("neutral");
+  });
+
+  it("the head-scored path passes scoredHead: true (the confident per-PR framing is preserved)", async () => {
+    authorize();
+    mockScan.mockResolvedValue({ repo: { headSha: "headsha9" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockEvaluateGate.mockReturnValue({} as ReturnType<typeof evaluateGate>);
+    mockBuildComment.mockReturnValue({
+      conclusion: "success",
+      title: "Passed",
+      summary: "s",
+      commentBody: "b",
+    } as ReturnType<typeof buildGateComment>);
+    mockCreateCheckRun.mockResolvedValue(undefined as Awaited<ReturnType<typeof createCheckRun>>);
+
+    await post("pull_request", "pr-gate-head-scored", prPayload());
+    await runDeferred();
+
+    expect(mockBuildComment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ scoredHead: true }),
+    );
   });
 
   it("posts a NEUTRAL 'could not run' check and releases the delivery when the gate throws after mint", async () => {

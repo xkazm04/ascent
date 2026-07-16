@@ -243,7 +243,13 @@ async function runPrGate(ref: PrGateRef) {
     const fullName = `${owner}/${repo}`;
 
     // Score the PR head. A fork PR's head commit can be unreachable via the base repo's tree API —
-    // fall back to the default branch so the check still posts (just without per-PR resolution).
+    // fall back to the default branch so the check still posts (availability trade-off). INTEGRITY
+    // trade-off (github-app-installation-webhooks 2026-07-16 #3): a default-branch verdict structurally
+    // cannot fail on anything the PR itself changes (a fork PR deleting the test suite would sail
+    // through, and a red default branch would block an innocent fork PR). scoredHead therefore threads
+    // into buildGateComment below, which posts the fallback as a NEUTRAL check that says plainly it
+    // scored the default branch — a required-status consumer must treat fallback verdicts as
+    // non-authoritative, never as a pass/fail on the PR's own tree.
     let headReport;
     let scoredHead = true;
     try {
@@ -266,7 +272,7 @@ async function runPrGate(ref: PrGateRef) {
       if (baseReport) baseline = diffReports(baseReport, headReport);
     }
 
-    const comment = buildGateComment(headReport, gate, baseline, { baselineSuffix: "in this PR" });
+    const comment = buildGateComment(headReport, gate, baseline, { baselineSuffix: "in this PR", scoredHead });
     const detailsUrl = publicBaseUrl() + reportPermalink(fullName, headReport.repo.headSha);
 
     // GATE-3 / ci-gate-status-checks #3: the Check Run IS the required merge status — a swallowed failure
