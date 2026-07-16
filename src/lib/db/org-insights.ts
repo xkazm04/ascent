@@ -8,6 +8,7 @@ import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { retentionCutoff } from "@/lib/plans";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
@@ -73,7 +74,12 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const start = window?.start ?? null;
+  // Plan retention floor (fleet-rollups-insights #1): the movers' baseline is entitlement-gated
+  // exactly like getOrgRollup's trend + baseline — clamp the window start to the tier's retention
+  // cutoff so a Free org's 90d/quarter movers aren't computed against history the plan doesn't buy.
+  const retentionStart = retentionCutoff(org.plan, Date.now());
+  const rawStart = window?.start ?? null;
+  const start = rawStart && retentionStart && retentionStart > rawStart ? retentionStart : rawStart;
   const end = window?.end ?? null;
   const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
   const moves: RepoMove[] = [];
