@@ -170,7 +170,15 @@ describe("GET /api/cron/purge — auth gate (fail-closed) + error surface", () =
   });
 
   // ---- (6) A run that COLLECTED errors → 207 (not a green 200) -----------
-  // ---- (7) The maxDuration ↔ time-budget contract (data-retention 07-16 #1) ----
+  // ---- (7) Dry-run preview plumbing (data-retention 07-16 #2) --------------
+  it("passes dryRun: true to purgeExpiredData for ?dryRun=1 (and false otherwise)", async () => {
+    await GET(new Request(`http://localhost/api/cron/purge?dryRun=1`, { headers: { authorization: `Bearer ${SECRET}` } }));
+    expect(mockPurge).toHaveBeenLastCalledWith({ dryRun: true });
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockPurge).toHaveBeenLastCalledWith({ dryRun: false });
+  });
+
+  // ---- (8) The maxDuration ↔ time-budget contract (data-retention 07-16 #1) ----
   it("the route's declared maxDuration equals PURGE_MAX_DURATION_S — the single source the budget derives from", () => {
     // Next.js segment config must be a literal, so the route cannot import the constant; this pin is
     // the coupling. If you change one, change the other (and re-read the plan-cap caveat at both).

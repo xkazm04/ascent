@@ -7,6 +7,8 @@ import {
   rotateForTick,
   PURGE_MAX_DURATION_S,
   RETENTION_DEFAULT_BATCH_SIZE,
+  RETENTION_MIN_AUDIT_DAYS,
+  RETENTION_MIN_SCANS_PER_REPO,
   type RetentionPolicy,
 } from "@/lib/db/retention";
 
@@ -33,6 +35,17 @@ import { recordAudit } from "@/lib/db/scans";
 import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 
 const ENV_KEYS = ["RETENTION_MAX_SCANS_PER_REPO", "RETENTION_AUDIT_DAYS", "RETENTION_BATCH_SIZE"] as const;
+
+// Most fixtures in this file deliberately use tiny windows (retentionMaxScans: 1 or 2) to exercise the
+// delete machinery with few rows. Those are now below the destructive safety floor (data-retention
+// 07-16 #2), so opt the whole file into the documented force escape; the floor-specific tests below
+// delete the flag inside the test to prove the refusal path.
+beforeEach(() => {
+  process.env.RETENTION_FORCE = "1";
+});
+afterEach(() => {
+  delete process.env.RETENTION_FORCE;
+});
 
 describe("clampBatchSize", () => {
   it("falls back to the default for null, zero, or negative", () => {
@@ -145,6 +158,84 @@ function fakePurgePrisma() {
   };
   return { prisma, tx, used: () => usedTransaction };
 }
+
+describe("purgeExpiredData — destructive-override safety floor + dry run (data-retention 07-16 #2)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    for (const k of ENV_KEYS) delete process.env[k];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("REFUSES a sub-floor per-org policy without RETENTION_FORCE — nothing deleted, operator paged via errors[]", async () => {
+    delete process.env.RETENTION_FORCE;
+    const { prisma, used } = fakePurgePrisma(); // org override retentionMaxScans: 1 — below the floor
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    // The org is skipped BEFORE any repo/scan query — a mistyped integer cannot wipe history.
+    expect(used()).toBe(false);
+    expect(prisma.scan.findMany).not.toHaveBeenCalled();
+    expect(summary!.scansDeleted).toBe(0);
+    expect(recordAudit).not.toHaveBeenCalled();
+    // …and the refusal is VISIBLE: an errors[] entry trips the route's 207 so an operator is paged.
+    expect(summary!.errors).toHaveLength(1);
+    expect(summary!.errors[0]).toMatch(/safety floor/);
+    expect(summary!.dryRun).toBe(false);
+  });
+
+  it("a policy AT the floor is applied normally (the floor bounds, it does not creep)", async () => {
+    delete process.env.RETENTION_FORCE;
+    const { prisma } = fakePurgePrisma();
+    prisma.organization.findMany = vi.fn(async () => [
+      {
+        id: "org_1",
+        slug: "acme",
+        retentionMaxScans: RETENTION_MIN_SCANS_PER_REPO,
+        retentionAuditDays: RETENTION_MIN_AUDIT_DAYS,
+      },
+    ]);
+    (prisma as unknown as { auditLog: unknown }).auditLog = { findMany: vi.fn(async () => []) };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData();
+
+    expect(summary!.errors).toEqual([]);
+    expect(prisma.scan.findMany).toHaveBeenCalled(); // the prune actually ran
+  });
+
+  it("dry run counts would-delete rows, deletes nothing, writes no audit, and previews a sub-floor policy", async () => {
+    delete process.env.RETENTION_FORCE;
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [{ id: "org_1", slug: "acme", retentionMaxScans: 1, retentionAuditDays: 3 }]),
+      },
+      scan: {
+        groupBy: vi.fn(async () => [
+          { repoId: "r1", _count: { _all: 5 } },
+          { repoId: "r2", _count: { _all: 1 } },
+        ]),
+      },
+      auditLog: { count: vi.fn(async () => 4) },
+      $transaction: vi.fn(),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ dryRun: true });
+
+    expect(summary!.dryRun).toBe(true);
+    expect(summary!.scansDeleted).toBe(4); // (5−1) + max(0, 1−1) — per-repo keep-window arithmetic
+    expect(summary!.auditDeleted).toBe(4);
+    expect(summary!.errors).toEqual([]); // sub-floor previews are exactly what dry run is for
+    expect(summary!.orgsProcessed).toBe(1);
+    // NOTHING destructive fired: no transaction, no self-audit entry, no quota sweep.
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(recordAudit).not.toHaveBeenCalled();
+    expect(purgeStalePublicScanQuota).not.toHaveBeenCalled();
+  });
+});
 
 describe("purgeExpiredData — env budget vs the route cap (data-retention 07-16 #1)", () => {
   beforeEach(() => {

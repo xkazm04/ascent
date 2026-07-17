@@ -52,8 +52,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: "Database required." });
   }
 
+  // Preview mode (data-retention 07-16 #2): `?dryRun=1` (or `true`) counts what every effective policy
+  // WOULD delete — per-repo stale-scan totals + in-window audit rows — without deleting anything or
+  // writing audit entries. Use it to validate a new per-org override before the next real tick applies
+  // it; the summary carries `dryRun: true` so a preview can never be mistaken for an enforcement run.
+  const dryRunParam = new URL(request.url).searchParams.get("dryRun")?.toLowerCase() ?? "";
+  const dryRun = dryRunParam === "1" || dryRunParam === "true";
+
   try {
-    const summary = await purgeExpiredData();
+    const summary = await purgeExpiredData({ dryRun });
     // A DEGRADED run must NOT report a green 200: Vercel Cron and uptime monitors only watch the HTTP
     // status, so a non-2xx is the only thing that pages an operator. Two channels signal degradation and
     // BOTH must trip the 207 — `errors` (a per-org prune threw, or a destructive purge lost its compliance
