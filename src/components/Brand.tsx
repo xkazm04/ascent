@@ -6,7 +6,8 @@ import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
-import { demoOrgHref, SITE_TAGLINE_TITLE } from "@/lib/site";
+import { demoOrgHref } from "@/lib/site";
+import { SiteFooterCore } from "@/components/SiteFooterCore";
 import { HEADER_INNER, HEADER_NAV, HEADER_SHELL, MarketingNavLinks } from "@/components/StaticNav";
 import { scoreHex } from "@/lib/ui";
 
@@ -225,30 +226,12 @@ export function OrgHeader({
 }
 
 export function SiteFooter() {
+  // Content (brand slot aside) is single-sourced in SiteFooterCore — shared with /about's inline
+  // client footer (AboutCTA), which can't import this server component.
   return (
     <footer className="mt-auto border-t border-divider/70 py-8 text-center text-base text-slate-400">
       <div className="mx-auto max-w-6xl px-5">
-        <Logo className="justify-center opacity-80" />
-        <p className="mt-3 font-mono text-sm uppercase tracking-widest text-slate-400">
-          {SITE_TAGLINE_TITLE}
-        </p>
-        <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
-          <Link href="/leaderboard" className="focus-ring rounded-sm hover:text-accent">
-            Leaderboard
-          </Link>
-          <Link href="/badge" className="focus-ring rounded-sm hover:text-accent">
-            Badge
-          </Link>
-          <Link href="/connect" className="focus-ring rounded-sm hover:text-accent">
-            Connect
-          </Link>
-          <Link href="/usage" className="focus-ring rounded-sm hover:text-accent">
-            Usage
-          </Link>
-        </div>
-        <p className="mt-3 text-sm text-slate-500">
-          Built on Vercel + Aurora DSQL · #H0Hackathon
-        </p>
+        <SiteFooterCore brand={<Logo className="justify-center opacity-80" />} />
       </div>
     </footer>
   );
