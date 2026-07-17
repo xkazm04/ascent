@@ -213,6 +213,29 @@ describe("GET /api/health — topology gating (app-shell-seo #4)", () => {
     expect(body.dbMode).toBe("postgres");
     expect(body.autoscan).toBeTypeOf("object");
   });
+
+  it("PRODUCTION with CRON_SECRET unset (the misconfigured deploy) does NOT open topology to anonymous probes", async () => {
+    // A prod deploy that merely forgot CRON_SECRET is exactly the deploy the autoscan tripwire flags —
+    // it must not also hand dbMode + the secret-presence map to any anonymous caller.
+    delete process.env.CRON_SECRET;
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      const { status, body } = await callGet();
+      expect(status).toBe(200);
+      expect("dbMode" in body).toBe(false);
+      expect("autoscan" in body).toBe(false);
+      expect(Object.keys(body).sort()).toEqual(["db", "reconnected", "status"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("a bearer with a matching prefix but different length is rejected (constant-time compare guard)", async () => {
+    const { body } = await callGet(`Bearer ${CRON}-and-more`);
+    expect("dbMode" in body).toBe(false);
+    const { body: short } = await callGet(`Bearer ${CRON.slice(0, 4)}`);
+    expect("dbMode" in short).toBe(false);
+  });
 });
 
 describe("GET /api/health — autoscan readiness tripwire", () => {
