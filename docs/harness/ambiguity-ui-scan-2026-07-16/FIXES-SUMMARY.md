@@ -1,8 +1,9 @@
-# Ambiguity+UI Scan — Fix Waves 1–11 Summary (2026-07-16/17)
+# Ambiguity+UI Scan — Fix Waves 1–25 Summary (2026-07-16/17)
 
-> 65 of 66 High findings fixed, 1 refuted, across 11 themed waves — 65 atomic commits
-> on `vibeman/ambiguity-ui-fixes-2026-07-16` (worktree off master `67f60d4`; user WIP untouched).
-> Gates: tsc 0 errors · vitest 3498 → 3647 passing (+149 new regression tests, 0 regressions) · next build ✓ (see final verification note).
+> **ALL 220 findings worked: 219 fixed, 1 refuted** (66 High in waves 1–11; 154 Med/Low in waves 12–25)
+> — 220 commits on `vibeman/ambiguity-ui-fixes-2026-07-16` (worktree off master `67f60d4`; user WIP untouched).
+> Diff: 384 files, +11,378/−1,655.
+> Final gates: tsc 0 errors · vitest 3498 → **3827** passing (+329 new regression tests, 0 regressions) · next build ✓.
 > Scan INDEX + 44 per-context reports live in the main checkout: `docs/harness/ambiguity-ui-scan-2026-07-16/` (untracked).
 
 ## Waves
@@ -31,7 +32,29 @@
 6. **Adopter-side**: emitted doctor.mjs now writes `verified` back into the adopting repo's manifest.yaml.
 7. **New env vars**: `ASCENT_TRUSTED_PROXY_HOPS` (proxy trust model), `RETENTION_FORCE` (override retention floors). No schema migrations.
 
-## What remains (per INDEX)
+## Med/Low waves (12–25) — 154/154 worked
 
-- 118 Medium + 36 Low findings, clustered along the same themes (INDEX "Suggested next-phase split", wave 9+).
+| Wave | Domain | Findings | Notes |
+|---|---|---:|---|
+| 12 | Repository Scanning & Scoring | 14 | GET /api/scan restricted to peek/mock; quota-slot refund for coalesce joiners; archetype corroboration |
+| 13 | Identity & GitHub | 8 | CODEOWNERS precedence; deep-link intent on ParsedRepo; `listOrgRepos` → `{repos, truncated}`; webhook claim rollback |
+| 14 | Onboarding/Shell A | 11 | timing-safe health bearer + prod no-secret close; StaticNav single-source; skill route `?tracks`/`?max` validation |
+| 15 | Onboarding/Shell B | 11 | fleet-map error-state healing + a11y rings; success tokens; onboarding resetRun + aria |
+| 16 | Org Scanning & Fleet | 14 | 6h mint-failure backoff; invalid schedule 400; honest `result.scanned`; OrgSwitcher ARIA menu |
+| 17 | Org Dashboard A | 10 | logo save-time probe; demo-data chips; filter-scoped CSV; segments 400 validation |
+| 18 | Org Dashboard B | 11 | practice apply content-drift 409 fingerprint; export stack scope; masthead zero-match skip |
+| 19 | Org Planning A | 10 | all-mock caveat on 4 surfaces; local end-of-day deadlines; wake-lock re-acquire; scenario scope capture |
+| 20 | Org Planning B | 11 | backlog segment/stack scope; goals optimistic-concurrency 409 retry; playbook delete audit |
+| 21 | Reporting A | 10 | PDF no-store; CopyForLlm failure fallback; compare unhonored-ids notice; stale-report error kind |
+| 22 | Reporting B | 7 | POSTURE_META-derived labels; client-safe PR thresholds; ALL_TABS single-source |
+| 23 | Billing & Metering | 15 | quota-route rate limit; **revived dead `weekly_quota`→`monthly_quota` salvage path**; downgrade guard; badge CJK width |
+| 24 | Data & Persistence | 11 | purge 503 on DB-unset; budget=0 means unlimited; `dbReadSafe` degradation; init.sql column-parity test |
+| 25 | Marketing & Design System | 11 | --header-h token; DeckSection justify variant; en-US-pinned shortDate; footer single-source |
+
+Additional env vars from the Med/Low waves: `RATE_LIMIT_QUOTA_PEEK_*`, `RETENTION_ALLOW_NO_DB`, `RETENTION_TIME_BUDGET_MS=0` semantics.
+Known flaky tests (pre-existing, pass on re-run/isolation): pdf report-document "boundary scores"; auth.test.ts 5s timeout under full-suite load; db/client.test.ts dsql-signer (env-only on worktrees).
+
+## What remains
+
+- Nothing from the scan: all 220 findings closed or refuted. One tracked follow-up: content-key half of sha-less scan dedup needs a schema index (deferred, no-migration rule).
 - Context-map drift: ~10 contexts have stale file paths — refresh the Vibeman context map before the next scan.
