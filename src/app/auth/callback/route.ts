@@ -4,6 +4,20 @@
 //
 // `next` is run through the existing safeNext() open-redirect guard (src/lib/auth.ts) so a tampered
 // value can't bounce the user to an external origin — single-sourced with the custom-OAuth flow.
+//
+// ── DIVERGENCE from the dormant custom-OAuth callback (github-oauth-session 07-16 #3) ─────────────
+// This is the callback that runs in PRODUCTION (the Supabase wall is the active auth stack; the
+// custom GITHUB_OAUTH_* stack is unconfigured there). It does AUTHENTICATION ONLY: exchange the code,
+// set cookies, redirect. The sign-in-moment PRODUCT behaviors live exclusively in the dormant custom
+// callback (src/app/api/auth/callback/route.ts) and therefore DO NOT run for prod sign-ins:
+//   - upsertInstallation (owner→installation linking; prod links only via webhook//api/app/setup)
+//   - session revocation-version stamping (getSessionVersion)
+//   - org auto-discovery + watchlist seeding (a brand-new prod user lands on an empty dashboard)
+//   - first-login routing through the /launch cinematic (unreachable in prod, per the 07-09 audit)
+//   - the resync=1 re-sync round-trip
+// If any of those are wanted under the active wall, port them as a post-exchangeCodeForSession hook
+// keyed on the Supabase identity's user_name — do not assume the custom callback's comments describe
+// live behavior.
 
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
