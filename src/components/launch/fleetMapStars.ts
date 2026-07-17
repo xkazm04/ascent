@@ -9,6 +9,11 @@ interface RepoStar {
   dOverall: number | null;
   /** Whether the repo is on the org's watchlist — drives the "watched only" map filter. */
   watched: boolean;
+  /** True for a star APPENDED mid-scan by applyScanEvent (a repo the initial /api/app/repos pull
+   *  didn't include). Appended stars are laid out on the outer "incoming" ring WITHOUT entering the
+   *  phyllotaxis `total`, so landing one never re-seats the whole constellation mid-animation; the
+   *  next authoritative refresh (mergeStars) clears the flag and re-flows everything at once. */
+  appended?: boolean;
 }
 
 export type { RepoStar };
@@ -72,6 +77,17 @@ export function starPosition(i: number, total: number, seed: string): { cx: numb
   const pos = { cx: CENTER + Math.cos(angle) * radius, cy: CENTER + Math.sin(angle) * radius };
   positionCache.set(key, pos);
   return pos;
+}
+
+/** Placement for a star APPENDED mid-scan (see RepoStar.appended): a fixed outer "incoming" ring just
+ *  beyond the phyllotaxis band (radius 13..55), angled by the repo's own hash. Depends only on the
+ *  seed — never on `total` — so appending a star cannot shift any existing star, and the appended
+ *  star itself renders regardless of the MAX_STARS slice (a successful scan result must never be
+ *  invisible at the cap). Deterministic ⇒ SSR/CSR agree. (ambiguity-ui launch-fleet-map #4) */
+export function appendedStarPosition(seed: string): { cx: number; cy: number } {
+  const angle = hash01(seed) * Math.PI * 2;
+  const radius = 56; // outside the 13..55 phyllotaxis band, and 60+56+r(max 3.4) stays inside the 120 viewBox
+  return { cx: CENTER + Math.cos(angle) * radius, cy: CENTER + Math.sin(angle) * radius };
 }
 
 /** Maturity → brightness: brighter, larger, fully-saturated stars for higher-scoring repos. */
