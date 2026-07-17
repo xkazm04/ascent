@@ -290,27 +290,36 @@ export function BacklogItemRow({
           {promoted ? "✓ Initiative" : promoteBusy ? "Promoting…" : "Promote to initiative"}
         </button>
 
+        {/* Standard disclosure ARIA (backlog-management 07-16 #5): without aria-expanded/-controls a
+            non-visual user only hears the label text flip; the region id is stable per item. */}
         <button
           onClick={toggleHistory}
+          aria-expanded={!!history}
+          aria-controls={history ? `history-${item.id}` : undefined}
           className="ml-auto rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-400 transition hover:text-white"
         >
           {history ? "Hide history" : "History"}
         </button>
-        {saving && <span className="font-mono text-sm text-slate-500">saving…</span>}
+        {saving && <span role="status" className="font-mono text-sm text-slate-500">saving…</span>}
       </div>
 
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
-      {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
-      {prResult && (
-        <p className="mt-2 text-sm text-emerald-300">
-          {prResult.reused ? "Existing draft PR: " : "Draft PR opened: "}
-          <a href={prResult.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
-            {prResult.url}
-          </a>
-        </p>
-      )}
+      {/* One polite live region for the row's async outcomes (save error / PR error / PR link): on this
+          screen the error message is the only signal an edit was rejected — the control just visually
+          reverts — so AT must hear these appear (backlog-management 07-16 #5). */}
+      <div role="status" aria-live="polite">
+        {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+        {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
+        {prResult && (
+          <p className="mt-2 text-sm text-emerald-300">
+            {prResult.reused ? "Existing draft PR: " : "Draft PR opened: "}
+            <a href={prResult.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
+              {prResult.url}
+            </a>
+          </p>
+        )}
+      </div>
 
-      {history && <BacklogRowHistory history={history} onRetry={() => void loadHistory()} />}
+      {history && <BacklogRowHistory id={`history-${item.id}`} history={history} onRetry={() => void loadHistory()} />}
 
       {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
       <ConfirmAction

@@ -8,9 +8,18 @@ import { EVENT_LABEL, eventValue } from "@/components/org/shared/backlogShared";
  * a retry affordance — NEVER as the empty-copy, which would falsely claim an untouched item,
  * backlog-management 07-16 #3), an event array once resolved.
  */
-export function BacklogRowHistory({ history, onRetry }: { history: RecEvent[] | "loading" | "error"; onRetry?: () => void }) {
+export function BacklogRowHistory({
+  history,
+  onRetry,
+  id,
+}: {
+  history: RecEvent[] | "loading" | "error";
+  onRetry?: () => void;
+  /** Stable region id the row's disclosure button points at via aria-controls (backlog #5 07-16). */
+  id?: string;
+}) {
   return (
-    <div className="mt-3 border-t border-slate-800 pt-3">
+    <div id={id} className="mt-3 border-t border-slate-800 pt-3">
       {history === "loading" ? (
         <p className="font-mono text-sm text-slate-500">Loading history…</p>
       ) : history === "error" ? (

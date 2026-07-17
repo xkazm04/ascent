@@ -95,6 +95,30 @@ describe("BacklogItemRow accessibility", () => {
     expect(screen.queryByText("No changes recorded yet.")).not.toBeInTheDocument();
   });
 
+  // ambiguity-ui 07-16 backlog #5: standard disclosure ARIA on the History toggle.
+  it("history #5: the History button exposes aria-expanded and points at the revealed region", () => {
+    renderRow({ state: { history: [] } });
+    const btn = screen.getByRole("button", { name: "Hide history" });
+    expect(btn).toHaveAttribute("aria-expanded", "true");
+    expect(btn).toHaveAttribute("aria-controls", "history-b1");
+    expect(document.getElementById("history-b1")).not.toBeNull();
+  });
+
+  it("history #5: collapsed, the button reads aria-expanded=false with no dangling aria-controls", () => {
+    renderRow();
+    const btn = screen.getByRole("button", { name: "History" });
+    expect(btn).toHaveAttribute("aria-expanded", "false");
+    expect(btn).not.toHaveAttribute("aria-controls");
+  });
+
+  it("#5: async outcomes (save/PR errors, PR link) render inside a polite live region", () => {
+    renderRow({ error: "Couldn’t save that change.", state: { prResult: { url: "https://x/pr/1", reused: false } } });
+    const region = screen.getByRole("status");
+    expect(region).toHaveAttribute("aria-live", "polite");
+    expect(region).toHaveTextContent("Couldn’t save that change.");
+    expect(region).toHaveTextContent("Draft PR opened:");
+  });
+
   it("#4: truncates a long title (within a min-w-0 flex item) with the full text on hover", () => {
     const long = "A".repeat(200);
     renderRow({ item: item({ title: long }) });
