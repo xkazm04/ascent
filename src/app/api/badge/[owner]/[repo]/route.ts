@@ -111,7 +111,14 @@ function readableOn(bg: string): string {
   return contrastInk > contrastWhite ? "#04070e" : "#fff";
 }
 
-/** Named colors map to brand hex; a #rrggbb / rrggbb value is accepted verbatim. */
+/** Named colors map to brand hex; a #rrggbb / rrggbb value is accepted verbatim.
+ *
+ *  SCOPE (usage-metering 07-16 #5): `?color=` is shields.io-parity for the NEUTRAL states only
+ *  (unknown / private / rate limited — no verdict to misrepresent). It deliberately does NOT apply
+ *  to a VERDICT fill (gate pass/fail, a resolved level/score): hue is the most-glanced channel on a
+ *  README, and letting an embedder render "✗ fail" on bright green (or an L1 repo in L5 green)
+ *  would undo every other honesty guard this route carries (demo suffix, glyph redundancy, private
+ *  gating). Mirrors how the demo suffix refuses to let a mock pose as a verdict. */
 function resolveColor(input: string | null, fallback: string): string {
   if (!input) return fallback;
   const named: Record<string, string> = {
@@ -382,7 +389,8 @@ export async function GET(
           label: verdictLabel,
           // ✓/✗ so the pass/fail verdict survives without color (red/green collapses for CVD viewers).
           value: gate.pass ? "✓ pass" : "✗ fail",
-          color: resolveColor(customColor, gate.pass ? LEVEL_HEX.L5 : LEVEL_HEX.L1),
+          // Semantic verdict color ONLY — `?color=` must not let "✗ fail" wear green (see resolveColor).
+          color: gate.pass ? LEVEL_HEX.L5 : LEVEL_HEX.L1,
           style,
           logo,
           href,
@@ -391,7 +399,11 @@ export async function GET(
       );
     }
 
-    const color = resolveColor(customColor, LEVEL_HEX[report.level.id as LevelId] ?? neutral);
+    // Semantic level color for a RESOLVED level — `?color=` must not dress an L1 repo in L5 green
+    // (see resolveColor's scope note). Only an unrecognized level id (no verdict hue to protect)
+    // falls back to the caller's custom color / neutral, matching the other neutral states.
+    const levelHex = LEVEL_HEX[report.level.id as LevelId];
+    const color = levelHex ?? resolveColor(customColor, neutral);
     // Score variant (USE-2): the numeric headline (with the level glyph + colour) instead of the level name.
     if (scoreMode) {
       return respond(
