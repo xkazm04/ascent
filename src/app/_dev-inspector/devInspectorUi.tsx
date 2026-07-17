@@ -52,12 +52,21 @@ export function HighlightBox({
   );
 }
 
+// Chip layout invariants, named so the placement math and the CSS enforce the SAME numbers.
+// CHIP_H: rendered chip height (11px font × 1.4 line-height + 2×1px padding ≈ 17px, rounded up with
+// margin) — drives the flip-above/below threshold and the vertical offsets. CHIP_MAX_W: the widest
+// the chip may render; the `left` clamp keeps that many px inside the viewport, and maxWidth +
+// ellipsis below ENFORCE it (previously the chip was nowrap with no maxWidth, so a long
+// `SomeVeryLongComponentName.tsx:1234` overflowed the right edge despite the clamp).
+const CHIP_H = 20;
+const CHIP_MAX_W = 260;
+
 /** A compact `File.tsx:line` chip pinned to the cursor's element. */
 export function SourceLabel({ rect, loc }: { rect: DOMRect; loc: string }) {
   const { file } = splitLoc(loc);
-  const above = rect.top > 22;
-  const top = above ? rect.top - 20 : Math.min(rect.top + 2, window.innerHeight - 22);
-  const left = Math.max(4, Math.min(rect.left, window.innerWidth - 260));
+  const above = rect.top > CHIP_H + 2; // room for the chip (+2px gap) above the box?
+  const top = above ? rect.top - CHIP_H : Math.min(rect.top + 2, window.innerHeight - (CHIP_H + 2));
+  const left = Math.max(4, Math.min(rect.left, window.innerWidth - CHIP_MAX_W));
   return (
     <div
       style={{
@@ -73,6 +82,10 @@ export function SourceLabel({ rect, loc }: { rect: DOMRect; loc: string }) {
         padding: "1px 6px",
         fontWeight: 700,
         whiteSpace: "nowrap",
+        maxWidth: CHIP_MAX_W,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        boxSizing: "border-box",
         boxShadow: "0 2px 8px rgba(0,0,0,0.45)",
       }}
     >
