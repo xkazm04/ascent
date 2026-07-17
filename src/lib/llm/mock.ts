@@ -34,7 +34,14 @@ function deepFreeze<T>(o: T): T {
 }
 
 function assessKey(input: LlmScoreInput): string {
-  const sig = input.signals.map((s) => `${s.id}:${s.signalScore}`).join(",");
+  // Fingerprint the signal LABELS as well as the scores: dimSummary() derives each dimension's
+  // summary/strengths from `s.signals[].label`, so two scans whose per-dimension scores tie while the
+  // underlying signal SETS differ (a tokened scan swapping one signal for another at the same score, a
+  // battery version relabeling checks) would otherwise collide and serve the first scan's cached prose
+  // — deep-frozen, confidently naming signals the later run never detected. (llm-provider-abstraction #5)
+  const sig = input.signals
+    .map((s) => `${s.id}:${s.signalScore}:${s.signals.map((x) => x.label).join("|")}`)
+    .join(",");
   const head = input.repo.headSha ?? "nohead";
   return `${input.repo.owner}/${input.repo.name}@${head}|${input.archetype}|${sig}`;
 }
