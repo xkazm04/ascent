@@ -443,16 +443,18 @@ export async function getScanComparison(
   // making every delta read backward (a real improvement shows as a regression). The page renders a
   // missing `before` gracefully.
   const defaultBeforeId = scans[afterIdx + 1]?.id ?? null;
-  // Honor an explicit `beforeId` ONLY when it is OLDER than `after` (a HIGHER index in the newest-first
-  // list). A `beforeId` that is NEWER than — or the same as — `afterId` would invert the time axis so
-  // every delta reads backward (a real improvement shows as a regression) — the same forward-baseline
-  // hazard the default guard above avoids, reached here through an explicit (stale/hand-edited/shared)
-  // query param that sidestepped it. Fall back to the default older baseline in that case.
-  // (scan-persistence-history #7)
+  // Honor an explicit `beforeId` whenever it names a DIFFERENT scan in this repo's set — in EITHER
+  // time direction. The diff contract (compare.ts diffScans: "Passing an older scan as `after` is
+  // valid — the deltas simply read as regressions") makes an inverted explicit pair meaningful, and
+  // the picker's ⇄ Swap button depends on it: by definition a swap requests a `beforeId` NEWER than
+  // `afterId`, and the earlier guard here (scan-persistence-history #7) silently rewrote every swap
+  // to the default baseline, producing a diff of two scans the user never selected
+  // (trends-comparison 07-16 #1). The no-forward-reach rule still governs the DEFAULT baseline above,
+  // where no explicit intent exists; a `beforeId` equal to `afterId` (a degenerate self-diff) still
+  // falls back to the default.
   let beforeId = defaultBeforeId;
-  if (opts.beforeId && ids.has(opts.beforeId)) {
-    const beforeIdx = scans.findIndex((s) => s.id === opts.beforeId);
-    if (beforeIdx > afterIdx) beforeId = opts.beforeId;
+  if (opts.beforeId && ids.has(opts.beforeId) && opts.beforeId !== afterId) {
+    beforeId = opts.beforeId;
   }
 
   const [after, before] = await Promise.all([

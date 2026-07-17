@@ -65,6 +65,10 @@ export function ScanComparePicker({
         </Field>
 
         <div className="flex justify-center pb-1">
+          {/* Swap requests before/after in the opposite time order — getScanComparison honors an
+              explicit pair in EITHER direction (diffScans treats an older `after` as valid: the deltas
+              read as regressions), so this navigation yields the actual swapped diff, not a silently
+              substituted default baseline (trends-comparison 07-16 #1). */}
           <button
             type="button"
             onClick={() => go(beforeId, afterId)}
