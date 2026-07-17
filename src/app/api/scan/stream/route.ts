@@ -56,7 +56,7 @@ export async function POST(request: Request) {
   const fresh = Boolean(body.fresh);
   const parsed = parseRepoUrl(url);
   // Reject a provably-invalid URL BEFORE the quota block below: scanRepository would throw
-  // INVALID_URL anyway, but only after the weekly slot was consumed — a typo must not burn one of
+  // INVALID_URL anyway, but only after the monthly slot was consumed — a typo must not burn one of
   // the anonymous tier's free slots. Mirrors the JSON route's INVALID_URL → 400 mapping.
   if (!parsed) {
     return NextResponse.json(
@@ -93,7 +93,9 @@ export async function POST(request: Request) {
       ? (isValidEmail(viewer.email) ? viewer.email : undefined)
       : (isValidEmail(body.email) ? body.email.trim() : undefined);
 
-  // Weekly SOFT gate: public scans get a free per-window allowance (shared with /api/scan via
+  // Monthly SOFT gate (rolling 30-day window, default 5 — src/lib/public-scan-quota.ts is the single
+  // source of truth for the window and allowance): public scans get a free per-window allowance
+  // (shared with /api/scan via
   // consumeScanQuota). The /report flow peeks the cache first (cheap, unconsumed); reaching the stream
   // means a real scan, so consume one slot here. Private (token) scans are credit-metered and skip this.
   const quota = await consumeScanQuota(request, { orgSlug, token, mock });
@@ -226,8 +228,8 @@ export async function POST(request: Request) {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;
         // No report was delivered — 404/typo, upstream failure, or a client abort mid-scan. Refund
-        // the weekly slot in every case: the user received nothing, and a mid-scan refresh or a
-        // GitHub blip must not burn one of the anonymous tier's 3 free slots.
+        // the monthly slot in every case: the user received nothing, and a mid-scan refresh or a
+        // GitHub blip must not burn one of the free tier's monthly slots.
         await refundQuota();
         // A deliberate abort (client disconnect / scan timeout) is not a scan error to report — the
         // consumer is already gone and the scan stopped as intended. Don't emit a misleading
@@ -262,8 +264,8 @@ export async function POST(request: Request) {
     headers: {
       ...SSE_HEADERS,
       connection: "keep-alive",
-      // Free public scans left in this IP's rolling weekly window (after this scan), plus when the
-      // window resets; only set when the weekly gate enforced (anonymous public). Lets the client
+      // Free public scans left in this bucket's rolling 30-day window (after this scan), plus when the
+      // window resets; only set when the monthly gate enforced (public funnel). Lets the client
       // warn before the gate trips.
       ...(quotaRemaining !== null ? { "x-ascent-quota-remaining": String(quotaRemaining) } : {}),
       ...(quotaResetAt !== null ? { "x-ascent-quota-reset": String(quotaResetAt) } : {}),
