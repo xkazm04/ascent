@@ -71,8 +71,19 @@ export async function POST(request: Request) {
   const denied = await requireOrgAccess(owner);
   if (denied) return denied;
 
-  const batch = parsed.slice(0, MAX_BATCH);
-  const skipped = parsed.length - batch.length;
+  // Dedupe before the cap: the API is a public surface (the UI sends from a Set, but a raw caller
+  // can repeat a repo), and two workers for one repo race openDraftPr on the SAME ascent/<practice>
+  // branch — one wins, the other surfaces a confusing ref-exists error, plus a burned cap slot and a
+  // double audit row. "One repo = one worker" is enforced, not assumed.
+  const seen = new Set<string>();
+  const unique = parsed.filter(({ ref }) => {
+    const key = `${ref.owner}/${ref.repo}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const batch = unique.slice(0, MAX_BATCH);
+  const skipped = unique.length - batch.length;
 
   try {
     // Install presence (403) + installation-token mint, single-sourced across the PR-write routes. A

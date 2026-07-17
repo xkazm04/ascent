@@ -284,8 +284,10 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
                 })()}
               {batchResults && (
                 <ul className="mt-2 space-y-1">
-                  {batchResults.map((res) => (
-                    <li key={res.repo} className="font-mono text-sm">
+                  {/* Key includes the index: the server dedupes, but a defensive duplicate repo in
+                      the results must not blow up the list with colliding React keys. */}
+                  {batchResults.map((res, i) => (
+                    <li key={`${res.repo}-${i}`} className="font-mono text-sm">
                       {res.ok ? (
                         <span className="text-emerald-300">
                           ✓ {res.repo.split("/").pop()} —{" "}
