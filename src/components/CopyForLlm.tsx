@@ -5,7 +5,7 @@
 // (briefings, reports, gap analyses, security findings) can hand a dev a ready-to-paste brief. Uses
 // the async Clipboard API with a legacy execCommand fallback for non-secure contexts.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { attemptCopy, nextCopyState } from "./copy-for-llm.logic";
 
 export function CopyForLlm({
@@ -25,6 +25,19 @@ export function CopyForLlm({
 }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Manual-copy fallback surface (pdf-llm-export #4): when BOTH clipboard paths fail (clipboard
+  // blocked by Permissions-Policy, iframe/embedded contexts, some mobile browsers), retrying fails
+  // identically — the failed flash alone was a dead end with no route to the payload. So a failure
+  // also opens a readonly, auto-selected textarea holding the full text: manual Ctrl+C always works.
+  // Unlike the 2.5s failed flash, the fallback persists until dismissed (or a later copy succeeds).
+  const [fallbackOpen, setFallbackOpen] = useState(false);
+  const fallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    if (fallbackOpen) {
+      fallbackRef.current?.focus();
+      fallbackRef.current?.select();
+    }
+  }, [fallbackOpen]);
   // Re-entrancy guard: a second click while a copy is still in flight is ignored, so a rapid
   // double-click can't double-fire `onCopied` (which inflates the best-effort "use" count, §8.7).
   const inFlight = useRef(false);
@@ -42,10 +55,12 @@ export function CopyForLlm({
       if (next === "copied") {
         setFailed(false);
         setCopied(true);
+        setFallbackOpen(false); // a later successful copy supersedes the manual-copy surface
         onCopied?.();
       } else {
         setCopied(false);
         setFailed(true);
+        setFallbackOpen(true); // failure is not terminal: hand the user the payload to copy manually
       }
       resetTimer.current = setTimeout(() => {
         setCopied(false);
@@ -79,8 +94,34 @@ export function CopyForLlm({
           Copied / Copy-failed swap was invisible to screen readers (and aria-live on the button
           itself is unreliable). Announce the outcome through a dedicated polite live region. */}
       <span role="status" aria-live="polite" className="sr-only">
-        {copied ? "Copied to clipboard." : failed ? "Copy failed." : ""}
+        {copied ? "Copied to clipboard." : failed ? "Copy failed. The text is shown below — select it and copy manually." : ""}
       </span>
+      {fallbackOpen && (
+        <div className="mt-2 w-full max-w-xl rounded-lg border border-slate-700 bg-slate-950/80 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm text-slate-400">
+              Automatic copy is blocked here — the text is selected below, press <kbd className="rounded border border-slate-700 px-1 font-mono">Ctrl</kbd>+<kbd className="rounded border border-slate-700 px-1 font-mono">C</kbd> (⌘C on Mac).
+            </p>
+            <button
+              type="button"
+              onClick={() => setFallbackOpen(false)}
+              aria-label="Close manual copy panel"
+              className="focus-ring rounded-md border border-slate-700 px-2 py-0.5 text-sm text-slate-300 transition hover:border-accent hover:text-white"
+            >
+              Close
+            </button>
+          </div>
+          <textarea
+            ref={fallbackRef}
+            readOnly
+            value={text}
+            rows={6}
+            aria-label="Markdown briefing to copy manually"
+            onFocus={(e) => e.currentTarget.select()}
+            className="focus-ring mt-2 w-full resize-y rounded-md border border-slate-700 bg-slate-900 p-2 font-mono text-sm text-slate-200"
+          />
+        </div>
+      )}
     </>
   );
 }
