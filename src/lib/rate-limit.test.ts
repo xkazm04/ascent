@@ -78,6 +78,54 @@ describe("clientIp — IP trust boundary (critical #2)", () => {
     expect(clientIp(req)).toBe("4.4.4.4");
   });
 
+  // ── ASCENT_TRUSTED_PROXY_HOPS — the deployment-shape trust knob (quotas-rate-limiting 07-16 #1) ──
+  describe("ASCENT_TRUSTED_PROXY_HOPS", () => {
+    afterEach(() => {
+      delete process.env.ASCENT_TRUSTED_PROXY_HOPS;
+    });
+
+    it("0 (no trusted proxy): ignores BOTH x-real-ip and XFF — a spoofed x-real-ip cannot mint fresh buckets", () => {
+      process.env.ASCENT_TRUSTED_PROXY_HOPS = "0";
+      const req = new Request("https://example.test", {
+        headers: { "x-real-ip": "6.6.6.6", "x-forwarded-for": "1.1.1.1, 2.2.2.2" },
+      });
+      // Headers are attacker-writable on this deploy shape → collective "unknown" bucket (fail closed;
+      // the 30-day quota's bucketContext treats it as unidentifiable and fails open instead).
+      expect(clientIp(req)).toBe("unknown");
+    });
+
+    it("2 (CDN → LB chain): picks the 2nd-from-the-right XFF hop and does NOT trust x-real-ip", () => {
+      process.env.ASCENT_TRUSTED_PROXY_HOPS = "2";
+      const req = new Request("https://example.test", {
+        headers: {
+          "x-real-ip": "203.0.113.9", // set by an intermediate hop — names the wrong peer
+          "x-forwarded-for": "evil, 198.51.100.7, 203.0.113.9", // client per the 2-hop chain: 198.51.100.7
+        },
+      });
+      // The right-most hop is the CDN edge's own IP — bucketing on it would collapse every real user
+      // into one bucket and lock the whole anonymous funnel out of the monthly quota.
+      expect(clientIp(req)).toBe("198.51.100.7");
+    });
+
+    it("a chain SHORTER than the declared trusted depth yields 'unknown' (never a spoofable left-most hop)", () => {
+      process.env.ASCENT_TRUSTED_PROXY_HOPS = "3";
+      const req = new Request("https://example.test", {
+        headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2" },
+      });
+      expect(clientIp(req)).toBe("unknown");
+    });
+
+    it("unset / invalid values keep the default single-proxy platform behavior", () => {
+      const mk = () =>
+        new Request("https://example.test", {
+          headers: { "x-real-ip": "9.9.9.9", "x-forwarded-for": "1.1.1.1, 3.3.3.3" },
+        });
+      expect(clientIp(mk())).toBe("9.9.9.9");
+      process.env.ASCENT_TRUSTED_PROXY_HOPS = "not-a-number";
+      expect(clientIp(mk())).toBe("9.9.9.9");
+    });
+  });
+
   it("ignores empty XFF segments and still returns the right-most real hop", () => {
     const req = new Request("https://example.test", {
       headers: { "x-forwarded-for": "1.1.1.1, , 5.5.5.5, ," },

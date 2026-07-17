@@ -9,18 +9,48 @@
 // (The badge route also uses this shared limiter via BADGE_RATE_LIMIT.)
 
 /**
- * Best-effort client IP. The LEFT-most X-Forwarded-For entry is client-supplied (spoofable to a
- * fresh bucket per request), so trust the platform's real-client header first, then the RIGHT-most
- * (trusted-proxy-appended) XFF hop, and finally fall back to a single shared bucket so
- * unidentifiable callers are limited COLLECTIVELY (fail closed), never per spoofed value.
+ * TRUST MODEL (quotas-rate-limiting 07-16 #1): how many proxies between the client and this app are
+ * trusted to append honest forwarding headers. The default (1) encodes the platform assumption this
+ * module was built on — EXACTLY ONE well-behaved proxy (Vercel's edge) that strips/sets `x-real-ip`
+ * and appends the real client to `x-forwarded-for`. On other deploy shapes that assumption breaks in
+ * two opposite ways, so make it explicit via ASCENT_TRUSTED_PROXY_HOPS:
+ *   - `0` — NO proxy is trusted (e.g. a self-hosted node behind a proxy that forwards client headers
+ *     VERBATIM, where an attacker can mint a fresh `x-real-ip` per request and bypass every per-IP
+ *     limit AND the 30-day quota). All forwarding headers are ignored; every anonymous caller shares
+ *     one burst bucket (fail closed) and the monthly quota treats the caller as unidentifiable
+ *     (fail open — see public-scan-quota's bucketContext) instead of trusting spoofable input.
+ *   - `1` (default) — platform mode: `x-real-ip` first, then the RIGHT-most XFF hop.
+ *   - `N >= 2` — an N-hop trusted chain (e.g. CDN → LB → app): the client is the Nth-from-the-right
+ *     XFF entry (the right-most N−1 are the trusted proxies' own addresses — bucketing on those would
+ *     collapse thousands of real users into a handful of edge IPs and lock the whole anonymous funnel
+ *     out of the 30-day quota). `x-real-ip` is NOT trusted here: it was set by an intermediate hop and
+ *     names the wrong peer. A chain shorter than N yields "unknown" (fail closed / unidentifiable).
+ */
+function trustedProxyHops(): number {
+  const raw = process.env.ASCENT_TRUSTED_PROXY_HOPS?.trim();
+  if (!raw) return 1;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 1;
+}
+
+/**
+ * Best-effort client IP under the configured trust model (see trustedProxyHops). The LEFT-most
+ * X-Forwarded-For entry is client-supplied (spoofable to a fresh bucket per request), so only the
+ * hop appended by the innermost TRUSTED proxy is used; unidentifiable callers fall back to a single
+ * shared "unknown" bucket so they are limited COLLECTIVELY (fail closed), never per spoofed value.
  */
 export function clientIp(req: Request): string {
-  const real = req.headers.get("x-real-ip")?.trim();
-  if (real) return real;
+  const trusted = trustedProxyHops();
+  if (trusted === 0) return "unknown"; // no trusted proxy — every forwarding header is attacker-writable
+  if (trusted === 1) {
+    const real = req.headers.get("x-real-ip")?.trim();
+    if (real) return real;
+  }
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) {
     const hops = fwd.split(",").map((s) => s.trim()).filter(Boolean);
-    if (hops.length) return hops[hops.length - 1]!; // safe: hops.length > 0 guarded above
+    const idx = hops.length - trusted; // Nth from the right = appended by the outermost trusted proxy
+    if (idx >= 0 && hops.length) return hops[idx]!;
   }
   return "unknown";
 }
