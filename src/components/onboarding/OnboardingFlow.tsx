@@ -32,15 +32,10 @@ export function OnboardingFlow({
     setOrg,
     sourceLabel,
     sourceInstallId,
-    setSourceInstallId,
-    setRepos,
     repos,
     selected,
-    setSelected,
     rows,
-    setRows,
     error,
-    setError,
     loading,
     announce,
     credit,
@@ -57,6 +52,7 @@ export function OnboardingFlow({
     selectTop,
     clearSelection,
     cancelScan,
+    resetRun,
     startScan,
   } = useOnboardingFlow();
 
@@ -138,14 +134,10 @@ export function OnboardingFlow({
         onInvited={() => setInvitedCount((c) => c + 1)}
         onCancel={cancelScan}
         onViewDashboard={() => router.push(`/org/${encodeURIComponent(sourceLabel)}`)}
-        onScanAnother={() => {
-          setPhase("pick");
-          setRepos([]);
-          setSelected(new Set());
-          setRows({});
-          setError(null);
-          setSourceInstallId(null);
-        }}
+        // resetRun clears the FULL per-run state — including the pre-scan credit snapshot, the
+        // creditReady promise, preview flags, invite count, and creditSkipped — so a second run
+        // can't quote stale money numbers or arrive with "Invite your team" pre-ticked.
+        onScanAnother={resetRun}
       />
     </Shell>
   );

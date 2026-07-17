@@ -258,6 +258,26 @@ export function useOnboardingFlow() {
     abortRef.current?.abort();
   }
 
+  // "Scan another": reset the FULL per-run state, not just the visible rows/selection. The original
+  // inline reset list predated the money/checklist state and left `credit` (a pre-scan snapshot the
+  // next run's cost copy + money-gate would trust over a fresh read), `creditReady`, `previewScan`/
+  // `previewCause`, `invitedCount`, and `creditSkipped` to leak into the second run — understating
+  // recurring cost on a just-drained org and pre-ticking "Invite your team". (ambiguity-ui #3)
+  function resetRun() {
+    setPhase("pick");
+    setRepos([]);
+    setSelected(new Set());
+    setRows({});
+    setError(null);
+    setSourceInstallId(null);
+    setCredit(null);
+    creditReady.current = null;
+    setPreviewScan(true);
+    setPreviewCause(null);
+    setInvitedCount(0);
+    setCreditSkipped(0);
+  }
+
   async function startScan() {
     const picks = repos.filter((r) => selected.has(r.fullName));
     if (picks.length === 0) return;
@@ -402,6 +422,7 @@ export function useOnboardingFlow() {
     selectTop,
     clearSelection,
     cancelScan,
+    resetRun,
     startScan,
   };
 }
