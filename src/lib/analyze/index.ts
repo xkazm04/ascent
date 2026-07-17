@@ -293,7 +293,7 @@ const d2: Detector = (idx) => {
   if (/schemathesis|\bdredd\b|@stoplight\/spectral|\bspectral\b|openapi.*(validate|lint)|\bprism\b/.test(adv))
     s.add(6, "API-schema validation");
 
-  // Assertion-quality signal — read the SAMPLED test BODIES (within the ≤32-file ingest budget) and
+  // Assertion-quality signal — read the SAMPLED test BODIES (within the MAX_FILES ingest budget) and
   // judge whether tests actually ASSERT behavior, not just exist. A high-count, assertion-free suite
   // (snapshot dumps, bodies that call code but never assert) must not reach the same band as a
   // behaviorally-tested one. We judge only what was fetched: with no test bodies in the sample we stay

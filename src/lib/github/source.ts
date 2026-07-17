@@ -40,7 +40,11 @@ const API = githubApiBase();
 const RAW = githubRawBase();
 
 // Ingestion budgets — keep prompts small and avoid hammering hosts.
-const MAX_FILES = 50;
+// Exported because the /connect privacy disclosure (PrivacyNotice.tsx) interpolates this number —
+// the user-facing "how many files leave the boundary" claim must derive from the real budget, not
+// a hand-copied literal that drifts when the budget changes. Workflows get a RESERVED quota on top
+// (MAX_WORKFLOW_FILES below), which the disclosure calls out in prose.
+export const MAX_FILES = 50;
 // Security (D9) is scored by a deterministic check battery that reads WORKFLOW CONTENT (token perms,
 // pinned actions, dangerous patterns, SAST, signing). The old 3-workflow cap made those checks blind on
 // exactly the big repos (next.js has 36 workflows), so fetch far more — ranked LAST (see pickFilesToFetch)
