@@ -38,7 +38,9 @@ export function AboutCTA() {
         </div>
       </div>
 
-      <footer className="border-t border-divider/70 py-8 text-center">
+      {/* Below lg the fixed DeckNav bottom bar overlays the viewport bottom — reserve pb-24 so the
+          footer's link row (the conversion moment) isn't covered by / mis-tapped into prev/next. */}
+      <footer className="border-t border-divider/70 pb-24 pt-8 text-center lg:pb-8">
         <div className="mx-auto max-w-6xl px-5">
           <div className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">Ascent</div>
           <p className="mt-2 font-mono text-sm uppercase tracking-widest text-slate-500">The maturity index for AI-native engineering</p>

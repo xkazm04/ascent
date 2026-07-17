@@ -4,10 +4,13 @@ import type { ReactNode } from "react";
 // About deck and the Index landing deck both re-typed per section: a `min-h-screen snap-start`
 // section with the standard vertical rhythm, an optional `hero` shell variant, and the optional
 // editorial `max-w-6xl` content container. Sits alongside the other deck primitives (DeckNav,
-// Reveal, useSnapDeck). Purely presentational — class lists are byte-identical to the inlined
-// originals.
+// Reveal, useSnapDeck). Purely presentational.
+//
+// Bottom rhythm: below `lg` DeckNav overlays a fixed ~56px bottom bar, so sections reserve `pb-24`
+// there (bar + the standard 40px breathing room) and return to `pb-10` at `lg` where the bar is
+// hidden. Keep this in lockstep with DeckNav's mobile bar height.
 
-const SECTION_CLASS = "flex min-h-screen snap-start flex-col justify-center pb-10 pt-14";
+const SECTION_CLASS = "flex min-h-screen snap-start flex-col justify-center pb-24 pt-14 lg:pb-10";
 const HERO_CLASS = "relative isolate flex min-h-screen snap-start items-center overflow-hidden";
 const CONTAINER_CLASS = "mx-auto w-full max-w-6xl px-5";
 

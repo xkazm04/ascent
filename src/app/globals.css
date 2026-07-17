@@ -69,31 +69,35 @@ html {
 
 /* Decorative connector — a linear hairline + glowing azure node in the bottom margin of each section,
    threading the full-viewport sections together so they don't read as disconnected screens. Hidden on
-   each deck's final section (no next section to point to). */
-.snap-deck section[id]::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 1.6rem;
-  width: 1px;
-  height: 2.75rem;
-  transform: translateX(-50%);
-  background: linear-gradient(to bottom, transparent, var(--color-divider) 45%, rgba(59, 158, 255, 0.55));
-  pointer-events: none;
-}
-.snap-deck section[id]::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 1.25rem;
-  z-index: 1;
-  width: 6px;
-  height: 6px;
-  transform: translateX(-50%);
-  border-radius: 9999px;
-  background: var(--color-accent);
-  box-shadow: 0 0 9px 1px rgba(59, 158, 255, 0.45);
-  pointer-events: none;
+   each deck's final section (no next section to point to). Desktop-only (min-width matches Tailwind's
+   `lg`): below lg, DeckNav's fixed bottom bar occupies the bottom margin the connector renders in, so
+   it sat invisibly under (or clipped against) the bar — hide it rather than float it mid-section. */
+@media (min-width: 64rem) {
+  .snap-deck section[id]::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 1.6rem;
+    width: 1px;
+    height: 2.75rem;
+    transform: translateX(-50%);
+    background: linear-gradient(to bottom, transparent, var(--color-divider) 45%, rgba(59, 158, 255, 0.55));
+    pointer-events: none;
+  }
+  .snap-deck section[id]::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 1.25rem;
+    z-index: 1;
+    width: 6px;
+    height: 6px;
+    transform: translateX(-50%);
+    border-radius: 9999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 9px 1px rgba(59, 158, 255, 0.45);
+    pointer-events: none;
+  }
 }
 .snap-deck section#pricing::after,
 .snap-deck section#pricing::before,
