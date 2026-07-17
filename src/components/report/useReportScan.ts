@@ -8,7 +8,7 @@ import { parseSSE } from "@/lib/sse";
 import { type Progress } from "@/components/report/ReportClientStatus";
 import { formatResetAt, type QuotaScope } from "@/components/report/QuotaNotice";
 
-/** A report salvaged from the last persisted scan because the weekly quota blocked a fresh one. */
+/** A report salvaged from the last persisted scan because the monthly quota blocked a fresh one. */
 type Stale = { resetAt: number | null; scope: QuotaScope };
 
 export type ScanState =
@@ -17,7 +17,7 @@ export type ScanState =
   | { status: "error"; message: string; blocked?: { scope: QuotaScope }; authRequired?: boolean; notFound?: boolean }
   | { status: "done"; report: ScanReport; stale?: Stale };
 
-/** Free weekly public-scan allowance surfaced from the x-ascent-quota-* response headers. */
+/** Free monthly public-scan allowance surfaced from the x-ascent-quota-* response headers. */
 export type Quota = { remaining: number; resetAt: number | null; scope: QuotaScope };
 
 export interface ReportScan {
@@ -51,7 +51,7 @@ export function useReportScan(
   const { notify, email } = opts;
   const [state, setState] = useState<ScanState>({ status: "idle" });
   const [progress, setProgress] = useState<Progress>({ message: "Starting…", pct: 0 });
-  // Set from the scan response headers when the free weekly public-scan gate counted this scan.
+  // Set from the scan response headers when the free monthly public-scan gate counted this scan.
   const [quota, setQuota] = useState<Quota | null>(null);
   // Bumped by "Re-test" to re-run the scan in place; > 0 also implies fresh.
   const [retestNonce, setRetestNonce] = useState(0);
@@ -169,10 +169,13 @@ export function useReportScan(
             settleError(data?.error ?? "Sign in to run a scan.", undefined, true);
             return;
           }
-          // Weekly public-scan gate tripped — an immediate retry can't succeed. Before showing a
+          // Monthly public-scan gate tripped — an immediate retry can't succeed. Before showing a
           // dead-end, SALVAGE: serve a persisted report of this repo (peek=1&latest=1 never scans)
           // with a stale notice; only when nothing is saved does the full blocked state remain.
-          if (res.status === 429 && data?.code === "weekly_quota") {
+          // NOTE: the server emits code "monthly_quota" (public-scan-quota.monthlyQuotaExceeded); the
+          // old "weekly_quota" comparison predated the weekly->monthly migration and NEVER matched,
+          // so the salvage/blocked path silently fell through to the generic "Scan failed (429)".
+          if (res.status === 429 && data?.code === "monthly_quota") {
             const scope: QuotaScope = data.scope === "user" ? "user" : "anon";
             const resetAt = data.resetAt ?? null;
             try {
@@ -197,7 +200,7 @@ export function useReportScan(
             }
             settleError(
               data.error ??
-                `You've used all your free public scans for this week. The limit resets ${formatResetAt(resetAt)}.`,
+                `You've used all your free public scans for this month. The limit resets ${formatResetAt(resetAt)}.`,
               { scope },
             );
           } else {
@@ -206,7 +209,7 @@ export function useReportScan(
           return;
         }
 
-        // Surface the free weekly allowance left (headers present only on counted public scans).
+        // Surface the free monthly allowance left (headers present only on counted public scans).
         const remainingRaw = res.headers.get("x-ascent-quota-remaining");
         if (remainingRaw !== null) {
           const resetRaw = res.headers.get("x-ascent-quota-reset");

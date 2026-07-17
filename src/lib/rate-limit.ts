@@ -163,7 +163,7 @@ export const SCAN_RATE_LIMIT: RateLimitConfig = {
 // still spends one GitHub head request against the operator PAT for a never-before-seen repo plus 1-2 DB
 // reads, then returns 204 — so an anonymous client looping distinct repo URLs is a no-cost amplification
 // lever on the shared GitHub budget. Throttle it on its OWN generous budget (well above the full-scan cap
-// so real hydration never trips) and WITHOUT consuming the weekly free-scan quota. Env-overridable.
+// so real hydration never trips) and WITHOUT consuming the monthly free-scan quota. Env-overridable.
 export const PEEK_RATE_LIMIT: RateLimitConfig = {
   name: "scan-peek",
   perIp: envInt("RATE_LIMIT_PEEK_PER_IP", 60),

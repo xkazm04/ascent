@@ -1,5 +1,5 @@
 // GET /api/quota -> { enforced, remaining, limit, resetAt, scope }
-// Read-only "how many free public scans are left this week" for the current caller (signed-in users
+// Read-only "how many free public scans are left this month" (rolling 30-day window) for the current caller (signed-in users
 // get their elevated per-user bucket; anonymous callers their per-IP one). Powers a live meter on
 // the scan entry point BEFORE committing a scan — the count otherwise only surfaced post-scan via
 // response headers. Never consumes a slot. no-store so the meter is always live.
