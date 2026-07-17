@@ -229,7 +229,11 @@ export function RepoCategoryRollup({
       />
 
       {/* Fleet masthead — the "so what" of the shown set in one typeset line. Movement counts + avg move
-          exclude single-scan and mock→live engine-transition deltas, so they read as real momentum. */}
+          exclude single-scan and mock→live engine-transition deltas, so they read as real momentum.
+          Skipped for a filtered-to-zero set: summarize()'s 0-default is a division guard, not a score,
+          and rendering "avg 0" in scoreHex(0) alarm-red reads as a catastrophic fleet grade rather
+          than "no rows matched" (the empty message below already says that). */}
+      {filtered.length > 0 && (
       <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 font-mono text-sm">
         <span className="text-slate-500">
           <span className="tabular-nums text-slate-200">{fleet.repos}</span> repos
@@ -256,6 +260,7 @@ export function RepoCategoryRollup({
           </span>
         )}
       </div>
+      )}
 
       {/* Header filter dropdowns — replace the old top selector row. */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
