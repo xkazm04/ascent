@@ -53,11 +53,20 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
+/**
+ * Is this keystroke headed into an editing widget (so `;`/`i` must not be swallowed)? Resolves the
+ * REAL target via composedPath() first — for a shadow-DOM editor `e.target` is the host element, and
+ * the tag/contenteditable checks would miss it. Covers `<select>` (its type-to-select eats keys) and
+ * `closest('[contenteditable]')` for the host-element case where `isContentEditable` doesn't inherit.
+ * NOTE: `Escape` deliberately bypasses this guard in the handler — exiting must always work.
+ */
+function isTypingTarget(e: KeyboardEvent): boolean {
+  const raw = (typeof e.composedPath === "function" ? e.composedPath()[0] : null) ?? e.target;
+  const el = raw instanceof Element ? raw : null;
   if (!el) return false;
   const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return (el as HTMLElement).isContentEditable || el.closest("[contenteditable]") !== null;
 }
 
 type Mode = "off" | "nav" | "armed";
@@ -100,7 +109,15 @@ export function DevInspector() {
   // handler would still see the old `mode` — `modeRef` is updated synchronously on each transition.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isTypingTarget(e.target)) return;
+      // Escape is the escape hatch: it must work even with focus in an input/textarea/editor —
+      // otherwise a developer armed mid-form-debugging has no keyboard way out (the exact workflow
+      // the tool targets). Only the mode-entry keys (';'/'i') defer to a typing target.
+      if (e.key === "Escape" && modeRef.current !== "off") {
+        modeRef.current = "off";
+        setMode("off");
+        return;
+      }
+      if (isTypingTarget(e)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       if (e.key === ";") {
@@ -117,12 +134,6 @@ export function DevInspector() {
         e.preventDefault();
         modeRef.current = "armed";
         setMode("armed");
-        return;
-      }
-
-      if (e.key === "Escape" && modeRef.current !== "off") {
-        modeRef.current = "off";
-        setMode("off");
       }
     };
 
