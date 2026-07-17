@@ -206,6 +206,17 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : String(n);
 }
 
+/** English ordinal suffix for a non-negative integer (1st, 2nd, 3rd, 4th … 11th/12th/13th, 21st, 22nd).
+ *  The digest percentile line hard-coded "th", so corpus percentiles ending in 1/2/3 (except the
+ *  11–13 teens) rendered broken ordinals ("21th pctile") in the one artifact leaders read without
+ *  opening the app — a sent Slack message can't be hot-fixed. (ambiguity-ui 2026-07-16 #5) */
+export function ordinal(n: number): string {
+  const mod100 = Math.abs(n) % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  const suffix = { 1: "st", 2: "nd", 3: "rd" }[Math.abs(n) % 10] ?? "th";
+  return `${n}${suffix}`;
+}
+
 /**
  * Build a Slack-compatible alert message from a regression verdict. Pure — no env, no Date.
  * The top movement attributions from the diff are included so the alert explains *why* the
@@ -271,7 +282,7 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
           : ` (${signed(d.overallDelta)} — within noise this week)`
         : ` (${signed(d.overallDelta)} this week)`;
   const headline = `📊 Ascent weekly digest: ${d.org}`;
-  const pctile = d.percentile != null ? ` · ${d.percentile}th pctile` : "";
+  const pctile = d.percentile != null ? ` · ${ordinal(d.percentile)} pctile` : "";
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} — ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
 

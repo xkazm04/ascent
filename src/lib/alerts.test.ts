@@ -10,6 +10,7 @@ import {
   digestHasSignal,
   isAlertConfigured,
   isLowCreditsCrossing,
+  ordinal,
   regressionCooldownMs,
   resolveAlertWebhook,
   validateAlertWebhookUrl,
@@ -238,6 +239,23 @@ describe("buildFleetDigestMessage credits line", () => {
   it("omits it for unmetered / healthy orgs (null or undefined)", () => {
     expect(buildFleetDigestMessage(base).text).not.toContain("Credits remaining");
     expect(buildFleetDigestMessage({ ...base, creditsRemaining: null }).text).not.toContain("Credits remaining");
+  });
+  it("renders the percentile as a correct English ordinal (no '21th')", () => {
+    expect(buildFleetDigestMessage({ ...base, percentile: 21 }).text).toContain("21st pctile");
+    expect(buildFleetDigestMessage({ ...base, percentile: 52 }).text).toContain("52nd pctile");
+    expect(buildFleetDigestMessage({ ...base, percentile: 11 }).text).toContain("11th pctile");
+  });
+});
+
+describe("ordinal", () => {
+  it("handles st/nd/rd, the 11–13 teens, and round numbers", () => {
+    const cases: [number, string][] = [
+      [1, "1st"], [2, "2nd"], [3, "3rd"], [4, "4th"],
+      [11, "11th"], [12, "12th"], [13, "13th"],
+      [21, "21st"], [22, "22nd"], [23, "23rd"],
+      [100, "100th"], [0, "0th"], [91, "91st"],
+    ];
+    for (const [n, want] of cases) expect(ordinal(n)).toBe(want);
   });
 });
 
