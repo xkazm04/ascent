@@ -512,19 +512,36 @@ export async function POST(request: Request) {
   // alone is near-useless against a replay routed to another instance (#3). The claim is released on a
   // deferred-processing failure (forgetDelivery) so a genuine redelivery still retries. Answer 200 so a
   // genuine GitHub redelivery of a duplicate isn't retried.
-  const delivery = request.headers.get("x-github-delivery");
-  if (delivery) {
-    const seenLocally = deliveryAlreadySeen(delivery);
-    const claimed = seenLocally ? false : await claimWebhookDelivery(delivery, REPLAY_HORIZON_MS);
-    if (!claimed) {
-      return NextResponse.json({ ok: true, event, duplicate: true });
-    }
-  }
+  // Parse BEFORE claiming (github-app-installation-webhooks 07-16 #4): the body is already in memory
+  // and signature-verified, and a parse failure must not consume the delivery's claim — the 400 used to
+  // land AFTER the claim with no release, so the id stayed claimed for the 24h horizon and GitHub's
+  // retry of the 400 was answered `duplicate: true`: the event dropped forever with an audit trail
+  // saying everything worked.
   let payload: WebhookPayload = {};
   try {
     payload = JSON.parse(raw) as WebhookPayload;
   } catch {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
+  }
+  const delivery = request.headers.get("x-github-delivery");
+  if (delivery) {
+    const seenLocally = deliveryAlreadySeen(delivery);
+    let claimed: boolean;
+    try {
+      claimed = seenLocally ? false : await claimWebhookDelivery(delivery, REPLAY_HORIZON_MS);
+    } catch (err) {
+      // The DB claim threw (a blip, not a verdict). deliveryAlreadySeen() already recorded the id in
+      // the in-memory Map optimistically — roll that back, or this instance would short-circuit
+      // GitHub's redelivery as `duplicate: true` for a delivery that was never claimed nor processed
+      // (the same silent-loss the forgetDelivery release-net exists to prevent). Answer 500 so GitHub
+      // retries a delivery that nothing has claimed.
+      seenDeliveries.delete(delivery);
+      console.error("[webhook] delivery claim failed", err instanceof Error ? err.message : err);
+      return NextResponse.json({ error: "Delivery claim failed." }, { status: 500 });
+    }
+    if (!claimed) {
+      return NextResponse.json({ ok: true, event, duplicate: true });
+    }
   }
 
   try {

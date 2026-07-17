@@ -927,3 +927,52 @@ describe("POST /api/app/webhook — a failed PRIMARY check write is not swallowe
     expect(mockRelease).toHaveBeenCalledWith("pr-primary-checkfail");
   });
 });
+
+// github-app-installation-webhooks (2026-07-16) #4: the two synchronous early-exit paths between
+// "delivery recorded" and "event dispatched" used to strand a delivery half-claimed. (a) The body was
+// parsed AFTER the claim, so a malformed body 400'd with the id claimed for the full 24h horizon —
+// GitHub's retry of the 400 was answered `duplicate: true` and the event dropped forever. (b) The
+// in-memory Map recorded the id BEFORE the DB claim, so a thrown claim (DB blip) 500'd with the id
+// stuck in the local Map — the redelivery to this instance short-circuited as `duplicate: true` for a
+// delivery that was never claimed nor processed.
+describe("POST /api/app/webhook — claim/parse ordering: no half-claimed strandings", () => {
+  const carrier = { action: "labeled", installation: { id: 1 } };
+
+  /** POST with a RAW (possibly malformed) body — the JSON `post()` helper can't produce one. */
+  async function postRaw(delivery: string, body: string) {
+    return POST(
+      new Request("http://localhost/api/app/webhook", {
+        method: "POST",
+        headers: {
+          "x-hub-signature-256": "sha256=stubbed",
+          "x-github-event": "installation",
+          "x-github-delivery": delivery,
+        },
+        body,
+      }),
+    );
+  }
+
+  it("a malformed body 400s WITHOUT consuming the claim — GitHub's retry of the 400 is processed, not deduped", async () => {
+    const res = await postRaw("del-badjson", "{not json");
+    expect(res.status).toBe(400);
+    // Nothing was claimed for an event we could not even parse.
+    expect(mockClaim).not.toHaveBeenCalled();
+
+    // GitHub retries a non-2xx: the (now well-formed) redelivery of the SAME id must process.
+    const retry = await post("installation", "del-badjson", carrier);
+    expect(retry.duplicate).toBeUndefined();
+  });
+
+  it("a thrown DB claim rolls back the local dedup record and answers 500, so the redelivery processes", async () => {
+    mockClaim.mockRejectedValueOnce(new Error("db blip"));
+    const res = await postRaw("del-claimblip", JSON.stringify(carrier));
+    expect(res.status).toBe(500); // unclaimed + non-2xx → GitHub redelivers
+
+    // Redelivery routed to the SAME instance: the optimistic Map entry must have been rolled back,
+    // so this is NOT short-circuited as a duplicate — the DB claim is attempted again and wins.
+    const retry = await post("installation", "del-claimblip", carrier);
+    expect(retry.duplicate).toBeUndefined();
+    expect(mockClaim).toHaveBeenCalledTimes(2);
+  });
+});
