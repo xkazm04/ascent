@@ -196,7 +196,13 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
           a.deltas.push(latest.overallScore - prev.overallScore);
         }
         // Merge the repo's contributors into the team (humans only; a person across N of the team's
-        // repos is one team member with summed commits).
+        // repos is one team member with summed commits). MIXED-WINDOW caveat (ambiguity-ui
+        // 2026-07-16 #5): each repo's snapshot is anchored to that repo's OWN last scan, so on a
+        // mixed-cadence fleet these sums blend windows of different ages — team aiCommitShare /
+        // knowledgeScore describe "as of each repo's last scan", not a single instant.
+        // getContributorInsights applies a ~6-month staleness horizon for the org-wide champion /
+        // bus-factor view; the team rollup keeps every owned repo (dropping a team's only repo would
+        // blank the team) and relies on this documented semantics instead.
         for (const c of r.contributors) {
           if (isBot(c.login)) continue;
           const p = a.people.get(c.login) ?? { login: c.login, name: c.name, commits: 0, aiCommits: 0 };

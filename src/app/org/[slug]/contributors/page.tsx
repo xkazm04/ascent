@@ -261,6 +261,15 @@ export default async function ContributorInsightsPage({
           in a repo with thin agent guidance is well placed to seed it; a champion&apos;s approach is a pattern others can borrow.
           The aim is to surface where trust could grow — people decide what to pick up.
         </p>
+        {/* Staleness annotation (ambiguity-ui 2026-07-16 #5): the data layer drops repos whose
+            snapshot recency trails the fleet's newest scan by ~6 months, so a long-unscanned repo
+            can't crown a departed engineer champion — say so instead of silently excluding. */}
+        {insights.staleRepos > 0 && (
+          <p className="mt-4 font-mono text-sm text-slate-500">
+            {insights.staleRepos} {insights.staleRepos === 1 ? "repo" : "repos"} excluded — last scanned too long ago for
+            its activity snapshot to blend honestly with the rest. Rescan to include {insights.staleRepos === 1 ? "it" : "them"}.
+          </p>
+        )}
         <p className="mt-4 font-mono text-sm text-slate-600">
           Metrics reflect the recent-activity commit window captured at scan time. For team-level rollups, see the{" "}
           <span className="text-slate-500">Teams</span> tab (CODEOWNERS attribution). Per-person trend over time,

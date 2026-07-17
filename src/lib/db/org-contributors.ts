@@ -9,6 +9,17 @@ import { getOrgId } from "@/lib/db/org-rollup";
 // All derived from the stored RepoContributor snapshots (latest scan per repo) — no extra
 // GitHub calls. "commits"/"aiCommits" reflect the recent-activity window we capture at scan
 // time. Bots ([bot]) and unattributed ("unknown") commits are excluded from the human view.
+//
+// Heterogeneous-recency guard (ambiguity-ui 2026-07-16 #5): each repo's snapshot is anchored to
+// that repo's OWN last scan, so on a mixed-cadence fleet a repo last scanned a year ago would
+// otherwise inject its stale activity into orgAiShare / champions / busFactor with the same weight
+// as yesterday's snapshot — an engineer who left could stay the org's "#1 AI champion" via one
+// unscanned repo. Mirroring org-signals' ACTIVITY_HORIZON_WEEKS fix, repos whose snapshot recency
+// (their newest contributor lastActiveAt — captured at scan time, so a proxy for scan freshness)
+// trails the fleet's newest by more than the horizon are DROPPED from the human aggregates, and the
+// count is exposed as `staleRepos` so the UI can annotate. Repos with no lastActiveAt data at all
+// are kept — their recency is unknown, not provably stale.
+const CONTRIBUTOR_HORIZON_MS = 26 * 7 * 86_400_000; // ~6 months, same "recent" bar as org-signals
 
 export interface ContributorInsight {
   login: string;
@@ -40,6 +51,10 @@ export interface ContributorInsights {
   aiActiveShare: number; // 0..100
   orgAiShare: number; // 0..100, commit-weighted across all humans
   soloMaintainerCount: number;
+  /** Repos excluded from these aggregates because their snapshot recency trails the fleet's newest
+   *  by more than the ~6-month horizon (see the heterogeneous-recency guard above). Lets the UI
+   *  annotate "N stale repos excluded" instead of silently blending mixed-age windows. */
+  staleRepos: number;
   contributors: ContributorInsight[]; // all humans, sorted by commits desc
   champions: ContributorInsight[]; // top by championScore
   concentration: RepoConcentration[]; // per repo, sorted by topShare desc
@@ -64,6 +79,25 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
     },
   });
 
+  // Heterogeneous-recency guard: drop repos whose snapshot recency trails the fleet's newest by
+  // more than the horizon (see module header). Recency proxy = the repo's newest contributor
+  // lastActiveAt, captured at scan time; repos with none are kept (unknown ≠ provably stale).
+  const repoNewest = new Map<string, number>();
+  for (const r of rows) {
+    const t = r.lastActiveAt?.getTime();
+    if (t == null || Number.isNaN(t)) continue;
+    const cur = repoNewest.get(r.repo.fullName);
+    if (cur == null || t > cur) repoNewest.set(r.repo.fullName, t);
+  }
+  const anchor = repoNewest.size ? Math.max(...repoNewest.values()) : null;
+  const staleRepoNames = new Set<string>();
+  if (anchor != null) {
+    for (const [fullName, newest] of repoNewest) {
+      if (anchor - newest > CONTRIBUTOR_HORIZON_MS) staleRepoNames.add(fullName);
+    }
+  }
+  const freshRows = rows.filter((r) => !staleRepoNames.has(r.repo.fullName));
+
   // Per-contributor aggregation (humans only).
   const people = new Map<
     string,
@@ -72,7 +106,7 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
   // Per-repo contributor lists (humans only) for concentration / bus factor.
   const repos = new Map<string, { name: string; entries: { login: string; commits: number }[] }>();
 
-  for (const r of rows) {
+  for (const r of freshRows) {
     if (isBot(r.login)) continue;
     const p =
       people.get(r.login) ??
@@ -151,6 +185,7 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
     aiActiveShare: contributors.length ? Math.round((aiActive / contributors.length) * 100) : 0,
     orgAiShare: totalCommits ? Math.round((aiCommitsTotal / totalCommits) * 100) : 0,
     soloMaintainerCount: concentration.filter((r) => r.soloMaintainer).length,
+    staleRepos: staleRepoNames.size,
     contributors,
     champions,
     concentration,

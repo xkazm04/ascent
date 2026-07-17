@@ -487,3 +487,54 @@ describe("getContributorInsights guards", () => {
     await expect(getContributorInsights("acme")).resolves.toBeNull();
   });
 });
+
+// ── heterogeneous-recency horizon (ambiguity-ui 2026-07-16 #5) ─────────────────
+// Each repo's snapshot is anchored to that repo's OWN last scan. A repo whose snapshot recency
+// (newest contributor lastActiveAt, captured at scan time) trails the fleet's newest by more than
+// ~6 months is dropped from the human aggregates and counted in `staleRepos` — otherwise an
+// engineer who left a year ago stays the org's "#1 AI champion" via one long-unscanned repo, and
+// busFactor/soloMaintainer describe a team composition that no longer exists.
+
+describe("getContributorInsights staleness horizon", () => {
+  const NOW = new Date("2026-07-16T00:00:00Z");
+  const MONTHS_14_AGO = new Date(NOW.getTime() - 14 * 30 * 86_400_000);
+
+  it("drops a repo whose snapshot is ~14 months staler than the fleet's newest, and counts it", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        // Fresh repo: 3 humans, modest AI usage.
+        { login: "alice", commits: 10, aiCommits: 2, lastActiveAt: NOW, repo: "acme/web" },
+        { login: "bob", commits: 8, aiCommits: 0, lastActiveAt: NOW, repo: "acme/web" },
+        { login: "cara", commits: 6, aiCommits: 1, lastActiveAt: NOW, repo: "acme/web" },
+        // Stale repo, last scanned ~14 months ago: a departed heavy AI user who would otherwise
+        // dominate orgAiShare and the champion ranking.
+        { login: "ghost", commits: 50, aiCommits: 50, lastActiveAt: MONTHS_14_AGO, repo: "acme/legacy" },
+      ]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.staleRepos).toBe(1);
+    expect(res.contributors.map((c) => c.login)).not.toContain("ghost");
+    expect(res.champions.map((c) => c.login)).not.toContain("ghost");
+    // orgAiShare reflects only the fresh window: 3/24, not (3+50)/74.
+    expect(res.orgAiShare).toBe(Math.round((3 / 24) * 100));
+    // The stale repo also stops feeding concentration/bus-factor risk flags.
+    expect(res.concentration.find((r) => r.name === "legacy")).toBeUndefined();
+  });
+
+  it("keeps everything when all repos are within the horizon (and when recency is unknown)", async () => {
+    mockGetPrisma.mockReturnValue(
+      fakePrisma([
+        { login: "alice", commits: 5, aiCommits: 1, lastActiveAt: NOW, repo: "acme/web" },
+        // Within horizon (~3 months back) — kept.
+        { login: "bob", commits: 4, aiCommits: 0, lastActiveAt: new Date(NOW.getTime() - 90 * 86_400_000), repo: "acme/api" },
+        // No lastActiveAt anywhere in this repo — unknown recency is kept, not presumed stale.
+        { login: "cara", commits: 3, aiCommits: 0, repo: "acme/docs" },
+      ]),
+    );
+
+    const res = (await getContributorInsights("acme"))!;
+    expect(res.staleRepos).toBe(0);
+    expect(res.totalContributors).toBe(3);
+  });
+});
