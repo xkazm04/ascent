@@ -165,7 +165,7 @@ export function PlaybookCard({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <CopyForLlm text={playbookMarkdown(p, dimLabel)} label="Copy" ariaLabel={`Copy "${p.title}" for LLM`} />
-          <button onClick={onRemove} className="font-mono text-sm text-slate-600 hover:text-orange-300">remove</button>
+          <button onClick={onRemove} className="focus-ring rounded font-mono text-sm text-slate-600 hover:text-orange-300">remove</button>
         </div>
       </div>
       {p.summary && <p className="mt-1 text-base text-slate-400">{p.summary}</p>}
@@ -243,16 +243,23 @@ export function PlaybookCard({
 
       {available.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <select value={pick} onChange={(e) => setPick(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200">
+          {/* aria-label: without it a screen reader announces this select only by its current option
+              ("Pick a repo…") — every field in the sibling NewPracticeModal is labeled (playbooks #4). */}
+          <select
+            value={pick}
+            onChange={(e) => setPick(e.target.value)}
+            aria-label="Repo to apply this playbook to"
+            className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200"
+          >
             <option value="">Pick a repo…</option>
             {available.map((r) => (
               <option key={r} value={r}>{r}</option>
             ))}
           </select>
-          <button onClick={apply} disabled={!pick} className="shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Just record that this repo adopted the playbook">
+          <button onClick={apply} disabled={!pick} className="focus-ring shrink-0 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50" title="Just record that this repo adopted the playbook">
             Mark applied
           </button>
-          <button onClick={() => setConfirmingPr(true)} disabled={!pick || prBusy} className="shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50" title="Open a draft PR seeding this playbook into the repo">
+          <button onClick={() => setConfirmingPr(true)} disabled={!pick || prBusy} className="focus-ring shrink-0 rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50" title="Open a draft PR seeding this playbook into the repo">
             {prBusy ? "Opening PR…" : "Open draft PR →"}
           </button>
         </div>
@@ -272,8 +279,11 @@ export function PlaybookCard({
           ? draftPrConfirm(pick, `the "${p.title}" playbook`)
           : { title: "", body: "", confirmLabel: "", tone: "default" as const })}
       />
-      {markError && <p className="mt-2 text-sm text-orange-300">{markError}</p>}
-      {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
+      {/* role="alert" so AT announces the failure — an optimistic chip silently rolling back was the
+          exact bug markError was added to surface, but without the role it stayed invisible to screen
+          readers while trackError (line above) already announced (playbooks #4). */}
+      {markError && <p role="alert" className="mt-2 text-sm text-orange-300">{markError}</p>}
+      {prError && <p role="alert" className="mt-2 text-sm text-orange-300">{prError}</p>}
       {prResult && (
         <p className="mt-2 text-sm text-emerald-300">
           {prResult.reused ? "Existing draft PR: " : "Draft PR opened: "}
