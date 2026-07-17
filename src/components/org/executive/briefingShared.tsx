@@ -45,8 +45,8 @@ export function DimRow({ dimId, label, avg, href }: { dimId: string; label: stri
 }
 
 /** One "Movement this period" row: repo name (a report link when `fullName` is known), the level
- *  pair when it changed, and the signed score move. Exec-page block; the share page renders no
- *  movement list, so the link surface stays inside the authenticated app. */
+ *  pair when it changed, and the signed score move. The share page renders these WITHOUT `fullName`
+ *  (static rows), so the link surface stays inside the authenticated app. */
 export function MoveRow({
   tone,
   name,

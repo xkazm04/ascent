@@ -5,8 +5,8 @@
 
 import { Logo } from "@/components/Brand";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { DimRow, PriorPeriodGrid } from "@/components/org/executive/briefingShared";
-import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
+import { DimRow, MoveRow, PriorPeriodGrid } from "@/components/org/executive/briefingShared";
+import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
 import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
@@ -167,6 +167,16 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           <Tile label="Corpus percentile" value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"} sub={benchmark && benchmark.corpusRepos > 0 ? `vs ${benchmark.corpusRepos} repos` : "no corpus yet"} color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined} />
         </div>
 
+        {/* executive-briefing 07-16 #4: the audience the "value this period" line was built for
+            (leadership/renewal) is exactly the audience holding this link — carry it here like the
+            exec page, the LLM markdown and the PDF do, so the three surfaces tell one story. */}
+        {valueRealizedLine(briefing.valueRealized) && (
+          <div className="mt-4 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
+            <span className="font-mono text-sm uppercase tracking-widest text-accent">Value this period</span>{" "}
+            <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized)}</span>
+          </div>
+        )}
+
         {/* Engine-mix provenance — the shared board link must show the same mock-degraded caveat the
             owner's page + PDF do, so a leaked/forwarded read-only link can't hide that some scores were
             produced by the deterministic mock engine rather than the live model. */}
@@ -216,6 +226,29 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             </div>
           </Card>
         </div>
+
+        {/* Movement this period — the scale line + capped top movers the exec page and PDF carry.
+            Rows are rendered WITHOUT fullName so no report links leak out of the read-only surface
+            (briefingShared's recorded intent: the link surface stays inside the authenticated app). */}
+        {(briefing.topGainers.length > 0 || briefing.topRegressions.length > 0) && (
+          <Card className="mt-6">
+            <SectionHeader size="sm" title="Movement this period" />
+            {briefing.movement.compared > 0 && (
+              <p className="mt-2 font-mono text-sm text-slate-500">
+                {briefing.movement.up + briefing.movement.down} of {briefing.movement.compared} compared repos moved
+                ({briefing.movement.up} ▲ / {briefing.movement.down} ▼)
+              </p>
+            )}
+            <div className="mt-3 space-y-1.5">
+              {briefing.topGainers.map((m) => (
+                <MoveRow key={`g-${m.name}`} tone="up" name={m.name} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
+              ))}
+              {briefing.topRegressions.map((m) => (
+                <MoveRow key={`r-${m.name}`} tone="down" name={m.name} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
+              ))}
+            </div>
+          </Card>
+        )}
 
         <Card className="mt-6">
           <SectionHeader size="sm" title="Goals" />
