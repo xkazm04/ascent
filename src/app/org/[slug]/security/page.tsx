@@ -135,6 +135,10 @@ export default async function OrgSecurity({
           org={slug}
           rows={sec.register}
           advisories={supplyOn ? supply!.repos.map((r) => ({ fullName: r.fullName, critical: r.critical, high: r.high, total: r.total })) : null}
+          // security-posture-audit-log #3: the mock provider's honesty flag was wired into the
+          // markdown brief ("Dependabot — demo data") but never the on-screen register, so fabricated
+          // counts rendered as fleet fact with live GitHub links. Label + de-link them.
+          advisoriesDemo={supplyOn ? supply!.demo : false}
         />
         {/* The grid says which controls fail; this is where you decide what to do about each one. */}
         <SecurityFindings org={slug} rows={sec.register} decisions={decisions} />
