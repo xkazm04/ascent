@@ -13,6 +13,18 @@ import { RankPanel } from "@/components/org/plan/Simulator.RankPanel";
 import { ProjectionResult } from "@/components/org/plan/Simulator.ProjectionResult";
 import { SavedScenarios } from "@/components/org/plan/Simulator.SavedScenarios";
 
+/** Clamp a typed target into 0..100 (investment 07-16 #3): the inputs' HTML min/max only constrain
+ *  the spinner arrows — typing "150" / "-5" went straight into state, then either 400'd on simulate
+ *  or was silently swapped for 70 by the rank route while the button advertised the typed value.
+ *  Empty/garbage input keeps the previous value instead of `Number("") = 0` silently jumping to 0.
+ *  ONE sanitizer for all target inputs (primary + extras), so the bounds can't drift. */
+function clampTarget(raw: string, prev: number): number {
+  if (raw.trim() === "") return prev;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return prev;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
 /** What-if: project the fleet impact of raising a dimension to a target across a repo set. */
 export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption[]; repos: RepoOption[] }) {
   const router = useRouter();
@@ -81,7 +93,11 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       // gain is a diff of two rounded integers, so a real promotion (64→65, L3→L4) can read gain=0 yet
       // promotions>0. Dropping it hid the single most valuable recommendation (investment #2).
       setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0 || r.promotions > 0).slice(0, 5));
-      setRankedWith({ target, scopeKey: [...scope].sort().join("\n"), scopeSize: scope.size });
+      // Record the EFFECTIVE target the ranking was computed with — the route echoes it (it falls
+      // back to 70 for an out-of-range value), so the stale badge / "computed for … at target T"
+      // note can never advertise a target the engine didn't actually use (investment 07-16 #3).
+      const effectiveTarget = typeof data.target === "number" ? data.target : target;
+      setRankedWith({ target: effectiveTarget, scopeKey: [...scope].sort().join("\n"), scopeSize: scope.size });
     } catch (e) {
       setRankError(e instanceof Error ? e.message : "Couldn't rank moves.");
     } finally {
@@ -234,7 +250,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
           ))}
         </select>
         <span className="font-mono text-sm text-slate-500">to</span>
-        <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => { invalidate(); setTarget(Number(e.target.value)); }} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
+        <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => { invalidate(); setTarget(clampTarget(e.target.value, target)); }} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
         <span className="font-mono text-sm text-slate-500">across</span>
         <button onClick={() => setShowRepos((s) => !s)} className="rounded-lg border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white">
           {scopeLabel} ▾
@@ -269,7 +285,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
             min={0}
             max={100}
             value={e.target}
-            onChange={(ev) => updateExtra(idx, { target: Number(ev.target.value) })}
+            onChange={(ev) => updateExtra(idx, { target: clampTarget(ev.target.value, e.target) })}
             className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200"
           />
           <button onClick={() => removeExtra(idx)} className="font-mono text-sm text-slate-600 hover:text-orange-300" title="Remove this dimension">

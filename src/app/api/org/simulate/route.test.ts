@@ -175,20 +175,25 @@ describe("POST /api/org/simulate — rank mode target fallback (never NaN)", () 
   ];
 
   for (const [target, why] of BAD) {
-    it(`falls back to target=70 for ${why}`, async () => {
+    it(`falls back to target=70 for ${why} — and ECHOES the effective target in the response`, async () => {
       const res = await post({ org: "acme", rank: true, target });
 
       expect(res.status).toBe(200);
       expect(mockRankOrgInvestments).toHaveBeenCalledTimes(1);
       // The invariant: a bad target degrades to the documented 70 default, never a NaN rank.
       expect(mockRankOrgInvestments).toHaveBeenCalledWith("acme", 70, []);
+      // investment 07-16 #3: the silent substitution must be visible to the caller, so the UI can
+      // never claim the ranking was computed for a target the engine didn't use.
+      const body = await res.json();
+      expect(body.target).toBe(70);
     });
   }
 
-  it("passes a VALID rank target through unchanged (the fallback is bad-input-only)", async () => {
+  it("passes a VALID rank target through unchanged (the fallback is bad-input-only) and echoes it", async () => {
     const res = await post({ org: "acme", rank: true, target: 85 });
     expect(res.status).toBe(200);
     expect(mockRankOrgInvestments).toHaveBeenCalledWith("acme", 85, []);
+    expect((await res.json()).target).toBe(85);
   });
 
   it("404s when there are no scanned repos to rank", async () => {
