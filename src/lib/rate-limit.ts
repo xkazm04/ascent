@@ -171,6 +171,19 @@ export const PEEK_RATE_LIMIT: RateLimitConfig = {
   windowMs: 60_000,
 };
 
+// GET /api/quota was the ONE public endpoint with no limiter: each anonymous request runs auth
+// resolution (getViewer) plus a per-request DB read with `no-store` (no CDN absorption), and the
+// client meter re-fires it on every focus/visibility/pageshow — so a trivial loop turned the free
+// funnel's cheapest endpoint into a DB-read amplifier (Aurora DSQL bills per request). Same
+// "read-only is not free" rationale as PEEK above; generous so tab-switch storms never trip for a
+// human, and the meter tolerates a 429 (keeps its last state). Env-overridable.
+export const QUOTA_PEEK_RATE_LIMIT: RateLimitConfig = {
+  name: "quota-peek",
+  perIp: envInt("RATE_LIMIT_QUOTA_PEEK_PER_IP", 60),
+  global: envInt("RATE_LIMIT_QUOTA_PEEK_GLOBAL", 600),
+  windowMs: 60_000,
+};
+
 // Org import bulk-scans up to 100 repos per call — far more expensive, so limit it harder.
 export const ORG_IMPORT_RATE_LIMIT: RateLimitConfig = {
   name: "org-import",
