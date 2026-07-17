@@ -4,7 +4,7 @@
 // tag the whole set into a segment in one call (POST /api/org/segments/:id/repos/bulk). The table
 // markup mirrors the prior server render; only selection + the bar are client state.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { OrgTable } from "@/components/org/shared/ui";
@@ -66,6 +66,20 @@ export function RepoLeaderboard({
     const d = sort.dir;
     return [...rows].sort((x, y) => (activityValue(x.activity, sort.key) - activityValue(y.activity, sort.key)) * d);
   }, [rows, sort]);
+
+  // Selection is keyed by fullName so RE-SORTING never disturbs it (see the sort comment above) — but
+  // the ROW SET itself changes when the posture/stack filter chips navigate: the server page re-renders
+  // around this still-mounted client component, and repos ticked under the old filter would silently
+  // remain in `selected` while invisible. Prune to the visible rows so "Add to segment" can only ever
+  // tag repos the user can currently see (repositories-segments 07-16 #1).
+  const rowNames = useMemo(() => new Set(rows.map((r) => r.fullName)), [rows]);
+  useEffect(() => {
+    setSelected((s) => {
+      if (s.size === 0) return s;
+      const pruned = [...s].filter((fn) => rowNames.has(fn));
+      return pruned.length === s.size ? s : new Set(pruned);
+    });
+  }, [rowNames]);
 
   const allSelected = selected.size > 0 && selected.size === rows.length;
   const segName = useMemo(() => new Map(segments.map((s) => [s.id, s.name])), [segments]);
