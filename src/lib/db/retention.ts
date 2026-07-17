@@ -293,6 +293,19 @@ export interface PurgeOptions {
  * `length` ticks — a BOUNDED worst-case reach — while staying stateless (no persisted cursor). The input
  * order is the query's `createdAt asc` (oldest first), so an un-rotated tick already drains the oldest
  * data first; the rotation only guarantees the tail is eventually reached.
+ *
+ * PRECONDITIONS the bound depends on (data-retention 07-16 #3) — neither is checked at runtime:
+ *  1. EXACTLY ONE tick per calendar day. The offset is `floor(startedAt / DAY_MS)` (the epoch-day
+ *     index), so it advances once per day regardless of cron cadence: schedule the purge more often
+ *     than daily (vercel.json is the source of truth, not the route's "daily" comment) and every tick
+ *     within a day retries the identical prefix — the bound becomes `length` DAYS, not ticks.
+ *  2. A STABLE org population. The modulo is over `orgs.length`, so an org created/deleted between
+ *     ticks changes `n` and `offset % n` jumps discontinuously — during org churn the round-robin
+ *     bound degrades to probabilistic again and an unlucky tail org can be skipped repeatedly.
+ * Under churn/steeper cadence the guarantee is best-effort, not broken-by-construction: every tick
+ * still drains oldest-first from wherever it starts. The durable fix — a persisted cursor row — was
+ * REJECTED to keep this module schema-free and stateless (no migration, no cursor row to corrupt or
+ * to contend on under concurrent ticks); revisit if real deployments schedule sub-daily crons.
  */
 export function rotateForTick<T>(arr: T[], offset: number): void {
   const n = arr.length;
