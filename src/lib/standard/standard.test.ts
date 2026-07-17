@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -527,6 +527,36 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     expect(status).toBe(1);
     expect(json.fails).toBeGreaterThanOrEqual(1);
     expect(json.findings.some((f) => f.level === "fail" && /schema id is not/.test(f.msg))).toBe(true);
+  });
+
+  it("--run writes the verify outcome back into manifest.yaml: pass → verified: true, fail → verified: false", () => {
+    // The contract three docs promise (doctor banner, manifest comment, Capability type): `verified`
+    // is a claim the doctor's --run flips to the ACTUAL run outcome. Before this write-back existed,
+    // every adopting repo carried `verified: false` forever even after a green --run.
+    writeConformantRepo(tmp);
+    const data = buildManifestData(makeReport());
+    data.capabilities = {
+      build: { command: 'node -e "process.exit(0)"', verified: false }, // passes → must flip true
+      test: { command: 'node -e "process.exit(1)"', verified: true }, // stale true → must flip false
+      lint: { command: 'node -e "process.exit(0)"', verified: false }, // passes → must flip true
+    };
+    const manifestPath = join(tmp, ".ai", "manifest.yaml");
+    writeFileSync(manifestPath, serializeManifestYaml(data), "utf8");
+
+    const res = spawnSync(process.execPath, [join(tmp, ".ai", "doctor.mjs"), "--run", "--json"], {
+      cwd: tmp,
+      encoding: "utf8",
+      env: { ...process.env, ASCENT_CONFORMANCE_URL: "", ASCENT_CONFORMANCE_TOKEN: "", GITHUB_REPOSITORY: "" },
+    });
+    expect(res.error, res.error?.message).toBeUndefined();
+    expect(res.status).toBe(1); // the failing `test` capability still gates (exit fails>0)
+
+    const after = readFileSync(manifestPath, "utf8");
+    expect(after).toMatch(/^ {2}build: \{.*verified: true \}$/m);
+    expect(after).toMatch(/^ {2}test: \{.*verified: false \}$/m);
+    expect(after).toMatch(/^ {2}lint: \{.*verified: true \}$/m);
+    // The commands themselves round-trip untouched — only the verified token was rewritten.
+    expect(after).toContain('command: "node -e \\"process.exit(0)\\""');
   });
 
   it("the --json payload has exactly the {score,fails,warns,findings} shape conformance/route.ts ingests", () => {

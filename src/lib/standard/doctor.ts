@@ -11,7 +11,9 @@ import type { GeneratedFile } from "./types";
 const DOCTOR = `#!/usr/bin/env node
 // .ai/doctor.mjs - executable conformance for the .ai/ standard (reference impl, zero-dependency).
 // Usage: node .ai/doctor.mjs [--run] [--json]
-//   --run   also executes capability commands to verify they actually pass (flips "verified").
+//   --run   also executes capability commands to verify they actually pass, then writes each result
+//           back to .ai/manifest.yaml: "verified" flips to the run outcome (true on pass, false on
+//           fail — a stale true never outlives a broken command).
 //           SECURITY: --run shell-executes the commands declared in .ai/manifest.yaml. Run it ONLY on
 //           code you trust. Do NOT run it on untrusted pull_request builds from forks, and never expose
 //           ASCENT_CONFORMANCE_TOKEN (or any secret) to a fork-PR workflow that runs --run: a malicious
@@ -20,7 +22,7 @@ const DOCTOR = `#!/usr/bin/env node
 //   --json  prints a JSON summary and (when ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN are
 //           set, e.g. in CI) POSTs it to Ascent — closing the adopt->verify->re-score loop.
 // Contract: docs/AI_MANIFEST_SPEC.md. Reimplement freely; the checks are what matter, not this runner.
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
 const ROOT = process.cwd();
@@ -99,11 +101,29 @@ if (!existsSync(path)) {
   const names = Object.keys(caps);
   if (names.length) add('pass', 'declares ' + names.length + ' capabilities: ' + names.join(', '));
   else add('fail', 'no capabilities declared');
+  const runResults = {};
   for (const n of names) {
     if (/<.*>/.test(caps[n])) add('warn', 'capability "' + n + '" has a placeholder command - fill it in');
     else if (RUN) {
-      try { execSync(caps[n], { stdio: 'ignore', timeout: 180000 }); add('pass', 'verified "' + n + '": ' + caps[n]); }
-      catch { add('fail', 'capability "' + n + '" FAILED: ' + caps[n]); }
+      try { execSync(caps[n], { stdio: 'ignore', timeout: 180000 }); add('pass', 'verified "' + n + '": ' + caps[n]); runResults[n] = true; }
+      catch { add('fail', 'capability "' + n + '" FAILED: ' + caps[n]); runResults[n] = false; }
+    }
+  }
+  // --run write-back: "verified" is a CLAIM this doctor PROVES, so flip each run capability's flag to
+  // its actual outcome (pass -> true, fail -> false — a stale true never outlives a broken command).
+  // The serializer's one-line-per-capability format makes the targeted rewrite safe; placeholder
+  // capabilities are never touched. Without this the manifest promised a flip that never happened.
+  if (RUN && Object.keys(runResults).length) {
+    let updated = text;
+    for (const n of Object.keys(runResults)) {
+      updated = updated.replace(
+        new RegExp('^(\\\\s{2}' + n + ':\\\\s*\\\\{[^\\\\n]*verified:\\\\s*)(true|false)', 'm'),
+        function (m, p1) { return p1 + runResults[n]; },
+      );
+    }
+    if (updated !== text) {
+      try { writeFileSync(path, updated); add('pass', 'manifest updated: ' + Object.keys(runResults).map(function (n) { return n + ' verified=' + runResults[n]; }).join(', ')); }
+      catch (e) { add('warn', 'could not write verified flags back to ' + path + ': ' + (e && e.message)); }
     }
   }
 
