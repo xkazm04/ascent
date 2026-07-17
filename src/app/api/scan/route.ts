@@ -376,6 +376,23 @@ export async function GET(request: Request) {
     // `latest=1` (peek-only) allows falling back to the most recent persisted report of ANY
     // commit when the head-pinned probe misses — used by the quota-blocked salvage path.
     const latest = searchParams.get("latest") === "1" || searchParams.get("latest") === "true";
+    // GET is restricted to the CHEAP idempotent modes it exists for (cache peeks and ?mock=1 demos).
+    // A bare GET /api/scan?url=… used to run the identical quota-consuming, credit-metering,
+    // report-persisting path as POST — but GETs are exactly the requests prefetchers, link expanders,
+    // crawlers, and browser URL-bar autocompletion replay, and they carry the session cookie, so a
+    // signed-in user's own browser could silently re-fire a full scan (burning free-tier slots or org
+    // credits with no UI shown; the refund machinery only covers FAILED scans, not unwanted successful
+    // ones). Nothing in-app links a real scan-on-GET — the report flow peeks here then POSTs to
+    // /api/scan/stream. Unbounded-cost mutations belong on POST. (scan-pipeline-ingestion #5)
+    if (!peek && !mock) {
+      return NextResponse.json(
+        {
+          error:
+            "A real scan is not served on GET (prefetchers/crawlers replay GETs, and a scan spends quota and money). POST /api/scan with { url } instead — or use GET with peek=1 (cache probe) or mock=1 (deterministic demo).",
+        },
+        { status: 405, headers: { allow: "POST", "cache-control": "no-store" } },
+      );
+    }
     return await runScan(url, { mock, installationId, fresh, peek, recent, latest, signal: request.signal, req: request });
   } catch (err) {
     return handleError(err);

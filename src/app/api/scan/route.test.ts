@@ -59,7 +59,7 @@ vi.mock("@/lib/rate-limit", () => ({
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: vi.fn(() => false), getViewer: vi.fn(async () => null) }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 import { scanRepository, resolveScanAuth } from "@/lib/scan";
 import { lookupCachedScan } from "@/lib/scan-cache";
 import { cacheSet } from "@/lib/cache";
@@ -302,5 +302,41 @@ describe("POST /api/scan — public weekly-quota refund (money-path)", () => {
     expect(res.status).toBe(500);
     expect(mockRefundQuota).toHaveBeenCalledTimes(1);
     expect(mockRefundQuota).toHaveBeenCalledWith(expect.anything(), expect.anything(), 1000);
+  });
+});
+
+// GET surface restriction (ambiguity-ui scan-pipeline-ingestion #5): GETs are replayed by
+// prefetchers/crawlers/URL-bar autocompletion and carry session cookies, so the side-effectful full
+// scan (quota slot, credits, LLM spend, persisted report) must be POST-only. GET keeps only the cheap
+// idempotent modes it exists for: peek=1 cache probes and mock=1 demos.
+describe("GET /api/scan — restricted to peek/mock (scan-pipeline-ingestion #5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installNeutralDefaults();
+    mockAuth.mockResolvedValue({ token: undefined, orgSlug: "public" } as never);
+  });
+
+  it("405s a bare real-scan GET without consuming quota or scanning", async () => {
+    const res = await GET(new Request("http://x/api/scan?url=o%2Fr"));
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("POST");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockConsumeQuota).not.toHaveBeenCalled();
+  });
+
+  it("still serves the mock demo mode on GET", async () => {
+    mockLookup.mockResolvedValue(lookup("o/r@sha::mock"));
+    mockScan.mockResolvedValue(reportWith("mock"));
+    const res = await GET(new Request("http://x/api/scan?url=o%2Fr&mock=1"));
+    expect(res.status).toBe(200);
+    expect(mockScan).toHaveBeenCalledTimes(1);
+  });
+
+  it("still serves the peek cache probe on GET (204 on a miss)", async () => {
+    mockLookup.mockResolvedValue(lookup("o/r@sha::llm"));
+    const res = await GET(new Request("http://x/api/scan?url=o%2Fr&peek=1"));
+    expect(res.status).toBe(204);
+    expect(mockScan).not.toHaveBeenCalled();
   });
 });
