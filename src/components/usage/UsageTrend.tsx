@@ -1,8 +1,11 @@
 "use client";
 
 // Per-day usage trend: billable (private) stacked over free (public) computed scans across
-// the selected period, plus CSV/JSON export for finance reconciliation. Dependency-free
-// inline SVG (same approach as the trends/delivery charts).
+// the selected period, plus CSV/JSON export for finance reconciliation. Dependency-free flex DIV
+// bars (NOT inline SVG like the trends/delivery charts — an earlier comment claimed otherwise, which
+// hid that none of the SVG charts' a11y affordances came along). Because the per-day values only
+// surface via hover `title` tooltips, the bar strip is exposed as one labeled image and a
+// visually-hidden table carries the full day-by-day data for keyboard/touch/screen-reader users.
 
 import type { UsageDay } from "@/lib/db";
 
@@ -62,7 +65,14 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
         <p className="mt-6 text-base text-slate-500">No scans recorded in this period.</p>
       ) : (
         <>
-          <div className="mt-4 flex h-40 items-end gap-px">
+          {/* The hover-only tooltips never fire for keyboard/touch/AT users, so the billing data —
+              the numbers users reconcile invoices against — gets a text alternative: a summary on the
+              image role plus a visually-hidden per-day table (and the Export CSV link above). */}
+          <div
+            className="mt-4 flex h-40 items-end gap-px"
+            role="img"
+            aria-label={`Daily computed scans, last ${days} days: ${totalBillable} billable, ${totalFree} free. Full day-by-day figures in the table that follows, or via Export CSV.`}
+          >
             {daily.map((d) => {
               const total = d.billable + d.free;
               const freeH = (d.free / max) * 100;
@@ -93,7 +103,7 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
           {/* One flex-1 slot per day, mirroring the bar grid above, so each shown label stays under
               its own bar. (A justify-between over only the filtered labels spread them evenly across
               the full width, detaching them from the fixed per-day bar positions.) */}
-          <div className="mt-2 flex gap-px font-mono text-sm text-slate-600">
+          <div className="mt-2 flex gap-px font-mono text-sm text-slate-600" aria-hidden="true">
             {daily.map((d, i) => {
               const show = i % labelEvery === 0 || i === daily.length - 1;
               return (
@@ -103,6 +113,26 @@ export function UsageTrend({ daily, org, days }: { daily: UsageDay[]; org: strin
               );
             })}
           </div>
+          {/* Text alternative for the bar strip: every day the hover tooltips carry, reachable by AT. */}
+          <table className="sr-only">
+            <caption>Computed scans per day — billable (private) and free (public)</caption>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Billable</th>
+                <th scope="col">Free</th>
+              </tr>
+            </thead>
+            <tbody>
+              {daily.map((d) => (
+                <tr key={d.date}>
+                  <th scope="row">{d.date}</th>
+                  <td>{d.billable}</td>
+                  <td>{d.free}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </>
       )}
     </div>

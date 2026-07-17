@@ -51,3 +51,34 @@ describe("UsageTrend — bar corner treatment", () => {
     expect(free[0].props.className ?? "").not.toContain("rounded-t-sm");
   });
 });
+
+describe("UsageTrend — non-visual access to the billing data (usage-metering 2026-07-16 #2)", () => {
+  type A11yEl = ReactElement<{ role?: string; "aria-label"?: string; "aria-hidden"?: string | boolean; children?: ReactNode }>;
+  const daily: UsageDay[] = [
+    { date: "2026-01-01", billable: 3, free: 5 },
+    { date: "2026-01-02", billable: 1, free: 0 },
+  ];
+  const els = () => flatten(UsageTrend({ daily, org: "acme", days: 2 })) as unknown as A11yEl[];
+
+  it("exposes the bar strip as one labeled image with the period totals", () => {
+    const img = els().find((el) => el.props.role === "img");
+    expect(img).toBeDefined();
+    expect(img!.props["aria-label"]).toContain("4 billable");
+    expect(img!.props["aria-label"]).toContain("5 free");
+  });
+
+  it("renders a visually-hidden per-day table as the text alternative (dates + both series)", () => {
+    const table = els().find((el) => el.type === "table");
+    expect(table).toBeDefined();
+    const cells = flatten(table!.props.children)
+      .map((el) => el.props.children)
+      .filter((c) => typeof c === "string" || typeof c === "number");
+    expect(cells).toContain("2026-01-01");
+    expect(cells).toContain("2026-01-02");
+  });
+
+  it("hides the redundant visual axis labels from AT (the table carries the dates)", () => {
+    const hidden = els().filter((el) => el.props["aria-hidden"] === "true" || el.props["aria-hidden"] === true);
+    expect(hidden.length).toBeGreaterThan(0);
+  });
+});
