@@ -93,6 +93,50 @@ describe("RecommendationTracker status <select> (roadmap #2)", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 
+  // Pins ambiguity-ui-scan-2026-07-16 roadmap-recommendation-tracking #3: after a 409, the recovery
+  // refetch hits the LIST endpoint, which serves the repo's LATEST scan. When this page's scan has
+  // been superseded, the conflicted row's id is absent from the response — the old code silently kept
+  // the rolled-back value under a "Retry to reapply" message whose Retry 409s forever. It must instead
+  // show a NON-retryable "reload the page" error.
+  it("#3 (07-16): 409 whose refetch misses the row shows a non-retryable reload error, not a Retry loop", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return Promise.resolve(new Response(JSON.stringify({ error: "conflict" }), { status: 409 }));
+      }
+      // The list refetch returns a NEWER scan's recommendations — this row's id is gone.
+      return Promise.resolve(new Response(JSON.stringify({ items: [item({ id: "newer-scan-row" })] }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RecommendationTracker items={[item()]} report={report} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Recommendation status" }), { target: { value: "done" } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/newer scan.*reload the page/i);
+    // Retrying would deterministically 409 again — the error must NOT offer Retry, only Dismiss.
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+  });
+
+  it("#3 (07-16): 409 whose refetch FINDS the row keeps the retryable rebase flow (Retry offered)", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return Promise.resolve(new Response(JSON.stringify({ error: "conflict" }), { status: 409 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ items: [item({ status: "in_progress" as PersistedRecommendation["status"] })] }), { status: 200 }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RecommendationTracker items={[item()]} report={report} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Recommendation status" }), { target: { value: "done" } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/changed elsewhere.*Retry/i);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
   it("#4: wraps a long recommendation title (min-w-0 + break-words), never overflowing the row", () => {
     const long = "R".repeat(200);
     render(<RecommendationTracker items={[item({ title: long })]} report={report} />);

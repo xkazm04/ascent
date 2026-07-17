@@ -13,8 +13,9 @@ import { Surface } from "@/components/ui";
 interface RowError {
   /** The status change that failed — re-applied by the Retry button. */
   status: RecStatus;
-  /** "config" = persistence not available (503, retry won't help); "transient" = retryable. */
-  kind: "config" | "transient";
+  /** "config" = persistence not available (503, retry won't help); "stale" = this page's scan has
+   *  been superseded by a newer one (retry would 409 forever — reload instead); "transient" = retryable. */
+  kind: "config" | "stale" | "transient";
   message: string;
 }
 
@@ -67,16 +68,27 @@ export function RecommendationTracker({
 
   /** After a concurrent-edit 409, pull this row's current server value and re-seed it locally so the
    *  displayed status — and the Retry — rebase on the latest state instead of the user's stale
-   *  pre-image (which would just conflict again). Best-effort: on failure the error + Retry remain. */
-  async function refreshRow(id: string) {
+   *  pre-image (which would just conflict again). Best-effort: on failure the error + Retry remain.
+   *
+   *  The list endpoint returns the repo's MOST RECENT scan's recommendations, while this tracker's
+   *  rows belong to the scan loaded with the page. When a newer scan has landed since page load
+   *  (a teammate rescanned), this row's id is absent from the response — that is NOT "refresh
+   *  failed", it means the whole report is superseded and Retry would 409 forever
+   *  (roadmap-recommendation-tracking 07-16 #3). Report it as "missing" so the caller can show a
+   *  non-retryable "reload the page" error instead of the misleading retry loop. */
+  async function refreshRow(id: string): Promise<"refreshed" | "missing" | "failed"> {
     try {
       const res = await fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`);
-      if (!res.ok) return;
+      if (!res.ok) return "failed";
       const data = (await res.json().catch(() => null)) as { items?: PersistedRecommendation[] } | null;
-      const fresh = data?.items?.find((i) => i.id === id);
-      if (fresh?.status) setItems((cur) => applyOptimisticStatus(cur, id, fresh.status));
+      if (!data?.items) return "failed";
+      const fresh = data.items.find((i) => i.id === id);
+      if (!fresh?.status) return "missing";
+      setItems((cur) => applyOptimisticStatus(cur, id, fresh.status));
+      return "refreshed";
     } catch {
       // Network error while refreshing — leave the rolled-back row as-is; the transient error offers Retry.
+      return "failed";
     }
   }
 
@@ -116,8 +128,16 @@ export function RecommendationTracker({
         rollback(); // revert ONLY this row
         // A 409 means a concurrent edit landed since this row loaded; pull the current server value and
         // re-seed the row so the display (and a Retry) rebase on the latest, instead of resubmitting the
-        // same stale change that just conflicts again.
-        if (res.status === 409) await refreshRow(id);
+        // same stale change that just conflicts again. When the refetch shows this row no longer EXISTS
+        // in the latest scan (a newer scan superseded this page), a Retry would 409 deterministically —
+        // swap the retryable message for a non-retryable "reload" one (#3).
+        if (res.status === 409 && (await refreshRow(id)) === "missing") {
+          const staleMessage =
+            "A newer scan has replaced this report — reload the page to pick up the latest recommendations.";
+          setError(id, { status, kind: "stale", message: staleMessage });
+          announce(id, `Couldn’t update “${title}”: ${staleMessage}`);
+          return;
+        }
         setError(id, { status, kind, message });
         announce(id, `Couldn’t update “${title}”: ${message}`);
         return;
@@ -156,7 +176,8 @@ export function RecommendationTracker({
         const muted = item.status === "done" || item.status === "dismissed";
         const err = errors[item.id];
         const saving = savingIds.has(item.id);
-        const edge = err ? (err.kind === "config" ? "#eab308" : "#ef4444") : STATUS_ACCENT[item.status];
+        // Non-retryable kinds (config, stale) render informational amber; only transient is red+Retry.
+        const edge = err ? (err.kind === "transient" ? "#ef4444" : "#eab308") : STATUS_ACCENT[item.status];
         return (
           <div
             key={item.id}
@@ -201,12 +222,12 @@ export function RecommendationTracker({
               <div
                 role="alert"
                 className={`mt-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-                  err.kind === "config"
+                  err.kind !== "transient"
                     ? "border-amber-500/30 bg-amber-500/5 text-amber-200/90"
                     : "border-red-500/30 bg-red-500/5 text-red-200/90"
                 }`}
               >
-                <span aria-hidden>{err.kind === "config" ? "ⓘ" : "⚠"}</span>
+                <span aria-hidden>{err.kind !== "transient" ? "ⓘ" : "⚠"}</span>
                 <span className="flex-1">{err.message}</span>
                 {err.kind === "transient" && (
                   <button
@@ -218,7 +239,7 @@ export function RecommendationTracker({
                     Retry
                   </button>
                 )}
-                {err.kind === "config" && (
+                {err.kind !== "transient" && (
                   <button
                     type="button"
                     onClick={() => clearError(item.id)}
