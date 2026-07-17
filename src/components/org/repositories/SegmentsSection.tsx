@@ -7,7 +7,7 @@ import Link from "next/link";
 import { SegmentComparePicker } from "@/components/org/repositories/SegmentComparePicker";
 import { SegmentActions } from "@/components/org/repositories/SegmentActions";
 import { Card, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID, POSTURE_LABEL, deltaHex, fmtDelta } from "@/components/org/shared/ui";
-import { compareSegments, getRepoSegmentMap, listSegmentSummaries } from "@/lib/db";
+import { compareSegments, getRepoSegmentMap, listSegmentSummaries, listWatchedRepos } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import type { SegmentSummary } from "@/lib/db";
@@ -21,7 +21,7 @@ const postureText = (posture: string) => POSTURE_LABEL[posture] ?? posture;
 
 /** One segment's headline standing — the per-segment rollup card in the overview strip. Real
  *  segments (with an id) also get scan + cadence controls scoped to their tagged repos. */
-function SegmentCard({ s, org, repos }: { s: SegmentSummary; org: string; repos: string[] }) {
+function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary; org: string; repos: string[]; taggedCount: number }) {
   const level = levelForScore(s.avgOverall);
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
@@ -40,7 +40,7 @@ function SegmentCard({ s, org, repos }: { s: SegmentSummary; org: string; repos:
         <span>rigor {s.avgRigor}</span>
       </div>
       <div className="mt-1 font-mono text-sm text-slate-600">{s.scannedCount}/{s.repoCount} scanned</div>
-      {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} />}
+      {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} taggedCount={taggedCount} />}
     </div>
   );
 }
@@ -68,9 +68,10 @@ export async function SegmentsSection({
 }) {
   const sp = searchParams;
 
-  const [summaries, segMap] = await Promise.all([
+  const [summaries, segMap, watchedRepos] = await Promise.all([
     listSegmentSummaries(slug).then((s) => s ?? []),
     getRepoSegmentMap(slug),
+    listWatchedRepos(slug),
   ]);
   // Invert the repo→segments map into segment id → tagged repo fullNames, so each card can scan or
   // schedule exactly its slice.
@@ -78,6 +79,10 @@ export async function SegmentsSection({
   for (const [fullName, segs] of Object.entries(segMap)) {
     for (const seg of segs) (reposBySegment[seg.id] ??= []).push(fullName);
   }
+  // repositories-segments #2: POST /api/org/scan intersects the request with the WATCH list, so hand
+  // each card only the watched slice (what the scan will actually do) plus the tagged total — the old
+  // "Scan segment (7)" over 3 watched repos promised 7, showed "0/7…", then snapped to 3 mid-flight.
+  const watched = new Set(watchedRepos.map((r) => r.fullName));
   if (summaries.length === 0) {
     return (
       <SectionEmpty>
@@ -111,9 +116,18 @@ export async function SegmentsSection({
           description="Per-segment maturity across the fleet — each slice rolled up from its tagged repos' latest scans."
         />
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {summaries.map((s) => (
-            <SegmentCard key={s.id ?? "fleet"} s={s} org={slug} repos={s.id ? reposBySegment[s.id] ?? [] : []} />
-          ))}
+          {summaries.map((s) => {
+            const tagged = s.id ? reposBySegment[s.id] ?? [] : [];
+            return (
+              <SegmentCard
+                key={s.id ?? "fleet"}
+                s={s}
+                org={slug}
+                repos={tagged.filter((fn) => watched.has(fn))}
+                taggedCount={tagged.length}
+              />
+            );
+          })}
         </div>
       </div>
 
