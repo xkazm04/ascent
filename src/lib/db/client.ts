@@ -44,6 +44,10 @@ function positiveIntOr(value: string | undefined, fallback: number): number {
  * is unset (static mode — local Postgres / a fixed DATABASE_URL). Throws only on a genuine
  * misconfiguration (DSQL enabled but no region), so static deployments never hit it.
  */
+// One-time flag for the margin-clamp warning below: readDsqlConfig runs on EVERY getPrisma()/withDb()
+// call, so an un-throttled warn would flood the logs on a misconfigured deployment.
+let warnedMarginClamp = false;
+
 export function readDsqlConfig(env: NodeJS.ProcessEnv = process.env): DsqlConfig | null {
   const endpoint = env.DSQL_ENDPOINT?.trim();
   if (!endpoint) return null;
@@ -53,6 +57,26 @@ export function readDsqlConfig(env: NodeJS.ProcessEnv = process.env): DsqlConfig
       "DSQL_ENDPOINT is set but no region — set DSQL_REGION (or AWS_REGION / AWS_DEFAULT_REGION).",
     );
   }
+  const ttlSeconds = positiveIntOr(env.DSQL_TOKEN_TTL_SECONDS, 900);
+  let refreshMarginSeconds = positiveIntOr(env.DSQL_REFRESH_MARGIN_SECONDS, 120);
+  // CROSS-FIELD INVARIANT (database-client-schema 07-16 #3): the margin must stay well below the TTL.
+  // With margin >= ttl, tokenIsStale() is true the instant a fresh token lands (expiresAt − margin is
+  // already in the past), so every getPrisma() kicks a background refresh and every withDb() awaits a
+  // mint — a perpetual-rotation treadmill of signer calls and retired clients with no error pointing
+  // at the cause. Each knob validates fine alone (the 900/120 defaults are safe together), so the
+  // relationship must be enforced here: clamp the margin to half the TTL and warn once.
+  if (refreshMarginSeconds >= ttlSeconds) {
+    const clamped = Math.max(1, Math.floor(ttlSeconds / 2));
+    if (!warnedMarginClamp) {
+      warnedMarginClamp = true;
+      console.warn(
+        `[db] DSQL_REFRESH_MARGIN_SECONDS (${refreshMarginSeconds}) >= DSQL_TOKEN_TTL_SECONDS (${ttlSeconds}) ` +
+          `would make every token stale on arrival (perpetual refresh); clamping the margin to ${clamped}s. ` +
+          `Set the margin comfortably below the TTL.`,
+      );
+    }
+    refreshMarginSeconds = clamped;
+  }
   return {
     endpoint,
     region,
@@ -60,8 +84,8 @@ export function readDsqlConfig(env: NodeJS.ProcessEnv = process.env): DsqlConfig
     database: (env.DSQL_DATABASE || "postgres").trim(),
     port: positiveIntOr(env.DSQL_PORT, 5432),
     sslmode: (env.DSQL_SSLMODE || "require").trim(),
-    ttlSeconds: positiveIntOr(env.DSQL_TOKEN_TTL_SECONDS, 900),
-    refreshMarginSeconds: positiveIntOr(env.DSQL_REFRESH_MARGIN_SECONDS, 120),
+    ttlSeconds,
+    refreshMarginSeconds,
   };
 }
 

@@ -138,6 +138,29 @@ describe("readDsqlConfig", () => {
     expect(cfg?.port).toBe(5432); // invalid -> default
     expect(cfg?.ttlSeconds).toBe(300);
   });
+
+  it("clamps a refresh margin >= the token TTL to half the TTL (perpetual-rotation guard)", () => {
+    // database-client-schema 07-16 #3: margin >= ttl makes tokenIsStale() true the moment a fresh
+    // token lands — every getPrisma() then kicks a refresh forever. The invariant is cross-field, so
+    // per-knob validation can't see it; readDsqlConfig must clamp (and warn) rather than pass it through.
+    process.env.DSQL_ENDPOINT = "abc.dsql.us-east-1.on.aws";
+    process.env.DSQL_REGION = "us-east-1";
+    process.env.DSQL_TOKEN_TTL_SECONDS = "120";
+    process.env.DSQL_REFRESH_MARGIN_SECONDS = "120"; // the default 120 with a shortened TTL
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cfg = readDsqlConfig(process.env);
+    expect(cfg?.ttlSeconds).toBe(120);
+    expect(cfg?.refreshMarginSeconds).toBe(60); // floor(ttl / 2)
+    warn.mockRestore();
+  });
+
+  it("leaves a margin safely below the TTL untouched", () => {
+    process.env.DSQL_ENDPOINT = "abc.dsql.us-east-1.on.aws";
+    process.env.DSQL_REGION = "us-east-1";
+    process.env.DSQL_TOKEN_TTL_SECONDS = "900";
+    process.env.DSQL_REFRESH_MARGIN_SECONDS = "120";
+    expect(readDsqlConfig(process.env)?.refreshMarginSeconds).toBe(120);
+  });
 });
 
 describe("buildDsqlUrl", () => {
