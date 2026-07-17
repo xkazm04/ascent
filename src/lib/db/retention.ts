@@ -55,6 +55,10 @@ export const RETENTION_BUDGET_HEADROOM_MS = 50_000;
 // hard-killed mid-delete with no throw and no summary log. Override via RETENTION_TIME_BUDGET_MS (ms).
 // Governs the per-org loop, its INNER repo/scan/audit batches (data-retention #1 — a single mega-org
 // must yield too, not only the gaps between orgs), and the trailing sweeps.
+// `RETENTION_TIME_BUDGET_MS=0` means UNLIMITED — no budget, run to completion (data-retention 07-16 #5):
+// this matches the module-wide "0 = disabled" convention its sibling env vars follow (a self-hosted
+// deployment with no platform kill-timer needs a way to disable the budget). Unset/blank/invalid falls
+// back to this derived default.
 export const RETENTION_DEFAULT_TIME_BUDGET_MS = PURGE_MAX_DURATION_S * 1000 - RETENTION_BUDGET_HEADROOM_MS;
 /** Repos enumerated per page when pruning an org, so a fleet org's repo list is never read all at once. */
 const REPO_PAGE_SIZE = 500;
@@ -273,7 +277,8 @@ export interface PurgeSummary {
  *  (which is DERIVED from the clock, not from an RNG) are deterministically testable. */
 export interface PurgeOptions {
   actorId?: string;
-  /** Wall-clock budget (ms) for the org loop; defaults to RETENTION_TIME_BUDGET_MS env or 250_000. */
+  /** Wall-clock budget (ms) for the org loop; defaults to the RETENTION_TIME_BUDGET_MS env var, then
+   *  RETENTION_DEFAULT_TIME_BUDGET_MS. `0` = unlimited (no budget), per the module's 0-sentinel. */
   timeBudgetMs?: number;
   /** Monotonic-ish clock (ms). Defaults to Date.now. Also seeds the per-tick rotation offset. */
   now?: () => number;
@@ -329,11 +334,16 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   const defaults = envRetentionDefaults();
   const now = opts.now ?? Date.now;
   const envBudget = opts.timeBudgetMs == null ? parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS) : null;
-  const timeBudgetMs = opts.timeBudgetMs ?? (envBudget || RETENTION_DEFAULT_TIME_BUDGET_MS);
+  // `??`, not `||` (data-retention 07-16 #5): everywhere else in this module 0 is the documented
+  // "disabled/unlimited" sentinel, but falsy-coalescing silently swallowed an explicit
+  // RETENTION_TIME_BUDGET_MS=0 into the 250s default — leaving no way to express "no budget" at all.
+  // 0 now means unlimited (overBudget below never trips); unset/invalid still gets the derived default.
+  const timeBudgetMs = opts.timeBudgetMs ?? envBudget ?? RETENTION_DEFAULT_TIME_BUDGET_MS;
   // Budget/cap coupling warning (data-retention 07-16 #1): a budget at or beyond the route's declared
   // maxDuration can never trip BEFORE the platform kill, so the "stop cleanly with a summary" guarantee
-  // is silently void. Warn (env-configured budgets only — injected test budgets are deliberate).
-  if (envBudget != null && envBudget >= PURGE_MAX_DURATION_S * 1000) {
+  // is silently void. Warn (env-configured budgets only — injected test budgets are deliberate; an
+  // explicit 0 = unlimited is likewise a deliberate operator choice, not an accidental over-cap).
+  if (envBudget != null && envBudget !== 0 && envBudget >= PURGE_MAX_DURATION_S * 1000) {
     console.warn(
       `[retention] RETENTION_TIME_BUDGET_MS=${envBudget} >= the route's maxDuration (${PURGE_MAX_DURATION_S}s) — ` +
         `the budget will never trip before the platform kills the function; set it below the plan's real cap`,
@@ -370,7 +380,8 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   // this run returns a partial (but visible + resumable) summary instead of dying mid-delete with no
   // log. Committed batches survive; the next tick's re-shuffle reaches the unprocessed tail. Also
   // governs the trailing org-less / public-scan-quota sweeps below.
-  const overBudget = () => now() - startedAt >= timeBudgetMs;
+  // timeBudgetMs === 0 is the "unlimited" sentinel (data-retention 07-16 #5): never over budget.
+  const overBudget = () => timeBudgetMs > 0 && now() - startedAt >= timeBudgetMs;
 
   // Count only the orgs from `from` onward that actually have a policy to enforce (data-retention #6):
   // an org whose effective window is 0/0 is skipped as a no-op below, so counting it as "unprocessed"

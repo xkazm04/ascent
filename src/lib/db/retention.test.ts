@@ -1192,6 +1192,35 @@ describe("purgeExpiredData — wall-clock budget + rotation (tail-org starvation
     expect(summary!.errors).toEqual([]);
   });
 
+  it("RETENTION_TIME_BUDGET_MS=0 means UNLIMITED — the run completes past the 250s default (data-retention 07-16 #5)", async () => {
+    // 0 is the module-wide "disabled" sentinel; the old `||`-coalescing silently swallowed it into the
+    // 250s default (this run would then stop at the first over-budget check below and process 0 orgs).
+    process.env.RETENTION_TIME_BUDGET_MS = "0";
+    const prisma = {
+      organization: {
+        findMany: vi.fn(async () => [
+          { id: "org_1", slug: "a", retentionMaxScans: 5, retentionAuditDays: 0 },
+          { id: "org_2", slug: "b", retentionMaxScans: 5, retentionAuditDays: 0 },
+        ]),
+      },
+      repository: { findMany: vi.fn(async () => []) },
+      scan: { findMany: vi.fn(async () => []) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn({})),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // startedAt=0, then every later clock read is far past the 250s default budget — only an
+    // unlimited budget lets the run finish all orgs with stoppedEarly:false.
+    let first = true;
+    const summary = await purgeExpiredData({ now: () => (first ? ((first = false), 0) : 400_000) });
+    delete process.env.RETENTION_TIME_BUDGET_MS;
+
+    expect(summary!.stoppedEarly).toBe(false);
+    expect(summary!.orgsProcessed).toBe(2);
+    expect(summary!.orgsRemaining).toBe(0);
+    expect(summary!.errors).toEqual([]);
+  });
+
   it("interrupts a SINGLE large org BETWEEN repos and still records its partial committed deletes (finding #1)", async () => {
     // The exact fleet the budget exists to protect: one org with many repos. The budget must be polled
     // INSIDE the org's repo loop, not only between orgs — otherwise this org runs its whole delete loop
