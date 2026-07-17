@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { reportPermalink, scoreHex } from "@/lib/ui";
+import { Pill } from "./FleetMapChrome";
 import {
   ACCENT,
   appendedStarPosition,
@@ -82,13 +83,14 @@ export function ConstellationField({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {avg != null && (
-            <span
-              className="rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5 font-mono text-sm font-bold tabular-nums"
+            <Pill
+              size="sm"
+              className="font-mono text-sm font-bold tabular-nums"
               style={{ color: scoreHex(avg) }}
               title="Average maturity of scanned repos"
             >
               {avg}
-            </span>
+            </Pill>
           )}
           {c.status === "done" && onScan && (
             <button

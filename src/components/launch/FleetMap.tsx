@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { readSSE } from "@/lib/sse";
 import { scoreHex } from "@/lib/ui";
 import { ConstellationField } from "./ConstellationField";
-import { EmptyFleet, Stat } from "./FleetMapChrome";
+import { EmptyFleet, Pill, Stat } from "./FleetMapChrome";
 import { type Installation } from "./FleetMap.constants";
 import { TriageControls } from "./FleetMap.TriageControls";
 import { useFleetData } from "./useFleetData";
@@ -205,11 +205,7 @@ export function FleetMap({
             {(stats.risers > 0 || stats.fallers > 0) && (
               <Stat label="movers · 30d" value={`▲${stats.risers} ▼${stats.fallers}`} color={stats.risers >= stats.fallers ? RISER : FALLER} />
             )}
-            <span
-              className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 font-mono uppercase tracking-widest text-slate-400"
-              role="status"
-              aria-live="polite"
-            >
+            <Pill className="font-mono uppercase tracking-widest text-slate-400" role="status" aria-live="polite">
               {/* Progress counts SETTLED orgs so the fraction climbs monotonically to N/N (an errored org
                   is progress, not a stall). On completion, surface any that never loaded as "· N unreachable"
                   rather than pretending the whole fleet charted cleanly. aria-live stays polite. */}
@@ -218,7 +214,7 @@ export function FleetMap({
                 : stats.errored > 0
                   ? `fleet charted · ${stats.errored} unreachable`
                   : "fleet charted"}
-            </span>
+            </Pill>
           </div>
         </header>
 
