@@ -4,6 +4,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { aiShareOf, isBot, pickChampions, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { CHAMPION_LIMIT, MIN_CHAMPION_COMMITS } from "@/components/org/shared/champions";
 
 // ── Contributor intelligence (F5) ────────────────────────────────────────────
 // All derived from the stored RepoContributor snapshots (latest scan per repo) — no extra
@@ -172,10 +173,12 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
   const totalCommits = contributors.reduce((s, c) => s + c.commits, 0);
   const aiCommitsTotal = contributors.reduce((s, c) => s + c.aiCommits, 0);
   const aiActive = contributors.filter((c) => c.aiCommits > 0).length;
+  // Eligibility + cap live next to CHAMPION_MIN_POP in champions.ts, with their rationale — who
+  // gets publicly named here is a deliberate, documented choice, not a magic number.
   const champions = pickChampions(contributors, {
-    filter: (c) => c.commits >= 3 && c.aiCommits > 0,
+    filter: (c) => c.commits >= MIN_CHAMPION_COMMITS && c.aiCommits > 0,
     by: (c) => c.championScore,
-    limit: 6,
+    limit: CHAMPION_LIMIT,
   });
 
   return {

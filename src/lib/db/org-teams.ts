@@ -12,6 +12,7 @@ import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
 import { GroupedMean, aiShareOf, getOrgBySlug, isBot, pickChampions, roundedMean } from "@/lib/db/org-shared";
+import { MIN_CHAMPION_COMMITS } from "@/components/org/shared/champions";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
 
@@ -237,11 +238,11 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
       const totAi = people.reduce((s, p) => s + p.aiCommits, 0);
       const aiContributors = people.filter((p) => p.aiCommits > 0).length;
       const aiCommitShare = totCommits ? Math.round((totAi / totCommits) * 100) : 0;
-      // Volume floor aligned with getContributorInsights' champion picker (commits >= 3 &&
+      // Volume floor aligned with getContributorInsights' champion picker (MIN_CHAMPION_COMMITS &&
       // aiCommits > 0): without it a 1-commit contributor could headline a team's standings card
       // while the Contributors tab deliberately withheld them. (ambiguity-ui 2026-07-16 #3)
       const champions: TeamChampion[] = pickChampions(people, {
-        filter: (p) => p.commits >= 3 && p.aiCommits > 0,
+        filter: (p) => p.commits >= MIN_CHAMPION_COMMITS && p.aiCommits > 0,
         by: (p) => p.aiCommits,
         limit: 3,
       }).map((p) => ({
