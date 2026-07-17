@@ -87,11 +87,14 @@ export default async function OrgAdoption({
           sub={`${a.contributors.aiActiveShare}% of contributors`}
           color={BAND.some}
         />
+        {/* Also an adoption rate (share of PRs with AI involvement) → BAND.some, not scoreHex: an
+            early-days 8% here is baseline, not alarm-red. Only aiGovernedRate below is a health
+            rate that earns the maturity ramp. */}
         <Tile
           label="AI-involved PRs"
           value={d ? `${d.aiInvolvedRate}%` : "—"}
           sub={d ? `${d.prs} PRs analyzed` : "no PR data"}
-          color={d ? scoreHex(d.aiInvolvedRate) : undefined}
+          color={d ? BAND.some : undefined}
         />
         <Tile
           label="AI PRs human-reviewed"
