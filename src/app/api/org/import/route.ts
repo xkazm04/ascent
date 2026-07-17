@@ -242,8 +242,16 @@ export async function POST(request: Request) {
         // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
         // as it resolves; the SSE consumer keys off each message's repo, not arrival order). A
         // realistic org import finishes in a fraction of the serial wall-clock and is far likelier
-        // to fit the 300s budget. `scanned` is incremented in single-threaded lanes — race-free.
+        // to fit the 300s budget. Counters are incremented in single-threaded lanes — race-free.
+        //
+        // `processed` is the progress-denominator index ("repos handled so far", skips included);
+        // `scanned` is the OUTCOME metric (repos an actual scan ran for). The old code used one
+        // variable for both, so claim-collision and mid-run credit skips were reported as `scanned`
+        // in the final result — a run where every repo was claimed elsewhere emitted a
+        // perfect-looking "scanned: N" with zero scans. (ambiguity-ui 2026-07-16 #4)
+        let processed = 0;
         let scanned = 0;
+        let skippedInProgress = 0;
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
           // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the import
           // path was missing. If another in-flight run (a second import tab, another member, or an
@@ -254,8 +262,9 @@ export async function POST(request: Request) {
           const claim = claimRepoScan(org, r.fullName);
           if (claim === null) {
             send("repo", { repo: r.fullName, skipped: "in_progress" });
-            scanned += 1;
-            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            skippedInProgress += 1;
+            processed += 1;
+            send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
             return;
           }
           try {
@@ -269,15 +278,15 @@ export async function POST(request: Request) {
               const reservation = await reserveScanCredit(org, r.fullName);
               if (reservation.skip) {
                 skippedForCredits += 1;
+                processed += 1;
                 send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
-                scanned += 1;
-                send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+                send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
                 return; // finally releases the claim
               }
               reserved = reservation.reserved;
             }
             const refundCredit = () => refundScanCredit(org, reserved);
-            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
             try {
               const report = await scanRepository(r.fullName, scanOpts);
               const persisted = await persistScanReport(report, { orgSlug: org });
@@ -319,8 +328,9 @@ export async function POST(request: Request) {
               if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
               send("repo", { repo: r.fullName, error: msg });
             }
-            scanned += 1;
-            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            scanned += 1; // a scan actually ran for this repo (scored or failed) — never a skip
+            processed += 1;
+            send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
           } finally {
             // Release on EVERY exit — normal completion, the insufficient-credits early return, or a
             // throw from reserveScanCredit (which mapPool rethrows). A leaked claim would bar this repo
@@ -332,7 +342,7 @@ export async function POST(request: Request) {
         // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
         // never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { org, scanned, total: fullNames.length, skippedForCredits, dashboard: `/org/${org}` });
+        send("result", { org, scanned, total: fullNames.length, skippedForCredits, skippedInProgress, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });
       } finally {

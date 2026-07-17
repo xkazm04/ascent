@@ -392,6 +392,10 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
     expect(mockConsume).not.toHaveBeenCalled();
     expect(mockGrant).not.toHaveBeenCalled();
     expect(first.find((e) => e.event === "repo")?.data).toMatchObject({ repo: "acme/dup", skipped: "in_progress" });
+    // ambiguity-ui 2026-07-16 #4: the machine-readable summary must not report the claim-skipped
+    // repo as scanned — the old shared counter emitted a perfect-looking { scanned: 1 } for a run
+    // in which zero scans happened. The skip now has its own outcome bucket.
+    expect(first.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 0, total: 1, skippedInProgress: 1 });
 
     // The other run completes and frees the repo; the import now scans + bills exactly once.
     releaseRepoScan("acme", "acme/dup", held!);
@@ -399,6 +403,7 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
     expect(mockScan).toHaveBeenCalledTimes(1);
     expect(mockConsume).toHaveBeenCalledTimes(1);
     expect(second.find((e) => e.event === "repo")?.data).not.toMatchObject({ skipped: "in_progress" });
+    expect(second.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 1, skippedInProgress: 0 });
   });
 
   it("releases the claim after a normal import, so a repo isn't locked out of the next run", async () => {
