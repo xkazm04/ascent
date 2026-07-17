@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import Link from "next/link";
 import { readSSE } from "@/lib/sse";
 import { Meter } from "@/components/org/shared/ui";
@@ -23,8 +23,16 @@ interface Progress {
 export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount: number }) {
   const router = useRouter();
   const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "", failed: 0, skipped: 0 });
+  const hintId = useId();
+  // a11y (ambiguity-ui 2026-07-16 #5): natively-disabled buttons leave the tab order and `title` is
+  // hover-only, so keyboard/SR users found dead controls with no reason. Keep them focusable with
+  // aria-disabled + a run guard; the no-watched reason is exposed via aria-describedby → sr-only
+  // hint (the visible "Watch repos on Connect →" link below carries the same path for everyone).
+  const noWatched = watchedCount === 0;
+  const inert = p.running || noWatched;
 
   async function run(scope?: { staleOnlyDays?: number }) {
+    if (inert) return;
     // For a SCOPED (stale-only) scan the count isn't known up front — the server picks the stale subset
     // — so start the denominator at 0 and let the server's first progress/notice event fill it in,
     // rather than showing a misleading "0/<all watched>" (or an instant 100% on a tiny stale subset).
@@ -88,9 +96,12 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
         <button
           type="button"
           onClick={() => run()}
-          disabled={p.running || watchedCount === 0}
-          title={watchedCount === 0 ? "Watch repositories on Connect to enable scanning" : undefined}
-          className="rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+          aria-disabled={inert || undefined}
+          title={noWatched ? "Watch repositories on Connect to enable scanning" : undefined}
+          aria-describedby={noWatched ? hintId : undefined}
+          className={`rounded-lg bg-accent px-4 py-2 text-base font-semibold text-on-accent transition ${
+            inert ? "cursor-not-allowed opacity-50" : "hover:bg-accent-soft"
+          }`}
         >
           {p.running
             ? p.total
@@ -102,14 +113,22 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
           <button
             type="button"
             onClick={() => run({ staleOnlyDays: 14 })}
-            disabled={p.running || watchedCount === 0}
+            aria-disabled={inert || undefined}
             title="Rescan only repos not scanned in the last 14 days — saves token budget"
-            className="rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            aria-describedby={noWatched ? hintId : undefined}
+            className={`rounded-lg border border-slate-700 px-3 py-2 text-base text-slate-300 transition ${
+              inert ? "cursor-not-allowed opacity-50" : "hover:border-accent hover:text-white"
+            }`}
           >
             Stale only
           </button>
         )}
       </div>
+      {noWatched && (
+        <span id={hintId} className="sr-only">
+          Watch repositories on Connect to enable scanning
+        </span>
+      )}
       {/* One polite live region for the whole async lifecycle (progress + partial-outcome + error), so a
           keyboard/AT user who tabs away still hears that the long fleet scan progressed, finished, partly
           failed, was capped for credits, or errored. The meter is visual only (aria-hidden); the text
