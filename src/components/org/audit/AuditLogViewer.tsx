@@ -85,6 +85,15 @@ function Details({ entry }: { entry: AuditLogEntry }) {
   return <span className="text-sm text-slate-600">—</span>;
 }
 
+interface Filters {
+  action: string;
+  since: string;
+  until: string;
+  actor: string;
+}
+
+const NO_FILTERS: Filters = { action: "", since: "", until: "", actor: "" };
+
 export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLogPage }) {
   const [entries, setEntries] = useState<AuditLogEntry[]>(initial.entries);
   const [cursor, setCursor] = useState<string | null>(initial.nextCursor);
@@ -92,6 +101,11 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
   const [actor, setActor] = useState("");
+  // security-posture-audit-log #5: the LAST-APPLIED filter set, distinct from the live inputs above.
+  // The CSV href, "Load more", and the table all derive from THIS — previously the CSV anchor was
+  // rebuilt from raw input state on every keystroke, so typing an actor without pressing Apply
+  // exported a filter set the on-screen table had never shown (filed evidence ≠ reviewed rows).
+  const [applied, setApplied] = useState<Filters>(NO_FILTERS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Monotonic request token: every load() takes the next id; a response only applies if it's still the
@@ -99,13 +113,6 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
   // resolved LAST won — landing rows that disagree with the selected filter, or appending a "Load more"
   // page from a superseded filter (duplicate / foreign e.id rows, possible React key collisions).
   const reqId = useRef(0);
-
-  interface Filters {
-    action: string;
-    since: string;
-    until: string;
-    actor: string;
-  }
 
   function buildQs(f: Filters): URLSearchParams {
     const qs = new URLSearchParams({ org });
@@ -139,21 +146,31 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
     }
   }
 
-  // Explicit values passed to load() so a just-changed control isn't read from stale state.
+  // Explicit values passed to load() so a just-changed control isn't read from stale state. The
+  // Action select auto-applies (over the last-APPLIED date/actor set — mixing in typed-but-unapplied
+  // inputs would silently apply filters the user never confirmed); date/actor apply via the form's
+  // submit (the Apply button, or Enter in any field).
   function changeAction(value: string) {
     setAction(value);
-    void load(true, null, { action: value, since, until, actor });
+    const f = { ...applied, action: value };
+    setApplied(f);
+    void load(true, null, f);
   }
-  function applyFilters() {
-    void load(true, null, { action, since, until, actor });
+  function applyFilters(e?: React.FormEvent) {
+    e?.preventDefault();
+    const f = { action, since, until, actor };
+    setApplied(f);
+    void load(true, null, f);
   }
-  /** Download href for the current filter set — a plain anchor triggers the CSV attachment. */
-  const csvHref = `/api/audit?${buildQs({ action, since, until, actor }).toString()}&format=csv`;
+  /** Download href for the APPLIED filter set — the CSV always matches the rows on screen. */
+  const csvHref = `/api/audit?${buildQs(applied).toString()}&format=csv`;
 
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div className="flex flex-wrap items-end gap-2">
+        {/* A real <form> so Enter in the actor/date fields submits (keyboard users previously had no
+            way to apply from a text input — the field appeared to "do nothing"). */}
+        <form onSubmit={applyFilters} className="flex flex-wrap items-end gap-2">
           <label className="flex items-center gap-2 text-base text-slate-400">
             <span className="font-mono text-sm uppercase tracking-widest text-slate-500">Action</span>
             <select
@@ -182,11 +199,11 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
           </label>
           <input type="text" value={actor} onChange={(e) => setActor(e.target.value)} placeholder="actor (login)" aria-label="Filter by actor"
             className="w-32 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent" />
-          <button onClick={applyFilters} disabled={loading}
+          <button type="submit" disabled={loading}
             className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50">
             Apply
           </button>
-        </div>
+        </form>
         <div className="flex items-center gap-3">
           <a href={csvHref} className="font-mono text-sm text-accent transition hover:text-white" title="Download all matching entries as CSV">
             Download CSV ↓
@@ -268,7 +285,7 @@ export function AuditLogViewer({ org, initial }: { org: string; initial: AuditLo
       {cursor && (
         <div className="mt-4 flex justify-center">
           <button
-            onClick={() => load(false, cursor, { action, since, until, actor })}
+            onClick={() => load(false, cursor, applied)}
             disabled={loading}
             className="focus-ring rounded-lg border border-slate-700 px-4 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
           >
