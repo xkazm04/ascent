@@ -25,7 +25,7 @@ export default async function TeamsPage({
   const sp = await searchParams;
 
   // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
-  const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
+  const { barProps, segmentId, techGroupId, activeStack } = await resolveOrgScope(slug, sp);
 
   // Honor the dashboard-wide period selector (fleet-rollups-insights 07-16 #2): Teams was the only
   // fleet surface that ignored it — its movers silently compared "latest vs previous scan" (a
@@ -104,7 +104,7 @@ export default async function TeamsPage({
         <SectionHeader
           title="Teams × dimensions"
           description="Each team's maturity, AI knowledge, movement, and per-dimension averages in one grid — click a header to sort, a team to open its repos and champions."
-          right={<ExportCsvLink org={slug} kind="teams" segmentId={segmentId} className="shrink-0" />}
+          right={<ExportCsvLink org={slug} kind="teams" segmentId={segmentId} stack={activeStack?.key} className="shrink-0" />}
         />
         <TeamsMatrix teams={rollup.teams} dims={DIMS} leaderSlug={rollup.knowledgeLeader?.slug ?? null} deltaLabel={deltaLabel} />
       </div>

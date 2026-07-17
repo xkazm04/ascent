@@ -51,10 +51,13 @@ function IndividualInvolvement({
   insights,
   slug,
   segmentId,
+  stack,
 }: {
   insights: ContributorInsights;
   slug: string;
   segmentId: string | null;
+  /** Active tech-stack group key — forwarded so the CSV matches the filtered view. */
+  stack: string | null;
 }) {
   return (
     <details id="individuals" className="mt-8 scroll-mt-24 rounded-xl border border-slate-800 bg-slate-900/20">
@@ -71,7 +74,7 @@ function IndividualInvolvement({
             <span className="text-slate-300">not performance evaluation</span>. Breadth (repos) × depth (commits) and each
             person&apos;s AI-commit share.
           </p>
-          <ExportCsvLink org={slug} kind="contributors" segmentId={segmentId} className="shrink-0" />
+          <ExportCsvLink org={slug} kind="contributors" segmentId={segmentId} stack={stack} className="shrink-0" />
         </div>
         <OrgTable
           className="mt-3"
@@ -253,7 +256,7 @@ export default async function ContributorInsightsPage({
           <ChampionsGrid champions={insights.champions} />
         )}
 
-        <IndividualInvolvement insights={insights} slug={slug} segmentId={segmentId} />
+        <IndividualInvolvement insights={insights} slug={slug} segmentId={segmentId} stack={activeStack?.key ?? null} />
 
         <ConcentrationTable slug={slug} rows={insights.concentration} decisions={decisions} />
 

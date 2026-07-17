@@ -271,22 +271,31 @@ export function OrgEmpty({ title, body, href, cta }: { title: string; body: stri
 
 /**
  * The "Export CSV" download anchor shared by the org tabs (contributors, delivery, …). Owns the
- * `/api/org/export` URL contract (`org`, `kind`, `format=csv`, optional `segment`) and the brand pill
- * styling so a change to either lands in one place. Pass `className` for per-site additions (e.g.
- * `shrink-0`). Server-safe.
+ * `/api/org/export` URL contract (`org`, `kind`, `format=csv`, optional `segment` + `stack`) and the
+ * brand pill styling so a change to either lands in one place. Pass `className` for per-site
+ * additions (e.g. `shrink-0`). Server-safe.
+ *
+ * BOTH page scopes must be forwarded: the pages compose segment AND tech-stack filters, so an export
+ * that carried only the segment silently widened a stack-filtered view back to the whole fleet —
+ * exactly the "numbers I circulated don't match what I saw" failure the scoped pages exist to prevent.
  */
 export function ExportCsvLink({
   org,
   kind,
   segmentId,
+  stack,
   className = "",
 }: {
   org: string;
   kind: string;
   segmentId?: string | null;
+  /** The active tech-stack group KEY (`activeStack?.key`), mirroring the page's `?stack=` param. */
+  stack?: string | null;
   className?: string;
 }) {
-  const href = `/api/org/export?org=${encodeURIComponent(org)}&kind=${kind}&format=csv${segmentId ? `&segment=${segmentId}` : ""}`;
+  const href =
+    `/api/org/export?org=${encodeURIComponent(org)}&kind=${kind}&format=csv` +
+    `${segmentId ? `&segment=${segmentId}` : ""}${stack ? `&stack=${encodeURIComponent(stack)}` : ""}`;
   return (
     <a
       href={href}
