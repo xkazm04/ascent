@@ -55,6 +55,7 @@ vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true })),
   tooManyRequests: () => new Response(null, { status: 429 }),
   SCAN_RATE_LIMIT: {},
+  PEEK_RATE_LIMIT: {},
 }));
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: vi.fn(() => false), getViewer: vi.fn(async () => null) }));
