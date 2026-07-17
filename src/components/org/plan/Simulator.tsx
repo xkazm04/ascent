@@ -31,7 +31,10 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [dimId, setDimId] = useState(dims[0]?.id ?? "D2");
   const [target, setTarget] = useState(70);
   // SIM-2: additional dimensions to raise in the same scenario (the primary dimId/target is leg 1).
-  const [extras, setExtras] = useState<{ dimId: string; target: number }[]>([]);
+  // Each row carries a stable `key`: keying the rendered rows by array index mis-associated row
+  // state after a mid-list remove (investment 07-16 #5).
+  const [extras, setExtras] = useState<{ key: number; dimId: string; target: number }[]>([]);
+  const extraKeyRef = useRef(0);
   const [scope, setScope] = useState<Set<string>>(new Set());
   const [showRepos, setShowRepos] = useState(false);
   const [result, setResult] = useState<FleetProjection | null>(null);
@@ -144,7 +147,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     const next = dims.find((d) => !used.has(d.id));
     if (next) {
       invalidate();
-      setExtras((xs) => [...xs, { dimId: next.id, target: 70 }]);
+      setExtras((xs) => [...xs, { key: ++extraKeyRef.current, dimId: next.id, target: 70 }]);
     }
   }
   function updateExtra(idx: number, patch: Partial<{ dimId: string; target: number }>) {
@@ -162,7 +165,8 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     setTracked(false);
     setTrackError(null);
     // One leg per dimension; a single leg uses the original {dimId,target} shape for clarity.
-    const fixes = [{ dimId, target }, ...extras];
+    // (extras' client-side `key` is stripped — the API contract is exactly {dimId, target}.)
+    const fixes = [{ dimId, target }, ...extras.map((x) => ({ dimId: x.dimId, target: x.target }))];
     try {
       const res = await fetch("/api/org/simulate", {
         method: "POST",
@@ -257,7 +261,12 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         <span className="font-mono text-sm text-slate-500">to</span>
         <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => { invalidate(); setTarget(clampTarget(e.target.value, target)); }} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
         <span className="font-mono text-sm text-slate-500">across</span>
-        <button onClick={() => setShowRepos((s) => !s)} className="rounded-lg border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white">
+        <button
+          onClick={() => setShowRepos((s) => !s)}
+          aria-expanded={showRepos}
+          aria-controls="sim-scope-repos"
+          className="rounded-lg border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white"
+        >
           {scopeLabel} ▾
         </button>
         <button onClick={run} disabled={busy} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
@@ -267,7 +276,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
 
       {/* SIM-2: additional dimensions raised in the same scenario — model a combined push. */}
       {extras.map((e, idx) => (
-        <div key={idx} className="mt-2 flex flex-wrap items-center gap-2">
+        <div key={e.key} className="mt-2 flex flex-wrap items-center gap-2">
           <span className="font-mono text-sm text-slate-500">and</span>
           <select
             aria-label={`Additional dimension ${idx + 2} to raise`}
@@ -305,7 +314,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       )}
 
       {showRepos && (
-        <div className="mt-3 max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+        <div id="sim-scope-repos" className="mt-3 max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40 p-3">
           <div className="mb-2 flex gap-3 font-mono text-sm text-slate-500">
             <button onClick={() => { invalidate(); setScope(new Set()); }} className="hover:text-white">all</button>
             <button onClick={() => { invalidate(); setScope(new Set(repos.map((r) => r.fullName))); }} className="hover:text-white">select all</button>
@@ -321,7 +330,9 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         </div>
       )}
 
-      {error && <p className="mt-3 text-sm text-orange-300">{error}</p>}
+      {/* role="status": a screen-reader user who clicked Simulate must HEAR the failure — a plain <p>
+          inserted after the fact announces nothing (investment 07-16 #5). */}
+      {error && <p role="status" className="mt-3 text-sm text-orange-300">{error}</p>}
 
       {result && (
         <ProjectionResult

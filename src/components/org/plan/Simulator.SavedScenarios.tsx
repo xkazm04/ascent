@@ -35,7 +35,12 @@ export function SavedScenarios({
               <span className="text-emerald-300">{signed(s.after.avgOverall - s.before.avgOverall)}</span>
               {s.promotions > 0 && <span className="text-accent"> · {s.promotions}↑</span>}
             </span>
-            <button onClick={() => onRemove(s.id)} className="text-slate-600 hover:text-orange-300" title="Remove">
+            <button
+              onClick={() => onRemove(s.id)}
+              aria-label={`Remove scenario ${s.label}`}
+              title="Remove"
+              className="text-slate-600 hover:text-orange-300"
+            >
               ×
             </button>
           </label>

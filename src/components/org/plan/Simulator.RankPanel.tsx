@@ -38,7 +38,8 @@ export function RankPanel({
           {rankBusy ? "Ranking…" : ranking ? "Refresh" : `Suggest (→ ${target})`}
         </button>
       </div>
-      {rankError && <p className="mt-2 font-mono text-sm text-orange-300">{rankError}</p>}
+      {/* role="status" so a failed Suggest is announced, not silently rendered (investment 07-16 #5). */}
+      {rankError && <p role="status" className="mt-2 font-mono text-sm text-orange-300">{rankError}</p>}
       {stale && (
         <p role="status" className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 font-mono text-sm text-amber-300">
           Stale — {staleNote ?? "the inputs changed since these were ranked"}. Refresh to re-rank for the current target/scope.
