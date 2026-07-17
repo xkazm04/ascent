@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { SignInButtonChrome, signInBoxClass, SIGN_IN_VARIANTS, type SignInButtonVariant } from "@/components/auth/buttonChrome";
+import { useResetPendingOnPageShow } from "@/components/auth/usePendingReset";
 
 type Variant = SignInButtonVariant;
 
@@ -30,6 +31,10 @@ export function GitHubSignInButton({
   resync?: boolean;
 }) {
   const [pending, setPending] = useState(false);
+  // Un-stick the spinner when the user BACKS OUT of GitHub's consent screen and bfcache restores this
+  // page with `pending` still true — the anchor also swallows clicks while pending, so without this
+  // the sign-in affordance is dead until a manual reload.
+  useResetPendingOnPageShow(setPending);
   const v = SIGN_IN_VARIANTS[variant];
   const idleLabel = label ?? v.idle;
   const busyLabel = pendingLabel ?? v.busy;
