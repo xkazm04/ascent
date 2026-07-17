@@ -17,9 +17,12 @@ export type QuotaScope = "anon" | "user";
  * Whether a "Sign in for more" CTA can actually do anything: only when this scan was ANONYMOUS
  * (scope "anon") AND Supabase auth is wired up client-side (the NEXT_PUBLIC_* envs are inlined at
  * build, so this is safe in a client component). A signed-in viewer is already at the elevated
- * tier, and without Supabase configured there's no sign-in to offer.
+ * tier, and without Supabase configured there's no sign-in to offer. Exported so the landing-page
+ * QuotaMeter offers the SAME action hierarchy (sign in first, plans as fallback) as these banners —
+ * matching only the link *style* while contradicting the action left the two quota surfaces giving
+ * different "what do I do about the limit" answers.
  */
-function canOfferSignIn(scope: QuotaScope): boolean {
+export function canOfferSignIn(scope: QuotaScope): boolean {
   return (
     scope === "anon" &&
     Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
