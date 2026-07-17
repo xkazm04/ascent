@@ -6,7 +6,7 @@
 // are disabled (production), it explains that top-ups go through billing. The recent ledger is loaded
 // lazily when the popover opens. Server passes the initial balance so the chip paints without a fetch.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { CreditPack } from "@/lib/polar";
 
 interface LedgerEntry {
@@ -57,6 +57,10 @@ export function CreditsControl({
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Accessible DESCRIPTION for the trigger — the "prepaid private-scan credits" meaning must not live
+  // in `title` alone (unreachable by keyboard/touch and unreliable for AT). aria-describedby keeps the
+  // accessible NAME the visible "{balance} credits" while screen readers announce the description.
+  const descId = useId();
 
   // Close on outside click / Escape — standard popover behavior. On Escape, return focus to the
   // trigger so a keyboard/screen-reader user isn't dropped back at <body> (the role="dialog" promises it).
@@ -137,11 +141,15 @@ export function CreditsControl({
 
   if (unlimited) {
     return (
+      // The explanation must not live in `title` alone — title tooltips are unreachable by keyboard
+      // and touch, and a non-focusable span gives screen readers only "Credits · Unlimited". An
+      // sr-only tail carries the same sentence for AT; `title` stays as the mouse affordance.
       <span
         className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 font-mono text-sm text-emerald-300"
         title="Enterprise plan — private scans are unlimited"
       >
         Credits · Unlimited
+        <span className="sr-only">— Enterprise plan, private scans are unlimited</span>
       </span>
     );
   }
@@ -178,6 +186,7 @@ export function CreditsControl({
             : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
         }`}
         title="Prepaid private-scan credits"
+        aria-describedby={descId}
       >
         <span className="font-semibold">{balance}</span> credits
         {paused && (
@@ -186,6 +195,9 @@ export function CreditsControl({
           </span>
         )}
       </button>
+      <span id={descId} className="sr-only">
+        Prepaid private-scan credits
+      </span>
 
       {open && (
         <div
@@ -241,7 +253,8 @@ export function CreditsControl({
                   <>Simulate a purchase <span className="ml-1 text-slate-600">(credits)</span></>
                 )}
               </div>
-              <div className="mt-1.5 flex gap-2">
+              {/* aria-busy while a grant is in flight, matching the disabled visual state for AT. */}
+              <div className="mt-1.5 flex gap-2" aria-busy={busy}>
                 {[50, 200, 1000].map((a) => (
                   <button
                     key={a}
@@ -265,7 +278,13 @@ export function CreditsControl({
               </a>
             </p>
           )}
-          {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+          {/* aria-live so a failed top-up is ANNOUNCED, matching the ledger states' live regions — a
+              screen-reader user who presses +50 must not get silence on a payment-adjacent failure. */}
+          {error && (
+            <p className="mt-2 text-sm text-danger" aria-live="polite">
+              {error}
+            </p>
+          )}
 
           {(ledgerLoading || ledgerError || ledger !== null) && (
             <div className="mt-3 border-t border-slate-800 pt-2">

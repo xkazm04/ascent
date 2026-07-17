@@ -125,3 +125,33 @@ describe("CreditsControl paused state (not color-alone)", () => {
     expect(screen.getByRole("button", { name: "0 credits" })).toBeInTheDocument();
   });
 });
+
+describe("CreditsControl a11y reach (credits-entitlements 2026-07-16 #5)", () => {
+  it("explains the trigger via an accessible DESCRIPTION (not title alone), keeping the visible name", () => {
+    vi.stubGlobal("fetch", vi.fn());
+    render(<CreditsControl org="acme" initialBalance={7} unlimited={false} grantsEnabled={false} allowanceRemaining={5} />);
+    const trigger = screen.getByRole("button", { name: "7 credits" }); // name unchanged
+    expect(trigger).toHaveAccessibleDescription("Prepaid private-scan credits");
+  });
+
+  it("gives the unlimited chip a screen-reader-reachable explanation (title tooltips never reach AT/touch)", () => {
+    render(<CreditsControl org="acme" initialBalance={0} unlimited={true} grantsEnabled={false} />);
+    expect(screen.getByText(/Enterprise plan, private scans are unlimited/)).toBeInTheDocument();
+  });
+
+  it("announces a failed top-up via a live region (matching the ledger states' aria-live pattern)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) =>
+        String(url).includes("/grant")
+          ? { ok: false, json: async () => ({ error: "Top-up failed." }) }
+          : { ok: true, json: async () => ({ balance: 0, ledger: [] }) },
+      ),
+    );
+    render(<CreditsControl org="acme" initialBalance={0} unlimited={false} grantsEnabled={true} allowanceRemaining={0} />);
+    fireEvent.click(screen.getByRole("button", { name: /0 credits/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "+50" }));
+    const err = await screen.findByText("Top-up failed.");
+    expect(err).toHaveAttribute("aria-live", "polite");
+  });
+});
