@@ -136,6 +136,21 @@ describe("doctor", () => {
     // The doctor uses it, not the old raw includes().
     expect(buildDoctor().body).toContain("al.some((a) => wired(hookText, a))");
   });
+
+  it("documents the score semantics in the banner and names the 180s timeout in a killed FAIL", () => {
+    // Finding #4: the score is a weighted pass ratio over a RUN-DEPENDENT finding set, and --run kills
+    // a capability at 180s — neither was documented anywhere, and a timed-out suite read as a bare
+    // message-less FAIL. Pin the banner note, the timeout being named in the FAIL finding, and that
+    // the weight map / timeout stay in sync with the documented values.
+    const body = buildDoctor().body;
+    expect(body).toContain("Score semantics:");
+    expect(body).toContain("pass=1, warn=0.5, fail=0");
+    expect(body).toContain("const weight = { pass: 1, warn: 0.5, fail: 0 }");
+    expect(body).toContain("timeout: 180000");
+    expect(body).toContain("180s --run timeout");
+    // The timeout note rides ON the FAIL finding (via e.signal), not just in a comment.
+    expect(body).toContain("FAILED' + (e && e.signal ?");
+  });
 });
 
 /** Extract the doctor's SHIPPED `wired()` helper verbatim and compile it (mirrors loadDoctorParsers). */
