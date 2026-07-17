@@ -11,8 +11,9 @@ import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
-import { GroupedMean, aiShareOf, isBot, pickChampions, roundedMean } from "@/lib/db/org-shared";
-import { getOrgId } from "@/lib/db/org-rollup";
+import { GroupedMean, aiShareOf, getOrgBySlug, isBot, pickChampions, roundedMean } from "@/lib/db/org-shared";
+import type { OrgWindow } from "@/lib/db/org-rollup";
+import { retentionCutoff } from "@/lib/plans";
 
 const TEAM_STRONG = 65; // a team "exemplifies" a dimension at/above this (a mentor candidate)
 const TEAM_WEAK = 50; // a team could grow a dimension below this (a learner candidate)
@@ -61,7 +62,11 @@ export interface TeamRollup {
   aiCommitShare: number; // 0..100, commit-weighted across the team's repos
   champions: TeamChampion[]; // top humans by AI commits — the culture carriers
   knowledgeScore: number; // 0..100 blend of aiCommitShare + avgAdoption ("most AI knowledge")
-  // Movers ("since last scan"): per-repo latest-vs-previous overall delta, aggregated.
+  // Movers: per-repo overall delta, aggregated. PERIOD-SCOPED when the caller threads an OrgWindow
+  // through getOrgTeamRollup (baseline = latest scan strictly before the window start — the same
+  // half-open semantics as getOrgMovers, so the Teams tab agrees with every sibling tab on the
+  // selected period); "since last scan" (latest vs previous, cadence-dependent) when no window is
+  // given (fleet-rollups-insights 07-16 #2).
   comparedRepos: number;
   improving: number;
   declining: number;
@@ -121,6 +126,13 @@ export interface TeamRollupRepoInput {
     dimensions: { dimId: string; score: number }[];
   }[];
   contributors: { login: string; name: string | null; commits: number; aiCommits: number }[];
+  /** Period-scoped overall delta for this repo (fleet-rollups-insights 07-16 #2).
+   *  - `undefined` (field absent): NO window was requested — the legacy "since last scan" delta
+   *    (scans[0] − scans[1]) applies.
+   *  - `number`: the windowed delta (latest in-window scan minus the half-open baseline).
+   *  - `null`: a window was requested but this repo has no comparable pair inside it — the repo is
+   *    excluded from movers (never silently downgraded to since-last-scan, which would mix scopes). */
+  windowDelta?: number | null;
 }
 
 interface TeamAcc {
@@ -136,8 +148,9 @@ interface TeamAcc {
 /**
  * Pure aggregation behind getOrgTeamRollup — exported for unit testing (no DB). Buckets each repo
  * into every team that owns it (from CODEOWNERS), then rolls each team up: maturity averages,
- * per-dimension averages (strongest/weakest), merged human contributor AI-knowledge, and
- * since-last-scan movers. Finally derives the org-level knowledge leader and one suggested pairing.
+ * per-dimension averages (strongest/weakest), merged human contributor AI-knowledge, and movers
+ * (period-scoped when the caller supplies `windowDelta`; since-last-scan otherwise — see
+ * TeamRollupRepoInput.windowDelta). Finally derives the org-level knowledge leader and one pairing.
  */
 export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgTeamRollup {
   const avg = roundedMean;
@@ -175,7 +188,13 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
           isDefaultOwner: t.isDefaultOwner,
         });
         for (const d of latest.dimensions) a.dim.add(d.dimId, d.score);
-        if (prev) a.deltas.push(latest.overallScore - prev.overallScore);
+        // Movers: a windowed caller precomputed `windowDelta` (period-scoped; null = no comparable
+        // pair in the window → excluded); otherwise fall back to the legacy since-last-scan delta.
+        if (r.windowDelta !== undefined) {
+          if (r.windowDelta !== null) a.deltas.push(r.windowDelta);
+        } else if (prev) {
+          a.deltas.push(latest.overallScore - prev.overallScore);
+        }
         // Merge the repo's contributors into the team (humans only; a person across N of the team's
         // repos is one team member with summed commits).
         for (const c of r.contributors) {
@@ -319,19 +338,32 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
 
 /**
  * Team-level rollup across the org's fleet, keyed by CODEOWNERS team attribution. Pulls each repo's
- * teams, its latest two scans (for since-last-scan movers), and its contributor snapshots in one
- * query, then aggregates per team via rollupTeams. Null when persistence is off or the org is
- * unknown; an org with no CODEOWNERS teams returns a populated shape with `teams: []`.
+ * teams, its latest two scans, and its contributor snapshots in one query, then aggregates per team
+ * via rollupTeams. Null when persistence is off or the org is unknown; an org with no CODEOWNERS
+ * teams returns a populated shape with `teams: []`.
+ *
+ * PERIOD SCOPE (fleet-rollups-insights 07-16 #2): pass the dashboard's `window` and the movers
+ * (improving/declining/avgDelta) become period-scoped — each repo compares its latest in-window scan
+ * against the latest scan STRICTLY before the window start (getOrgMovers' half-open baseline, clamped
+ * to the plan's retention window like every sibling aggregate). Without a window (or with "all time")
+ * the legacy "since last scan" semantics apply. Snapshot fields (avgOverall, dims, contributors)
+ * remain latest-scan state in both modes — only the deltas are windowed.
  */
-export async function getOrgTeamRollup(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgTeamRollup | null> {
+export async function getOrgTeamRollup(
+  orgSlug: string,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+  window?: OrgWindow,
+): Promise<OrgTeamRollup | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) return null;
 
   const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
     select: {
+      id: true,
       fullName: true,
       name: true,
       teams: { select: { slug: true, ownedPaths: true, isDefaultOwner: true } },
@@ -351,5 +383,55 @@ export async function getOrgTeamRollup(orgSlug: string, segmentId?: string | nul
     },
   });
 
-  return rollupTeams(orgSlug, repos);
+  // Plan retention floor: like getOrgMovers, the baseline is entitlement-gated — clamp the window
+  // start to the tier's retention cutoff so a Free org's 90d team movers aren't computed against
+  // history the plan doesn't buy.
+  const retentionStart = retentionCutoff(org.plan, Date.now());
+  const rawStart = window?.start ?? null;
+  const start = rawStart && retentionStart && retentionStart > rawStart ? retentionStart : rawStart;
+
+  if (!start) return rollupTeams(orgSlug, repos);
+
+  // Windowed movers: per repo, latest in-window scan vs the latest scan STRICTLY before `start` (the
+  // half-open baseline getOrgMovers/getOrgRollup share, so a scan exactly at `start` belongs to the
+  // current side on every surface). Two bounded queries — never the whole scan history.
+  const end = window?.end ?? null;
+  const repoScope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  const [inWindow, preStart] = await Promise.all([
+    prisma.scan.findMany({
+      where: { repo: repoScope, scannedAt: { gte: start, ...(end ? { lte: end } : {}) } },
+      select: { repoId: true, overallScore: true, scannedAt: true },
+      orderBy: { scannedAt: "desc" },
+    }),
+    prisma.scan.findMany({
+      where: { repo: repoScope, scannedAt: { lt: start } },
+      select: { repoId: true, overallScore: true, scannedAt: true },
+      orderBy: { scannedAt: "desc" },
+      distinct: ["repoId"],
+    }),
+  ]);
+  const latestIn = new Map<string, number>(); // repoId → latest in-window overall (rows are desc)
+  const earliestIn = new Map<string, number>(); // repoId → earliest in-window overall
+  const countIn = new Map<string, number>(); // repoId → in-window scan count
+  for (const s of inWindow) {
+    if (!latestIn.has(s.repoId)) latestIn.set(s.repoId, s.overallScore);
+    earliestIn.set(s.repoId, s.overallScore); // last write per repo = oldest (desc order)
+    countIn.set(s.repoId, (countIn.get(s.repoId) ?? 0) + 1);
+  }
+  const baseline = new Map<string, number>();
+  for (const s of preStart) if (!baseline.has(s.repoId)) baseline.set(s.repoId, s.overallScore);
+
+  const withDeltas: TeamRollupRepoInput[] = repos.map((r) => {
+    // Mirror getOrgMovers: a repo onboarded mid-period (no pre-start scan) falls back to its earliest
+    // in-window scan — it genuinely moved within the window. A repo with no in-window scan, or a
+    // single in-window scan and no baseline (nothing to compare), has no pair → null (excluded).
+    const now = latestIn.get(r.id);
+    const prev = baseline.get(r.id) ?? earliestIn.get(r.id);
+    const windowDelta =
+      now == null || prev == null || (!baseline.has(r.id) && (countIn.get(r.id) ?? 0) <= 1)
+        ? null
+        : now - prev;
+    return { ...r, windowDelta };
+  });
+  return rollupTeams(orgSlug, withDeltas);
 }

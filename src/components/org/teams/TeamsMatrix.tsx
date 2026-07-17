@@ -66,7 +66,20 @@ function SortTh({
   );
 }
 
-export function TeamsMatrix({ teams, dims, leaderSlug }: { teams: TeamRollup[]; dims: string[]; leaderSlug?: string | null }) {
+export function TeamsMatrix({
+  teams,
+  dims,
+  leaderSlug,
+  // What the Δ column actually compares (fleet-rollups-insights 07-16 #2): the page passes the
+  // selected period's comparison label when the rollup was window-scoped; the default names the
+  // legacy cadence-dependent semantics honestly for windowless callers.
+  deltaLabel = "since last scan",
+}: {
+  teams: TeamRollup[];
+  dims: string[];
+  leaderSlug?: string | null;
+  deltaLabel?: string;
+}) {
   const [sort, setSort] = useState<Sort>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
@@ -105,7 +118,7 @@ export function TeamsMatrix({ teams, dims, leaderSlug }: { teams: TeamRollup[]; 
           <SortTh id="adoption" label="Adopt" sort={sort} onSort={onSort} title="Sort by Adoption average" />
           <SortTh id="rigor" label="Rigor" sort={sort} onSort={onSort} />
           <SortTh id="ai" label="AI%" sort={sort} onSort={onSort} title="Sort by AI-attributed commit share" />
-          <SortTh id="delta" label="Δ" sort={sort} onSort={onSort} title="Sort by average movement since last scan" />
+          <SortTh id="delta" label="Δ" sort={sort} onSort={onSort} title={`Sort by average movement ${deltaLabel}`} />
           {dims.map((d) => (
             <SortTh
               key={d}
@@ -124,7 +137,7 @@ export function TeamsMatrix({ teams, dims, leaderSlug }: { teams: TeamRollup[]; 
         const open = expanded.has(t.slug);
         const byId = Object.fromEntries(t.dimAverages.map((d) => [d.dimId, d.avg]));
         return (
-          <TeamRowPair key={t.slug} team={t} open={open} onToggle={toggle} leader={t.slug === leaderSlug} colCount={7 + dims.length}>
+          <TeamRowPair key={t.slug} team={t} open={open} onToggle={toggle} leader={t.slug === leaderSlug} colCount={7 + dims.length} deltaLabel={deltaLabel}>
             {scoreCell(t.avgOverall)}
             {scoreCell(t.avgAdoption)}
             {scoreCell(t.avgRigor)}
@@ -132,7 +145,7 @@ export function TeamsMatrix({ teams, dims, leaderSlug }: { teams: TeamRollup[]; 
             <td
               className="px-2 py-2 text-right font-mono tabular-nums"
               style={{ color: t.comparedRepos > 0 ? deltaHex(t.avgDelta) : undefined }}
-              title={t.comparedRepos > 0 ? `▲${t.improving} improving · ▼${t.declining} declining across ${t.comparedRepos} rescanned` : "No prior scan to compare yet"}
+              title={t.comparedRepos > 0 ? `▲${t.improving} improving · ▼${t.declining} declining across ${t.comparedRepos} compared (${deltaLabel})` : "No comparable scans in this period yet"}
             >
               {t.comparedRepos > 0 ? fmtDelta(t.avgDelta) : <span className="text-slate-700">—</span>}
             </td>
@@ -173,6 +186,7 @@ function TeamRowPair({
   onToggle,
   leader,
   colCount,
+  deltaLabel,
   children,
 }: {
   team: TeamRollup;
@@ -180,6 +194,7 @@ function TeamRowPair({
   onToggle: (slug: string) => void;
   leader: boolean;
   colCount: number;
+  deltaLabel: string;
   children: React.ReactNode;
 }) {
   return (
@@ -209,7 +224,7 @@ function TeamRowPair({
       {open && (
         <tr>
           <td colSpan={colCount} className="px-4 pb-4 pt-1">
-            <TeamsMatrixDetail team={team} />
+            <TeamsMatrixDetail team={team} deltaLabel={deltaLabel} />
           </td>
         </tr>
       )}

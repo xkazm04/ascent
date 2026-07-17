@@ -14,7 +14,15 @@ import { scoreHex } from "@/lib/ui";
 /** Cap the owned-repos pill list so a broad CODEOWNERS owner can't render hundreds of pills. */
 const OWNED_REPO_CAP = 12;
 
-export function TeamsMatrixDetail({ team }: { team: TeamRollup }) {
+export function TeamsMatrixDetail({
+  team,
+  // Names what the movement numbers compare (fleet-rollups-insights 07-16 #2): the selected period's
+  // label when the rollup was window-scoped, the honest legacy default otherwise.
+  deltaLabel = "since last scan",
+}: {
+  team: TeamRollup;
+  deltaLabel?: string;
+}) {
   return (
     // sticky left + capped width keep the detail inside the visible scrollport — the row's cell spans
     // the full (horizontally scrollable) table width, which can be wider than the viewport.
@@ -30,8 +38,8 @@ export function TeamsMatrixDetail({ team }: { team: TeamRollup }) {
         </span>
         {team.comparedRepos > 0 && (
           <span>
-            <span style={{ color: deltaHex(team.avgDelta) }}>{fmtDelta(team.avgDelta)}</span> avg since last scan · ▲
-            {team.improving} ▼{team.declining} of {team.comparedRepos} rescanned
+            <span style={{ color: deltaHex(team.avgDelta) }}>{fmtDelta(team.avgDelta)}</span> avg {deltaLabel} · ▲
+            {team.improving} ▼{team.declining} of {team.comparedRepos} compared
           </span>
         )}
         {team.strongest && (

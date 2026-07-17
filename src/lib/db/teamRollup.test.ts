@@ -136,6 +136,40 @@ describe("rollupTeams", () => {
   });
 });
 
+describe("rollupTeams — period-scoped movers via windowDelta (fleet-rollups-insights 07-16 #2)", () => {
+  const team = { teams: [{ slug: "@acme/frontend" }] };
+  const scan = (overall: number) => ({ overall, adoption: overall, rigor: overall, dims: [] as Dim[] });
+
+  it("uses the precomputed windowed delta INSTEAD of latest-vs-previous when windowDelta is a number", () => {
+    // Latest two scans say +10 (80 vs 70), but the selected period's half-open baseline says −5.
+    // The Teams tab must report the PERIOD number, not the cadence-dependent since-last-scan one.
+    const r = { ...repo("acme/web", { ...team, scans: [scan(80), scan(70)] }), windowDelta: -5 };
+    const out = rollupTeams("acme", [r]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(1);
+    expect(t.avgDelta).toBe(-5);
+    expect(t.improving).toBe(0);
+    expect(t.declining).toBe(1);
+  });
+
+  it("windowDelta: null EXCLUDES the repo from movers (no silent since-last-scan fallback mixing scopes)", () => {
+    // The repo has two scans (legacy movers would compare them), but the window has no comparable pair.
+    const r = { ...repo("acme/web", { ...team, scans: [scan(80), scan(70)] }), windowDelta: null };
+    const out = rollupTeams("acme", [r]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(0);
+    expect(t.avgDelta).toBe(0);
+    // The snapshot side is untouched — the repo still contributes its latest scan to the averages.
+    expect(t.avgOverall).toBe(80);
+  });
+
+  it("windowDelta absent (windowless caller) keeps the legacy since-last-scan movers", () => {
+    const out = rollupTeams("acme", [repo("acme/web", { ...team, scans: [scan(80), scan(70)] })]);
+    expect(out.teams[0]!.comparedRepos).toBe(1);
+    expect(out.teams[0]!.avgDelta).toBe(10);
+  });
+});
+
 describe("rollupTeams — empty / no-team fleets", () => {
   it("returns an empty, well-formed shape when no repo has a CODEOWNERS team", () => {
     const out = rollupTeams("acme", [repo("acme/solo", { scans: [{ overall: 50, adoption: 50, rigor: 50, dims: [] }] })]);

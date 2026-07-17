@@ -7,6 +7,7 @@ import { TeamsUnowned } from "@/components/org/teams/TeamsUnowned";
 import { teamAnchorId } from "@/components/org/teams/teamsShared";
 import { getOrgTeamRollup, getTeamStandingsProvenance } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
+import { resolveOrgWindow } from "@/lib/org/period";
 import { decisionMap } from "@/lib/org/decision-map";
 import { explainTeamStandings } from "@/lib/org/teamStandings";
 import { scoreHex } from "@/lib/ui";
@@ -26,8 +27,17 @@ export default async function TeamsPage({
   // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
   const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
 
+  // Honor the dashboard-wide period selector (fleet-rollups-insights 07-16 #2): Teams was the only
+  // fleet surface that ignored it — its movers silently compared "latest vs previous scan" (a
+  // cadence-dependent span per repo) while every sibling tab re-scoped to the selected window. The
+  // window now threads into the rollup (period-scoped, half-open baseline like getOrgMovers) and the
+  // Δ surfaces are labeled with what they actually compare.
+  const period = await resolveOrgWindow(sp);
+  const window = period.start ? { start: period.start, end: period.end } : undefined;
+  const deltaLabel = window && period.comparisonLabel ? period.comparisonLabel : "since last scan";
+
   const [rollup, decisions] = await Promise.all([
-    getOrgTeamRollup(slug, segmentId, techGroupId),
+    getOrgTeamRollup(slug, segmentId, techGroupId, window),
     decisionMap(slug, "teams"),
   ]);
 
@@ -96,7 +106,7 @@ export default async function TeamsPage({
           description="Each team's maturity, AI knowledge, movement, and per-dimension averages in one grid — click a header to sort, a team to open its repos and champions."
           right={<ExportCsvLink org={slug} kind="teams" segmentId={segmentId} className="shrink-0" />}
         />
-        <TeamsMatrix teams={rollup.teams} dims={DIMS} leaderSlug={rollup.knowledgeLeader?.slug ?? null} />
+        <TeamsMatrix teams={rollup.teams} dims={DIMS} leaderSlug={rollup.knowledgeLeader?.slug ?? null} deltaLabel={deltaLabel} />
       </div>
 
       {/* Why the top leads and the bottom lags — factor decomposition against the fleet mean. */}

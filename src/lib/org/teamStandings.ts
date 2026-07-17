@@ -34,7 +34,7 @@ export interface TeamStanding {
   // Human / trajectory context — separate signals, not part of the maturity-score decomposition.
   aiCommitShare: number;
   aiShareDelta: number; // vs fleet mean aiCommitShare
-  avgDelta: number; // momentum: mean overall delta since last scan
+  avgDelta: number; // momentum: mean overall delta (period-scoped when the rollup was windowed; since last scan otherwise)
   comparedRepos: number;
   improving: number;
   declining: number;
