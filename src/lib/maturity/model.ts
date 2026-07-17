@@ -341,6 +341,17 @@ export function axisMeasured(
 
 // ---- Two-axis posture (Adoption × Rigor) --------------------------------------
 
+/**
+ * An axis counts as "high" at ≥ 50 — deliberately STRICTER than the L3 band floor (45), so a repo
+ * scoring 45–49 on both axes reads "Augmented" (L3) yet "Getting Started" on the same report. That
+ * pairing is a design choice, not an accident of two independently-picked constants: the LEVEL is a
+ * weighted average (partial strength on a few dimensions can legitimately carry it into L3), while
+ * the POSTURE asserts each axis independently — and a quadrant claim like "AI-Native" off a sub-half
+ * axis would overstate more than the mixed headline understates. Aligning the cut to 45 would instead
+ * let a 45/45 repo claim AI-Native. The 45–55 corridor is inherently borderline (±1-point noise can
+ * flip the quadrant; there is no hysteresis) — documented in docs/MATURITY_MODEL.md §2b.
+ * (ambiguity-ui maturity-model #4)
+ */
 export const POSTURE_THRESHOLD = 50;
 
 export function postureFor(adoption: number, rigor: number): Posture {

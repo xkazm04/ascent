@@ -54,6 +54,14 @@ Started* (low/low). The L1–L5 level is the lens-weighted overall; posture carr
 nuance. An **LLM auditor** also flags suspected detector misses (`discrepancies`). Canonical
 logic lives in `src/lib/maturity/model.ts` + `src/lib/scoring/engine.ts`.
 
+**Posture cut vs. level bands (deliberate):** each axis is "high" at
+`POSTURE_THRESHOLD = 50`, which is **stricter than the L3 band floor (45)**. A repo scoring
+45–49 on both axes therefore reads *Augmented* (L3) **and** *Getting Started* — that's by
+design, not drift: the level is a weighted average that partial strength can carry into L3,
+while the posture quadrant is a claim about each axis independently, and we'd rather
+under-claim a quadrant than assert "AI-Native" off a sub-half axis. Treat the 45–55 corridor
+as borderline: a ±1-point re-scan can flip the quadrant there (there is no hysteresis).
+
 ### Dimension detail
 
 #### D1 — AI Tooling & Conventions (15%)
