@@ -42,8 +42,10 @@ export async function reserveScanCredit(
     return { skip: true, reserved: false };
   }
   const reserved = res.charged; // true only on an overflow credit debit (within-allowance is free)
-  // Proactive lifecycle push when this debit landed on the low-water mark (or zero).
-  if (reserved) await maybeAlertLowCredits(orgSlug, res.balance);
+  // Proactive lifecycle push when this debit CROSSED the low-water mark (or depletion). The debit
+  // site knows its own size: consumeScanCredit charges exactly one credit on the `charged` path, so
+  // the pre-debit balance is balance + 1 — stated here, next to the debit, not assumed downstream.
+  if (reserved) await maybeAlertLowCredits(orgSlug, res.balance + 1, res.balance);
   return { skip: false, reserved };
 }
 

@@ -338,12 +338,17 @@ export function creditsAlertThreshold(): number {
 }
 
 /**
- * Whether a debit landing on `balanceAfter` crosses an alert line. Pure. Debits are unit-sized
- * (one credit per scan), so the balance lands EXACTLY on the threshold once on the way down and
- * exactly on 0 once at depletion — each crossing fires once with no dedupe state.
+ * Whether a debit that moved the balance from `balanceBefore` to `balanceAfter` CROSSED an alert
+ * line (the low-water threshold, or depletion at 0). Pure, range-based: a crossing happens when the
+ * balance was strictly above the line before and at/below it after — so each line fires at most once
+ * per descent, with no dedupe state, and the predicate no longer depends on the unenforced
+ * cross-module invariant that debits are unit-sized (the old `balanceAfter === threshold` equality
+ * silently never fired if any future bulk debit stepped OVER the line). A non-debit observation
+ * (grant/refund/no-op) never alerts. (ambiguity-ui 2026-07-16 #3)
  */
-export function isLowCreditsCrossing(balanceAfter: number, threshold: number): boolean {
-  return balanceAfter === 0 || balanceAfter === threshold;
+export function isLowCreditsCrossing(balanceBefore: number, balanceAfter: number, threshold: number): boolean {
+  if (balanceAfter >= balanceBefore) return false; // not a debit — a grant/refund/top-up never alerts
+  return (balanceBefore > threshold && balanceAfter <= threshold) || (balanceBefore > 0 && balanceAfter <= 0);
 }
 
 /**

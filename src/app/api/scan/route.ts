@@ -183,7 +183,9 @@ async function runScan(
       // NOT be refunded later (that would mint a credit), so the reservation flag tracks charged, not ok.
       creditReserved = res.charged;
       creditsRemaining = res.balance;
-      if (creditReserved) await maybeAlertLowCredits(orgSlug, res.balance);
+      // The `charged` path debited exactly one credit, so the pre-debit balance is balance + 1 —
+      // the range-based crossing predicate needs both sides of the debit.
+      if (creditReserved) await maybeAlertLowCredits(orgSlug, res.balance + 1, res.balance);
     }
   }
   // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). Updates

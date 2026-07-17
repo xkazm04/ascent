@@ -170,17 +170,27 @@ describe("buildRegressionMessage", () => {
   });
 });
 
-describe("isLowCreditsCrossing", () => {
-  it("fires exactly on the threshold and on zero, nowhere else", () => {
-    expect(isLowCreditsCrossing(5, 5)).toBe(true);
-    expect(isLowCreditsCrossing(0, 5)).toBe(true);
-    expect(isLowCreditsCrossing(6, 5)).toBe(false);
-    expect(isLowCreditsCrossing(4, 5)).toBe(false);
-    expect(isLowCreditsCrossing(1, 5)).toBe(false);
+describe("isLowCreditsCrossing (range-based: before → after)", () => {
+  it("fires when a debit crosses the threshold line or depletion, nowhere else", () => {
+    expect(isLowCreditsCrossing(6, 5, 5)).toBe(true); // lands ON the line
+    expect(isLowCreditsCrossing(1, 0, 5)).toBe(true); // depletion
+    expect(isLowCreditsCrossing(7, 6, 5)).toBe(false); // still above
+    expect(isLowCreditsCrossing(5, 4, 5)).toBe(false); // already at/below — crossed earlier
+    expect(isLowCreditsCrossing(2, 1, 5)).toBe(false);
+  });
+  it("fires when a MULTI-CREDIT debit steps OVER the line without landing on it (the old equality missed this)", () => {
+    expect(isLowCreditsCrossing(8, 3, 5)).toBe(true); // 8 → 3 skips 5 entirely
+    expect(isLowCreditsCrossing(4, 0, 5)).toBe(true); // below threshold → depleted
+    expect(isLowCreditsCrossing(8, 0, 5)).toBe(true); // one debit, both lines — one alert
+  });
+  it("a non-debit observation (grant/refund/no-op) never alerts", () => {
+    expect(isLowCreditsCrossing(3, 12, 5)).toBe(false); // top-up
+    expect(isLowCreditsCrossing(5, 5, 5)).toBe(false); // no movement
+    expect(isLowCreditsCrossing(0, 0, 5)).toBe(false);
   });
   it("a zero threshold fires only at depletion (and only once)", () => {
-    expect(isLowCreditsCrossing(0, 0)).toBe(true);
-    expect(isLowCreditsCrossing(1, 0)).toBe(false);
+    expect(isLowCreditsCrossing(1, 0, 0)).toBe(true);
+    expect(isLowCreditsCrossing(2, 1, 0)).toBe(false);
   });
 });
 
