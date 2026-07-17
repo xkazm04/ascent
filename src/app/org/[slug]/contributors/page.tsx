@@ -145,7 +145,7 @@ function ConcentrationTable({
       />
       <OrgTable
         className="mt-3"
-        caption="AI-commit adoption by repository"
+        caption="Commit concentration and bus factor by repository"
         head={
           <tr>
             <th className="px-4 py-2 text-left">Repo</th>
