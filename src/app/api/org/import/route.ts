@@ -1,7 +1,9 @@
 // POST /api/org/import  { org, count?, repos?, mock?, watch?, schedule?, installationId? }  — Server-Sent Events.
 //
 // Bulk scan of an org's (or user's) repositories, scanning each, persisting under the `org`
-// slug, and optionally marking them watched + scheduled.
+// slug, and marking them watched + scheduled BY DEFAULT (watch defaults to true, schedule to
+// "weekly" — recurring autoscans are opt-out; pass watch:false / schedule:"off" for a one-shot
+// import). An invalid `schedule` is rejected with 400, parity with /api/org/schedule.
 //
 // This powers three things:
 //   1. The free-tier funnel: "scan a whole public org" without installing the App.
@@ -95,8 +97,18 @@ export async function POST(request: Request) {
 
   const count = Math.min(100, Math.max(1, body.count ?? 20));
   const mock = body.mock ?? true;
+  // DEFAULTS ARE OPT-OUT by design: a bare { org } import watches every imported repo and enrolls it
+  // in WEEKLY recurring autoscans (a standing credit draw for metered orgs) — the onboarding funnel
+  // wants a live, self-updating fleet, and the client echoes { watch, schedule } on the "found"
+  // progress event so the choice is visible. Pass watch:false / schedule:"off" to import passively.
   const watch = body.watch ?? true;
-  const schedule = body.schedule && SCHEDULES.has(body.schedule) ? body.schedule : "weekly";
+  // Validate rather than coerce (ambiguity-ui 2026-07-16 #3): the sibling /api/org/schedule 400s on
+  // an invalid cadence, but this route silently rewrote "biweekly"/"Weekly"/typos to weekly — a
+  // caller's explicit cadence intent became a recurring credit spend with a 200 and no signal.
+  if (body.schedule !== undefined && !SCHEDULES.has(body.schedule)) {
+    return NextResponse.json({ error: "Invalid schedule (off|daily|weekly|monthly)." }, { status: 400 });
+  }
+  const schedule = body.schedule ?? "weekly";
 
   // Mint an installation token (PRIVATE-repo access) ONLY for a caller with real standing in this org.
   //

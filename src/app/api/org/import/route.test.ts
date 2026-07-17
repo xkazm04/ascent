@@ -340,6 +340,39 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
 // Per-repo in-flight claim (org-import-scan-watchlist #1): a metered import that overlaps another
 // in-flight run (a second import tab, another member, or an overlapping /api/org/scan) must NOT re-scan
 // and re-charge a repo the other run already owns. The route claims each repo before reserving/scanning.
+describe("POST /api/org/import — schedule validation (ambiguity-ui 2026-07-16 #3)", () => {
+  async function rawImport(body: Record<string, unknown>) {
+    return POST(
+      new Request("http://localhost/api/org/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  it("rejects an invalid schedule with 400 (parity with /api/org/schedule) instead of coercing to weekly", async () => {
+    // The old fallback silently rewrote "biweekly" (or any typo/case variant) to WEEKLY recurring,
+    // credit-spending autoscans behind a 200/SSE success — the caller's explicit cadence intent lost.
+    const res = await rawImport({ org: "public", repos: ["acme/web"], mock: true, schedule: "biweekly" });
+    expect(res.status).toBe(400);
+    const d = (await res.json()) as { error?: string };
+    expect(d.error).toMatch(/schedule/i);
+    expect(mockScan).not.toHaveBeenCalled(); // rejected before any work
+  });
+
+  it("rejects a case-variant like \"Weekly\" too — the value must be the exact vocabulary", async () => {
+    const res = await rawImport({ org: "public", repos: ["acme/web"], mock: true, schedule: "Weekly" });
+    expect(res.status).toBe(400);
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("still accepts an omitted schedule (documented weekly default) and runs the import", async () => {
+    await runImport({ org: "public", repos: ["acme/web"], mock: true, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("POST /api/org/import — per-repo in-flight claim (no double-scan/charge)", () => {
   beforeEach(() => {
     mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
