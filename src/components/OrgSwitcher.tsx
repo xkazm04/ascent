@@ -171,7 +171,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
       {error && (
         <div
           role="alert"
-          className="absolute right-0 top-full z-40 mt-2 max-w-[16rem] rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300 shadow-xl"
+          className="absolute right-0 top-full z-40 mt-2 max-w-[16rem] rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger-soft shadow-xl"
         >
           {error}
         </div>

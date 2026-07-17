@@ -122,7 +122,7 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
         </button>
       </div>
       {inviteError && (
-        <p role="alert" className="mt-2 text-sm text-orange-300">
+        <p role="alert" className="mt-2 text-sm text-danger-soft">
           {inviteError}
         </p>
       )}
@@ -142,7 +142,7 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
                   link shared at creation
                 </span>
               )}
-              <button onClick={() => revokeInvite(i.id)} className="text-slate-600 transition hover:text-orange-300">
+              <button onClick={() => revokeInvite(i.id)} className="text-slate-600 transition hover:text-danger-soft">
                 revoke
               </button>
               <span className="text-slate-600">expires {new Date(i.expiresAt).toLocaleDateString()}</span>
