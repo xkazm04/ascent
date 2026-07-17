@@ -63,7 +63,8 @@ export default async function OrgOverview({
 
   // A PERSONAL workspace renders the individual overview — the watchlist lens over the shared public
   // corpus — instead of the fleet rollup (whose reads would find nothing: a personal org holds pointer
-  // rows, never scans). One cheap read; the layout already ran the same query for the shell.
+  // rows, never scans). One cheap read, deduped per request with the layout's identical call — the
+  // export is React-`cache()`d, so this really is free rather than a second round-trip.
   const headerSummary = await getOrgHeaderSummary(slug);
   if (headerSummary?.kind === "personal") {
     return billingNotice ? (

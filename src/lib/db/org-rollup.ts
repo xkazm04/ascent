@@ -1,6 +1,7 @@
 // Org rollup: org-id resolution, per-repo watch/level state, and the org-rollup query that powers
 // the dashboard. All guarded by DATABASE_URL.
 
+import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
@@ -619,7 +620,12 @@ export interface OrgHeaderSummary {
   kind: "org" | "personal";
 }
 
-export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSummary | null> {
+// React-`cache()`d (request-scoped memo, the repo's convention for shell+page shared reads — see
+// getOrgFindings in lib/org/nav-counts.ts): the layout runs this for EVERY org tab's shell, and any
+// page that branches on personal-vs-org kind calls it again in the SAME request. Without the memo
+// each call was its own DB round-trip on a force-dynamic route — the "the layout already ran this"
+// comments at those call sites were aspiration, not fact.
+export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHeaderSummary | null> => {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true, kind: true } });
@@ -639,7 +645,7 @@ export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSum
     avgOverall: roundedMean(scannedScores),
     kind: org.kind === "personal" ? "personal" : "org",
   };
-}
+});
 
 /** One inference engine's share of an org's scans over a window. */
 export interface EngineMixEntry {
