@@ -44,6 +44,36 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
     return p;
   }
 
+  // Sync every form field to a policy (the server's sanitized echo, or null after a reset) so the UI
+  // always shows what is actually stored, never what was merely requested. (ambiguity-ui ci-gate #3)
+  function syncForm(p: GatePolicy | null) {
+    setMinLevel(p?.minLevel ?? "");
+    setMinOverall(p?.minOverall != null ? String(p.minOverall) : "");
+    setMinDimension(p?.minDimension != null ? String(p.minDimension) : "");
+    setSecurity(p?.minDimensionFor?.D9 != null);
+    setSecurityFloor(p?.minDimensionFor?.D9 != null ? String(p.minDimensionFor.D9) : "50");
+    setNoUngoverned(Boolean(p?.forbidPostures?.includes("ungoverned")));
+    setRequireProtection(Boolean(p?.requireProtectedBranch));
+  }
+
+  // Which requested fields did the server's sanitizer silently DROP? sanitizeGatePolicy discards any
+  // ≤0 / out-of-range floor ("not set" by contract), so a save can succeed while shedding fields the
+  // form shows as enabled — e.g. Security checkbox on + floor cleared → `{ D9: 0 }` → no D9 floor
+  // stored at all. The old null-vs-non-null echo check couldn't see a PARTIALLY-dropped policy, so the
+  // owner was told "the gate now enforces it" about a bar that was never stored.
+  function droppedFields(req: GatePolicy, stored: GatePolicy | null): string[] {
+    const out: string[] = [];
+    if (req.minLevel != null && stored?.minLevel !== req.minLevel) out.push("minimum level");
+    if (req.minOverall != null && stored?.minOverall !== req.minOverall) out.push("min overall");
+    if (req.minDimension != null && stored?.minDimension !== req.minDimension) out.push("min per-dimension");
+    if (req.minDimensionFor?.D9 != null && stored?.minDimensionFor?.D9 !== req.minDimensionFor.D9)
+      out.push("security floor (D9)");
+    if (req.requireProtectedBranch && !stored?.requireProtectedBranch) out.push("protected-branch requirement");
+    if (req.forbidPostures?.length && !req.forbidPostures.every((p) => stored?.forbidPostures?.includes(p)))
+      out.push("forbidden postures");
+    return out;
+  }
+
   async function post(policy: GatePolicy | null, kind: "save" | "reset") {
     setBusy(kind);
     setMsg(null);
@@ -60,11 +90,21 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
       // gate back to the archetype default. So a save of e.g. "min overall = 0" actually RESETS the bar.
       // The old copy hardcoded "Policy saved — the gate now enforces it" regardless, telling the owner a
       // stricter bar was live when it had really been reset (success-theater). (ci-gate-status-checks #4)
+      // One level deeper (ambiguity-ui ci-gate #3): a PARTIALLY-dropped policy still echoed non-null, so
+      // the success copy claimed enforcement of fields the sanitizer shed. Reconcile the request against
+      // the echo, say exactly which fields were dropped, and re-seed the form from what is truly stored.
       const stored = d.policy ?? null;
+      syncForm(stored);
+      const dropped = kind === "save" && policy ? droppedFields(policy, stored) : [];
       setMsg(
         kind === "reset" || stored == null
           ? { kind: "note", text: "Reset to the archetype default — no custom bar is enforced." }
-          : { kind: "note", text: "Policy saved — the gate now enforces it." },
+          : dropped.length > 0
+            ? {
+                kind: "error",
+                text: `Saved, but NOT enforced: ${dropped.join(", ")} — 0 (or an out-of-range value) is not a valid bar, so the server cleared ${dropped.length > 1 ? "those fields" : "that field"}. The form now shows the stored policy.`,
+              }
+            : { kind: "note", text: "Policy saved — the gate now enforces it." },
       );
       router.refresh();
     } catch (e) {
@@ -75,13 +115,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
   }
 
   function reset() {
-    setMinLevel("");
-    setMinOverall("");
-    setMinDimension("");
-    setSecurity(false);
-    setSecurityFloor("50");
-    setNoUngoverned(false);
-    setRequireProtection(false);
+    syncForm(null);
     void post(null, "reset");
   }
 
@@ -108,7 +142,9 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
           Min overall
           <input
             type="number"
-            min={0}
+            // min=1, not 0: sanitizeGatePolicy treats ≤0 as "not set" and drops the field server-side,
+            // so offering 0 in the UI invites a save the gate will silently shed. (ambiguity-ui ci-gate #3)
+            min={1}
             max={100}
             value={minOverall}
             onChange={(e) => setMinOverall(e.target.value)}
@@ -120,7 +156,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
           Min per-dimension
           <input
             type="number"
-            min={0}
+            min={1}
             max={100}
             value={minDimension}
             onChange={(e) => setMinDimension(e.target.value)}
@@ -135,7 +171,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
           </span>
           <input
             type="number"
-            min={0}
+            min={1}
             max={100}
             value={securityFloor}
             disabled={!security}
