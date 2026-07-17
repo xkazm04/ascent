@@ -188,7 +188,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
           Require a protected default branch
         </label>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2" aria-busy={busy !== null}>
         <button
           onClick={() => post(buildPolicy(), "save")}
           disabled={busy !== null}
@@ -203,7 +203,18 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
         >
           Reset to default
         </button>
-        {msg && <span className={`font-mono text-sm ${msg.kind === "error" ? "text-orange-300" : "text-emerald-300"}`}>{msg.text}</span>}
+        {/* Persistent polite live region (rendered always, content swapped) so save/reset outcomes are
+            ANNOUNCED to screen readers — the old `{msg && <span …>}` was inserted after the fact, which
+            assistive tech never reads, leaving success, silent field-dropping, and failure all
+            indistinguishable on a merge-blocking form. Errors carry a textual "Error:" prefix so the
+            kind isn't conveyed by color alone (WCAG 1.4.1). (ambiguity-ui ci-gate #5) */}
+        <span
+          role="status"
+          aria-live="polite"
+          className={`font-mono text-sm ${msg?.kind === "error" ? "text-orange-300" : "text-emerald-300"}`}
+        >
+          {msg ? (msg.kind === "error" ? `Error: ${msg.text}` : msg.text) : ""}
+        </span>
       </div>
     </div>
   );
