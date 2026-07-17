@@ -15,8 +15,21 @@ export async function register() {
   // so no deployed behavior changes; only a local `next start` with PGLITE_DATA_DIR set stops booting
   // the embedded DB — use `npm run dev` for that (its documented entry point).
   const dataDir = process.env.PGLITE_DATA_DIR;
-  if (process.env.NODE_ENV !== "production" && dataDir) {
-    const { bootPglite } = await import("@/lib/db/pglite-boot");
-    await bootPglite(dataDir);
+  if (dataDir) {
+    if (process.env.NODE_ENV !== "production") {
+      const { bootPglite } = await import("@/lib/db/pglite-boot");
+      await bootPglite(dataDir);
+    } else if (!process.env.DATABASE_URL) {
+      // The losing side of the trade-off above must be OBSERVABLE (database-client-schema 07-16 #4):
+      // a developer running the prod-smoke flow (`next build && next start`) against their local
+      // .pglite data gets no boot and an app-wide empty keyless-MVP state — plausible enough to
+      // masquerade as a data problem. One warn line; references no pglite module, so the NFT-fold
+      // above is unaffected. (Quiet when DATABASE_URL is set — a real DB is configured, so the
+      // leftover PGLITE_DATA_DIR is genuinely irrelevant.)
+      console.warn(
+        "[pglite] PGLITE_DATA_DIR is set but the embedded PGlite does NOT boot in production builds — " +
+          "every DB read will be empty. Use `npm run dev` for the embedded DB, or set DATABASE_URL for `next start`.",
+      );
+    }
   }
 }
