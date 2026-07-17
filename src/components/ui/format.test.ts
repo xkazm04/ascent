@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { deltaHex, signedDelta, fmtDelta, toneFor, shortDate, shortDateSafe } from "./format";
+import { deltaHex, signedDelta, fmtDelta, toneFor, shortDate, shortDateSafe, DIRECTION_TONE } from "./format";
 
 describe("delta formatters (noise-aware)", () => {
   it("deltaHex mutes flat + within-noise deltas to slate", () => {
@@ -30,6 +32,15 @@ describe("delta formatters (noise-aware)", () => {
     expect(toneFor(-2)).toBe("flat");
     expect(toneFor(8)).toBe("rising");
     expect(toneFor(-5)).toBe("falling");
+  });
+
+  it("DIRECTION_TONE hexes stay paired with the --color-tone-* CSS tokens (change BOTH together)", () => {
+    // TS keeps literal hex (inline styles + tests can't resolve var()); globals.css re-declares the
+    // triad as tokens for CSS-side surfaces. This pins the pairing so a rebrand can't move one side.
+    const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+    expect(css).toContain(`--color-tone-rising: ${DIRECTION_TONE.rising.color}`);
+    expect(css).toContain(`--color-tone-falling: ${DIRECTION_TONE.falling.color}`);
+    expect(css).toContain(`--color-tone-flat: ${DIRECTION_TONE.flat.color}`);
   });
 });
 

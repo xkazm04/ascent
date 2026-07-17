@@ -18,6 +18,10 @@ export const signedDelta = (d: number): string => `${d > 0 ? "+" : ""}${d}`;
  * {arrow, color, label} mapping used by every fleet "which way is it moving" surface (trajectory,
  * movers, portfolio). Lime up · orange down · slate flat, with ▲/▼/→. Keep this the only copy so a
  * glyph/color rebrand lands in one place instead of being hunted across hand-rolled literals.
+ *
+ * The hexes are PAIRED with the CSS tokens `--color-tone-rising/-falling/-flat` in
+ * src/app/globals.css (same BRAND_INK-style pairing as lib/site.ts): TS keeps literals because these
+ * values feed inline styles and tests, where a `var()` string can't be resolved. Change BOTH together.
  */
 export const DIRECTION_TONE = {
   rising: { arrow: "▲", color: "#84cc16", label: "rising" },

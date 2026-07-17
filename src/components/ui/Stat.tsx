@@ -14,6 +14,12 @@ export interface StatProps {
   label: React.ReactNode;
   value: React.ReactNode;
   sub?: React.ReactNode;
+  /**
+   * Value color. NOT a free-for-all: pass a palette-derived hex only — the score ramp (`scoreHex`),
+   * the direction triad (`deltaHex`/`DIRECTION_TONE`, paired with the `--color-tone-*` tokens), or
+   * omit it for the default white. Hand-rolled hexes here are exactly the off-palette drift the
+   * Kicker/Surface primitives were built to end.
+   */
   color?: string;
   /** Period-over-period change as an arrowed badge under the value. null/undefined hides it. */
   delta?: number | null;

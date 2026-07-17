@@ -32,6 +32,13 @@
   --color-surface: #0f172a;          /* slate-900 — panel base; use bg-surface/40 */
   --color-surface-strong: #020617;   /* slate-950 — deeper panel; bg-surface-strong/40 */
   --color-divider: #1e293b;          /* slate-800 — hairline rules + card borders */
+  /* Direction-tone triad (rising / falling / flat) — paired with the TS-side DIRECTION_TONE in
+     src/components/ui/format.ts, which must keep literal hex (it feeds inline styles, canvas-adjacent
+     consumers, and tests that assert exact hexes — CSS vars aren't importable there). Change BOTH
+     together. Utilities generated: text-tone-rising, bg-tone-falling, … */
+  --color-tone-rising: #84cc16;      /* lime-500 — score moving up */
+  --color-tone-falling: #f97316;     /* orange-500 — score moving down (= --color-warn) */
+  --color-tone-flat: #94a3b8;        /* slate-400 — holding / within-noise */
 }
 
 @theme inline {
