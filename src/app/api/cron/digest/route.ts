@@ -7,6 +7,13 @@
 // channel. Orgs with no resolvable sink are skipped (counted in the response), so a deployment with
 // neither configured is a clean no-op.
 //
+// DELIBERATE SPLIT from the per-org regression thresholds (ambiguity-ui 2026-07-16 #2): the digest's
+// gainers/regressers lists are gated by the GLOBAL isWithinNoise band, NOT by the org's configured
+// "Regression sensitivity" thresholds. Those thresholds tune when a single repo's slide fires a
+// PER-REPO alert (scan-alerts.ts); the digest's movers section is a fleet summary where a shared
+// noise floor keeps cross-org semantics comparable ("beyond measurement jitter"), not an alarm the
+// org tunes. The AlertsControl UI states the same scope, so the two surfaces agree.
+//
 // Guarded by CRON_SECRET when set. No-op without a DB.
 
 import { timingSafeEqual } from "node:crypto";
