@@ -164,3 +164,23 @@ describe("LEVELS rubric shape — the bands these tests pin", () => {
     }
   });
 });
+
+describe("POSTURE_META — canonical posture taxonomy shape", () => {
+  it("every posture carries a non-empty short label (charts derive from it, never re-type)", async () => {
+    const { POSTURE_META } = await import("@/lib/maturity/model");
+    expect(POSTURE_META).toHaveLength(4);
+    for (const p of POSTURE_META) {
+      expect(p.short.length).toBeGreaterThan(0);
+      // Short forms are Title Case abbreviations of the full label — pin the casing so the
+      // quadrant can't regress to the drifted "Getting started" hand-copy it once shipped.
+      expect(p.short[0]).toBe(p.short[0]!.toUpperCase());
+    }
+    const short = Object.fromEntries(POSTURE_META.map((p) => [p.id, p.short]));
+    expect(short).toEqual({
+      "ai-native": "AI-Native",
+      ungoverned: "Ungoverned",
+      manual: "Manual",
+      early: "Getting Started",
+    });
+  });
+});

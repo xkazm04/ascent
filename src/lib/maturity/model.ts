@@ -407,11 +407,14 @@ export function postureFor(adoption: number, rigor: number): Posture {
  * One source of truth for any UI that enumerates postures (e.g. the Posture distribution),
  * so adding/renaming a posture here automatically flows through instead of silently dropping it.
  */
-export const POSTURE_META: ReadonlyArray<{ id: Posture["id"]; label: string }> = [
-  { id: "ai-native", label: "AI-Native" },
-  { id: "ungoverned", label: "Fast & Ungoverned" },
-  { id: "manual", label: "Solid but Manual" },
-  { id: "early", label: "Getting Started" },
+export const POSTURE_META: ReadonlyArray<{ id: Posture["id"]; label: string; short: string }> = [
+  // `short` is the INTENTIONAL abbreviation for tight chart surfaces (the quadrant SVG's corner
+  // labels can't fit "Fast & Ungoverned" at 11px mono uppercase). Derive chart labels from here —
+  // never re-type them — so a posture rename can't strand a chart on a stale or mis-cased copy.
+  { id: "ai-native", label: "AI-Native", short: "AI-Native" },
+  { id: "ungoverned", label: "Fast & Ungoverned", short: "Ungoverned" },
+  { id: "manual", label: "Solid but Manual", short: "Manual" },
+  { id: "early", label: "Getting Started", short: "Getting Started" },
 ];
 
 // ---- Startup invariant --------------------------------------------------------

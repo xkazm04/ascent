@@ -3,7 +3,7 @@
 // Dependency-free SVG charts (keeps the bundle small and the build fast).
 
 import type { Posture } from "@/lib/types";
-import { POSTURE_THRESHOLD } from "@/lib/maturity/model";
+import { POSTURE_META, POSTURE_THRESHOLD } from "@/lib/maturity/model";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { CHART_INK, linScale } from "@/components/report/chartScale";
 import { LEVEL_HEX } from "@/lib/ui";
@@ -19,12 +19,13 @@ const QUAD_TINT: Record<Posture["id"], string> = {
   manual: "var(--color-accent)",
   early: LEVEL_HEX.L1,
 };
-const QUAD_LABEL: Record<Posture["id"], string> = {
-  "ai-native": "AI-Native",
-  ungoverned: "Ungoverned",
-  manual: "Manual",
-  early: "Getting started",
-};
+// Corner labels DERIVED from the canonical posture taxonomy (POSTURE_META.short) instead of
+// hand-copied — a rename/addition in model.ts flows through here automatically. Previously this
+// was a second source of truth that had already drifted ("Getting started" vs "Getting Started").
+const QUAD_LABEL = Object.fromEntries(POSTURE_META.map((p) => [p.id, p.short])) as Record<
+  Posture["id"],
+  string
+>;
 
 /**
  * The Adoption × Rigor quadrant — the 2D position the model actually computes (postureFor:
