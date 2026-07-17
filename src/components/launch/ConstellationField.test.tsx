@@ -49,6 +49,28 @@ describe("ConstellationField star touch targets", () => {
   });
 });
 
+describe("ConstellationField mover ring — direction is not color-alone (ambiguity-ui #3)", () => {
+  const movers: Constellation = {
+    id: 2,
+    login: "acme",
+    status: "done",
+    repos: [
+      { fullName: "acme/up", overall: 70, level: "L4", dOverall: 4, watched: true },
+      { fullName: "acme/down", overall: 40, level: "L2", dOverall: -3, watched: true },
+    ],
+  };
+
+  it("renders a faller's ring dashed and a riser's solid, so hue is not the only channel", () => {
+    const { container } = render(<ConstellationField c={movers} />);
+    const rings = Array.from(container.querySelectorAll('circle[fill="none"][stroke-width="0.5"]'));
+    expect(rings.length).toBe(2);
+    const riser = rings.find((r) => r.getAttribute("stroke") === "#34d399")!;
+    const faller = rings.find((r) => r.getAttribute("stroke") === "#f97316")!;
+    expect(riser.getAttribute("stroke-dasharray")).toBeNull(); // up = solid
+    expect(faller.getAttribute("stroke-dasharray")).toBeTruthy(); // down = dashed
+  });
+});
+
 describe("ConstellationField large-fleet twinkle cap (#7)", () => {
   it("twinkles by default (small fleet)", () => {
     const { container } = render(<ConstellationField c={doneConstellation()} />);

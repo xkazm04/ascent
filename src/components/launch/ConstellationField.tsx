@@ -170,6 +170,10 @@ export function ConstellationField({
                       stroke={moved > 0 ? RISER : FALLER}
                       strokeWidth={0.5}
                       opacity={0.85}
+                      // WCAG 1.4.1: direction must not ride on hue alone — the emerald/orange pair
+                      // converges under deuteranopia/protanopia. A faller's ring is DASHED, a riser's
+                      // solid, so the glanceable mark carries a shape channel like the header's ▲/▼.
+                      strokeDasharray={moved > 0 ? undefined : "1 0.8"}
                     />
                   )}
                   <circle
