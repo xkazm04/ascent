@@ -48,12 +48,17 @@ export function fmtDelta(d: number): string {
 }
 
 /**
- * "Jun 9" — short month + day in the viewer's locale ({month:"short", day:"numeric"}). The single
- * source for the compact date used across the report (trend-axis labels, quota reset/stale dates),
- * which was hand-inlined at several call sites.
+ * "Jun 9" — short month + day, PINNED to en-US ({month:"short", day:"numeric"}). The single source
+ * for the compact date used across the report (trend-axis labels, quota reset/stale dates), which
+ * was hand-inlined at several call sites.
+ *
+ * Deliberately not the viewer's locale: the call sites are "use client" components that Next.js
+ * still prerenders on the SERVER, where `undefined` resolves to the server's ICU locale — a viewer
+ * with a different browser locale then hydrates "Jun 9" into "9 juin" (hydration mismatch + a date
+ * that flickers between formats). en-US matches the brand's mono/editorial voice everywhere else.
  */
 export function shortDate(d: Date): string {
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 /**

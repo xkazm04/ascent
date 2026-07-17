@@ -45,10 +45,11 @@ describe("delta formatters (noise-aware)", () => {
 });
 
 describe("short date formatters", () => {
-  it("shortDate emits the {month:'short', day:'numeric'} locale string (single-sourced)", () => {
+  it("shortDate is pinned to en-US so SSR prerender and every browser locale agree", () => {
     const d = new Date(2024, 5, 9); // local date — no TZ ambiguity
-    // Locale-agnostic: assert the helper is exactly the inlined call it replaced.
-    expect(shortDate(d)).toBe(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+    // Pinned (not the runtime locale): an `undefined` locale renders the SERVER's ICU locale during
+    // prerender, then hydrates to the viewer's — a mismatch. The exact string is the contract.
+    expect(shortDate(d)).toBe("Jun 9");
   });
 
   it("shortDateSafe returns '' for an unparseable/invalid value (the guard the call sites need)", () => {
