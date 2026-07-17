@@ -3,6 +3,11 @@
 // A header filter dropdown for the fleet views. A funnel icon opens a menu of that dimension's values
 // (sorted name-ascending), each a toggle; a Clear resets it. Replaces the old inline chip tray — the
 // filter now lives in the view header, opened on demand. Closes on outside-click or Escape.
+//
+// Keyboard contract (the WAI-ARIA multi-select listbox model the roles promise): opening moves focus
+// into the list (first selected option, else first option); ArrowUp/ArrowDown move with wrap-around;
+// Home/End jump to the edges; Enter/Space toggle (native button click); Escape closes AND returns
+// focus to the trigger. Options use a roving tabindex so Tab leaves the widget rather than crawling it.
 
 import { useEffect, useRef, useState } from "react";
 import { FilterIcon, ChevronDownIcon, CheckIcon } from "@/components/org/overview/orgIcons";
@@ -28,7 +33,11 @@ export function FilterMenu({
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Roving-tabindex cursor: which option holds tabIndex=0 (and DOM focus while navigating).
+  const [activeIdx, setActiveIdx] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const count = selected.size;
 
   useEffect(() => {
@@ -36,25 +45,77 @@ export function FilterMenu({
     const onDoc = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
     document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
   // Options sorted by name ascending — a stable, scannable list regardless of data order.
   const sorted = [...options].sort((a, b) => a.label.localeCompare(b.label));
 
+  // On open, move focus into the listbox — the first selected option (the user's likely anchor),
+  // else the first option — so arrow navigation starts immediately instead of focus staying behind
+  // the popup on the trigger.
+  useEffect(() => {
+    if (!open) return;
+    const firstSelected = sorted.findIndex((o) => selected.has(o.value));
+    const start = firstSelected >= 0 ? firstSelected : 0;
+    setActiveIdx(start);
+    optionRefs.current[start]?.focus();
+    // Only on open — re-running on selection change would yank focus off the option being toggled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const closeAndRefocus = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const moveTo = (idx: number) => {
+    if (sorted.length === 0) return;
+    const next = (idx + sorted.length) % sorted.length;
+    setActiveIdx(next);
+    optionRefs.current[next]?.focus();
+  };
+
+  const onListKeyDown = (e: React.KeyboardEvent) => {
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        moveTo(activeIdx + 1);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        moveTo(activeIdx - 1);
+        break;
+      case "Home":
+        e.preventDefault();
+        moveTo(0);
+        break;
+      case "End":
+        e.preventDefault();
+        moveTo(sorted.length - 1);
+        break;
+      case "Escape":
+        e.preventDefault();
+        closeAndRefocus();
+        break;
+    }
+  };
+
   return (
     <div ref={ref} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          // Escape on the (still-focused) trigger while the popup is open must also dismiss it —
+          // previously a document-level listener closed it but stranded focus wherever it was.
+          if (e.key === "Escape" && open) {
+            e.preventDefault();
+            closeAndRefocus();
+          }
+        }}
         aria-expanded={open}
         aria-haspopup="listbox"
         className={`focus-ring inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-mono text-xs transition ${
@@ -70,20 +131,28 @@ export function FilterMenu({
       {open && (
         <div
           role="listbox"
+          aria-label={`Filter by ${label}`}
+          aria-multiselectable="true"
+          onKeyDown={onListKeyDown}
           className="absolute left-0 top-full z-20 mt-1 min-w-[13rem] rounded-xl border border-divider bg-surface-strong/95 p-1 shadow-xl backdrop-blur"
         >
           {sorted.length === 0 ? (
             <p className="px-2 py-1.5 font-mono text-xs text-slate-500">No values.</p>
           ) : (
-            sorted.map((o) => {
+            sorted.map((o, i) => {
               const on = selected.has(o.value);
               return (
                 <button
                   key={o.value}
+                  ref={(el) => {
+                    optionRefs.current[i] = el;
+                  }}
                   type="button"
                   role="option"
                   aria-selected={on}
+                  tabIndex={i === activeIdx ? 0 : -1}
                   onClick={() => onToggle(o.value)}
+                  onFocus={() => setActiveIdx(i)}
                   className={`focus-ring flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left font-mono text-sm transition ${
                     on ? "bg-accent/10 text-white" : "text-slate-300 hover:bg-surface/60"
                   }`}
@@ -99,6 +168,15 @@ export function FilterMenu({
             <button
               type="button"
               onClick={onClear}
+              onKeyDown={(e) => {
+                // The Clear row is Tab-reachable (not part of the option roving order); Escape here
+                // must still dismiss + refocus like everywhere else in the popup.
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  closeAndRefocus();
+                }
+              }}
               className="focus-ring mt-1 w-full rounded-lg px-2 py-1.5 text-left font-mono text-xs uppercase tracking-widest text-slate-500 hover:text-accent"
             >
               Clear {label}
