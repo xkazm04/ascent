@@ -29,9 +29,13 @@ export function canOfferSignIn(scope: QuotaScope): boolean {
   );
 }
 
-/** Human-friendly date a monthly quota window resets on (epoch ms). Coarse — a day is precise enough. */
+/** Human-friendly date a monthly quota window resets on (epoch ms). Coarse — a day is precise enough.
+ *  Unknown reset time: the true horizon is unbounded below but capped by the rolling 30-day window
+ *  (public-scan-quota WINDOW_MS), so say exactly that. The old "in a few days" fabricated a number —
+ *  a just-exhausted window resets up to ~30 days out, so the claim could be off by 10x on the exact
+ *  surface meant to retain the blocked user (this repo treats such copy as a user-facing untruth). */
 export function formatResetAt(resetAt: number | null): string {
-  if (!resetAt || !Number.isFinite(resetAt)) return "in a few days";
+  if (!resetAt || !Number.isFinite(resetAt)) return "within 30 days";
   return `on ${shortDate(new Date(resetAt))}`;
 }
 
