@@ -1,9 +1,9 @@
 // /pricing — public plan comparison, rendered from PLAN_FEATURES (the single source of truth the
 // credit/entitlement layer also reads). The destination for the quota/credit "upgrade" CTAs (QUOTA-1).
-// Subscription dollar amounts live in the billing provider (Polar, CRED-1) and aren't invented here —
-// so we show the one price we DO know honestly (Free = $0), the prepaid-credit model plainly (private
-// scans run on credits, 1 per scan; public scans are always free), and Enterprise as "Custom". Credits
-// are bought from the org dashboard (CreditsControl → Polar).
+// The metering model shown here mirrors the engine (src/lib/db/credits.ts + decideScanCharge):
+// public scans are always free and unmetered; PRIVATE (org) scans are free while under the plan's
+// monthly allowance, then run on prepaid credits, 1 per scan. Enterprise is "Custom". Credits are
+// bought from the org dashboard (CreditsControl → Polar).
 
 import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
@@ -44,7 +44,7 @@ const TEAM_PRICE = planPriceLabel("team").amount; // e.g. "$20"
 
 export const metadata = {
   title: "Plans & credits — Ascent",
-  description: `Every plan includes a monthly scan allowance — ${FREE_ALLOWANCE} free a month, Pro ${PRO_PRICE}/mo, Team ${TEAM_PRICE}/mo. Scans beyond your allowance run on prepaid credits you can top up anytime.`,
+  description: `Public scans are always free. Every plan includes a monthly private-scan allowance — ${FREE_ALLOWANCE} free a month, Pro ${PRO_PRICE}/mo, Team ${TEAM_PRICE}/mo. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
 };
 
 export default function PricingPage() {
@@ -55,8 +55,9 @@ export default function PricingPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white sm:text-4xl">Plans &amp; credits</h1>
           <p className="mx-auto mt-3 max-w-2xl text-lg text-slate-400">
-            Every plan includes a <span className="text-slate-200">monthly scan allowance</span> — {FREE_ALLOWANCE} free a month, then
-            a subscription for more. Scans beyond your allowance run on prepaid credits you can{" "}
+            Public scans are <span className="text-slate-200">always free</span>. Every plan adds a{" "}
+            <span className="text-slate-200">monthly private-scan allowance</span> — {FREE_ALLOWANCE} free a month, then
+            a subscription for more. Private scans beyond your allowance run on prepaid credits you can{" "}
             <span className="text-slate-200">top up anytime</span>. Pick the tier that fits your fleet.
           </p>
         </div>
@@ -85,7 +86,7 @@ export default function PricingPage() {
                 </p>
                 <p className="mt-2 text-sm text-slate-400">{p.blurb}</p>
                 <p className="mt-3 font-mono text-sm text-accent">
-                  {p.unlimited ? "Unlimited scans" : `${p.includedCredits} scans / mo included`}
+                  {p.unlimited ? "Unlimited scans" : `${p.includedCredits} private scans / mo included`}
                 </p>
                 <ul className="mt-3 flex-1 space-y-1.5 text-sm text-slate-300">
                   {p.features.map((f) => (

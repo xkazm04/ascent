@@ -17,8 +17,10 @@ export type PlanBilling = "free" | "subscription" | "custom";
 export interface PlanFeature {
   id: PlanId;
   label: string;
-  /** Monthly scan allowance — free scans/month (public OR private) before overflow draws on prepaid
-   *  credits. null = unlimited (Enterprise). This is the "included" volume; see scanAllowance(). */
+  /** Monthly scan allowance — free METERED (org/private, installation-token) scans per month before
+   *  overflow draws on prepaid credits. Anonymous PUBLIC scans are never metered (src/lib/db/credits.ts,
+   *  the CreditMatrixLedger on /pricing) — they are quota-limited separately and never touch this.
+   *  null = unlimited (Enterprise). This is the "included" volume; see scanAllowance(). */
   includedCredits: number | null;
   /** True when scans never consume a credit (the `enterprise` behaviour, data-driven). */
   unlimited: boolean;
@@ -46,8 +48,8 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     billing: "free",
     seats: 1,
     retentionDays: 30,
-    blurb: "5 scans a month — public or private — with the full report and badge.",
-    features: ["5 scans / month included", "Public or private repos", "Maturity report + roadmap", "README badge", "1 member"],
+    blurb: "5 private scans a month — public scans are always free — with the full report and badge.",
+    features: ["5 private scans / month included", "Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
   },
   pro: {
     id: "pro",
@@ -59,7 +61,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 3,
     retentionDays: 180,
     blurb: "A monthly subscription with the org fleet dashboard for a small team.",
-    features: ["100 scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
+    features: ["100 private scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
   },
   team: {
     id: "team",
@@ -71,7 +73,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 10,
     retentionDays: 365,
     blurb: "More volume, more seats, and segment-scoped intelligence.",
-    features: ["500 scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
+    features: ["500 private scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
   },
   enterprise: {
     id: "enterprise",
