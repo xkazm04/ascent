@@ -38,13 +38,35 @@ export function llmTimeoutMs(): number {
 }
 
 /**
- * Per-call sampling temperature (the determinism knob) — the single source the real providers
- * (gemini/openai/bedrock) read, mirroring llmTimeoutMs so the env name and the `0.2` default live in
- * one place instead of being re-inlined per provider. Read at CALL time via envNumber (same parsing:
- * blank → fallback, Number.isFinite-guarded). Default 0.2.
+ * Per-call sampling temperature (the determinism knob) — the single source ALL the real providers
+ * (gemini/openai/bedrock/openrouter) read, mirroring llmTimeoutMs so the env name and the `0.2`
+ * default live in one place instead of being re-inlined per provider. Read at CALL time via envNumber
+ * (same parsing: blank → fallback, Number.isFinite-guarded). Default 0.2.
+ * Clamped to [0, 2] — the widest range any of the real providers accepts. An out-of-range value
+ * (LLM_TEMPERATURE=5, or a negative) would otherwise flow into the request, 400 EVERY call, and
+ * silently degrade 100% of scans to the deterministic mock floor — the identical hard-to-diagnose
+ * symptom the MIN_LLM_TIMEOUT_MS floor above was built to kill, so the same hardening policy applies
+ * to the whole knob family, not just the timeout. (llm-provider-abstraction #3)
  */
 export function llmTemperature(): number {
-  return envNumber("LLM_TEMPERATURE", 0.2);
+  return Math.min(2, Math.max(0, envNumber("LLM_TEMPERATURE", 0.2)));
+}
+
+/**
+ * Floor for the max-output-token knobs. A 0/negative completion cap is a misconfiguration that makes
+ * every real-provider call fail (or return an empty reply), not a tuning choice; 256 is far below any
+ * real assessment (a multi-KB JSON) yet enough that a request can complete and surface a diagnosable
+ * truncation instead of a silent all-scans-to-mock degrade.
+ */
+const MIN_LLM_MAX_TOKENS = 256;
+
+/**
+ * Per-provider max-output-tokens knob (BEDROCK_MAX_TOKENS / OPENAI_MAX_TOKENS / OPENROUTER_MAX_TOKENS)
+ * — same call-time envNumber parsing as every other knob, rounded to an integer and floored to
+ * MIN_LLM_MAX_TOKENS so a 0/negative/garbage value can't fail every call. (llm-provider-abstraction #3)
+ */
+export function llmMaxTokens(envName: string, fallback = 4096): number {
+  return Math.max(MIN_LLM_MAX_TOKENS, Math.round(envNumber(envName, fallback)));
 }
 
 /**
