@@ -11,7 +11,10 @@ import { GlowBackdrop } from "./GlowBackdrop";
  *  imported into this client component) so the deck's last snap point still reaches it. */
 export function AboutCTA() {
   return (
-    <section id="cta" className="flex min-h-screen snap-start flex-col pt-14">
+    // data-deck-last: this is the /about deck's FINAL section — globals.css hides the section
+    // connector (hairline + node) on it. If a section is ever added after this one, move the
+    // attribute to the new last section.
+    <section id="cta" data-deck-last="" className="flex min-h-screen snap-start flex-col pt-14">
       <div className="flex flex-1 items-center">
         <div className="mx-auto w-full max-w-6xl px-5">
           <Reveal>

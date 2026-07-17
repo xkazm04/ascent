@@ -101,10 +101,14 @@ html {
     pointer-events: none;
   }
 }
-.snap-deck section#pricing::after,
-.snap-deck section#pricing::before,
-.snap-deck section#cta::after,
-.snap-deck section#cta::before {
+/* Hidden on each deck's FINAL section (no next section to point to). Structural, not id-based: the
+   deck's last-section component tags itself with `data-deck-last` (AboutCTA on /about, DimensionMatrix
+   on the landing). The old form enumerated literal ids (#pricing, #cta) — a snapshot of one deck
+   layout that silently broke on restructure: the landing deck's last section became #dimensions and
+   its connector dangled into the footer until this attribute took over. When a deck's final section
+   changes, move the attribute with it. */
+.snap-deck section[data-deck-last]::after,
+.snap-deck section[data-deck-last]::before {
   display: none;
 }
 

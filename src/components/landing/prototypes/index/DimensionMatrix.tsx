@@ -41,7 +41,10 @@ function CellBar({ w }: { w: number }) {
 
 export function DimensionMatrix() {
   return (
-    <section id="dimensions" className="flex min-h-screen snap-start flex-col justify-start pb-24 pt-14 lg:justify-center lg:pb-10">
+    // data-deck-last: this is the landing deck's FINAL section (IndexVariant renders it last) —
+    // globals.css hides the section connector on it. If a section is ever added after this one,
+    // move the attribute to the new last section.
+    <section id="dimensions" data-deck-last="" className="flex min-h-screen snap-start flex-col justify-start pb-24 pt-14 lg:justify-center lg:pb-10">
       <SectionHeading
         size="page"
         kicker="The instrument"
