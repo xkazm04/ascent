@@ -75,6 +75,24 @@ describe("RecommendationTracker status <select> (roadmap #2)", () => {
     expect(patchCalls).toHaveLength(1);
   });
 
+  // Pins ambiguity-ui-scan-2026-07-16 roadmap-recommendation-tracking #2: the persisted tracker must
+  // keep the public roadmap's prioritization — quick-wins-first ordering (impact desc, effort asc),
+  // 1..N numbering, and the "⚡ Quick win" badge — instead of rendering raw createdAt order.
+  it("orders rows quick-wins-first with numbering and a quick-win badge (parity with RoadmapSteps)", () => {
+    const rows = [
+      item({ id: "a", title: "Slog", impact: "low", effort: "high" }),
+      item({ id: "b", title: "Medium lift", impact: "medium", effort: "medium" }),
+      item({ id: "c", title: "Quick win", impact: "high", effort: "low" }),
+    ];
+    render(<RecommendationTracker items={rows} report={report} />);
+
+    const titles = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(titles).toEqual(["Quick win", "Medium lift", "Slog"]); // NOT the incoming createdAt order
+    expect(screen.getByText(/quick win/i, { selector: "span" })).toBeInTheDocument(); // ⚡ badge
+    expect(screen.getByText("1")).toBeInTheDocument(); // priority numbering survives persistence
+    expect(screen.getByText("3")).toBeInTheDocument();
+  });
+
   it("#4: wraps a long recommendation title (min-w-0 + break-words), never overflowing the row", () => {
     const long = "R".repeat(200);
     render(<RecommendationTracker items={[item({ title: long })]} report={report} />);

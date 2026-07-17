@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
 import { ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/roadmapPieces";
+import { isQuickWin, priorityScore, QuickWinBadge } from "@/components/report/roadmapPriority";
 import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
 import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/shared/backlogShared";
 import { StatusSelect, useSavingIds } from "@/components/org/shared/recStatusUi";
@@ -56,6 +57,13 @@ export function RecommendationTracker({
   // 100% forever, so a completed backlog read as perpetually incomplete.
   const actionable = total - dismissed;
   const pct = actionable ? Math.round((done / actionable) * 100) : 100;
+
+  // Render in the SAME quick-wins-first priority order as the public RoadmapSteps view. The server
+  // returns rows in createdAt order (whatever order the LLM emitted them), and rendering that raw
+  // order meant enabling persistence silently destroyed the roadmap's prioritization + numbering
+  // (roadmap-recommendation-tracking #2). The sort key (impact/effort) never changes on a status
+  // update, so rows keep stable positions while the user triages.
+  const ordered = [...items].sort((a, b) => priorityScore(b) - priorityScore(a));
 
   /** After a concurrent-edit 409, pull this row's current server value and re-seed it locally so the
    *  displayed status — and the Retry — rebase on the latest state instead of the user's stale
@@ -144,7 +152,7 @@ export function RecommendationTracker({
         </div>
       </Surface>
 
-      {items.map((item) => {
+      {ordered.map((item, i) => {
         const muted = item.status === "done" || item.status === "dismissed";
         const err = errors[item.id];
         const saving = savingIds.has(item.id);
@@ -162,11 +170,19 @@ export function RecommendationTracker({
               {announcements[item.id] ?? ""}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              {/* min-w-0 lets this flex item shrink; break-words then wraps a long unbroken rec title
+              {/* Priority number + quick-win badge mirror RoadmapSteps, so the persisted tracker keeps
+                  the public roadmap's "do these first" signaling (roadmap-recommendation-tracking #2).
+                  min-w-0 lets the title shrink; break-words then wraps a long unbroken rec title
                   instead of overflowing the row (a rec title is descriptive text — wrap, don't clip). */}
-              <h3 className={`min-w-0 break-words font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
-                {item.title}
-              </h3>
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-700 font-mono text-sm text-slate-300">
+                  {i + 1}
+                </span>
+                <h3 className={`min-w-0 break-words font-semibold ${muted ? "text-slate-400 line-through decoration-slate-600" : "text-white"}`}>
+                  {item.title}
+                </h3>
+                {isQuickWin(item) && !muted && <QuickWinBadge />}
+              </div>
               <div className="flex items-center gap-2 text-sm">
                 <RoadmapMeta item={item} />
                 <PayoffChip report={report} dim={item.dimension} />
