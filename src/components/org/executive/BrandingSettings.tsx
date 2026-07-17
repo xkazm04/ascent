@@ -52,6 +52,12 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
   const [logoUrl, setLogoUrl] = useState(initial.logoUrl ?? "");
   const [state, setState] = useState<"idle" | "saving" | "saved" | "warn" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
+  // org-branding #4: the last SAVED logo URL, rendered as a thumbnail next to the field so "the URL
+  // actually serves an image" is VISIBLE — previously the only test was downloading a PDF and
+  // eyeballing it. `previewBroken` hides a thumbnail the browser can't load (distinct from the
+  // server-side probe below, which checks the PDF renderer's own guarded fetch).
+  const [preview, setPreview] = useState(initial.logoUrl ?? null);
+  const [previewBroken, setPreviewBroken] = useState(false);
 
   async function save() {
     setState("saving");
@@ -72,6 +78,11 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
       if (submitted.logoUrl && !stored.logoUrl) warnings.push("Logo URL ignored — must be a public https image URL under 500 characters.");
       if (submitted.brandColor && !stored.brandColor) warnings.push("Accent colour ignored — must be a #rrggbb hex.");
       if (submitted.brandName && stored.brandName !== submitted.brandName) warnings.push("Brand name shortened to 80 characters.");
+      // org-branding #4: the server probed the saved logo with the SAME guarded fetch the PDF render
+      // uses; a URL that is safe but doesn't return an image would otherwise fail invisibly at export.
+      if (stored.logoUrl && d.logoUnreachable) warnings.push("Logo URL saved, but it didn't return an image — the PDF will render without a logo until it does.");
+      setPreview(stored.logoUrl ?? null);
+      setPreviewBroken(false);
       if (warnings.length) {
         setState("warn");
         setMsg(`Saved with changes — ${warnings.join(" ")}`);
@@ -141,7 +152,20 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         </label>
         <label className="flex flex-1 flex-col gap-1 font-mono text-sm text-slate-500">
           Logo URL (https)
-          <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" className={`${field} min-w-[12rem]`} />
+          <span className="flex items-center gap-2">
+            <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" className={`${field} min-w-[12rem] flex-1`} />
+            {/* Saved-logo thumbnail (org-branding #4): success is visible instead of PDF-only. */}
+            {preview && !previewBroken && (
+              // eslint-disable-next-line @next/next/no-img-element -- arbitrary external host; next/image would require remotePatterns config per customer CDN
+              <img
+                src={preview}
+                alt="Saved logo preview"
+                title="The currently saved logo, as browsers load it"
+                onError={() => setPreviewBroken(true)}
+                className="h-9 w-9 shrink-0 rounded-lg border border-slate-700 bg-white/5 object-contain"
+              />
+            )}
+          </span>
         </label>
         <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {state === "saving" ? "Saving…" : "Save"}

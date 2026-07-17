@@ -114,3 +114,46 @@ describe("BrandingSettings accent unset semantics (DOM)", () => {
     expect(body.brandColor).toBe(""); // back to null → future default-accent changes propagate again
   });
 });
+
+// Pins org-branding-white-label 2026-07-16 #4: a saved-but-not-an-image logo URL must surface as a
+// warning (the server probes it with the same guarded fetch the PDF render uses), and the saved logo
+// renders as a visible preview thumbnail instead of only being testable by downloading a PDF.
+describe("BrandingSettings logo reachability + preview (DOM)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function stubFetch(logoUnreachable: boolean) {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, string>;
+      return {
+        ok: true,
+        json: async () => ({
+          branding: { brandName: body.brandName || null, brandColor: body.brandColor || null, logoUrl: body.logoUrl || null },
+          logoUnreachable,
+        }),
+      } as unknown as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    return fetchMock;
+  }
+
+  it("warns when the server reports the saved logo did not return an image", async () => {
+    stubFetch(true);
+    render(<BrandingSettings slug="acme" initial={branding()} />);
+    fireEvent.change(screen.getByPlaceholderText("https://acme.com/logo.png"), { target: { value: "https://cdn.example/nope.png" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => expect(screen.getByText(/didn't return an image/i)).toBeInTheDocument());
+  });
+
+  it("shows a preview thumbnail after a reachable logo is saved (and none before)", async () => {
+    stubFetch(false);
+    render(<BrandingSettings slug="acme" initial={branding()} />);
+    expect(screen.queryByAltText("Saved logo preview")).toBeNull(); // nothing saved yet → no preview
+    fireEvent.change(screen.getByPlaceholderText("https://acme.com/logo.png"), { target: { value: "https://cdn.example/logo.png" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => expect(screen.getByAltText("Saved logo preview")).toHaveAttribute("src", "https://cdn.example/logo.png"));
+    expect(screen.queryByText(/didn't return an image/i)).toBeNull();
+  });
+});
