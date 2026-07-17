@@ -32,8 +32,17 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({
   isDbConfigured: mockIsDbConfigured,
   getPrisma: mockGetPrisma,
-  // Not used by getScanReportByCommit, but the module imports it at top level.
-  dbReadSafe: <T,>(fn: () => Promise<T>) => fn(),
+  // Faithful stand-in for the real dbReadSafe (scan-persistence-history 07-16 #4): run fn; degrade a
+  // DB-UNREACHABLE throw (PrismaClientInitializationError) to the fallback; re-throw anything else —
+  // so the tests below can prove the readers are actually wrapped (a raw read would propagate).
+  dbReadSafe: async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      if ((err as { name?: string } | null)?.name === "PrismaClientInitializationError") return fallback;
+      throw err;
+    }
+  },
 }));
 
 // resolveOrgId is the only scans-shared seam getScanReportByCommit needs to MOCK (to reach the scan
@@ -430,5 +439,51 @@ describe("getLatestRecommendations — public-org private-repo guard", () => {
 
     expect(res).not.toBeNull();
     expect(prisma.scan.findFirst).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── DB-down degrade parity (scan-persistence-history 07-16 #4) ────────────────────────────────────
+// A configured-but-UNREACHABLE DB (PrismaClientInitializationError at connect) must degrade these
+// readers to null — the same "no data" fallback their callers already render — instead of 500ing the
+// report/history/comparison pages while the landing page degrades gracefully. The dbReadSafe mock at
+// the top of this file re-throws anything that isn't the unreachable class, so these tests fail
+// against unwrapped (raw getPrisma) readers.
+
+describe("DB-down degrade — readers wrapped in dbReadSafe", () => {
+  function unreachablePrisma() {
+    const boom = Object.assign(new Error("Can't reach database server at localhost:5432"), {
+      name: "PrismaClientInitializationError",
+    });
+    return {
+      repository: {
+        findUnique: vi.fn(async () => {
+          throw boom;
+        }),
+      },
+      scan: { findFirst: vi.fn() },
+    };
+  }
+
+  beforeEach(() => {
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  it("getScanReportByCommit returns null (report permalink renders its fallback, no 500)", async () => {
+    mockGetPrisma.mockReturnValue(unreachablePrisma());
+    await expect(getScanReportByCommit("acme", "widget")).resolves.toBeNull();
+  });
+
+  it("getLatestRecommendations returns null on a DB-down", async () => {
+    mockGetPrisma.mockReturnValue(unreachablePrisma());
+    await expect(getLatestRecommendations("acme", "widget")).resolves.toBeNull();
+  });
+
+  it("a LIVE-DB query error still propagates (dbReadSafe only swallows the unreachable class)", async () => {
+    const prisma = unreachablePrisma();
+    prisma.repository.findUnique = vi.fn(async () => {
+      throw new Error("column does not exist");
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    await expect(getScanReportByCommit("acme", "widget")).rejects.toThrow("column does not exist");
   });
 });

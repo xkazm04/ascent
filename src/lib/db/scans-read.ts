@@ -232,6 +232,22 @@ export async function getRepositoryHistory(
   opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean } = {},
 ): Promise<RepositoryHistory | null> {
   if (!isDbConfigured()) return null;
+  // DB-DOWN DEGRADE, deliberately uniform (scan-persistence-history 07-16 #4): every reader in this
+  // module documents "null when persistence is off", and every caller already renders the null ("not
+  // scanned yet") fallback — yet only getHeadHint/getRepoPassport/getPublicScanGallery wrapped their
+  // reads in dbReadSafe, so a configured-but-unreachable DB (PrismaClientInitializationError, or a
+  // DSQL IAM-token lapse dbReadSafe recovers with one reconnect+retry) 500'd the history/report/
+  // comparison pages while the landing page degraded gracefully — the SAME outage, two symptoms.
+  // All four remaining readers now degrade to null identically. A query error against a LIVE DB
+  // still propagates (dbReadSafe only swallows the unreachable class).
+  return dbReadSafe(() => loadRepositoryHistory(owner, name, opts), null);
+}
+
+async function loadRepositoryHistory(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean },
+): Promise<RepositoryHistory | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   // Clamp to a positive bounded range: a NEGATIVE `take` makes Prisma return rows from the OTHER end,
@@ -398,6 +414,16 @@ export async function getScanComparison(
   opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number } = {},
 ): Promise<ScanComparison | null> {
   if (!isDbConfigured()) return null;
+  // DB-down degrades to null like every other reader here — see getRepositoryHistory
+  // (scan-persistence-history 07-16 #4); callers already render the null fallback.
+  return dbReadSafe(() => loadScanComparison(owner, name, opts), null);
+}
+
+async function loadScanComparison(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number },
+): Promise<ScanComparison | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   // Clamp to a positive bounded range (scan-persistence-history #4): a NEGATIVE `take` makes Prisma
@@ -674,6 +700,16 @@ export async function getLatestRecommendations(
   opts: { orgSlug?: string } = {},
 ): Promise<{ scanId: string; items: PersistedRecommendation[] } | null> {
   if (!isDbConfigured()) return null;
+  // DB-down degrades to null like every other reader here — see getRepositoryHistory
+  // (scan-persistence-history 07-16 #4); callers already render the null fallback.
+  return dbReadSafe(() => loadLatestRecommendations(owner, name, opts), null);
+}
+
+async function loadLatestRecommendations(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string },
+): Promise<{ scanId: string; items: PersistedRecommendation[] } | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const fullName = canonicalRepoFullName(owner, name);
@@ -804,6 +840,17 @@ export async function getScanReportByCommit(
   opts: { orgSlug?: string; headSha?: string } = {},
 ): Promise<ScanReport | null> {
   if (!isDbConfigured()) return null;
+  // DB-down degrades to null like every other reader here — see getRepositoryHistory
+  // (scan-persistence-history 07-16 #4): a report permalink renders its "not scanned" fallback
+  // during a DB blip instead of hard-500ing; callers already handle null.
+  return dbReadSafe(() => loadScanReportByCommit(owner, name, opts), null);
+}
+
+async function loadScanReportByCommit(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string; headSha?: string },
+): Promise<ScanReport | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const headSha = opts.headSha;
