@@ -6,6 +6,7 @@
 import { fetchPullRequests, type PrNode } from "@/lib/github/graphql";
 import { clamp } from "@/lib/maturity/model";
 import { AI_TOOLS as AI_TOOL_VOCAB, AI_TOOL_ALT } from "./ai-tools";
+import { SMALL_PR_MAX_LINES } from "./pr-thresholds";
 import type { DimensionSignals, Governance, PrStats, SecurityPosture } from "@/lib/types";
 
 // AI coding agents that open PRs as GitHub App bots (author.__typename === "Bot"). Derived from the
@@ -80,7 +81,7 @@ export function summarizePullRequests(rawNodes: (PrNode | null)[], totalCount: n
     const lines = pr.additions + pr.deletions;
     lineSum += lines;
     fileSum += pr.changedFiles;
-    if (lines <= 200) small++;
+    if (lines <= SMALL_PR_MAX_LINES) small++;
 
     if (isMerged) {
       if (pr.mergedAt) {
