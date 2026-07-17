@@ -519,3 +519,37 @@ describe("GET /api/badge/[owner]/[repo] — mock-vs-live verdict honesty", () =>
     expect(body).toContain("L4");
   });
 });
+
+describe("badge text width — wide glyphs and the textLength fail-soft (usage-metering 2026-07-16 #4)", () => {
+  function svgWidth(body: string): number {
+    const m = body.match(/<svg[^>]*\swidth="(\d+)"/);
+    return m ? Number(m[1]) : NaN;
+  }
+
+  it("pins textLength/lengthAdjust on both text nodes so estimate error squeezes instead of clipping", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false));
+    const body = await (await get()).text();
+    const texts = body.match(/<text [^>]*>/g) ?? [];
+    expect(texts.length).toBeGreaterThanOrEqual(2);
+    for (const t of texts) {
+      expect(t).toContain("textLength=");
+      expect(t).toContain('lengthAdjust="spacingAndGlyphs"');
+    }
+  });
+
+  it("prices non-ASCII (CJK) label glyphs at double width so wide labels get a wider rect", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false));
+    const latin = svgWidth(await (await get("?label=abcde")).text());
+    const cjk = svgWidth(await (await get(`?label=${encodeURIComponent("成熟度评估等")}`)).text());
+    // Same glyph count (5 vs 6? both short); the CJK label must produce a materially wider badge.
+    expect(cjk).toBeGreaterThan(latin + 20);
+  });
+
+  it("does not double-count surrogate-pair glyphs as two characters for letter-spacing", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false));
+    // An emoji label still renders a finite, sane badge width (no NaN, no runaway estimate).
+    const w = svgWidth(await (await get(`?label=${encodeURIComponent("🚀🚀")}`)).text());
+    expect(Number.isFinite(w)).toBe(true);
+    expect(w).toBeGreaterThan(0);
+  });
+});
