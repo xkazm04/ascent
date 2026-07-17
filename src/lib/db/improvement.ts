@@ -274,6 +274,9 @@ export async function acceptDirection(orgSlug: string, recommendationId: string,
       { orgId: org.id, actorId: actor ?? undefined },
     );
     if (result.kind === "unknown-practice") return { kind: "no-practice" };
+    // No fingerprint is passed on this path (there is no preview step here), so content-drift is
+    // unreachable — narrowed explicitly to keep the union exhaustive.
+    if (result.kind === "content-drift") return { kind: "no-practice" };
     pr = result.pr;
   }
 

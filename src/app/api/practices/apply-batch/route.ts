@@ -104,6 +104,11 @@ export async function POST(request: Request) {
         if (result.kind === "unknown-practice") {
           return { repo: result.ctx.fullName, ok: false, error: `Unknown practice "${body.practiceId}".` };
         }
+        // Unreachable (the batch passes no fingerprint — its per-repo content is generated at apply
+        // time, which the confirm copy states), but keep the union handled exhaustively.
+        if (result.kind === "content-drift") {
+          return { repo: result.ctx.fullName, ok: false, error: "Content changed since preview — re-preview." };
+        }
         const { pr, ctx } = result;
         return { repo: ctx.fullName, ok: true, url: pr.url, number: pr.number, reused: pr.reused };
       } catch (err) {

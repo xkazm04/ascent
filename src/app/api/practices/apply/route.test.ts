@@ -88,6 +88,7 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
 
 import { POST } from "./route";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
 import { openDraftPr } from "@/lib/github/write";
 import { fetchRepoContext } from "@/lib/github/source";
 import { AppApiError, getInstallationToken } from "@/lib/github/app";
@@ -175,6 +176,30 @@ describe("POST /api/practices/apply — authorized path + overwrite guard", () =
     expect(mockToken).toHaveBeenCalledTimes(1);
     expect(mockOpenPr).toHaveBeenCalledTimes(1);
     expect(mockRecordAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses with 409 content-drift when the previewed fingerprint no longer matches (no PR, no audit)", async () => {
+    // The server regenerates at apply time; a stale fingerprint means the repo's context changed
+    // since the preview — committing would land content the user never reviewed.
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates", previewFingerprint: "deadbeef" });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.code).toBe("content-drift");
+    expect(mockOpenPr).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when the previewed fingerprint matches the regenerated body", async () => {
+    // buildArtifact is mocked to body "# starter" — the matching fingerprint must open the PR.
+    const res = await run({
+      repo: "acme/app",
+      practiceId: "ci-gates",
+      previewFingerprint: artifactFingerprint("# starter"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockOpenPr).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces a 409 (file already exists on base) — the won't-overwrite-real-content guard", async () => {
