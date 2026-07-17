@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { SecurityDocument } from "@/lib/pdf/security-document";
 import { buildSecurityOverview } from "@/lib/org/security";
+import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveStackScope } from "@/lib/org/scope";
@@ -31,12 +32,18 @@ export async function GET(request: Request) {
   // Resolve the same tech-stack scope the page uses (bogus/stale key → whole fleet) so the PDF covers
   // the exact subset shown on screen, not always the whole org.
   const { techGroupId } = await resolveStackScope(org, { stack: sp.get("stack") ?? undefined });
-  const overview = await buildSecurityOverview(org, { start: period.start, end: period.end }, period.title, techGroupId).catch(() => null);
+  // Fetch the same supply-chain signal the page and the LLM brief carry — the PDF is the most formal
+  // of the three renderings and previously claimed "Supply-chain & security posture" while never
+  // fetching supply-chain data (and omitting the degraded/UNKNOWN warning the other two surface).
+  const [overview, supply] = await Promise.all([
+    buildSecurityOverview(org, { start: period.start, end: period.end }, period.title, techGroupId).catch(() => null),
+    getOrgSupplyChain(org, techGroupId).catch(() => null),
+  ]);
   if (!overview) {
     return NextResponse.json({ error: "No scanned repositories yet for this organization." }, { status: 404 });
   }
 
-  const element = createElement(SecurityDocument, { overview }) as unknown as ReactElement<DocumentProps>;
+  const element = createElement(SecurityDocument, { overview, supply }) as unknown as ReactElement<DocumentProps>;
   const buffer = await renderToBuffer(element);
   const filename = `ascent-security-${org}-${overview.generatedOn}.pdf`;
   return new NextResponse(new Uint8Array(buffer), {
