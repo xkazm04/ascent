@@ -35,13 +35,18 @@ function ScoreCell({ score, big = false, className = "" }: { score?: number; big
 
 export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
   const { recent, topAiNative, totalRepos, dbMode } = gallery;
-  const board = topAiNative.length > 0 ? topAiNative : recent;
+  // The board is RANKED (score order) only when the leaderboard query returned rows; otherwise it
+  // falls back to recency order — and the UI must say so: rank badges become a neutral "·" and the
+  // kicker swaps to "Latest public scans", so a recency list is never numbered 01… as if it were
+  // the "most AI-native" ranking the surrounding copy promises.
+  const ranked = topAiNative.length > 0;
+  const board = ranked ? topAiNative : recent;
   const latestScannedAt = recent[0]?.scannedAt;
   return (
     <DeckSection id="gallery" justify="startLgCenter">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-4">
         <div>
-          <Kicker>Live from the index</Kicker>
+          <Kicker>{ranked ? "Live from the index" : "Latest public scans"}</Kicker>
           <h2 className="mt-2 text-2xl font-bold text-white sm:text-3xl">The register</h2>
         </div>
         <div className="text-right">
@@ -72,6 +77,14 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
         <span className="text-center text-slate-400">Avg</span>
       </div>
 
+      {/* Explicit empty state: a persisted gallery with zero public scans previously rendered the
+          full header + column labels around a bare zero-row list, which read as a broken table. */}
+      {board.length === 0 && (
+        <p className="py-10 text-center text-sm text-slate-500">
+          No public scans yet — scan a repository below to be the first on the register.
+        </p>
+      )}
+
       <div className="divide-y divide-slate-800">
         {board.map((c, i) => (
           <Link
@@ -79,7 +92,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
             href={c.href}
             className={`focus-ring group items-center py-4 transition hover:bg-white/[0.02] ${GRID}`}
           >
-            <span className="font-mono text-sm tabular-nums text-slate-600">{String(i + 1).padStart(2, "0")}</span>
+            <span className="font-mono text-sm tabular-nums text-slate-600">{ranked ? String(i + 1).padStart(2, "0") : "·"}</span>
             <span className="min-w-0">
               <span className="block truncate text-base font-semibold text-white group-hover:text-accent" title={c.fullName}>
                 {c.fullName}
