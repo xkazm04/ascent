@@ -278,10 +278,13 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
 
 export type BacklogDueBucket = "overdue" | "this_week" | "this_month" | "later" | "no_date";
 
+// Labels state the ROLLING cutoffs honestly: "this_week"/"this_month" are ≤7 / ≤31 rolling days, not
+// calendar-aligned periods — "Due this month" read as calendar-month and mis-bucketed a July-29 vs
+// Aug-1 pair on July 1. (ambiguity-ui 2026-07-16 #4)
 const DUE_BUCKET_LABEL: Record<BacklogDueBucket, string> = {
   overdue: "Overdue",
-  this_week: "Due this week",
-  this_month: "Due this month",
+  this_week: "Due within 7 days",
+  this_month: "Due within a month",
   later: "Later",
   no_date: "No due date",
 };
@@ -289,10 +292,16 @@ const DUE_BUCKET_LABEL: Record<BacklogDueBucket, string> = {
 /** Fixed display order for the due-date columns (most urgent first; undated last). */
 const DUE_BUCKET_ORDER: BacklogDueBucket[] = ["overdue", "this_week", "this_month", "later", "no_date"];
 
-/** Whole calendar days from `now` to `target` (UTC date-only), negative when `target` is past. */
+/** Whole calendar days from `now` to `target`, negative when `target` is past. The dashboard's time
+ *  semantics are unified on LOCAL calendar days (window.ts startOfDay, the trend's localDayKey), so
+ *  the buckets must use the same boundary: `target` is a stored date-only value (UTC midnight when
+ *  parsed), so its UTC Y/M/D recovers the literal day the user picked, and it's compared against
+ *  `now`'s LOCAL calendar day. The old all-UTC math flipped overdue/this_week for hours around local
+ *  midnight on any non-UTC deployment — on the one bucket (Overdue) that drives the owner sort.
+ *  (ambiguity-ui 2026-07-16 #4) */
 function daysUntil(target: Date, now: Date): number {
-  const t = Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate());
-  const n = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const t = new Date(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate()).getTime();
+  const n = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return Math.round((t - n) / 86_400_000);
 }
 
