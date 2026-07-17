@@ -142,6 +142,25 @@ describe("RecommendationTracker status <select> (roadmap #2)", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
+  // Pins ambiguity-ui-scan-2026-07-16 roadmap-recommendation-tracking #5: an all-dismissed backlog
+  // used to hit the zero-denominator 100 fallback and show "0 of 0 done" beside a full green 100%
+  // bar. It must read as a neutral "all dismissed" state instead of triumphant success.
+  it("#5 (07-16): all-dismissed backlog renders a neutral state, not '0 of 0 done' at 100%", () => {
+    const rows = [item({ id: "a", status: "dismissed" }), item({ id: "b", status: "dismissed" })];
+    render(<RecommendationTracker items={rows} report={report} />);
+
+    expect(screen.getByText(/All 2 recommendations dismissed/)).toBeInTheDocument();
+    expect(screen.queryByText("100%")).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 of 0 done/)).not.toBeInTheDocument();
+  });
+
+  it("#5 (07-16): a mixed backlog keeps the normal done/actionable header and percentage", () => {
+    const rows = [item({ id: "a", status: "done" }), item({ id: "b", status: "dismissed" }), item({ id: "c" })];
+    render(<RecommendationTracker items={rows} report={report} />);
+    expect(screen.getByText(/1 of 2 done/)).toBeInTheDocument();
+    expect(screen.getByText("50%")).toBeInTheDocument();
+  });
+
   it("#4: wraps a long recommendation title (min-w-0 + break-words), never overflowing the row", () => {
     const long = "R".repeat(200);
     render(<RecommendationTracker items={[item({ title: long })]} report={report} />);

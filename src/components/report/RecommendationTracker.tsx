@@ -57,6 +57,12 @@ export function RecommendationTracker({
   // items in the denominator left a fully-triaged backlog (e.g. 3 done + 2 dismissed) stuck below
   // 100% forever, so a completed backlog read as perpetually incomplete.
   const actionable = total - dismissed;
+  // All-dismissed is NOT success: with the dismissed-excluding divisor, actionable === 0 used to fall
+  // back to 100 and a team that rejected EVERY recommendation saw "0 of 0 done" beside a full green
+  // bar (roadmap-recommendation-tracking 07-16 #5). Render a neutral "all dismissed" header + muted
+  // bar for that corner; the 100 fallback stays only for the impossible empty-list case (the parent
+  // gates on recs.length > 0).
+  const allDismissed = actionable === 0 && dismissed > 0;
   const pct = actionable ? Math.round((done / actionable) * 100) : 100;
 
   // Render in the SAME quick-wins-first priority order as the public RoadmapSteps view. The server
@@ -161,14 +167,27 @@ export function RecommendationTracker({
     <div className="space-y-3">
       <Surface radius="xl" className="p-4">
         <div className="flex items-center justify-between text-base">
-          <span className="font-medium text-white">
-            {done} of {actionable} done
-            {dismissed > 0 && <span className="text-slate-500"> · {dismissed} dismissed</span>}
-          </span>
-          <span className="text-slate-400">{pct}%</span>
+          {allDismissed ? (
+            <span className="font-medium text-slate-400">
+              All {dismissed} recommendation{dismissed === 1 ? "" : "s"} dismissed — nothing left to track
+            </span>
+          ) : (
+            <>
+              <span className="font-medium text-white">
+                {done} of {actionable} done
+                {dismissed > 0 && <span className="text-slate-500"> · {dismissed} dismissed</span>}
+              </span>
+              <span className="text-slate-400">{pct}%</span>
+            </>
+          )}
         </div>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
-          <div className="h-full rounded-full bg-gradient-to-r from-accent to-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+          {/* No triumphant success gradient when nothing was actually done — a muted neutral fill. */}
+          {allDismissed ? (
+            <div className="h-full rounded-full bg-slate-700" style={{ width: "100%" }} />
+          ) : (
+            <div className="h-full rounded-full bg-gradient-to-r from-accent to-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+          )}
         </div>
       </Surface>
 
