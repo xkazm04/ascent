@@ -21,6 +21,48 @@ export function scanCaption(
   return `${scan.overallScore} · ${scan.level} · ${timeAgo(scan.scannedAt)} · ${scan.engineProvider}${opts?.latest ? " · latest" : ""}`;
 }
 
+/** Absolute short timestamp for the picker ("Jul 14 09:12") — `timeAgo` buckets widen with age
+ *  ("3 months ago" covers many scans), so a list control needs the exact moment. */
+function shortDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** One picker <option> label per scan, keyed by scan id — the LIST variant of `scanCaption`.
+ *
+ *  The headline caption (score · level · timeAgo · engine) was reused verbatim as the dropdown
+ *  label, where uniqueness matters: two same-day scans with the same score rendered byte-identical
+ *  options, so selecting a specific scan — the picker's whole point — degraded to guesswork
+ *  (trends-comparison 07-16 #4). This variant uses an absolute short date+time instead of the
+ *  widening `timeAgo` bucket, appends the short commit sha when recorded, and — should two captions
+ *  STILL collide (same minute, same sha-less engine run) — suffixes an ordinal so every option is
+ *  distinguishable. */
+export function scanOptionCaptions(
+  scans: readonly (Pick<ComparableScan, "overallScore" | "level" | "scannedAt" | "engineProvider"> & {
+    id: string;
+    headSha: string | null;
+  })[],
+  latestId: string | undefined,
+): Map<string, string> {
+  const base = scans.map(
+    (s) =>
+      `${s.overallScore} · ${s.level} · ${shortDateTime(s.scannedAt)} · ${s.engineProvider}` +
+      `${s.headSha ? ` · ${s.headSha.slice(0, 7)}` : ""}${s.id === latestId ? " · latest" : ""}`,
+  );
+  const totals = new Map<string, number>();
+  for (const b of base) totals.set(b, (totals.get(b) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const out = new Map<string, string>();
+  scans.forEach((s, i) => {
+    const b = base[i]!;
+    const n = (seen.get(b) ?? 0) + 1;
+    seen.set(b, n);
+    out.set(s.id, (totals.get(b) ?? 1) > 1 ? `${b} · #${n}` : b);
+  });
+  return out;
+}
+
 /** A level pill (glyph + id · name), colored by the level's brand class. */
 export function LevelChip({ id, name }: { id: LevelId; name: string }) {
   const lc = LEVEL_CLASSES[id] ?? LEVEL_CLASSES.L1;
