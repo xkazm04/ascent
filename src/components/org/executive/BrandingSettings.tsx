@@ -1,7 +1,8 @@
 "use client";
 
-// EXEC-5: owner-only (Team plan and up) form to white-label the executive-briefing PDF — brand name,
-// accent colour, logo URL. POSTs to /api/org/branding; values are validated server-side. Collapsed by default.
+// EXEC-5: owner-only (Team plan and up) form to white-label the client-facing briefing deliverables
+// (the PDF + the anonymous /share/briefing/[token] page) — brand name, accent colour, logo URL.
+// POSTs to /api/org/branding; values are validated server-side. Collapsed by default.
 
 import { useState } from "react";
 import type { OrgBranding } from "@/lib/db/branding";
@@ -76,7 +77,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         setMsg(`Saved with changes — ${warnings.join(" ")}`);
       } else {
         setState("saved");
-        setMsg("Saved — the next briefing PDF uses your brand.");
+        setMsg("Saved — the next briefing PDF and shared briefing links use your brand.");
         setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 4000);
       }
     } catch (e) {
@@ -96,7 +97,13 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         Briefing branding
         <span className="font-mono text-sm font-normal uppercase tracking-widest text-accent">team+</span>
       </summary>
-      <p className="mt-2 text-sm text-slate-500">White-label the downloaded briefing PDF — your name, accent, and logo replace Ascent&apos;s.</p>
+      {/* Honest scope: branding reaches the CLIENT-FACING deliverables (PDF + shared briefing links).
+          This in-app dashboard keeps Ascent chrome — see the boundary note in executive/page.tsx. */}
+      <p className="mt-2 text-sm text-slate-500">
+        White-label your client-facing briefing deliverables — the downloaded PDF and read-only shared
+        briefing links show your name and logo instead of Ascent&apos;s (the accent colours the PDF). This
+        in-app dashboard keeps Ascent&apos;s look.
+      </p>
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
           Brand name

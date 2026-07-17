@@ -53,6 +53,11 @@ export default async function OrgExecutive({
   const md = briefingMarkdown(briefing);
   const { maturity, benchmark } = briefing;
   // EXEC-6/EXEC-5: owner-gated sharing + (enterprise) white-label. One ownership check feeds both.
+  // White-label boundary (recorded 2026-07-16): branding applies to the CLIENT-FACING deliverables —
+  // the briefing PDF and the anonymous /share/briefing/[token] page — but NOT to this in-app view.
+  // This page lives inside the Ascent dashboard shell (OrgHeader, nav, credits) where the operator is
+  // the audience, so it intentionally keeps Ascent chrome; `getOrgBranding` is loaded here only to
+  // prefill the settings form below.
   const isOwner = await hasOrgRole(slug, "owner");
   const canShare = briefingShareEnabled() && isOwner;
   const [branding, credit] = isOwner
