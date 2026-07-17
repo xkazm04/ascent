@@ -6,7 +6,7 @@
 import { Logo } from "@/components/Brand";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { DimRow, PriorPeriodGrid } from "@/components/org/executive/briefingShared";
-import { buildExecBriefing, engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
+import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
 import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
@@ -173,8 +173,8 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         {briefing.engineMix.length > 0 && (
           <p className="mt-4 font-mono text-sm text-slate-500">
             Scored by {engineMixLabel(briefing.engineMix)}
-            {engineMixDegraded(briefing.engineMix) && (
-              <span className="text-warn"> · ⚠ some scores this period used the deterministic mock engine, not the live model</span>
+            {engineMixCaveat(briefing.engineMix) && (
+              <span className="text-warn"> · ⚠ {engineMixCaveat(briefing.engineMix)}</span>
             )}
           </p>
         )}

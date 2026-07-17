@@ -6,7 +6,7 @@
 // report-document.tsx + security-document.tsx via ./theme.
 
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
+import { engineMixCaveat, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -101,9 +101,9 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         {b.engineMix.length > 0 && (
           <Text style={styles.line}>
             Scored by {engineMixLabel(b.engineMix)}
-            {engineMixDegraded(b.engineMix) ? (
+            {engineMixCaveat(b.engineMix) ? (
               <Text style={{ color: "#d97706" }}>
-                {" "}· ⚠ some scores this period used the deterministic mock engine, not the live model
+                {" "}· ⚠ {engineMixCaveat(b.engineMix)}
               </Text>
             ) : null}
           </Text>

@@ -3,7 +3,7 @@
 // a markdown brief to paste into Claude Code (Direction #5 + the #6 LLM-consumption baseline).
 
 import Link from "next/link";
-import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
+import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixCaveat, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { DimRow, MoveRow, PriorPeriodGrid, practiceHref } from "@/components/org/executive/briefingShared";
 import { CopyForLlm } from "@/components/CopyForLlm";
@@ -147,8 +147,8 @@ export default async function OrgExecutive({
           {briefing.engineMix.length > 0 && (
             <span>
               Scored by {engineMixLabel(briefing.engineMix)}
-              {engineMixDegraded(briefing.engineMix) && (
-                <span className="text-warn"> · ⚠ some scores used the deterministic mock engine</span>
+              {engineMixCaveat(briefing.engineMix) && (
+                <span className="text-warn"> · ⚠ {engineMixCaveat(briefing.engineMix)}</span>
               )}
             </span>
           )}
