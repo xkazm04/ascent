@@ -8,7 +8,9 @@ import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
 vi.mock("next/server", () => ({
-  NextResponse: class {
+  // Extends Response so `new NextResponse(null, { status: 204, headers })` (the peek path's
+  // body-less return) carries a real status/headers, not a bare object.
+  NextResponse: class extends Response {
     static json(body: unknown, init?: ResponseInit) {
       return new Response(JSON.stringify(body), init);
     }
