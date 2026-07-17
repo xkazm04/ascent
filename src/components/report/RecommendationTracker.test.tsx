@@ -73,6 +73,11 @@ describe("RecommendationTracker status <select> (roadmap #2)", () => {
     // The second change is a no-op while the first is still saving — only one PATCH went out.
     const patchCalls = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "PATCH");
     expect(patchCalls).toHaveLength(1);
+
+    // …but the swallow must not be SILENT (07-16 #4): the controlled select snaps back to the
+    // in-flight value with no visual cue, so the row's live region has to explain the drop.
+    const statuses = screen.getAllByRole("status").map((el) => el.textContent);
+    expect(statuses.some((t) => /still saving the previous change/i.test(t ?? ""))).toBe(true);
   });
 
   // Pins ambiguity-ui-scan-2026-07-16 roadmap-recommendation-tracking #2: the persisted tracker must

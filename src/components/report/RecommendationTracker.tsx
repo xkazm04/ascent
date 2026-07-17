@@ -212,6 +212,12 @@ export function RecommendationTracker({
                   value={item.status}
                   busy={saving}
                   onChange={(status) => setStatus(item.id, status)}
+                  // A pick made WHILE this row is saving is dropped and the select snaps back with no
+                  // visual cue (the spinner is aria-hidden) — announce the swallow through this row's
+                  // live region so the user knows to re-pick once the save settles (#4 07-16).
+                  onBusyChange={() =>
+                    announce(item.id, "Still saving the previous change — pick the status again in a moment.")
+                  }
                   aria-label="Recommendation status"
                 />
               </div>
