@@ -78,6 +78,44 @@ describe("parseRepoUrl — valid forms parse to the correct {owner, repo}", () =
   }
 });
 
+describe("parseRepoUrl — deep-link intent is surfaced, not silently discarded (github-repo-data-access 07-16 #4)", () => {
+  // A pasted PR/branch/commit URL used to parse to bare {owner, repo} and scan the DEFAULT branch
+  // with no signal the deep-link part was ignored. Unambiguous intent now rides along as
+  // `prNumber`/`ref` so callers can pin FetchOptions.ref or tell the user what will actually scan.
+
+  it("extracts the PR number from a pasted /pull/<n> URL", () => {
+    const out = parseRepoUrl("https://github.com/o/r/pull/123");
+    expect(out).toEqual({ owner: "o", repo: "r", prNumber: 123 });
+    assertSafe(out);
+    expect(parseRepoUrl("o/r/pull/7")).toEqual({ owner: "o", repo: "r", prNumber: 7 }); // bare shorthand too
+  });
+
+  it("extracts a single-segment /tree/<ref> branch, lowercases a /commit/<sha>", () => {
+    expect(parseRepoUrl("https://github.com/o/r/tree/my-branch")).toEqual({ owner: "o", repo: "r", ref: "my-branch" });
+    expect(parseRepoUrl(`https://github.com/o/r/commit/${"ABC1234".padEnd(40, "0")}`)).toEqual({
+      owner: "o",
+      repo: "r",
+      ref: "abc1234".padEnd(40, "0"),
+    });
+  });
+
+  it("leaves AMBIGUOUS shapes unset: multi-segment /tree/a/b, /blob/<ref>/<path>, non-numeric pull, unknown segments", () => {
+    // A branch containing "/" is indistinguishable from a subdirectory without the repo's ref list.
+    expect(parseRepoUrl("https://github.com/o/r/tree/main/src")).toEqual({ owner: "o", repo: "r" });
+    expect(parseRepoUrl("https://github.com/o/r/blob/main/README.md")).toEqual({ owner: "o", repo: "r" });
+    expect(parseRepoUrl("https://github.com/o/r/pull/abc")).toEqual({ owner: "o", repo: "r" });
+    expect(parseRepoUrl("https://github.com/o/r/releases")).toEqual({ owner: "o", repo: "r" });
+  });
+
+  it("never lets a hostile deep-link segment become a ref (same charset/traversal guard as the coordinates)", () => {
+    expect(parseRepoUrl("https://github.com/o/r/tree/..")).toEqual({ owner: "o", repo: "r" });
+    expect(parseRepoUrl("https://github.com/o/r/commit/deadbeef;rm")).toEqual({ owner: "o", repo: "r" });
+    const out = parseRepoUrl("owner/repo/../x"); // the pinned traversal quirk keeps its exact shape
+    expect(out).toEqual({ owner: "owner", repo: "repo" });
+    assertSafe(out);
+  });
+});
+
 describe("parseRepoUrl — SSRF / injection vectors are rejected (return null)", () => {
   // The CORE security set. Each of these, if it slipped through, would rewrite the GitHub request path.
   const reject: Array<[string, string]> = [

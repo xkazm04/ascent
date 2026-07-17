@@ -68,6 +68,16 @@ const FILE_CONCURRENCY = 8; // cap parallel file fetches (avoid secondary rate l
 export interface ParsedRepo {
   owner: string;
   repo: string;
+  /** Deep-link ref extracted from a pasted `/tree/<ref>` or `/commit/<sha>` URL (github-repo-data-access
+   *  07-16 #4). parseRepoUrl historically DISCARDED everything past owner/repo, so a pasted branch/commit
+   *  link silently scanned the default branch. The intent is now surfaced here so callers can pin
+   *  `FetchOptions.ref`; callers that ignore it keep the lenient owner/repo-only behavior. Unset when the
+   *  URL carried no ref or the ref is ambiguous (multi-segment `/tree/a/b` — a branch containing `/` is
+   *  indistinguishable from a subdirectory — and `/blob/<ref>/<path>` for the same reason). */
+  ref?: string;
+  /** PR number from a pasted `/pull/<n>` URL — same rationale as `ref`: a user pasting a PR link is NOT
+   *  asking for a default-branch scan, so the intent is preserved for callers to honor or surface. */
+  prNumber?: number;
 }
 
 export class GitHubError extends Error {
@@ -93,7 +103,19 @@ export interface RepoSource {
   fetchSnapshot(repo: ParsedRepo, opts?: FetchOptions): Promise<RepoSnapshot>;
 }
 
-/** Accepts full URLs, `github.com/owner/repo`, or bare `owner/repo`. */
+/**
+ * Accepts full URLs, `github.com/owner/repo`, or bare `owner/repo`.
+ *
+ * DELIBERATELY LENIENT about trailing path segments (github-repo-data-access 07-16 #4): a pasted
+ * deep link (`/pull/123`, `/tree/my-branch`, `/blob/main/README.md`, `/releases`, …) still parses to
+ * its owner/repo rather than being rejected — the URLs people actually have in their clipboard should
+ * scan. The trade-off is that the scan targets the DEFAULT branch, so the deep-link intent is no
+ * longer silently discarded: an unambiguous `/tree/<ref>` or `/commit/<sha>` is surfaced as `ref`,
+ * and `/pull/<n>` as `prNumber`, for callers to pin `FetchOptions.ref` or tell the user
+ * ("scanning owner/repo default branch — did you mean PR #123?"). Ambiguous shapes stay unset: a
+ * multi-segment `/tree/a/b` (branch-with-slash vs subdirectory) and `/blob/<ref>/<path>` can't be
+ * split reliably without the repo's ref list.
+ */
 export function parseRepoUrl(input: string): ParsedRepo | null {
   if (!input) return null;
   let s = input.trim();
@@ -102,6 +124,7 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
 
   let owner: string | undefined;
   let repo: string | undefined;
+  let extra: string[] = [];
 
   const hadScheme = s.includes("://");
   try {
@@ -109,6 +132,7 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
     if (/(^|\.)github\.com$/i.test(url.hostname)) {
       const parts = url.pathname.split("/").filter(Boolean);
       [owner, repo] = parts;
+      extra = parts.slice(2);
     } else if (hadScheme) {
       // An EXPLICIT URL (it carried a scheme) pointing at a non-GitHub host is not a GitHub repo
       // reference — reject it outright rather than fall through to bare-parsing its scheme/host/path
@@ -125,6 +149,7 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
     const parts = s.split("/").filter(Boolean);
     if (parts.length >= 2 && !parts[0]!.includes(".")) {
       [owner, repo] = parts;
+      extra = parts.slice(2);
     }
   }
 
@@ -137,7 +162,24 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
   const ok = /^[A-Za-z0-9_.-]+$/;
   const clean = (s: string) => s.length <= 100 && ok.test(s) && !s.startsWith(".") && !s.includes("..");
   if (!clean(owner) || !clean(repo)) return null;
-  return { owner, repo };
+
+  // Preserve unambiguous deep-link intent (see the JSDoc). `ref`/`prNumber` are only ever set from
+  // segments that pass the SAME charset/traversal guard as the coordinates, so nothing here can widen
+  // the injection surface — anything else is dropped exactly as before.
+  let ref: string | undefined;
+  let prNumber: number | undefined;
+  const kind = extra[0]?.toLowerCase();
+  const arg = extra[1];
+  if (kind === "pull" && arg && /^\d{1,9}$/.test(arg)) {
+    prNumber = Number(arg);
+  } else if (kind === "commit" && arg && /^[0-9a-fA-F]{7,40}$/.test(arg)) {
+    ref = arg.toLowerCase();
+  } else if (kind === "tree" && extra.length === 2 && arg && clean(arg)) {
+    // Exactly one segment after /tree/ — unambiguous. `/tree/a/b` is skipped (branch-with-slash vs
+    // subdirectory is undecidable here), as is `/blob/<ref>/<path>` (always carries a file path).
+    ref = arg;
+  }
+  return { owner, repo, ...(ref !== undefined ? { ref } : {}), ...(prNumber !== undefined ? { prNumber } : {}) };
 }
 
 /**
