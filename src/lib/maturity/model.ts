@@ -23,6 +23,13 @@ import type {
  * instead of serving the pre-bump number for up to the 7-day cache age. Forgetting to bump it after
  * editing a rubric knob means stale scores are served as current (the failure this constant prevents).
  * Keep it ONE short, monotonic token; never scatter copies — this is the only place it lives.
+ *
+ * MECHANICAL BACKSTOP: model.test.ts pins a sha256 of the rubric surface (weights+criteria, bands,
+ * blend, guardband, posture threshold, lenses, and the assessment SYSTEM prompt) — any change there
+ * fails the suite until the hash is re-pinned, putting the bump decision in the same diff.
+ * DETECTOR POINT TABLES COUNT TOO: a calibration retune (docs/CALIBRATION.md step 3) moves signal
+ * scores and therefore final scores — bump for those as well, even though they live in analyze/*
+ * where the hash test can't see them.
  */
 export const SCORING_RUBRIC_VERSION = "r1";
 
