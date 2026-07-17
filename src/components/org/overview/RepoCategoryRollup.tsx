@@ -9,7 +9,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Surface } from "@/components/ui";
 import { SectionHeader, Meter, postureLabel } from "@/components/org/shared/ui";
-import { fmtDelta, deltaHex } from "@/components/ui/format";
+import { fmtDelta, deltaHex, DIRECTION_TONE } from "@/components/ui/format";
 import { scoreHex, LEVEL_CLASSES, LEVEL_GLYPH, reportPermalink, freshness } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import { StackRoleIcon } from "@/components/org/overview/orgIcons";
@@ -26,6 +26,7 @@ import {
   summarize,
   avgRealMove,
   POSTURE_DOT,
+  POSTURE_DOT_FALLBACK,
   STACK_ROLE_LABEL,
   type RepoTrajectory,
   type RepoFilters,
@@ -38,7 +39,7 @@ const MODES: { id: Mode; label: string }[] = [
   { id: "level", label: "Level" },
 ];
 
-const dot = (p: string) => <span className="h-2 w-2 rounded-full" style={{ backgroundColor: POSTURE_DOT[p] ?? "#64748b" }} />;
+const dot = (p: string) => <span className="h-2 w-2 rounded-full" style={{ backgroundColor: POSTURE_DOT[p] ?? POSTURE_DOT_FALLBACK }} />;
 const levelGlyph = (l: string) => (
   <span className={LEVEL_CLASSES[l as LevelId].text}>{LEVEL_GLYPH[l as LevelId]}</span>
 );
@@ -236,8 +237,10 @@ export function RepoCategoryRollup({
         <span className="text-slate-500">
           avg <span className="font-bold tabular-nums" style={{ color: scoreHex(fleet.avgOverall) }}>{fleet.avgOverall}</span>
         </span>
-        <span className="tabular-nums" style={{ color: "#84cc16" }}>▲ {fleet.improving}</span>
-        <span className="tabular-nums" style={{ color: "#f97316" }}>▼ {fleet.slipping}</span>
+        {/* Counts wear the canonical DIRECTION_TONE pair (the same source as the per-row deltas they
+            summarize) — never hand-picked hexes, per repoTrajectory's module rule. */}
+        <span className="tabular-nums" style={{ color: DIRECTION_TONE.rising.color }}>▲ {fleet.improving}</span>
+        <span className="tabular-nums" style={{ color: DIRECTION_TONE.falling.color }}>▼ {fleet.slipping}</span>
         <span className="tabular-nums text-slate-500">→ {fleet.holding}</span>
         <span className="text-slate-500">
           avg move{" "}
