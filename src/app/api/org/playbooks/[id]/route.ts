@@ -4,7 +4,7 @@
 // DELETE is destructive, so it requires admin.
 
 import { NextResponse } from "next/server";
-import { deletePlaybook, isDbConfigured, recordOrgAudit, updatePlaybook } from "@/lib/db";
+import { deletePlaybook, getPlaybook, isDbConfigured, recordOrgAudit, updatePlaybook } from "@/lib/db";
 import { resolveViewerLogin } from "@/lib/access";
 import { isDimensionId } from "@/lib/maturity/model";
 import { resolvePlaybookOrg } from "@/lib/org/playbook-gate";
@@ -75,7 +75,14 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
   const gated = await resolvePlaybookOrg(id, "admin");
   if (gated instanceof Response) return gated;
   try {
+    // Audit parity with PATCH (playbooks 07-16 #5): the one IRREVERSIBLE operation — which also
+    // cascades away the adoption/lift history — previously recorded nothing, so "who removed our CI
+    // playbook" was unanswerable. Fetch the title BEFORE deleting so the audit row stays meaningful
+    // once the row is gone.
+    const pb = await getPlaybook(id);
     await deletePlaybook(id);
+    const actorLogin = await resolveViewerLogin();
+    await recordOrgAudit("playbook.deleted", gated.org, { playbookId: id, title: pb?.title ?? null }, actorLogin ?? undefined);
     return NextResponse.json({ ok: true });
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
