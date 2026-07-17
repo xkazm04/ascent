@@ -32,13 +32,30 @@ export const PURGE_ACTION = "retention.purged";
 const DAY_MS = 86_400_000;
 export const RETENTION_DEFAULT_BATCH_SIZE = 500;
 const RETENTION_MAX_BATCH_SIZE = 5000;
-// Soft wall-clock budget for a single purge run (data-retention #2). The /api/cron/purge function caps
-// at maxDuration=300s, so stop cleanly a bit before that: a large fleet then returns a proper (partial)
-// summary that records where it stopped, instead of being hard-killed mid-delete with no throw and no
-// summary log. Override via RETENTION_TIME_BUDGET_MS (ms). Governs the per-org loop, its INNER repo/scan/
-// audit batches (data-retention #1 — a single mega-org must yield too, not only the gaps between orgs),
-// and the trailing sweeps.
-export const RETENTION_DEFAULT_TIME_BUDGET_MS = 250_000;
+/**
+ * The function cap the /api/cron/purge route DECLARES (`export const maxDuration = 300`). Next.js
+ * requires that segment config to be a statically-analyzable literal, so the route cannot import this
+ * constant — instead this is the single source the time budget is DERIVED from, and a route test pins
+ * `route.maxDuration === PURGE_MAX_DURATION_S` so the two can never drift apart silently
+ * (data-retention 07-16 #1: they used to be two unrelated magic numbers in two files).
+ *
+ * CONTRACT / plan caveat: `maxDuration` is a *request*, not a guarantee — the platform honors it only
+ * up to the deployment plan's function cap (e.g. Vercel Hobby caps far lower). On such a plan the
+ * derived budget below never trips and large runs are hard-killed mid-delete with no summary; set
+ * RETENTION_TIME_BUDGET_MS comfortably below the REAL cap for your plan (purgeExpiredData warns when
+ * the env budget is >= this declared cap).
+ */
+export const PURGE_MAX_DURATION_S = 300;
+/** Headroom the budget leaves before the declared function cap, so the run can stop at a batch
+ *  boundary, write its (partial) summary, and return a 207 before the platform kills the function. */
+export const RETENTION_BUDGET_HEADROOM_MS = 50_000;
+// Soft wall-clock budget for a single purge run (data-retention #2), DERIVED from the route's declared
+// cap (never hardcoded independently — see PURGE_MAX_DURATION_S). Stop cleanly a bit before the cap: a
+// large fleet then returns a proper (partial) summary that records where it stopped, instead of being
+// hard-killed mid-delete with no throw and no summary log. Override via RETENTION_TIME_BUDGET_MS (ms).
+// Governs the per-org loop, its INNER repo/scan/audit batches (data-retention #1 — a single mega-org
+// must yield too, not only the gaps between orgs), and the trailing sweeps.
+export const RETENTION_DEFAULT_TIME_BUDGET_MS = PURGE_MAX_DURATION_S * 1000 - RETENTION_BUDGET_HEADROOM_MS;
 /** Repos enumerated per page when pruning an org, so a fleet org's repo list is never read all at once. */
 const REPO_PAGE_SIZE = 500;
 
@@ -280,8 +297,17 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   const prisma = getPrisma();
   const defaults = envRetentionDefaults();
   const now = opts.now ?? Date.now;
-  const timeBudgetMs =
-    opts.timeBudgetMs ?? (parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS) || RETENTION_DEFAULT_TIME_BUDGET_MS);
+  const envBudget = opts.timeBudgetMs == null ? parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS) : null;
+  const timeBudgetMs = opts.timeBudgetMs ?? (envBudget || RETENTION_DEFAULT_TIME_BUDGET_MS);
+  // Budget/cap coupling warning (data-retention 07-16 #1): a budget at or beyond the route's declared
+  // maxDuration can never trip BEFORE the platform kill, so the "stop cleanly with a summary" guarantee
+  // is silently void. Warn (env-configured budgets only — injected test budgets are deliberate).
+  if (envBudget != null && envBudget >= PURGE_MAX_DURATION_S * 1000) {
+    console.warn(
+      `[retention] RETENTION_TIME_BUDGET_MS=${envBudget} >= the route's maxDuration (${PURGE_MAX_DURATION_S}s) — ` +
+        `the budget will never trip before the platform kills the function; set it below the plan's real cap`,
+    );
+  }
   const startedAt = now();
 
   const orgs = await prisma.organization.findMany({

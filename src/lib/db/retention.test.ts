@@ -5,6 +5,7 @@ import {
   purgeExpiredData,
   resolveRetention,
   rotateForTick,
+  PURGE_MAX_DURATION_S,
   RETENTION_DEFAULT_BATCH_SIZE,
   type RetentionPolicy,
 } from "@/lib/db/retention";
@@ -144,6 +145,36 @@ function fakePurgePrisma() {
   };
   return { prisma, tx, used: () => usedTransaction };
 }
+
+describe("purgeExpiredData — env budget vs the route cap (data-retention 07-16 #1)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetPrisma.mockReturnValue({ organization: { findMany: vi.fn(async () => []) } });
+  });
+  afterEach(() => {
+    delete process.env.RETENTION_TIME_BUDGET_MS;
+    vi.clearAllMocks();
+  });
+
+  it("warns when RETENTION_TIME_BUDGET_MS >= the route's declared maxDuration — the budget can never trip first", async () => {
+    process.env.RETENTION_TIME_BUDGET_MS = String(PURGE_MAX_DURATION_S * 1000);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await purgeExpiredData();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("RETENTION_TIME_BUDGET_MS"));
+    warn.mockRestore();
+  });
+
+  it("does NOT warn for an env budget safely below the cap (or when the budget is injected via opts)", async () => {
+    process.env.RETENTION_TIME_BUDGET_MS = String(PURGE_MAX_DURATION_S * 1000 - 60_000);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await purgeExpiredData();
+    await purgeExpiredData({ timeBudgetMs: PURGE_MAX_DURATION_S * 1000 * 10 }); // deliberate (tests)
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
 
 describe("purgeExpiredData — RecommendationEvent orphans (critical)", () => {
   beforeEach(() => {

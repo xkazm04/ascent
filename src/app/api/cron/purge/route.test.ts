@@ -28,8 +28,13 @@ vi.mock("@/lib/db", () => ({
   purgeExpiredData: vi.fn(),
 }));
 
-import { GET } from "./route";
+import { GET, maxDuration } from "./route";
 import { isDbConfigured, purgeExpiredData } from "@/lib/db";
+import {
+  PURGE_MAX_DURATION_S,
+  RETENTION_BUDGET_HEADROOM_MS,
+  RETENTION_DEFAULT_TIME_BUDGET_MS,
+} from "@/lib/db/retention";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockPurge = vi.mocked(purgeExpiredData);
@@ -165,6 +170,19 @@ describe("GET /api/cron/purge — auth gate (fail-closed) + error surface", () =
   });
 
   // ---- (6) A run that COLLECTED errors → 207 (not a green 200) -----------
+  // ---- (7) The maxDuration ↔ time-budget contract (data-retention 07-16 #1) ----
+  it("the route's declared maxDuration equals PURGE_MAX_DURATION_S — the single source the budget derives from", () => {
+    // Next.js segment config must be a literal, so the route cannot import the constant; this pin is
+    // the coupling. If you change one, change the other (and re-read the plan-cap caveat at both).
+    expect(maxDuration).toBe(PURGE_MAX_DURATION_S);
+  });
+
+  it("the default purge time budget undercuts maxDuration by the declared headroom", () => {
+    expect(RETENTION_DEFAULT_TIME_BUDGET_MS).toBe(maxDuration * 1000 - RETENTION_BUDGET_HEADROOM_MS);
+    expect(RETENTION_DEFAULT_TIME_BUDGET_MS).toBeLessThan(maxDuration * 1000);
+    expect(RETENTION_BUDGET_HEADROOM_MS).toBeGreaterThan(0);
+  });
+
   it("returns 207 (not 200) when the run collected errors — so cron alerting trips", async () => {
     // A degraded purge (a per-org prune threw, or the audit-trace write failed) surfaces its failures
     // in summary.errors. The route must translate a non-empty errors[] into a non-2xx so Vercel Cron /

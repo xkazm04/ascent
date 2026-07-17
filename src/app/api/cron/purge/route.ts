@@ -12,6 +12,12 @@ import { isDbConfigured, purgeExpiredData } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// COUPLED CONSTANT (data-retention 07-16 #1): this literal MUST equal PURGE_MAX_DURATION_S in
+// src/lib/db/retention.ts — the purge's soft time budget is derived from it (cap − headroom) so the
+// run stops cleanly with a summary before the platform hard-kills the function. Next.js requires this
+// segment config to be a statically-analyzable literal, so it cannot import the constant; route.test.ts
+// pins the equality instead. Plan caveat: the platform honors 300s only up to the deployment plan's
+// function cap — on a lower-capped plan set RETENTION_TIME_BUDGET_MS below the REAL cap.
 export const maxDuration = 300;
 
 /**
