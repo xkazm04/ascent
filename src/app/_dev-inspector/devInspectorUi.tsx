@@ -182,18 +182,51 @@ export function InspectorHud({
   defaultLoc: string | null;
   onCopy: (loc: string) => void;
 }) {
+  // The fixed panel occludes whatever lives in its corner, and insideHud deliberately ignores events
+  // over it — so anything underneath (toasts, chat launchers, cookie banners) was uninspectable. A
+  // corner toggle flips it to the other side so the covered region becomes reachable.
+  const [onRight, setOnRight] = useState(false);
   return (
     // No data-devinspector here: the armed-mode portal wrapper (DevInspector.tsx) already carries it
     // and is an ancestor of this panel, so the insideHud closest() hit-test resolves through it.
-    <div style={PANEL}>
+    <div style={onRight ? { ...PANEL, left: "auto", right: 12 } : PANEL}>
       <div
         style={{
-          color: copied ? (copyOk ? OK : "#fca5a5") : ACCENT,
-          fontWeight: 700,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
           marginBottom: 4,
         }}
       >
-        {copied ? (copyOk ? "Copied ✓" : "Copy failed") : "⌖ DevInspector"}
+        {/* role=status/aria-live: the Copied/failed swap is the only confirmation right-click did
+            anything — announce it to screen readers instead of leaving it visual-only. */}
+        <div
+          role="status"
+          aria-live="polite"
+          style={{ color: copied ? (copyOk ? OK : "#fca5a5") : ACCENT, fontWeight: 700 }}
+        >
+          {copied ? (copyOk ? "Copied ✓" : "Copy failed") : "⌖ DevInspector"}
+        </div>
+        <button
+          type="button"
+          onClick={() => setOnRight((r) => !r)}
+          aria-label={`Move panel to the bottom-${onRight ? "left" : "right"} corner`}
+          title={`Move panel to the bottom-${onRight ? "left" : "right"} corner`}
+          className="focus-ring"
+          style={{
+            background: "transparent",
+            border: `1px solid ${ACCENT}66`,
+            borderRadius: 4,
+            color: ACCENT,
+            cursor: "pointer",
+            font: "inherit",
+            lineHeight: 1,
+            padding: "1px 5px",
+          }}
+        >
+          ⇄
+        </button>
       </div>
       {copied ? (
         <div style={{ wordBreak: "break-all" }}>{copied}</div>
