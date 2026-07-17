@@ -103,8 +103,10 @@ export function ScanStep({
         {announce}
       </div>
 
-      {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change). */}
-      <h1 data-step-heading tabIndex={-1} className="flex items-center gap-2 text-2xl font-bold text-white focus:outline-none">
+      {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change).
+          h2, not h1: the page-level h1 lives in onboarding/page.tsx; a step-level h1 made two h1s
+          coexist in the document (ambiguity-ui #4). Visual size is explicit, so nothing changes. */}
+      <h2 data-step-heading tabIndex={-1} className="flex items-center gap-2 text-2xl font-bold text-white focus:outline-none">
         {phase === "done" && (
           <span
             aria-hidden
@@ -118,7 +120,7 @@ export function ScanStep({
           </span>
         )}
         {phase === "done" ? "Scan complete" : "Scanning repositories"}
-      </h1>
+      </h2>
       <p className="mt-1 text-slate-400">
         {phase === "done"
           ? errorCount > 0
