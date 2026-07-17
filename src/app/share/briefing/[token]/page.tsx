@@ -115,6 +115,11 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   const frozen = verified.winEnd != null;
   const start = frozen ? (verified.winStart ? new Date(verified.winStart) : null) : period.start;
   const end = frozen ? new Date(verified.winEnd!) : period.end;
+  // executive-briefing 07-16 #5: Finding B froze the DATA at mint time but kept the floating
+  // "last 90 days" label — so a viewer on day 6 of the TTL reads "last 90 days" over numbers that
+  // provably aren't. Anchor the presentation with the absolute end of the frozen window; legacy
+  // (unfrozen) tokens keep the plain title, which for them stays accurate.
+  const asOf = frozen ? new Date(verified.winEnd!).toISOString().slice(0, 10) : null;
   // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's
   // per-client read-only link shows that client's data — not the whole org. Feature 3b: the same for the
   // tech-stack scope (resolve the carried KEY → group id within the org).
@@ -153,11 +158,12 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
       <main id="main" className="mx-auto w-full max-w-5xl px-5 py-10">
         <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2 font-mono text-sm text-slate-500">
           Read-only shared briefing · {briefing.periodTitle}
+          {asOf && <> · data as of {asOf}</>}
         </div>
         <SectionHeader
           descriptionClassName="max-w-3xl"
           title={`${verified.org} — executive briefing`}
-          description={`AI-native engineering maturity standing over ${briefing.periodTitle.toLowerCase()}.`}
+          description={`AI-native engineering maturity standing over ${briefing.periodTitle.toLowerCase()}${asOf ? `, as of ${asOf} (window frozen when the link was created)` : ""}.`}
         />
 
         <div className={`mt-6 ${TILE_GRID}`}>
