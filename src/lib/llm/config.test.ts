@@ -17,7 +17,9 @@ import {
   llmTimeoutMs,
   llmTemperature,
   llmMaxTokens,
+  providerLabel,
 } from "./config";
+import type { ProviderName } from "@/lib/types";
 import { afterEach, beforeEach, vi } from "vitest";
 
 describe("priceForModel", () => {
@@ -178,6 +180,25 @@ describe("llmTimeoutMs (per-call timeout, floored so a misconfig can't instant-a
     expect(llmTimeoutMs()).toBe(1_000);
     vi.stubEnv("LLM_TIMEOUT_MS", "250");
     expect(llmTimeoutMs()).toBe(1_000);
+  });
+});
+
+describe("providerLabel (provenance vocabulary — /usage bars + briefing 'Scored by' line)", () => {
+  it("has a polished (non-raw-id) label for EVERY ProviderName member", () => {
+    // openai/openrouter were missing, so their raw lowercase ids rendered next to "AWS Bedrock" on
+    // the two provenance surfaces executives read. (llm-provider-abstraction #4)
+    const all: ProviderName[] = ["gemini", "bedrock", "openai", "openrouter", "mock", "claude-cli"];
+    for (const id of all) {
+      const label = providerLabel(id);
+      expect(label, `PROVIDER_LABEL is missing "${id}"`).not.toBe(id);
+      expect(label.length).toBeGreaterThan(0);
+    }
+    expect(providerLabel("openai")).toBe("OpenAI");
+    expect(providerLabel("openrouter")).toBe("OpenRouter");
+  });
+
+  it("still falls back to the raw id for an unknown legacy id", () => {
+    expect(providerLabel("some-future-provider")).toBe("some-future-provider");
   });
 });
 

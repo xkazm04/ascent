@@ -1,3 +1,5 @@
+import type { ProviderName } from "@/lib/types";
+
 // Env-driven LLM tuning knobs shared by the real providers. Temperature and Bedrock's maxTokens were
 // hard-coded literals, so a big-repo assessment could be truncated by the fixed cap and determinism
 // couldn't be tuned without a code change — inconsistent with the existing GEMINI_MODEL /
@@ -108,12 +110,20 @@ export function techStackPromptEnabled(): boolean {
  * engine" bars and the executive briefing's "Scored by" provenance line (was duplicated as
  * `PROVIDER_META` in usage/page and `ENGINE_LABEL` in lib/org/briefing). The per-provider chart
  * COLOR stays local to /usage (a UI concern); only the id→label vocabulary lives here.
+ *
+ * Typed as a full Record over ProviderName (intersected with Record<string,string> for legacy ids
+ * like "claude" from older persisted scans) so the compiler FLAGS a missing entry when the union
+ * grows: openai and openrouter were both first-class ProviderName members whose raw lowercase ids
+ * leaked into the two provenance surfaces executives read, because the old `Record<string, string>`
+ * typing couldn't notice the gap. (llm-provider-abstraction #4)
  */
-export const PROVIDER_LABEL: Record<string, string> = {
+export const PROVIDER_LABEL: Record<ProviderName, string> & Record<string, string> = {
   "claude-cli": "Claude CLI",
   claude: "Claude",
   gemini: "Gemini",
   bedrock: "AWS Bedrock",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
   mock: "Mock (deterministic)",
 };
 

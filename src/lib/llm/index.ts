@@ -3,6 +3,7 @@
 //   LLM_PROVIDER=gemini     -> Gemini (local dev & testing default). Falls back to mock
 //                              if no GEMINI_API_KEY is set.
 //   LLM_PROVIDER=openai     -> OpenAI / Azure-OpenAI / OpenAI-compatible (vLLM, Ollama, …).
+//   LLM_PROVIDER=openrouter -> OpenRouter (one key, any vendor's model — the fleet/bench path).
 //   LLM_PROVIDER=bedrock    -> AWS Bedrock / Claude Sonnet (Phase 2, enterprise privacy).
 //   LLM_PROVIDER=claude-cli -> local `claude` CLI under your subscription (LOCAL-DEV-ONLY;
 //                              throws in production builds).
