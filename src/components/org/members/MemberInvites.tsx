@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import type { OrgRole } from "@/lib/db/members";
-import { ROLES } from "@/components/org/members/memberRoles";
+import { INVITE_ROLES } from "@/components/org/members/memberRoles";
 
 export interface InviteRow {
   id: string;
@@ -85,6 +85,7 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
       <h3 className="font-mono text-sm uppercase tracking-widest text-accent">Invite a teammate</h3>
       <p className="mt-1 text-sm text-slate-500">
         Creates a single-use link (expires in 7 days). A GitHub login pins the invite to that account.
+        Owner is granted by promoting an existing member, not by invite.
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <input
@@ -106,7 +107,7 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
           aria-label="Invite role"
           className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 font-mono text-sm text-slate-200 outline-none focus:border-accent"
         >
-          {ROLES.map((r) => (
+          {INVITE_ROLES.map((r) => (
             <option key={r} value={r}>
               {r}
             </option>
