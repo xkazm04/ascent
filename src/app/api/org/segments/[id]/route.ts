@@ -2,7 +2,7 @@
 // DELETE /api/org/segments/:id                     -> remove the segment and its memberships
 
 import { NextResponse } from "next/server";
-import { deleteSegment, getSegmentOrgSlug, isDbConfigured, updateSegment } from "@/lib/db";
+import { deleteSegment, getSegmentOrgSlug, isDbConfigured, segmentInputError, updateSegment } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import type { OrgRole } from "@/lib/db/members";
 
@@ -23,6 +23,11 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const blocked = await gate(id);
   if (blocked) return blocked;
   const body = (await request.json().catch(() => ({}))) as { name?: string; color?: string };
+  // repositories-segments #5: reject-with-400 instead of sanitize-and-continue — a PATCH with
+  // { color: "rebeccapurple" } previously recolored the segment to the brand accent and returned
+  // { ok: true }; a 61+-char rename was truncated with no signal.
+  const invalid = segmentInputError(body);
+  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
   try {
     await updateSegment(id, body);
     return NextResponse.json({ ok: true });
