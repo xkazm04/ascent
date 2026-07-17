@@ -9,6 +9,7 @@ import { readableOrgForOwner } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
 import { diffScans } from "@/lib/report/compare";
+import { HEADER_ACTION_LINK_CLASS } from "@/components/report/pill";
 
 export const dynamic = "force-dynamic";
 
@@ -134,13 +135,13 @@ export default async function ComparePage({
           <div className="flex items-center gap-2">
             <Link
               href={`/trends?repo=${encodeURIComponent(repoRef)}`}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
+              className={HEADER_ACTION_LINK_CLASS}
             >
               Trends →
             </Link>
             <Link
               href={`/report?repo=${encodeURIComponent(repoRef)}`}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
+              className={HEADER_ACTION_LINK_CLASS}
             >
               Full report →
             </Link>

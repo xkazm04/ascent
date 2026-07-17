@@ -11,6 +11,7 @@ import { forecastTrajectory } from "@/lib/maturity/forecast";
 import { SignInNotice } from "@/components/SignInNotice";
 import { LevelBadge } from "@/components/LevelBadge";
 import type { LevelId } from "@/lib/types";
+import { HEADER_ACTION_LINK_CLASS } from "@/components/report/pill";
 
 export const metadata = {
   title: "Maturity trends — Ascent",
@@ -124,20 +125,20 @@ export default async function TrendsPage({
             {history.scans.length >= 2 && (
               <Link
                 href={`/report/compare?repo=${encodeURIComponent(history.repo.fullName)}`}
-                className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
+                className={HEADER_ACTION_LINK_CLASS}
               >
                 Compare →
               </Link>
             )}
             <Link
               href={`/report?repo=${encodeURIComponent(history.repo.fullName)}`}
-              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
+              className={HEADER_ACTION_LINK_CLASS}
             >
               Full report →
             </Link>
             <a
               href={`/api/history?repo=${encodeURIComponent(history.repo.fullName)}&format=csv`}
-              className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
+              className={HEADER_ACTION_LINK_CLASS}
               title="Download this repo's scan history as CSV"
             >
               Export CSV ↓
