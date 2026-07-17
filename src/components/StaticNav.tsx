@@ -9,7 +9,10 @@
 
 import Link from "next/link";
 
-/** Header shell classes shared by every sticky top bar (marketing, 404, org dashboard). */
+/** Header shell classes shared by every sticky top bar (marketing, 404, org dashboard).
+ *  Height contract: the bar renders ~56px tall, mirrored by `--header-h` in globals.css — the token
+ *  Surface's scroll-mt and DeckSection's top padding derive from. If the header's vertical metrics
+ *  change (extra row, taller banner), update `--header-h` alongside. */
 export const HEADER_SHELL = "sticky top-0 z-30 border-b border-divider/70 bg-ink/80 backdrop-blur";
 
 /** Inner container of the marketing/404 header (the org header uses its wider ORG_SHELL instead). */

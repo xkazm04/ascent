@@ -50,6 +50,14 @@ html {
   color-scheme: dark;
 }
 
+:root {
+  /* Sticky-header height contract — the HEADER_SHELL bar in src/components/StaticNav.tsx renders
+     ~56px tall (py-3.5 + the logo line). Primitives that must clear it (Surface's scroll-mt,
+     DeckSection's top padding) derive from THIS var instead of re-encoding their own magic number,
+     so a taller header is fixed in one place. Change it when the header's vertical metrics change. */
+  --header-h: 3.5rem;
+}
+
 /* Smooth-scroll the in-page jumps from the header nav (Levels / Method / Pricing → #levels / #how /
    #pricing) instead of a hard snap. Gated on prefers-reduced-motion so reduced-motion users keep an
    instant jump; the target sections carry scroll-mt-* so they clear the sticky header on arrival. */

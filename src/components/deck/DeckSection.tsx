@@ -10,13 +10,16 @@ import type { ReactNode } from "react";
 // there (bar + the standard 40px breathing room) and return to `pb-10` at `lg` where the bar is
 // hidden. Keep this in lockstep with DeckNav's mobile bar height.
 
-const SECTION_CLASS = "flex min-h-screen snap-start flex-col justify-center pb-24 pt-14 lg:pb-10";
+// Top padding clears the sticky header via the shared --header-h token (globals.css) instead of a
+// locally re-encoded pt-14 — keep any offset change in the token, not here.
+const SECTION_CLASS =
+  "flex min-h-screen snap-start flex-col justify-center pb-24 pt-[var(--header-h)] lg:pb-10";
 
 // The `startLgCenter` variant for TALL sections (register table, dimension matrix, org gallery):
 // below lg their content is top-aligned so it begins at the snap edge instead of overflowing the
 // viewport top when centered; lg+ returns to the deck's centered rhythm.
 const SECTION_TALL_CLASS =
-  "flex min-h-screen snap-start flex-col justify-start pb-24 pt-14 lg:justify-center lg:pb-10";
+  "flex min-h-screen snap-start flex-col justify-start pb-24 pt-[var(--header-h)] lg:justify-center lg:pb-10";
 const HERO_CLASS = "relative isolate flex min-h-screen snap-start items-center overflow-hidden";
 const CONTAINER_CLASS = "mx-auto w-full max-w-6xl px-5";
 
