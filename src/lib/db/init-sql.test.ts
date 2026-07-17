@@ -81,6 +81,78 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
     expect(missing).toEqual([]);
   });
 
+  // The loop above checks column NAMES only, so a column present with the wrong type, wrong
+  // nullability, or a lost DEFAULT (e.g. `"scanCredits" INTEGER` dropping its `DEFAULT 0` — the exact
+  // symptom family of the original incident: credits initializing NULL, inserts failing NOT NULL)
+  // stayed green. This closes the attribute half of the drift class (database-client-schema 07-16 #2):
+  // map each Prisma scalar to its expected SQL type, assert `?`-ness ↔ NOT NULL, and assert a
+  // representable `@default` (literal / now()) emits a DEFAULT. Client-side defaults (uuid()/cuid()/
+  // autoincrement) emit NO SQL DEFAULT and are skipped, as is `@updatedAt` (maintained by the client).
+  it("mirrors each column's TYPE, nullability, and DEFAULT into init.sql (attribute parity)", () => {
+    const SQL_TYPE: Record<string, string> = {
+      String: "TEXT",
+      Int: "INTEGER",
+      Boolean: "BOOLEAN",
+      DateTime: "TIMESTAMP(3)",
+      Float: "DOUBLE PRECISION",
+      BigInt: "BIGINT",
+    };
+    const modelBlocks = [...schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)];
+    const modelSet = new Set(models);
+    const problems: string[] = [];
+    let checked = 0;
+
+    for (const [, model, body] of modelBlocks) {
+      const tableMatch = new RegExp(`CREATE TABLE "${model}" \\(([\\s\\S]*?)\\n\\);`).exec(initSql);
+      if (!tableMatch) continue; // absence is already reported by the name-parity tests above
+      const tableBody = tableMatch[1]!;
+
+      for (const rawLine of body!.split("\n")) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith("//") || line.startsWith("@@")) continue;
+        const m = /^(\w+)\s+(\S+)/.exec(line);
+        if (!m) continue;
+        const field = m[1]!;
+        const rawType = m[2]!;
+        const optional = /\?$/.test(rawType);
+        const baseType = rawType.replace(/\?$/, "").replace(/\[\]$/, "").replace(/\?$/, "");
+        if (modelSet.has(baseType) || /@relation\b/.test(line)) continue; // relation → no column
+        const sqlType = SQL_TYPE[baseType];
+        if (!sqlType) continue; // unmapped scalar (none today) — name parity above still covers it
+        const mapped = /@map\("([^"]+)"\)/.exec(line);
+        const column = mapped ? mapped[1]! : field;
+
+        const colLine = tableBody
+          .split("\n")
+          .map((l) => l.trim())
+          .find((l) => l.startsWith(`"${column}" `));
+        if (!colLine) continue; // missing column is already reported above
+        checked++;
+
+        // TYPE: the declaration must be exactly `"col" <SQLTYPE>` at the head of the line.
+        if (!colLine.startsWith(`"${column}" ${sqlType}`)) {
+          problems.push(`${model}.${column}: expected type ${sqlType} in: ${colLine}`);
+        }
+        // NULLABILITY: a required field must carry NOT NULL; an optional one must not.
+        const hasNotNull = colLine.includes("NOT NULL");
+        if (optional && hasNotNull) problems.push(`${model}.${column}: optional in schema but NOT NULL in init.sql`);
+        if (!optional && !hasNotNull) problems.push(`${model}.${column}: required in schema but missing NOT NULL`);
+        // DEFAULT: a representable @default (literal or now()) must emit a SQL DEFAULT. uuid()/cuid()/
+        // autoincrement()/dbgenerated are client-/engine-side and emit none.
+        const def = /@default\(([^)]*)\)/.exec(line);
+        if (def && !/^(uuid|cuid|autoincrement|dbgenerated)\(/.test(def[1]!.trim())) {
+          if (!colLine.includes("DEFAULT")) {
+            problems.push(`${model}.${column}: @default(${def[1]}) in schema but no DEFAULT in init.sql`);
+          }
+        }
+      }
+    }
+
+    // Sanity: a parser/mapping regression checking nothing must not vacuously pass.
+    expect(checked).toBeGreaterThan(100);
+    expect(problems).toEqual([]);
+  });
+
   it("mirrors the per-org alert sink column (additive, 2026-06-12)", () => {
     // \s+ not a single space: `prisma format` column-aligns field types, so the gap width varies.
     expect(schema).toMatch(/alertWebhookUrl\s+String\?/);
