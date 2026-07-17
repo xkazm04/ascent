@@ -207,8 +207,8 @@ export function CreditsControl({
           )}
           {coveredByAllowance && (
             <p className="mt-2 rounded-md border border-slate-700 bg-slate-800/40 px-2.5 py-1.5 text-sm text-slate-300">
-              {freeScansLeft} free {freeScansLeft === 1 ? "scan" : "scans"} left this month — scans
-              keep running on your monthly allowance.
+              {freeScansLeft} free {freeScansLeft === 1 ? "scan" : "scans"} left this month (resets on
+              the 1st, UTC) — scans keep running on your monthly allowance.
             </p>
           )}
 

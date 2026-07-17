@@ -117,7 +117,7 @@ export default function PricingPage() {
         </div>
 
         <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-slate-500">
-          Every plan&apos;s monthly scan allowance <span className="text-slate-300">resets each month</span>; Pro and
+          Every plan&apos;s monthly scan allowance <span className="text-slate-300">resets on the 1st of each month (UTC)</span>; Pro and
           Team are monthly subscriptions that bundle more of it. Need more than your plan includes? Buy prepaid scan
           credits (1 per scan), which <span className="text-slate-300">roll over and never expire</span> — so you pay
           only for the overflow you actually use. Cached re-scans of unchanged repos are always free. Manage your plan
