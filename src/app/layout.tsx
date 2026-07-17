@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { publicBaseUrl, siteDescription, SITE_TAGLINE } from "@/lib/site";
+import { BRAND_INK, publicBaseUrl, siteDescription, SITE_TAGLINE } from "@/lib/site";
 import { ModalRoot } from "@/components/ui/ModalRoot";
 import { DevInspector } from "./_dev-inspector/DevInspector";
 import "./globals.css";
@@ -33,7 +33,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#080d1a",
+  // Single-sourced brand ink (see lib/site.ts) so the mobile status-bar/browser chrome can't drift
+  // from the CSS `--color-ink` surfaces on a brand-color change.
+  themeColor: BRAND_INK,
 };
 
 // SHELL-4: site-wide structured data (Organization + the app itself) so search engines can render a

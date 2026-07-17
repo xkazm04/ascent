@@ -7,6 +7,8 @@
 @theme {
   --color-accent: #3b9eff;
   --color-accent-soft: #7bbcff;
+  /* Paired with the TS-side BRAND_INK in src/lib/site.ts (viewport themeColor + PWA manifest read
+     that constant — CSS @theme vars aren't importable there). Change BOTH together. */
   --color-ink: #080d1a;
   /* Foreground used ON the accent (button text on bg-accent) — a near-black that was
      previously hardcoded as #04070e across connect/onboarding/auth. Utility: text-on-accent. */

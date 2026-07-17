@@ -1,9 +1,10 @@
 import type { MetadataRoute } from "next";
-import { DIMENSION_COUNT, LEVEL_COUNT, SITE_TAGLINE } from "@/lib/site";
+import { BRAND_INK, DIMENSION_COUNT, LEVEL_COUNT, SITE_TAGLINE } from "@/lib/site";
 
 // SHELL-3: Web App Manifest so Ascent is an installable PWA shell (Add to Home Screen / desktop
 // install) with brand chrome on the splash + task switcher. No service worker — installability only
-// needs name + start_url + display + icons. Colors match the app's themeColor (#080d1a). Icons reuse
+// needs name + start_url + display + icons. Colors are the single-sourced brand ink (BRAND_INK in
+// lib/site.ts — same value as the viewport themeColor + CSS --color-ink). Icons reuse
 // the existing brand marks: the transparent mark for normal display, the filled mark (has a backing
 // plate) for the maskable slot so Android's safe-zone mask doesn't clip a bare glyph. Both marks are
 // 512×512, so we declare an explicit `sizes:"512x512"` (not `"any"`): Chromium/Lighthouse only treat
@@ -17,8 +18,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: `Score how AI-native your engineering org is from a GitHub repo — a ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap.`,
     start_url: "/",
     display: "standalone",
-    background_color: "#080d1a",
-    theme_color: "#080d1a",
+    background_color: BRAND_INK,
+    theme_color: BRAND_INK,
     icons: [
       { src: "/brand/logo-mark-nobg.png", sizes: "512x512", type: "image/png", purpose: "any" },
       { src: "/brand/logo-mark.png", sizes: "512x512", type: "image/jpeg", purpose: "maskable" },
