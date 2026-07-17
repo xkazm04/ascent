@@ -20,8 +20,9 @@
 
 import { NextResponse } from "next/server";
 import { Webhooks } from "@polar-sh/nextjs";
-import { clawbackOrderRefund, grantCredits, setOrgPlan } from "@/lib/db";
+import { clawbackOrderRefund, getCreditState, grantCredits, setOrgPlan } from "@/lib/db";
 import { creditsForProduct, planForProduct } from "@/lib/polar";
+import { PLAN_ORDER, type PlanId } from "@/lib/plans";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,27 @@ function bindOrg(subject: {
 // revoked`), and `trialing` is a live trial. Anything else (canceled / unpaid / incomplete[_expired])
 // means the customer is not currently owed the tier.
 const ENTITLING_SUB_STATUSES = new Set(["active", "trialing", "past_due"]);
+
+/** Rank of a stored plan string in the upgrade order; unknown/blank ranks as free (0). */
+function planRank(plan: string | null | undefined): number {
+  const i = PLAN_ORDER.indexOf((plan ?? "") as PlanId);
+  return i >= 0 ? i : 0;
+}
+
+/**
+ * Downgrade guard: only remove what THIS subscription/order actually conferred. The realistic
+ * collision is a KNOWN plan product: an org bought Pro via Polar, was later hand-upgraded to
+ * `enterprise` via the owner override (/api/org/plan under ASCENT_ALLOW_PLAN_CHANGES), and the
+ * now-redundant Pro subscription lapses/refunds. Unconditionally flooring to `free` would strip the
+ * manual enterprise grant over a subscription that never granted it — a silent entitlement outage
+ * for exactly the population the override serves. Returns the org's current plan when it OUTRANKS
+ * the tier the dying subscription conferred (skip the downgrade), or null when the downgrade should
+ * proceed (current tier equal/lower — including the idempotent already-free replay).
+ */
+async function retainedHigherPlan(org: string, subPlan: string): Promise<string | null> {
+  const state = await getCreditState(org);
+  return planRank(state.plan) > planRank(subPlan) ? state.plan : null;
+}
 
 /** Whether an order's embedded subscription still entitles the buyer to a paid tier. A one-time order
  *  carries no subscription (null) — nothing to reconcile against, so it entitles. A subscription that has
@@ -87,6 +109,14 @@ async function downgradeSubscription(
   const org = bindOrg(sub);
   if (!org) {
     console.warn(`[billing/webhook] ${cause} for subscription ${sub.id}: no org bound; cannot downgrade`);
+    return;
+  }
+  // Never floor the org PAST a tier this subscription didn't confer (manual override retained).
+  const higher = await retainedHigherPlan(org, plan);
+  if (higher) {
+    console.info(
+      `[billing/webhook] ${cause} for subscription ${sub.id}: "${org}" current ${higher} > sub ${plan} — manual override retained, no downgrade`,
+    );
     return;
   }
   const ok = await setOrgPlan(org, FREE_PLAN);
@@ -227,6 +257,15 @@ export const POST = secret
         // Gated on the RAW cumulative amounts (refundedAmount >= gross), not the derived clamped
         // fraction, so rounding/clamping can never smuggle a partial refund past the "full only" rule.
         if (plan && order.refundedAmount >= gross) {
+          // Same guard as downgradeSubscription: a full refund of a Pro order must not floor an org
+          // that currently holds a HIGHER, separately-granted tier (hand-set enterprise override).
+          const higher = await retainedHigherPlan(org, plan);
+          if (higher) {
+            console.info(
+              `[billing/webhook] full refund of plan order ${order.id}: "${org}" current ${higher} > order tier ${plan} — manual override retained, no downgrade`,
+            );
+            return;
+          }
           const ok = await setOrgPlan(org, FREE_PLAN);
           if (ok) {
             console.info(`[billing/webhook] full refund of plan order ${order.id}: "${org}" downgraded to ${FREE_PLAN} (was ${plan})`);

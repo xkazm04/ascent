@@ -28,6 +28,7 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/db", () => ({
   clawbackOrderRefund: vi.fn(async () => 0),
+  getCreditState: vi.fn(async () => ({ balance: 0, plan: "pro", unlimited: false, orgExists: true })),
   grantCredits: vi.fn(async () => 10),
   setOrgPlan: vi.fn(async () => true),
 }));
@@ -36,10 +37,11 @@ vi.mock("@/lib/polar", () => ({
   planForProduct: vi.fn(() => null),
 }));
 
-import { clawbackOrderRefund, grantCredits, setOrgPlan } from "@/lib/db";
+import { clawbackOrderRefund, getCreditState, grantCredits, setOrgPlan } from "@/lib/db";
 import { creditsForProduct, planForProduct } from "@/lib/polar";
 
 const mockClawback = vi.mocked(clawbackOrderRefund);
+const mockCreditState = vi.mocked(getCreditState);
 const mockGrant = vi.mocked(grantCredits);
 const mockSetPlan = vi.mocked(setOrgPlan);
 const mockCredits = vi.mocked(creditsForProduct);
@@ -98,6 +100,9 @@ beforeEach(() => {
   mockClawback.mockResolvedValue(0);
   mockCredits.mockReturnValue(0);
   mockPlan.mockReturnValue(null);
+  // Default current tier: exactly the tier the dying subscription conferred ("pro"/"team" in the
+  // downgrade tests) or lower — the downgrade-guard's "proceed" case, so existing tests are unchanged.
+  mockCreditState.mockResolvedValue({ balance: 0, plan: "pro", unlimited: false, orgExists: true });
 });
 
 describe("onOrderPaid — fulfil from the product", () => {
@@ -253,6 +258,29 @@ describe("onSubscriptionRevoked — downgrade to free", () => {
     await expect(onSubscriptionRevoked({ data: sub({ customer: null, metadata: null }) })).resolves.toBeUndefined();
     expect(mockSetPlan).not.toHaveBeenCalled();
   });
+
+  it("does NOT floor a hand-set HIGHER tier when a lower subscription lapses (manual override retained)", async () => {
+    // Org bought Pro via Polar, was later hand-upgraded to enterprise via /api/org/plan; the stale
+    // Pro subscription's revoke must not strip the enterprise grant it never conferred.
+    mockPlan.mockReturnValue("pro");
+    mockCreditState.mockResolvedValue({ balance: 0, plan: "enterprise", unlimited: true, orgExists: true });
+    await onSubscriptionRevoked({ data: sub() });
+    expect(mockSetPlan).not.toHaveBeenCalled();
+  });
+
+  it("still downgrades when the current tier EQUALS the subscription's tier (the normal revoke)", async () => {
+    mockPlan.mockReturnValue("team");
+    mockCreditState.mockResolvedValue({ balance: 0, plan: "team", unlimited: false, orgExists: true });
+    await onSubscriptionRevoked({ data: sub() });
+    expect(mockSetPlan).toHaveBeenCalledWith("acme", "free");
+  });
+
+  it("replay after the downgrade (current already free) stays an idempotent no-op downgrade", async () => {
+    mockPlan.mockReturnValue("pro");
+    mockCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false, orgExists: true });
+    await onSubscriptionRevoked({ data: sub() });
+    expect(mockSetPlan).toHaveBeenCalledWith("acme", "free");
+  });
 });
 
 describe("onSubscriptionCanceled — respect cancel-at-period-end", () => {
@@ -303,6 +331,15 @@ describe("onOrderRefunded — full refund of a plan order revokes the tier", () 
     await onOrderRefunded({ data: order({ netAmount: 1000, refundedAmount: 1000 }) });
     expect(mockClawback).toHaveBeenCalledWith("acme", "ord1", 100, { eventKey: "1000", actor: "polar" });
     expect(mockSetPlan).toHaveBeenCalledWith("acme", "free");
+  });
+
+  it("does NOT floor a hand-set HIGHER tier on a full refund of a lower plan order (override retained; clawback still applies)", async () => {
+    mockCredits.mockReturnValue(100);
+    mockPlan.mockReturnValue("pro");
+    mockCreditState.mockResolvedValue({ balance: 0, plan: "enterprise", unlimited: true, orgExists: true });
+    await onOrderRefunded({ data: order({ netAmount: 1000, refundedAmount: 1000 }) });
+    expect(mockClawback).toHaveBeenCalledWith("acme", "ord1", 100, { eventKey: "1000", actor: "polar" });
+    expect(mockSetPlan).not.toHaveBeenCalled();
   });
 });
 
