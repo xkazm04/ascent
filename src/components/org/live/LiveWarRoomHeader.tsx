@@ -21,12 +21,22 @@ async function enterTvMode() {
   }
 }
 
-/** Days until a YYYY-MM-DD deadline (negative = past). null when no date. */
+/** Days until a YYYY-MM-DD deadline (negative = past, 0 = due today). null when no date.
+ *
+ *  DECISION (live-war-room 07-16 #2): the deadline is INCLUSIVE and ends at END OF DAY in the
+ *  VIEWER'S LOCAL timezone. `Date.parse("YYYY-MM-DD")` is UTC midnight at the *start* of the day,
+ *  so the old diff flipped to "past deadline" up to a day early for viewers west of UTC (and a day
+ *  late east of it) — on a projected wall, exactly on review day. We parse the date parts into a
+ *  LOCAL instant at midnight AFTER the deadline day, so the whole deadline day reads "0d to
+ *  deadline" everywhere, and "past" starts the local day after. */
 function daysUntil(date: string | null): number | null {
   if (!date) return null;
-  const t = Date.parse(date);
-  if (Number.isNaN(t)) return null;
-  return Math.ceil((t - Date.now()) / 86_400_000);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!m) return null;
+  // Local midnight AFTER the deadline day = the instant the (inclusive) deadline lapses.
+  const end = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1).getTime();
+  if (Number.isNaN(end)) return null;
+  return Math.ceil((end - Date.now()) / 86_400_000) - 1;
 }
 
 /** LIVE state + launch/stop controls + run progress bar + currently-scanning caption + error,
