@@ -7,6 +7,10 @@ const organization = {
   update: vi.fn(),
   updateMany: vi.fn(),
   findMany: vi.fn(),
+  // Rename/transfer reconciliation (07-16 #2): findFirst looks up the install id under another slug;
+  // findUnique checks whether the current slug already exists. Both default to undefined (= no row).
+  findFirst: vi.fn(),
+  findUnique: vi.fn(),
 };
 const repository = {
   updateMany: vi.fn(),
@@ -68,6 +72,54 @@ describe("upsertInstallation", () => {
       where: { slug: "acme" },
       data: { githubInstallId: "42", name: "Acme" },
     });
+  });
+
+  // ── GitHub org rename / installation transfer (github-app-installation-webhooks 07-16 #2) ──────
+  // installation.id is the stable key; the login (== slug) is mutable. A rename used to FORK the
+  // tenant: a fresh empty row under the new slug while the stale slug kept the watched repos and
+  // silently stopped matching webhooks.
+
+  it("RENAME: migrates the existing org row to the new slug (same install id) instead of forking a new org", async () => {
+    organization.findFirst.mockResolvedValueOnce({ id: "org-1", slug: "acme" });
+    organization.findUnique.mockResolvedValueOnce(null); // new slug not taken → clean rename
+    organization.update.mockResolvedValueOnce({});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await upsertInstallation({ login: "Acme-Inc", installationId: 42 });
+
+    // The install-id row is renamed in place — repos/watch flags/schedules ride along via orgId…
+    expect(organization.update).toHaveBeenCalledTimes(1);
+    expect(organization.update.mock.calls[0][0]).toEqual({
+      where: { id: "org-1" },
+      data: { slug: "acme-inc", name: "Acme-Inc", githubInstallId: "42" },
+    });
+    // …and NO second org row is minted for the new slug.
+    expect(organization.upsert).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('migrated org slug "acme" -> "acme-inc"'));
+    warn.mockRestore();
+  });
+
+  it("TRANSFER onto an already-existing slug: moves the installation there and detaches the stale row (one org per install id)", async () => {
+    organization.findFirst.mockResolvedValueOnce({ id: "org-1", slug: "acme" });
+    organization.findUnique.mockResolvedValueOnce({ id: "org-2" }); // the new login already has an org row
+    organization.update.mockResolvedValueOnce({});
+    organization.upsert.mockResolvedValueOnce({});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await upsertInstallation({ login: "Acme-Inc", installationId: 42 });
+
+    // The stale row is detached FIRST, so the install id never points at two orgs…
+    expect(organization.update).toHaveBeenCalledTimes(1);
+    expect(organization.update.mock.calls[0][0]).toEqual({
+      where: { id: "org-1" },
+      data: { githubInstallId: null },
+    });
+    // …then the installation lands on the row matching the CURRENT login.
+    expect(organization.upsert).toHaveBeenCalledTimes(1);
+    expect(organization.upsert.mock.calls[0][0].where).toEqual({ slug: "acme-inc" });
+    expect(organization.upsert.mock.calls[0][0].update).toEqual({ githubInstallId: "42", name: "Acme-Inc" });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("were not migrated"));
+    warn.mockRestore();
   });
 
   it("rethrows non-P2002 errors instead of swallowing them", async () => {
