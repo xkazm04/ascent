@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import type { OrgBranding } from "@/lib/db/branding";
-import { HEX_COLOR_RE } from "@/lib/branding/color";
+import { DEFAULT_BRAND_ACCENT, HEX_COLOR_RE } from "@/lib/branding/color";
 
 /** WCAG relative luminance (0 = black … 1 = white) of a `#rrggbb` colour; NaN for a malformed one. */
 function luminance(hex: string): number {
@@ -41,7 +41,13 @@ export function accentContrastWarning(hex: string): string | null {
 
 export function BrandingSettings({ slug, initial }: { slug: string; initial: OrgBranding }) {
   const [brandName, setBrandName] = useState(initial.brandName ?? "");
-  const [brandColor, setBrandColor] = useState(initial.brandColor ?? "#2563eb");
+  const [brandColor, setBrandColor] = useState(initial.brandColor ?? DEFAULT_BRAND_ACCENT);
+  // org-branding #2: `<input type="color">` cannot express "unset", so the picker's visible default
+  // must not be conflated with a stored value. Track whether the org actually HAS a colour (stored, or
+  // picked this session): while false we submit "" (the server's deliberate-clear), preserving the
+  // stored-null "use the current default" semantics — otherwise the first save of a name-only change
+  // silently froze #2563eb into the DB and there was no way back to null through this UI.
+  const [colorSet, setColorSet] = useState(Boolean(initial.brandColor));
   const [logoUrl, setLogoUrl] = useState(initial.logoUrl ?? "");
   const [state, setState] = useState<"idle" | "saving" | "saved" | "warn" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
@@ -49,7 +55,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
   async function save() {
     setState("saving");
     setMsg(null);
-    const submitted = { brandName: brandName.trim(), brandColor: brandColor.trim(), logoUrl: logoUrl.trim() };
+    const submitted = { brandName: brandName.trim(), brandColor: colorSet ? brandColor.trim() : "", logoUrl: logoUrl.trim() };
     try {
       const res = await fetch("/api/org/branding", {
         method: "POST",
@@ -97,14 +103,34 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
           <input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="Acme Inc." className={`${field} w-44`} />
         </label>
         <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
-          Accent
-          <input
-            type="color"
-            value={HEX_COLOR_RE.test(brandColor) ? brandColor : "#2563eb"}
-            onChange={(e) => setBrandColor(e.target.value)}
-            aria-describedby={contrastWarning ? "brand-accent-warning" : undefined}
-            className="h-9 w-14 rounded-lg border border-slate-700 bg-slate-900"
-          />
+          <span>
+            Accent{!colorSet && <span className="ml-1.5 text-slate-600">(default)</span>}
+          </span>
+          <span className="flex items-center gap-2">
+            <input
+              type="color"
+              value={HEX_COLOR_RE.test(brandColor) ? brandColor : DEFAULT_BRAND_ACCENT}
+              onChange={(e) => {
+                setBrandColor(e.target.value);
+                setColorSet(true);
+              }}
+              aria-describedby={contrastWarning ? "brand-accent-warning" : undefined}
+              className="h-9 w-14 rounded-lg border border-slate-700 bg-slate-900"
+            />
+            {colorSet && (
+              <button
+                type="button"
+                onClick={() => {
+                  setColorSet(false);
+                  setBrandColor(DEFAULT_BRAND_ACCENT);
+                }}
+                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 transition hover:border-accent hover:text-white"
+                title="Clear the custom accent — briefings follow Ascent's current default colour"
+              >
+                Use default
+              </button>
+            )}
+          </span>
         </label>
         <label className="flex flex-1 flex-col gap-1 font-mono text-sm text-slate-500">
           Logo URL (https)
