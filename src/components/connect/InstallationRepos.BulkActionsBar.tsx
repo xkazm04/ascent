@@ -1,7 +1,7 @@
 "use client";
 
 import type { AppRepo } from "./installationRepoTypes";
-import { SCHEDULES } from "./installationRepoTypes";
+import { SCHEDULES, scheduleLabel } from "./installationRepoTypes";
 
 /** Bulk actions — watch many at once, or set one cadence for the whole watched set, instead of
  *  one click per repo. The two controls have DIFFERENT scopes and the labels must say so:
@@ -48,7 +48,7 @@ export function BulkActionsBar({
           <option value="">cadence…</option>
           {SCHEDULES.map((c) => (
             <option key={c} value={c}>
-              {c}
+              {scheduleLabel(c)}
             </option>
           ))}
         </select>

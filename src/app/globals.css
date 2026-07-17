@@ -19,6 +19,12 @@
   --color-danger-soft: #fca5a5;
   /* Warning accent (was raw #f97316 in inline styles). */
   --color-warn: #f97316;
+  /* Success family (was raw emerald-500/400/300 literals reinvented per surface — connect's
+     re-synced/revoked notices, the discovered-org panel + its CTA). Same shape as danger:
+     `success` for borders/bg/solid CTAs (border-success/30, bg-success/10, bg-success),
+     `success-soft` for text on dark and CTA hover (text-success-soft, hover:bg-success-soft). */
+  --color-success: #10b981;
+  --color-success-soft: #6ee7b7;
   /* Brand surface system (the editorial "Index" identity). Panels use the translucent form
      (bg-surface/40) so the body's altimeter gradient shows through; `divider` is the single hairline
      token for card borders + rules (replaces the slate-800/slate-700 drift). Utilities generated:
