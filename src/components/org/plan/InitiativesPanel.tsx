@@ -85,6 +85,14 @@ export function InitiativesPanel({
     // (403/404/network) left the UI showing a status/assignee/due/goal-link the server never accepted.
     // Snapshot first, then restore + surface the error if the write didn't persist (goals-initiatives #2).
     const prev = items;
+    // Client half of the optimistic-lock protocol (goals-initiatives 07-16 #3): send the last-seen
+    // value of exactly the fields this patch writes, so the server's compare-and-set guards the whole
+    // "since this row rendered" window — without `expected` it only guarded the milliseconds between
+    // its own read and write, and two admins with stale tabs still clobbered each other silently.
+    const row = items.find((i) => i.id === id);
+    const expected = row
+      ? Object.fromEntries((Object.keys(body) as (keyof typeof body)[]).map((k) => [k, row[k]]))
+      : undefined;
     setItems((xs) =>
       xs.map((i) =>
         i.id === id
@@ -97,8 +105,16 @@ export function InitiativesPanel({
       const res = await fetch(`/api/org/initiatives/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, expected }),
       });
+      if (res.status === 409) {
+        // A concurrent editor won the same field: pull the authoritative snapshot so the user retries
+        // against what actually persisted, instead of a generic error over a reverted stale row.
+        setItems(prev);
+        await refresh();
+        setError("This initiative changed concurrently — the list was reloaded, please retry.");
+        return;
+      }
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed to update initiative.");
     } catch (e) {
       setItems(prev);
