@@ -5,6 +5,7 @@
 // percentage. Editorial chrome (hairline rules, no HUD brackets).
 
 import { motion } from "framer-motion";
+import { DeckSection } from "@/components/deck/DeckSection";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { SectionHeading } from "@/components/ui";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
@@ -41,10 +42,9 @@ function CellBar({ w }: { w: number }) {
 
 export function DimensionMatrix() {
   return (
-    // data-deck-last: this is the landing deck's FINAL section (IndexVariant renders it last) —
-    // globals.css hides the section connector on it. If a section is ever added after this one,
-    // move the attribute to the new last section.
-    <section id="dimensions" data-deck-last="" className="flex min-h-screen snap-start flex-col justify-start pb-24 pt-14 lg:justify-center lg:pb-10">
+    // deckLast: this is the landing deck's FINAL section (IndexVariant renders it last) — if a
+    // section is ever added after this one, move the flag to the new last section.
+    <DeckSection id="dimensions" deckLast justify="startLgCenter">
       <SectionHeading
         size="page"
         kicker="The instrument"
@@ -100,6 +100,6 @@ export function DimensionMatrix() {
         <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-accent" /> Adoption axis</span>
         <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> Rigor axis</span>
       </div>
-    </section>
+    </DeckSection>
   );
 }
