@@ -45,11 +45,16 @@ export function DimensionMatrix() {
       <SectionHeading
         size="page"
         kicker="The instrument"
+        id="dimensions-heading"
         title={`${DIMENSIONS.length} dimensions, three profiles`}
         intro={`The same ${DIMENSIONS.length} signals, re-weighted for a solo project, a team, or a whole org. Longer bars carry more weight in that profile.`}
       />
 
-      <div className="mt-8 overflow-x-auto">
+      {/* Standard keyboard-scrollable-region pattern (WCAG 2.1.1): the wide table overflows on narrow
+          viewports and has no focusable descendants, so without tabindex a keyboard user could never
+          scroll the Team/Org columns into view. role+label make the focus stop announce as a named
+          region rather than a mystery tab stop. */}
+      <div className="focus-ring mt-8 overflow-x-auto" tabIndex={0} role="region" aria-labelledby="dimensions-heading">
         <table className="w-full min-w-[40rem] text-left">
           <caption className="sr-only">Per-dimension weighting across the Solo, Team, and Org archetype lenses.</caption>
           <thead>
