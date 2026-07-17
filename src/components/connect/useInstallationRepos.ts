@@ -273,6 +273,16 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
     [repos, query, visibility, watchedOnly, language],
   );
 
+  // One-click escape from the zero-matches dead end: with four independent filters active (one of
+  // which — language — can even hide its own control when `languages` is empty), unwinding them by
+  // hand is guesswork. The empty state offers this instead. (ambiguity-ui connect-repo-selection #5)
+  function resetFilters() {
+    setQuery("");
+    setVisibility("all");
+    setWatchedOnly(false);
+    setLanguage("all");
+  }
+
   // Watch every currently-filtered repo that isn't watched yet, in one request. Optimistic across the
   // set; rolls failed rows back. Same no-success-theater contract as the per-row toggle.
   async function watchAllFiltered() {
@@ -398,6 +408,7 @@ export function useInstallationRepos({ org, installationId }: { org: string; ins
     changeSchedule,
     watchAllFiltered,
     scheduleWatched,
+    resetFilters,
     languages,
     filtered,
     watchedCount,

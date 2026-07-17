@@ -32,8 +32,17 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({
   isDbConfigured: mockIsDbConfigured,
   getPrisma: mockGetPrisma,
-  // Not used by getScanReportByCommit, but the module imports it at top level.
-  dbReadSafe: <T,>(fn: () => Promise<T>) => fn(),
+  // Faithful stand-in for the real dbReadSafe (scan-persistence-history 07-16 #4): run fn; degrade a
+  // DB-UNREACHABLE throw (PrismaClientInitializationError) to the fallback; re-throw anything else —
+  // so the tests below can prove the readers are actually wrapped (a raw read would propagate).
+  dbReadSafe: async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      if ((err as { name?: string } | null)?.name === "PrismaClientInitializationError") return fallback;
+      throw err;
+    }
+  },
 }));
 
 // resolveOrgId is the only scans-shared seam getScanReportByCommit needs to MOCK (to reach the scan
@@ -93,7 +102,7 @@ vi.mock("@/lib/db/scans-shared", () => {
   };
 });
 
-import { getScanReportByCommit } from "./scans-read";
+import { getLatestRecommendations, getScanReportByCommit } from "./scans-read";
 
 // ── Faked Prisma returning ONE scan row whose JSON columns we craft per-test ──────────────────────
 
@@ -372,5 +381,109 @@ describe("getScanReportByCommit — corrupt-row resilience (the load-bearing inv
     // The surrounding report still assembled with its non-JSON fields intact.
     expect(r.overallScore).toBe(70);
     expect(r.headline).toBe("ok");
+  });
+});
+
+// ── getLatestRecommendations — the public-org private-repo guard (defense in depth) ───────────────
+// getRepositoryHistory, getScanComparison, and getScanReportByCommit all refuse to serve a PRIVATE
+// repo's data out of the shared public org (the anonymous read surface); getLatestRecommendations was
+// the fourth public-org reader and shipped without the guard — serving roadmap titles, rationales
+// (which can quote private code/evidence), assignee logins, and target dates for a legacy private row
+// persisted under the public org. These tests pin the guard so it can't be dropped a second time.
+
+describe("getLatestRecommendations — public-org private-repo guard", () => {
+  function prismaWithRepo(isPrivate: boolean) {
+    const base = fakePrismaWithColumns({});
+    const repo = {
+      id: "repo_1",
+      owner: "acme",
+      name: "widget",
+      url: "https://github.com/acme/widget",
+      stars: 5,
+      primaryLanguage: "TypeScript",
+      isPrivate,
+      contributors: [],
+    };
+    base.repository.findUnique = vi.fn(async () => repo);
+    return base;
+  }
+
+  it("returns null and never reads the scan when the repo is PRIVATE under the shared public org", async () => {
+    const prisma = prismaWithRepo(true);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    // No orgSlug → defaults to DEFAULT_ORG_SLUG ("public"), the anonymous read surface.
+    const res = await getLatestRecommendations("acme", "widget");
+
+    expect(res).toBeNull();
+    // Fail closed BEFORE the scan/recommendations read — no roadmap bytes are even fetched.
+    expect(prisma.scan.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("still serves the roadmap for a public repo under the public org (guard is private-only)", async () => {
+    const prisma = prismaWithRepo(false);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getLatestRecommendations("acme", "widget");
+
+    expect(res).not.toBeNull();
+    expect(res!.scanId).toBe("scan_1");
+    expect(prisma.scan.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it("still serves a PRIVATE repo under a member-scoped (non-public) org", async () => {
+    const prisma = prismaWithRepo(true);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getLatestRecommendations("acme", "widget", { orgSlug: "acme-corp" });
+
+    expect(res).not.toBeNull();
+    expect(prisma.scan.findFirst).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── DB-down degrade parity (scan-persistence-history 07-16 #4) ────────────────────────────────────
+// A configured-but-UNREACHABLE DB (PrismaClientInitializationError at connect) must degrade these
+// readers to null — the same "no data" fallback their callers already render — instead of 500ing the
+// report/history/comparison pages while the landing page degrades gracefully. The dbReadSafe mock at
+// the top of this file re-throws anything that isn't the unreachable class, so these tests fail
+// against unwrapped (raw getPrisma) readers.
+
+describe("DB-down degrade — readers wrapped in dbReadSafe", () => {
+  function unreachablePrisma() {
+    const boom = Object.assign(new Error("Can't reach database server at localhost:5432"), {
+      name: "PrismaClientInitializationError",
+    });
+    return {
+      repository: {
+        findUnique: vi.fn(async () => {
+          throw boom;
+        }),
+      },
+      scan: { findFirst: vi.fn() },
+    };
+  }
+
+  beforeEach(() => {
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  it("getScanReportByCommit returns null (report permalink renders its fallback, no 500)", async () => {
+    mockGetPrisma.mockReturnValue(unreachablePrisma());
+    await expect(getScanReportByCommit("acme", "widget")).resolves.toBeNull();
+  });
+
+  it("getLatestRecommendations returns null on a DB-down", async () => {
+    mockGetPrisma.mockReturnValue(unreachablePrisma());
+    await expect(getLatestRecommendations("acme", "widget")).resolves.toBeNull();
+  });
+
+  it("a LIVE-DB query error still propagates (dbReadSafe only swallows the unreachable class)", async () => {
+    const prisma = unreachablePrisma();
+    prisma.repository.findUnique = vi.fn(async () => {
+      throw new Error("column does not exist");
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    await expect(getScanReportByCommit("acme", "widget")).rejects.toThrow("column does not exist");
   });
 });

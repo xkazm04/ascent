@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { PRACTICES } from "@/lib/practices";
@@ -13,13 +13,28 @@ import { RankPanel } from "@/components/org/plan/Simulator.RankPanel";
 import { ProjectionResult } from "@/components/org/plan/Simulator.ProjectionResult";
 import { SavedScenarios } from "@/components/org/plan/Simulator.SavedScenarios";
 
+/** Clamp a typed target into 0..100 (investment 07-16 #3): the inputs' HTML min/max only constrain
+ *  the spinner arrows — typing "150" / "-5" went straight into state, then either 400'd on simulate
+ *  or was silently swapped for 70 by the rank route while the button advertised the typed value.
+ *  Empty/garbage input keeps the previous value instead of `Number("") = 0` silently jumping to 0.
+ *  ONE sanitizer for all target inputs (primary + extras), so the bounds can't drift. */
+function clampTarget(raw: string, prev: number): number {
+  if (raw.trim() === "") return prev;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return prev;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
 /** What-if: project the fleet impact of raising a dimension to a target across a repo set. */
 export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption[]; repos: RepoOption[] }) {
   const router = useRouter();
   const [dimId, setDimId] = useState(dims[0]?.id ?? "D2");
   const [target, setTarget] = useState(70);
   // SIM-2: additional dimensions to raise in the same scenario (the primary dimId/target is leg 1).
-  const [extras, setExtras] = useState<{ dimId: string; target: number }[]>([]);
+  // Each row carries a stable `key`: keying the rendered rows by array index mis-associated row
+  // state after a mid-list remove (investment 07-16 #5).
+  const [extras, setExtras] = useState<{ key: number; dimId: string; target: number }[]>([]);
+  const extraKeyRef = useRef(0);
   const [scope, setScope] = useState<Set<string>>(new Set());
   const [showRepos, setShowRepos] = useState(false);
   const [result, setResult] = useState<FleetProjection | null>(null);
@@ -32,6 +47,12 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [ranking, setRanking] = useState<InvestmentRank[] | null>(null);
   const [rankBusy, setRankBusy] = useState(false);
   const [rankError, setRankError] = useState<string | null>(null);
+  // The inputs the current ranking was computed FROM. The ranking derives from the live `target` and
+  // `scope` exactly like the projection does, but it isn't cleared by invalidate() (clearing it on
+  // loadMove would destroy the list the user is picking from) — so instead we remember what it was
+  // computed with and visibly mark it stale when the live inputs diverge, preventing "Top moves"
+  // computed for one fleet slice from reading as live advice for another (investment 07-16 #1).
+  const [rankedWith, setRankedWith] = useState<{ target: number; scopeKey: string; scopeSize: number } | null>(null);
   // SIM-5: client-only saved scenarios + a 2-up compare. No backend — a scratchpad for "what if".
   const [saved, setSaved] = useState<SavedScenario[]>([]);
   const [compare, setCompare] = useState<number[]>([]);
@@ -40,9 +61,14 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   function saveScenario() {
     if (!result) return;
     const label = result.fixes.map((f) => `${f.dimId}→${f.target}`).join(" + ");
+    // Capture the repo scope at save time (investment 07-16 #4): the legs alone labelled two saves
+    // of "D2→70" identically even when one covered 3 selected repos and the other the whole fleet,
+    // so the 2-up compare silently compared different fleets. `result.repos` is the set the
+    // projection actually covered — not the mutable live selection.
     const s: SavedScenario = {
       id: ++idRef.current,
       label,
+      scope: scope.size > 0 ? `${scope.size} repo${scope.size === 1 ? "" : "s"}` : `all (${result.repos.length})`,
       before: result.before,
       after: result.after,
       promotions: result.promotions,
@@ -75,6 +101,11 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       // gain is a diff of two rounded integers, so a real promotion (64→65, L3→L4) can read gain=0 yet
       // promotions>0. Dropping it hid the single most valuable recommendation (investment #2).
       setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0 || r.promotions > 0).slice(0, 5));
+      // Record the EFFECTIVE target the ranking was computed with — the route echoes it (it falls
+      // back to 70 for an out-of-range value), so the stale badge / "computed for … at target T"
+      // note can never advertise a target the engine didn't actually use (investment 07-16 #3).
+      const effectiveTarget = typeof data.target === "number" ? data.target : target;
+      setRankedWith({ target: effectiveTarget, scopeKey: [...scope].sort().join("\n"), scopeSize: scope.size });
     } catch (e) {
       setRankError(e instanceof Error ? e.message : "Couldn't rank moves.");
     } finally {
@@ -116,7 +147,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     const next = dims.find((d) => !used.has(d.id));
     if (next) {
       invalidate();
-      setExtras((xs) => [...xs, { dimId: next.id, target: 70 }]);
+      setExtras((xs) => [...xs, { key: ++extraKeyRef.current, dimId: next.id, target: 70 }]);
     }
   }
   function updateExtra(idx: number, patch: Partial<{ dimId: string; target: number }>) {
@@ -134,7 +165,8 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     setTracked(false);
     setTrackError(null);
     // One leg per dimension; a single leg uses the original {dimId,target} shape for clarity.
-    const fixes = [{ dimId, target }, ...extras];
+    // (extras' client-side `key` is stripped — the API contract is exactly {dimId, target}.)
+    const fixes = [{ dimId, target }, ...extras.map((x) => ({ dimId: x.dimId, target: x.target }))];
     try {
       const res = await fetch("/api/org/simulate", {
         method: "POST",
@@ -152,34 +184,35 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     }
   }
 
-  // Commit the simulated scenario as tracked Initiative(s) — closes the "insight → plan" loop.
-  // /api/org/initiatives is single-dimension ({ dimId, targetScore, repos }), so drive it from the
-  // FULL set of legs the projection was computed from (result.fixes), one initiative per leg —
-  // NOT just the live primary dimId/target. Sourcing from result.fixes (the immutable snapshot that
-  // produced the on-screen projection) instead of the mutable form state also means editing the
-  // dropdown after simulating, or building a multi-leg scenario, no longer silently drops legs or
-  // tracks a target that disagrees with what leadership reviewed.
+  // Commit the simulated scenario as a tracked Initiative — closes the "insight → plan" loop.
+  // POLICY: initiatives are single-dimension by design (/api/org/initiatives takes one
+  // { dimId, targetScore, repos }); multi-leg scenarios are REJECTED at the button
+  // (ProjectionResult disables Track when result.fixes.length > 1) rather than looped over here.
+  // A per-leg loop was rejected because it is non-atomic: leg 1 POST succeeds, leg 2 fails →
+  // the retry re-creates leg 1 as a duplicate initiative server-side. Sourcing the single fix from
+  // result.fixes (the immutable snapshot that produced the on-screen projection) instead of the
+  // mutable form state means editing the dropdown after simulating still can't track a target that
+  // disagrees with what leadership reviewed. (investment 07-16 #2)
   async function trackAsInitiative() {
-    if (!result || result.fixes.length === 0) return;
+    if (!result || result.fixes.length !== 1) return; // multi-leg is blocked in the UI; guard it here too
+    const fix = result.fixes[0]!;
     setTracking(true);
     setTrackError(null);
     // Use the explicit selection, or the concrete repos the projection covered when scope = "all".
     const initRepos = scope.size > 0 ? [...scope] : result.repos.map((r) => r.fullName);
     try {
-      for (const fix of result.fixes) {
-        const dimLabel = dims.find((d) => d.id === fix.dimId)?.label ?? fix.dimId;
-        const title = `Raise ${fix.dimId} · ${dimLabel} to ${fix.target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
-        const practiceId = PRACTICES.find((p) => p.dimId === fix.dimId)?.id ?? null; // GOAL-3: carry the starter shape
-        const res = await fetch("/api/org/initiatives", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ org: slug, title, dimId: fix.dimId, practiceId, targetScore: fix.target, repos: initRepos }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
-      }
+      const dimLabel = dims.find((d) => d.id === fix.dimId)?.label ?? fix.dimId;
+      const title = `Raise ${fix.dimId} · ${dimLabel} to ${fix.target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
+      const practiceId = PRACTICES.find((p) => p.dimId === fix.dimId)?.id ?? null; // GOAL-3: carry the starter shape
+      const res = await fetch("/api/org/initiatives", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug, title, dimId: fix.dimId, practiceId, targetScore: fix.target, repos: initRepos }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
       setTracked(true);
-      router.refresh(); // surface the new initiative(s) in the Initiatives panel on this page
+      router.refresh(); // surface the new initiative in the Initiatives panel on this page
     } catch (e) {
       setTrackError(e instanceof Error ? e.message : "Failed to create initiative.");
     } finally {
@@ -188,6 +221,13 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   }
 
   const scopeLabel = scope.size === 0 ? "all scanned repos" : `${scope.size} selected`;
+
+  // Stale when the live target/scope no longer match what the ranking was computed with (investment 07-16 #1).
+  const scopeKey = useMemo(() => [...scope].sort().join("\n"), [scope]);
+  const rankingStale =
+    ranking !== null && rankedWith !== null && (rankedWith.target !== target || rankedWith.scopeKey !== scopeKey);
+  const rankedScopeLabel =
+    rankedWith === null ? null : rankedWith.scopeSize === 0 ? "all scanned repos" : `${rankedWith.scopeSize} selected repo${rankedWith.scopeSize === 1 ? "" : "s"}`;
 
   return (
     <Card>
@@ -203,6 +243,8 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         rankBusy={rankBusy}
         rankError={rankError}
         target={target}
+        stale={rankingStale}
+        staleNote={rankingStale && rankedWith ? `computed for ${rankedScopeLabel} at target ${rankedWith.target}` : null}
         onSuggest={suggestMoves}
         onLoadMove={loadMove}
       />
@@ -217,9 +259,14 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
           ))}
         </select>
         <span className="font-mono text-sm text-slate-500">to</span>
-        <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => { invalidate(); setTarget(Number(e.target.value)); }} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
+        <input aria-label="Target score" type="number" min={0} max={100} value={target} onChange={(e) => { invalidate(); setTarget(clampTarget(e.target.value, target)); }} className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200" />
         <span className="font-mono text-sm text-slate-500">across</span>
-        <button onClick={() => setShowRepos((s) => !s)} className="rounded-lg border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white">
+        <button
+          onClick={() => setShowRepos((s) => !s)}
+          aria-expanded={showRepos}
+          aria-controls="sim-scope-repos"
+          className="rounded-lg border border-slate-700 px-2.5 py-1.5 font-mono text-sm text-slate-300 hover:border-accent hover:text-white"
+        >
           {scopeLabel} ▾
         </button>
         <button onClick={run} disabled={busy} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
@@ -229,7 +276,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
 
       {/* SIM-2: additional dimensions raised in the same scenario — model a combined push. */}
       {extras.map((e, idx) => (
-        <div key={idx} className="mt-2 flex flex-wrap items-center gap-2">
+        <div key={e.key} className="mt-2 flex flex-wrap items-center gap-2">
           <span className="font-mono text-sm text-slate-500">and</span>
           <select
             aria-label={`Additional dimension ${idx + 2} to raise`}
@@ -252,7 +299,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
             min={0}
             max={100}
             value={e.target}
-            onChange={(ev) => updateExtra(idx, { target: Number(ev.target.value) })}
+            onChange={(ev) => updateExtra(idx, { target: clampTarget(ev.target.value, e.target) })}
             className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200"
           />
           <button onClick={() => removeExtra(idx)} className="font-mono text-sm text-slate-600 hover:text-orange-300" title="Remove this dimension">
@@ -267,7 +314,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       )}
 
       {showRepos && (
-        <div className="mt-3 max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+        <div id="sim-scope-repos" className="mt-3 max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-950/40 p-3">
           <div className="mb-2 flex gap-3 font-mono text-sm text-slate-500">
             <button onClick={() => { invalidate(); setScope(new Set()); }} className="hover:text-white">all</button>
             <button onClick={() => { invalidate(); setScope(new Set(repos.map((r) => r.fullName))); }} className="hover:text-white">select all</button>
@@ -283,7 +330,9 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         </div>
       )}
 
-      {error && <p className="mt-3 text-sm text-orange-300">{error}</p>}
+      {/* role="status": a screen-reader user who clicked Simulate must HEAR the failure — a plain <p>
+          inserted after the fact announces nothing (investment 07-16 #5). */}
+      {error && <p role="status" className="mt-3 text-sm text-orange-300">{error}</p>}
 
       {result && (
         <ProjectionResult

@@ -128,7 +128,7 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     mockClaim.mockResolvedValue(true);
     mockConsume.mockResolvedValue({ ok: true, unlimited: false, balance: 4, charged: true } as never);
     mockScan.mockResolvedValue(realReport());
-    mockPersist.mockResolvedValue({ scanId: "s1", deduped: false, failures: { audit: false, contributors: 0 } } as never);
+    mockPersist.mockResolvedValue({ scanId: "s1", deduped: false } as never);
     mockPrevReport.mockResolvedValue(null as never);
     mockOrgId.mockResolvedValue("org-1" as never);
     mockByom.mockResolvedValue(false); // metered org by default; BYOM tests override
@@ -275,6 +275,23 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     await GET(req({ auth: `Bearer ${SECRET}` }));
     expect(mockAdvanceCadence).not.toHaveBeenCalled();
     expect(mockAdvanceFail).toHaveBeenCalledWith("repo-1");
+  });
+
+  it("a failed token mint gets the 6h failure backoff, NOT a full-cadence skip (ambiguity-ui #2)", async () => {
+    // The org HAS an install id but the mint failed — which can be a GitHub blip / 5xx / rate limit,
+    // not only a revoked install. Settling to the full cadence turned one transient bad minute into
+    // a silent month-long skip for a monthly fleet; the failure backoff self-heals next pass while a
+    // genuinely-revoked org still sits off the front of the queue.
+    mockInstallId.mockResolvedValue("inst-1" as never);
+    mockToken.mockResolvedValue(undefined); // mint failed
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(body.skippedNoToken).toBe(1);
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled(); // no credit reserved for a scan that can't run
+    expect(mockAdvanceFail).toHaveBeenCalledWith("repo-1"); // transient-friendly 6h backoff
+    expect(mockAdvanceCadence).not.toHaveBeenCalled(); // NOT a whole-cadence settle
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/repo", { ok: false, error: "installation token unavailable" });
   });
 
   it("does NOT refund when the scan was never charged (no reservation → no scan, no refund)", async () => {

@@ -386,3 +386,47 @@ describe("D7 credits genuine AI authorship, not bots (P2-4)", () => {
     expect(labelText(dimOf(repoSnap([{ path: "README.md", content: "# r" }], commits), "D7").signals)).toMatch(/Frequent AI-assisted commits/);
   });
 });
+
+describe("classifyArchetype — run-style, not popularity (ambiguity-ui maturity-model #5)", () => {
+  const commitsBy = (...logins: string[]) =>
+    logins.map((login, i) => ({ message: `feat: c${i}`, authorLogin: login }));
+
+  it("caps a viral SINGLE-maintainer repo at 'team' — 1000 stars must not force the org lens", () => {
+    // Pre-fix: stars >= 1000 alone returned "org", doubling D3 (0.07→0.14) and more-than-doubling
+    // D9 (0.04→0.09) against a repo the lens exists to judge fairly as single-author work.
+    const viral = snap({ stars: 1500 }, commitsBy("alice", "alice", "alice"));
+    expect(classifyArchetype(viral)).toBe("team");
+  });
+
+  it("caps a two-author repo at 'team' regardless of stars; bots don't count as authors", () => {
+    const s = snap({ stars: 5000 }, [
+      ...commitsBy("alice", "bob"),
+      { message: "chore(deps): bump x", authorLogin: "renovate[bot]" },
+      { message: "chore(deps): bump y", authorLogin: "dependabot[bot]" },
+    ]);
+    expect(classifyArchetype(s)).toBe("team");
+  });
+
+  it("still classifies a starred repo with broad contributor evidence as 'org'", () => {
+    expect(classifyArchetype(snap({ stars: 1500 }, commitsBy("alice", "bob", "carol")))).toBe("org");
+  });
+
+  it("falls back to the star heuristic when the commit window is EMPTY (author count unknown)", () => {
+    expect(classifyArchetype(snap({ stars: 1500 }, []))).toBe("org");
+  });
+
+  it("direct governance evidence (CODEOWNERS + ≥2 workflows) is 'org' even for one author", () => {
+    const s = snap({ stars: 0 }, commitsBy("alice"));
+    s.tree = [
+      { path: "CODEOWNERS", type: "blob" },
+      { path: ".github/workflows/ci.yml", type: "blob" },
+      { path: ".github/workflows/release.yml", type: "blob" },
+    ];
+    expect(classifyArchetype(s)).toBe("org");
+  });
+
+  it("keeps the unchanged lower rungs: 50+ stars → team, quiet unstarred repo → solo", () => {
+    expect(classifyArchetype(snap({ stars: 60 }, commitsBy("alice")))).toBe("team");
+    expect(classifyArchetype(snap({ stars: 3 }, commitsBy("alice")))).toBe("solo");
+  });
+});

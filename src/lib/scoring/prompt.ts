@@ -25,7 +25,9 @@ function processBlock(prStats?: PrStats | null, governance?: Governance | null):
   if (prStats && prStats.analyzed > 0) {
     const h = (v: number | null) => (v == null ? "n/a" : `${v}h`);
     const aiGov = prStats.aiGovernedRate == null ? "n/a (too few AI PRs)" : pct(prStats.aiGovernedRate);
-    const reviewed = prStats.reviewedRate == null ? "n/a (no human-merged PRs)" : pct(prStats.reviewedRate);
+    // null = no usable sample (fewer than 5 human-merged PRs in the window, or off-platform review) —
+    // never a fabricated 0%. Say so, or the LLM auditor reads absence of data as absence of review.
+    const reviewed = prStats.reviewedRate == null ? "n/a (below the minimum human-merged PR sample)" : pct(prStats.reviewedRate);
     lines.push(
       `- Pull requests: ${prStats.analyzed} analyzed of ${prStats.totalCount} total; merge rate ${pct(prStats.mergeRate)}, reviewed rate ${reviewed} (merged PRs with an approving review), avg ${prStats.avgReviews} reviews/PR.`,
       `- Velocity & size: median time-to-merge ${h(prStats.medianHoursToMerge)}, median time-to-first-review ${h(prStats.medianHoursToFirstReview)}; small-PR rate ${pct(prStats.smallPrRate)} (≤200 line changes).`,

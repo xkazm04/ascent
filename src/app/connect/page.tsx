@@ -73,7 +73,7 @@ export default async function ConnectPage({
       <Shell>
         <div className="animate-fade-up">
           {header}
-          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+          <div className="mt-6 rounded-2xl border border-divider bg-surface/40 p-6">
             <h2 className="font-semibold text-white">GitHub App not configured</h2>
             <p className="mt-2 text-base text-slate-400">
               Set <code className="font-mono text-slate-300">GITHUB_APP_ID</code> and{" "}
@@ -157,7 +157,7 @@ export default async function ConnectPage({
         {resynced && (
           <div
             role="status"
-            className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-base text-emerald-300"
+            className="mt-5 rounded-xl border border-success/30 bg-success/10 p-4 text-base text-success-soft"
           >
             GitHub access re-synced — {installCount} installation{installCount === 1 ? "" : "s"} now available.
           </div>
@@ -165,7 +165,7 @@ export default async function ConnectPage({
         {revoked && (
           <div
             role="status"
-            className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-base text-emerald-300"
+            className="mt-5 rounded-xl border border-success/30 bg-success/10 p-4 text-base text-success-soft"
           >
             {revoked === "others"
               ? "Signed out of all other sessions — this browser stays signed in."
@@ -229,7 +229,7 @@ export default async function ConnectPage({
           </section>
         )}
         {installs.length === 0 && !pendingInstall ? (
-          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+          <div className="mt-6 rounded-2xl border border-divider bg-surface/40 p-6">
             <h2 className="font-semibold text-white">Install the GitHub App</h2>
             <p className="mt-2 text-base text-slate-400">
               You&apos;ll choose which repositories Ascent can read (Contents + Metadata,

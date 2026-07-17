@@ -8,9 +8,7 @@
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
 import { CX, CY, R, BLIPS, WAVE_START, WAVE_END, WAVE_MAX, BEAM_END } from "./radar";
-import { MONO, clamp01, Metric, lerpHex, W, H } from "../compositionShared";
-
-const GREEN = "#22c55e";
+import { ACCENT, ACCENT_SOFT, DANGER, GREEN, INK, MONO, WARN, clamp01, Metric, lerpHex, W, H } from "../compositionShared";
 
 export const RadarComposition: React.FC = () => {
   const frame = useCurrentFrame();
@@ -25,28 +23,28 @@ export const RadarComposition: React.FC = () => {
   const criticalOpen = BLIPS.filter((b) => b.critical && frame >= b.detect && frame < b.mitigate).length;
 
   const gate = detected === 0 ? "scan" : criticalOpen > 0 ? "fail" : "pass";
-  const gateColor = gate === "pass" ? GREEN : gate === "fail" ? "#ef4444" : "#3b9eff";
+  const gateColor = gate === "pass" ? GREEN : gate === "fail" ? DANGER : ACCENT;
   const gateText = gate === "pass" ? "Gate Pass" : gate === "fail" ? "Gate Fail" : "Scanning";
 
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: "#080d1a",
+        backgroundColor: INK,
         backgroundImage: "radial-gradient(55% 55% at 50% 50%, rgba(59,158,255,0.07), transparent 70%)",
       }}
     >
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: "absolute", inset: 0 }}>
         <defs>
           <linearGradient id="radar-beam" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#3b9eff" stopOpacity={0.5} />
-            <stop offset="100%" stopColor="#3b9eff" stopOpacity={0} />
+            <stop offset="0%" stopColor={ACCENT} stopOpacity={0.5} />
+            <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
           </linearGradient>
           {/* feathered fill (fades to nothing at the edge) + a blur for the glowing front, so the
               wave reads as a soft shadow rather than a fixed borderline */}
           <radialGradient id="secured-fill">
-            <stop offset="0%" stopColor="#22c55e" stopOpacity={0.1} />
-            <stop offset="76%" stopColor="#22c55e" stopOpacity={0.07} />
-            <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
+            <stop offset="0%" stopColor={GREEN} stopOpacity={0.1} />
+            <stop offset="76%" stopColor={GREEN} stopOpacity={0.07} />
+            <stop offset="100%" stopColor={GREEN} stopOpacity={0} />
           </radialGradient>
           <filter id="wave-glow" x="-40%" y="-40%" width="180%" height="180%">
             <feGaussianBlur stdDeviation="6" />
@@ -62,7 +60,7 @@ export const RadarComposition: React.FC = () => {
         {/* identification sweep */}
         <g style={{ transformOrigin: `${CX}px ${CY}px`, transform: `rotate(${beamAngle + 90}deg)` }} opacity={beamOpacity}>
           <path d={`M${CX} ${CY} L${CX - 23} ${CY - 189} A189 189 0 0 1 ${CX + 23} ${CY - 189} Z`} fill="url(#radar-beam)" />
-          <line x1={CX} y1={CY} x2={CX} y2={CY - R} stroke="#7bbcff" strokeWidth={1.5} />
+          <line x1={CX} y1={CY} x2={CX} y2={CY - R} stroke={ACCENT_SOFT} strokeWidth={1.5} />
         </g>
 
         {/* mitigation wave from center: a feathered "secured" disc + a soft blurred front (a glow,
@@ -86,7 +84,7 @@ export const RadarComposition: React.FC = () => {
           const age = frame - b.detect;
           const resolved = frame >= b.mitigate;
           const resolving = Number.isFinite(b.mitigate) ? clamp01((frame - b.mitigate) / 18) : 0;
-          const alertColor = b.critical ? "#ef4444" : "#f97316";
+          const alertColor = b.critical ? DANGER : WARN;
           const core = lerpHex(alertColor, GREEN, resolving);
           // pop-in: scale up from 0 with a slight overshoot so the appearance is visible
           const scale = interpolate(age, [0, 6, 12], [0, 1.3, 1], { extrapolateRight: "clamp" });
@@ -107,14 +105,14 @@ export const RadarComposition: React.FC = () => {
             </g>
           );
         })}
-        <circle cx={CX} cy={CY} r={3} fill="#7bbcff" />
+        <circle cx={CX} cy={CY} r={3} fill={ACCENT_SOFT} />
       </svg>
 
       <div style={{ position: "absolute", left: 36, top: 32, fontFamily: MONO }}>
-        <div style={{ color: "#3b9eff", fontSize: 32, letterSpacing: 3, textTransform: "uppercase" }}>Risk radar</div>
+        <div style={{ color: ACCENT, fontSize: 32, letterSpacing: 3, textTransform: "uppercase" }}>Risk radar</div>
       </div>
       <div style={{ position: "absolute", right: 36, top: 28, display: "flex", gap: 44, textAlign: "right", fontFamily: MONO }}>
-        <Metric label="open risks" value={openRisks} color="#f97316" />
+        <Metric label="open risks" value={openRisks} color={WARN} />
         <Metric label="mitigated" value={mitigated} color={GREEN} />
       </div>
       <div style={{ position: "absolute", left: 36, bottom: 30, fontFamily: MONO }}>

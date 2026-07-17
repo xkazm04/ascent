@@ -206,6 +206,17 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : String(n);
 }
 
+/** English ordinal suffix for a non-negative integer (1st, 2nd, 3rd, 4th … 11th/12th/13th, 21st, 22nd).
+ *  The digest percentile line hard-coded "th", so corpus percentiles ending in 1/2/3 (except the
+ *  11–13 teens) rendered broken ordinals ("21th pctile") in the one artifact leaders read without
+ *  opening the app — a sent Slack message can't be hot-fixed. (ambiguity-ui 2026-07-16 #5) */
+export function ordinal(n: number): string {
+  const mod100 = Math.abs(n) % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  const suffix = { 1: "st", 2: "nd", 3: "rd" }[Math.abs(n) % 10] ?? "th";
+  return `${n}${suffix}`;
+}
+
 /**
  * Build a Slack-compatible alert message from a regression verdict. Pure — no env, no Date.
  * The top movement attributions from the diff are included so the alert explains *why* the
@@ -271,7 +282,7 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
           : ` (${signed(d.overallDelta)} — within noise this week)`
         : ` (${signed(d.overallDelta)} this week)`;
   const headline = `📊 Ascent weekly digest: ${d.org}`;
-  const pctile = d.percentile != null ? ` · ${d.percentile}th pctile` : "";
+  const pctile = d.percentile != null ? ` · ${ordinal(d.percentile)} pctile` : "";
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} — ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
 
@@ -327,12 +338,17 @@ export function creditsAlertThreshold(): number {
 }
 
 /**
- * Whether a debit landing on `balanceAfter` crosses an alert line. Pure. Debits are unit-sized
- * (one credit per scan), so the balance lands EXACTLY on the threshold once on the way down and
- * exactly on 0 once at depletion — each crossing fires once with no dedupe state.
+ * Whether a debit that moved the balance from `balanceBefore` to `balanceAfter` CROSSED an alert
+ * line (the low-water threshold, or depletion at 0). Pure, range-based: a crossing happens when the
+ * balance was strictly above the line before and at/below it after — so each line fires at most once
+ * per descent, with no dedupe state, and the predicate no longer depends on the unenforced
+ * cross-module invariant that debits are unit-sized (the old `balanceAfter === threshold` equality
+ * silently never fired if any future bulk debit stepped OVER the line). A non-debit observation
+ * (grant/refund/no-op) never alerts. (ambiguity-ui 2026-07-16 #3)
  */
-export function isLowCreditsCrossing(balanceAfter: number, threshold: number): boolean {
-  return balanceAfter === 0 || balanceAfter === threshold;
+export function isLowCreditsCrossing(balanceBefore: number, balanceAfter: number, threshold: number): boolean {
+  if (balanceAfter >= balanceBefore) return false; // not a debit — a grant/refund/top-up never alerts
+  return (balanceBefore > threshold && balanceAfter <= threshold) || (balanceBefore > 0 && balanceAfter <= 0);
 }
 
 /**

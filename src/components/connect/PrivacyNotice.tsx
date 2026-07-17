@@ -1,4 +1,5 @@
 import { resolveProviderChoice, hasLlmKey } from "@/lib/llm";
+import { MAX_FILES } from "@/lib/github/source";
 import type { ProviderName } from "@/lib/types";
 
 // Resolve the EFFECTIVE inference provider the same way getProvider() does, so the disclosure
@@ -36,7 +37,8 @@ export function ConnectPrivacyNotice() {
     <section className="mt-5 rounded-xl border border-divider bg-surface/40 p-4 text-sm text-slate-300">
       <div className="font-mono text-xs uppercase tracking-[0.25em] text-accent">Where your code goes</div>
       <p className="mt-2">
-        During a private scan, a budgeted sample of your repository&apos;s file contents (≤32 files) is sent to{" "}
+        During a private scan, a budgeted sample of your repository&apos;s file contents (≤{MAX_FILES} files,
+        plus CI workflow files) is sent to{" "}
         {WHERE[provider]} Ascent persists only the derived scores and evidence — never your source.
       </p>
       {isBedrock && (

@@ -75,6 +75,30 @@ describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", ()
     await expect(p2).rejects.toThrow();
     expect(inflightScanCount()).toBe(0);
   });
+
+  // Joiner metering (ambiguity-ui scan-pipeline-ingestion #4): the scan routes consume a monthly
+  // quota slot BEFORE coalescing, so they need to know "I joined" vs "I computed" to refund the
+  // joiner's slot — otherwise a double-mount / two-tabs race double-charges one shared computation.
+  it("fires onJoin for JOINERS only, never for the computing owner", async () => {
+    const d = deferred<ScanReport>();
+    const factory = vi.fn(() => d.promise);
+    const ownerJoin = vi.fn();
+    const joinerJoin = vi.fn();
+
+    const a = coalesceScan("repo4::llm", factory, undefined, ownerJoin);
+    const b = coalesceScan("repo4::llm", factory, undefined, joinerJoin);
+
+    expect(ownerJoin).not.toHaveBeenCalled(); // first caller computed — its slot stands
+    expect(joinerJoin).toHaveBeenCalledTimes(1); // second caller joined — its slot is refundable
+
+    d.resolve(fakeReport("r"));
+    await Promise.all([a, b]);
+
+    // After settle+evict, a fresh call computes again → no onJoin.
+    const again = vi.fn();
+    await coalesceScan("repo4::llm", vi.fn(async () => fakeReport("r2")), undefined, again);
+    expect(again).not.toHaveBeenCalled();
+  });
 });
 
 // Cache-identity invariant (scan-pipeline #5): the whole pipeline (scan routes, public badge, CI gate)

@@ -181,6 +181,42 @@ describe("updateRecommendation — atomic mutation + audit", () => {
     expect(JSON.parse(auditArg.data.meta).changes).toHaveLength(2);
   });
 
+  // --- note contract (roadmap-recommendation-tracking 07-16 #1) ---
+  it("attaches the note to the FIRST change event only — one comment must not read as N comments", async () => {
+    const { prisma, tx } = fakePrisma(recRow({ status: "open", assigneeLogin: "old" }));
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await updateRecommendation(
+      "rec_1",
+      { status: "in_progress", assigneeLogin: "new" },
+      { actor: "carol", note: "blocked on infra" },
+    );
+
+    const events = tx.recommendationEvent.createMany.mock.calls[0][0].data as Array<{ note: string | null }>;
+    expect(events).toHaveLength(2);
+    expect(events.filter((e) => e.note === "blocked on infra")).toHaveLength(1);
+    expect(events[0].note).toBe("blocked on infra");
+    expect(events[1].note).toBeNull();
+  });
+
+  it("a note on a no-op patch is NOT discarded: writes a dedicated 'note' event (no row update, audit kept)", async () => {
+    // Previously updateRecommendation returned at events.length === 0 and the note vanished with a 200.
+    const { prisma, tx } = fakePrisma(recRow({ status: "open" }));
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const result = await updateRecommendation("rec_1", { status: "open" }, { actor: "dave", note: "still relevant" });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    // No field changed -> no row write, and therefore no optimistic-lock conflict surface.
+    expect(tx.recommendation.updateMany).not.toHaveBeenCalled();
+    const events = tx.recommendationEvent.createMany.mock.calls[0][0].data as Array<Record<string, unknown>>;
+    expect(events).toEqual([
+      expect.objectContaining({ kind: "note", fromValue: null, toValue: null, note: "still relevant", actor: "dave" }),
+    ]);
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ id: "rec_1", status: "open" });
+  });
+
   it("change-detection: a no-op patch writes NO row update, NO event, NO audit row", async () => {
     const { prisma, tx } = fakePrisma(recRow({ status: "open", assigneeLogin: "alice" }));
     mockGetPrisma.mockReturnValue(prisma);

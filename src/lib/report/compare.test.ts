@@ -152,7 +152,28 @@ describe("diffScans", () => {
     expect(d8.openedGaps).toEqual([]);
     expect(d8.appearedSignals).toEqual([]); // no signal movement invented from one side
     expect(d8.disappearedSignals).toEqual([]);
-    expect(d8.attribution).toBeNull();
+    // …but the appearance is still narrated (trends-comparison 07-16 #3): no invented DELTA does not
+    // mean no CHANGE — the attribution names the added dimension so "Why it moved" agrees with the card.
+    expect(d8.attribution).toBe("D8: added in the newer scan (scored 70)");
+    expect(diff.movements).toContain("D8: added in the newer scan (scored 70)");
+  });
+
+  // Pins trends-comparison 07-16 #3: `unchanged` used to coerce a one-sided dim's null delta to 0,
+  // so two otherwise-identical scans where a dimension was ADDED (a dimension-model migration —
+  // exactly when users re-scan to see what the new dimension says) rendered "No measurable change"
+  // above a visible "— → 70" card. One-sided dims must defeat the unchanged verdict, both ways.
+  it("identical scans except one extra dimension are NOT unchanged (added and dropped)", () => {
+    const withoutD8 = mkScan({ id: "a", dimensions: dims().filter((d) => d.dimId !== "D8") });
+    const withD8 = mkScan({ id: "b", dimensions: dims({ D8: { score: 70 } }) });
+
+    const added = diffScans(withoutD8, withD8);
+    expect(added.overall.delta).toBe(0); // everything else is identical…
+    expect(added.unchanged).toBe(false); // …yet the diff is not "no measurable change"
+
+    const dropped = diffScans(withD8, { ...withoutD8, id: "c" });
+    expect(dropped.unchanged).toBe(false);
+    const d8 = dropped.dimensions.find((d) => d.id === "D8")!;
+    expect(d8.attribution).toBe("D8: no longer scored in the newer scan (was 70)");
   });
 
   it("labels a score DROP as a regression — deltas keep the sign of after − before, level/posture fall", () => {

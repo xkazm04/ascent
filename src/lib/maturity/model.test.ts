@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { LEVELS, levelForScore } from "@/lib/maturity/model";
+import { createHash } from "node:crypto";
+import {
+  ARCHETYPE_WEIGHTS,
+  DIMENSIONS,
+  LEVELS,
+  LLM_GUARDBAND,
+  POSTURE_THRESHOLD,
+  SCORE_BLEND,
+  SCORING_RUBRIC_VERSION,
+  levelForScore,
+} from "@/lib/maturity/model";
+import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 
 // The score -> level keystone. Every ring/radar/waterfall/heatmap/badge AND the CI
 // gate route through levelForScore, so a one-line band or off-by-one drift mis-colors
@@ -92,6 +103,49 @@ describe("levelForScore — never returns undefined and covers every integer 0..
   });
 });
 
+describe("SCORING_RUBRIC_VERSION — mechanical backstop for the bump-on-change invariant", () => {
+  // The version constant's doc-comment names the failure it prevents (forget to bump after a
+  // score-moving edit → stale cached scores served as current fleet-wide for up to 7 days), but the
+  // invariant lived entirely in that comment — no test, no CI check, tied the constant to the knobs it
+  // versions. This snapshot hashes the rubric surface (dimension weights+criteria, level bands, blend,
+  // guardband, posture threshold, every archetype lens, and the stable assessment SYSTEM prompt) and
+  // fails when any of it moves without this pin being re-derived — at which point the failure message
+  // forces the SCORING_RUBRIC_VERSION decision into the same diff. (maturity-model-scoring-engine #3)
+  //
+  // To update after a DELIBERATE rubric change:
+  //   1. Bump SCORING_RUBRIC_VERSION in src/lib/maturity/model.ts (e.g. "r2" -> "r3").
+  //   2. Re-run this test, copy the printed hash into EXPECTED_RUBRIC_HASH below.
+  // Detector point-table changes (docs/CALIBRATION.md tuning loop step 3) also move scores and also
+  // require a bump; they aren't hashable here (they live across analyze/*), so treat any calibration
+  // retune as a bump trigger even though this test can't catch it.
+  const rubricSurface = JSON.stringify({
+    dimensions: DIMENSIONS,
+    levels: LEVELS,
+    scoreBlend: SCORE_BLEND,
+    llmGuardband: LLM_GUARDBAND,
+    postureThreshold: POSTURE_THRESHOLD,
+    archetypeWeights: ARCHETYPE_WEIGHTS,
+    systemPrompt: buildAssessmentPrompt({
+      repo: { owner: "pin", name: "rubric", url: "", stars: 0, forks: 0, defaultBranch: "main" },
+      signals: [],
+      files: [],
+      commitSample: [],
+      archetype: "org",
+    }).system,
+  });
+  const actual = createHash("sha256").update(rubricSurface).digest("hex");
+
+  it(`rubric surface hash is pinned to version "${SCORING_RUBRIC_VERSION}"`, () => {
+    const EXPECTED_RUBRIC_HASH = "5d4e8697aa40aaeb99bae6b1c51f429b27b9ad44689af1354316aa62c16516d9";
+    expect(
+      actual,
+      `The scoring rubric changed (weights/bands/blend/guardband/posture threshold/lens/prompt). ` +
+        `Bump SCORING_RUBRIC_VERSION (currently "${SCORING_RUBRIC_VERSION}") in src/lib/maturity/model.ts ` +
+        `so cached scores re-derive under the new rubric, then update EXPECTED_RUBRIC_HASH to "${actual}".`,
+    ).toBe(EXPECTED_RUBRIC_HASH);
+  });
+});
+
 describe("LEVELS rubric shape — the bands these tests pin", () => {
   it("has 5 contiguous, gap-free, non-overlapping bands covering 0..100", () => {
     const byId = Object.fromEntries(LEVELS.map((l) => [l.id, l]));
@@ -108,5 +162,25 @@ describe("LEVELS rubric shape — the bands these tests pin", () => {
     for (let i = 1; i < ordered.length; i++) {
       expect(ordered[i].band[0]).toBe(ordered[i - 1].band[1] + 1);
     }
+  });
+});
+
+describe("POSTURE_META — canonical posture taxonomy shape", () => {
+  it("every posture carries a non-empty short label (charts derive from it, never re-type)", async () => {
+    const { POSTURE_META } = await import("@/lib/maturity/model");
+    expect(POSTURE_META).toHaveLength(4);
+    for (const p of POSTURE_META) {
+      expect(p.short.length).toBeGreaterThan(0);
+      // Short forms are Title Case abbreviations of the full label — pin the casing so the
+      // quadrant can't regress to the drifted "Getting started" hand-copy it once shipped.
+      expect(p.short[0]).toBe(p.short[0]!.toUpperCase());
+    }
+    const short = Object.fromEntries(POSTURE_META.map((p) => [p.id, p.short]));
+    expect(short).toEqual({
+      "ai-native": "AI-Native",
+      ungoverned: "Ungoverned",
+      manual: "Manual",
+      early: "Getting Started",
+    });
   });
 });

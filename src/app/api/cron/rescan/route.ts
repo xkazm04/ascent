@@ -22,7 +22,7 @@ import {
 } from "@/lib/db";
 import { requireCronAuth } from "@/lib/cron-auth";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
-import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
@@ -86,14 +86,18 @@ export async function GET(request: Request) {
       return;
     }
 
-    // Short-circuit a whole org whose installation token couldn't be minted (likely revoked/suspended):
-    // don't reserve a credit, re-mint, or scan with no token (every private repo would 404, refund, and
-    // get a 6h failure backoff — so the dead fleet was re-attempted EVERY daily cron pass). The claim
-    // only LEASED the repo (15 min), so settle it to the full cadence here, so it waits the cadence
-    // rather than re-qualifying every run.
+    // Short-circuit a whole org whose installation token couldn't be minted: don't reserve a credit,
+    // re-mint, or scan with no token (every private repo would 404 and refund). But a failed mint is
+    // NOT proof of a revoked install — a GitHub App API blip, 5xx, or rate limit during this one
+    // pass fails it too, and the old advanceToFullCadence settle turned that one bad minute into a
+    // silent full-cadence skip (a MONTH of stale scores for a monthly fleet, visible only as
+    // `skippedNoToken` in a JSON body nobody reads). Settle with the 6h failure backoff instead:
+    // a transient outage self-heals on the next pass, while a genuinely-revoked org still sits off
+    // the front of the oldest-first queue and just cycles this cheap, scan-free skip.
+    // (ambiguity-ui 2026-07-16 #2)
     if (brokenInstallOrgs.has(r.orgSlug)) {
       skippedNoToken += 1;
-      await advanceToFullCadence(r.repoId, r.scanSchedule).catch(() => {});
+      await advanceScheduleAfterFailure(r.repoId).catch(() => {});
       await recordScanOutcome(r.orgSlug, r.fullName, { ok: false, error: "installation token unavailable" }).catch(() => {});
       return;
     }
@@ -133,7 +137,6 @@ export async function GET(request: Request) {
 
       const report = await scanRepository(r.fullName, { token });
       const persisted = await persistScanReport(report, { orgSlug: r.orgSlug });
-      logPartialWrites("cron/rescan", r.fullName, persisted);
       // Refund the reserved credit when the autoscan produced nothing billable: either it degraded to
       // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no new
       // scored row). An org shouldn't be charged for a system-initiated rescan that yielded no new result.

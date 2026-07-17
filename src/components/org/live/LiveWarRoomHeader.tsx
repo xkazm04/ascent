@@ -7,26 +7,84 @@ import { Meter } from "@/components/org/shared/ui";
 import { PaceChip, type GoalProgressView } from "@/components/org/shared/goalView";
 import { freshness, scoreHex } from "@/lib/ui";
 
+type WakeSentinel = { release: () => Promise<void> };
+
+// Module-scope wake-lock manager (live-war-room 07-16 #3). The old code requested the lock once and
+// DISCARDED the sentinel — but browsers auto-release a screen wake lock whenever the page is hidden
+// (tab switch, OS overlay, projector input flip), so the dominant real-world failure was a silent
+// mid-presentation loss of the keep-awake guarantee, with no way to release the lock on exit either
+// (display/battery burn on kiosk hardware for the tab's lifetime). Keep the sentinel, re-acquire on
+// visibility return while the wall is active, and release on exit (TV-mode exit or leaving fullscreen).
+let wakeSentinel: WakeSentinel | null = null;
+let wakeHeld = false; // intent: the wall is active and wants the screen kept awake
+let wakeListenersOn = false;
+
+async function acquireWakeLock() {
+  try {
+    wakeSentinel =
+      (await (navigator as Navigator & { wakeLock?: { request: (t: string) => Promise<WakeSentinel> } }).wakeLock?.request(
+        "screen",
+      )) ?? null;
+  } catch {
+    wakeSentinel = null; // wake-lock unsupported / denied — best-effort
+  }
+}
+
+function onWakeVisibility() {
+  // The browser released the lock when the page hid; re-acquire the moment it's visible again.
+  if (wakeHeld && document.visibilityState === "visible") void acquireWakeLock();
+}
+
+function onWakeFullscreen() {
+  // Leaving fullscreen is the wall's universal exit gesture (incl. the kiosk, which has no exit
+  // button) — drop the lock so the display isn't forced awake after the wall closes.
+  if (!document.fullscreenElement) releaseWakeLock();
+}
+
+/** Release the screen wake lock and stop re-acquiring it (TV-mode / fullscreen exit). Idempotent. */
+export function releaseWakeLock() {
+  wakeHeld = false;
+  if (wakeListenersOn) {
+    document.removeEventListener("visibilitychange", onWakeVisibility);
+    document.removeEventListener("fullscreenchange", onWakeFullscreen);
+    wakeListenersOn = false;
+  }
+  void wakeSentinel?.release().catch(() => {});
+  wakeSentinel = null;
+}
+
 /** Fullscreen the wall + keep the screen awake (best-effort; both fail silently if unsupported). */
-async function enterTvMode() {
+export async function enterTvMode() {
   try {
     await document.documentElement.requestFullscreen?.();
   } catch {
     /* fullscreen denied */
   }
-  try {
-    await (navigator as Navigator & { wakeLock?: { request: (t: string) => Promise<unknown> } }).wakeLock?.request("screen");
-  } catch {
-    /* wake-lock unsupported / denied */
+  wakeHeld = true;
+  if (!wakeListenersOn) {
+    document.addEventListener("visibilitychange", onWakeVisibility);
+    document.addEventListener("fullscreenchange", onWakeFullscreen);
+    wakeListenersOn = true;
   }
+  await acquireWakeLock();
 }
 
-/** Days until a YYYY-MM-DD deadline (negative = past). null when no date. */
+/** Days until a YYYY-MM-DD deadline (negative = past, 0 = due today). null when no date.
+ *
+ *  DECISION (live-war-room 07-16 #2): the deadline is INCLUSIVE and ends at END OF DAY in the
+ *  VIEWER'S LOCAL timezone. `Date.parse("YYYY-MM-DD")` is UTC midnight at the *start* of the day,
+ *  so the old diff flipped to "past deadline" up to a day early for viewers west of UTC (and a day
+ *  late east of it) — on a projected wall, exactly on review day. We parse the date parts into a
+ *  LOCAL instant at midnight AFTER the deadline day, so the whole deadline day reads "0d to
+ *  deadline" everywhere, and "past" starts the local day after. */
 function daysUntil(date: string | null): number | null {
   if (!date) return null;
-  const t = Date.parse(date);
-  if (Number.isNaN(t)) return null;
-  return Math.ceil((t - Date.now()) / 86_400_000);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!m) return null;
+  // Local midnight AFTER the deadline day = the instant the (inclusive) deadline lapses.
+  const end = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1).getTime();
+  if (Number.isNaN(end)) return null;
+  return Math.ceil((end - Date.now()) / 86_400_000) - 1;
 }
 
 /** LIVE state + launch/stop controls + run progress bar + currently-scanning caption + error,

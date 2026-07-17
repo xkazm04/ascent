@@ -8,7 +8,9 @@ import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
 vi.mock("next/server", () => ({
-  NextResponse: class {
+  // Extends Response so `new NextResponse(null, { status: 204, headers })` (the peek path's
+  // body-less return) carries a real status/headers, not a bare object.
+  NextResponse: class extends Response {
     static json(body: unknown, init?: ResponseInit) {
       return new Response(JSON.stringify(body), init);
     }
@@ -55,11 +57,12 @@ vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true })),
   tooManyRequests: () => new Response(null, { status: 429 }),
   SCAN_RATE_LIMIT: {},
+  PEEK_RATE_LIMIT: {},
 }));
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: vi.fn(() => false), getViewer: vi.fn(async () => null) }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 import { scanRepository, resolveScanAuth } from "@/lib/scan";
 import { lookupCachedScan } from "@/lib/scan-cache";
 import { cacheSet } from "@/lib/cache";
@@ -176,7 +179,7 @@ describe("POST /api/scan — credit reserve / 402 / refund flow (money-path)", (
     // Default grant (the refund) echoes a post-refund balance.
     mockGrantCredits.mockResolvedValue(5 as never);
     // Default persist: a NEW row (not a dedup).
-    mockPersist.mockResolvedValue({ deduped: false, scanId: "scan_1", failures: { audit: false, contributors: 0 } } as never);
+    mockPersist.mockResolvedValue({ deduped: false, scanId: "scan_1" } as never);
   });
 
   it("returns 402 and does NOT run the scan or charge when the org is out of credits", async () => {
@@ -221,7 +224,7 @@ describe("POST /api/scan — credit reserve / 402 / refund flow (money-path)", (
 
   it("refunds the reserved credit on a dedup (already-scored commit) — a dedup run is free", async () => {
     mockScan.mockResolvedValue(meteredReport("gemini")); // real engine, but...
-    mockPersist.mockResolvedValue({ deduped: true, scanId: "scan_1", failures: { audit: false, contributors: 0 } } as never);
+    mockPersist.mockResolvedValue({ deduped: true, scanId: "scan_1" } as never);
     const res = await post({ url: "o/r", mock: false });
     expect(res.status).toBe(200);
     expect(res.headers.get("x-ascent-dedup")).toBe("hit");
@@ -273,7 +276,7 @@ describe("POST /api/scan — public weekly-quota refund (money-path)", () => {
     installNeutralDefaults();
     mockAuth.mockResolvedValue({ orgSlug: "public" }); // anonymous, no token → quota-metered
     mockIsDbConfigured.mockReturnValue(true);
-    mockPersist.mockResolvedValue({ deduped: false, scanId: "s", failures: { audit: false, contributors: 0 } } as never);
+    mockPersist.mockResolvedValue({ deduped: false, scanId: "s" } as never);
     mockLookup.mockResolvedValue(lookup("o/r@sha::llm"));
     // A slot WAS consumed (enforced + allowed), charged at a known timestamp the refund must echo.
     mockConsumeQuota.mockResolvedValue({ enforced: true, allowed: true, remaining: 2, chargedAt: 1000, resetAt: 2000, signedIn: false } as never);
@@ -302,5 +305,41 @@ describe("POST /api/scan — public weekly-quota refund (money-path)", () => {
     expect(res.status).toBe(500);
     expect(mockRefundQuota).toHaveBeenCalledTimes(1);
     expect(mockRefundQuota).toHaveBeenCalledWith(expect.anything(), expect.anything(), 1000);
+  });
+});
+
+// GET surface restriction (ambiguity-ui scan-pipeline-ingestion #5): GETs are replayed by
+// prefetchers/crawlers/URL-bar autocompletion and carry session cookies, so the side-effectful full
+// scan (quota slot, credits, LLM spend, persisted report) must be POST-only. GET keeps only the cheap
+// idempotent modes it exists for: peek=1 cache probes and mock=1 demos.
+describe("GET /api/scan — restricted to peek/mock (scan-pipeline-ingestion #5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installNeutralDefaults();
+    mockAuth.mockResolvedValue({ token: undefined, orgSlug: "public" } as never);
+  });
+
+  it("405s a bare real-scan GET without consuming quota or scanning", async () => {
+    const res = await GET(new Request("http://x/api/scan?url=o%2Fr"));
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("POST");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockConsumeQuota).not.toHaveBeenCalled();
+  });
+
+  it("still serves the mock demo mode on GET", async () => {
+    mockLookup.mockResolvedValue(lookup("o/r@sha::mock"));
+    mockScan.mockResolvedValue(reportWith("mock"));
+    const res = await GET(new Request("http://x/api/scan?url=o%2Fr&mock=1"));
+    expect(res.status).toBe(200);
+    expect(mockScan).toHaveBeenCalledTimes(1);
+  });
+
+  it("still serves the peek cache probe on GET (204 on a miss)", async () => {
+    mockLookup.mockResolvedValue(lookup("o/r@sha::llm"));
+    const res = await GET(new Request("http://x/api/scan?url=o%2Fr&peek=1"));
+    expect(res.status).toBe(204);
+    expect(mockScan).not.toHaveBeenCalled();
   });
 });

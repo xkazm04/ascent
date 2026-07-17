@@ -6,7 +6,7 @@
 // are disabled (production), it explains that top-ups go through billing. The recent ledger is loaded
 // lazily when the popover opens. Server passes the initial balance so the chip paints without a fetch.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { CreditPack } from "@/lib/polar";
 
 interface LedgerEntry {
@@ -42,6 +42,10 @@ export function CreditsControl({
   allowanceRemaining?: number;
 }) {
   const [balance, setBalance] = useState(initialBalance);
+  // Live copy of the monthly free allowance, seeded from the SSR prop and reconciled by the popover
+  // fetch alongside `balance` — the paused/covered-by-allowance state machine derives from BOTH inputs,
+  // so refreshing only one left the pause messaging frozen at page-load truth all session.
+  const [allowanceLeft, setAllowanceLeft] = useState(allowanceRemaining);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +57,10 @@ export function CreditsControl({
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Accessible DESCRIPTION for the trigger — the "prepaid private-scan credits" meaning must not live
+  // in `title` alone (unreachable by keyboard/touch and unreliable for AT). aria-describedby keeps the
+  // accessible NAME the visible "{balance} credits" while screen readers announce the description.
+  const descId = useId();
 
   // Close on outside click / Escape — standard popover behavior. On Escape, return focus to the
   // trigger so a keyboard/screen-reader user isn't dropped back at <body> (the role="dialog" promises it).
@@ -96,6 +104,12 @@ export function CreditsControl({
         // freshly-loaded ledger's newest balanceAfter visibly contradicted. Opening the popover — the one
         // place that re-reads the truth — now self-heals it instead of throwing d.balance away.
         if (typeof d?.balance === "number") setBalance(d.balance);
+        // Reconcile the allowance the SAME way — `paused` / `coveredByAllowance` derive from balance
+        // AND allowanceRemaining, so healing only the balance kept stale "N free scans left — scans
+        // keep running" (or a stale "paused" nudge after the month rolled over) all session. The route
+        // serializes Infinity as null, but null only occurs with `unlimited`, which renders a
+        // different branch entirely — so a non-number here safely means 0.
+        if (d) setAllowanceLeft(typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : 0);
       })
       .catch(() => setLedgerError(true))
       .finally(() => setLedgerLoading(false));
@@ -127,11 +141,15 @@ export function CreditsControl({
 
   if (unlimited) {
     return (
+      // The explanation must not live in `title` alone — title tooltips are unreachable by keyboard
+      // and touch, and a non-focusable span gives screen readers only "Credits · Unlimited". An
+      // sr-only tail carries the same sentence for AT; `title` stays as the mouse affordance.
       <span
         className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 font-mono text-sm text-emerald-300"
         title="Enterprise plan — private scans are unlimited"
       >
         Credits · Unlimited
+        <span className="sr-only">— Enterprise plan, private scans are unlimited</span>
       </span>
     );
   }
@@ -139,7 +157,7 @@ export function CreditsControl({
   // A 0 prepaid balance only PAUSES scanning when the monthly free allowance is also spent. While the
   // allowance still covers scans, consumeScanCredit charges nothing (charge === "allowance"), so the
   // chip must not cry "out of credits / paused" — that falsely nudges toward unnecessary top-ups.
-  const freeScansLeft = Math.max(0, allowanceRemaining);
+  const freeScansLeft = Math.max(0, allowanceLeft);
   const paused = balance <= 0 && freeScansLeft <= 0;
   const coveredByAllowance = balance <= 0 && freeScansLeft > 0;
 
@@ -168,6 +186,7 @@ export function CreditsControl({
             : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
         }`}
         title="Prepaid private-scan credits"
+        aria-describedby={descId}
       >
         <span className="font-semibold">{balance}</span> credits
         {paused && (
@@ -176,6 +195,9 @@ export function CreditsControl({
           </span>
         )}
       </button>
+      <span id={descId} className="sr-only">
+        Prepaid private-scan credits
+      </span>
 
       {open && (
         <div
@@ -197,8 +219,8 @@ export function CreditsControl({
           )}
           {coveredByAllowance && (
             <p className="mt-2 rounded-md border border-slate-700 bg-slate-800/40 px-2.5 py-1.5 text-sm text-slate-300">
-              {freeScansLeft} free {freeScansLeft === 1 ? "scan" : "scans"} left this month — scans
-              keep running on your monthly allowance.
+              {freeScansLeft} free {freeScansLeft === 1 ? "scan" : "scans"} left this month (resets on
+              the 1st, UTC) — scans keep running on your monthly allowance.
             </p>
           )}
 
@@ -231,7 +253,8 @@ export function CreditsControl({
                   <>Simulate a purchase <span className="ml-1 text-slate-600">(credits)</span></>
                 )}
               </div>
-              <div className="mt-1.5 flex gap-2">
+              {/* aria-busy while a grant is in flight, matching the disabled visual state for AT. */}
+              <div className="mt-1.5 flex gap-2" aria-busy={busy}>
                 {[50, 200, 1000].map((a) => (
                   <button
                     key={a}
@@ -255,7 +278,13 @@ export function CreditsControl({
               </a>
             </p>
           )}
-          {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+          {/* aria-live so a failed top-up is ANNOUNCED, matching the ledger states' live regions — a
+              screen-reader user who presses +50 must not get silence on a payment-adjacent failure. */}
+          {error && (
+            <p className="mt-2 text-sm text-danger" aria-live="polite">
+              {error}
+            </p>
+          )}
 
           {(ledgerLoading || ledgerError || ledger !== null) && (
             <div className="mt-3 border-t border-slate-800 pt-2">

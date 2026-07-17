@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { PrSignalsPanel } from "./PrSignalsPanel";
+import { REVERT_RATE_ELEVATED, SMALL_PR_MAX_LINES } from "@/lib/analyze/pr-thresholds";
 import type { PrStats } from "@/lib/types";
 
 const base: PrStats = {
@@ -43,5 +44,21 @@ describe("PrSignalsPanel revert-rate signal (not color-alone)", () => {
     render(<PrSignalsPanel stats={{ ...base, revertRate: 3 }} />);
     expect(screen.getByText("3%")).toBeInTheDocument();
     expect(screen.queryByText(/elevated/i)).toBeNull();
+  });
+
+  // The threshold is the shared named constant (pr-thresholds.ts), strictly greater-than: exactly
+  // AT the threshold is unflagged, one point above flags. Pins the panel to the constant so a
+  // retune there moves the UI with it (score-charts-visuals #4).
+  it("is unflagged exactly at REVERT_RATE_ELEVATED and flagged one point above", () => {
+    const { unmount } = render(<PrSignalsPanel stats={{ ...base, revertRate: REVERT_RATE_ELEVATED }} />);
+    expect(screen.queryByText(/elevated/i)).toBeNull();
+    unmount();
+    render(<PrSignalsPanel stats={{ ...base, revertRate: REVERT_RATE_ELEVATED + 1 }} />);
+    expect(screen.getByText(/elevated/i)).toBeInTheDocument();
+  });
+
+  it("quotes the analyzer's small-PR line ceiling in the hint (single source of truth)", () => {
+    render(<PrSignalsPanel stats={base} />);
+    expect(screen.getByText(`≤${SMALL_PR_MAX_LINES} lines`)).toBeInTheDocument();
   });
 });

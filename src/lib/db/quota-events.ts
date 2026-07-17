@@ -1,5 +1,5 @@
 // Public-funnel abuse observability (QUOTA-6). A running tally per (kind, scope) bumped fire-and-forget
-// when the free funnel pushes back — a weekly-quota denial or a rate-limit trip. Read back on the public
+// when the free funnel pushes back — a monthly-quota denial or a rate-limit trip. Read back on the public
 // /usage view so an operator can see how often the guardrails fire (and whether a limit needs tuning).
 // Best-effort by design: a failed write must never break the path that's already rejecting a request.
 // No-op / null when persistence is off, like the rest of src/lib/db.
@@ -22,7 +22,7 @@ export async function recordQuotaEvent(kind: QuotaEventKind, scope: string): Pro
 }
 
 export interface QuotaEventTotals {
-  /** Weekly free-scan denials, by scope (anon / signed-in). */
+  /** Monthly (rolling 30-day) free-scan denials, by scope (anon / signed-in). */
   quotaDenies: { scope: string; count: number }[];
   /** Per-minute rate-limit trips, by limiter name (badge, …). */
   rateLimitTrips: { scope: string; count: number }[];

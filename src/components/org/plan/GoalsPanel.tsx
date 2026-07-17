@@ -177,7 +177,10 @@ export function GoalsPanel({
                   compact
                   initiatives={initiativesByGoal[g.id]}
                   action={
-                    <button onClick={() => remove(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
+                    // Same confirm flow as the active list: deletion hard-drops the goal AND its
+                    // achievedAt milestone, so an achieved goal (the history most worth keeping)
+                    // must never go on a single click (goals-initiatives 07-16 #2).
+                    <button onClick={() => setPendingDeleteId(g.id)} className="shrink-0 font-mono text-sm text-slate-600 hover:text-orange-300">
                       remove
                     </button>
                   }

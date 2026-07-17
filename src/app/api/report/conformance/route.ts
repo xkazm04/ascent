@@ -3,7 +3,9 @@
 // Ingest a `.ai/` standard conformance report from a repo's doctor (`node .ai/doctor.mjs --json`,
 // which can auto-POST here when ASCENT_CONFORMANCE_URL + _TOKEN are set in CI). Closes the product's
 // core adopt→verify→re-score loop: the doctor self-certifies in-repo, this records the result onto
-// the Repository row, and the org dashboard surfaces it. Gated either by a deployment CI token
+// the Repository row, and the org dashboard surfaces it. `headSha` orders re-runs via the
+// conformance ledger (see recordConformance): a stale CI re-run of an already-superseded commit is
+// acknowledged but NOT persisted ({ stale: true }). Gated either by a deployment CI token
 // (CONFORMANCE_INGEST_TOKEN, the unattended path) or, for an interactive caller, org ownership.
 
 import { NextResponse } from "next/server";
@@ -38,6 +40,17 @@ export async function POST(request: Request) {
   if (score === null || fails === null || warns === null) {
     return NextResponse.json({ error: "Provide numeric score, fails, warns." }, { status: 400 });
   }
+  // headSha (optional): the commit this report certifies. Previously parsed and then DROPPED, which
+  // left the persisted score last-write-wins — a re-run of an old workflow silently clobbered the
+  // newest result (ai-native-standard #2). Validate the shape so the ledger only ever holds real
+  // shas; null/absent stays allowed (older doctors, local runs).
+  let headSha: string | null = null;
+  if (body.headSha !== undefined && body.headSha !== null) {
+    if (typeof body.headSha !== "string" || !/^[0-9a-f]{7,40}$/i.test(body.headSha.trim())) {
+      return NextResponse.json({ error: "headSha must be a 7-40 char hex commit sha (or null)." }, { status: 400 });
+    }
+    headSha = body.headSha.trim();
+  }
   // Bound the SELF-ATTESTED values before persisting. The doctor always sends in-range numbers, but this
   // endpoint is org/CI-token authed, not trusted — without bounds a buggy or hostile reporter could
   // persist score=999999 (or a negative) and poison the Repository row + every org-dashboard aggregate
@@ -57,11 +70,14 @@ export async function POST(request: Request) {
   }
 
   const fullName = `${parsed.owner}/${parsed.repo}`;
-  const recorded = await recordConformance(parsed.owner, fullName, {
+  const { recorded, stale } = await recordConformance(parsed.owner, fullName, {
     score: boundedScore,
     fails: boundedFails,
     warns: boundedWarns,
+    headSha,
   });
-  // `recorded:false` means the repo isn't tracked under this org yet — not an error; watch it first.
-  return NextResponse.json({ ok: true, recorded, repo: fullName });
+  // `stale:true` = this sha was already reported before a newer commit — the score was deliberately
+  // NOT overwritten. `recorded:false` (without stale) means the repo isn't tracked under this org
+  // yet — not an error; watch it first.
+  return NextResponse.json({ ok: true, recorded, stale, repo: fullName });
 }

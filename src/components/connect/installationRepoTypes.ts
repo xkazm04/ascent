@@ -23,3 +23,10 @@ export type Visibility = "all" | "public" | "private";
  *  cadence→days map. Pure constants (no client deps), so server routes / the DB layer import it too. */
 export const SCHEDULES = ["off", "daily", "weekly", "monthly"] as const;
 export type Schedule = (typeof SCHEDULES)[number];
+
+/** The single user-facing label for a cadence id. RepoRow and the BulkActionsBar previously diverged
+ *  ("no autoscan" vs raw "off") for the same setting, making the two schedule controls read as
+ *  different vocabularies — every schedule select renders options through this. */
+export function scheduleLabel(s: string): string {
+  return s === "off" ? "no autoscan" : s;
+}

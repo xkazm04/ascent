@@ -6,11 +6,13 @@ import { reportPermalink } from "@/lib/ui";
 import { type LiveRepoSeed } from "@/components/org/shared/liveWarRoomShared";
 import { useLiveWarRoom } from "@/components/org/live/useLiveWarRoom";
 import { HeadlineStrip } from "@/components/org/live/LiveWarRoomStat";
-import { WarRoomHeader } from "@/components/org/live/LiveWarRoomHeader";
+import { WarRoomHeader, releaseWakeLock } from "@/components/org/live/LiveWarRoomHeader";
 import type { GoalProgressView } from "@/components/org/shared/goalView";
 import { FleetTimetablePanel } from "@/components/org/live/LiveWarRoomTimetable";
 import type { FleetTimetable } from "@/components/org/live/fleetTimetable";
 import { ShipLoopBand } from "@/components/org/live/LiveWarRoomOps";
+import { Leaderboard } from "@/components/org/live/LiveWarRoomLeaderboard";
+import { MoversTicker, PostureMix } from "@/components/org/live/LiveWarRoomPanels";
 import { LiveWarRoomTv } from "@/components/org/live/LiveWarRoomTv";
 import { Celebrations } from "@/components/org/live/LiveWarRoomCelebrations";
 import type { OpsState } from "@/lib/db";
@@ -97,7 +99,12 @@ export function LiveWarRoom({
           onVerify={wall.launchRepos}
           selectedRepos={selectedRepos}
           onScanSelected={scanSelected}
-          onExit={() => setTvMode(false)}
+          onExit={() => {
+            // Exiting TV mode must also drop the screen wake lock — otherwise the display stays
+            // forced-awake for the tab's lifetime (live-war-room 07-16 #3).
+            releaseWakeLock();
+            setTvMode(false);
+          }}
         />
       ) : (
         <>
@@ -155,6 +162,20 @@ export function LiveWarRoom({
 
           {/* ── Headline command strip: four metrics, campaign deltas, trend spark ── */}
           <HeadlineStrip stats={wall.stats} deltas={campaignDeltas} trend={trend} />
+
+          {/* ── Standing panels: leaderboard + live movers + posture mix. Mounted on the FLAT wall
+              and the read-only kiosk — not only inside Dynamic TV stages — so the header's promise
+              ("the leaderboard reshuffles") holds on every surface, including the unauthenticated
+              shared screen. Their readOnly variants keep session-gated links suppressed on the kiosk.
+              Previously these lived only in TvStanding/TvScanning (auth-only), which left the kiosk
+              with no leaderboard at all and PostureMix as dead code (live-war-room #1). ── */}
+          <div className="mt-6 grid gap-5 lg:grid-cols-3">
+            <Leaderboard repos={wall.leaderboard} slug={slug} readOnly={readOnly} className="lg:col-span-2" />
+            <div className="flex flex-col gap-5">
+              <MoversTicker ticker={wall.ticker} running={wall.running} readOnly={readOnly} />
+              <PostureMix counts={wall.stats.postureCounts} scored={wall.stats.scored} slug={slug} readOnly={readOnly} />
+            </div>
+          </div>
 
           {/* ── Ship loop: triage directions → watch PRs → measure landed impact ── */}
           {!readOnly && ops && <ShipLoopBand slug={slug} initial={ops} onVerify={wall.launchRepos} />}

@@ -30,24 +30,20 @@ export async function POST(request: Request) {
     // DORMANT custom-OAuth env, unset in production, so `!false` short-circuited the whole check and
     // the ownership test never ran: any caller could mint. canMintInstallationToken resolves real
     // membership against the ACTIVE Supabase wall (mirrors resolveScanAuth in src/lib/scan.ts).
-    let token = process.env.GITHUB_TOKEN;
-    let mintedForOrg = false;
-    if (isAppConfigured() && (await canMintInstallationToken(parsed.owner))) {
+    // The ambient operator PAT is gated on the CALLER'S STANDING, not on whether the owner has an App
+    // installation. The old guard dropped the PAT only for installed owners, so for any NON-installed
+    // owner an anonymous caller still probed private repo metadata (name, description, language,
+    // default branch) through the operator's broad-read PAT — "every private repo the PAT can read
+    // belongs to an installed org" was an unstated, untrue assumption. Now: no standing ⇒ no token at
+    // all (token-less fetch keeps public repos working; a private repo 404s cleanly below).
+    const callerHasStanding = await canMintInstallationToken(parsed.owner);
+    let token = callerHasStanding ? process.env.GITHUB_TOKEN : undefined;
+    if (isAppConfigured() && callerHasStanding) {
       const id = await getInstallationIdForOwner(parsed.owner).catch(() => null);
       if (id) {
         const minted = await getInstallationToken(id).catch(() => undefined);
-        if (minted) {
-          token = minted;
-          mintedForOrg = true;
-        }
+        if (minted) token = minted;
       }
-    }
-    // Unauthorized caller against an INSTALLED org: refuse the ambient operator PAT too. It commonly
-    // has broad read access, so falling back to it would surrender the private repo metadata the mint
-    // gate just denied. Token-less fetch of a private repo 404s, which surfaces as a clean 404 below.
-    if (!mintedForOrg && isAppConfigured()) {
-      const ownerIsInstalled = await getInstallationIdForOwner(parsed.owner).catch(() => null);
-      if (ownerIsInstalled) token = undefined;
     }
     const ctx = await fetchRepoContext(parsed, token);
     const artifact = buildArtifact(body.practiceId, ctx);

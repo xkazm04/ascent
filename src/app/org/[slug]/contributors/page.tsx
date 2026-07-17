@@ -20,7 +20,7 @@ function ChampionsGrid({ champions }: { champions: ContributorInsights["champion
     <div className="mt-8">
       <SectionHeader
         title="AI champions"
-        description="Highest AI adoption across the most repos — exemplars whose approach the team could learn from."
+        description="Highest AI adoption across the most repos, weighted by breadth and activity — exemplars whose approach the team could learn from."
       />
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {champions.map((c, i) => (
@@ -51,13 +51,16 @@ function IndividualInvolvement({
   insights,
   slug,
   segmentId,
+  stack,
 }: {
   insights: ContributorInsights;
   slug: string;
   segmentId: string | null;
+  /** Active tech-stack group key — forwarded so the CSV matches the filtered view. */
+  stack: string | null;
 }) {
   return (
-    <details className="mt-8 rounded-xl border border-slate-800 bg-slate-900/20">
+    <details id="individuals" className="mt-8 scroll-mt-24 rounded-xl border border-slate-800 bg-slate-900/20">
       <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 font-medium text-slate-200 marker:text-slate-600">
         <span>
           Individual involvement <span className="font-mono text-sm text-slate-500">({insights.contributors.length})</span>
@@ -71,7 +74,7 @@ function IndividualInvolvement({
             <span className="text-slate-300">not performance evaluation</span>. Breadth (repos) × depth (commits) and each
             person&apos;s AI-commit share.
           </p>
-          <ExportCsvLink org={slug} kind="contributors" segmentId={segmentId} className="shrink-0" />
+          <ExportCsvLink org={slug} kind="contributors" segmentId={segmentId} stack={stack} className="shrink-0" />
         </div>
         <OrgTable
           className="mt-3"
@@ -133,7 +136,7 @@ function ConcentrationTable({
   decisions: DecisionMap;
 }) {
   return (
-    <div className="mt-8">
+    <div id="concentration" className="mt-8 scroll-mt-24">
       <SectionHeader
         title="Concentration & bus factor"
         description={
@@ -145,7 +148,7 @@ function ConcentrationTable({
       />
       <OrgTable
         className="mt-3"
-        caption="AI-commit adoption by repository"
+        caption="Commit concentration and bus factor by repository"
         head={
           <tr>
             <th className="px-4 py-2 text-left">Repo</th>
@@ -237,12 +240,13 @@ export default async function ContributorInsightsPage({
         {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
       </div>
 
-        {/* Summary tiles */}
+        {/* Summary tiles — each deep-links to its evidence section (the Teams tab's tile pattern),
+            so the warn-colored key-person stat jumps straight to the concentration table + decisions. */}
         <div className={`mt-6 ${TILE_GRID}`}>
-          <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" />
-          <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} />
+          <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" href="#individuals" />
+          <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} href="#individuals" />
           <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
-          <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} />
+          <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} href="#concentration" />
         </div>
 
         {/* AI champions — only a meaningful "leaderboard" once the population is large enough. Below 3
@@ -252,7 +256,7 @@ export default async function ContributorInsightsPage({
           <ChampionsGrid champions={insights.champions} />
         )}
 
-        <IndividualInvolvement insights={insights} slug={slug} segmentId={segmentId} />
+        <IndividualInvolvement insights={insights} slug={slug} segmentId={segmentId} stack={activeStack?.key ?? null} />
 
         <ConcentrationTable slug={slug} rows={insights.concentration} decisions={decisions} />
 
@@ -261,6 +265,15 @@ export default async function ContributorInsightsPage({
           in a repo with thin agent guidance is well placed to seed it; a champion&apos;s approach is a pattern others can borrow.
           The aim is to surface where trust could grow — people decide what to pick up.
         </p>
+        {/* Staleness annotation (ambiguity-ui 2026-07-16 #5): the data layer drops repos whose
+            snapshot recency trails the fleet's newest scan by ~6 months, so a long-unscanned repo
+            can't crown a departed engineer champion — say so instead of silently excluding. */}
+        {insights.staleRepos > 0 && (
+          <p className="mt-4 font-mono text-sm text-slate-500">
+            {insights.staleRepos} {insights.staleRepos === 1 ? "repo" : "repos"} excluded — last scanned too long ago for
+            its activity snapshot to blend honestly with the rest. Rescan to include {insights.staleRepos === 1 ? "it" : "them"}.
+          </p>
+        )}
         <p className="mt-4 font-mono text-sm text-slate-600">
           Metrics reflect the recent-activity commit window captured at scan time. For team-level rollups, see the{" "}
           <span className="text-slate-500">Teams</span> tab (CODEOWNERS attribution). Per-person trend over time,

@@ -66,9 +66,22 @@ export function nextPageUrl(link: string | null): string | null {
   return null;
 }
 
-const MAX_LIST_PAGES = 5; // backfill across up to 5 pages of 100 before giving up on `count` results
+// Backfill across up to 5 pages of 100 (≤500 raw repos) before giving up on `count` results. The
+// bound is a latency / rate-limit budget: this listing serves unauthenticated onboarding routes, so
+// an unbounded walk of a huge org could burn minutes and the shared token's quota on one request.
+// When the budget runs out with more pages available, the result says so (`truncated: true`) instead
+// of presenting the short list as the org's complete reality (github-repo-data-access 07-16 #5).
+const MAX_LIST_PAGES = 5;
 
-export async function listOrgRepos(org: string, count: number, token?: string, signal?: AbortSignal): Promise<OrgRepoListItem[]> {
+export interface OrgRepoListResult {
+  repos: OrgRepoListItem[];
+  /** True when the page budget (MAX_LIST_PAGES) ran out while GitHub still advertised a next page AND
+   *  fewer than `count` repos were collected — i.e. "we stopped looking", not "the org has no more".
+   *  Callers should annotate their response so a short list isn't mistaken for the full org. */
+  truncated: boolean;
+}
+
+export async function listOrgRepos(org: string, count: number, token?: string, signal?: AbortSignal): Promise<OrgRepoListResult> {
   if (!VALID_HANDLE.test(org)) {
     throw new GitHubListError(`Invalid GitHub org/user handle: "${org}"`, "NOT_FOUND");
   }
@@ -125,11 +138,13 @@ export async function listOrgRepos(org: string, count: number, token?: string, s
       for (const r of all) {
         if (!isListableRepo(r)) continue;
         collected.push(map(r));
-        if (collected.length >= count) return collected.slice(0, count);
+        if (collected.length >= count) return { repos: collected.slice(0, count), truncated: false };
       }
       url = nextPageUrl(res.headers.get("link"));
     }
-    if (probed) return collected.slice(0, count); // ran out of pages/repos for this base — return what we have
+    // Ran out of pages/repos for this base — return what we have. A still-present next-page URL means
+    // the PAGE BUDGET ended the walk (fork/archive-heavy org beyond 500 raw repos), not the org.
+    if (probed) return { repos: collected.slice(0, count), truncated: url != null };
   }
   throw new GitHubListError(`No public org or user named "${org}".`, "NOT_FOUND");
 }

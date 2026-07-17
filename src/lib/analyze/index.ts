@@ -293,7 +293,7 @@ const d2: Detector = (idx) => {
   if (/schemathesis|\bdredd\b|@stoplight\/spectral|\bspectral\b|openapi.*(validate|lint)|\bprism\b/.test(adv))
     s.add(6, "API-schema validation");
 
-  // Assertion-quality signal — read the SAMPLED test BODIES (within the ≤32-file ingest budget) and
+  // Assertion-quality signal — read the SAMPLED test BODIES (within the MAX_FILES ingest budget) and
   // judge whether tests actually ASSERT behavior, not just exist. A high-count, assertion-free suite
   // (snapshot dumps, bodies that call code but never assert) must not reach the same band as a
   // behaviorally-tested one. We judge only what was fetched: with no test bodies in the sample we stay
@@ -887,16 +887,37 @@ export function computeContributors(snap: RepoSnapshot): Contributor[] {
 }
 
 /**
- * Infer how the repo is run, to pick a fair weighting lens. Heuristic from signals we
- * already have (no extra API calls): org-scale governance (CODEOWNERS + multiple CI
- * workflows) or popularity implies team/org; otherwise solo/early-stage.
+ * Infer how the repo is RUN, to pick a fair weighting lens — from signals already in the snapshot
+ * (no extra API calls). The lens exists so single-author work is judged fairly rather than dragged
+ * to L1–L2 for lacking infrastructure it doesn't need (model.ts ARCHETYPE_WEIGHTS), so the heuristic
+ * must measure run-style, not popularity.
+ *
+ * Recorded reasoning for the thresholds (ambiguity-ui maturity-model #5 — previously bare magic
+ * numbers, and stars alone forced the org lens onto viral solo repos):
+ *  - CODEOWNERS + ≥2 CI workflows is DIRECT evidence of org-scale process → org, regardless of stars.
+ *  - Stars are only a popularity PROXY for run-style (chosen originally because they're free — no
+ *    extra API call). 1000 ≈ "visible enough that platform/org expectations are reasonable";
+ *    50 ≈ "has an audience beyond the author". Both remain judgment calls, so star-driven
+ *    escalation is now CORROBORATED against the contributor evidence the snapshot already carries:
+ *  - ≤2 distinct human authors in the recent-commit window caps a star-driven "org" at "team" — a
+ *    viral single-maintainer repo (a very common OSS shape) is still run like solo/team work, and
+ *    the org lens would double D3 (0.07→0.14) and more-than-double D9 (0.04→0.09) against it.
+ *    An empty commit window means author count is UNKNOWN (shallow ingest) — fall back to the star
+ *    heuristic rather than capping on missing data. Bot authors ([bot] logins) don't count.
  */
 export function classifyArchetype(snap: RepoSnapshot): RepoArchetype {
   const paths = loweredTreePaths(snap);
   const hasCodeowners = paths.some((p) => /(^|\/)codeowners$/.test(p));
   const workflows = paths.filter((p) => /^\.github\/workflows\/.+\.ya?ml$/.test(p)).length;
   const stars = snap.meta.stars ?? 0;
-  if (stars >= 1000 || (hasCodeowners && workflows >= 2)) return "org";
+  const humanAuthors = new Set(
+    snap.commits
+      .map((c) => c.authorLogin || c.authorName || "")
+      .filter((a) => a && !/\[bot\]$/i.test(a)),
+  ).size;
+  const authorsKnown = snap.commits.length > 0;
+  if (hasCodeowners && workflows >= 2) return "org";
+  if (stars >= 1000) return authorsKnown && humanAuthors <= 2 ? "team" : "org";
   if (stars >= 50 || hasCodeowners || workflows >= 1) return "team";
   return "solo";
 }

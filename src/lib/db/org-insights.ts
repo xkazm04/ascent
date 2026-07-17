@@ -8,7 +8,11 @@ import { PRACTICES } from "@/lib/practices";
 import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { retentionCutoff } from "@/lib/plans";
 import type { OrgWindow } from "@/lib/db/org-rollup";
+// The one "due soon" window (rolling days) shared with the UI tiles/labels — single-sourced in the
+// client-safe backlogShared module so both layers stay in sync (backlog-management 07-16 #4).
+import { DUE_SOON_DAYS } from "@/components/org/shared/backlogShared";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
 
@@ -73,7 +77,12 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const start = window?.start ?? null;
+  // Plan retention floor (fleet-rollups-insights #1): the movers' baseline is entitlement-gated
+  // exactly like getOrgRollup's trend + baseline — clamp the window start to the tier's retention
+  // cutoff so a Free org's 90d/quarter movers aren't computed against history the plan doesn't buy.
+  const retentionStart = retentionCutoff(org.plan, Date.now());
+  const rawStart = window?.start ?? null;
+  const start = rawStart && retentionStart && retentionStart > rawStart ? retentionStart : rawStart;
   const end = window?.end ?? null;
   const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
   const moves: RepoMove[] = [];
@@ -272,10 +281,13 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
 
 export type BacklogDueBucket = "overdue" | "this_week" | "this_month" | "later" | "no_date";
 
+// Labels state the ROLLING cutoffs honestly: "this_week"/"this_month" are ≤7 / ≤31 rolling days, not
+// calendar-aligned periods — "Due this month" read as calendar-month and mis-bucketed a July-29 vs
+// Aug-1 pair on July 1. (ambiguity-ui 2026-07-16 #4)
 const DUE_BUCKET_LABEL: Record<BacklogDueBucket, string> = {
   overdue: "Overdue",
-  this_week: "Due this week",
-  this_month: "Due this month",
+  this_week: `Due within ${DUE_SOON_DAYS} days`,
+  this_month: "Due within a month",
   later: "Later",
   no_date: "No due date",
 };
@@ -283,10 +295,16 @@ const DUE_BUCKET_LABEL: Record<BacklogDueBucket, string> = {
 /** Fixed display order for the due-date columns (most urgent first; undated last). */
 const DUE_BUCKET_ORDER: BacklogDueBucket[] = ["overdue", "this_week", "this_month", "later", "no_date"];
 
-/** Whole calendar days from `now` to `target` (UTC date-only), negative when `target` is past. */
+/** Whole calendar days from `now` to `target`, negative when `target` is past. The dashboard's time
+ *  semantics are unified on LOCAL calendar days (window.ts startOfDay, the trend's localDayKey), so
+ *  the buckets must use the same boundary: `target` is a stored date-only value (UTC midnight when
+ *  parsed), so its UTC Y/M/D recovers the literal day the user picked, and it's compared against
+ *  `now`'s LOCAL calendar day. The old all-UTC math flipped overdue/this_week for hours around local
+ *  midnight on any non-UTC deployment — on the one bucket (Overdue) that drives the owner sort.
+ *  (ambiguity-ui 2026-07-16 #4) */
 function daysUntil(target: Date, now: Date): number {
-  const t = Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate());
-  const n = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const t = new Date(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate()).getTime();
+  const n = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return Math.round((t - n) / 86_400_000);
 }
 
@@ -299,7 +317,7 @@ export function dueBucketFor(targetDate: Date | null, now: Date): BacklogDueBuck
   if (!targetDate) return "no_date";
   const d = daysUntil(targetDate, now);
   if (d < 0) return "overdue";
-  if (d <= 7) return "this_week";
+  if (d <= DUE_SOON_DAYS) return "this_week";
   if (d <= 31) return "this_month";
   return "later";
 }
@@ -363,7 +381,7 @@ export interface OrgBacklog extends BacklogCounts {
   active: number;
   assigned: number; // active items with an owner
   unassigned: number; // active items without one
-  dueSoon: number; // active items due within 7 days (not already overdue)
+  dueSoon: number; // active items due within DUE_SOON_DAYS days (not already overdue)
   byOwner: BacklogOwnerGroup[]; // most overdue, then largest working backlog; Unassigned last
   byDue: BacklogDueGroup[]; // fixed bucket order
   /** Distinct human contributor logins across the fleet — options for the assignee picker. */
@@ -526,7 +544,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
   }));
 
   const assigned = items.filter((i) => i.assigneeLogin).length;
-  const dueSoon = items.filter((i) => i.dueInDays != null && i.dueInDays >= 0 && i.dueInDays <= 7).length;
+  const dueSoon = items.filter((i) => i.dueInDays != null && i.dueInDays >= 0 && i.dueInDays <= DUE_SOON_DAYS).length;
 
   return {
     org: orgSlug,

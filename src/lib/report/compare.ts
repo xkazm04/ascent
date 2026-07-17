@@ -217,6 +217,11 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
   let openedGapCount = 0;
   let appearedSignalCount = 0;
   let disappearedSignalCount = 0;
+  // Dimensions scored on only ONE side (added to the model after the baseline, or dropped). Their
+  // delta is correctly null (no invented numbers), but that null must not read as "nothing changed":
+  // coercing it to 0 in the `unchanged` predicate made the headline say "No measurable change" above
+  // a visible "— → 70" card after any dimension-model migration (trends-comparison 07-16 #3).
+  let oneSidedDimCount = 0;
 
   for (const def of DIMENSIONS) {
     const b = beforeDims.get(def.id);
@@ -250,6 +255,14 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     appearedSignalCount += appearedSignals.length;
     disappearedSignalCount += disappearedSignals.length;
 
+    // A one-sided dimension IS a change worth narrating — without a line here the appearance never
+    // reached "Why it moved" (buildAttribution returns null when delta is null and no signals moved).
+    const oneSided = !b !== !a;
+    if (oneSided) oneSidedDimCount += 1;
+    const oneSidedAttribution = a
+      ? `${def.id}: added in the newer scan (scored ${a.score})`
+      : `${def.id}: no longer scored in the newer scan (was ${b!.score})`;
+
     dimensions.push({
       id: def.id,
       name: (a ?? b)!.name,
@@ -261,7 +274,9 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
       openedGaps,
       appearedSignals,
       disappearedSignals,
-      attribution: buildAttribution(def.id, delta, signalDelta, appearedSignals, disappearedSignals),
+      attribution: oneSided
+        ? oneSidedAttribution
+        : buildAttribution(def.id, delta, signalDelta, appearedSignals, disappearedSignals),
     });
   }
 
@@ -306,6 +321,8 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     appearedSignalCount === 0 &&
     disappearedSignalCount === 0 &&
     recsMovedToDone.length === 0 &&
+    // A dim present on only one side is a change even though its delta is null — see oneSidedDimCount.
+    oneSidedDimCount === 0 &&
     dimensions.every((d) => (d.delta ?? 0) === 0);
 
   return {

@@ -12,10 +12,12 @@ const COSTS = [
 ];
 
 function DownTrend() {
+  // currentColor + text-danger-soft: the sparkline shares the SAME danger token as the card title
+  // beside it (it previously hardcoded #f87171, splitting one semantic color two ways in one card).
   return (
-    <svg viewBox="0 0 56 22" className="h-5 w-14" aria-hidden>
-      <polyline points="2,4 18,9 34,12 54,18" fill="none" stroke="#f87171" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={54} cy={18} r={2} fill="#f87171" />
+    <svg viewBox="0 0 56 22" className="h-5 w-14 text-danger-soft" aria-hidden>
+      <polyline points="2,4 18,9 34,12 54,18" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={54} cy={18} r={2} fill="currentColor" />
     </svg>
   );
 }

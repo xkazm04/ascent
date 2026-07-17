@@ -18,6 +18,8 @@ const REASON: Record<string, string> = {
   wrong_user: "This invitation was issued to a different GitHub account. Sign in as that user to accept it.",
   wrong_email: "This invitation is bound to a specific email address. Accept it while signed in with that verified email — switching GitHub accounts won't change your email.",
   auth: "Sign in to accept this invitation.",
+  last_owner:
+    "You're the only owner of this organization, so this invitation can't lower your role. Promote another member to owner first if you want to step down.",
   db: "Something went wrong applying the invitation. Try again, or ask an owner to re-send.",
 };
 

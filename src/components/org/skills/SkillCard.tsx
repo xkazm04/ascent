@@ -6,6 +6,7 @@
 // so user-authored markdown can't inject markup.
 
 import { useState } from "react";
+import { chipButtonClass } from "@/components/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { skillCategoryLabel } from "@/lib/org/skill-categories";
 import type { SkillAdoption, SkillRow } from "@/lib/db";
@@ -84,7 +85,7 @@ export function SkillCard({
           <CopyForLlm text={s.content} label="Copy" ariaLabel={`Copy "${s.name}" for LLM`} onCopied={countCopy} />
           <a
             href={`/api/org/skills/${s.id}/download`}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+            className={chipButtonClass()}
             title="Download the skill as a SKILL.md file"
           >
             <span aria-hidden>↓</span> Download

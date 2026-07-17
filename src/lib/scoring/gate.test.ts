@@ -2,7 +2,16 @@
 // parsing and evaluation: a D9 (Security) floor plus a forbidden "ungoverned" posture.
 
 import { describe, it, expect } from "vitest";
-import { policyFromParams, evaluateGate, sanitizeGatePolicy, defaultGatePolicy, DEFAULT_SECURITY_MIN } from "./gate";
+import {
+  policyFromParams,
+  explicitPolicyFromParams,
+  tightenGatePolicy,
+  evaluateGate,
+  evaluateGateLite,
+  sanitizeGatePolicy,
+  defaultGatePolicy,
+  DEFAULT_SECURITY_MIN,
+} from "./gate";
 import type { GatePolicy } from "./gate";
 import type { DimensionResult, ScanReport } from "@/lib/types";
 
@@ -71,6 +80,111 @@ describe("empty/zero security floor + fail-closed dimensions (CIGATE #2, #3)", (
     const res = evaluateGate(report({ d9: NaN }), pol);
     expect(res.pass).toBe(false);
     expect(res.failures.some((f) => f.code === "dimension" && f.message.includes("D9") && /unscored/i.test(f.message))).toBe(true);
+  });
+});
+
+// The tighten-only overlay the unauthenticated gate endpoint uses so a query param can raise but
+// never lower a persisted org policy (ambiguity-ui 2026-07-16 ci-gate #1). explicitPolicyFromParams
+// carries ONLY what the URL requests (no archetype padding); tightenGatePolicy keeps the strictest
+// of each field.
+describe("explicitPolicyFromParams + tightenGatePolicy (ci-gate 2026-07-16 #1)", () => {
+  it("explicitPolicyFromParams returns ONLY the requested fields — no archetype defaults", () => {
+    expect(explicitPolicyFromParams(new URLSearchParams(""))).toEqual({});
+    expect(explicitPolicyFromParams(new URLSearchParams("min_overall=60"))).toEqual({ minOverall: 60 });
+    expect(explicitPolicyFromParams(new URLSearchParams("security=1"))).toEqual({
+      minDimensionFor: { D9: DEFAULT_SECURITY_MIN },
+      forbidPostures: ["ungoverned"],
+    });
+  });
+
+  it("policyFromParams still pads unset fields with the archetype default (unchanged contract)", () => {
+    expect(policyFromParams(new URLSearchParams("min_overall=60"), "org")).toEqual({
+      ...defaultGatePolicy("org"),
+      minOverall: 60,
+    });
+  });
+
+  it("a param can NOT weaken the org policy — the stricter org floor survives", () => {
+    const org: GatePolicy = { minOverall: 70, minDimensionFor: { D9: 70 }, requireProtectedBranch: true };
+    const merged = tightenGatePolicy(org, explicitPolicyFromParams(new URLSearchParams("min_overall=10")));
+    expect(merged).toEqual(org); // ?min_overall=10 < 70 → dropped; D9 floor + protection rule survive
+  });
+
+  it("a param CAN tighten the org policy — the stricter param wins per-field", () => {
+    const org: GatePolicy = { minLevel: "L2", minOverall: 50, minDimensionFor: { D9: 40 } };
+    const merged = tightenGatePolicy(
+      org,
+      explicitPolicyFromParams(new URLSearchParams("min_overall=90&min_level=L4&min_security=60")),
+    );
+    expect(merged).toEqual({
+      minLevel: "L4",
+      minOverall: 90,
+      minDimensionFor: { D9: 60 },
+      forbidPostures: ["ungoverned"], // min_security implies the security posture rule (additive = tighter)
+    });
+  });
+
+  it("fields only one side sets are kept (union, never dropped)", () => {
+    const merged = tightenGatePolicy(
+      { minDimension: 40, forbidPostures: ["ungoverned"] },
+      { minLevel: "L3", requireProtectedBranch: true },
+    );
+    expect(merged).toEqual({
+      minLevel: "L3",
+      minDimension: 40,
+      forbidPostures: ["ungoverned"],
+      requireProtectedBranch: true,
+    });
+  });
+
+  it("does not pad archetype defaults into the merge (a deliberately-relaxed org bar stays relaxed)", () => {
+    // Org set ONLY a level bar below the org-archetype default; a min_overall param must not smuggle
+    // the archetype's minDimension/forbidPostures back in.
+    const merged = tightenGatePolicy({ minLevel: "L2" }, explicitPolicyFromParams(new URLSearchParams("min_overall=60")));
+    expect(merged).toEqual({ minLevel: "L2", minOverall: 60 });
+  });
+});
+
+// Fail-closed must cover EVERY criterion (ambiguity-ui 2026-07-16 ci-gate #2): before this fix a
+// NaN overallScore or a malformed level id sailed past minOverall/minLevel in evaluateGate
+// (`NaN < 40 === false`) while evaluateGateLite parsed the same level as 0 and failed it — the two
+// evaluators disagreeing on the exact input the fail-closed doctrine targets.
+describe("fail-closed minOverall / minLevel — both evaluators agree (ci-gate 2026-07-16 #2)", () => {
+  const liteSnap = (o: { level?: string; overall?: number }) => ({
+    level: o.level ?? "L4",
+    overall: o.overall ?? 70,
+    posture: "ai-native",
+    dims: [{ dimId: "D1", score: 80 }],
+  });
+
+  it("evaluateGate: a NaN overallScore FAILS minOverall (was a silent pass)", () => {
+    const res = evaluateGate(report({ d9: 80, overall: NaN }), { minOverall: 40 });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "overall" && /unscored/i.test(f.message))).toBe(true);
+  });
+
+  it("evaluateGate: a malformed level id FAILS minLevel (was a silent pass)", () => {
+    const res = evaluateGate(report({ d9: 80, level: "Lx" }), { minLevel: "L3" });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "level" && /unscored/i.test(f.message))).toBe(true);
+  });
+
+  it("evaluateGateLite: a NaN overall FAILS minOverall the same way", () => {
+    const res = evaluateGateLite(liteSnap({ overall: NaN }), { minOverall: 40 });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "overall" && /unscored/i.test(f.message))).toBe(true);
+  });
+
+  it("evaluateGateLite: a malformed level FAILS minLevel the same way", () => {
+    const res = evaluateGateLite(liteSnap({ level: "Lx" }), { minLevel: "L3" });
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "level" && /unscored/i.test(f.message))).toBe(true);
+  });
+
+  it("healthy scores are untouched: a finite overall/level still passes/fails on the plain comparison", () => {
+    expect(evaluateGate(report({ d9: 80, overall: 70, level: "L4" }), { minOverall: 40, minLevel: "L3" }).pass).toBe(true);
+    const res = evaluateGate(report({ d9: 80, overall: 30, level: "L2" }), { minOverall: 40, minLevel: "L3" });
+    expect(res.failures.map((f) => f.code).sort()).toEqual(["level", "overall"]);
   });
 });
 

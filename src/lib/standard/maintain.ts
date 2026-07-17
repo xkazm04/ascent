@@ -101,15 +101,26 @@ if (cmd === 'note') {
   const text = process.argv.slice(4).join(' ').trim();
   if (!text) { console.error('usage: node .ai/maintain.mjs note <kind> "<one fact>"'); process.exit(2); }
   if (!existsSync(MEM)) mkdirSync(MEM, { recursive: true });
-  const ids = readdirSync(MEM).map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n));
-  const next = String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0');
   const slug = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'note';
   const sha = git('rev-parse --short HEAD');
-  const file = MEM + '/' + next + '-' + slug + '.md';
-  const fm = '---\\nid: ' + next + '\\nkind: ' + kind + '\\nscope: repo\\ndate: ' + new Date().toISOString().slice(0, 10) + '\\nsupersedes: null\\nrefs: []\\n---\\n\\n';
-  writeFileSync(file, fm + text + (sha ? '\\n\\n(at ' + sha + ')' : '') + '\\n', 'utf8');
-  console.log('wrote ' + file);
-  process.exit(0);
+  // Atomic append: derive max+1 from the CURRENT listing, then create with the exclusive 'wx' flag.
+  // A plain writeFileSync here was a read-then-act race - two concurrent writers (two agents, or an
+  // agent + a human) could both compute the same id, and the second write TRUNCATED the first: silent
+  // loss in the append-only ledger this standard sells to multi-agent workflows. On EEXIST (same id
+  // AND same slug) the loser re-lists - the winner's file now raises the max - and retries.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const ids = readdirSync(MEM).map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n));
+    const next = String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0');
+    const file = MEM + '/' + next + '-' + slug + '.md';
+    const fm = '---\\nid: ' + next + '\\nkind: ' + kind + '\\nscope: repo\\ndate: ' + new Date().toISOString().slice(0, 10) + '\\nsupersedes: null\\nrefs: []\\n---\\n\\n';
+    try {
+      writeFileSync(file, fm + text + (sha ? '\\n\\n(at ' + sha + ')' : '') + '\\n', { encoding: 'utf8', flag: 'wx' });
+      console.log('wrote ' + file);
+      process.exit(0);
+    } catch (e) { if (!e || e.code !== 'EEXIST') throw e; }
+  }
+  console.error('could not allocate a memory id after 20 attempts (concurrent writers?)');
+  process.exit(1);
 }
 
 if (cmd === 'touch') {

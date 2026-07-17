@@ -1,7 +1,7 @@
-import type { DimensionId, Effort, LevelId, LlmRoadmapItem, ScanReport } from "@/lib/types";
+import type { DimensionId, LevelId, LlmRoadmapItem, ScanReport } from "@/lib/types";
 import { DIMENSION_BY_ID, LEVELS } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, projectDimensionClose } from "@/lib/scoring/engine";
-import { IMPACT_RANK } from "@/lib/scoring/impact";
+import { isQuickWin, priorityScore, QuickWinBadge } from "@/components/report/roadmapPriority";
 import { EFFORT_CLASS, fastestPathNames, IMPACT_CLASS, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
 import { Kicker, Surface } from "@/components/ui";
 
@@ -83,10 +83,6 @@ export function TrustLadder({ currentId }: { currentId: LevelId }) {
   );
 }
 
-const EFFORT_RANK: Record<Effort, number> = { low: 1, medium: 2, high: 3 };
-const priorityScore = (it: LlmRoadmapItem) => (IMPACT_RANK[it.impact] ?? 0) * 10 - EFFORT_RANK[it.effort];
-const isQuickWin = (it: LlmRoadmapItem) => it.impact === "high" && it.effort !== "high";
-
 /** A what-if payoff chip: the overall-score upside of fully closing this dimension's gap. */
 export function PayoffChip({ report, dim }: { report: ScanReport; dim: DimensionId }) {
   const proj = projectDimensionClose(report, dim);
@@ -142,11 +138,7 @@ export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; repor
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold text-white">{item.title}</h3>
-                  {quick && (
-                    <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-sm font-semibold uppercase tracking-widest text-emerald-300">
-                      ⚡ Quick win
-                    </span>
-                  )}
+                  {quick && <QuickWinBadge />}
                 </div>
                 {item.rationale && (
                   <p className="mt-1.5 text-base leading-relaxed text-slate-400">{item.rationale}</p>

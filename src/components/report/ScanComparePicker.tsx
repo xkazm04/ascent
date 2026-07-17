@@ -9,7 +9,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import type { HistoryPoint } from "@/lib/db/scans";
 import { Kicker, Surface } from "@/components/ui";
-import { scanCaption } from "@/components/report/WhatChangedParts";
+import { scanOptionCaptions } from "@/components/report/WhatChangedParts";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -34,6 +34,9 @@ export function ScanComparePicker({
   const router = useRouter();
   const pathname = usePathname();
   const latestId = scans[0]?.id;
+  // List-variant captions: absolute date+time + short sha (+ ordinal on exact collisions), so two
+  // same-day scans with the same score stay distinguishable in the dropdowns (trends-comparison #4).
+  const captions = scanOptionCaptions(scans, latestId);
 
   // Navigate to a new (after, before) pair — shareable URL, server re-renders the diff. Use push (not
   // replace) so each selection is its own history entry and Back steps through the prior selections,
@@ -58,13 +61,17 @@ export function ScanComparePicker({
           >
             {scans.map((s) => (
               <option key={s.id} value={s.id} disabled={s.id === afterId}>
-                {scanCaption(s, { latest: s.id === latestId })}
+                {captions.get(s.id)}
               </option>
             ))}
           </select>
         </Field>
 
         <div className="flex justify-center pb-1">
+          {/* Swap requests before/after in the opposite time order — getScanComparison honors an
+              explicit pair in EITHER direction (diffScans treats an older `after` as valid: the deltas
+              read as regressions), so this navigation yields the actual swapped diff, not a silently
+              substituted default baseline (trends-comparison 07-16 #1). */}
           <button
             type="button"
             onClick={() => go(beforeId, afterId)}
@@ -85,7 +92,7 @@ export function ScanComparePicker({
           >
             {scans.map((s) => (
               <option key={s.id} value={s.id} disabled={s.id === beforeId}>
-                {scanCaption(s, { latest: s.id === latestId })}
+                {captions.get(s.id)}
               </option>
             ))}
           </select>

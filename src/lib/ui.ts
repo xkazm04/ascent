@@ -179,6 +179,18 @@ export function readableTextOn(hex: string): string {
   return contrastInk >= contrastLight ? "#04070e" : "#e2e8f0";
 }
 
+/**
+ * The canonical CTA button pair (filled accent / outline) shared by the shell's notice surfaces —
+ * EmptyState, RouteError, and not-found previously each hand-typed these, drifting in geometry
+ * (rounded-xl px-5 vs rounded-md px-4) and, on EmptyState, dropping the `focus-ring` token every
+ * sibling applies. One definition keeps the primary/outline pair — including its keyboard focus
+ * affordance — identical across every empty/error state. Pure strings: safe for server and client.
+ */
+export const CTA_PRIMARY =
+  "focus-ring rounded-md bg-accent px-4 py-2 font-medium text-on-accent transition hover:bg-accent-soft";
+export const CTA_OUTLINE =
+  "focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white";
+
 export const IMPACT_CLASS: Record<string, string> = {
   high: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
   medium: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",

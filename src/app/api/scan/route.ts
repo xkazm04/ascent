@@ -61,7 +61,7 @@ async function runScan(
   // request — a REAL, non-304 one for a never-before-seen repo — against the operator PAT, plus 1-2 DB
   // reads, before the peek returns 204. That is cheap per request but an anonymous client looping
   // distinct repo URLs can exhaust the shared GitHub budget at no cost to itself. Cap the peek path on
-  // its own generous budget (PEEK_RATE_LIMIT) WITHOUT consuming the weekly free-scan quota; the
+  // its own generous budget (PEEK_RATE_LIMIT) WITHOUT consuming the monthly free-scan quota; the
   // expensive full-scan path keeps its stricter limiter + quota below. Must run BEFORE the cache lookup
   // so the head request itself is rate-limited, not just the 204.
   if (opts.peek && opts.req) {
@@ -138,7 +138,7 @@ async function runScan(
   let quotaRemaining: number | null = null;
   let quotaResetAt: number | null = null;
   let quotaScope: "anon" | "user" | null = null;
-  // Set when a weekly slot was actually consumed, so the failure paths below can REFUND it — the
+  // Set when a monthly slot was actually consumed, so the failure paths below can REFUND it — the
   // free tier meters on commit, not attempt (same policy as credit metering).
   let refundQuota = async () => {};
   if (opts.req) {
@@ -148,7 +148,9 @@ async function runScan(
       return tooManyRequests(rl.retryAfterSec);
     }
 
-    // Weekly SOFT gate: public scans get a free per-window allowance (shared with /api/scan/stream via
+    // Monthly SOFT gate (rolling 30-day window, default 5 — the single source of truth for the window
+  // and allowance is src/lib/public-scan-quota.ts): public scans get a free per-window allowance
+  // (shared with /api/scan/stream via
     // consumeScanQuota). A cache hit / peek above already returned for free; private (token) scans are
     // credit-metered below. Consume one slot here, on the same expensive path as the burst limiter.
     const quota = await consumeScanQuota(opts.req, { orgSlug, token, mock: opts.mock });
@@ -181,7 +183,9 @@ async function runScan(
       // NOT be refunded later (that would mint a credit), so the reservation flag tracks charged, not ok.
       creditReserved = res.charged;
       creditsRemaining = res.balance;
-      if (creditReserved) await maybeAlertLowCredits(orgSlug, res.balance);
+      // The `charged` path debited exactly one credit, so the pre-debit balance is balance + 1 —
+      // the range-based crossing predicate needs both sides of the debit.
+      if (creditReserved) await maybeAlertLowCredits(orgSlug, res.balance + 1, res.balance);
     }
   }
   // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). Updates
@@ -213,14 +217,22 @@ async function runScan(
   // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto one
   // run so two callers don't each pay a full ingest + LLM. The token (private) path is per-tenant and
   // never shared, so it scans directly.
+  // Track whether we JOINED an in-flight run rather than computing: the quota slot was consumed above,
+  // but a joiner shares one ingest+LLM computation — under "meter on commit, not attempt" (the policy
+  // the credit side already honors via `deduped`) only the computing owner's slot should stand, so the
+  // joiner's is refunded below. Without this, a StrictMode double-mount or peek-then-stream race cost
+  // 2 of the 5 monthly slots for one shared report. (scan-pipeline-ingestion #4)
+  let joinedInflight = false;
   let report: Awaited<ReturnType<typeof scanRepository>>;
   try {
     report = lookup
-      ? await coalesceScan(lookup.cacheKey, (signal) => doScan(signal), opts.signal)
+      ? await coalesceScan(lookup.cacheKey, (signal) => doScan(signal), opts.signal, () => {
+          joinedInflight = true;
+        })
       : await doScan(opts.signal);
   } catch (err) {
     // The scan delivered nothing — invalid URL / 404 / upstream failure / rate limit / client
-    // abort. Refund both the weekly slot AND any reserved credit before handleError maps the failure:
+    // abort. Refund both the monthly slot AND any reserved credit before handleError maps the failure:
     // a typo or a mid-scan refresh must not burn a free slot or a prepaid credit.
     await refundQuota();
     await refundCredit();
@@ -239,6 +251,10 @@ async function runScan(
     }
     throw err;
   }
+  // Coalesce-join refund: this caller received the OWNER's computation, so its own consumed slot
+  // buys nothing — hand it back (refund is idempotent, so the degrade/dedup refunds below can't
+  // double-mint). The quota headers below may overstate usage by this one refunded slot (soft gate).
+  if (joinedInflight) await refundQuota();
   // Derive the cache-poisoning guards (degrade-to-mock / low-coverage) — shared with /api/scan/stream
   // via classifyScanResult. degradedToMock: a transient LLM failure fell back to MockProvider but the
   // lookup key is still ::llm, so caching/persisting it would pin the deterministic floor for the full
@@ -257,7 +273,7 @@ async function runScan(
   const resultClass = classifyScanResult(report, opts.mock);
   const { degradedToMock } = resultClass;
   // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not the
-  // product the slot pays for — refund both the weekly slot and any reserved credit ("a degrade-to-mock
+  // product the slot pays for — refund both the monthly slot and any reserved credit ("a degrade-to-mock
   // run is free"). The quota headers below may overstate usage by this one refunded slot (soft gate).
   if (degradedToMock) {
     await refundQuota();
@@ -290,8 +306,8 @@ async function runScan(
   };
   if (!persistedOk) headers["x-ascent-persisted"] = "false";
   if (creditsRemaining !== null) headers["x-ascent-credits-remaining"] = String(creditsRemaining);
-  // Free public scans left in this IP's rolling weekly window (after this scan), so the UI can warn
-  // before the gate trips. Only present when the weekly gate actually enforced (anonymous public).
+  // Free public scans left in this bucket's rolling 30-day window (after this scan), so the UI can
+  // warn before the gate trips. Only present when the monthly gate actually enforced (public funnel).
   if (quotaRemaining !== null) headers["x-ascent-quota-remaining"] = String(quotaRemaining);
   if (quotaResetAt !== null) headers["x-ascent-quota-reset"] = String(quotaResetAt);
   if (quotaScope !== null) headers["x-ascent-quota-scope"] = quotaScope;
@@ -362,6 +378,23 @@ export async function GET(request: Request) {
     // `latest=1` (peek-only) allows falling back to the most recent persisted report of ANY
     // commit when the head-pinned probe misses — used by the quota-blocked salvage path.
     const latest = searchParams.get("latest") === "1" || searchParams.get("latest") === "true";
+    // GET is restricted to the CHEAP idempotent modes it exists for (cache peeks and ?mock=1 demos).
+    // A bare GET /api/scan?url=… used to run the identical quota-consuming, credit-metering,
+    // report-persisting path as POST — but GETs are exactly the requests prefetchers, link expanders,
+    // crawlers, and browser URL-bar autocompletion replay, and they carry the session cookie, so a
+    // signed-in user's own browser could silently re-fire a full scan (burning free-tier slots or org
+    // credits with no UI shown; the refund machinery only covers FAILED scans, not unwanted successful
+    // ones). Nothing in-app links a real scan-on-GET — the report flow peeks here then POSTs to
+    // /api/scan/stream. Unbounded-cost mutations belong on POST. (scan-pipeline-ingestion #5)
+    if (!peek && !mock) {
+      return NextResponse.json(
+        {
+          error:
+            "A real scan is not served on GET (prefetchers/crawlers replay GETs, and a scan spends quota and money). POST /api/scan with { url } instead — or use GET with peek=1 (cache probe) or mock=1 (deterministic demo).",
+        },
+        { status: 405, headers: { allow: "POST", "cache-control": "no-store" } },
+      );
+    }
     return await runScan(url, { mock, installationId, fresh, peek, recent, latest, signal: request.signal, req: request });
   } catch (err) {
     return handleError(err);

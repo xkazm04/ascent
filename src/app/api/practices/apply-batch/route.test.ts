@@ -205,6 +205,19 @@ describe("POST /api/practices/apply-batch — MAX_BATCH cap + happy path", () =>
     expect(mockOpenPr).toHaveBeenCalledTimes(2);
   });
 
+  it("dedupes duplicate repos in the batch: one PR-write, one result, no same-branch race", async () => {
+    // Two workers for one repo would race openDraftPr on the same ascent/<practice> branch — the
+    // route must collapse duplicates (case-insensitively) before fanning out.
+    const res = await run({ repos: ["acme/api", "acme/api", "ACME/API", "acme/app"], practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.attempted).toBe(2);
+    expect(json.skipped).toBe(0);
+    expect(json.results).toHaveLength(2);
+    expect(mockOpenPr).toHaveBeenCalledTimes(2);
+  });
+
   it("one repo throwing inside the pool yields {ok:false} for it while the others still succeed", async () => {
     mockOpenPr
       .mockResolvedValueOnce({ url: "u1", number: 1, reused: false } as never)

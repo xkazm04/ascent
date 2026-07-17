@@ -173,10 +173,32 @@ export async function buildSecurityOverview(
       minSecurity,
       passing: repos.length - failing.length,
       failing: failing.length,
-      failingRepos: failing.slice(0, 8),
+      // DISPLAY cap only, sized for the failing-repos card. Anything that must be exhaustive (the CI
+      // gate snippet — see buildGateSnippet) reads the full `register` instead; consuming this list as
+      // "all failing repos" silently dropped every repo past the cap (security-posture-audit-log #4).
+      failingRepos: failing.slice(0, FAILING_DISPLAY_CAP),
     },
     register,
   };
+}
+
+/** How many gate-failing repos the display surfaces (tiles/cards) list — a UI bound, NOT a data cap. */
+export const FAILING_DISPLAY_CAP = 8;
+
+/**
+ * The paste-ready CI gate snippet ("Copy CI gate snippet") — one curl per gate-failing repo, built
+ * from the FULL register, never the display-capped `securityGate.failingRepos`: an org with 20
+ * failing repos previously copied a snippet that silently enforced only 8 of them while the tile
+ * above said "20 fail" (security-posture-audit-log #4). When nothing fails, two example lines show
+ * the shape. Pure — unit-tested.
+ */
+export function buildGateSnippet(o: SecurityOverview): string {
+  const failing = o.register.filter((r) => r.gateReason);
+  return [
+    `# Ascent security gate — non-zero exit when Security (D9) < ${o.securityGate.minSecurity} or the posture is "ungoverned".`,
+    `# Add one line per repo to CI; set ASCENT_URL to this Ascent instance.`,
+    ...(failing.length > 0 ? failing : o.register.slice(0, 2)).map((r) => `curl -sf "$ASCENT_URL/api/gate/${r.fullName}?security=1"`),
+  ].join("\n");
 }
 
 /** A security-focused markdown brief for the "Copy for LLM" action — ends with a remediation ASK.

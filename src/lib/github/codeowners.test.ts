@@ -80,6 +80,33 @@ describe("findCodeownersContent / extractTeamOwnership", () => {
     expect(findCodeownersContent([{ path: "README.md", content: "no" }])).toBeNull();
   });
 
+  // github-repo-data-access (2026-07-16) #3: when CODEOWNERS exists in more than one honored
+  // location, GitHub applies `.github/` first, then root, then `docs/` — the array's fetch order
+  // (source.ts lists root BEFORE .github/) must not decide which file wins, or a stale root copy
+  // shadows the maintained `.github/` one during exactly the migration case where they disagree.
+  it("resolves multiple locations in GitHub's precedence order (.github/ > root > docs/), not array order", () => {
+    expect(
+      findCodeownersContent([
+        { path: "CODEOWNERS", content: "stale-root" }, // fetch rank lists root first
+        { path: ".github/CODEOWNERS", content: "github-dir" },
+        { path: "docs/CODEOWNERS", content: "docs-dir" },
+      ]),
+    ).toBe("github-dir");
+    expect(
+      findCodeownersContent([
+        { path: "docs/CODEOWNERS", content: "docs-dir" },
+        { path: "CODEOWNERS", content: "root" },
+      ]),
+    ).toBe("root");
+    // Precedence changes the attribution end-to-end, not just the raw content pick.
+    expect(
+      extractTeamOwnership([
+        { path: "CODEOWNERS", content: "*  @acme/old-team" },
+        { path: ".github/CODEOWNERS", content: "*  @acme/new-team" },
+      ]),
+    ).toEqual([{ slug: "@acme/new-team", ownedPaths: 1, isDefaultOwner: true }]);
+  });
+
   it("extractTeamOwnership returns [] when no CODEOWNERS file is present", () => {
     expect(extractTeamOwnership([{ path: "README.md", content: "*  @acme/team" }])).toEqual([]);
   });

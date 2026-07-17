@@ -64,7 +64,13 @@ export function LiveWarRoomTv({
   const stages = computeTvStages({ running: wall.running, triage, inFlight });
 
   const [idx, setIdx] = useState(0);
-  const [paused, setPaused] = useState(false);
+  // Pause sources (live-war-room 07-16 #5 / WCAG 2.2.2 Pause-Stop-Hide): hover was the ONLY way to
+  // hold a stage, which excludes keyboard-only presenters and remotes. Rotation now also pauses on
+  // focus within the wall and via an explicit toggle (button / Space), so any input can hold a stage.
+  const [hoverPaused, setHoverPaused] = useState(false);
+  const [focusPaused, setFocusPaused] = useState(false);
+  const [manualPaused, setManualPaused] = useState(false);
+  const paused = hoverPaused || focusPaused || manualPaused;
   const [visible, setVisible] = useState(true);
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -84,9 +90,16 @@ export function LiveWarRoomTv({
   // Esc exits TV mode; leaving fullscreen (also Esc) exits too, so the two stay in lockstep.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Space toggles the rotation pause — but never when it would activate a focused control.
+      const onControl =
+        e.target instanceof HTMLElement && /^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(e.target.tagName);
       if (e.key === "Escape") onExit();
       else if (e.key === "ArrowRight") setIdx((i) => i + 1);
       else if (e.key === "ArrowLeft") setIdx((i) => i - 1);
+      else if (e.key === " " && !onControl) {
+        e.preventDefault(); // don't page-scroll the wall
+        setManualPaused((p) => !p);
+      }
     };
     const onFs = () => {
       if (typeof document !== "undefined" && !document.fullscreenElement) onExit();
@@ -114,8 +127,14 @@ export function LiveWarRoomTv({
   return (
     <div
       className="strata relative isolate min-h-[70vh] overflow-hidden rounded-3xl border border-divider bg-surface/40 p-6 md:p-8"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
+      onMouseEnter={() => setHoverPaused(true)}
+      onMouseLeave={() => setHoverPaused(false)}
+      // Mirror the hover-pause for keyboard/remote users: focus anywhere inside the wall holds the
+      // stage; leaving the wall entirely resumes (relatedTarget check ignores intra-wall moves).
+      onFocus={() => setFocusPaused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusPaused(false);
+      }}
     >
       <header className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="flex items-center gap-2 font-mono text-sm uppercase tracking-[0.3em] text-accent">
@@ -123,19 +142,37 @@ export function LiveWarRoomTv({
           Live · {slug}
         </span>
         <span className="flex-1" />
-        {/* Stage indicator: the relevant states, active highlighted, click to jump. */}
-        <div className="flex flex-wrap gap-1 font-mono text-xs uppercase tracking-widest">
+        {/* Stage indicator: the relevant states, active highlighted, click to jump. text-sm (not xs):
+            this wall is "big enough for a room", and the hints live in the title for discoverability. */}
+        <div
+          className="flex flex-wrap gap-1 font-mono text-sm uppercase tracking-widest"
+          title="Stages auto-rotate — ← / → switch stages, Space pauses"
+        >
           {stages.map((sId, i) => (
             <button
               key={sId}
               type="button"
               onClick={() => setIdx(i)}
+              title={`Show the ${TV_STAGE_LABEL[sId]} stage (← / → switch, Space pauses rotation)`}
               className={`focus-ring rounded px-2 py-0.5 transition ${i === activeIdx ? "bg-accent/15 text-accent" : "text-slate-500 hover:text-slate-300"}`}
             >
               {TV_STAGE_LABEL[sId]}
             </button>
           ))}
         </div>
+        {/* Explicit pause control (WCAG 2.2.2): auto-advancing content must be pausable by ANY user,
+            not just a mouse hoverer. Space toggles it too (see onKey). */}
+        {stages.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setManualPaused((p) => !p)}
+            aria-pressed={manualPaused}
+            title={manualPaused ? "Resume the stage auto-rotation (Space)" : "Pause the stage auto-rotation (Space)"}
+            className="focus-ring rounded-lg border border-slate-700 px-3 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
+          >
+            {manualPaused ? "▶ Play" : "⏸ Pause"}
+          </button>
+        )}
         {/* Manual retrigger — scan the repos picked on the timetable (auto-relaunch was removed). */}
         <button
           type="button"

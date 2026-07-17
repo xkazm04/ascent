@@ -1,9 +1,15 @@
 "use client";
 
 // The "email me when it's done" opt-in shown under the scan form. A live scan runs for minutes, so a
-// signed-in user can ask to be emailed the report link instead of waiting on the tab. When the account
-// has no email (GitHub can hide it), a custom-address field appears. State lives in ScanForm so submit()
-// can read it.
+// signed-in user can ask to be emailed the report link instead of waiting on the tab. State lives in
+// ScanForm so submit() can read it.
+//
+// When the signed-in account exposes NO email (GitHub can hide it), the toggle is replaced by an honest
+// explanation instead of a custom-address field. The stream route's open-relay hardening only ever
+// sends to the viewer's own verified account address — a client-supplied address from an authenticated
+// viewer is silently dropped server-side — so collecting one here walked the user through a promise
+// ("email me when it's done", address validated, scan runs) the server is designed to refuse.
+// (ambiguity-ui-scan-2026-07-16 scan-pipeline-ingestion #1)
 //
 // For a SIGNED-OUT visitor — the default first-timer, and the one most likely to abandon a multi-minute
 // wait — the slot becomes a sign-in nudge instead of nothing: notify is the textbook reason to make an
@@ -18,16 +24,12 @@ export function NotifyToggle({
   viewerEmail,
   notifyOn,
   onNotifyChange,
-  customEmail,
-  onCustomEmailChange,
   auth = null,
 }: {
   signedIn: boolean;
   viewerEmail?: string | null;
   notifyOn: boolean;
   onNotifyChange: (v: boolean) => void;
-  customEmail: string;
-  onCustomEmailChange: (v: string) => void;
   /** The deployment's sign-in backend — drives the signed-out nudge (null hides it). */
   auth?: AuthMode;
 }) {
@@ -47,7 +49,18 @@ export function NotifyToggle({
       </div>
     );
   }
-  const needsCustom = notifyOn && !viewerEmail;
+  if (!viewerEmail) {
+    // Signed in, but the account exposes no email: the server will only ever send to the verified
+    // account address, so there is genuinely nothing to opt into. Say so honestly instead of offering
+    // a checkbox + custom-address field whose promise the stream route silently drops.
+    return (
+      <p className="mt-3 text-left font-mono text-sm text-slate-400">
+        <span className="text-slate-500">Don&apos;t want to wait?</span> Your account has no email address,
+        so we can&apos;t notify you when a scan finishes — add one to your GitHub account (Settings →
+        Emails) and sign in again to get the report link by email.
+      </p>
+    );
+  }
 
   return (
     <div className="mt-3 text-left">
@@ -63,23 +76,10 @@ export function NotifyToggle({
         <span className="text-slate-500">— scans take a few minutes</span>
       </label>
 
-      {notifyOn && viewerEmail && (
+      {notifyOn && (
         <p className="mt-1.5 pl-6 font-mono text-sm text-slate-500">
           We&apos;ll email you at <span className="text-slate-300">{viewerEmail}</span>.
         </p>
-      )}
-
-      {needsCustom && (
-        <input
-          type="email"
-          inputMode="email"
-          autoComplete="email"
-          value={customEmail}
-          onChange={(e) => onCustomEmailChange(e.target.value)}
-          placeholder="you@example.com"
-          aria-label="Email address for the report notification"
-          className="mt-1.5 ml-6 w-64 rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-accent"
-        />
       )}
     </div>
   );

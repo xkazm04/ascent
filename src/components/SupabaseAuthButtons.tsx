@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { SignInButtonChrome, signInBoxClass, SIGN_IN_VARIANTS, type SignInButtonVariant } from "@/components/auth/buttonChrome";
+import { useResetPendingOnPageShow } from "@/components/auth/usePendingReset";
 
 type Variant = SignInButtonVariant;
 
@@ -25,6 +26,9 @@ export function SupabaseSignInButton({
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Un-stick the spinner when the user BACKS OUT of GitHub's consent screen and bfcache restores
+  // this page with `pending` still true — otherwise the CTA is dead until a manual reload.
+  useResetPendingOnPageShow(setPending);
   const v = SIGN_IN_VARIANTS[variant];
   const idleLabel = label ?? v.idle;
 

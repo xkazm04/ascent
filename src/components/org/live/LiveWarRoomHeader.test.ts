@@ -1,154 +1,123 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pins the deadline-countdown branches of `daysUntil` (LiveWarRoomHeader.tsx:25).
+// Pins the deadline-countdown branches of `daysUntil` (LiveWarRoomHeader.tsx).
 //
 // The production helper is module-private inside a `"use client"` component and
-// reads the wall clock directly (`Date.now()`), with no exported seam — so its
-// branches and sign convention were never exercised. We do NOT touch source, so
-// the clock is pinned with `vi.useFakeTimers()` and the helper is reproduced
-// here VERBATIM from LiveWarRoomHeader.tsx:25 so the assertions describe the real
-// code's contract. If that source helper changes, this mirror (and its tests)
-// must change in lockstep — that coupling is the point: it locks the behaviour.
+// reads the wall clock directly (`Date.now()`), with no exported seam — so the
+// clock is pinned with `vi.useFakeTimers()` and the helper is reproduced here
+// VERBATIM from LiveWarRoomHeader.tsx so the assertions describe the real code's
+// contract. If that source helper changes, this mirror (and its tests) must
+// change in lockstep — that coupling is the point: it locks the behaviour.
 //
-//   /** Days until a YYYY-MM-DD deadline (negative = past). null when no date. */
-//   function daysUntil(date: string | null): number | null {
-//     if (!date) return null;
-//     const t = Date.parse(date);
-//     if (Number.isNaN(t)) return null;
-//     return Math.ceil((t - Date.now()) / 86_400_000);
-//   }
-//
-// Contract pinned below:
+// CONTRACT (live-war-room 07-16 #2 — the timezone off-by-one fix): the deadline
+// is INCLUSIVE and ends at END OF DAY in the VIEWER'S LOCAL timezone.
 //   • no/invalid date → null (never NaN, never a crash)
-//   • a future deadline → POSITIVE whole-day count (days remaining), via Math.ceil
-//   • a past deadline   → NEGATIVE count (days past)
+//   • the WHOLE deadline day — 00:00 through 23:59 local — reads 0 ("0d to
+//     deadline", due today), in EVERY timezone. The old Date.parse(date) was UTC
+//     midnight at the START of the day, so a viewer west of UTC saw "1d past
+//     deadline" on the wall while the date was still today locally.
+//   • a future deadline → POSITIVE whole-day count; past → NEGATIVE, starting
+//     the local day AFTER the deadline day.
 //   • the component renders `${countdown}d to deadline` / `${-countdown}d past
 //     deadline`, so the sign IS the user-facing direction — it must never invert.
-//   • day boundary: Math.ceil means any sub-24h future remainder rounds UP, so a
-//     deadline later *today* and one *tomorrow* both read as a positive count and
-//     there is no off-by-one that flips a future deadline to 0/negative.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** VERBATIM mirror of LiveWarRoomHeader.tsx:25 — see header comment. */
+/** VERBATIM mirror of LiveWarRoomHeader.tsx `daysUntil` — see header comment. */
 function daysUntil(date: string | null): number | null {
   if (!date) return null;
-  const t = Date.parse(date);
-  if (Number.isNaN(t)) return null;
-  return Math.ceil((t - Date.now()) / 86_400_000);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!m) return null;
+  const end = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + 1).getTime();
+  if (Number.isNaN(end)) return null;
+  return Math.ceil((end - Date.now()) / 86_400_000) - 1;
 }
 
-const DAY = 86_400_000;
+/** YYYY-MM-DD of a LOCAL date — targets are built off local parts so every
+ *  assertion holds regardless of the timezone the test runner happens to use. */
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-// A fixed "now" mid-morning UTC so we exercise the time-of-day boundary: there is
-// a non-zero remainder within the current day for sub-24h offsets.
-const NOW_ISO = "2026-06-19T09:30:00.000Z";
-const NOW = Date.parse(NOW_ISO);
+/** Local date `days` after the pinned "now", at local midnight (date arithmetic only). */
+const localShift = (now: Date, days: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
+
+/** Pin the clock to a LOCAL wall-time instant. */
+const pin = (y: number, mo: number, d: number, h: number, mi = 0) => {
+  const now = new Date(y, mo - 1, d, h, mi);
+  vi.setSystemTime(now);
+  return now;
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.setSystemTime(new Date(NOW)); // pins Date.now() — deterministic, no wall clock
 });
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("daysUntil (war-room deadline countdown)", () => {
+describe("daysUntil (war-room deadline countdown — local end-of-day, inclusive)", () => {
   // ── null / invalid branch: never NaN, never throws ────────────────────────
-  it("returns null for a null date", () => {
+  it("returns null for a null date and an empty string", () => {
+    pin(2026, 6, 19, 9);
     expect(daysUntil(null)).toBeNull();
-  });
-
-  it("returns null for an empty string (falsy → no-date branch)", () => {
     expect(daysUntil("")).toBeNull();
   });
 
   it("returns null for an unparseable date instead of NaN or a throw", () => {
+    pin(2026, 6, 19, 9);
     const r = daysUntil("not-a-date");
     expect(r).toBeNull();
     expect(Number.isNaN(r as unknown as number)).toBe(false);
   });
 
+  // ── the deadline day itself reads 0 at BOTH edges of the local day ────────
+  // This is the boundary the fix pins: the old UTC-midnight parse made "past
+  // deadline" fire up to a day early/late depending on the viewer's timezone.
+  it("the deadline day reads 0 ('due today') early in the LOCAL morning", () => {
+    const now = pin(2026, 6, 19, 0, 30); // 00:30 local on the deadline day
+    expect(daysUntil(ymd(now))).toBe(0);
+  });
+
+  it("the deadline day STILL reads 0 at 23:00 LOCAL — never 'past deadline' while the date is today", () => {
+    const now = pin(2026, 6, 19, 23, 0); // 23:00 local, deadline day review hour
+    expect(daysUntil(ymd(now))).toBe(0);
+  });
+
   // ── future deadline → POSITIVE whole-day count ────────────────────────────
-  it("a deadline exactly 2 whole days out reads as 2 (days remaining, positive)", () => {
-    // now + 2*DAY, expressed as an absolute instant so there is no rounding slop.
-    const target = new Date(NOW + 2 * DAY).toISOString();
-    expect(daysUntil(target)).toBe(2);
+  it("tomorrow (local) reads 1, five local days out reads 5", () => {
+    const now = pin(2026, 6, 19, 9, 30);
+    expect(daysUntil(ymd(localShift(now, 1)))).toBe(1);
+    expect(daysUntil(ymd(localShift(now, 5)))).toBe(5);
   });
 
-  it("a deadline a single whole day out reads as 1", () => {
-    const target = new Date(NOW + 1 * DAY).toISOString();
-    expect(daysUntil(target)).toBe(1);
+  // ── past deadline → NEGATIVE, starting the local day AFTER the deadline ──
+  it("yesterday (local) reads -1 even just after local midnight (past starts the day after)", () => {
+    const now = pin(2026, 6, 19, 0, 30);
+    expect(daysUntil(ymd(localShift(now, -1)))).toBe(-1);
   });
 
-  // ── day-boundary / time-of-day branch via Math.ceil ───────────────────────
-  // The countdown invariant under test: a deadline later *today* (a sub-24h
-  // future remainder) must NOT collapse to 0 — Math.ceil rounds it UP to 1, the
-  // same reading as a deadline that is a full day away. A future deadline never
-  // reads as "today"/past; only `now` itself reads as 0.
-  it("a deadline later TODAY (sub-24h future) ceils UP to 1, not 0", () => {
-    const target = new Date(NOW + 6 * 60 * 60 * 1000).toISOString(); // +6h, still today
-    expect(daysUntil(target)).toBe(1);
-  });
-
-  it("a deadline ~tomorrow (just over a day out) also reads 2, not 1", () => {
-    const target = new Date(NOW + DAY + 60 * 1000).toISOString(); // +24h01m
-    expect(daysUntil(target)).toBe(2);
-  });
-
-  it("the boundary is consistent: later-today and tomorrow are BOTH positive (no off-by-one flip)", () => {
-    const laterToday = daysUntil(new Date(NOW + 3 * 60 * 60 * 1000).toISOString());
-    const tomorrow = daysUntil(new Date(NOW + DAY + 3 * 60 * 60 * 1000).toISOString());
-    expect(laterToday).toBeGreaterThan(0);
-    expect(tomorrow).toBeGreaterThan(0);
-    expect(tomorrow! - laterToday!).toBe(1); // exactly one day apart, no boundary doubling/skipping
-  });
-
-  // ── "today" / now → 0 ─────────────────────────────────────────────────────
-  it("a deadline at exactly now reads as 0 (ceil(0) === 0)", () => {
-    expect(daysUntil(NOW_ISO)).toBe(0);
-  });
-
-  // ── past deadline → NEGATIVE count (the overdue form) ─────────────────────
-  it("a deadline 1 whole day in the past reads as -1 (overdue, negative)", () => {
-    const target = new Date(NOW - 1 * DAY).toISOString();
-    expect(daysUntil(target)).toBe(-1);
-  });
-
-  it("a deadline 3 whole days in the past reads as -3", () => {
-    const target = new Date(NOW - 3 * DAY).toISOString();
-    expect(daysUntil(target)).toBe(-3);
-  });
-
-  it("a deadline a few hours in the past ceils toward 0 → 0, not a phantom +1", () => {
-    // -2h: (t-now)/DAY is a small negative; Math.ceil → -0 (today, just lapsed),
-    // never a POSITIVE reading. The sign must not invert for a recent miss.
-    // (Math.ceil of a sub-day negative is -0; the component renders it as "0"
-    //  since `${-0}d to deadline` → "0d to deadline", so it reads as today.)
-    const target = new Date(NOW - 2 * 60 * 60 * 1000).toISOString();
-    const r = daysUntil(target) as number;
-    expect(Math.abs(r)).toBe(0); // zero-valued (the real helper yields -0)
-    expect(r).not.toBeGreaterThan(0); // critically: not a phantom positive
-    expect(String(r as number)).toBe("0"); // user-facing render: "0d to deadline"
+  it("three local days ago reads -3", () => {
+    const now = pin(2026, 6, 19, 15, 0);
+    expect(daysUntil(ymd(localShift(now, -3)))).toBe(-3);
   });
 
   // ── sign convention is the user-facing direction (component renders by sign) ─
   it("sign convention: future > 0, past < 0 — the render direction never inverts", () => {
-    const future = daysUntil(new Date(NOW + 5 * DAY).toISOString());
-    const past = daysUntil(new Date(NOW - 5 * DAY).toISOString());
+    const now = pin(2026, 6, 19, 12, 0);
+    const future = daysUntil(ymd(localShift(now, 5)));
+    const past = daysUntil(ymd(localShift(now, -5)));
     expect(future).toBe(5);
     expect(past).toBe(-5);
-    // The header shows `${countdown}d to deadline` when >= 0 and `${-countdown}d
-    // past deadline` when < 0; assert the magnitude shown for the past case.
-    expect(-past!).toBe(5);
+    expect(-past!).toBe(5); // `${-countdown}d past deadline` magnitude
   });
 
-  // ── determinism guard: result depends only on the pinned clock ────────────
-  it("is deterministic under the fake clock (advancing the clock changes the count)", () => {
-    const target = new Date(NOW + 2 * DAY).toISOString();
+  // ── determinism: crossing local midnight moves the count by exactly one ───
+  it("advancing the clock across LOCAL midnight decrements the count by exactly one", () => {
+    const now = pin(2026, 6, 19, 23, 30);
+    const target = ymd(localShift(now, 2));
     expect(daysUntil(target)).toBe(2);
-    vi.setSystemTime(new Date(NOW + 1 * DAY)); // a day passes
-    expect(daysUntil(target)).toBe(1); // same target, now one day closer
+    vi.setSystemTime(new Date(2026, 5, 20, 0, 30)); // 1h later, across local midnight
+    expect(daysUntil(target)).toBe(1);
   });
 });

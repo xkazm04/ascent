@@ -1,6 +1,16 @@
 // Persistence for GitHub App installations. An installation maps a GitHub account
 // (org/user login) to an installation_id; we store it on Organization.githubInstallId,
 // using the login (lowercased) as the org slug so a repo owner resolves to its install.
+//
+// IDENTITY DECISION (github-app-installation-webhooks 07-16 #2): `installation.id` is the STABLE key;
+// the GitHub login (== our org slug) is MUTABLE display + routing. GitHub orgs can rename (acme →
+// acme-inc) while keeping the same installation, so `upsertInstallation` reconciles by install id
+// BEFORE writing by slug: a row already holding this installation under a different slug is MIGRATED
+// (slug renamed in place — watch flags, schedules, and every repo/report FK ride along via orgId), so
+// pushes under the new login keep matching the watched repos instead of silently forking history
+// across two tenant rows. When the new slug is ALREADY an existing org (rare: it was seen via a public
+// scan first), the installation is moved to that row and detached from the stale one — the install id
+// points at exactly one org — with a loud log, since the stale row's watch/history do not migrate.
 
 import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
@@ -14,13 +24,61 @@ export async function upsertInstallation(opts: {
   if (!isDbConfigured()) return;
   const slug = opts.login.toLowerCase();
   const installId = String(opts.installationId);
+  // Plan policy (github-app-installation-webhooks #1): installing the App is NOT an entitlement
+  // grant — billing (Polar; see POLAR_PLAN_PRODUCTS / src/lib/db/org.ts) is the sole plan
+  // authority. New rows get the canonical platform default ("free", the schema default; matches
+  // members.ts's owner-seed path), and `update` deliberately omits `plan` so an installation event
+  // can never upgrade OR downgrade an existing org. Historical rows may still carry the legacy
+  // "private" string this path used to mint — planFeatures() resolves any non-PlanId (incl.
+  // "private") to the free tier, so those rows are feature-equivalent to "free".
   const update = { githubInstallId: installId, name: opts.login };
   const prisma = getPrisma();
+
+  // Rename / transfer reconciliation (see the file-header IDENTITY DECISION): does another org row
+  // already hold this installation under a DIFFERENT slug? That is a GitHub org rename (or an
+  // installation transfer) — the login moved but the installation did not. Without this, the upsert
+  // below forks the tenant: a fresh row under the new slug with no watched repos, while the stale slug
+  // keeps the schedules and silently stops matching incoming webhooks.
+  const existing = await prisma.organization.findFirst({
+    where: { githubInstallId: installId, NOT: { slug } },
+    select: { id: true, slug: true },
+  });
+  if (existing) {
+    const target = await prisma.organization.findUnique({ where: { slug }, select: { id: true } });
+    if (!target) {
+      // Clean rename: migrate the row to the new slug. orgId-keyed children (repos, watch flags,
+      // schedules, reports) follow automatically; sessions/routes under the old slug stop resolving,
+      // which mirrors GitHub itself (the old login 404s after a rename).
+      try {
+        await prisma.organization.update({
+          where: { id: existing.id },
+          data: { slug, name: opts.login, githubInstallId: installId },
+        });
+        console.warn(
+          `[installations] GitHub rename detected for installation ${installId}: migrated org slug "${existing.slug}" -> "${slug}"`,
+        );
+        return;
+      } catch (err) {
+        // A concurrent writer created the new slug between our lookup and the rename — fall through to
+        // the transfer path semantics via the upsert below after detaching the stale row.
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002")) throw err;
+      }
+    }
+    // The new slug already exists as its own org (or won a race above): move the installation to the
+    // row matching the CURRENT login and detach the stale one so owner→install resolution follows
+    // GitHub. Loud log — the stale row's watch flags/history do NOT migrate in this shape.
+    await prisma.organization.update({ where: { id: existing.id }, data: { githubInstallId: null } });
+    console.warn(
+      `[installations] installation ${installId} moved from org "${existing.slug}" to existing org "${slug}" — ` +
+        `watched repos/schedules on "${existing.slug}" were not migrated and its autoscans will stop`,
+    );
+  }
+
   try {
     await prisma.organization.upsert({
       where: { slug },
       update,
-      create: { slug, name: opts.login, plan: "private", githubInstallId: installId },
+      create: { slug, name: opts.login, plan: "free", githubInstallId: installId },
     });
   } catch (err) {
     // The setup callback (GET /api/app/setup) and the installation webhook can upsert the same
@@ -107,8 +165,16 @@ export async function suspendInstallation(installationId: number | string): Prom
   if (!orgs.length) return;
   // Pause without losing cadence: a null nextScanAt drops out of listDueRescans (which requires
   // nextScanAt <= now), while `watched` and `scanSchedule` are preserved for resume.
+  //
+  // INVARIANT + SYMMETRY (github-app-installation-webhooks 07-16 #5): this predicate is IDENTICAL to
+  // resumeInstallation's, so suspend→resume round-trips exactly the rows it touched. The intended
+  // invariant "scanSchedule != off ⇒ watched" (removeInstallation and reconcileWatchedRepos always
+  // clear the pair together) is enforced nowhere, so suspend previously paused `watched:false` repos
+  // that resume then never re-armed — a permanent, invisible schedule loss if the invariant ever
+  // broke. Unwatched repos are never due anyway (isRepoWatched gates the scan), so scoping both sides
+  // to `watched: true` is safe AND symmetric.
   await prisma.repository.updateMany({
-    where: { orgId: { in: orgs.map((o) => o.id) }, scanSchedule: { not: "off" } },
+    where: { orgId: { in: orgs.map((o) => o.id) }, watched: true, scanSchedule: { not: "off" } },
     data: { nextScanAt: null },
   });
 }
@@ -120,7 +186,8 @@ export async function suspendInstallation(installationId: number | string): Prom
  * installation's org(s) due now, so the autoscan cron picks them up on its next pass (claimRescan then
  * re-phases each to its own cadence). Scanning them promptly is also correct — push webhooks were
  * suppressed during the suspension, so watched repos may have drifted and want a catch-up scan. No-op
- * without a DB.
+ * without a DB. The where-predicate MUST stay identical to suspendInstallation's (see the symmetry
+ * note there) so a suspend/resume cycle round-trips every row it touched.
  */
 export async function resumeInstallation(installationId: number | string): Promise<void> {
   if (!isDbConfigured()) return;

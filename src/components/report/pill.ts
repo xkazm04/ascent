@@ -7,6 +7,16 @@
 
 const PILL_BASE = "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-medium transition hover:border-accent hover:text-white";
 
+/**
+ * The bordered header action link (Trends → / Compare → / Full report → / Export CSV ↓) shared by the
+ * /trends and /report/compare page headers. The class string was hand-copied between the two pages and
+ * had already drifted: trends applied the repo-wide `focus-ring` utility, the compare page (cloned
+ * before focus-ring landed) omitted it, leaving keyboard users the browser-default outline on one of
+ * two sibling pages (trends-comparison 07-16 #5). Single definition, focus-ring included.
+ */
+export const HEADER_ACTION_LINK_CLASS =
+  "focus-ring rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white";
+
 export function pillClass(opts?: { accent?: boolean; focusRing?: boolean; textSm?: boolean }): string {
   const { accent = false, focusRing = false, textSm = false } = opts ?? {};
   return [

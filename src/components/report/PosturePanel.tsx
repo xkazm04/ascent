@@ -1,6 +1,7 @@
 import type { ScanReport } from "@/lib/types";
 import { scoreGlyph, scoreHex } from "@/lib/ui";
 import { PostureQuadrant } from "@/components/report/Charts";
+import { FillBar } from "@/components/report/FillBar";
 import { Kicker, Surface } from "@/components/ui";
 
 export function PosturePanel({
@@ -17,8 +18,8 @@ export function PosturePanel({
         <h2 className="mt-1 text-xl font-bold text-white">{report.posture.label}</h2>
         <p className="mt-1 text-base leading-relaxed text-slate-400">{report.posture.blurb}</p>
         <div className="mt-5 flex flex-col gap-4">
-          <AxisBar label="AI Adoption" value={report.adoptionScore} hint="tooling · agentic · commit signals" />
-          <AxisBar label="Engineering Rigor" value={report.rigorScore} hint="tests · CI/CD · docs · quality" />
+          <AxisBar label="AI Adoption" value={report.adoptionScore} hint="tooling · agentic · commit signals" index={0} />
+          <AxisBar label="Engineering Rigor" value={report.rigorScore} hint="tests · CI/CD · docs · quality" index={1} />
         </div>
       </div>
       <div className="flex items-center justify-center">
@@ -33,7 +34,7 @@ export function PosturePanel({
   );
 }
 
-function AxisBar({ label, value, hint }: { label: string; value: number; hint: string }) {
+function AxisBar({ label, value, hint, index }: { label: string; value: number; hint: string; index: number }) {
   const color = scoreHex(value);
   return (
     <div>
@@ -44,9 +45,9 @@ function AxisBar({ label, value, hint }: { label: string; value: number; hint: s
           {value}
         </span>
       </div>
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-800">
-        <div className="h-full rounded-full transition-all" style={{ width: `${value}%`, backgroundColor: color }} />
-      </div>
+      {/* FillBar (client island) rather than a hand-rolled `transition-all` div: gets the shared
+          mount-grow + stagger + reduced-motion snap every sibling report bar gates on. */}
+      <FillBar pct={value} color={color} index={index} />
       <div className="mt-1 font-mono text-sm uppercase tracking-wider text-slate-400">{hint}</div>
     </div>
   );

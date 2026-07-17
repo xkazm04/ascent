@@ -9,7 +9,17 @@ import { DEFAULT_GEMINI_MODEL } from "./gemini";
 import { DEFAULT_OPENAI_MODEL } from "./openai";
 import { DEFAULT_CLAUDE_MODEL } from "./claude-cli";
 import { DEFAULT_OPENROUTER_MODEL } from "./openrouter";
-import { priceForModel, billableInputTokens, thinkingBudgetTokens, withLlmTimeout, llmTimeoutMs } from "./config";
+import {
+  priceForModel,
+  billableInputTokens,
+  thinkingBudgetTokens,
+  withLlmTimeout,
+  llmTimeoutMs,
+  llmTemperature,
+  llmMaxTokens,
+  providerLabel,
+} from "./config";
+import type { ProviderName } from "@/lib/types";
 import { afterEach, beforeEach, vi } from "vitest";
 
 describe("priceForModel", () => {
@@ -170,6 +180,79 @@ describe("llmTimeoutMs (per-call timeout, floored so a misconfig can't instant-a
     expect(llmTimeoutMs()).toBe(1_000);
     vi.stubEnv("LLM_TIMEOUT_MS", "250");
     expect(llmTimeoutMs()).toBe(1_000);
+  });
+});
+
+describe("providerLabel (provenance vocabulary — /usage bars + briefing 'Scored by' line)", () => {
+  it("has a polished (non-raw-id) label for EVERY ProviderName member", () => {
+    // openai/openrouter were missing, so their raw lowercase ids rendered next to "AWS Bedrock" on
+    // the two provenance surfaces executives read. (llm-provider-abstraction #4)
+    const all: ProviderName[] = ["gemini", "bedrock", "openai", "openrouter", "mock", "claude-cli"];
+    for (const id of all) {
+      const label = providerLabel(id);
+      expect(label, `PROVIDER_LABEL is missing "${id}"`).not.toBe(id);
+      expect(label.length).toBeGreaterThan(0);
+    }
+    expect(providerLabel("openai")).toBe("OpenAI");
+    expect(providerLabel("openrouter")).toBe("OpenRouter");
+  });
+
+  it("still falls back to the raw id for an unknown legacy id", () => {
+    expect(providerLabel("some-future-provider")).toBe("some-future-provider");
+  });
+});
+
+describe("llmTemperature (clamped to [0,2] — same misconfig hardening as the timeout floor)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("defaults to 0.2 when unset/blank/garbage", () => {
+    vi.stubEnv("LLM_TEMPERATURE", "");
+    expect(llmTemperature()).toBe(0.2);
+    vi.stubEnv("LLM_TEMPERATURE", "warm");
+    expect(llmTemperature()).toBe(0.2);
+  });
+
+  it("honors an in-range configured value, including a deliberate 0", () => {
+    vi.stubEnv("LLM_TEMPERATURE", "0");
+    expect(llmTemperature()).toBe(0);
+    vi.stubEnv("LLM_TEMPERATURE", "1.5");
+    expect(llmTemperature()).toBe(1.5);
+  });
+
+  it("clamps out-of-range values instead of letting them 400 every real-provider call", () => {
+    // LLM_TEMPERATURE=5 previously flowed into the request body, Gemini/OpenAI reject >2 with a 400,
+    // and 100% of scans silently degraded to the deterministic mock floor.
+    vi.stubEnv("LLM_TEMPERATURE", "5");
+    expect(llmTemperature()).toBe(2);
+    vi.stubEnv("LLM_TEMPERATURE", "-1");
+    expect(llmTemperature()).toBe(0);
+  });
+});
+
+describe("llmMaxTokens (per-provider completion cap, floored so 0/negative can't fail every call)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("defaults to 4096 when unset/blank/garbage", () => {
+    vi.stubEnv("OPENAI_MAX_TOKENS", "");
+    expect(llmMaxTokens("OPENAI_MAX_TOKENS")).toBe(4096);
+    vi.stubEnv("OPENAI_MAX_TOKENS", "plenty");
+    expect(llmMaxTokens("OPENAI_MAX_TOKENS")).toBe(4096);
+  });
+
+  it("honors a configured value above the floor (rounded to an integer)", () => {
+    vi.stubEnv("BEDROCK_MAX_TOKENS", "8192");
+    expect(llmMaxTokens("BEDROCK_MAX_TOKENS")).toBe(8192);
+    vi.stubEnv("BEDROCK_MAX_TOKENS", "1000.7");
+    expect(llmMaxTokens("BEDROCK_MAX_TOKENS")).toBe(1001);
+  });
+
+  it("floors 0/negative/tiny values to 256 instead of failing every real-provider call", () => {
+    // BEDROCK_MAX_TOKENS=0 / OPENAI_MAX_TOKENS=-1 previously flowed straight into the request and made
+    // every call fail — the identical silent all-scans-to-mock symptom the timeout floor was built to kill.
+    for (const v of ["0", "-1", "16"]) {
+      vi.stubEnv("OPENROUTER_MAX_TOKENS", v);
+      expect(llmMaxTokens("OPENROUTER_MAX_TOKENS")).toBe(256);
+    }
   });
 });
 

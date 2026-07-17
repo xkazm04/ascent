@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { LEVEL_CLASSES, LEVEL_GLYPH, readableTextOn, timeAgo } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
-import { type AppRepo, SCHEDULES } from "./installationRepoTypes";
+import { type AppRepo, SCHEDULES, scheduleLabel } from "./installationRepoTypes";
 
 export function RepoRow({
   r,
@@ -84,7 +84,7 @@ export function RepoRow({
         >
           {SCHEDULES.map((s) => (
             <option key={s} value={s}>
-              {s === "off" ? "no autoscan" : s}
+              {scheduleLabel(s)}
             </option>
           ))}
         </select>

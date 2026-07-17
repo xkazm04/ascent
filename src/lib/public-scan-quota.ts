@@ -100,7 +100,9 @@ function bucketContext(
   if (signedIn) {
     return { signedIn, ipHash: hashKey(`u:${identity.viewerId}`), scope: "user", unidentifiable: false };
   }
-  // When neither x-real-ip nor x-forwarded-for reaches the app, clientIp returns the literal "unknown"
+  // When no TRUSTED client IP reaches the app — no forwarding headers at all, OR the deployment
+  // declares its proxy chain untrustworthy / longer than the headers show (ASCENT_TRUSTED_PROXY_HOPS,
+  // see clientIp's trust model in rate-limit.ts) — clientIp returns the literal "unknown"
   // sentinel — a SINGLE shared bucket. That's the right fail-CLOSED choice for the per-minute burst
   // limiter (bounded blast radius), but in this 30-day persistent quota it would collapse EVERY anonymous
   // visitor into ONE monthly bucket: after the first few public scans the whole free funnel is locked out

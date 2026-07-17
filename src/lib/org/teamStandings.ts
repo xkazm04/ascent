@@ -34,10 +34,14 @@ export interface TeamStanding {
   // Human / trajectory context — separate signals, not part of the maturity-score decomposition.
   aiCommitShare: number;
   aiShareDelta: number; // vs fleet mean aiCommitShare
-  avgDelta: number; // momentum: mean overall delta since last scan
+  avgDelta: number; // momentum: mean overall delta (period-scoped when the rollup was windowed; since last scan otherwise)
   comparedRepos: number;
   improving: number;
   declining: number;
+  /** Team contributor population — the renderer must gate champion naming on CHAMPION_MIN_POP
+   *  (the same floor Contributors/Adoption/TeamsMatrixDetail apply), so a 1-person team's sole AI
+   *  user is never crowned a champion here. (ambiguity-ui 2026-07-16 #3) */
+  contributors: number;
   champions: TeamChampion[];
 }
 
@@ -117,6 +121,7 @@ export function explainTeamStandings(teams: TeamRollup[]): TeamStandings | null 
     comparedRepos: t.comparedRepos,
     improving: t.improving,
     declining: t.declining,
+    contributors: t.contributors,
     champions: t.champions,
   });
 

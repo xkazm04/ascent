@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { deltaHex, signedDelta, fmtDelta, toneFor, shortDate, shortDateSafe } from "./format";
+import { deltaHex, signedDelta, fmtDelta, toneFor, shortDate, shortDateSafe, DIRECTION_TONE } from "./format";
 
 describe("delta formatters (noise-aware)", () => {
   it("deltaHex mutes flat + within-noise deltas to slate", () => {
@@ -31,13 +33,23 @@ describe("delta formatters (noise-aware)", () => {
     expect(toneFor(8)).toBe("rising");
     expect(toneFor(-5)).toBe("falling");
   });
+
+  it("DIRECTION_TONE hexes stay paired with the --color-tone-* CSS tokens (change BOTH together)", () => {
+    // TS keeps literal hex (inline styles + tests can't resolve var()); globals.css re-declares the
+    // triad as tokens for CSS-side surfaces. This pins the pairing so a rebrand can't move one side.
+    const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+    expect(css).toContain(`--color-tone-rising: ${DIRECTION_TONE.rising.color}`);
+    expect(css).toContain(`--color-tone-falling: ${DIRECTION_TONE.falling.color}`);
+    expect(css).toContain(`--color-tone-flat: ${DIRECTION_TONE.flat.color}`);
+  });
 });
 
 describe("short date formatters", () => {
-  it("shortDate emits the {month:'short', day:'numeric'} locale string (single-sourced)", () => {
+  it("shortDate is pinned to en-US so SSR prerender and every browser locale agree", () => {
     const d = new Date(2024, 5, 9); // local date — no TZ ambiguity
-    // Locale-agnostic: assert the helper is exactly the inlined call it replaced.
-    expect(shortDate(d)).toBe(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+    // Pinned (not the runtime locale): an `undefined` locale renders the SERVER's ICU locale during
+    // prerender, then hydrates to the viewer's — a mismatch. The exact string is the contract.
+    expect(shortDate(d)).toBe("Jun 9");
   });
 
   it("shortDateSafe returns '' for an unparseable/invalid value (the guard the call sites need)", () => {

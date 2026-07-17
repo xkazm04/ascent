@@ -10,16 +10,25 @@ import { fetchRepoContext, type ParsedRepo, type RepoContextMeta } from "@/lib/g
 import { buildArtifact, type ArtifactSpec } from "@/lib/practice-artifact";
 import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
 import { recordAudit } from "@/lib/db";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
 
 export type ApplyPracticeResult =
   | { kind: "ok"; pr: OpenPrResult; ctx: RepoContextMeta; artifact: ArtifactSpec }
-  | { kind: "unknown-practice"; ctx: RepoContextMeta };
+  | { kind: "unknown-practice"; ctx: RepoContextMeta }
+  /** The regenerated artifact no longer matches what the caller previewed (repo context changed
+   *  between preview and apply) — no PR opened; the caller should re-preview. */
+  | { kind: "content-drift"; ctx: RepoContextMeta; artifact: ArtifactSpec };
 
 /**
  * Open a draft PR seeding `practiceId`'s starter into `ref`, then audit-log it. Returns the PR +
  * resolved repo context + artifact on success, or a typed `unknown-practice` result (no PR opened)
  * when the practice id isn't recognized. Throws on GitHub/write failures so the caller can map them
  * to the right HTTP status. The `batch` flag is threaded straight into the audit payload.
+ *
+ * `expectedFingerprint` (when given) is the fingerprint of the body the caller PREVIEWED: apply
+ * regenerates from live repo context, so this is the only thing tying the committed content to the
+ * reviewed content. A mismatch returns `content-drift` (no PR opened) instead of silently landing
+ * content the user never saw.
  */
 export async function applyPracticeToRepo(
   token: string,
@@ -27,10 +36,14 @@ export async function applyPracticeToRepo(
   practiceId: string,
   base: string | undefined,
   audit: { orgId?: string; actorId?: string; batch?: boolean },
+  opts?: { expectedFingerprint?: string },
 ): Promise<ApplyPracticeResult> {
   const ctx = await fetchRepoContext(ref, token);
   const artifact = buildArtifact(practiceId, ctx);
   if (!artifact) return { kind: "unknown-practice", ctx };
+  if (opts?.expectedFingerprint && artifactFingerprint(artifact.body) !== opts.expectedFingerprint) {
+    return { kind: "content-drift", ctx, artifact };
+  }
 
   const pr = await openDraftPr({
     token,

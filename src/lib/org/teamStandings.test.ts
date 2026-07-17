@@ -116,6 +116,15 @@ describe("explainTeamStandings", () => {
     expect(out.laggard.avgDelta).toBe(-4);
   });
 
+  it("carries the contributor population so the renderer can apply the CHAMPION_MIN_POP floor (ambiguity-ui #3)", () => {
+    const withPop = explainTeamStandings([
+      team("@x/solo", { avgOverall: 80, contributors: 1, champions: [{ login: "one", name: null, aiCommits: 1, aiShare: 100 }] }),
+      team("@x/crew", { avgOverall: 40, contributors: 5 }),
+    ])!;
+    expect(withPop.leader.contributors).toBe(1); // renderer withholds champions below the floor
+    expect(withPop.laggard.contributors).toBe(5);
+  });
+
   it("scales bars to the largest |delta| across both extremes", () => {
     expect(out.maxAbsDelta).toBe(30);
   });

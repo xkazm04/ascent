@@ -11,3 +11,11 @@ export const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 export function isHexColor(s: string): boolean {
   return HEX_COLOR_RE.test(s);
 }
+
+/**
+ * The default briefing accent — the SAME value as the PDF theme's ACCENT (`@/lib/pdf/theme` re-derives
+ * it from here). The BrandingSettings picker shows it as its visible default but must NOT persist it
+ * unless the owner actually chooses a colour: stored-null means "use the current default" and keeps
+ * tracking this constant, while a stored `#2563eb` is a deliberate choice frozen at save time.
+ */
+export const DEFAULT_BRAND_ACCENT = "#2563eb";

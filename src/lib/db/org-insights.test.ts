@@ -90,7 +90,7 @@ interface FakeRepo {
  * sub-selects). Both real functions run against the SAME dataset, so a divergence in the baseline pick
  * is observable end-to-end, not asserted against a reimplementation.
  */
-function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[]) {
+function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise") {
   const orgId = "org_1";
   const scanMatchesTime = (s: FakeScan, t?: { lt?: Date; lte?: Date; gte?: Date }) => {
     if (!t) return true;
@@ -104,7 +104,9 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[]) {
 
   return {
     organization: {
-      findUnique: vi.fn(async () => ({ id: orgId, slug: "acme" })),
+      // Default plan "enterprise" = unlimited retention, so the boundary-semantics tests below are
+      // NOT retention-clamped; the retention-floor tests pass "free" explicitly.
+      findUnique: vi.fn(async () => ({ id: orgId, slug: "acme", plan })),
     },
     // The rollup's baseline path fetches the baseline scans' dimension rows (dimDeltas). These
     // movers-vs-rollup tests only assert the overall/adoption/rigor deltas, so an empty dim set
@@ -324,6 +326,65 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     expect(rollup!.baseline!.repos).toBe(1);
     expect(rollup!.baseline!.avgOverall).toBe(50); // alpha's pre-start baseline only
     expect(rollup!.deltas).toEqual({ overall: 10, adoption: 10, rigor: 10 });
+  });
+});
+
+// ── Plan retention floor on the BASELINE + movers (fleet-rollups-insights 2026-07-16 #1) ────────
+// The trend already clamped its lower bound to retentionCutoff(plan); the baseline and movers
+// queries did not, so a Free org (30d retention) with a 90d window computed its headline deltas and
+// movers against history the tier doesn't buy. Both are now clamped to the same floor: period
+// comparison depth follows the entitlement, and baseline.asOf reports the EFFECTIVE instant.
+
+describe("getOrgMovers/getOrgRollup — plan retention floor clamps the comparison depth", () => {
+  it("Free-tier 90d deltas + movers compare against the 30d retention cutoff, not the full window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-16T00:00:00.000Z")); // retention cutoff (free, 30d) = 2026-06-16
+    try {
+      const repos = [repo("r1", "acme/alpha")];
+      const scans = [
+        scan("r1", "2026-04-01T00:00:00.000Z", 40), // pre-window history
+        scan("r1", "2026-05-20T00:00:00.000Z", 55), // inside the 90d window but OLDER than 30d retention
+        scan("r1", "2026-07-06T00:00:00.000Z", 70), // current
+      ];
+      const win = { start: D("2026-04-17T00:00:00.000Z"), end: D("2026-07-16T00:00:00.000Z") }; // ~90d
+      mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans, "free") as never);
+      const movers = await getOrgMovers("acme", win);
+      mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans, "free") as never);
+      const rollup = await getOrgRollup("acme", win);
+
+      // Baseline = latest scan before the RETENTION cutoff (55 at 05-20), NOT the 90d-old 40:
+      // 70 - 55 = +15 on both surfaces. Pre-fix both read 40 and reported +30.
+      expect(movers!.gainers).toHaveLength(1);
+      expect(movers!.gainers[0]).toMatchObject({ name: "alpha", dOverall: 15 });
+      expect(rollup!.deltas).toEqual({ overall: 15, adoption: 15, rigor: 15 });
+      // asOf honestly reports the clamped instant, not the un-bought window start.
+      expect(rollup!.baseline!.asOf).toBe("2026-06-16T00:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an unlimited-retention plan keeps the full-window baseline (clamp is plan-driven, not blanket)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-16T00:00:00.000Z"));
+    try {
+      const repos = [repo("r1", "acme/alpha")];
+      const scans = [
+        scan("r1", "2026-04-01T00:00:00.000Z", 40),
+        scan("r1", "2026-07-06T00:00:00.000Z", 70),
+      ];
+      const win = { start: D("2026-04-17T00:00:00.000Z"), end: D("2026-07-16T00:00:00.000Z") };
+      mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans, "enterprise") as never);
+      const movers = await getOrgMovers("acme", win);
+      mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans, "enterprise") as never);
+      const rollup = await getOrgRollup("acme", win);
+
+      expect(movers!.gainers[0]).toMatchObject({ name: "alpha", dOverall: 30 });
+      expect(rollup!.deltas).toEqual({ overall: 30, adoption: 30, rigor: 30 });
+      expect(rollup!.baseline!.asOf).toBe("2026-04-17T00:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

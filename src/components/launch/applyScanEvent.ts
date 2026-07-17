@@ -49,7 +49,11 @@ export function applyScanEvent(
       : // A scanned repo the map didn't know about yet: add it rather than drop the result. It's not on
         // the org's watchlist as far as this client knows, and has no measured 30-day delta, so
         // watched:false / dOverall:null until the next /api/app/repos refresh supplies the truth.
-        [...c.repos, { fullName, overall, level, dOverall: null, watched: false }];
+        // `appended: true` routes it to the outer "incoming" ring (appendedStarPosition) so landing it
+        // doesn't change the phyllotaxis `total` and re-seat every existing star mid-scan, and so it
+        // renders even when the org is at the MAX_STARS cap (launch-fleet-map #4). mergeStars clears
+        // the flag on the next authoritative refresh, re-flowing the field once.
+        [...c.repos, { fullName, overall, level, dOverall: null, watched: false, appended: true }];
     return { ...c, repos };
   });
 }

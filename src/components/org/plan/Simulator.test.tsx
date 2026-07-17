@@ -63,6 +63,34 @@ describe("Simulator (DOM)", () => {
     expect(screen.getByText(/1↑/)).toBeInTheDocument(); // D3's promotion count rendered
   });
 
+  it("marks the ranking stale when the target changes after Suggest (07-16 #1)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ ranking: [{ dimId: "D2", name: "Testing", target: 70, gain: 5, promotions: 0, affected: 3 }] }),
+          { status: 200 },
+        ),
+      ),
+    );
+    render(<Simulator slug="acme" dims={dims} repos={repos} />);
+    await act(async () => {
+      screen.getByRole("button", { name: /Suggest/ }).click();
+    });
+    await waitFor(() => expect(screen.getByTitle(/Load D2/)).toBeInTheDocument());
+    expect(screen.queryByText(/Stale —/)).toBeNull(); // fresh ranking carries no stale badge
+
+    // Editing the target makes the ranking describe a different scenario → it must say so visibly.
+    const input = screen.getByLabelText("Target score") as HTMLInputElement;
+    await act(async () => {
+      // Set via the native prototype setter so React's value tracker registers the change.
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, "90");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(screen.getByText(/Stale — computed for all scanned repos at target 70/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Load D2/)).toBeInTheDocument(); // the list itself stays (dimmed), not wiped
+  });
+
   it("invalidates the projection when the dimension changes after Simulate (#3)", async () => {
     vi.stubGlobal(
       "fetch",

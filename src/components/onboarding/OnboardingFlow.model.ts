@@ -58,7 +58,11 @@ export function buildChecklistSteps(args: {
     { label: "Install the GitHub App", done: hasInstallation, href: "/connect", hint: "Read private & org repos" },
     { label: "Pick repositories", done: picked, hint: "Choose what to scan" },
     { label: "Run your first scan", done: scanned, hint: "See your maturity scores" },
-    { label: "Set a watch schedule", done: scanned, href: "/connect", hint: "Keep scores fresh automatically" },
+    // Mirrors the import POST's own predicate (importScan: `watch = Boolean(installationId)`): the
+    // weekly watch is only enrolled on the App path. The public-handle preview funnel deliberately
+    // sends watch:false, so its done screen must NOT tick a schedule that was never created — users
+    // were skipping the real /connect step because the wizard said it was done.
+    { label: "Set a watch schedule", done: scanned && Boolean(sourceInstallId), href: "/connect", hint: "Keep scores fresh automatically" },
     // Invite step only on the App path, where the viewer owns a real org to grant access on.
     ...(sourceInstallId
       ? [{ label: "Invite your team", done: invitedCount > 0, hint: "Bring teammates into the dashboard" }]

@@ -48,14 +48,16 @@ function CheckChip({ short, check }: { short: string; check?: SecurityRowCheck }
 type ThSort = { key: SortKey; dir: "asc" | "desc"; onSort: (k: SortKey) => void };
 
 /** Sortable table-header cell. Declared at module scope (not inside the component) so it isn't
- *  recreated on every render; the sort state it needs is passed in via `sort`. */
-function Th({ k, label, align = "left", title, sort }: { k: SortKey; label: string; align?: "left" | "center" | "right"; title?: string; sort: ThSort }) {
+ *  recreated on every render; the sort state it needs is passed in via `sort`. `badge` renders a small
+ *  provenance chip next to the label (e.g. the advisories column's "demo data" marker). */
+function Th({ k, label, align = "left", title, sort, badge }: { k: SortKey; label: string; align?: "left" | "center" | "right"; title?: string; sort: ThSort; badge?: React.ReactNode }) {
   return (
     <th className={`px-3 py-2 text-${align}`} aria-sort={sort.key === k ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
       <button type="button" onClick={() => sort.onSort(k)} title={title} className="inline-flex items-center gap-1 uppercase tracking-[0.2em] transition hover:text-slate-200">
         {label}
         <span aria-hidden className={sort.key === k ? "text-accent" : "text-slate-700"}>{sort.key === k ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}</span>
       </button>
+      {badge}
     </th>
   );
 }
@@ -64,11 +66,17 @@ export function SecurityRiskRegister({
   org,
   rows,
   advisories,
+  advisoriesDemo = false,
 }: {
   org: string;
   rows: SecurityRegisterRow[];
   /** null = supply-chain scanning off (advisories column hidden); [] = on but nothing found yet. */
   advisories: RegisterAdvisories[] | null;
+  /** security-posture-audit-log #3: true when `advisories` is deterministic MOCK data
+   *  (SUPPLY_CHAIN_PROVIDER=mock). The column is labeled "demo data" and the GitHub deep-links are
+   *  suppressed — the fabricated counts otherwise rendered identically to real fleet fact, and the
+   *  links landed on a Dependabot page showing something entirely different. */
+  advisoriesDemo?: boolean;
 }) {
   const [target, setTarget] = useState<HeatTarget | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -102,7 +110,24 @@ export function SecurityRiskRegister({
             <Th k="score" label="D9" align="center" title="Security (D9) score — deterministic; click for the full per-check evidence" sort={sort} />
             <Th k="risk" label="Gate" title="Security gate verdict — 'Gate' sorts riskiest first" sort={sort} />
             <Th k="gaps" label="Control coverage" title="Deterministic control checks (green ≥7 · amber 4–6 · red <4 · slate n/a) — posture, then the ┃ divider and current vuln exposure. Sorts by failing-control count." sort={sort} />
-            {advByRepo && <Th k="adv" label="Advisories" align="right" sort={sort} />}
+            {advByRepo && (
+              <Th
+                k="adv"
+                label="Advisories"
+                align="right"
+                sort={sort}
+                badge={
+                  advisoriesDemo ? (
+                    <span
+                      className="ml-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 font-mono text-xs normal-case tracking-normal text-amber-300"
+                      title="SUPPLY_CHAIN_PROVIDER=mock — these counts are deterministic demo data, not this fleet's real advisories"
+                    >
+                      demo data
+                    </span>
+                  ) : undefined
+                }
+              />
+            )}
             <th className="w-10 px-2 py-2" aria-label="Open report" />
           </tr>
         }
@@ -150,11 +175,21 @@ export function SecurityRiskRegister({
               {advByRepo && (
                 <td className="px-3 py-2 text-right">
                   {adv && adv.total > 0 ? (
-                    <a href={`https://github.com/${r.fullName}/security/dependabot`} target="_blank" rel="noreferrer" className="focus-ring font-mono text-sm text-slate-300 hover:text-white" title={`${adv.total} open Dependabot advisories — open on GitHub`}>
-                      {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
-                      {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
-                      {adv.total} ↗
-                    </a>
+                    advisoriesDemo ? (
+                      // Demo counts don't exist on GitHub — a deep-link would land on a Dependabot page
+                      // showing something entirely different and erode trust in the real numbers too.
+                      <span className="font-mono text-sm text-slate-400" title="Demo data — no matching advisories exist on GitHub">
+                        {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
+                        {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
+                        {adv.total}
+                      </span>
+                    ) : (
+                      <a href={`https://github.com/${r.fullName}/security/dependabot`} target="_blank" rel="noreferrer" className="focus-ring font-mono text-sm text-slate-300 hover:text-white" title={`${adv.total} open Dependabot advisories — open on GitHub`}>
+                        {adv.critical > 0 && <span className="text-red-300">{adv.critical}C </span>}
+                        {adv.high > 0 && <span className="text-orange-300">{adv.high}H </span>}
+                        {adv.total} ↗
+                      </a>
+                    )
                   ) : (
                     <span className="font-mono text-sm text-slate-600">{adv ? "0" : "—"}</span>
                   )}

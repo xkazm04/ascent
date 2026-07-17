@@ -26,6 +26,7 @@ Import everything from `@/components/ui`. Reach for a primitive before hand-roll
 | `--color-divider` → `border-divider` | `#1e293b` | **the** hairline — card borders + rules |
 | `--color-on-accent` | `#04070e` | text on `bg-accent` |
 | `--color-danger` / `--color-warn` | `#ef4444` / `#f97316` | error / warning |
+| `--color-success` / `--color-success-soft` | `#10b981` / `#6ee7b7` | success notices + confirm CTAs / success text on dark, CTA hover |
 | `LEVEL_HEX` (`@/lib/ui`) | red→green | level/score color, only |
 
 `.strata` (altimeter rule-lines), `.focus-ring`, `.animate-fade-up/-meter` remain the shared motion/texture utilities.

@@ -40,6 +40,44 @@ describe("BadgeGenerator preview URL (does not inflate badge-reach analytics)", 
   });
 });
 
+// usage-metering-public-badge 2026-07-16 #1: a bare ?gate=1 evaluates an undisclosed
+// archetype-dependent DEFAULT policy the badge author never chose (and which silently changes with
+// the detected archetype). The generator must pin an explicit min_level and say what "pass" means.
+describe("BadgeGenerator gate badge (explicit, disclosed policy)", () => {
+  it("the gate snippet always carries an explicit min_level (default L3) and states the pass bar", () => {
+    render(<BadgeGenerator />);
+    typeRepo("facebook/react");
+    fireEvent.click(screen.getByRole("button", { name: "gate" }));
+
+    const snippet = document.querySelector("pre")?.textContent ?? "";
+    expect(snippet).toContain("gate=1");
+    expect(snippet).toContain("min_level=L3"); // never a bare ?gate=1 against an undisclosed default
+    // The disclosure line names the bar (the chip button also reads "L3", hence getAllByText).
+    expect(screen.getByText(/Pass means/i)).toBeInTheDocument();
+    expect(screen.getAllByText("L3").length).toBeGreaterThanOrEqual(2); // chip + disclosure
+  });
+
+  it("picking a different pass bar updates the URL and the disclosure line", () => {
+    render(<BadgeGenerator />);
+    typeRepo("facebook/react");
+    fireEvent.click(screen.getByRole("button", { name: "gate" }));
+    fireEvent.click(screen.getByRole("button", { name: "L4" }));
+
+    const snippet = document.querySelector("pre")?.textContent ?? "";
+    expect(snippet).toContain("min_level=L4");
+    expect(snippet).not.toContain("min_level=L3");
+  });
+
+  it("non-gate badges carry no min_level (the policy knob is gate-only)", () => {
+    render(<BadgeGenerator />);
+    typeRepo("facebook/react");
+
+    const snippet = document.querySelector("pre")?.textContent ?? "";
+    expect(snippet).not.toContain("min_level");
+    expect(screen.queryByText(/Pass means/i)).toBeNull();
+  });
+});
+
 describe("BadgeGenerator copy button (no success theater)", () => {
   beforeEach(() => {
     render(<BadgeGenerator />);

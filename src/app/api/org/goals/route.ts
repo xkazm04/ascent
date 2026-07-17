@@ -33,6 +33,15 @@ export async function POST(request: Request) {
   }
   const badDate = invalidTargetDate(body.targetDate);
   if (badDate) return badDate;
-  const created = await createGoal(body.org, { label: body.label, metric: body.metric, target: body.target, targetDate: body.targetDate ?? null });
-  return createdResponse(created, "goal");
+  try {
+    const created = await createGoal(body.org, { label: body.label, metric: body.metric, target: body.target, targetDate: body.targetDate ?? null });
+    return createdResponse(created, "goal");
+  } catch (err) {
+    // A target the fleet already meets would be stamped "achieved" on the next read — a zero-movement
+    // milestone. Surface createGoal's guard as a 400 with the actionable current value (goals #5 07-16).
+    if ((err as { code?: string }).code === "GOAL_ALREADY_MET") {
+      return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Failed to create goal." }, { status: 500 });
+  }
 }

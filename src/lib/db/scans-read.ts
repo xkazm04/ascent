@@ -69,12 +69,14 @@ export async function findScanByCommit(
  * the persist path matches on the report's own `scannedAt`: the SAME computed report persisted more
  * than once (coalesced followers, a double-submit, a retried lane) carries an identical timestamp and
  * reuses the first row instead of inserting duplicate sha-less Scan rows. A genuinely new re-score has
- * a later `scannedAt`, so it is not suppressed.
+ * a later `scannedAt`, so it is not suppressed. `engineProvider` rides along (mirroring
+ * findScanByCommit) so the persist path can apply the same mock→live UPGRADE rule to a sha-less
+ * re-persist instead of deduping a live result away in favor of a mock placeholder.
  */
 export async function findScanByScannedAt(
   repoId: string,
   scannedAt: Date,
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; engineProvider: string } | null> {
   if (!isDbConfigured()) return null;
   return getPrisma().scan.findFirst({
     where: { repoId, scannedAt },
@@ -83,7 +85,7 @@ export async function findScanByScannedAt(
     // timestamp is inherently fragile — a stable content/idempotency key would be the authoritative fix
     // (tracked as a follow-up); this just makes the existing behavior deterministic.
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { id: true },
+    select: { id: true, engineProvider: true },
   });
 }
 
@@ -230,6 +232,22 @@ export async function getRepositoryHistory(
   opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean } = {},
 ): Promise<RepositoryHistory | null> {
   if (!isDbConfigured()) return null;
+  // DB-DOWN DEGRADE, deliberately uniform (scan-persistence-history 07-16 #4): every reader in this
+  // module documents "null when persistence is off", and every caller already renders the null ("not
+  // scanned yet") fallback — yet only getHeadHint/getRepoPassport/getPublicScanGallery wrapped their
+  // reads in dbReadSafe, so a configured-but-unreachable DB (PrismaClientInitializationError, or a
+  // DSQL IAM-token lapse dbReadSafe recovers with one reconnect+retry) 500'd the history/report/
+  // comparison pages while the landing page degraded gracefully — the SAME outage, two symptoms.
+  // All four remaining readers now degrade to null identically. A query error against a LIVE DB
+  // still propagates (dbReadSafe only swallows the unreachable class).
+  return dbReadSafe(() => loadRepositoryHistory(owner, name, opts), null);
+}
+
+async function loadRepositoryHistory(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean },
+): Promise<RepositoryHistory | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   // Clamp to a positive bounded range: a NEGATIVE `take` makes Prisma return rows from the OTHER end,
@@ -396,6 +414,16 @@ export async function getScanComparison(
   opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number } = {},
 ): Promise<ScanComparison | null> {
   if (!isDbConfigured()) return null;
+  // DB-down degrades to null like every other reader here — see getRepositoryHistory
+  // (scan-persistence-history 07-16 #4); callers already render the null fallback.
+  return dbReadSafe(() => loadScanComparison(owner, name, opts), null);
+}
+
+async function loadScanComparison(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number },
+): Promise<ScanComparison | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   // Clamp to a positive bounded range (scan-persistence-history #4): a NEGATIVE `take` makes Prisma
@@ -414,8 +442,9 @@ export async function getScanComparison(
   // Defense-in-depth (cross-tenant disclosure): never serve a PRIVATE repo's comparison (overall +
   // per-dimension scores, evidence, gaps, recommendations) out of the shared public org — that org is
   // the anonymous read surface, and an unauthorized visitor resolves to it via readableOrgForOwner.
-  // Mirrors the identical guard in getRepositoryHistory and getScanReportByCommit (the third twin
-  // reader was the only public-org read path missing it). Backstops a legacy pre-guard row.
+  // Mirrors the identical guard in getRepositoryHistory, getScanReportByCommit, and
+  // getLatestRecommendations — every public-org reader that resolves org→repo→scan carries it.
+  // Backstops a legacy pre-guard row.
   if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
 
   const list = await prisma.scan.findMany({
@@ -442,16 +471,18 @@ export async function getScanComparison(
   // making every delta read backward (a real improvement shows as a regression). The page renders a
   // missing `before` gracefully.
   const defaultBeforeId = scans[afterIdx + 1]?.id ?? null;
-  // Honor an explicit `beforeId` ONLY when it is OLDER than `after` (a HIGHER index in the newest-first
-  // list). A `beforeId` that is NEWER than — or the same as — `afterId` would invert the time axis so
-  // every delta reads backward (a real improvement shows as a regression) — the same forward-baseline
-  // hazard the default guard above avoids, reached here through an explicit (stale/hand-edited/shared)
-  // query param that sidestepped it. Fall back to the default older baseline in that case.
-  // (scan-persistence-history #7)
+  // Honor an explicit `beforeId` whenever it names a DIFFERENT scan in this repo's set — in EITHER
+  // time direction. The diff contract (compare.ts diffScans: "Passing an older scan as `after` is
+  // valid — the deltas simply read as regressions") makes an inverted explicit pair meaningful, and
+  // the picker's ⇄ Swap button depends on it: by definition a swap requests a `beforeId` NEWER than
+  // `afterId`, and the earlier guard here (scan-persistence-history #7) silently rewrote every swap
+  // to the default baseline, producing a diff of two scans the user never selected
+  // (trends-comparison 07-16 #1). The no-forward-reach rule still governs the DEFAULT baseline above,
+  // where no explicit intent exists; a `beforeId` equal to `afterId` (a degenerate self-diff) still
+  // falls back to the default.
   let beforeId = defaultBeforeId;
-  if (opts.beforeId && ids.has(opts.beforeId)) {
-    const beforeIdx = scans.findIndex((s) => s.id === opts.beforeId);
-    if (beforeIdx > afterIdx) beforeId = opts.beforeId;
+  if (opts.beforeId && ids.has(opts.beforeId) && opts.beforeId !== afterId) {
+    beforeId = opts.beforeId;
   }
 
   const [after, before] = await Promise.all([
@@ -669,6 +700,16 @@ export async function getLatestRecommendations(
   opts: { orgSlug?: string } = {},
 ): Promise<{ scanId: string; items: PersistedRecommendation[] } | null> {
   if (!isDbConfigured()) return null;
+  // DB-down degrades to null like every other reader here — see getRepositoryHistory
+  // (scan-persistence-history 07-16 #4); callers already render the null fallback.
+  return dbReadSafe(() => loadLatestRecommendations(owner, name, opts), null);
+}
+
+async function loadLatestRecommendations(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string },
+): Promise<{ scanId: string; items: PersistedRecommendation[] } | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const fullName = canonicalRepoFullName(owner, name);
@@ -679,6 +720,12 @@ export async function getLatestRecommendations(
     where: { orgId_fullName: { orgId, fullName } },
   });
   if (!repo) return null;
+  // Defense-in-depth (cross-tenant disclosure): never serve a PRIVATE repo's roadmap (recommendation
+  // titles, rationales that can quote private code/evidence, internal assignee logins, target dates)
+  // out of the shared public org — that org is the anonymous read surface. Mirrors the identical
+  // guard in getRepositoryHistory, getScanComparison, and getScanReportByCommit; backstops a legacy
+  // private row persisted under the public org before the persist-side backstop (scans-persist.ts).
+  if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
 
   const scan = await prisma.scan.findFirst({
     where: { repoId: repo.id },
@@ -793,6 +840,17 @@ export async function getScanReportByCommit(
   opts: { orgSlug?: string; headSha?: string } = {},
 ): Promise<ScanReport | null> {
   if (!isDbConfigured()) return null;
+  // DB-down degrades to null like every other reader here — see getRepositoryHistory
+  // (scan-persistence-history 07-16 #4): a report permalink renders its "not scanned" fallback
+  // during a DB blip instead of hard-500ing; callers already handle null.
+  return dbReadSafe(() => loadScanReportByCommit(owner, name, opts), null);
+}
+
+async function loadScanReportByCommit(
+  owner: string,
+  name: string,
+  opts: { orgSlug?: string; headSha?: string },
+): Promise<ScanReport | null> {
   const prisma = getPrisma();
   const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
   const headSha = opts.headSha;
@@ -905,6 +963,14 @@ export async function getScanReportByCommit(
       name: repo.name,
       url: repo.url,
       stars: repo.stars,
+      // KNOWN PLACEHOLDERS (scan-persistence-history 07-16 #5): `forks` and `defaultBranch` are NOT
+      // persisted (Repository stores `stars` but neither of these), so the reconstruction fills the
+      // ScanReport type's required fields with falsy literals — a consumer of a reconstructed snapshot
+      // CANNOT distinguish "unknown" from a genuine 0 forks / empty branch, and must not render the
+      // fork count or build a `/tree/{defaultBranch}` URL from a persisted-path report. Same decision
+      // class as the contributor blanking above (never silently assert wrong data — but these two are
+      // cheap constants rather than a wrong-people list, so they fill rather than gate). Persisting
+      // both columns alongside `stars` needs a schema migration — tracked as a follow-up.
       forks: 0,
       primaryLanguage: repo.primaryLanguage ?? undefined,
       defaultBranch: "",

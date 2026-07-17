@@ -1,10 +1,12 @@
 // LLM provider abstraction. The same scan pipeline runs against any provider:
-//   - GeminiProvider    (MVP / public repos)            -> src/lib/llm/gemini.ts
-//   - OpenAiProvider    (OpenAI / Azure / compatible)   -> src/lib/llm/openai.ts
-//   - BedrockProvider   (enterprise / private repos)    -> src/lib/llm/bedrock.ts (Phase 2)
-//   - ClaudeCliProvider (local dev / eval only)         -> src/lib/llm/claude-cli.ts
-//   - MockProvider      (keyless demo & CI)             -> src/lib/llm/mock.ts
-// Swapping providers is a config change, never a rewrite.
+//   - GeminiProvider     (MVP / public repos)            -> src/lib/llm/gemini.ts
+//   - OpenAiProvider     (OpenAI / Azure / compatible)   -> src/lib/llm/openai.ts
+//   - OpenRouterProvider (one key, many vendors' models) -> src/lib/llm/openrouter.ts
+//   - BedrockProvider    (enterprise / private repos)    -> src/lib/llm/bedrock.ts (Phase 2)
+//   - ClaudeCliProvider  (local dev / eval only)         -> src/lib/llm/claude-cli.ts
+//   - MockProvider       (keyless demo & CI)             -> src/lib/llm/mock.ts
+// Swapping providers is a config change, never a rewrite. Adding one? Also add its human label to
+// PROVIDER_LABEL in src/lib/llm/config.ts (compiler-enforced via ProviderName).
 import type { DecisionNote } from "@/lib/db/org-decisions";
 
 import type {

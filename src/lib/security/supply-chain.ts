@@ -31,7 +31,11 @@ export interface OrgSupplyChain {
   degraded?: boolean;
   scanned: number; // repos we have advisory data for
   totals: AdvisoryCounts & { total: number };
-  repos: RepoAdvisories[]; // worst-first (critical, then high, …)
+  /** COMPLETE — one entry per repo with advisory data (length === scanned), worst-first (critical,
+   *  then high, …). Consumers (the risk register, securityMarkdown) key a lookup map by fullName
+   *  and rely on completeness: a repo missing here reads as "not assessed", never "clean". Surfaces
+   *  that only want the top offenders must cap at RENDER time. */
+  repos: RepoAdvisories[];
 }
 
 const EMPTY: AdvisoryCounts = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -186,7 +190,11 @@ export async function getOrgSupplyChain(orgSlug: string, techGroupId?: string | 
     demo: provider.name === "mock",
     scanned: rows.length,
     totals: { ...totals, total: sum(totals) },
-    repos: rows.slice(0, 10),
+    // ALL rows, not a top-N slice: the register and the LLM brief consume this as a complete
+    // per-repo lookup map. The old `slice(0, 10)` made a clean repo ranked 11+ render "—"
+    // ("not assessed") and VANISHED the real advisories of a moderately-vulnerable 11th repo —
+    // rows are already fetched and reduced into `totals`, so the cap saved nothing.
+    repos: rows,
   };
   // Evict the oldest entry (Map preserves insertion order) once at capacity, so a long-lived process
   // serving many orgs/scopes keeps the cache bounded instead of leaking an entry per tenant forever.

@@ -101,10 +101,14 @@ export function RadarChart({
         aria-labelledby={`${titleId} ${descId}`}
         style={{ touchAction: "none", cursor: onSelect ? "pointer" : undefined }}
         onPointerMove={onPointerMove}
+        // Also snap on pointer-down so a stationary touch tap (which may not fire pointermove) still
+        // resolves `active` before the click is evaluated — the DimLine/TrendChart pattern. Without
+        // it a touch tap was a silent no-op.
+        onPointerDown={onPointerMove}
         onPointerLeave={() => setActive(null)}
         onClick={() => {
-          // The hover snap already resolved the nearest vertex into `active`; reuse it as the click
-          // target so a tap on the plot selects the closest dimension (desktop pointer only).
+          // The hover/tap snap already resolved the nearest vertex into `active`; reuse it as the
+          // click target so a tap on the plot selects the closest dimension.
           if (onSelect && active !== null) onSelect(dimensions[active]!.id);
         }}
       >
@@ -186,7 +190,9 @@ export function RadarChart({
         </ChartTooltip>
       )}
       {/* Visually-hidden equivalent of the radar — lets screen readers read every dimension's
-          score (and band) instead of a single opaque "radar" image. */}
+          score (and band) instead of a single opaque "radar" image. When the radar is a picker,
+          each row header is a real <button> mirroring the pointer pick (DimLine's sr-only link-list
+          pattern), so keyboard/SR users get the same selection path the SVG offers pointers. */}
       <table className="sr-only">
         <caption>Maturity score by dimension</caption>
         <thead>
@@ -201,7 +207,15 @@ export function RadarChart({
             const lvl = levelForScore(d.score);
             return (
               <tr key={d.id}>
-                <th scope="row">{d.name}</th>
+                <th scope="row">
+                  {onSelect ? (
+                    <button type="button" onClick={() => onSelect(d.id)}>
+                      {d.name}
+                    </button>
+                  ) : (
+                    d.name
+                  )}
+                </th>
                 <td>{d.score}</td>
                 <td>{`${lvl.id} ${lvl.name}`}</td>
               </tr>

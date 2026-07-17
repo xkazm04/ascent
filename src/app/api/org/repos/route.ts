@@ -18,8 +18,11 @@ export async function GET(request: Request) {
   const count = Math.min(50, Math.max(1, Number(searchParams.get("count") ?? 30)));
 
   try {
-    const repos = await listOrgRepos(org, count, process.env.GITHUB_TOKEN || undefined);
-    return NextResponse.json({ org, repos });
+    const { repos, truncated } = await listOrgRepos(org, count, process.env.GITHUB_TOKEN || undefined);
+    // `truncated` distinguishes "the org only has this many listable repos" from "the listing's page
+    // budget ran out with more pages available" (fork/archive-heavy orgs beyond 500 raw repos), so the
+    // onboarding selector can say "showing the most recent N" instead of presenting the list as complete.
+    return NextResponse.json({ org, repos, truncated });
   } catch (err) {
     // Map the listing failure to the RIGHT status — a rate limit / auth outage must not read as a 404
     // "no such org" (which made a real account on a busy shared token look like a typo).

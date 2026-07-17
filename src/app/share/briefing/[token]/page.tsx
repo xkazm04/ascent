@@ -5,39 +5,66 @@
 
 import { Logo } from "@/components/Brand";
 import { Card, InlineEmpty, Meter, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { DimRow, PriorPeriodGrid } from "@/components/org/executive/briefingShared";
-import { buildExecBriefing, engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
+import { DimRow, MoveRow, PriorPeriodGrid } from "@/components/org/executive/briefingShared";
+import { buildExecBriefing, engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
 import { verifyBriefingShareToken } from "@/lib/briefing-share";
 import { resolveWindow } from "@/lib/window";
-import { getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
+import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
+import type { OrgBranding } from "@/lib/db/branding";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
+import { planAllowsWhiteLabel } from "@/lib/plans";
 import { scoreHex } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
 
+// EXEC-5 white-label boundary: this anonymous share page is a CLIENT-FACING deliverable (the link a
+// reseller hands a board member), so a Team+ org's brand name + logo replace the Ascent mark here,
+// exactly like the briefing PDF. The brand ACCENT is deliberately not applied on this dark surface —
+// it is validated for readability against the white PDF only, so an arbitrary accent could be
+// unreadable here. Falls back to the Ascent mark when the org has no branding / no entitled plan
+// (and on the token-invalid notices, where the org isn't trusted yet).
+function BrandMark({ branding, className = "" }: { branding?: OrgBranding | null; className?: string }) {
+  if (!branding?.brandName && !branding?.logoUrl) return <Logo className={className} />;
+  return (
+    <span className={`inline-flex items-center gap-2 ${className}`}>
+      {branding.logoUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- owner-supplied remote logo; next/image needs domain allowlisting
+        <img src={branding.logoUrl} alt="" className="h-6 w-6 object-contain" />
+      )}
+      {branding.brandName && (
+        <span className="font-mono text-base font-semibold uppercase tracking-[0.22em] text-white">{branding.brandName}</span>
+      )}
+    </span>
+  );
+}
+
 // A minimal branded frame for the anonymous share view. The full marketing SiteHeader/SiteFooter
 // (Pricing / About / Sign-in, the org switcher, footer funnel links) is wrong here: the viewer is a
 // board member holding a capability token, with no account and nowhere to sign in — so we show only
 // the brand mark and a "shared briefing" label, no navigation into the funnel.
-function ShareHeader() {
+function ShareHeader({ branding }: { branding?: OrgBranding | null }) {
   return (
     <header className="border-b border-divider/70 bg-ink/80 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3.5">
-        <Logo />
+        <BrandMark branding={branding} />
         <span className="font-mono text-xs uppercase tracking-widest text-slate-500">Shared briefing</span>
       </div>
     </header>
   );
 }
 
-function ShareFooter() {
+function ShareFooter({ branding }: { branding?: OrgBranding | null }) {
+  const branded = Boolean(branding?.brandName || branding?.logoUrl);
   return (
     <footer className="mt-auto border-t border-divider/70 py-6 text-center">
-      <Logo className="justify-center opacity-70" />
-      <p className="mt-2 font-mono text-xs uppercase tracking-widest text-slate-500">
-        The maturity index for AI-native engineering
-      </p>
+      <BrandMark branding={branding} className="justify-center opacity-70" />
+      {/* The Ascent tagline is part of the identity being white-labelled — drop it when branded. */}
+      {!branded && (
+        <p className="mt-2 font-mono text-xs uppercase tracking-widest text-slate-500">
+          The maturity index for AI-native engineering
+        </p>
+      )}
     </footer>
   );
 }
@@ -88,11 +115,38 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   const frozen = verified.winEnd != null;
   const start = frozen ? (verified.winStart ? new Date(verified.winStart) : null) : period.start;
   const end = frozen ? new Date(verified.winEnd!) : period.end;
+  // executive-briefing 07-16 #5: Finding B froze the DATA at mint time but kept the floating
+  // "last 90 days" label — so a viewer on day 6 of the TTL reads "last 90 days" over numbers that
+  // provably aren't. Anchor the presentation with the absolute end of the frozen window; legacy
+  // (unfrozen) tokens keep the plain title, which for them stays accurate.
+  const asOf = frozen ? new Date(verified.winEnd!).toISOString().slice(0, 10) : null;
   // EXEC #1: re-run scoped to the segment the owner shared (carried in the signed token), so a reseller's
   // per-client read-only link shows that client's data — not the whole org. Feature 3b: the same for the
   // tech-stack scope (resolve the carried KEY → group id within the org).
-  const techGroupId = await getTechGroupIdByKey(verified.org, verified.stack ?? null).catch(() => null);
-  const briefing = await buildExecBriefing(verified.org, { start, end }, period.title, verified.segment ?? null, techGroupId).catch(() => null);
+  // FAIL CLOSED on an unresolvable stack scope: the resolver returns null both for "no scope requested"
+  // and for "requested but renamed/deleted/DB hiccup" — and a null filter means the WHOLE org. A link
+  // the owner deliberately narrowed must never widen to full-fleet numbers, so treat an unresolvable
+  // key like an invalid token instead of proceeding unscoped.
+  const stackKey = verified.stack ?? null;
+  const techGroupId = await getTechGroupIdByKey(verified.org, stackKey).catch(() => null);
+  if (stackKey && !techGroupId) {
+    return (
+      <Notice
+        title="Link expired or invalid"
+        body="The scope this briefing was shared with no longer exists. Ask an org owner for a fresh link."
+      />
+    );
+  }
+  // White-label (EXEC-5): this share link is the artifact a reseller hands a client, so it renders the
+  // org's brand mark instead of Ascent's. Entitlement is RE-CHECKED here like the PDF route — the brand
+  // columns survive a plan downgrade, so applying them unconditionally would keep delivering a paid
+  // feature after the org stopped paying for it.
+  const [briefing, rawBranding, credit] = await Promise.all([
+    buildExecBriefing(verified.org, { start, end }, period.title, verified.segment ?? null, techGroupId).catch(() => null),
+    getOrgBranding(verified.org).catch(() => null),
+    getCreditState(verified.org).catch(() => null),
+  ]);
+  const branding = planAllowsWhiteLabel(credit?.plan) ? rawBranding : null;
   if (!briefing) {
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }
@@ -100,15 +154,16 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
 
   return (
     <>
-      <ShareHeader />
+      <ShareHeader branding={branding} />
       <main id="main" className="mx-auto w-full max-w-5xl px-5 py-10">
         <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2 font-mono text-sm text-slate-500">
           Read-only shared briefing · {briefing.periodTitle}
+          {asOf && <> · data as of {asOf}</>}
         </div>
         <SectionHeader
           descriptionClassName="max-w-3xl"
           title={`${verified.org} — executive briefing`}
-          description={`AI-native engineering maturity standing over ${briefing.periodTitle.toLowerCase()}.`}
+          description={`AI-native engineering maturity standing over ${briefing.periodTitle.toLowerCase()}${asOf ? `, as of ${asOf} (window frozen when the link was created)` : ""}.`}
         />
 
         <div className={`mt-6 ${TILE_GRID}`}>
@@ -118,14 +173,24 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           <Tile label="Corpus percentile" value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"} sub={benchmark && benchmark.corpusRepos > 0 ? `vs ${benchmark.corpusRepos} repos` : "no corpus yet"} color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined} />
         </div>
 
+        {/* executive-briefing 07-16 #4: the audience the "value this period" line was built for
+            (leadership/renewal) is exactly the audience holding this link — carry it here like the
+            exec page, the LLM markdown and the PDF do, so the three surfaces tell one story. */}
+        {valueRealizedLine(briefing.valueRealized) && (
+          <div className="mt-4 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
+            <span className="font-mono text-sm uppercase tracking-widest text-accent">Value this period</span>{" "}
+            <span className="text-base text-slate-200">{valueRealizedLine(briefing.valueRealized)}</span>
+          </div>
+        )}
+
         {/* Engine-mix provenance — the shared board link must show the same mock-degraded caveat the
             owner's page + PDF do, so a leaked/forwarded read-only link can't hide that some scores were
             produced by the deterministic mock engine rather than the live model. */}
         {briefing.engineMix.length > 0 && (
           <p className="mt-4 font-mono text-sm text-slate-500">
             Scored by {engineMixLabel(briefing.engineMix)}
-            {engineMixDegraded(briefing.engineMix) && (
-              <span className="text-warn"> · ⚠ some scores this period used the deterministic mock engine, not the live model</span>
+            {engineMixCaveat(briefing.engineMix) && (
+              <span className="text-warn"> · ⚠ {engineMixCaveat(briefing.engineMix)}</span>
             )}
           </p>
         )}
@@ -168,6 +233,29 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           </Card>
         </div>
 
+        {/* Movement this period — the scale line + capped top movers the exec page and PDF carry.
+            Rows are rendered WITHOUT fullName so no report links leak out of the read-only surface
+            (briefingShared's recorded intent: the link surface stays inside the authenticated app). */}
+        {(briefing.topGainers.length > 0 || briefing.topRegressions.length > 0) && (
+          <Card className="mt-6">
+            <SectionHeader size="sm" title="Movement this period" />
+            {briefing.movement.compared > 0 && (
+              <p className="mt-2 font-mono text-sm text-slate-500">
+                {briefing.movement.up + briefing.movement.down} of {briefing.movement.compared} compared repos moved
+                ({briefing.movement.up} ▲ / {briefing.movement.down} ▼)
+              </p>
+            )}
+            <div className="mt-3 space-y-1.5">
+              {briefing.topGainers.map((m) => (
+                <MoveRow key={`g-${m.name}`} tone="up" name={m.name} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
+              ))}
+              {briefing.topRegressions.map((m) => (
+                <MoveRow key={`r-${m.name}`} tone="down" name={m.name} d={m.dOverall} from={m.levelFrom} to={m.levelTo} />
+              ))}
+            </div>
+          </Card>
+        )}
+
         <Card className="mt-6">
           <SectionHeader size="sm" title="Goals" />
           {briefing.goals.length === 0 ? (
@@ -185,7 +273,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           )}
         </Card>
       </main>
-      <ShareFooter />
+      <ShareFooter branding={branding} />
     </>
   );
 }

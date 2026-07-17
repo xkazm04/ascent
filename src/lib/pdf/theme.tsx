@@ -9,8 +9,11 @@
 // replaced, so the rendered PDFs stay byte-for-byte equivalent.
 
 import { StyleSheet, Text, View } from "@react-pdf/renderer";
+import { DEFAULT_BRAND_ACCENT } from "@/lib/branding/color";
 
-export const ACCENT = "#2563eb";
+// Derived from the shared branding constant so the PDF fallback accent and the BrandingSettings
+// picker default can never drift apart (orgs with a stored-null brandColor get THIS value).
+export const ACCENT = DEFAULT_BRAND_ACCENT;
 export const INK = "#0f172a";
 export const MUTED = "#475569";
 export const FAINT = "#94a3b8";

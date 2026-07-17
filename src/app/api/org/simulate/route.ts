@@ -38,7 +38,9 @@ export async function POST(request: Request) {
         : 70;
     const ranking = await rankOrgInvestments(body.org, target, repos);
     if (!ranking) return NextResponse.json({ error: "No scanned repos to rank." }, { status: 404 });
-    return NextResponse.json({ ranking });
+    // Echo the EFFECTIVE target: the fallback above can silently substitute 70 for an out-of-range
+    // request, and the UI must never advertise a target the engine didn't use (investment 07-16 #3).
+    return NextResponse.json({ ranking, target });
   }
 
   // Normalize to a list of legs: an explicit `fixes[]` (SIM-2), else the single `{dimId, target}`.

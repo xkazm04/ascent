@@ -132,8 +132,14 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
     };
   }, [open, close]);
 
+  // Three gate states, not two: while the viewer fetch is in flight (`signedIn === null`) the dialog
+  // shows a neutral pending placeholder — committing to the sign-in wall early flashed a clickable
+  // "Sign in with GitHub" CTA at already-signed-in members arriving via ?scan=1 (the reverse of the
+  // scan-form flash the initial "locked" default guards against), bouncing fast clickers through
+  // OAuth needlessly. The fail-open catch above guarantees `signedIn` always settles.
+  const pending = gated && signedIn === null;
   // The scan form is reachable only when the wall is open, or a signed-in viewer is confirmed.
-  const locked = gated && signedIn !== true;
+  const locked = gated && signedIn === false;
 
   return (
     <>
@@ -190,7 +196,7 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
               </div>
 
               <p className="mt-4 text-base leading-relaxed text-slate-300">
-                {locked
+                {locked || pending
                   ? "Paste any GitHub repo and Ascent reads it in about a minute. Here's what comes back:"
                   : "Paste any public GitHub repo. In about a minute, Ascent reads it and returns:"}
               </p>
@@ -199,7 +205,14 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                 <OutputsCard />
               </div>
 
-              {locked ? (
+              {pending ? (
+                // Viewer check still in flight — a button-shaped skeleton where the action surface
+                // will land, so neither the scan form nor the sign-in wall flashes at the wrong user.
+                <div className="mt-6" aria-busy="true">
+                  <span className="sr-only">Checking your sign-in status…</span>
+                  <div aria-hidden className="h-12 w-full animate-pulse rounded-xl bg-white/5" />
+                </div>
+              ) : locked ? (
                 // Gate is live and no viewer — sign-in is the only path to a scan (first sign in, then scan).
                 <div className="mt-6 rounded-xl border border-accent/30 bg-accent/5 p-5">
                   <Kicker>Sign in to scan</Kicker>

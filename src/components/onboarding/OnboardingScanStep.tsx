@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { OnboardingChecklist, type ChecklistStep } from "@/components/onboarding/OnboardingChecklist";
 import { ScanRowView, type ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import { LEVELS } from "@/lib/maturity/model";
@@ -25,6 +25,7 @@ export function ScanStep({
   error,
   announce,
   preview = false,
+  previewCause = null,
   creditSkipped = 0,
   checklistSteps,
   onCancel,
@@ -40,6 +41,10 @@ export function ScanStep({
   /** The scan was a deterministic PREVIEW (mock), not a real LLM scan — disclosed so the numbers
    *  aren't mistaken for live scores. */
   preview?: boolean;
+  /** WHY the run was a preview, when the default explanation would misdiagnose: "credit_unknown"
+   *  means the credit read failed (balance unknown, fail-closed) — the user may well have the App
+   *  installed AND credits, so the banner must not tell them to install/top up. */
+  previewCause?: "credit_unknown" | null;
   /** Repos the server deferred for insufficient credits — disclosed on the done screen so the run
    *  isn't presented as complete coverage when some repos were skipped. */
   creditSkipped?: number;
@@ -66,6 +71,13 @@ export function ScanStep({
   const [invited, setInvited] = useState<string[]>([]);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteErr, setInviteErr] = useState<string | null>(null);
+  // Mirror PickForm's error contract (the wizard's established pattern): when an invite fails,
+  // focus returns to the handle input, which is wired to the error via aria-invalid +
+  // aria-describedby — so SR users tabbing back hear WHY it failed. (ambiguity-ui #5)
+  const inviteInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (inviteErr) inviteInputRef.current?.focus();
+  }, [inviteErr]);
 
   async function invite() {
     if (inviteBusy) return; // guard the keyboard entry point too — the button's disabled prop can't
@@ -98,8 +110,10 @@ export function ScanStep({
         {announce}
       </div>
 
-      {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change). */}
-      <h1 data-step-heading tabIndex={-1} className="flex items-center gap-2 text-2xl font-bold text-white focus:outline-none">
+      {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change).
+          h2, not h1: the page-level h1 lives in onboarding/page.tsx; a step-level h1 made two h1s
+          coexist in the document (ambiguity-ui #4). Visual size is explicit, so nothing changes. */}
+      <h2 data-step-heading tabIndex={-1} className="flex items-center gap-2 text-2xl font-bold text-white focus:outline-none">
         {phase === "done" && (
           <span
             aria-hidden
@@ -113,7 +127,7 @@ export function ScanStep({
           </span>
         )}
         {phase === "done" ? "Scan complete" : "Scanning repositories"}
-      </h1>
+      </h2>
       <p className="mt-1 text-slate-400">
         {phase === "done"
           ? errorCount > 0
@@ -165,8 +179,22 @@ export function ScanStep({
 
       {phase === "done" && preview && (
         <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-300">
-          These are <strong>preview</strong> scores — a fast, illustrative estimate. For live numbers,
-          install the GitHub App and run a real scan (it draws prepaid credits) from the dashboard.
+          {previewCause === "credit_unknown" ? (
+            // The credit read failed (balance unknown) — the user may have the App AND credits, so the
+            // default "install the App" recovery copy would misdiagnose. Explain the real cause + the
+            // real recovery: nothing was charged; scan again once the balance is readable.
+            <>
+              These are <strong>preview</strong> scores — we couldn&apos;t verify your credit balance
+              (a temporary error), so this scan ran as a free preview and <strong>no credits were
+              used</strong>. Your setup is fine: use &quot;Scan another&quot; or rescan from the
+              dashboard to retry with live numbers.
+            </>
+          ) : (
+            <>
+              These are <strong>preview</strong> scores — a fast, illustrative estimate. For live numbers,
+              install the GitHub App and run a real scan (it draws prepaid credits) from the dashboard.
+            </>
+          )}
         </p>
       )}
 
@@ -212,17 +240,20 @@ export function ScanStep({
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="font-mono text-sm text-slate-600">@</span>
                 <input
+                  ref={inviteInputRef}
                   value={handle}
                   onChange={(e) => setHandle(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !inviteBusy && invite()}
                   placeholder="github-handle"
                   aria-label="Teammate's GitHub handle"
-                  className="w-48 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
+                  aria-invalid={inviteErr ? true : undefined}
+                  aria-describedby={inviteErr ? "invite-error" : undefined}
+                  className="focus-ring w-48 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
                 />
                 <button
                   onClick={invite}
                   disabled={inviteBusy || !handle.trim()}
-                  className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
+                  className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
                 >
                   {inviteBusy ? "Adding…" : "Invite"}
                 </button>
@@ -233,7 +264,7 @@ export function ScanStep({
                 </p>
               )}
               {inviteErr && (
-                <p role="alert" className="mt-2 font-mono text-sm text-danger-soft">
+                <p id="invite-error" role="alert" className="mt-2 font-mono text-sm text-danger-soft">
                   {inviteErr}
                 </p>
               )}

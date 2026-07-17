@@ -30,10 +30,14 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
     id: "roi",
     kicker: "Model before you spend",
     title: "See the payoff before you commit the budget",
-    body: "The what-if simulator recomputes the entire fleet under a hypothetical fix — raise testing, CI/CD, and conventions across these repos — and shows how many repos level up, which goals it unlocks, and when. The highest-leverage moves are ranked by how many repos they touch.",
+    // Copy contract with the paired RoiSimulator diagram: the bullets promise only what the demo
+    // beside them substantiates (live promotions / avg gain / scope); the richer /org-only
+    // capabilities (leverage ranking, goal ETAs) live in `body`, explicitly attributed to the full
+    // simulator inside /org so the demo never undercuts the claim next to it.
+    body: "The what-if simulator recomputes the entire fleet under a hypothetical fix — raise testing, CI/CD, and conventions across these repos — and shows how many repos level up. The full simulator inside /org goes further: it ranks the highest-leverage moves by how many repos they touch and projects which goals each move unlocks, and when.",
     points: [
-      "Project promotions and goal ETAs before the work starts",
-      "Leverage ranking surfaces fix-once, apply-fleet-wide moves",
+      "Drag a target and watch promotions, average gain, and scope recompute live",
+      "In /org, leverage ranking surfaces fix-once, apply-fleet-wide moves",
       "Skip the low-impact initiative that moves two repos, not twenty",
     ],
     value: "Turn “we think this will help” into “this moves 6 of 8 repos to L3 by Q3.”",

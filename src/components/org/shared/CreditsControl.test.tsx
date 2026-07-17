@@ -36,6 +36,50 @@ describe("CreditsControl balance reconciliation", () => {
   });
 });
 
+describe("CreditsControl allowance reconciliation (credits-entitlements 2026-07-16 #1)", () => {
+  it("refreshes allowanceRemaining alongside balance, so the paused state self-heals on open", async () => {
+    // SSR said: balance 0, 5 free scans left → "covered by allowance". Mid-session the org burned its
+    // last free scans: the server now says allowanceRemaining 0. Opening the popover must surface the
+    // real paused state — the old code threw d.allowanceRemaining away and kept claiming free scans.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ balance: 0, unlimited: false, plan: "free", allowanceRemaining: 0, ledger: [] }),
+      }),
+    );
+
+    render(<CreditsControl org="acme" initialBalance={0} unlimited={false} grantsEnabled={false} allowanceRemaining={5} />);
+
+    // Before opening: the SSR snapshot says the allowance still covers scans (chip not paused).
+    fireEvent.click(screen.getByRole("button", { name: "0 credits" }));
+
+    // After the open-fetch resolves, the frozen allowance is reconciled: paused, no "free scans left".
+    await waitFor(() =>
+      expect(screen.getByText(/Out of credits — private scans are paused/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/free scans? left this month/)).toBeNull();
+  });
+
+  it("surfaces a month-rollover reset: a stale 'paused' chip recovers when the server reports fresh allowance", async () => {
+    // SSR rendered paused (balance 0, allowance 0); the UTC month rolled over mid-session and the
+    // server now reports 5 free scans. The chip must stop crying "paused" after the popover re-read.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ balance: 0, unlimited: false, plan: "free", allowanceRemaining: 5, ledger: [] }),
+      }),
+    );
+
+    render(<CreditsControl org="acme" initialBalance={0} unlimited={false} grantsEnabled={false} allowanceRemaining={0} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /paused/i }));
+    await waitFor(() => expect(screen.getByText(/5 free scans left this month/)).toBeInTheDocument());
+    expect(screen.queryByText(/Out of credits — private scans are paused/)).toBeNull();
+  });
+});
+
 describe("CreditsControl grant error resets on reopen (credits-entitlements #4)", () => {
   it("clears a stale 'Top-up failed.' from a prior session when the popover is reopened", async () => {
     // Ledger loads fine on open; the grant POST fails. The failure message must NOT survive a
@@ -79,5 +123,35 @@ describe("CreditsControl paused state (not color-alone)", () => {
     render(<CreditsControl org="acme" initialBalance={0} unlimited={false} grantsEnabled={false} allowanceRemaining={4} />);
     expect(screen.queryByRole("button", { name: /paused/i })).toBeNull();
     expect(screen.getByRole("button", { name: "0 credits" })).toBeInTheDocument();
+  });
+});
+
+describe("CreditsControl a11y reach (credits-entitlements 2026-07-16 #5)", () => {
+  it("explains the trigger via an accessible DESCRIPTION (not title alone), keeping the visible name", () => {
+    vi.stubGlobal("fetch", vi.fn());
+    render(<CreditsControl org="acme" initialBalance={7} unlimited={false} grantsEnabled={false} allowanceRemaining={5} />);
+    const trigger = screen.getByRole("button", { name: "7 credits" }); // name unchanged
+    expect(trigger).toHaveAccessibleDescription("Prepaid private-scan credits");
+  });
+
+  it("gives the unlimited chip a screen-reader-reachable explanation (title tooltips never reach AT/touch)", () => {
+    render(<CreditsControl org="acme" initialBalance={0} unlimited={true} grantsEnabled={false} />);
+    expect(screen.getByText(/Enterprise plan, private scans are unlimited/)).toBeInTheDocument();
+  });
+
+  it("announces a failed top-up via a live region (matching the ledger states' aria-live pattern)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) =>
+        String(url).includes("/grant")
+          ? { ok: false, json: async () => ({ error: "Top-up failed." }) }
+          : { ok: true, json: async () => ({ balance: 0, ledger: [] }) },
+      ),
+    );
+    render(<CreditsControl org="acme" initialBalance={0} unlimited={false} grantsEnabled={true} allowanceRemaining={0} />);
+    fireEvent.click(screen.getByRole("button", { name: /0 credits/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "+50" }));
+    const err = await screen.findByText("Top-up failed.");
+    expect(err).toHaveAttribute("aria-live", "polite");
   });
 });
