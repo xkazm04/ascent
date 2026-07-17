@@ -200,11 +200,18 @@ export function PlaybookCard({
           // text — so a zero never paints a green "▲ +0" that implies improvement where there was
           // none. Use the design-system emerald/orange tokens (as the rest of the card does) instead
           // of inline hex, so the badge follows theming. (playbooks #5)
+          // The badge always shows its SAMPLE: `measured` is the server's honesty companion (how many
+          // applications had a pre-apply baseline + a later scan) — without it "▲ +9 avg" backed by 1
+          // of 12 repos reads as fleet-wide improvement (ambiguity-ui 07-16 playbooks #3). Both counts
+          // come from the same server snapshot (adoption), not the optimistic local `applied` chip set.
           <span
             className={`font-mono ${lift > 0 ? "text-emerald-300" : lift < 0 ? "text-orange-300" : "text-slate-400"}`}
-            title={`Average ${p.dimId} change in applied repos since they applied this playbook`}
+            title={`Average ${p.dimId} change in applied repos since they applied this playbook — measured in ${adoption?.measured ?? 0} of ${adoption?.repos ?? 0} adopting repos (only repos with a scan before and after adoption count)`}
           >
-            {lift > 0 ? `▲ +${lift}` : lift < 0 ? `▼ ${lift}` : "± 0"} avg {p.dimId} since
+            {lift > 0 ? `▲ +${lift}` : lift < 0 ? `▼ ${lift}` : "± 0"} avg {p.dimId} since{" "}
+            <span className="text-slate-500">
+              ({adoption?.measured ?? 0}/{adoption?.repos ?? 0} measured)
+            </span>
           </span>
         )}
         {applied.length > 0 &&
