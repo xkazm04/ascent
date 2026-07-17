@@ -106,6 +106,23 @@ describe("rollupTeams", () => {
     expect(data.aiCommitShare).toBe(8); // 1 / (8+4)
   });
 
+  it("champion volume floor: a sub-3-commit AI contributor is not crowned (ambiguity-ui #3)", () => {
+    // Aligned with getContributorInsights' picker (commits >= 3 && aiCommits > 0): a 1-commit
+    // drive-by AI contributor must not headline a team card the Contributors tab would withhold.
+    const floored = rollupTeams("acme", [
+      repo("acme/tiny", {
+        teams: [{ slug: "@acme/tiny" }],
+        scans: [{ overall: 50, adoption: 50, rigor: 50, dims: [{ dimId: "D1", score: 50 }] }],
+        contributors: [
+          { login: "driveby", commits: 1, aiCommits: 1 },
+          { login: "core", commits: 12, aiCommits: 4 },
+        ],
+      }),
+    ]);
+    const tiny = floored.teams.find((t) => t.slug === "@acme/tiny")!;
+    expect(tiny.champions.map((c) => c.login)).toEqual(["core"]);
+  });
+
   it("computes since-last-scan movers from each repo's two latest scans", () => {
     expect(frontend.comparedRepos).toBe(1);
     expect(frontend.improving).toBe(1);
