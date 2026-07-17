@@ -8,7 +8,7 @@
 //       remounts it (the remount otherwise strands focus on <body>). The controls carry data-focus-key.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { BacklogItem } from "@/lib/db";
 import { BacklogItemRow } from "./BacklogItemRow";
 
@@ -75,6 +75,24 @@ describe("BacklogItemRow accessibility", () => {
     const { onEditField } = renderRow();
     fireEvent.change(screen.getByRole("combobox", { name: "Owner" }), { target: { value: "alice" } });
     expect(onEditField).toHaveBeenCalledWith("b1:owner");
+  });
+
+  // ambiguity-ui 07-16 backlog #3: a failed history fetch must be an ERROR state, never the confident
+  // "No changes recorded yet." empty-copy (a false statement on a network blip / 500).
+  it("history #3: a failed fetch reports history:'error' to the parent, not an empty list", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 500 })));
+    const onState = vi.fn();
+    renderRow({ onState });
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    await waitFor(() => expect(onState).toHaveBeenCalledWith({ history: "error" }));
+    expect(onState).not.toHaveBeenCalledWith({ history: [] });
+  });
+
+  it("history #3: the error state renders a retry affordance instead of the empty-copy", () => {
+    renderRow({ state: { history: "error" } });
+    expect(screen.getByText(/Couldn’t load history/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText("No changes recorded yet.")).not.toBeInTheDocument();
   });
 
   it("#4: truncates a long title (within a min-w-0 flex item) with the full text on hover", () => {

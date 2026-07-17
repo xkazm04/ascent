@@ -16,7 +16,9 @@ import { BacklogRowHistory } from "@/components/org/backlog/BacklogItemRow.histo
  * lifted into BacklogPanel (keyed by item id) and passed back in — see backlog-management #2.
  */
 export interface BacklogRowState {
-  history?: RecEvent[] | "loading" | null;
+  /** "error" is distinct from [] — a failed fetch must never render as the confident
+   *  "No changes recorded yet." empty-copy (backlog-management 07-16 #3). */
+  history?: RecEvent[] | "loading" | "error" | null;
   prResult?: { url: string; reused: boolean } | null;
   prError?: string | null;
   promoted?: boolean;
@@ -154,13 +156,16 @@ export function BacklogItemRow({
   async function loadHistory() {
     const req = (historyReq.current += 1);
     onState({ history: "loading" });
+    // Error and empty are DIFFERENT states: a non-2xx or network blip must render as "couldn't load —
+    // retry", never as the empty-copy "No changes recorded yet." (a false statement contradicting the
+    // page's own "every change is recorded" promise) (backlog-management 07-16 #3).
     try {
       const res = await fetch(`/api/recommendations/${item.id}/events`);
-      const data = res.ok ? ((await res.json()) as { events: RecEvent[] }) : { events: [] };
+      const next: BacklogRowState["history"] = res.ok ? ((await res.json()) as { events: RecEvent[] }).events : "error";
       // Ignore a stale response — the panel may have been collapsed (or re-opened) since this fetch began.
-      if (historyReq.current === req) onState({ history: data.events });
+      if (historyReq.current === req) onState({ history: next });
     } catch {
-      if (historyReq.current === req) onState({ history: [] });
+      if (historyReq.current === req) onState({ history: "error" });
     }
   }
 
@@ -176,6 +181,7 @@ export function BacklogItemRow({
 
   // onPatch records a new timeline event server-side, so an already-open history list goes stale.
   // Wrap the patch to refetch history after a successful edit (and a no-op when it's collapsed).
+  // `history` truthy includes the "error" state — retrying via an edit is fine, it just reloads.
   async function patchAndRefresh(id: string, body: Record<string, unknown>): Promise<PatchOutcome> {
     const outcome = await onPatch(id, body);
     if (history) void loadHistory();
@@ -304,7 +310,7 @@ export function BacklogItemRow({
         </p>
       )}
 
-      {history && <BacklogRowHistory history={history} />}
+      {history && <BacklogRowHistory history={history} onRetry={() => void loadHistory()} />}
 
       {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
       <ConfirmAction

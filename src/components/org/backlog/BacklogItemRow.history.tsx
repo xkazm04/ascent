@@ -4,13 +4,24 @@ import { EVENT_LABEL, eventValue } from "@/components/org/shared/backlogShared";
 /**
  * The expandable per-row history/timeline list. Extracted from BacklogItemRow to keep that file
  * under the 300-LOC cap — pure presentational relocation, behavior unchanged. `history` mirrors the
- * lifted row state: "loading" while a fetch is in flight, an event array once resolved.
+ * lifted row state: "loading" while a fetch is in flight, "error" when the fetch failed (rendered as
+ * a retry affordance — NEVER as the empty-copy, which would falsely claim an untouched item,
+ * backlog-management 07-16 #3), an event array once resolved.
  */
-export function BacklogRowHistory({ history }: { history: RecEvent[] | "loading" }) {
+export function BacklogRowHistory({ history, onRetry }: { history: RecEvent[] | "loading" | "error"; onRetry?: () => void }) {
   return (
     <div className="mt-3 border-t border-slate-800 pt-3">
       {history === "loading" ? (
         <p className="font-mono text-sm text-slate-500">Loading history…</p>
+      ) : history === "error" ? (
+        <p role="alert" className="font-mono text-sm text-orange-300">
+          Couldn’t load history.
+          {onRetry && (
+            <button onClick={onRetry} className="ml-2 rounded-md border border-slate-700 px-2 py-0.5 text-slate-300 transition hover:border-accent hover:text-white">
+              Retry
+            </button>
+          )}
+        </p>
       ) : history.length === 0 ? (
         <p className="font-mono text-sm text-slate-500">No changes recorded yet.</p>
       ) : (
