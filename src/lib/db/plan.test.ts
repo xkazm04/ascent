@@ -739,13 +739,28 @@ describe("parseRepos (via listInitiatives) — tolerant of corrupt repos JSON, n
 });
 
 describe("parseTargetDate (via createGoal write + listInitiatives read) — valid ⇒ Date, junk ⇒ null, never NaN/throw", () => {
-  /** createGoal upserts the org then creates the goal; capture the `targetDate` value it writes. */
-  function fakeCreateGoalPrisma() {
+  /** createGoal upserts the org, reads the fleet snapshot (already-met guard), then creates the goal;
+   *  capture the `targetDate` value it writes. `repos` seeds the snapshot (default: scan-less fleet). */
+  function fakeCreateGoalPrisma(repos: RepoSeed[] = []) {
     const created: Array<{ targetDate: unknown }> = [];
+    const repoRows = repos.map((r) => ({
+      fullName: r.fullName,
+      name: r.name,
+      scans: [
+        {
+          overallScore: r.overall,
+          adoptionScore: r.adoption ?? r.overall,
+          rigorScore: r.rigor ?? r.overall,
+          archetype: "org",
+          dimensions: Object.entries(r.dims ?? {}).map(([dimId, score]) => ({ dimId, score })),
+        },
+      ],
+    }));
     return {
       created,
       prisma: {
         organization: { upsert: vi.fn(async () => ({ id: ORG_ID })) },
+        repository: { findMany: vi.fn(async () => repoRows) },
         goal: {
           create: vi.fn(async ({ data }: { data: { targetDate: unknown } }) => {
             created.push({ targetDate: data.targetDate });
@@ -779,6 +794,30 @@ describe("parseTargetDate (via createGoal write + listInitiatives read) — vali
     mockGetPrisma.mockReturnValue(prisma);
     await createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 70, targetDate: input as string | null });
     expect(created[0]!.targetDate).toBeNull();
+  });
+
+  // ambiguity-ui 07-16 goals #5: pct has no baseline, so a target the fleet already meets would be
+  // stamped "achieved" (zero-movement milestone) on the very next listGoals pass — reject at create.
+  describe("createGoal already-met guard", () => {
+    it("rejects target <= the fleet's current value with GOAL_ALREADY_MET naming the current number", async () => {
+      const { prisma } = fakeCreateGoalPrisma([{ fullName: "acme/web", name: "web", overall: 47 }]);
+      mockGetPrisma.mockReturnValue(prisma);
+      await expect(createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 47 })).rejects.toMatchObject({
+        code: "GOAL_ALREADY_MET",
+        message: expect.stringContaining("already at 47"),
+      });
+      expect(prisma.goal.create).not.toHaveBeenCalled();
+    });
+
+    it("allows a target above the current value, and any target on a scan-less fleet (metrics read 0)", async () => {
+      const fleet = fakeCreateGoalPrisma([{ fullName: "acme/web", name: "web", overall: 47 }]);
+      mockGetPrisma.mockReturnValue(fleet.prisma);
+      await expect(createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 48 })).resolves.toEqual({ id: "g_new" });
+
+      const empty = fakeCreateGoalPrisma();
+      mockGetPrisma.mockReturnValue(empty.prisma);
+      await expect(createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 10 })).resolves.toEqual({ id: "g_new" });
+    });
   });
 
   it("a stored targetDate Date round-trips to its YYYY-MM-DD in listInitiatives", async () => {

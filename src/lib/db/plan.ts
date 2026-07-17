@@ -179,7 +179,14 @@ export interface GoalProgress {
   metricLabel: string;
   target: number;
   current: number;
-  /** 0..100 progress toward the target. */
+  /**
+   * 0..100 RATIO of current standing to target (`current / target`), NOT distance travelled from a
+   * creation-time baseline — goals don't record the metric's value at creation, so "progress since we
+   * set this goal" is not computable (a fleet at 45 targeting 50 shows a 90%-full meter on day one).
+   * The trade-off is documented here on purpose: the pace/ETA fields ARE trend-derived, so trust them
+   * (not the meter) for "how much work remains". createGoal rejects already-met targets so a goal can
+   * at least never be BORN achieved (ambiguity-ui 07-16 goals #5).
+   */
   pct: number;
   achieved: boolean;
   status: string;
@@ -218,6 +225,19 @@ export async function createGoal(
     update: {},
     create: { slug: orgSlug, name: orgSlug === "public" ? "Public Scans" : orgSlug },
   });
+  // `pct` measures absolute standing (current/target) — there is no stored baseline, so a target at or
+  // below today's fleet value would be stamped "achieved" on the very next listGoals pass, polluting
+  // the Met 🎉 history with a milestone that represents zero movement. Reject it at the source with the
+  // number the user needs to pick better (ambiguity-ui 07-16 goals #5). Skipped for a scan-less fleet,
+  // where every metric reads 0 and the guard would be meaningless.
+  const snap = await fleetSnapshot(org.id);
+  const current = currentFor(input.metric, snap);
+  if (snap.repos.length > 0 && Math.round(input.target) <= current) {
+    throw Object.assign(
+      new Error(`The fleet is already at ${current} on this metric — pick a target above it.`),
+      { code: "GOAL_ALREADY_MET" },
+    );
+  }
   const goal = await prisma.goal.create({
     data: {
       orgId: org.id,
