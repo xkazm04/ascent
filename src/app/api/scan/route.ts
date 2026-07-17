@@ -215,10 +215,18 @@ async function runScan(
   // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto one
   // run so two callers don't each pay a full ingest + LLM. The token (private) path is per-tenant and
   // never shared, so it scans directly.
+  // Track whether we JOINED an in-flight run rather than computing: the quota slot was consumed above,
+  // but a joiner shares one ingest+LLM computation — under "meter on commit, not attempt" (the policy
+  // the credit side already honors via `deduped`) only the computing owner's slot should stand, so the
+  // joiner's is refunded below. Without this, a StrictMode double-mount or peek-then-stream race cost
+  // 2 of the 5 monthly slots for one shared report. (scan-pipeline-ingestion #4)
+  let joinedInflight = false;
   let report: Awaited<ReturnType<typeof scanRepository>>;
   try {
     report = lookup
-      ? await coalesceScan(lookup.cacheKey, (signal) => doScan(signal), opts.signal)
+      ? await coalesceScan(lookup.cacheKey, (signal) => doScan(signal), opts.signal, () => {
+          joinedInflight = true;
+        })
       : await doScan(opts.signal);
   } catch (err) {
     // The scan delivered nothing — invalid URL / 404 / upstream failure / rate limit / client
@@ -241,6 +249,10 @@ async function runScan(
     }
     throw err;
   }
+  // Coalesce-join refund: this caller received the OWNER's computation, so its own consumed slot
+  // buys nothing — hand it back (refund is idempotent, so the degrade/dedup refunds below can't
+  // double-mint). The quota headers below may overstate usage by this one refunded slot (soft gate).
+  if (joinedInflight) await refundQuota();
   // Derive the cache-poisoning guards (degrade-to-mock / low-coverage) — shared with /api/scan/stream
   // via classifyScanResult. degradedToMock: a transient LLM failure fell back to MockProvider but the
   // lookup key is still ::llm, so caching/persisting it would pin the deterministic floor for the full

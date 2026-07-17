@@ -180,9 +180,17 @@ export async function POST(request: Request) {
         // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto a
         // single run, so a double-mount / peek-then-stream / two tabs don't each pay a full ingest+LLM.
         // The token path is per-tenant — never shared — so it scans directly.
+        // A JOINER shares the owner's computation, so the slot it consumed above buys nothing — refund
+        // it ("meter on commit, not attempt", the rule the credit side honors via `deduped`). Without
+        // this, two tabs racing the same commit paid 2 of the 5 monthly slots for one shared report,
+        // while landing 1s after completion (a cache hit) paid 1. (scan-pipeline-ingestion #4)
+        let joinedInflight = false;
         const report = lookup
-          ? await coalesceScan(lookup.cacheKey, runScan, request.signal)
+          ? await coalesceScan(lookup.cacheKey, runScan, request.signal, () => {
+              joinedInflight = true;
+            })
           : await runScan(request.signal);
+        if (joinedInflight) await refundQuota();
 
         // Derive the cache-poisoning guards — shared with /api/scan via classifyScanResult.
         // degradedToMock: a transient LLM failure fell back to MockProvider but the lookup key is still

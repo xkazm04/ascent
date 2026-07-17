@@ -189,11 +189,19 @@ export function inflightScanCount(): number {
  * result instead of starting a second one. `factory` receives an AbortSignal that fires only once
  * EVERY joined caller has aborted (refcounted), so a single disconnect can't cancel work others want.
  * The entry is evicted as soon as the run settles, so a later scan of the same commit starts fresh.
+ *
+ * `onJoin` fires (synchronously, before awaiting) ONLY when this caller JOINED an already-in-flight
+ * run rather than starting the computation. The metering routes need that distinction: both consume a
+ * monthly quota slot BEFORE calling in here, and a joiner shares one ingest+LLM run — under the
+ * "meter on commit, not attempt" policy (the same rule the credit side honors via `deduped`) the
+ * joiner's slot must be refunded, or a StrictMode double-mount / two-tabs race silently double-charges
+ * one shared computation. (scan-pipeline-ingestion #4)
  */
 export function coalesceScan(
   key: string,
   factory: (signal: AbortSignal) => Promise<ScanReport>,
   signal?: AbortSignal,
+  onJoin?: () => void,
 ): Promise<ScanReport> {
   let entry = inflightScans.get(key);
   if (!entry) {
@@ -205,6 +213,8 @@ export function coalesceScan(
     created.promise.then(evict, evict);
     inflightScans.set(key, created);
     entry = created;
+  } else {
+    onJoin?.();
   }
   const e = entry;
   e.waiters += 1;
