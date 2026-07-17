@@ -37,11 +37,23 @@ function parseSteps(raw: string): string[] {
   }
 }
 
-/** Trim/cap the steps and serialize to JSON — bounds free-text storage (≤20 steps, ≤300 chars each). */
+/**
+ * Collapse embedded newlines (and the whitespace around them) to a single space. Titles and steps are
+ * SINGLE-LINE by contract: playbookStarterFile renders each step as one `- [ ] …` checkbox line and the
+ * title as an H1 / PR title / commit message, so a raw-JSON API caller sending "a\nb" would otherwise
+ * commit a broken checklist or heading into a customer repo. The UI can't produce these (the modal
+ * splits steps on \n), so this only defends the API path. Summaries stay multi-line on purpose.
+ */
+function oneLine(s: string): string {
+  return s.replace(/\s*\n\s*/g, " ");
+}
+
+/** Trim/cap the steps and serialize to JSON — bounds free-text storage (≤20 steps, ≤300 chars each,
+ *  single-line — see oneLine). */
 function cleanSteps(steps: string[] | undefined): string {
   const out = (steps ?? [])
     .filter((s) => typeof s === "string" && s.trim())
-    .map((s) => s.trim().slice(0, 300))
+    .map((s) => oneLine(s.trim()).slice(0, 300))
     .slice(0, 20);
   return JSON.stringify(out);
 }
@@ -81,7 +93,7 @@ export async function createPlaybook(
   return prisma.playbook.create({
     data: {
       orgId: org.id,
-      title: input.title.trim().slice(0, 200),
+      title: oneLine(input.title.trim()).slice(0, 200),
       dimId: input.dimId,
       summary: (input.summary ?? "").trim().slice(0, 1000),
       steps: cleanSteps(input.steps),
@@ -99,7 +111,7 @@ export async function updatePlaybook(
   const data: Prisma.PlaybookUpdateInput = {};
   // Never persist a blank title (the PATCH route 400s first; this is the safety net for any other
   // caller) — a nameless playbook corrupts cards, initiative/PR titles, and branch slugs.
-  if (patch.title !== undefined && patch.title.trim()) data.title = patch.title.trim().slice(0, 200);
+  if (patch.title !== undefined && patch.title.trim()) data.title = oneLine(patch.title.trim()).slice(0, 200);
   if (patch.dimId !== undefined) data.dimId = patch.dimId;
   if (patch.summary !== undefined) data.summary = patch.summary.trim().slice(0, 1000);
   if (patch.steps !== undefined) data.steps = cleanSteps(patch.steps);
