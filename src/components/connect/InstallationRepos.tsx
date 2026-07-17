@@ -33,6 +33,7 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
     changeSchedule,
     watchAllFiltered,
     scheduleWatched,
+    resetFilters,
     languages,
     filtered,
     watchedCount,
@@ -112,7 +113,18 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
       />
 
       {filtered.length === 0 ? (
-        <EmptyState variant="section" body="No repositories match your search and filters." />
+        // Zero MATCHES (repos exist, filters exclude them all) — offer a one-click reset instead of
+        // making the user unwind query + visibility + watched-only + language by hand (the language
+        // select can even be hidden by then). The zero-REPOS branch above keeps its GitHub action.
+        <EmptyState variant="section" body="No repositories match your search and filters.">
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="focus-ring rounded-lg border border-slate-700 px-4 py-2 text-base text-slate-300 transition hover:border-accent hover:text-white"
+          >
+            Clear search &amp; filters
+          </button>
+        </EmptyState>
       ) : (
         <div className="divide-y divide-divider overflow-hidden rounded-xl border border-divider bg-surface/40">
           {filtered.map((r) => (
