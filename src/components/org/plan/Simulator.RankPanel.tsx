@@ -8,6 +8,8 @@ export function RankPanel({
   rankBusy,
   rankError,
   target,
+  stale = false,
+  staleNote,
   onSuggest,
   onLoadMove,
 }: {
@@ -15,6 +17,12 @@ export function RankPanel({
   rankBusy: boolean;
   rankError: string | null;
   target: number;
+  /** The live target/scope no longer match what this ranking was computed with — dim the list and
+   *  say so, instead of presenting recommendations for a different fleet slice as live advice
+   *  (investment 07-16 #1). */
+  stale?: boolean;
+  /** Human-readable "computed for … at target …" describing the inputs the ranking used. */
+  staleNote?: string | null;
   onSuggest: () => void;
   onLoadMove: (r: InvestmentRank) => void;
 }) {
@@ -31,11 +39,16 @@ export function RankPanel({
         </button>
       </div>
       {rankError && <p className="mt-2 font-mono text-sm text-orange-300">{rankError}</p>}
+      {stale && (
+        <p role="status" className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 font-mono text-sm text-amber-300">
+          Stale — {staleNote ?? "the inputs changed since these were ranked"}. Refresh to re-rank for the current target/scope.
+        </p>
+      )}
       {ranking &&
         (ranking.length === 0 ? (
           <p className="mt-2 font-mono text-sm text-slate-500">No dimension moves the fleet average at this target/scope.</p>
         ) : (
-          <ul className="mt-2 space-y-0.5">
+          <ul className={`mt-2 space-y-0.5${stale ? " opacity-50" : ""}`}>
             {ranking.map((r) => (
               <li key={r.dimId}>
                 <button

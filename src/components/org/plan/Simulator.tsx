@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { PRACTICES } from "@/lib/practices";
@@ -32,6 +32,12 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   const [ranking, setRanking] = useState<InvestmentRank[] | null>(null);
   const [rankBusy, setRankBusy] = useState(false);
   const [rankError, setRankError] = useState<string | null>(null);
+  // The inputs the current ranking was computed FROM. The ranking derives from the live `target` and
+  // `scope` exactly like the projection does, but it isn't cleared by invalidate() (clearing it on
+  // loadMove would destroy the list the user is picking from) — so instead we remember what it was
+  // computed with and visibly mark it stale when the live inputs diverge, preventing "Top moves"
+  // computed for one fleet slice from reading as live advice for another (investment 07-16 #1).
+  const [rankedWith, setRankedWith] = useState<{ target: number; scopeKey: string; scopeSize: number } | null>(null);
   // SIM-5: client-only saved scenarios + a 2-up compare. No backend — a scratchpad for "what if".
   const [saved, setSaved] = useState<SavedScenario[]>([]);
   const [compare, setCompare] = useState<number[]>([]);
@@ -75,6 +81,7 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
       // gain is a diff of two rounded integers, so a real promotion (64→65, L3→L4) can read gain=0 yet
       // promotions>0. Dropping it hid the single most valuable recommendation (investment #2).
       setRanking((data.ranking as InvestmentRank[]).filter((r) => r.gain > 0 || r.promotions > 0).slice(0, 5));
+      setRankedWith({ target, scopeKey: [...scope].sort().join("\n"), scopeSize: scope.size });
     } catch (e) {
       setRankError(e instanceof Error ? e.message : "Couldn't rank moves.");
     } finally {
@@ -189,6 +196,13 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
 
   const scopeLabel = scope.size === 0 ? "all scanned repos" : `${scope.size} selected`;
 
+  // Stale when the live target/scope no longer match what the ranking was computed with (investment 07-16 #1).
+  const scopeKey = useMemo(() => [...scope].sort().join("\n"), [scope]);
+  const rankingStale =
+    ranking !== null && rankedWith !== null && (rankedWith.target !== target || rankedWith.scopeKey !== scopeKey);
+  const rankedScopeLabel =
+    rankedWith === null ? null : rankedWith.scopeSize === 0 ? "all scanned repos" : `${rankedWith.scopeSize} selected repo${rankedWith.scopeSize === 1 ? "" : "s"}`;
+
   return (
     <Card>
       <SectionHeader
@@ -203,6 +217,8 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
         rankBusy={rankBusy}
         rankError={rankError}
         target={target}
+        stale={rankingStale}
+        staleNote={rankingStale && rankedWith ? `computed for ${rankedScopeLabel} at target ${rankedWith.target}` : null}
         onSuggest={suggestMoves}
         onLoadMove={loadMove}
       />
