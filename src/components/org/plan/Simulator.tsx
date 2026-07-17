@@ -159,34 +159,35 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
     }
   }
 
-  // Commit the simulated scenario as tracked Initiative(s) — closes the "insight → plan" loop.
-  // /api/org/initiatives is single-dimension ({ dimId, targetScore, repos }), so drive it from the
-  // FULL set of legs the projection was computed from (result.fixes), one initiative per leg —
-  // NOT just the live primary dimId/target. Sourcing from result.fixes (the immutable snapshot that
-  // produced the on-screen projection) instead of the mutable form state also means editing the
-  // dropdown after simulating, or building a multi-leg scenario, no longer silently drops legs or
-  // tracks a target that disagrees with what leadership reviewed.
+  // Commit the simulated scenario as a tracked Initiative — closes the "insight → plan" loop.
+  // POLICY: initiatives are single-dimension by design (/api/org/initiatives takes one
+  // { dimId, targetScore, repos }); multi-leg scenarios are REJECTED at the button
+  // (ProjectionResult disables Track when result.fixes.length > 1) rather than looped over here.
+  // A per-leg loop was rejected because it is non-atomic: leg 1 POST succeeds, leg 2 fails →
+  // the retry re-creates leg 1 as a duplicate initiative server-side. Sourcing the single fix from
+  // result.fixes (the immutable snapshot that produced the on-screen projection) instead of the
+  // mutable form state means editing the dropdown after simulating still can't track a target that
+  // disagrees with what leadership reviewed. (investment 07-16 #2)
   async function trackAsInitiative() {
-    if (!result || result.fixes.length === 0) return;
+    if (!result || result.fixes.length !== 1) return; // multi-leg is blocked in the UI; guard it here too
+    const fix = result.fixes[0]!;
     setTracking(true);
     setTrackError(null);
     // Use the explicit selection, or the concrete repos the projection covered when scope = "all".
     const initRepos = scope.size > 0 ? [...scope] : result.repos.map((r) => r.fullName);
     try {
-      for (const fix of result.fixes) {
-        const dimLabel = dims.find((d) => d.id === fix.dimId)?.label ?? fix.dimId;
-        const title = `Raise ${fix.dimId} · ${dimLabel} to ${fix.target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
-        const practiceId = PRACTICES.find((p) => p.dimId === fix.dimId)?.id ?? null; // GOAL-3: carry the starter shape
-        const res = await fetch("/api/org/initiatives", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ org: slug, title, dimId: fix.dimId, practiceId, targetScore: fix.target, repos: initRepos }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
-      }
+      const dimLabel = dims.find((d) => d.id === fix.dimId)?.label ?? fix.dimId;
+      const title = `Raise ${fix.dimId} · ${dimLabel} to ${fix.target} across ${initRepos.length} repo${initRepos.length === 1 ? "" : "s"}`;
+      const practiceId = PRACTICES.find((p) => p.dimId === fix.dimId)?.id ?? null; // GOAL-3: carry the starter shape
+      const res = await fetch("/api/org/initiatives", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug, title, dimId: fix.dimId, practiceId, targetScore: fix.target, repos: initRepos }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create initiative.");
       setTracked(true);
-      router.refresh(); // surface the new initiative(s) in the Initiatives panel on this page
+      router.refresh(); // surface the new initiative in the Initiatives panel on this page
     } catch (e) {
       setTrackError(e instanceof Error ? e.message : "Failed to create initiative.");
     } finally {

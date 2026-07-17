@@ -51,6 +51,10 @@ export function ProjectionResult({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        {/* AUTHORITATIVE multi-leg policy: tracking is single-dimension by design, enforced here by
+            disabling the button. The handler (Simulator.trackAsInitiative) matches: it posts exactly
+            one initiative and refuses multi-leg results — a per-leg loop was rejected as non-atomic
+            (partial failure + retry duplicates initiatives). (investment 07-16 #2) */}
         <button
           onClick={onTrack}
           disabled={tracking || tracked || result.fixes.length > 1}
