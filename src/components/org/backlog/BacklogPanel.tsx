@@ -16,7 +16,19 @@ import { IMPACT_RANK } from "@/lib/scoring/impact";
  * (recording an activity-timeline event) and re-reads the backlog so the groupings and counts stay
  * consistent. Each item exposes its history on demand.
  */
-export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBacklog }) {
+export function BacklogPanel({
+  slug,
+  initial,
+  segmentId = null,
+  techGroupId = null,
+}: {
+  slug: string;
+  initial: OrgBacklog;
+  /** The page's resolved segment/tech-group scope — threaded into every refresh so a post-edit
+   *  re-read stays on the filtered view instead of snapping back to the whole org (backlog #2 07-16). */
+  segmentId?: string | null;
+  techGroupId?: string | null;
+}) {
   const [backlog, setBacklog] = useState<OrgBacklog>(initial);
   const [view, setView] = useState<"owner" | "due" | "points">("owner");
   const { savingIds, errors, setSaving, setError, clearError } = useSavingIds<string>();
@@ -55,7 +67,10 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
   // server view is now current" from "the refresh was swallowed" (backlog #2).
   const refresh = useCallback(async (): Promise<boolean> => {
     const seq = ++refreshSeq.current;
-    const res = await fetch(`/api/org/backlog?org=${encodeURIComponent(slug)}`);
+    const qs = new URLSearchParams({ org: slug });
+    if (segmentId) qs.set("segment", segmentId);
+    if (techGroupId) qs.set("techGroup", techGroupId);
+    const res = await fetch(`/api/org/backlog?${qs}`);
     if (!res.ok) return false;
     const data = (await res.json()) as { backlog: OrgBacklog | null };
     // Drop a stale response: a later edit's refresh has already superseded this one, so applying this
@@ -64,7 +79,7 @@ export function BacklogPanel({ slug, initial }: { slug: string; initial: OrgBack
     if (!data.backlog) return false;
     setBacklog(data.backlog);
     return true;
-  }, [slug]);
+  }, [slug, segmentId, techGroupId]);
 
   const patch = useCallback(
     async (id: string, body: Record<string, unknown>): Promise<PatchOutcome> => {
