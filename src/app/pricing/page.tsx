@@ -33,9 +33,11 @@ function ctaFor(id: PlanId): { href: string; label: string } {
 export const dynamic = "force-dynamic";
 
 // The prices + free allowance in the marketing/SEO copy are DERIVED from the plan model (plans.ts,
-// CRED-1) — the SAME single source the price cards and the entitlement gate read — so the numbers here
-// can never drift from what's actually charged. Previously the description hardcoded "5 free … Pro
-// $10/mo, Team $20/mo"; a price change in plans.ts left this string silently stale (and lying to buyers).
+// CRED-1) — the SAME source the price cards read — so this string can't drift from plans.ts (it
+// previously hardcoded "5 free … Pro $10/mo, Team $20/mo"). It CAN still drift from Polar: plans.ts
+// `monthlyPrice` is a display-only duplicate of the Polar product price, so a price change in the
+// Polar dashboard must be mirrored in plans.ts (see the PRICE CONTRACT note there) or this page
+// advertises a number checkout won't charge.
 const FREE_ALLOWANCE = PLAN_FEATURES.free.includedCredits ?? 0;
 const PRO_PRICE = planPriceLabel("pro").amount; // e.g. "$10"
 const TEAM_PRICE = planPriceLabel("team").amount; // e.g. "$20"

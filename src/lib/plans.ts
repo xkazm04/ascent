@@ -1,8 +1,13 @@
 // Plan tiers — the single source of truth for what each plan includes, read by the credit/entitlement
 // layer (gating) and the /pricing page (display). Before this, `plan` carried four values but only
-// `enterprise` was ever special-cased (unlimited); `pro`/`team` were inert marketing. Pricing itself
-// lives in the billing provider (Polar, see CRED-1) — this map is feature/allotment metadata, not the
-// price book, so no dollar amounts are invented here.
+// `enterprise` was ever special-cased (unlimited); `pro`/`team` were inert marketing.
+//
+// PRICE CONTRACT (checkout-plans-polar 07-16 #3): what a buyer is CHARGED is whatever the Polar
+// product mapped via POLAR_PLAN_PRODUCTS costs — Polar is the price book. The `monthlyPrice` values
+// below are DISPLAY-ONLY duplicates of those Polar prices for the static /pricing page and SEO copy;
+// there is no automated reconciliation, so a price change in the Polar dashboard MUST be mirrored
+// here in lockstep or /pricing advertises a stale number and buyers are charged something else at
+// checkout. (The old header claimed "no dollar amounts are invented here", which hid this hazard.)
 
 export type PlanId = "free" | "pro" | "team" | "enterprise";
 
@@ -18,7 +23,9 @@ export interface PlanFeature {
   /** True when scans never consume a credit (the `enterprise` behaviour, data-driven). */
   unlimited: boolean;
   /** Fixed monthly subscription price in whole USD; 0 for Free, null for the custom (Enterprise) tier.
-   *  Pro/Team are SUBSCRIPTIONS that bundle a monthly scan allowance; overflow buys extra scan credits. */
+   *  Pro/Team are SUBSCRIPTIONS that bundle a monthly scan allowance; overflow buys extra scan credits.
+   *  DISPLAY-ONLY: the real charge is the Polar product's price (POLAR_PLAN_PRODUCTS) — keep this in
+   *  lockstep with the Polar dashboard (see the PRICE CONTRACT note atop this file). */
   monthlyPrice: number | null;
   billing: PlanBilling;
   /** Member seats included; null = unlimited. */
