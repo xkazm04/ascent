@@ -8,6 +8,7 @@ import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { Card, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { DownloadButton } from "@/components/report/DownloadButton";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { SecurityBandSpectrum } from "@/components/org/security/SecurityBandSpectrum";
 import { SecurityRiskRegister } from "@/components/org/security/SecurityRiskRegister";
@@ -78,13 +79,15 @@ export default async function OrgSecurity({
         />
         <div className="flex flex-wrap items-center gap-2">
           <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
-          <a
+          {/* Fetch-and-download (not a bare anchor): the PDF render is slow and error branches return
+              JSON — a plain <a> navigated the user onto a raw JSON page on failure (pdf-llm-export #1). */}
+          <DownloadButton
             href={`/api/org/security/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
             className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
             title="Download the security posture as a PDF"
           >
             <span aria-hidden>↓</span> Download PDF
-          </a>
+          </DownloadButton>
           <CopyForLlm text={md} label="Copy security brief for LLM" />
         </div>
       </div>

@@ -4,6 +4,7 @@ import { ARCHETYPE_HINT, ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { timeAgo } from "@/lib/ui";
 import { Kicker } from "@/components/ui";
 import { FreshnessControl } from "@/components/report/FreshnessControl";
+import { DownloadButton } from "@/components/report/DownloadButton";
 import { pillClass } from "@/components/report/pill";
 
 /** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row.
@@ -89,20 +90,23 @@ export function ReportHeader({
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <FreshnessControl report={report} onRetest={onRetest} rescanning={rescanning} />
-          <a
+          {/* Fetch-and-download buttons (not bare anchors): the PDF render can take up to a minute and
+              any error branch returns JSON — a plain <a> gave no pending feedback and navigated the
+              user onto a raw JSON page on failure (pdf-llm-export #1). */}
+          <DownloadButton
             href={`/api/report/pdf?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
             className={pillClass({ focusRing: true, textSm: true })}
             title="Download this report as a PDF"
           >
             <span aria-hidden>↓</span> Export PDF
-          </a>
-          <a
+          </DownloadButton>
+          <DownloadButton
             href={`/api/report/skill?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
             className={pillClass({ accent: true, focusRing: true, textSm: true })}
             title="Download a personalized Claude Code onboarding skill (drop it in .claude/skills/ and run it to act on this report)"
           >
             <span aria-hidden>✦</span> Onboarding skill
-          </a>
+          </DownloadButton>
         </div>
       </div>
     </div>
