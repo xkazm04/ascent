@@ -19,6 +19,7 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/db", () => ({
+  getCreditState: vi.fn(async () => ({ balance: 42, plan: "free", unlimited: false, orgExists: true })),
   grantCredits: vi.fn(async () => 142),
   isDbConfigured: () => true,
 }));
@@ -29,11 +30,12 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { POST } from "./route";
-import { grantCredits } from "@/lib/db";
+import { getCreditState, grantCredits } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { isSameOrigin } from "@/lib/auth";
 
 const mockGrant = vi.mocked(grantCredits);
+const mockState = vi.mocked(getCreditState);
 const mockRequireRole = vi.mocked(requireOrgRole);
 const mockSameOrigin = vi.mocked(isSameOrigin);
 
@@ -52,6 +54,7 @@ beforeEach(() => {
   mockSameOrigin.mockReturnValue(true);
   mockRequireRole.mockResolvedValue(null);
   mockGrant.mockResolvedValue(142);
+  mockState.mockResolvedValue({ balance: 42, plan: "free", unlimited: false, orgExists: true });
 });
 
 afterEach(() => {
@@ -108,8 +111,25 @@ describe("POST /api/org/credits/grant — authorization + mint guards", () => {
       reason: "grant",
       actor: "owner-login",
     });
-    const json = (await res.json()) as { ok: boolean; balance: number };
-    expect(json).toEqual({ ok: true, balance: 142 });
+    // appliedDelta = balance after (142) − balance before (42): the full +100 landed.
+    const json = (await res.json()) as { ok: boolean; balance: number; appliedDelta: number };
+    expect(json).toEqual({ ok: true, balance: 142, appliedDelta: 100 });
+  });
+
+  it("surfaces a CLAMPED debit honestly: -500 against a balance of 30 reports appliedDelta -30", async () => {
+    // grantCredits clamps a debit to the available balance (ledger honesty); the HTTP contract must
+    // not report bare success — the operator reconciling books needs the delta that ACTUALLY applied.
+    mockState.mockResolvedValue({ balance: 30, plan: "free", unlimited: false, orgExists: true });
+    mockGrant.mockResolvedValue(0);
+    const res = await POST(req({ org: "acme", amount: -500 }));
+    expect(await res.json()).toEqual({ ok: true, balance: 0, appliedDelta: -30 });
+  });
+
+  it("reports appliedDelta 0 for a debit against an already-empty balance (nothing was removed)", async () => {
+    mockState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false, orgExists: true });
+    mockGrant.mockResolvedValue(0);
+    const res = await POST(req({ org: "acme", amount: -500 }));
+    expect(await res.json()).toEqual({ ok: true, balance: 0, appliedDelta: 0 });
   });
 
   it("a negative amount mints once with reason 'adjustment' (owner debit/correction path)", async () => {
