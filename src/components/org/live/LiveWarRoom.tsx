@@ -6,7 +6,7 @@ import { reportPermalink } from "@/lib/ui";
 import { type LiveRepoSeed } from "@/components/org/shared/liveWarRoomShared";
 import { useLiveWarRoom } from "@/components/org/live/useLiveWarRoom";
 import { HeadlineStrip } from "@/components/org/live/LiveWarRoomStat";
-import { WarRoomHeader } from "@/components/org/live/LiveWarRoomHeader";
+import { WarRoomHeader, releaseWakeLock } from "@/components/org/live/LiveWarRoomHeader";
 import type { GoalProgressView } from "@/components/org/shared/goalView";
 import { FleetTimetablePanel } from "@/components/org/live/LiveWarRoomTimetable";
 import type { FleetTimetable } from "@/components/org/live/fleetTimetable";
@@ -99,7 +99,12 @@ export function LiveWarRoom({
           onVerify={wall.launchRepos}
           selectedRepos={selectedRepos}
           onScanSelected={scanSelected}
-          onExit={() => setTvMode(false)}
+          onExit={() => {
+            // Exiting TV mode must also drop the screen wake lock — otherwise the display stays
+            // forced-awake for the tab's lifetime (live-war-room 07-16 #3).
+            releaseWakeLock();
+            setTvMode(false);
+          }}
         />
       ) : (
         <>
