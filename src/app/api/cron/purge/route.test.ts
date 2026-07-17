@@ -145,13 +145,29 @@ describe("GET /api/cron/purge — auth gate (fail-closed) + error surface", () =
 
   // ---- (4) DB-not-configured short-circuit (still requires auth first) ----
 
-  it("authorizes first, then skips (no purge) when the DB is not configured", async () => {
+  it("returns 503 (not a green 200) when the DB is not configured — a broken prod env must page", async () => {
+    // data-retention 07-16 #4: cron monitors only watch the HTTP status, so a prod deploy that lost
+    // DATABASE_URL returning 200 daily would silently stop enforcing every retention window forever.
     mockIsDb.mockReturnValue(false);
     const res = await GET(req({ auth: `Bearer ${SECRET}` }));
     const body = await bodyOf(res);
-    expect(res.status ?? 200).toBe(200);
-    expect(body.skipped).toBeDefined();
+    expect(res.status).toBe(503);
+    expect(body.error).toBeDefined();
     expect(mockPurge).not.toHaveBeenCalled();
+  });
+
+  it("skips quietly with 200 when RETENTION_ALLOW_NO_DB=1 opts a DB-less deployment in", async () => {
+    mockIsDb.mockReturnValue(false);
+    process.env.RETENTION_ALLOW_NO_DB = "1";
+    try {
+      const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+      const body = await bodyOf(res);
+      expect(res.status ?? 200).toBe(200);
+      expect(body.skipped).toBeDefined();
+      expect(mockPurge).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.RETENTION_ALLOW_NO_DB;
+    }
   });
 
   // ---- (5) A thrown purge → 500, never a 200 implying success ------------

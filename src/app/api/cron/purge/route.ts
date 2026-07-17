@@ -49,7 +49,20 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   if (!isDbConfigured()) {
-    return NextResponse.json({ skipped: "Database required." });
+    // A DB-unconfigured deploy must NOT report a green 200 (data-retention 07-16 #4): the handler's own
+    // invariant is "degraded is never green" (207/500 below) because cron monitors only watch the HTTP
+    // status — yet a production deploy that loses/renames DATABASE_URL would keep returning 200 daily
+    // while every retention window silently stops being enforced. Fail closed with 503, matching the
+    // CRON_SECRET-unset branch (the same "misconfigured deploy" class). A GENUINELY DB-less deployment
+    // (the keyless MVP, where a scheduled purge is a deliberate no-op) opts into the quiet green skip
+    // explicitly via RETENTION_ALLOW_NO_DB=1.
+    if (process.env.RETENTION_ALLOW_NO_DB === "1") {
+      return NextResponse.json({ skipped: "Database required." });
+    }
+    return NextResponse.json(
+      { error: "Database is not configured (DATABASE_URL unset). Set RETENTION_ALLOW_NO_DB=1 for an intentionally DB-less deployment." },
+      { status: 503 },
+    );
   }
 
   // Preview mode (data-retention 07-16 #2): `?dryRun=1` (or `true`) counts what every effective policy
