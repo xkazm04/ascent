@@ -14,6 +14,10 @@ export interface RepoOption {
 export interface SavedScenario {
   id: number;
   label: string;
+  /** The repo scope the scenario was simulated against — "3 repos" / "all (12)". Without it, two
+   *  identically-labelled cards simulated over different fleet slices compared as if they were the
+   *  same experiment, reading scope size as scenario quality (investment 07-16 #4). */
+  scope: string;
   before: FleetProjection["before"];
   after: FleetProjection["after"];
   promotions: number;

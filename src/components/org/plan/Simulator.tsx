@@ -58,9 +58,14 @@ export function Simulator({ slug, dims, repos }: { slug: string; dims: DimOption
   function saveScenario() {
     if (!result) return;
     const label = result.fixes.map((f) => `${f.dimId}→${f.target}`).join(" + ");
+    // Capture the repo scope at save time (investment 07-16 #4): the legs alone labelled two saves
+    // of "D2→70" identically even when one covered 3 selected repos and the other the whole fleet,
+    // so the 2-up compare silently compared different fleets. `result.repos` is the set the
+    // projection actually covered — not the mutable live selection.
     const s: SavedScenario = {
       id: ++idRef.current,
       label,
+      scope: scope.size > 0 ? `${scope.size} repo${scope.size === 1 ? "" : "s"}` : `all (${result.repos.length})`,
       before: result.before,
       after: result.after,
       promotions: result.promotions,

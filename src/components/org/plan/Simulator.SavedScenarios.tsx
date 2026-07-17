@@ -27,7 +27,9 @@ export function SavedScenarios({
         {saved.map((s) => (
           <label key={s.id} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/30 px-3 py-1.5 font-mono text-sm">
             <input type="checkbox" checked={compare.includes(s.id)} onChange={() => onToggleCompare(s.id)} className="accent-accent" />
-            <span className="min-w-0 flex-1 truncate text-slate-200">{s.label}</span>
+            <span className="min-w-0 flex-1 truncate text-slate-200">
+              {s.label} <span className="text-slate-500">· {s.scope}</span>
+            </span>
             <span className="shrink-0 text-slate-500">
               overall <span style={{ color: scoreHex(s.after.avgOverall) }}>{s.after.avgOverall}</span>{" "}
               <span className="text-emerald-300">{signed(s.after.avgOverall - s.before.avgOverall)}</span>
@@ -44,7 +46,9 @@ export function SavedScenarios({
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {comparing.map((s) => (
             <div key={s.id} className="rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-              <div className="truncate font-mono text-sm text-white">{s.label}</div>
+              <div className="truncate font-mono text-sm text-white">
+                {s.label} <span className="text-slate-500">· {s.scope}</span>
+              </div>
               <div className="mt-1 font-mono text-sm text-slate-400">{s.affected} repo(s) moved · {s.promotions} promoted</div>
               <div className="mt-2 space-y-1">
                 {([
