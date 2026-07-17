@@ -195,6 +195,22 @@ describe("maintain (self-maintaining upkeep)", () => {
     expect(m.body).not.toContain("${");
   });
 
+  it("note creates the entry with the exclusive 'wx' flag and retries on EEXIST (no truncating overwrite)", () => {
+    // Finding #5: `note` was read-then-write with a default-flag writeFileSync — two concurrent
+    // writers could compute the same id and the second write TRUNCATED the first (silent loss in the
+    // append-only ledger). The write must be exclusive-create, with the id recomputed on collision.
+    const body = buildMaintain().body;
+    expect(body).toContain("{ encoding: 'utf8', flag: 'wx' }");
+    expect(body).toContain("e.code !== 'EEXIST'");
+    // The id derivation is INSIDE the retry loop, so a losing writer re-lists and picks max+1 again.
+    const loopStart = body.indexOf("for (let attempt = 0;");
+    const idDerive = body.indexOf("const next = String((ids.length ? Math.max(...ids) : 0) + 1)");
+    expect(loopStart).toBeGreaterThan(-1);
+    expect(idDerive).toBeGreaterThan(loopStart);
+    // The note body write itself carries the exclusive flag (the old truncating form is gone).
+    expect(body).toContain("(sha ? '\\n\\n(at ' + sha + ')' : '') + '\\n', { encoding: 'utf8', flag: 'wx' })");
+  });
+
   it("check diffs the PUSHED RANGE at pre-push, not the (clean) worktree", () => {
     // Finding #1: at pre-push the worktree is already committed, so the old `git diff HEAD` / `--cached`
     // saw nothing and the guardrail silently never fired. The check must diff what is about to be pushed.
