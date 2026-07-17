@@ -18,6 +18,7 @@ import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
+import { chipButtonClass } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,7 @@ export default async function OrgExecutive({
             // EXEC #1: carry the active ?segment= (and the ?stack= tech scope, 3b) into the export so a
             // per-client / per-stack briefing downloads the SAME scope being viewed, not the whole org.
             href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+            className={chipButtonClass()}
             title="Download the briefing as a board-ready PDF"
           >
             <span aria-hidden>↓</span> Download PDF

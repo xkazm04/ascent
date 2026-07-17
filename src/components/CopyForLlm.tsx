@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { attemptCopy, nextCopyState } from "./copy-for-llm.logic";
+import { chipButtonClass } from "@/components/ui";
 
 export function CopyForLlm({
   text,
@@ -79,13 +80,7 @@ export function CopyForLlm({
         onClick={copy}
         title="Copy a markdown briefing to paste into Claude Code or another LLM"
         aria-label={ariaLabel ?? label}
-        className={`focus-ring inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition ${
-          copied
-            ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
-            : failed
-              ? "border-danger/50 text-danger"
-              : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
-        } ${className}`}
+        className={chipButtonClass(copied ? "success" : failed ? "danger" : "idle", className)}
       >
         <span aria-hidden>{copied ? "✓" : failed ? "⚠" : "⧉"}</span>
         {copied ? "Copied" : failed ? "Copy failed" : label}

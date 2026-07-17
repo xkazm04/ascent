@@ -4,6 +4,7 @@
 // window to /api/org/briefing/share; the returned /share/briefing/[token] path needs no account.
 
 import { useState } from "react";
+import { chipButtonClass } from "@/components/ui";
 
 export function BriefingShareButton({
   org,
@@ -82,7 +83,7 @@ export function BriefingShareButton({
         type="button"
         onClick={share}
         disabled={state === "working"}
-        className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+        className={chipButtonClass("idle", "disabled:opacity-50")}
         title="Create a read-only link a board member can open without an account"
       >
         <span aria-hidden>↗</span> {state === "copied" ? "Link copied" : state === "working" ? "Creating…" : "Share read-only link"}
