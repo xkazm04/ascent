@@ -4,6 +4,7 @@
 // links) played via the shared RemotionDiagram. See champion/ChampionComposition + champion/graph.
 
 import { RemotionDiagram } from "./RemotionStage";
+import { ACCENT, WEAK } from "./compositionShared";
 import { ChampionComposition } from "./champion/ChampionComposition";
 
 export function ChampionNetwork() {
@@ -14,11 +15,11 @@ export function ChampionNetwork() {
       legend={
         <>
           <span className="flex items-center gap-1.5">
-            <span className="h-0.5 w-5 rounded" style={{ backgroundColor: "#3b9eff" }} />
+            <span className="h-0.5 w-5 rounded" style={{ backgroundColor: ACCENT }} />
             strong link
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-0.5 w-5 border-t border-dashed border-[#f87171]" />
+            <span className="h-0.5 w-5 border-t border-dashed" style={{ borderColor: WEAK }} />
             weak link
           </span>
         </>
