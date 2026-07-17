@@ -31,7 +31,9 @@ import type {
  * scores and therefore final scores — bump for those as well, even though they live in analyze/*
  * where the hash test can't see them.
  */
-export const SCORING_RUBRIC_VERSION = "r1";
+// r2 (2026-07-17): classifyArchetype now caps star-driven "org" escalation at "team" for repos with
+// ≤2 active human authors — the archetype lens (and therefore the weights) moved for viral solo repos.
+export const SCORING_RUBRIC_VERSION = "r2";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
