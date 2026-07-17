@@ -15,9 +15,13 @@ import type { TeamOwnership } from "@/lib/types";
 // unit is the team. GitHub org and team slugs are alphanumerics plus dash/underscore/dot.
 const TEAM_RE = /^@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9._-]+$/;
 
-// The three locations GitHub honors a CODEOWNERS file (root, .github/, docs/), matched
-// case-insensitively — mirrors the exact names source.ts fetches into the snapshot.
-const CODEOWNERS_PATH_RE = /^(?:\.github\/|docs\/)?codeowners$/i;
+// The three locations GitHub honors a CODEOWNERS file, in GITHUB'S OWN PRECEDENCE ORDER:
+// `.github/` first, then the repo root, then `docs/` — when more than one exists, GitHub uses the
+// FIRST and ignores the rest. Matched case-insensitively. findCodeownersContent must resolve in this
+// order (NOT the snapshot's array order, which is source.ts's prompt-priority fetch rank and happens
+// to list root before `.github/`): a repo migrating CODEOWNERS into `.github/` while a stale root
+// copy lingers would otherwise be attributed from the file GitHub itself does not honor.
+const CODEOWNERS_PRECEDENCE = [/^\.github\/codeowners$/i, /^codeowners$/i, /^docs\/codeowners$/i];
 
 /**
  * Parse CODEOWNERS content into the teams that own part of the repo, with how many rules name each
@@ -58,10 +62,15 @@ export function parseCodeowners(content: string): TeamOwnership[] {
     .sort((a, b) => b.ownedPaths - a.ownedPaths || a.slug.localeCompare(b.slug));
 }
 
-/** Locate a repo's CODEOWNERS content among the snapshot's fetched files (root, .github/, docs/). */
+/** Locate a repo's CODEOWNERS content among the snapshot's fetched files, honoring GitHub's location
+ *  precedence (`.github/` > root > `docs/`) regardless of the array's fetch order — so when two
+ *  locations coexist, attribution comes from the same file GitHub actually applies. */
 export function findCodeownersContent(files: { path: string; content: string }[]): string | null {
-  const hit = files.find((f) => CODEOWNERS_PATH_RE.test(f.path));
-  return hit?.content ?? null;
+  for (const re of CODEOWNERS_PRECEDENCE) {
+    const hit = files.find((f) => re.test(f.path));
+    if (hit) return hit.content;
+  }
+  return null;
 }
 
 /**
