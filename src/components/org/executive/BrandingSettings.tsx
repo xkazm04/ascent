@@ -135,6 +135,25 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
               aria-describedby={contrastWarning ? "brand-accent-warning" : undefined}
               className="h-9 w-14 rounded-lg border border-slate-700 bg-slate-900"
             />
+            {/* org-branding #5: white-label users arrive with an EXACT brand hex from a style guide —
+                the OS colour picker can't be pasted into, so eyeball-matching was the only path. This
+                text twin is two-way synced with the swatch; an invalid value is still submitted, which
+                makes the server's hex rejection + the client "Accent colour ignored" warning live
+                (they were unreachable while the picker alone emitted only valid #rrggbb). */}
+            <input
+              type="text"
+              value={colorSet ? brandColor : ""}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                setBrandColor(v || DEFAULT_BRAND_ACCENT);
+                setColorSet(Boolean(v));
+              }}
+              maxLength={7}
+              placeholder="#rrggbb"
+              aria-label="Accent colour hex"
+              aria-describedby={contrastWarning ? "brand-accent-warning" : undefined}
+              className={`${field} w-24`}
+            />
             {colorSet && (
               <button
                 type="button"

@@ -115,6 +115,36 @@ describe("BrandingSettings accent unset semantics (DOM)", () => {
   });
 });
 
+// Pins org-branding-white-label 2026-07-16 #5: an exact brand hex can be TYPED (not just eyeballed in
+// the OS picker) via a text twin two-way synced with the swatch; clearing it returns to the default.
+describe("BrandingSettings typed hex entry (DOM)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("typing a hex updates the swatch and submits the typed value", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ branding: { brandName: null, brandColor: "#e11d48", logoUrl: null } }) }) as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    render(<BrandingSettings slug="acme" initial={branding()} />);
+    fireEvent.change(screen.getByLabelText("Accent colour hex"), { target: { value: "#e11d48" } });
+    expect(document.querySelector<HTMLInputElement>('input[type="color"]')!.value).toBe("#e11d48"); // two-way sync
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown[])[1] && (fetchMock.mock.calls[0]![1] as RequestInit).body)) as Record<string, string>;
+    expect(body.brandColor).toBe("#e11d48");
+  });
+
+  it("clearing the hex field reverts to the unset default (submits '')", () => {
+    render(<BrandingSettings slug="acme" initial={branding({ brandColor: "#e11d48" })} />);
+    const hex = screen.getByLabelText("Accent colour hex") as HTMLInputElement;
+    expect(hex.value).toBe("#e11d48");
+    fireEvent.change(hex, { target: { value: "" } });
+    expect(hex.value).toBe(""); // unset again — the swatch shows the visible default only
+    expect(screen.queryByRole("button", { name: /use default/i })).toBeNull();
+  });
+});
+
 // Pins org-branding-white-label 2026-07-16 #4: a saved-but-not-an-image logo URL must surface as a
 // warning (the server probes it with the same guarded fetch the PDF render uses), and the saved logo
 // renders as a visible preview thumbnail instead of only being testable by downloading a PDF.
