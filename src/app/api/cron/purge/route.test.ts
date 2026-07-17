@@ -35,6 +35,7 @@ import {
   RETENTION_BUDGET_HEADROOM_MS,
   RETENTION_DEFAULT_TIME_BUDGET_MS,
 } from "@/lib/db/retention";
+import { RETIRE_CLIENT_GRACE_MS } from "@/lib/db/client";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockPurge = vi.mocked(purgeExpiredData);
@@ -189,6 +190,14 @@ describe("GET /api/cron/purge — auth gate (fail-closed) + error surface", () =
     expect(RETENTION_DEFAULT_TIME_BUDGET_MS).toBe(maxDuration * 1000 - RETENTION_BUDGET_HEADROOM_MS);
     expect(RETENTION_DEFAULT_TIME_BUDGET_MS).toBeLessThan(maxDuration * 1000);
     expect(RETENTION_BUDGET_HEADROOM_MS).toBeGreaterThan(0);
+  });
+
+  it("the DB client-retirement grace equals the cron cap (database-client-schema 07-16 #1)", () => {
+    // client.ts cannot import PURGE_MAX_DURATION_S (retention.ts imports client.ts — a cycle), so this
+    // pin IS the coupling: the retirement grace must cover the longest plausible in-flight request,
+    // which is this route's cap. The grace also bounds the documented 2× transient connection footprint
+    // during DSQL token rotations (see applyConnectionBudget / RETIRE_CLIENT_GRACE_MS docs).
+    expect(RETIRE_CLIENT_GRACE_MS).toBe(PURGE_MAX_DURATION_S * 1000);
   });
 
   it("returns 207 (not 200) when the run collected errors — so cron alerting trips", async () => {

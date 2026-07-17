@@ -77,6 +77,15 @@ export function readDsqlConfig(env: NodeJS.ProcessEnv = process.env): DsqlConfig
  * cron is never accidentally serialized by a hardcoded limit. Set DB_CONNECTION_LIMIT (and optionally
  * DB_POOL_TIMEOUT seconds) per the cluster ceiling / expected concurrency. Existing params are not
  * overwritten (a URL that already carries connection_limit wins).
+ *
+ * TRUE PEAK — size for TWO live clients per instance (database-client-schema 07-16 #1): in DSQL mode
+ * the token rotates roughly every ttl − margin (~13 min at defaults), and each rotation keeps the OLD
+ * client alive for RETIRE_CLIENT_GRACE_MS (5 min) so in-flight queries can drain before $disconnect.
+ * During that overlap old and new clients EACH own an independent pool of up to `connection_limit`
+ * connections, so an instance's real ceiling is 2 × the configured budget for ~5 of every ~13 minutes
+ * (and briefly 3 × if a reactive reconnect stacks a third client mid-grace). Sizing the budget as
+ * (cluster ceiling ÷ instances) therefore still trips connection refusals under fan-out, precisely
+ * during rotations. Rule of thumb: DB_CONNECTION_LIMIT ≤ cluster ceiling ÷ (instances × 2).
  */
 function applyConnectionBudget(url: URL): URL {
   const limit = process.env.DB_CONNECTION_LIMIT?.trim();
@@ -395,9 +404,23 @@ function newClient(url?: string): PrismaClient {
   return new PrismaClient({ log: [...log] });
 }
 
-/** Grace period before retiring a swapped-out client. Covers the longest plausible in-flight request
- *  (the cron's maxDuration is 300s) so a query holding the old reference can drain before disconnect. */
-const RETIRE_CLIENT_GRACE_MS = 300_000;
+/**
+ * Grace period before retiring a swapped-out client. Covers the longest plausible in-flight request so
+ * a query holding the old reference can drain before disconnect. COUPLED CONSTANT: "longest plausible
+ * request" is the cron routes' declared cap — PURGE_MAX_DURATION_S (300s) in src/lib/db/retention.ts —
+ * which this module cannot import (retention.ts imports this module; the cycle is broken by a test in
+ * src/app/api/cron/purge/route.test.ts pinning the equality instead). If the cap changes, change this
+ * with it.
+ *
+ * CONNECTION-FOOTPRINT TRADE-OFF (database-client-schema 07-16 #1): for this whole grace window the
+ * retired client's pool coexists with the new client's, transiently DOUBLING the per-instance
+ * connection footprint on every DSQL token rotation — see the sizing note on applyConnectionBudget
+ * ("size for two live clients per instance"). Deliberately NOT mitigated by disconnecting at token
+ * expiry: DSQL tokens authenticate connection ESTABLISHMENT only, so the old pool's established
+ * connections keep serving in-flight work past expiry — an early disconnect would abort exactly the
+ * long cron queries this grace exists to protect.
+ */
+export const RETIRE_CLIENT_GRACE_MS = 300_000;
 
 /**
  * Lazily retire a swapped-out Prisma client (database-client-schema #2). getPrisma() returns the cached
