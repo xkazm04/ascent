@@ -10,6 +10,7 @@ export function ChampionNetwork() {
   return (
     <RemotionDiagram
       component={ChampionComposition}
+      ariaLabel="Animated diagram: practices spread outward from champion engineers across the team graph, strengthening weak links until the whole network adopts them."
       legend={
         <>
           <span className="flex items-center gap-1.5">

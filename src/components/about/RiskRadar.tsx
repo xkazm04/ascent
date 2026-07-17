@@ -10,6 +10,7 @@ export function RiskRadar() {
   return (
     <RemotionDiagram
       component={RadarComposition}
+      ariaLabel="Animated diagram: a radar sweep detects risk alerts early, mitigations turn them green, and the release gate flips from fail to pass."
       legend={
         <>
           <span className="flex items-center gap-1.5">
