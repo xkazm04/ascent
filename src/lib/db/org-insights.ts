@@ -10,6 +10,9 @@ import type { DimensionId } from "@/lib/types";
 import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import type { OrgWindow } from "@/lib/db/org-rollup";
+// The one "due soon" window (rolling days) shared with the UI tiles/labels — single-sourced in the
+// client-safe backlogShared module so both layers stay in sync (backlog-management 07-16 #4).
+import { DUE_SOON_DAYS } from "@/components/org/shared/backlogShared";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
 
@@ -283,7 +286,7 @@ export type BacklogDueBucket = "overdue" | "this_week" | "this_month" | "later" 
 // Aug-1 pair on July 1. (ambiguity-ui 2026-07-16 #4)
 const DUE_BUCKET_LABEL: Record<BacklogDueBucket, string> = {
   overdue: "Overdue",
-  this_week: "Due within 7 days",
+  this_week: `Due within ${DUE_SOON_DAYS} days`,
   this_month: "Due within a month",
   later: "Later",
   no_date: "No due date",
@@ -314,7 +317,7 @@ export function dueBucketFor(targetDate: Date | null, now: Date): BacklogDueBuck
   if (!targetDate) return "no_date";
   const d = daysUntil(targetDate, now);
   if (d < 0) return "overdue";
-  if (d <= 7) return "this_week";
+  if (d <= DUE_SOON_DAYS) return "this_week";
   if (d <= 31) return "this_month";
   return "later";
 }
@@ -378,7 +381,7 @@ export interface OrgBacklog extends BacklogCounts {
   active: number;
   assigned: number; // active items with an owner
   unassigned: number; // active items without one
-  dueSoon: number; // active items due within 7 days (not already overdue)
+  dueSoon: number; // active items due within DUE_SOON_DAYS days (not already overdue)
   byOwner: BacklogOwnerGroup[]; // most overdue, then largest working backlog; Unassigned last
   byDue: BacklogDueGroup[]; // fixed bucket order
   /** Distinct human contributor logins across the fleet — options for the assignee picker. */
@@ -541,7 +544,7 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
   }));
 
   const assigned = items.filter((i) => i.assigneeLogin).length;
-  const dueSoon = items.filter((i) => i.dueInDays != null && i.dueInDays >= 0 && i.dueInDays <= 7).length;
+  const dueSoon = items.filter((i) => i.dueInDays != null && i.dueInDays >= 0 && i.dueInDays <= DUE_SOON_DAYS).length;
 
   return {
     org: orgSlug,

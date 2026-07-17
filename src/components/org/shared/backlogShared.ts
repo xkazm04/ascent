@@ -21,12 +21,30 @@ export const STATUS_LABEL: Record<RecStatus, string> = {
   dismissed: "Dismissed",
 };
 
-export const STATUS_ACCENT: Record<string, string> = {
+// Typed against RecStatus (not string) so a newly-added status can't silently index to an
+// `undefined` border colour — it becomes a compile error here instead (backlog-management 07-16 #4).
+export const STATUS_ACCENT: Record<RecStatus, string> = {
   open: "#64748b",
   in_progress: "#eab308",
   done: "#22c55e",
   dismissed: "#475569",
 };
+
+/** STATUS_ACCENT lookup for loosely-typed (string) statuses — falls back to the `open` accent. */
+export function statusAccent(status: string): string {
+  return STATUS_ACCENT[status as RecStatus] ?? STATUS_ACCENT.open;
+}
+
+/**
+ * The single "due soon" window (in rolling days) behind the `this_week` due bucket, the "Due ≤ Nd"
+ * summary tile, and its backend count — previously three independent literal 7s across two layers,
+ * where changing one (e.g. to a sprint length) silently desynced the tile from the bucket it
+ * summarizes (backlog-management 07-16 #4). Client-safe; the DB layer imports it from here.
+ */
+export const DUE_SOON_DAYS = 7;
+
+/** The overdue accent shared by the row's left border, the Overdue tile, and the due chip family. */
+export const OVERDUE_ACCENT = "#f97316";
 
 export const EVENT_LABEL: Record<string, string> = {
   status: "Status",

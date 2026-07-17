@@ -5,7 +5,7 @@ import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { type RecEvent, type RecStatus } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
-import { STATUS_ACCENT, dueLabel, type PatchOutcome } from "@/components/org/shared/backlogShared";
+import { OVERDUE_ACCENT, statusAccent, dueLabel, type PatchOutcome } from "@/components/org/shared/backlogShared";
 import { StatusSelect } from "@/components/org/shared/recStatusUi";
 import { BacklogRowHistory } from "@/components/org/backlog/BacklogItemRow.history";
 
@@ -194,7 +194,7 @@ export function BacklogItemRow({
     <div
       aria-busy={saving}
       className="rounded-xl border bg-slate-900/40 p-4"
-      style={{ borderLeftWidth: 3, borderLeftColor: item.overdue ? "#f97316" : STATUS_ACCENT[shown.status] }}
+      style={{ borderLeftWidth: 3, borderLeftColor: item.overdue ? OVERDUE_ACCENT : statusAccent(shown.status) }}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
