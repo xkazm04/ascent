@@ -57,7 +57,7 @@ function IndividualInvolvement({
   segmentId: string | null;
 }) {
   return (
-    <details className="mt-8 rounded-xl border border-slate-800 bg-slate-900/20">
+    <details id="individuals" className="mt-8 scroll-mt-24 rounded-xl border border-slate-800 bg-slate-900/20">
       <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 font-medium text-slate-200 marker:text-slate-600">
         <span>
           Individual involvement <span className="font-mono text-sm text-slate-500">({insights.contributors.length})</span>
@@ -133,7 +133,7 @@ function ConcentrationTable({
   decisions: DecisionMap;
 }) {
   return (
-    <div className="mt-8">
+    <div id="concentration" className="mt-8 scroll-mt-24">
       <SectionHeader
         title="Concentration & bus factor"
         description={
@@ -237,12 +237,13 @@ export default async function ContributorInsightsPage({
         {filterBar && <div className="flex shrink-0 items-center gap-2">{filterBar}</div>}
       </div>
 
-        {/* Summary tiles */}
+        {/* Summary tiles — each deep-links to its evidence section (the Teams tab's tile pattern),
+            so the warn-colored key-person stat jumps straight to the concentration table + decisions. */}
         <div className={`mt-6 ${TILE_GRID}`}>
-          <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" />
-          <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} />
+          <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" href="#individuals" />
+          <Tile label="AI-active" value={`${insights.aiActiveShare}%`} sub={`${insights.aiActive} use AI-attributed commits`} color={scoreHex(insights.aiActiveShare)} href="#individuals" />
           <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted across the fleet" color={scoreHex(insights.orgAiShare)} />
-          <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} />
+          <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} href="#concentration" />
         </div>
 
         {/* AI champions — only a meaningful "leaderboard" once the population is large enough. Below 3
