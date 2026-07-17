@@ -38,7 +38,7 @@ vi.mock("@/lib/github/app", () => ({
   isAppConfigured: () => true,
 }));
 vi.mock("@/lib/github/list", () => ({
-  listOrgRepos: vi.fn(async () => []),
+  listOrgRepos: vi.fn(async () => ({ repos: [], truncated: false })),
   // The route now validates explicit repos[] coordinates via these before any fetch — the test's
   // repos use valid owner/name, so accept them (the real validators are unit-tested in list.test.ts).
   isValidHandle: (s: string) => /^[A-Za-z0-9-]+$/.test(s),

@@ -203,8 +203,13 @@ export async function POST(request: Request) {
           }
         } else {
           send("progress", { stage: "list", message: `Listing public repos for ${org}…` });
-          const repos = await listOrgRepos(org, count, token);
+          const { repos, truncated } = await listOrgRepos(org, count, token);
           fullNames = repos.map((r) => ({ owner: r.owner, name: r.name, fullName: r.fullName, url: r.url }));
+          // The listing's page budget ran out with more pages available (fork/archive-heavy org):
+          // surface it like the other batch caps so a short import isn't read as the org's whole reality.
+          if (truncated) {
+            send("notice", { reason: "listing_truncated", scanning: fullNames.length });
+          }
         }
 
         if (fullNames.length === 0) {
