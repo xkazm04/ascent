@@ -88,6 +88,24 @@ export const LEVELS: MaturityLevel[] = [
   },
 ];
 
+/**
+ * Planning defaults, single-sourced here so the Plan tab, the initiatives seed flow, and the DB-layer
+ * default can't drift (ambiguity-ui 07-16 goals #4 — these were three inlined literals with no
+ * recorded rationale).
+ *
+ * SUGGESTED_GOAL_LIFT: the points a one-click suggested goal proposes above today's weakest-dimension
+ * average — roughly half a LEVELS band (bands are ~20 wide), i.e. an ambitious-but-reachable
+ * one-quarter/one-half-level push rather than a whole-band jump.
+ *
+ * DEFAULT_INITIATIVE_TARGET: the per-dimension score a seeded initiative steers repos toward (and the
+ * adoption floor below which an adoption goal is suggested). 70 sits solidly inside the L4
+ * "Integrated" band [65, 84] — comfortably past the L3→L4 boundary, so a repo "at target" is
+ * unambiguously operating at the Integrated level, not hovering on its edge. Product-tuning values,
+ * not laws — change them HERE, nowhere else.
+ */
+export const SUGGESTED_GOAL_LIFT = 12;
+export const DEFAULT_INITIATIVE_TARGET = 70;
+
 export const DIMENSIONS: DimensionDef[] = [
   {
     id: "D1",

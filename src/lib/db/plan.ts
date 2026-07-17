@@ -7,7 +7,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
-import { DIMENSION_BY_ID } from "@/lib/maturity/model";
+import { DEFAULT_INITIATIVE_TARGET, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { meanPerDayKey, projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
 import { rankFleetInvestments, simulateFleet, type FleetProjection, type InvestmentRank, type RepoDims, type SimFix } from "@/lib/scoring/orgsim";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
@@ -476,7 +476,7 @@ export async function createInitiative(
       title,
       dimId: input.dimId,
       practiceId: input.practiceId ?? null,
-      targetScore: Math.max(0, Math.min(100, Math.round(input.targetScore ?? 70))),
+      targetScore: Math.max(0, Math.min(100, Math.round(input.targetScore ?? DEFAULT_INITIATIVE_TARGET))),
       repos: JSON.stringify(input.repos.slice(0, 200)),
       assigneeLogin: input.assigneeLogin?.trim().slice(0, 100) || null,
       targetDate: parseTargetDate(input.targetDate),

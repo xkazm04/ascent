@@ -67,7 +67,9 @@ export function InitiativesPanel({
       const res = await fetch("/api/org/initiatives", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, title: seed.title, dimId: seed.dimId, practiceId: seed.practiceId, repos: seed.repos, targetScore: 70 }),
+        // No targetScore: the single server-side default (DEFAULT_INITIATIVE_TARGET in the maturity
+        // model) rules — this panel used to hardcode its own 70 next to the DB layer's (goals #4 07-16).
+        body: JSON.stringify({ org: slug, title: seed.title, dimId: seed.dimId, practiceId: seed.practiceId, repos: seed.repos }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Failed.");
       await refresh();
