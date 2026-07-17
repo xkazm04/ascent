@@ -205,13 +205,43 @@ describe("persistScanReport — commit-SHA dedup (no second metered Scan row)", 
   it("sha-less report dedups on scannedAt: an existing same-time row reuses it, no scan.create", async () => {
     const { prisma, scanCreate } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
-    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_sameTime" });
+    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_sameTime", engineProvider: "anthropic" });
 
     const res = await persistScanReport(makeReport({ headSha: null }));
 
     expect(res).toMatchObject({ scanId: "scan_sameTime", deduped: true, headSha: null });
     expect(scanCreate).not.toHaveBeenCalled();
     expect(mockFindScanByScannedAt).toHaveBeenCalledTimes(1);
+  });
+
+  it("sha-less LIVE re-persist over a MOCK row at the same scannedAt UPGRADES it (no dedup to the placeholder)", async () => {
+    // scan-persistence-history 07-16 #2: the sha-less branch used to have no equivalent of the sha
+    // branch's mock→live upgrade — a live sha-less re-persist sharing scannedAt with a mock row deduped
+    // to the mock row and returned its id as if it were the live scan, with no `upgraded` signal.
+    const { prisma, scanCreate, tx } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_mock", engineProvider: "mock" });
+
+    const res = await persistScanReport(makeReport({ headSha: null, engineProvider: "anthropic" }));
+
+    // The mock graph is torn down (children first — no cascades) and a live row replaces it.
+    expect(tx.recommendationEvent.deleteMany).toHaveBeenCalledWith({ where: { recommendation: { scanId: "scan_mock" } } });
+    expect(tx.recommendation.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.scanDimension.deleteMany).toHaveBeenCalledWith({ where: { scanId: "scan_mock" } });
+    expect(tx.scan.delete).toHaveBeenCalledWith({ where: { id: "scan_mock" } });
+    expect(scanCreate).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false, upgraded: true, headSha: null });
+  });
+
+  it("a sha-less MOCK re-persist over a mock row still dedups (mock never replaces mock)", async () => {
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({ id: "scan_mock", engineProvider: "mock" });
+
+    const res = await persistScanReport(makeReport({ headSha: null, engineProvider: "mock" }));
+
+    expect(res).toMatchObject({ scanId: "scan_mock", deduped: true, headSha: null });
+    expect(scanCreate).not.toHaveBeenCalled();
   });
 
   it("cross-instance P2002 race: re-reads the winner and dedups (no duplicate row, error swallowed)", async () => {

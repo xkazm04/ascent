@@ -211,8 +211,16 @@ export async function persistScanReport(
       // genuinely new re-score carries a later scannedAt and is not suppressed.
       const existing = await findScanByScannedAt(repo.id, new Date(report.scannedAt));
       if (existing) {
-        await advanceHead(); // a real scan exists for this scannedAt → safe freshness refresh, no duplicate
-        return { scanId: existing.id, deduped: true, headSha: null, failures: { audit: false, contributors: 0 } };
+        // Mirror the sha branch's engine-UPGRADE rule (scan-persistence-history 07-16 #2): a LIVE
+        // sha-less re-persist that shares `scannedAt` with a MOCK placeholder must REPLACE it, not
+        // dedup to it — plain dedup would return the mock row's id as if it were the live scan and the
+        // placeholder could never become authoritative. Every other case still dedups.
+        if (existing.engineProvider === "mock" && report.engine.provider !== "mock") {
+          upgradeOldScanId = existing.id;
+        } else {
+          await advanceHead(); // a real scan exists for this scannedAt → safe freshness refresh, no duplicate
+          return { scanId: existing.id, deduped: true, headSha: null, failures: { audit: false, contributors: 0 } };
+        }
       }
     }
 

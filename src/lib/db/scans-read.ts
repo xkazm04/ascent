@@ -69,12 +69,14 @@ export async function findScanByCommit(
  * the persist path matches on the report's own `scannedAt`: the SAME computed report persisted more
  * than once (coalesced followers, a double-submit, a retried lane) carries an identical timestamp and
  * reuses the first row instead of inserting duplicate sha-less Scan rows. A genuinely new re-score has
- * a later `scannedAt`, so it is not suppressed.
+ * a later `scannedAt`, so it is not suppressed. `engineProvider` rides along (mirroring
+ * findScanByCommit) so the persist path can apply the same mock→live UPGRADE rule to a sha-less
+ * re-persist instead of deduping a live result away in favor of a mock placeholder.
  */
 export async function findScanByScannedAt(
   repoId: string,
   scannedAt: Date,
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; engineProvider: string } | null> {
   if (!isDbConfigured()) return null;
   return getPrisma().scan.findFirst({
     where: { repoId, scannedAt },
@@ -83,7 +85,7 @@ export async function findScanByScannedAt(
     // timestamp is inherently fragile — a stable content/idempotency key would be the authoritative fix
     // (tracked as a follow-up); this just makes the existing behavior deterministic.
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { id: true },
+    select: { id: true, engineProvider: true },
   });
 }
 
