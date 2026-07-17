@@ -208,7 +208,7 @@ export function InspectorHud({
         <div style={{ color: "#9ca3af" }}>Hover a component…</div>
       )}
       <div style={{ color: "#6b7280", marginTop: 6, fontSize: 11 }}>
-        right-click: call site · Alt+right-click: this element · click a row · Esc: exit
+        right-click: innermost non-library file · Alt+right-click: this element · click a row · Esc: exit
       </div>
     </div>
   );

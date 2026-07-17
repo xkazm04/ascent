@@ -9,9 +9,13 @@
  *   2. Press `;` to enter keyboard mode, then `i` to arm the inspector.
  *   3. Hover highlights the element; RIGHT-CLICK copies a Claude-Code-friendly
  *      `src/.../File.tsx:LINE` to the clipboard (left-click is left untouched so
- *      you can keep operating the app). Default copy = the call site (the
- *      feature/page file that used the component); Alt+right-click copies the
- *      innermost element; click a HUD row to copy any enclosing file.
+ *      you can keep operating the app). Default copy = the INNERMOST NON-LIBRARY
+ *      file in the chain (skipping shared roots like src/lib/ and
+ *      src/components/ui/ — see LIBRARY_ROOTS in devLocate.ts). For a feature
+ *      component that is the component's own file; it is only the page-level
+ *      call site when the pointed-at element is library code. Alt+right-click
+ *      copies the innermost element regardless; click a HUD row to copy any
+ *      enclosing file.
  *   4. `Esc` exits.
  *
  * Mounted only behind `process.env.NODE_ENV === 'development'` in the root
