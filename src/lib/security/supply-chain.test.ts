@@ -249,6 +249,17 @@ describe("getOrgSupplyChain — successful fetch returns the real vuln tally", (
     expect(sc.repos.map((r) => r.name)).toEqual(["crit-heavy", "high-heavy", "low-risk"]);
   });
 
+  it("returns ALL repos, not a top-10 slice — consumers key a complete lookup map by fullName (audit-log 2026-07-16 #2)", async () => {
+    // 12 scanned repos: the old `repos: rows.slice(0, 10)` dropped the 11th/12th, so the register
+    // rendered them "—" (reads as "not assessed") even when they had real advisories or were clean.
+    mockRollup.mockResolvedValue(rollup(Array.from({ length: 12 }, (_, i) => repo(`repo-${i}`))));
+    vi.stubGlobal("fetch", fetchReturning(true, 200, [alert("low")]));
+
+    const sc = (await getOrgSupplyChain("org-complete-map"))!;
+    expect(sc.scanned).toBe(12);
+    expect(sc.repos).toHaveLength(12); // complete: length === scanned, no silent cap
+  });
+
   it("non-array JSON falls back to explicit zeros (a KEPT, genuinely-clean repo) — distinct from a dropped repo", async () => {
     // Unlike a denied fetch, an OK response with a non-array body is the documented `{...EMPTY}` fallback:
     // the repo IS counted (scanned) with all-zero counts. This is the only honest "clean" outcome.
