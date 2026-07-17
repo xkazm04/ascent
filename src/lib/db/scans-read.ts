@@ -963,6 +963,14 @@ async function loadScanReportByCommit(
       name: repo.name,
       url: repo.url,
       stars: repo.stars,
+      // KNOWN PLACEHOLDERS (scan-persistence-history 07-16 #5): `forks` and `defaultBranch` are NOT
+      // persisted (Repository stores `stars` but neither of these), so the reconstruction fills the
+      // ScanReport type's required fields with falsy literals — a consumer of a reconstructed snapshot
+      // CANNOT distinguish "unknown" from a genuine 0 forks / empty branch, and must not render the
+      // fork count or build a `/tree/{defaultBranch}` URL from a persisted-path report. Same decision
+      // class as the contributor blanking above (never silently assert wrong data — but these two are
+      // cheap constants rather than a wrong-people list, so they fill rather than gate). Persisting
+      // both columns alongside `stars` needs a schema migration — tracked as a follow-up.
       forks: 0,
       primaryLanguage: repo.primaryLanguage ?? undefined,
       defaultBranch: "",
