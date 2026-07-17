@@ -29,12 +29,12 @@ export interface PersistResult {
   upgraded?: boolean;
   /** The commit SHA the returned scan is pinned to (null when the source had none). */
   headSha: string | null;
-  /** Per-area write failures. Persistence is now atomic — the scan graph, contributor upserts, and
-   *  the audit entry commit in one transaction — so a returned result means everything was written:
-   *  these stay at no-failure on success, and a partial failure surfaces as a thrown error (the
-   *  whole scan rolls back) instead. Retained for backward compatibility with callers that still
-   *  inspect them. */
-  failures: { audit: boolean; contributors: number };
+  // NOTE (scan-persistence-history 07-16 #3): the former `failures: { audit, contributors }` field is
+  // GONE. Persistence is atomic — the scan graph, contributor upserts, and the audit entry commit in
+  // one transaction — so a returned result means everything was written and a partial failure THROWS
+  // (the whole scan rolls back). The field was hardcoded to "no failure" at every return site, and
+  // callers had built dead alerting branches on a signal that could never fire. The one genuinely
+  // best-effort post-commit step (tech-group sync) logs its own failure inline instead.
 }
 
 /**
@@ -200,7 +200,7 @@ export async function persistScanReport(
           // A real scan for this commit already exists → refresh the head/lastScanAt freshness (safe: no
           // phantom head), but never insert a duplicate metered row.
           await advanceHead();
-          return { scanId: existing.id, deduped: true, headSha, failures: { audit: false, contributors: 0 } };
+          return { scanId: existing.id, deduped: true, headSha };
         }
       }
     } else {
@@ -219,7 +219,7 @@ export async function persistScanReport(
           upgradeOldScanId = existing.id;
         } else {
           await advanceHead(); // a real scan exists for this scannedAt → safe freshness refresh, no duplicate
-          return { scanId: existing.id, deduped: true, headSha: null, failures: { audit: false, contributors: 0 } };
+          return { scanId: existing.id, deduped: true, headSha: null };
         }
       }
     }
@@ -450,7 +450,7 @@ export async function persistScanReport(
       console.warn(`[scans-persist] tech-stack group sync failed for repo ${repo.id} (org ${orgId}):`, err);
     });
 
-    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha, failures: { audit: false, contributors: 0 } };
+    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha };
   }, { label: "persistScanReport:scan" }));
   });
 }

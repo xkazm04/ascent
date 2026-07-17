@@ -179,7 +179,7 @@ describe("POST /api/scan — credit reserve / 402 / refund flow (money-path)", (
     // Default grant (the refund) echoes a post-refund balance.
     mockGrantCredits.mockResolvedValue(5 as never);
     // Default persist: a NEW row (not a dedup).
-    mockPersist.mockResolvedValue({ deduped: false, scanId: "scan_1", failures: { audit: false, contributors: 0 } } as never);
+    mockPersist.mockResolvedValue({ deduped: false, scanId: "scan_1" } as never);
   });
 
   it("returns 402 and does NOT run the scan or charge when the org is out of credits", async () => {
@@ -224,7 +224,7 @@ describe("POST /api/scan — credit reserve / 402 / refund flow (money-path)", (
 
   it("refunds the reserved credit on a dedup (already-scored commit) — a dedup run is free", async () => {
     mockScan.mockResolvedValue(meteredReport("gemini")); // real engine, but...
-    mockPersist.mockResolvedValue({ deduped: true, scanId: "scan_1", failures: { audit: false, contributors: 0 } } as never);
+    mockPersist.mockResolvedValue({ deduped: true, scanId: "scan_1" } as never);
     const res = await post({ url: "o/r", mock: false });
     expect(res.status).toBe(200);
     expect(res.headers.get("x-ascent-dedup")).toBe("hit");
@@ -276,7 +276,7 @@ describe("POST /api/scan — public weekly-quota refund (money-path)", () => {
     installNeutralDefaults();
     mockAuth.mockResolvedValue({ orgSlug: "public" }); // anonymous, no token → quota-metered
     mockIsDbConfigured.mockReturnValue(true);
-    mockPersist.mockResolvedValue({ deduped: false, scanId: "s", failures: { audit: false, contributors: 0 } } as never);
+    mockPersist.mockResolvedValue({ deduped: false, scanId: "s" } as never);
     mockLookup.mockResolvedValue(lookup("o/r@sha::llm"));
     // A slot WAS consumed (enforced + allowed), charged at a known timestamp the refund must echo.
     mockConsumeQuota.mockResolvedValue({ enforced: true, allowed: true, remaining: 2, chargedAt: 1000, resetAt: 2000, signedIn: false } as never);

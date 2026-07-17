@@ -67,7 +67,7 @@ const report = (provider: string) =>
   }) as unknown as ScanReport;
 
 const persisted = (deduped: boolean) =>
-  ({ scanId: "s1", deduped, failures: { audit: false, contributors: 0 } }) as Awaited<
+  ({ scanId: "s1", deduped }) as Awaited<
     ReturnType<typeof persistScanReport>
   >;
 

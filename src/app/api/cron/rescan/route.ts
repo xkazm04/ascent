@@ -22,7 +22,7 @@ import {
 } from "@/lib/db";
 import { requireCronAuth } from "@/lib/cron-auth";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
-import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 
@@ -137,7 +137,6 @@ export async function GET(request: Request) {
 
       const report = await scanRepository(r.fullName, { token });
       const persisted = await persistScanReport(report, { orgSlug: r.orgSlug });
-      logPartialWrites("cron/rescan", r.fullName, persisted);
       // Refund the reserved credit when the autoscan produced nothing billable: either it degraded to
       // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no new
       // scored row). An org shouldn't be charged for a system-initiated rescan that yielded no new result.

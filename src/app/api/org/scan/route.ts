@@ -11,7 +11,7 @@ import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
-import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 
@@ -167,7 +167,6 @@ export async function POST(request: Request) {
             try {
               const report = await scanRepository(repo.fullName, { token, orgSlug: org });
               const persisted = await persistScanReport(report, { orgSlug: org });
-              logPartialWrites("org/scan", repo.fullName, persisted);
               // Refund the reservation when nothing billable was produced: either the scan degraded to
               // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
               // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.

@@ -138,14 +138,8 @@ export async function cacheAndPersistScan(
     try {
       const persisted = await persistScanReport(report, { orgSlug: opts.orgSlug, headEtag: lookup?.etag ?? undefined });
       deduped = persisted?.deduped ?? false;
-      if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
-        console.warn(`[${opts.tag}] persisted with partial write failures`, {
-          repo: opts.repo,
-          scanId: persisted.scanId,
-          auditFailed: persisted.failures.audit,
-          contributorFailures: persisted.failures.contributors,
-        });
-      }
+      // No partial-write inspection here: persistence is atomic — a partial failure THROWS (handled
+      // below) rather than returning a degraded result (scan-persistence-history 07-16 #3).
     } catch (err) {
       persistedOk = false;
       console.error(`[${opts.tag}] persistence failed`, err);
