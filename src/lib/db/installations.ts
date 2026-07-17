@@ -165,8 +165,16 @@ export async function suspendInstallation(installationId: number | string): Prom
   if (!orgs.length) return;
   // Pause without losing cadence: a null nextScanAt drops out of listDueRescans (which requires
   // nextScanAt <= now), while `watched` and `scanSchedule` are preserved for resume.
+  //
+  // INVARIANT + SYMMETRY (github-app-installation-webhooks 07-16 #5): this predicate is IDENTICAL to
+  // resumeInstallation's, so suspend→resume round-trips exactly the rows it touched. The intended
+  // invariant "scanSchedule != off ⇒ watched" (removeInstallation and reconcileWatchedRepos always
+  // clear the pair together) is enforced nowhere, so suspend previously paused `watched:false` repos
+  // that resume then never re-armed — a permanent, invisible schedule loss if the invariant ever
+  // broke. Unwatched repos are never due anyway (isRepoWatched gates the scan), so scoping both sides
+  // to `watched: true` is safe AND symmetric.
   await prisma.repository.updateMany({
-    where: { orgId: { in: orgs.map((o) => o.id) }, scanSchedule: { not: "off" } },
+    where: { orgId: { in: orgs.map((o) => o.id) }, watched: true, scanSchedule: { not: "off" } },
     data: { nextScanAt: null },
   });
 }
@@ -178,7 +186,8 @@ export async function suspendInstallation(installationId: number | string): Prom
  * installation's org(s) due now, so the autoscan cron picks them up on its next pass (claimRescan then
  * re-phases each to its own cadence). Scanning them promptly is also correct — push webhooks were
  * suppressed during the suspension, so watched repos may have drifted and want a catch-up scan. No-op
- * without a DB.
+ * without a DB. The where-predicate MUST stay identical to suspendInstallation's (see the symmetry
+ * note there) so a suspend/resume cycle round-trips every row it touched.
  */
 export async function resumeInstallation(installationId: number | string): Promise<void> {
   if (!isDbConfigured()) return;

@@ -21,7 +21,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: () => ({ organization, repository }),
 }));
 
-import { upsertInstallation, removeInstallation } from "./installations";
+import { upsertInstallation, removeInstallation, suspendInstallation, resumeInstallation } from "./installations";
 
 function p2002(): Prisma.PrismaClientKnownRequestError {
   return new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
@@ -161,5 +161,41 @@ describe("removeInstallation", () => {
 
     expect(repository.updateMany).not.toHaveBeenCalled();
     expect(organization.updateMany).toHaveBeenCalledTimes(1);
+  });
+});
+
+// github-app-installation-webhooks (2026-07-16) #5: suspend used to pause EVERY `scanSchedule != off`
+// repo regardless of `watched`, while resume re-armed only `watched && scanSchedule != off` — so a repo
+// in the (invariant-breaking) state `watched:false, scanSchedule:"weekly"` was paused by a suspend and
+// never re-armed by the matching unsuspend: a routine billing-lapse cycle became permanent schedule
+// loss. The two predicates must be IDENTICAL so suspend→resume round-trips every row it touched.
+describe("suspendInstallation / resumeInstallation — symmetric predicates (round-trip safety)", () => {
+  it("suspend and resume target the SAME where-predicate (watched: true, scanSchedule != off)", async () => {
+    organization.findMany.mockResolvedValue([{ id: "org-1" }]);
+    repository.updateMany.mockResolvedValue({ count: 1 });
+
+    await suspendInstallation(99);
+    await resumeInstallation(99);
+
+    expect(repository.updateMany).toHaveBeenCalledTimes(2);
+    const suspendWhere = repository.updateMany.mock.calls[0][0].where;
+    const resumeWhere = repository.updateMany.mock.calls[1][0].where;
+    // The load-bearing assertion: identical predicates → resume re-arms exactly what suspend paused.
+    expect(suspendWhere).toEqual(resumeWhere);
+    expect(suspendWhere).toEqual({
+      orgId: { in: ["org-1"] },
+      watched: true,
+      scanSchedule: { not: "off" },
+    });
+    // And the actions are true inverses of each other on nextScanAt.
+    expect(repository.updateMany.mock.calls[0][0].data).toEqual({ nextScanAt: null });
+    expect(repository.updateMany.mock.calls[1][0].data).toEqual({ nextScanAt: expect.any(Date) });
+  });
+
+  it("both are no-ops when no org matches the installation", async () => {
+    organization.findMany.mockResolvedValue([]);
+    await suspendInstallation(99);
+    await resumeInstallation(99);
+    expect(repository.updateMany).not.toHaveBeenCalled();
   });
 });
