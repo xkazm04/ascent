@@ -4,7 +4,7 @@
 // specific per-repo findings the scan flagged); the former Governance-coverage and Supply-chain cards
 // were folded into the register's columns and removed.
 
-import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
+import { buildGateSnippet, buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { Card, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
@@ -53,14 +53,9 @@ export default async function OrgSecurity({
   const atRisk = sec.band.critical + sec.band.weak;
   const gov = sec.governance;
   const gate = sec.securityGate;
-  // Concrete, paste-ready CI enforcement for THIS fleet — failing repos first, else two examples.
-  const gateSnippet = [
-    `# Ascent security gate — non-zero exit when Security (D9) < ${gate.minSecurity} or the posture is "ungoverned".`,
-    `# Add one line per repo to CI; set ASCENT_URL to this Ascent instance.`,
-    ...(gate.failingRepos.length > 0 ? gate.failingRepos : sec.register.slice(0, 2)).map(
-      (r) => `curl -sf "$ASCENT_URL/api/gate/${r.fullName}?security=1"`,
-    ),
-  ].join("\n");
+  // Concrete, paste-ready CI enforcement for THIS fleet — built from the FULL register (never the
+  // display-capped failingRepos, which silently dropped every failing repo past 8). See buildGateSnippet.
+  const gateSnippet = buildGateSnippet(sec);
   const supplyOn = !!supply && supply.scanned > 0;
   // getOrgSupplyChain returns `degraded: true` with `scanned: 0` when the advisory fetch failed (GitHub
   // auth/token failure), precisely so the caller does not mistake it for "no advisories". Nothing read
