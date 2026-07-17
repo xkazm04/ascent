@@ -84,10 +84,14 @@ export function SourceLabel({ rect, loc }: { rect: DOMRect; loc: string }) {
 function CrumbRow({
   entry,
   isDefault,
+  skipped,
   onCopy,
 }: {
   entry: LocEntry;
   isDefault: boolean;
+  /** True when this row sits ABOVE the default target in the chain — i.e. the default right-click
+   *  deliberately skipped it as library code. Badged so the redirect is visible, not silent. */
+  skipped: boolean;
   onCopy: (loc: string) => void;
 }) {
   const { dir, file } = splitLoc(entry.loc);
@@ -125,6 +129,11 @@ function CrumbRow({
       <span style={{ color: ACCENT, opacity: isDefault ? 1 : 0 }}>▶</span>
       <span style={{ color: "#6b7280" }}>{dir}</span>
       <span style={{ color: lib ? "#9ca3af" : "#f1f5f9", fontWeight: 600 }}>{file}</span>
+      {skipped && (
+        <span style={{ color: DIM, fontSize: 10, alignSelf: "center", whiteSpace: "nowrap" }}>
+          skipped — library
+        </span>
+      )}
     </button>
   );
 }
@@ -181,14 +190,20 @@ export function InspectorHud({
           <div style={{ color: ACCENT, marginTop: 2 }}>npm run dev:inspect</div>
         </div>
       ) : crumbs.length ? (
-        crumbs.map((c, i) => (
-          <CrumbRow
-            key={`${c.loc}-${i}`}
-            entry={c}
-            isDefault={defaultLoc !== null && c.loc === defaultLoc}
-            onCopy={onCopy}
-          />
-        ))
+        (() => {
+          // Rows above the default were SKIPPED by the library heuristic — badge them so a redirected
+          // default copy target is visible in the HUD instead of failing silently (dev-inspector #1).
+          const defaultIndex = defaultLoc !== null ? crumbs.findIndex((c) => c.loc === defaultLoc) : -1;
+          return crumbs.map((c, i) => (
+            <CrumbRow
+              key={`${c.loc}-${i}`}
+              entry={c}
+              isDefault={defaultLoc !== null && c.loc === defaultLoc}
+              skipped={defaultIndex > 0 && i < defaultIndex}
+              onCopy={onCopy}
+            />
+          ));
+        })()
       ) : (
         <div style={{ color: "#9ca3af" }}>Hover a component…</div>
       )}
