@@ -11,6 +11,7 @@ import Link from "next/link";
 import { Logo, SiteFooter } from "@/components/Brand";
 import { isDbConfigured } from "@/lib/db";
 import { demoOrgHref } from "@/lib/site";
+import { CTA_OUTLINE, CTA_PRIMARY } from "@/lib/ui";
 
 // Static, session-free header for the 404 shell — mirrors SiteHeader's static nav without any of its
 // auth/DB lookups, so this boundary can never throw its way into the 500 document.
@@ -53,27 +54,18 @@ export default function NotFound() {
           its AI-native maturity report, or head back to the start.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href="/?scan=1"
-            className="focus-ring rounded-md bg-accent px-4 py-2 font-medium text-on-accent transition hover:bg-accent-soft"
-          >
+          <Link href="/?scan=1" className={CTA_PRIMARY}>
             Scan a repo
           </Link>
           {/* The org demo dashboard needs a DB; on the supported no-DB MVP deploy the header hides it
               (Brand.tsx gates on isDbConfigured), so the 404 must too - otherwise it funnels a lost
               visitor to an empty org page. Fall back to the always-valid pricing page instead. */}
           {dbOn ? (
-            <Link
-              href={demoOrgHref()}
-              className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
-            >
+            <Link href={demoOrgHref()} className={CTA_OUTLINE}>
               See an org demo
             </Link>
           ) : (
-            <Link
-              href="/pricing"
-              className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
-            >
+            <Link href="/pricing" className={CTA_OUTLINE}>
               See pricing
             </Link>
           )}
