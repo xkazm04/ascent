@@ -69,7 +69,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
       // logo / truncated name surfaces as a warning instead of a green "saved" that lies.
       const stored = (d.branding ?? {}) as Partial<OrgBranding>;
       const warnings: string[] = [];
-      if (submitted.logoUrl && !stored.logoUrl) warnings.push("Logo URL ignored — must be a public https image.");
+      if (submitted.logoUrl && !stored.logoUrl) warnings.push("Logo URL ignored — must be a public https image URL under 500 characters.");
       if (submitted.brandColor && !stored.brandColor) warnings.push("Accent colour ignored — must be a #rrggbb hex.");
       if (submitted.brandName && stored.brandName !== submitted.brandName) warnings.push("Brand name shortened to 80 characters.");
       if (warnings.length) {
