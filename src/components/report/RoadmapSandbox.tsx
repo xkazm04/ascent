@@ -8,12 +8,13 @@
 // slider at its current value the projection is byte-for-byte the report you're reading.
 
 import { useEffect, useId, useMemo, useState } from "react";
-import type { DimensionId, ScanReport } from "@/lib/types";
+import type { DimensionId, PersistedRecommendation, ScanReport } from "@/lib/types";
 import { LEVEL_BY_ID, clamp } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
 import { scoreHex } from "@/lib/ui";
 import { PostureQuadrant, RadarChart, ScoreRing } from "@/components/report/Charts";
 import { DeltaPill } from "@/components/report/deltas";
+import { SandboxCommitBar } from "@/components/report/RoadmapSandboxCommit";
 import { Kicker } from "@/components/ui";
 import {
   AxisStat,
@@ -24,7 +25,15 @@ import {
   type Overrides,
 } from "@/components/report/RoadmapSandboxParts";
 
-export function RoadmapSandbox({ report }: { report: ScanReport }) {
+export function RoadmapSandbox({
+  report,
+  recs,
+}: {
+  report: ScanReport;
+  /** Persisted recommendations for this repo (null when tracking is off) — the sandbox's applied
+   *  items commit against these via the existing PATCH path. */
+  recs?: PersistedRecommendation[] | null;
+}) {
   const [open, setOpen] = useState(false);
   const [overrides, setOverrides] = useState<Overrides>({});
   // Which roadmap ITEMS the user actually clicked "Try it" on — tracked per item index, not per
@@ -205,6 +214,18 @@ export function RoadmapSandbox({ report }: { report: ScanReport }) {
                 setDim(id, 100);
                 setAppliedItems((s) => new Set(s).add(i));
               }}
+            />
+          )}
+
+          {/* Sandbox → tracker bridge: persist the applied roadmap items as in_progress recs so a
+              modeled plan survives unmount. Disabled (with an explanatory title) when there's nothing
+              persisted to commit — a static-fallback roadmap or a read-only public report. */}
+          {report.roadmap.length > 0 && (
+            <SandboxCommitBar
+              roadmap={report.roadmap}
+              recs={recs}
+              appliedItems={appliedItems}
+              projectedDelta={proj.overall.deltaScore}
             />
           )}
         </div>
