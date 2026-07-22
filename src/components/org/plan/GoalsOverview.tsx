@@ -8,7 +8,10 @@ import { GoalCard, type GoalProgressView } from "@/components/org/shared/goalVie
 const OVERVIEW_LIMIT = 3;
 
 export function GoalsOverview({ slug, goals }: { slug: string; goals: GoalProgressView[] }) {
-  const active = goals.filter((g) => g.status !== "archived");
+  // The overview's 3 slots are for the goals leaders still need to move — filter to "active" so met
+  // goals can't crowd them out. (The old `!== "archived"` filter checked a status nothing in the
+  // codebase ever sets — see GOAL_STATUSES in @/lib/types; goals-initiatives #1.)
+  const active = goals.filter((g) => g.status === "active");
   const shown = active.slice(0, OVERVIEW_LIMIT);
 
   return (

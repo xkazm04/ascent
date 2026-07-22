@@ -17,18 +17,25 @@ export type QuotaScope = "anon" | "user";
  * Whether a "Sign in for more" CTA can actually do anything: only when this scan was ANONYMOUS
  * (scope "anon") AND Supabase auth is wired up client-side (the NEXT_PUBLIC_* envs are inlined at
  * build, so this is safe in a client component). A signed-in viewer is already at the elevated
- * tier, and without Supabase configured there's no sign-in to offer.
+ * tier, and without Supabase configured there's no sign-in to offer. Exported so the landing-page
+ * QuotaMeter offers the SAME action hierarchy (sign in first, plans as fallback) as these banners —
+ * matching only the link *style* while contradicting the action left the two quota surfaces giving
+ * different "what do I do about the limit" answers.
  */
-function canOfferSignIn(scope: QuotaScope): boolean {
+export function canOfferSignIn(scope: QuotaScope): boolean {
   return (
     scope === "anon" &&
     Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
   );
 }
 
-/** Human-friendly date a monthly quota window resets on (epoch ms). Coarse — a day is precise enough. */
+/** Human-friendly date a monthly quota window resets on (epoch ms). Coarse — a day is precise enough.
+ *  Unknown reset time: the true horizon is unbounded below but capped by the rolling 30-day window
+ *  (public-scan-quota WINDOW_MS), so say exactly that. The old "in a few days" fabricated a number —
+ *  a just-exhausted window resets up to ~30 days out, so the claim could be off by 10x on the exact
+ *  surface meant to retain the blocked user (this repo treats such copy as a user-facing untruth). */
 export function formatResetAt(resetAt: number | null): string {
-  if (!resetAt || !Number.isFinite(resetAt)) return "in a few days";
+  if (!resetAt || !Number.isFinite(resetAt)) return "within 30 days";
   return `on ${shortDate(new Date(resetAt))}`;
 }
 

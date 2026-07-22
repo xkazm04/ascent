@@ -1,13 +1,35 @@
 import Link from "next/link";
+import type { ComponentPropsWithoutRef } from "react";
+
+/** The launch map's "mono metric chip" shell — ONE source for the pill geometry the header stats,
+ *  the live-status pill (FleetMap), and the per-org avg badge (ConstellationField) all share. They
+ *  previously hand-rolled the same border/bg class string three ways with drifting padding/color
+ *  handling; a border/theme tweak now lands here once. `size` covers the two densities in use. */
+export function Pill({
+  size = "md",
+  className = "",
+  ...rest
+}: ComponentPropsWithoutRef<"span"> & { size?: "sm" | "md" }) {
+  return (
+    <span
+      className={`rounded-full border border-slate-700 bg-slate-900/60 ${size === "sm" ? "px-2 py-0.5" : "px-3 py-1"} ${className}`}
+      {...rest}
+    />
+  );
+}
 
 export function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-400">
-      <span className="font-mono text-base font-bold tabular-nums" style={color ? { color } : { color: "#fff" }}>
+    <Pill className="text-slate-400">
+      {/* text-white keeps the fallback in token-land (was a hardcoded #fff literal). */}
+      <span
+        className={`font-mono text-base font-bold tabular-nums${color ? "" : " text-white"}`}
+        style={color ? { color } : undefined}
+      >
         {value}
       </span>{" "}
       <span className="font-mono uppercase tracking-widest text-sm">{label}</span>
-    </span>
+    </Pill>
   );
 }
 

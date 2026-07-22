@@ -6,7 +6,7 @@
 // report-document.tsx + security-document.tsx via ./theme.
 
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { engineMixDegraded, engineMixLabel, forecastConfidenceNote } from "@/lib/org/briefing";
+import { engineMixCaveat, engineMixLabel, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
 import type { BriefingDim, BriefingMove, ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -95,15 +95,24 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
           </Text>
         ) : null}
         <Text style={styles.line}>Coverage: {b.coverage.scanned}/{b.coverage.total} repositories scanned</Text>
+        {/* executive-briefing 07-16 #4: the PDF is the surface "most likely to leave the building
+            unedited", yet it silently dropped the value-realized (renewal-justification) and
+            fleet-adoption lines the exec page + LLM markdown carry. Keep the three renderers in lockstep. */}
+        {valueRealizedLine(b.valueRealized) ? (
+          <Text style={styles.line}>Value this period: {valueRealizedLine(b.valueRealized)}</Text>
+        ) : null}
+        {b.adoptionRate != null ? (
+          <Text style={styles.line}>Fleet adoption: {b.adoptionRate}% of scanned repos at a high AI-adoption posture</Text>
+        ) : null}
         {/* Engine-mix provenance — the durable artifact must carry the same mock-degraded caveat the
             page + "Copy for LLM" markdown show, so a board/auditor PDF can't present synthetic scores
             as authoritative (reuses the shared engineMixLabel/engineMixDegraded source of truth). */}
         {b.engineMix.length > 0 && (
           <Text style={styles.line}>
             Scored by {engineMixLabel(b.engineMix)}
-            {engineMixDegraded(b.engineMix) ? (
+            {engineMixCaveat(b.engineMix) ? (
               <Text style={{ color: "#d97706" }}>
-                {" "}· ⚠ some scores this period used the deterministic mock engine, not the live model
+                {" "}· ⚠ {engineMixCaveat(b.engineMix)}
               </Text>
             ) : null}
           </Text>
@@ -146,6 +155,14 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
           <View>
             <View style={baseStyles.rule} />
             <Text style={baseStyles.sectionH}>Movement this period</Text>
+            {/* The FULL fleet movement scale (not just the capped top-3 rows below) — same line the
+                markdown carries, so a 200-repo fleet's PDF shows the spread. ASCII up/down: the
+                built-in Helvetica has no ▲/▼ glyphs (see ./latin1). */}
+            {b.movement.compared > 0 ? (
+              <Text style={{ ...baseStyles.muted, marginBottom: 4 }}>
+                {b.movement.up + b.movement.down} of {b.movement.compared} compared repos moved ({b.movement.up} up / {b.movement.down} down)
+              </Text>
+            ) : null}
             {b.topGainers.map((m) => <MoveLine key={`g-${m.name}`} tone="up" m={m} />)}
             {b.topRegressions.map((m) => <MoveLine key={`r-${m.name}`} tone="down" m={m} />)}
           </View>

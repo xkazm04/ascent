@@ -47,10 +47,12 @@ export function SelectStep({
   const monthlyCredits = importWatchMonthlyCredits(selected.size, credit?.allowanceRemaining ?? 0);
   return (
     <div key="select" className="animate-phase-in">
-      {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change). */}
-      <h1 data-step-heading tabIndex={-1} className="text-2xl font-bold text-white focus:outline-none">
+      {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change).
+          h2, not h1: the page-level h1 lives in onboarding/page.tsx; a step-level h1 made two h1s
+          coexist in the document (ambiguity-ui #4). Visual size is explicit, so nothing changes. */}
+      <h2 data-step-heading tabIndex={-1} className="text-2xl font-bold text-white focus:outline-none">
         Choose repositories
-      </h1>
+      </h2>
       <p className="mt-1 text-slate-400">
         Up to {maxSelect}. We preselected the {sourceInstallId ? "most recently active" : "most-starred"}.
         {sourceLabel && <> Source: {sourceLabel}</>}

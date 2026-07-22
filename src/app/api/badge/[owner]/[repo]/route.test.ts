@@ -60,6 +60,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { GET } from "./route";
+import { LEVEL_HEX } from "@/lib/ui";
 import { scanRepository } from "@/lib/scan";
 import { cacheGet } from "@/lib/cache";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
@@ -517,5 +518,67 @@ describe("GET /api/badge/[owner]/[repo] — mock-vs-live verdict honesty", () =>
     const body = await (await get()).text();
     expect(body).not.toContain("demo");
     expect(body).toContain("L4");
+  });
+});
+
+describe("badge text width — wide glyphs and the textLength fail-soft (usage-metering 2026-07-16 #4)", () => {
+  function svgWidth(body: string): number {
+    const m = body.match(/<svg[^>]*\swidth="(\d+)"/);
+    return m ? Number(m[1]) : NaN;
+  }
+
+  it("pins textLength/lengthAdjust on both text nodes so estimate error squeezes instead of clipping", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false));
+    const body = await (await get()).text();
+    const texts = body.match(/<text [^>]*>/g) ?? [];
+    expect(texts.length).toBeGreaterThanOrEqual(2);
+    for (const t of texts) {
+      expect(t).toContain("textLength=");
+      expect(t).toContain('lengthAdjust="spacingAndGlyphs"');
+    }
+  });
+
+  it("prices non-ASCII (CJK) label glyphs at double width so wide labels get a wider rect", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false));
+    const latin = svgWidth(await (await get("?label=abcde")).text());
+    const cjk = svgWidth(await (await get(`?label=${encodeURIComponent("成熟度评估等")}`)).text());
+    // Same glyph count (5 vs 6? both short); the CJK label must produce a materially wider badge.
+    expect(cjk).toBeGreaterThan(latin + 20);
+  });
+
+  it("does not double-count surrogate-pair glyphs as two characters for letter-spacing", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false));
+    // An emoji label still renders a finite, sane badge width (no NaN, no runaway estimate).
+    const w = svgWidth(await (await get(`?label=${encodeURIComponent("🚀🚀")}`)).text());
+    expect(Number.isFinite(w)).toBe(true);
+    expect(w).toBeGreaterThan(0);
+  });
+});
+
+describe("?color= cannot repaint a verdict (usage-metering 2026-07-16 #5)", () => {
+  it("a FAILING gate stays verdict-red even with ?color=brightgreen", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false));
+    mockEvaluateGate.mockReturnValue({ pass: false, failures: [] } as never);
+    const body = await (await get("?gate=1&color=brightgreen")).text();
+    expect(body).toContain("✗ fail");
+    expect(body).toContain(LEVEL_HEX.L1); // semantic fail red
+    expect(body).not.toContain(LEVEL_HEX.L5); // never the caller's green
+  });
+
+  it("a resolved LEVEL keeps its semantic hue even with ?color=red", async () => {
+    mockCacheGet.mockReturnValue(reportWith(false)); // L4
+    const body = await (await get("?color=red")).text();
+    expect(body).toContain(LEVEL_HEX.L4);
+    expect(body).not.toContain(LEVEL_HEX.L1);
+  });
+
+  it("neutral states still honor ?color= (shields.io parity where there is no verdict)", async () => {
+    // Invalid repo name → neutral "unknown" badge; custom color is allowed there.
+    const res = await GET(new Request("http://localhost/api/badge/..bad/r?color=blue"), {
+      params: Promise.resolve({ owner: "..bad", repo: "r" }),
+    });
+    const body = await res.text();
+    expect(body).toContain("unknown");
+    expect(body).toContain("#3b9eff"); // the named "blue" mapping
   });
 });

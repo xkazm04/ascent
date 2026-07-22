@@ -7,6 +7,20 @@
 
 export const MONO = "var(--font-mono), ui-monospace, monospace";
 
+/** /about diagram palette — the Remotion compositions render frame-state DOM/SVG that can't read CSS
+ *  custom properties, so the brand colors are re-declared here as TS constants, PINNED to the tokens
+ *  in src/app/globals.css (change BOTH together, like lib/site's BRAND_INK). The HTML legends beside
+ *  each Player (ChampionNetwork, RiskRadar) consume these SAME constants, so a legend swatch can
+ *  never desynchronize from the composition color it explains. */
+export const ACCENT = "#3b9eff"; //        --color-accent
+export const ACCENT_SOFT = "#7bbcff"; //   --color-accent-soft
+export const ACCENT_FAINT = "#cfe6ff"; //  pulse-dot / champion-outline highlight (no CSS token)
+export const WEAK = "#f87171"; //          weak-link / downtrend red (red-400)
+export const DANGER = "#ef4444"; //        --color-danger
+export const WARN = "#f97316"; //          --color-warn
+export const GREEN = "#22c55e"; //         mitigated / gate-pass green (green-500)
+export const INK = "#080d1a"; //           --color-ink (composition canvas background)
+
 /** Shared playback envelope for the /about Remotion diagrams — the champion network and the risk radar
  *  both render on one 960×540 canvas at 30fps and play a single ~11s shot (no loop). Single-sourced so
  *  the two Players can't drift out of canvas scale or timing. */

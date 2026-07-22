@@ -74,7 +74,12 @@ export async function GET(request: Request) {
     headers: {
       "content-type": "application/pdf",
       "content-disposition": `attachment; filename="${filename}"`,
-      "cache-control": "private, max-age=300",
+      // `no-store`, matching every sibling export route (org export CSVs). The old `max-age=300` was
+      // an implicit render-cost trade-off that could serve a PRE-RESCAN PDF: "Retest" sits right next
+      // to "Export PDF" in ReportHeader, and a sha-less export within 5 minutes of a rescan came from
+      // browser cache — a stale report sent onward with no indication (pdf-llm-export #3). Double-click
+      // re-renders are already prevented client-side by DownloadButton's busy guard.
+      "cache-control": "private, no-store",
     },
   });
 }

@@ -142,13 +142,18 @@ export function resolveWindow(
       }
       // Make `to` inclusive of its whole day; an absent `to` leaves the window open-ended (now).
       const end = toDay ? new Date(toDay.getTime() + DAY - 1) : null;
+      // Echo the RESOLVED bounds in the title. Custom is the one period whose parameters aren't
+      // implied by its name: a shared ?range=custom link, a remembered cookie, or the silent
+      // reversed-range swap above would otherwise render "Custom range" while every number on the
+      // page depends on dates the reader can't see. The post-swap from/to keeps the title honest.
+      const title = start ? `${from} → ${to ?? "now"}` : "Custom range";
       return {
         key,
         start,
         end,
-        title: "Custom range",
+        title,
         comparisonLabel: start ? "vs range start" : "",
-        reviewTitle: "Range in review",
+        reviewTitle: start ? `${title} in review` : "Range in review",
         from: from ?? undefined,
         to: to ?? undefined,
       };

@@ -18,6 +18,10 @@ export const signedDelta = (d: number): string => `${d > 0 ? "+" : ""}${d}`;
  * {arrow, color, label} mapping used by every fleet "which way is it moving" surface (trajectory,
  * movers, portfolio). Lime up · orange down · slate flat, with ▲/▼/→. Keep this the only copy so a
  * glyph/color rebrand lands in one place instead of being hunted across hand-rolled literals.
+ *
+ * The hexes are PAIRED with the CSS tokens `--color-tone-rising/-falling/-flat` in
+ * src/app/globals.css (same BRAND_INK-style pairing as lib/site.ts): TS keeps literals because these
+ * values feed inline styles and tests, where a `var()` string can't be resolved. Change BOTH together.
  */
 export const DIRECTION_TONE = {
   rising: { arrow: "▲", color: "#84cc16", label: "rising" },
@@ -44,12 +48,17 @@ export function fmtDelta(d: number): string {
 }
 
 /**
- * "Jun 9" — short month + day in the viewer's locale ({month:"short", day:"numeric"}). The single
- * source for the compact date used across the report (trend-axis labels, quota reset/stale dates),
- * which was hand-inlined at several call sites.
+ * "Jun 9" — short month + day, PINNED to en-US ({month:"short", day:"numeric"}). The single source
+ * for the compact date used across the report (trend-axis labels, quota reset/stale dates), which
+ * was hand-inlined at several call sites.
+ *
+ * Deliberately not the viewer's locale: the call sites are "use client" components that Next.js
+ * still prerenders on the SERVER, where `undefined` resolves to the server's ICU locale — a viewer
+ * with a different browser locale then hydrates "Jun 9" into "9 juin" (hydration mismatch + a date
+ * that flickers between formats). en-US matches the brand's mono/editorial voice everywhere else.
  */
 export function shortDate(d: Date): string {
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 /**

@@ -4,10 +4,11 @@
 // specific per-repo findings the scan flagged); the former Governance-coverage and Supply-chain cards
 // were folded into the register's columns and removed.
 
-import { buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
+import { buildGateSnippet, buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { Card, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { DownloadButton } from "@/components/report/DownloadButton";
 import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
 import { SecurityBandSpectrum } from "@/components/org/security/SecurityBandSpectrum";
 import { SecurityRiskRegister } from "@/components/org/security/SecurityRiskRegister";
@@ -18,6 +19,7 @@ import { decisionMap } from "@/lib/org/decision-map";
 import { resolveStackScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
+import { chipButtonClass } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -52,14 +54,9 @@ export default async function OrgSecurity({
   const atRisk = sec.band.critical + sec.band.weak;
   const gov = sec.governance;
   const gate = sec.securityGate;
-  // Concrete, paste-ready CI enforcement for THIS fleet — failing repos first, else two examples.
-  const gateSnippet = [
-    `# Ascent security gate — non-zero exit when Security (D9) < ${gate.minSecurity} or the posture is "ungoverned".`,
-    `# Add one line per repo to CI; set ASCENT_URL to this Ascent instance.`,
-    ...(gate.failingRepos.length > 0 ? gate.failingRepos : sec.register.slice(0, 2)).map(
-      (r) => `curl -sf "$ASCENT_URL/api/gate/${r.fullName}?security=1"`,
-    ),
-  ].join("\n");
+  // Concrete, paste-ready CI enforcement for THIS fleet — built from the FULL register (never the
+  // display-capped failingRepos, which silently dropped every failing repo past 8). See buildGateSnippet.
+  const gateSnippet = buildGateSnippet(sec);
   const supplyOn = !!supply && supply.scanned > 0;
   // getOrgSupplyChain returns `degraded: true` with `scanned: 0` when the advisory fetch failed (GitHub
   // auth/token failure), precisely so the caller does not mistake it for "no advisories". Nothing read
@@ -78,13 +75,15 @@ export default async function OrgSecurity({
         />
         <div className="flex flex-wrap items-center gap-2">
           <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
-          <a
+          {/* Fetch-and-download (not a bare anchor): the PDF render is slow and error branches return
+              JSON — a plain <a> navigated the user onto a raw JSON page on failure (pdf-llm-export #1). */}
+          <DownloadButton
             href={`/api/org/security/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+            className={chipButtonClass()}
             title="Download the security posture as a PDF"
           >
             <span aria-hidden>↓</span> Download PDF
-          </a>
+          </DownloadButton>
           <CopyForLlm text={md} label="Copy security brief for LLM" />
         </div>
       </div>
@@ -132,6 +131,10 @@ export default async function OrgSecurity({
           org={slug}
           rows={sec.register}
           advisories={supplyOn ? supply!.repos.map((r) => ({ fullName: r.fullName, critical: r.critical, high: r.high, total: r.total })) : null}
+          // security-posture-audit-log #3: the mock provider's honesty flag was wired into the
+          // markdown brief ("Dependabot — demo data") but never the on-screen register, so fabricated
+          // counts rendered as fleet fact with live GitHub links. Label + de-link them.
+          advisoriesDemo={supplyOn ? supply!.demo : false}
         />
         {/* The grid says which controls fail; this is where you decide what to do about each one. */}
         <SecurityFindings org={slug} rows={sec.register} decisions={decisions} />

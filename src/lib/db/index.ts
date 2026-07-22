@@ -209,6 +209,7 @@ export {
   buildSegmentComparison,
   normalizeSegmentName,
   normalizeColor,
+  segmentInputError,
   type SegmentRow,
   type SegmentSummary,
   type SegmentComparison,

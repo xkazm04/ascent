@@ -86,4 +86,15 @@ describe("mergeStars", () => {
     expect(merged[0]).toBe(a); // unchanged star keeps identity
     expect(merged[1]).toBe(newStar); // appended verbatim
   });
+
+  it("clears the mid-scan `appended` flag on reconcile so the star re-flows off the incoming ring", () => {
+    // A star applyScanEvent appended (outer "incoming" ring) reappears in the authoritative list with
+    // identical scores. It must adopt the fresh flag-less object — otherwise it orbits the incoming
+    // ring forever (ambiguity-ui launch-fleet-map #4).
+    const appended = star("org/incoming", { appended: true });
+    const fresh = star("org/incoming");
+    const merged = mergeStars([appended], [fresh]);
+    expect(merged[0]).toBe(fresh);
+    expect(merged[0]!.appended).toBeUndefined();
+  });
 });

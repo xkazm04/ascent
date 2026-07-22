@@ -77,7 +77,7 @@ describe("buildAssessmentPrompt — PROCESS SIGNALS rate rendering (#1)", () => 
     const { user } = buildAssessmentPrompt(
       input({ prStats: { ...prStats, reviewedRate: null } }),
     );
-    expect(user).toContain("reviewed rate n/a (no human-merged PRs)");
+    expect(user).toContain("reviewed rate n/a (below the minimum human-merged PR sample)");
     expect(user).not.toContain("reviewed rate 0%");
   });
 

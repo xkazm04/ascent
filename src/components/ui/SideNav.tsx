@@ -28,11 +28,16 @@ export function SideNav({
   return (
     <nav
       aria-label={ariaLabel}
-      className={`flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0 ${className}`}
+      // Below lg the rail scrolls horizontally; the right-edge fade (mask-image) signals that items
+      // continue past the edge — without it trailing tabs were undiscoverable. lg+ removes the mask.
+      className={`flex gap-1 overflow-x-auto pb-1 [mask-image:linear-gradient(to_right,black_calc(100%-1.75rem),transparent)] lg:flex-col lg:gap-0 lg:overflow-visible lg:pb-0 lg:[mask-image:none] ${className}`}
     >
       {groups.map((g, gi) => (
-        <div key={gi} className="flex items-center gap-1 lg:block lg:gap-0">
-          {/* group label (lg only — the horizontal mobile rail stays compact) */}
+        // role="group" + aria-label keep the group name in the a11y tree below lg, where the visible
+        // Kicker label is display:none — SR users still hear which section a tab belongs to.
+        <div key={gi} role={g.label ? "group" : undefined} aria-label={g.label} className="flex items-center gap-1 lg:block lg:gap-0">
+          {/* visible group label (lg only — the horizontal mobile rail stays compact; the group's
+              aria-label above carries the name on small screens) */}
           {g.label && <Kicker tone="muted" className="hidden px-3 pb-1 pt-4 first:pt-0 lg:block">{g.label}</Kicker>}
           {/* vertical hairline between groups on the mobile scroller */}
           {gi > 0 && <span aria-hidden className="mx-1 h-4 w-px shrink-0 self-center bg-divider lg:hidden" />}

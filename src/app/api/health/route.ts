@@ -11,6 +11,7 @@
 // autoscans. Surfacing it here lets a monitor catch that misconfiguration instead of discovering
 // it as "scans mysteriously stopped".
 
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { dbHealthCheck, getDbMode, isDbConfigured } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
@@ -28,12 +29,20 @@ function autoscanReadiness() {
 // The detailed fields (dbMode, autoscan readiness) describe deployment TOPOLOGY — the specific backend
 // in use and which operational secrets/config are present — which shouldn't be handed to an anonymous
 // caller. Expose them only to an internal caller presenting the CRON_SECRET bearer (the same credential
-// the monitor / Vercel cron already carries). When no CRON_SECRET is configured (local/dev/demo) there
-// is nothing to protect, so details stay open — matching the prior always-on behavior for those setups.
+// the monitor / Vercel cron already carries).
+//
+// When no CRON_SECRET is configured, details stay open ONLY outside production (local/dev/demo — there
+// is nothing to protect, matching the prior always-on behavior). A PRODUCTION deploy missing the secret
+// is exactly the misconfigured deploy this route's autoscan tripwire exists to flag — it must not also
+// hand its topology and secret-presence map to anonymous probes, so prod-without-secret is treated as
+// anonymous-only. The bearer comparison is constant-time (timingSafeEqual over equal-length buffers)
+// so the unauthenticated endpoint doesn't expose a variable-time secret compare.
 function isInternalCaller(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return request.headers.get("authorization") === `Bearer ${secret}`;
+  if (!secret) return process.env.NODE_ENV !== "production";
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const presented = Buffer.from(request.headers.get("authorization") ?? "");
+  return presented.length === expected.length && timingSafeEqual(presented, expected);
 }
 
 export async function GET(request: Request) {

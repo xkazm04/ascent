@@ -1,11 +1,11 @@
-// GET /api/org/export?org=<slug>&kind=contributors|delivery|passports|teams[&segment=<id>][&format=csv]
+// GET /api/org/export?org=<slug>&kind=contributors|delivery|passports|teams[&segment=<id>][&stack=<key>][&format=csv]
 // Export the org analytics tables as data — JSON by default, or a CSV download (format=csv). Read-only,
 // gated to a readable org, and segment-scoped like the pages. Reuses getContributorInsights /
 // getOrgGovernance / getOrgRollup / getOrgTeamRollup so the export reflects exactly what the
 // Contributors / Delivery / Passports / Teams tabs show.
 
 import { NextResponse } from "next/server";
-import { getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, isDbConfigured, listSegments } from "@/lib/db";
+import { getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, isDbConfigured, listSegments, listTechStackGroups } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { csvField } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
@@ -29,14 +29,33 @@ export async function GET(request: Request) {
   const denied = await requireOrgRead(org);
   if (denied) return denied;
 
-  // Validate the optional segment against the org's segments (bogus id → whole fleet), like the pages.
+  // Validate the optional segment against the org's segments. Unlike the pages (where a bogus id
+  // degrades inside UI that shows which scope is active), this is a data-egress surface: a CSV leaves
+  // the app carrying no scope marker, so silently falling back to the WHOLE fleet on a stale/renamed/
+  // typo'd segment id over-exports exactly the slice the caller didn't ask for. Explicit request →
+  // explicit failure: fail closed with a 400 instead.
   const segParam = searchParams.get("segment");
   const segmentId = segParam ? (await listSegments(org))?.find((s) => s.id === segParam)?.id ?? null : null;
+  if (segParam && !segmentId) {
+    return NextResponse.json({ error: "Unknown segment for this org." }, { status: 400 });
+  }
+
+  // The tech-stack scope composes with the segment on every page that renders this link, so the
+  // export must honor it too — a stack-filtered screen exporting whole-fleet rows is the same
+  // over-export hazard as the segment case above. Same fail-closed contract: an explicit ?stack=
+  // that doesn't resolve for this org is a 400, never a silent widening.
+  const stackParam = searchParams.get("stack");
+  const techGroupId = stackParam
+    ? (await listTechStackGroups(org)).find((g) => g.key === stackParam)?.id ?? null
+    : null;
+  if (stackParam && !techGroupId) {
+    return NextResponse.json({ error: "Unknown tech stack for this org." }, { status: 400 });
+  }
 
   let header: string[];
   let rows: unknown[][];
   if (kind === "contributors") {
-    const insights = await getContributorInsights(org, segmentId);
+    const insights = await getContributorInsights(org, segmentId, techGroupId);
     // A `null` result means the lookup itself failed/was unavailable — distinct from an org that
     // legitimately has zero contributors (a present object with an empty array). Returning a
     // header-only 200 in the null case is success theater, so surface it as a 404 instead.
@@ -48,7 +67,7 @@ export async function GET(request: Request) {
   } else if (kind === "passports") {
     // One row per passport — the Passports tab's table plus the row-detail facts (blockers joined
     // with "; " so the CSV stays one-line-per-repo).
-    const rollup = await getOrgRollup(org, undefined, segmentId);
+    const rollup = await getOrgRollup(org, undefined, segmentId, techGroupId);
     // Same null contract as the sibling branches: null = unknown org / lookup unavailable → 404, not a
     // header-only 200 that dresses a backend miss up as an empty-but-successful export.
     if (!rollup) {
@@ -75,7 +94,7 @@ export async function GET(request: Request) {
   } else if (kind === "teams") {
     // One row per CODEOWNERS team — the Teams tab's matrix rollup (maturity averages, AI knowledge,
     // and since-last-scan movement).
-    const rollup = await getOrgTeamRollup(org, segmentId);
+    const rollup = await getOrgTeamRollup(org, segmentId, techGroupId);
     // Same null contract as contributors/delivery: null = unknown org / lookup unavailable → 404,
     // distinct from an org that legitimately has zero teams (a present shape with `teams: []`).
     if (!rollup) {
@@ -90,7 +109,7 @@ export async function GET(request: Request) {
       t.posture, t.contributors, t.aiContributors, t.aiCommitShare, t.comparedRepos, t.improving, t.declining, t.avgDelta,
     ]);
   } else {
-    const gov = await getOrgGovernance(org, segmentId);
+    const gov = await getOrgGovernance(org, segmentId, techGroupId);
     if (!gov) {
       return NextResponse.json({ error: "No analytics for this org yet." }, { status: 404 });
     }
@@ -108,13 +127,18 @@ export async function GET(request: Request) {
   }
 
   if (searchParams.get("format") === "csv") {
+    // A segment-scoped CSV must be distinguishable from a full-fleet one once it leaves the app —
+    // encode the scope in the filename (whole-org exports keep the historical name unchanged).
+    const scopeSuffix =
+      (segmentId ? `-${safeFilenameSlug(segmentId, "segment")}` : "") +
+      (stackParam && techGroupId ? `-${safeFilenameSlug(stackParam, "stack")}` : "");
     return new NextResponse(toCsv(header, rows), {
       headers: {
         "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}.csv"`,
+        "content-disposition": `attachment; filename="ascent-${kind}-${safeFilenameSlug(org, "org")}${scopeSuffix}.csv"`,
         "cache-control": "private, no-store",
       },
     });
   }
-  return NextResponse.json({ org, kind, header, rows }, { headers: { "cache-control": "private, no-store" } });
+  return NextResponse.json({ org, kind, segment: segmentId, stack: stackParam && techGroupId ? stackParam : null, header, rows }, { headers: { "cache-control": "private, no-store" } });
 }

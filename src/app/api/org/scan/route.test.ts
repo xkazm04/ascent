@@ -67,7 +67,7 @@ const report = (provider: string) =>
   }) as unknown as ScanReport;
 
 const persisted = (deduped: boolean) =>
-  ({ scanId: "s1", deduped, failures: { audit: false, contributors: 0 } }) as Awaited<
+  ({ scanId: "s1", deduped }) as Awaited<
     ReturnType<typeof persistScanReport>
   >;
 
@@ -197,6 +197,10 @@ describe("POST /api/org/scan — per-repo in-flight claim (no double-scan/charge
     expect(mockConsume).not.toHaveBeenCalled();
     expect(mockGrant).not.toHaveBeenCalled();
     expect(body1).toContain('"skipped":"in_progress"'); // the skip is surfaced, not silent
+    // ambiguity-ui 2026-07-16 #4: the final result must not count the claim-skip as scanned — the
+    // old shared counter reported { scanned: 1 } for a run in which zero scans happened.
+    expect(body1).toContain('"scanned":0');
+    expect(body1).toContain('"skippedInProgress":1');
 
     // The other run completes and frees the repo; a fresh scan now proceeds and bills exactly once.
     releaseRepoScan("acme", "acme/repo", held!);
@@ -204,6 +208,7 @@ describe("POST /api/org/scan — per-repo in-flight claim (no double-scan/charge
     expect(mockScan).toHaveBeenCalledTimes(1);
     expect(mockConsume).toHaveBeenCalledTimes(1);
     expect(body2).not.toContain('"skipped":"in_progress"');
+    expect(body2).toContain('"scanned":1');
   });
 
   it("releases the claim after a normal run, so a repo isn't locked out of the next scan", async () => {

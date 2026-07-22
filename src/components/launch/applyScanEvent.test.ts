@@ -102,6 +102,9 @@ describe("applyScanEvent — SSE event filter (the sole live-maturity write path
     // Not on the watchlist as far as this client knows, and no measured 30-day delta yet.
     expect(added.watched).toBe(false);
     expect(added.dOverall).toBeNull();
+    // Flagged appended so ConstellationField lays it out on the outer "incoming" ring instead of
+    // re-seating the whole phyllotaxis (and so it renders at the MAX_STARS cap) — ambiguity-ui #4.
+    expect(added.appended).toBe(true);
     // Pre-existing stars are untouched.
     expect(globex.repos.find((r) => r.fullName === "globex/api")!.overall).toBe(40);
   });

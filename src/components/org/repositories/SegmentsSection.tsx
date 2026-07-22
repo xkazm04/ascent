@@ -7,7 +7,7 @@ import Link from "next/link";
 import { SegmentComparePicker } from "@/components/org/repositories/SegmentComparePicker";
 import { SegmentActions } from "@/components/org/repositories/SegmentActions";
 import { Card, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID, POSTURE_LABEL, deltaHex, fmtDelta } from "@/components/org/shared/ui";
-import { compareSegments, getRepoSegmentMap, listSegmentSummaries } from "@/lib/db";
+import { compareSegments, getRepoSegmentMap, listSegmentSummaries, listWatchedRepos } from "@/lib/db";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import type { SegmentSummary } from "@/lib/db";
@@ -21,26 +21,39 @@ const postureText = (posture: string) => POSTURE_LABEL[posture] ?? posture;
 
 /** One segment's headline standing — the per-segment rollup card in the overview strip. Real
  *  segments (with an id) also get scan + cadence controls scoped to their tagged repos. */
-function SegmentCard({ s, org, repos }: { s: SegmentSummary; org: string; repos: string[] }) {
+function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary; org: string; repos: string[]; taggedCount: number }) {
   const level = levelForScore(s.avgOverall);
+  // repositories-segments #4: a segment with ZERO scanned repos reduces to avgOverall 0 — a sentinel,
+  // not a measurement. Rendering it through scoreHex/levelForScore painted a brand-new segment as an
+  // alarming rock-bottom red 0 with a posture chip, indistinguishable from a genuinely terrible one.
+  const unscanned = s.scannedCount === 0;
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-medium text-white">{s.name}</span>
-        <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{postureText(s.posture)}</span>
+        {!unscanned && <span className="font-mono text-sm uppercase tracking-widest text-slate-500">{postureText(s.posture)}</span>}
       </div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <span className="font-mono text-3xl font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
-          {s.avgOverall}
-        </span>
-        <span className="font-mono text-sm text-slate-500">{level.id} · {level.name}</span>
-      </div>
-      <div className="mt-2 flex gap-4 font-mono text-sm text-slate-400">
-        <span>adopt {s.avgAdoption}</span>
-        <span>rigor {s.avgRigor}</span>
-      </div>
+      {unscanned ? (
+        <div className="mt-2 flex items-baseline gap-2">
+          <span aria-hidden className="font-mono text-3xl font-bold text-slate-600">—</span>
+          <span className="font-mono text-sm text-slate-500">No scans yet — scan this segment to score it</span>
+        </div>
+      ) : (
+        <>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-mono text-3xl font-bold tabular-nums" style={{ color: scoreHex(s.avgOverall) }}>
+              {s.avgOverall}
+            </span>
+            <span className="font-mono text-sm text-slate-500">{level.id} · {level.name}</span>
+          </div>
+          <div className="mt-2 flex gap-4 font-mono text-sm text-slate-400">
+            <span>adopt {s.avgAdoption}</span>
+            <span>rigor {s.avgRigor}</span>
+          </div>
+        </>
+      )}
       <div className="mt-1 font-mono text-sm text-slate-600">{s.scannedCount}/{s.repoCount} scanned</div>
-      {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} />}
+      {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} taggedCount={taggedCount} />}
     </div>
   );
 }
@@ -68,9 +81,10 @@ export async function SegmentsSection({
 }) {
   const sp = searchParams;
 
-  const [summaries, segMap] = await Promise.all([
+  const [summaries, segMap, watchedRepos] = await Promise.all([
     listSegmentSummaries(slug).then((s) => s ?? []),
     getRepoSegmentMap(slug),
+    listWatchedRepos(slug),
   ]);
   // Invert the repo→segments map into segment id → tagged repo fullNames, so each card can scan or
   // schedule exactly its slice.
@@ -78,6 +92,10 @@ export async function SegmentsSection({
   for (const [fullName, segs] of Object.entries(segMap)) {
     for (const seg of segs) (reposBySegment[seg.id] ??= []).push(fullName);
   }
+  // repositories-segments #2: POST /api/org/scan intersects the request with the WATCH list, so hand
+  // each card only the watched slice (what the scan will actually do) plus the tagged total — the old
+  // "Scan segment (7)" over 3 watched repos promised 7, showed "0/7…", then snapped to 3 mid-flight.
+  const watched = new Set(watchedRepos.map((r) => r.fullName));
   if (summaries.length === 0) {
     return (
       <SectionEmpty>
@@ -111,9 +129,18 @@ export async function SegmentsSection({
           description="Per-segment maturity across the fleet — each slice rolled up from its tagged repos' latest scans."
         />
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {summaries.map((s) => (
-            <SegmentCard key={s.id ?? "fleet"} s={s} org={slug} repos={s.id ? reposBySegment[s.id] ?? [] : []} />
-          ))}
+          {summaries.map((s) => {
+            const tagged = s.id ? reposBySegment[s.id] ?? [] : [];
+            return (
+              <SegmentCard
+                key={s.id ?? "fleet"}
+                s={s}
+                org={slug}
+                repos={tagged.filter((fn) => watched.has(fn))}
+                taggedCount={tagged.length}
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -125,14 +152,28 @@ export async function SegmentsSection({
           right={<SegmentComparePicker options={options} a={aId} b={bId} />}
         />
         {comparison ? (
+          (() => {
+            // repositories-segments #4: an unscanned side reduces to avgOverall 0 (a sentinel, not a
+            // score), so "Δ +87" against a healthy A is comparison theater. Render "—" for the empty
+            // side and suppress the delta tiles + metric/dimension rows until both sides have scans.
+            const aEmpty = comparison.a.scannedCount === 0;
+            const bEmpty = comparison.b.scannedCount === 0;
+            const anyEmpty = aEmpty || bEmpty;
+            return (
           <>
             <div className={`mt-4 ${TILE_GRID}`}>
-              <Tile label={comparison.a.name} value={comparison.a.avgOverall} sub={`${postureText(comparison.a.posture)} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`} color={scoreHex(comparison.a.avgOverall)} />
-              <Tile label={comparison.b.name} value={comparison.b.avgOverall} sub={`${postureText(comparison.b.posture)} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`} color={scoreHex(comparison.b.avgOverall)} />
-              <Tile label="Overall Δ" value={fmtDelta(comparison.deltas.overall)} color={deltaHex(comparison.deltas.overall)} sub={`${comparison.a.name} vs ${comparison.b.name}`} />
-              <Tile label="Adopt / Rigor Δ" value={`${fmtDelta(comparison.deltas.adoption)} / ${fmtDelta(comparison.deltas.rigor)}`} sub="adoption · rigor" />
+              <Tile label={comparison.a.name} value={aEmpty ? "—" : comparison.a.avgOverall} sub={aEmpty ? `no scans yet · 0/${comparison.a.repoCount} scanned` : `${postureText(comparison.a.posture)} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`} color={aEmpty ? undefined : scoreHex(comparison.a.avgOverall)} />
+              <Tile label={comparison.b.name} value={bEmpty ? "—" : comparison.b.avgOverall} sub={bEmpty ? `no scans yet · 0/${comparison.b.repoCount} scanned` : `${postureText(comparison.b.posture)} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`} color={bEmpty ? undefined : scoreHex(comparison.b.avgOverall)} />
+              <Tile label="Overall Δ" value={anyEmpty ? "—" : fmtDelta(comparison.deltas.overall)} color={anyEmpty ? undefined : deltaHex(comparison.deltas.overall)} sub={anyEmpty ? "needs scans on both sides" : `${comparison.a.name} vs ${comparison.b.name}`} />
+              <Tile label="Adopt / Rigor Δ" value={anyEmpty ? "—" : `${fmtDelta(comparison.deltas.adoption)} / ${fmtDelta(comparison.deltas.rigor)}`} sub={anyEmpty ? "needs scans on both sides" : "adoption · rigor"} />
             </div>
 
+            {anyEmpty ? (
+              <p className="mt-4 text-base text-slate-500">
+                {[aEmpty ? comparison.a.name : null, bEmpty ? comparison.b.name : null].filter(Boolean).join(" and ")} has no
+                scanned repos yet — scan the segment above to make this comparison meaningful.
+              </p>
+            ) : (
             <div className="mt-6 grid gap-6 lg:grid-cols-2">
               {/* Headline metrics */}
               <Card>
@@ -173,7 +214,10 @@ export async function SegmentsSection({
                 </p>
               </Card>
             </div>
+            )}
           </>
+            );
+          })()
         ) : (
           <p className="mt-4 text-base text-slate-500">Pick two segments to compare.</p>
         )}

@@ -27,7 +27,7 @@ export function CreditCostStrip({
 }) {
   if (!(scheduledRuns > 0 || (credit != null && !credit.unlimited))) return null;
   return (
-    <p className="-mt-2 mb-3 text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
+    <p className="-mt-2 mb-3 text-sm text-slate-500">
       {scheduledCount > 0 ? (
         <>
           {scheduledCount} scheduled autoscan{scheduledCount === 1 ? "" : "s"} ≈{" "}
@@ -54,6 +54,11 @@ export function CreditCostStrip({
       {underAMonth && (
         <span className="text-warn"> — covers under a month; autoscans pause at zero</span>
       )}
+      {/* The estimate's basis + refund semantics, VISIBLE fine print. It previously lived only in a
+          `title` tooltip on this non-interactive <p> — which never fires for keyboard users, doesn't
+          exist on touch, and is unreliably exposed to screen readers — so most users read the figure
+          as an exact charge (WCAG 1.4.13). One sentence: inline it for everyone. */}
+      <span className="block text-xs text-slate-600">{CREDIT_ESTIMATE_NOTE}</span>
     </p>
   );
 }

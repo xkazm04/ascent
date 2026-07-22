@@ -42,8 +42,10 @@ export async function reserveScanCredit(
     return { skip: true, reserved: false };
   }
   const reserved = res.charged; // true only on an overflow credit debit (within-allowance is free)
-  // Proactive lifecycle push when this debit landed on the low-water mark (or zero).
-  if (reserved) await maybeAlertLowCredits(orgSlug, res.balance);
+  // Proactive lifecycle push when this debit CROSSED the low-water mark (or depletion). The debit
+  // site knows its own size: consumeScanCredit charges exactly one credit on the `charged` path, so
+  // the pre-debit balance is balance + 1 — stated here, next to the debit, not assumed downstream.
+  if (reserved) await maybeAlertLowCredits(orgSlug, res.balance + 1, res.balance);
   return { skip: false, reserved };
 }
 
@@ -66,20 +68,8 @@ export function shouldRefundScan(
   return report.engine.provider === "mock" || Boolean(persisted?.deduped);
 }
 
-/**
- * The shared partial-write warning. Persistence is atomic (a true failure throws + rolls back), but a
- * returned result with audit/contributor failures still warrants a log so monitoring can see the drift.
- */
-export function logPartialWrites(
-  tag: string,
-  repo: string,
-  persisted: { scanId: string; failures: { audit: boolean; contributors: number } } | null | undefined,
-): void {
-  if (persisted && (persisted.failures.audit || persisted.failures.contributors > 0)) {
-    console.warn(`[${tag}] persisted with partial write failures`, {
-      repo,
-      scanId: persisted.scanId,
-      failures: persisted.failures,
-    });
-  }
-}
+// NOTE (scan-persistence-history 07-16 #3): the former `logPartialWrites` helper is GONE. It watched
+// PersistResult's `failures` field, which persistScanReport hardcoded to "no failure" at every return
+// site (persistence is atomic — a partial failure THROWS and rolls the scan back), so the warning was
+// provably dead. The field has been removed from PersistResult; genuine best-effort post-commit steps
+// (tech-group sync) log their own failures inline in scans-persist.ts.

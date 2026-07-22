@@ -12,11 +12,13 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/db", () => ({
+vi.mock("@/lib/db", async () => ({
   isDbConfigured: () => true,
   createSegment: vi.fn(async () => ({ id: "seg-1" })),
   getRepoSegmentMap: vi.fn(async () => ({})),
   listSegments: vi.fn(async () => []),
+  // The REAL validator (pure) so the 400 contract below exercises production rules, not a stub.
+  segmentInputError: (await vi.importActual<typeof import("@/lib/db/segments")>("@/lib/db/segments")).segmentInputError,
 }));
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
@@ -75,5 +77,20 @@ describe("POST /api/org/segments — auth gate on create", () => {
     mockCreate.mockRejectedValue({ code: "P2002" } as never);
     const res = await post({ org: "acme", name: "Platform" });
     expect(res.status).toBe(409);
+  });
+
+  // repositories-segments 2026-07-16 #5: a malformed colour / over-long name is a 400, never a
+  // silent rewrite (accent colour / truncated name) behind a 200 { ok }.
+  it("400s a non-hex colour instead of silently recoloring to the brand accent", async () => {
+    const res = await post({ org: "acme", name: "Platform", color: "rebeccapurple" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/hex/i);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("400s a 61+-char name instead of silently truncating it", async () => {
+    const res = await post({ org: "acme", name: "x".repeat(61) });
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });

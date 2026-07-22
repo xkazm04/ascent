@@ -106,13 +106,17 @@ export function BacklogRowControls({
         {promoted ? "✓ Initiative" : promoteBusy ? "Promoting…" : "Promote to initiative"}
       </button>
 
+      {/* Standard disclosure ARIA (backlog-management 07-16 #5): without aria-expanded/-controls a
+          non-visual user only hears the label text flip; the region id is stable per item. */}
       <button
         onClick={onToggleHistory}
+        aria-expanded={historyOpen}
+        aria-controls={historyOpen ? `history-${item.id}` : undefined}
         className="ml-auto rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-400 transition hover:text-white"
       >
         {historyOpen ? "Hide history" : "History"}
       </button>
-      {saving && <span className="font-mono text-sm text-slate-500">saving…</span>}
+      {saving && <span role="status" className="font-mono text-sm text-slate-500">saving…</span>}
     </div>
   );
 }

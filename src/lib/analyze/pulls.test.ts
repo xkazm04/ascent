@@ -84,14 +84,22 @@ describe("summarizePullRequests — reviewedRate no-sample (maturity #3)", () =>
     expect(stats.reviewedRate).toBeNull();
   });
 
-  it("still measures the rate when human-authored PRs merged", () => {
-    const reviewed = pr({
-      number: 4,
-      reviews: { totalCount: 1, nodes: [{ state: "APPROVED", submittedAt: "2026-01-01T02:00:00Z" }] },
-    });
-    const unreviewed = pr({ number: 5 });
-    const stats = summarizePullRequests([reviewed, unreviewed, botMerged(6)], 3);
-    expect(stats.reviewedRate).toBe(50); // 1 of 2 human-merged; the bot merge is excluded
+  it("still measures the rate once the >=5 human-merged sample floor is met", () => {
+    const reviewed = (n: number) =>
+      pr({ number: n, reviews: { totalCount: 1, nodes: [{ state: "APPROVED", submittedAt: "2026-01-01T02:00:00Z" }] } });
+    const nodes = [reviewed(1), reviewed(2), reviewed(3), reviewed(4), pr({ number: 5 }), botMerged(6)];
+    const stats = summarizePullRequests(nodes, 6);
+    expect(stats.reviewedRate).toBe(80); // 4 of 5 human-merged; the bot merge is excluded
+  });
+
+  // Minimum-sample floor (ambiguity-ui 2026-07-16 maturity #2) — the same >=5 floor as
+  // aiGovernedRate. Pre-fix, a window with ONE self-merged human PR produced reviewedRate=0,
+  // dragging D6 (prRigor weights review at 0.5) and potentially flipping the rigor axis/posture
+  // off a statistically meaningless 1-PR sample.
+  it("returns null (not a fabricated 0%) below 5 human-merged PRs — one self-merged PR can no longer drag D6", () => {
+    expect(summarizePullRequests([pr({ number: 1 })], 1).reviewedRate).toBeNull(); // 1 unreviewed human merge
+    const four = [pr({ number: 1 }), pr({ number: 2 }), pr({ number: 3 }), pr({ number: 4 })];
+    expect(summarizePullRequests(four, 4).reviewedRate).toBeNull(); // still under the floor at 4
   });
 
   it("returns null for an empty window", () => {
@@ -162,7 +170,7 @@ describe("applyPrSignals — D6 fold with a null reviewedRate (maturity #3)", ()
     // prRigor = 0.6*70 + 0.4*100 = 82 → D6 = round(0.65*80 + 0.35*82) ≈ 81 — NOT the
     // fabricated-0% penalty path (0.5*0 + 0.3*70 + 0.2*100 = 41 → D6 = 66).
     expect(out!.signalScore).toBe(81);
-    expect(out!.signals[0]!.label).toBe("PR review coverage n/a (no human-merged PRs in window)");
+    expect(out!.signals[0]!.label).toBe("PR review coverage n/a (fewer than 5 human-merged PRs in window)");
   });
 
   it("keeps the weighted review term when the rate is measured", () => {

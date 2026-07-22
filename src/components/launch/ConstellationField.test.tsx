@@ -49,6 +49,73 @@ describe("ConstellationField star touch targets", () => {
   });
 });
 
+describe("ConstellationField appended stars — no mid-scan re-seat, never dropped at the cap (ambiguity-ui #4)", () => {
+  const starCx = (container: HTMLElement, fullName: string) => {
+    const link = container.querySelector(`a[aria-label^="Open report for ${fullName}"]`)!;
+    return link.querySelector("circle.launch-star")!.getAttribute("cx");
+  };
+
+  it("appending a mid-scan star does not move any existing star", () => {
+    const before = render(<ConstellationField c={doneConstellation()} />);
+    const cxBefore = ["acme/high", "acme/low", "acme/unscanned"].map((n) => starCx(before.container, n));
+    const withAppended: Constellation = {
+      ...doneConstellation(),
+      repos: [
+        ...(doneConstellation() as Extract<Constellation, { status: "done" }>).repos,
+        { fullName: "acme/incoming", overall: 61, level: "L3", dOverall: null, watched: false, appended: true },
+      ],
+    } as Constellation;
+    const after = render(<ConstellationField c={withAppended} />);
+    const cxAfter = ["acme/high", "acme/low", "acme/unscanned"].map((n) => starCx(after.container, n));
+    expect(cxAfter).toEqual(cxBefore); // layout total frozen — existing stars keep their seats
+    expect(starCx(after.container, "acme/incoming")).toBeTruthy(); // and the new result renders
+  });
+
+  it("renders an appended star even when the org already sits at the MAX_STARS cap", () => {
+    const capped: Constellation = {
+      id: 9,
+      login: "big",
+      status: "done",
+      repos: [
+        ...Array.from({ length: 80 }, (_, i) => ({
+          fullName: `big/r${i}`,
+          overall: 50,
+          level: "L3",
+          dOverall: null,
+          watched: true,
+        })),
+        { fullName: "big/scanned-late", overall: 77, level: "L4", dOverall: null, watched: false, appended: true },
+      ],
+    };
+    const { container } = render(<ConstellationField c={capped} />);
+    // The scan result is visible (81 star links), not silently sliced off by the cap.
+    expect(container.querySelectorAll("a.launch-star-link").length).toBe(81);
+    expect(starCx(container, "big/scanned-late")).toBeTruthy();
+  });
+});
+
+describe("ConstellationField mover ring — direction is not color-alone (ambiguity-ui #3)", () => {
+  const movers: Constellation = {
+    id: 2,
+    login: "acme",
+    status: "done",
+    repos: [
+      { fullName: "acme/up", overall: 70, level: "L4", dOverall: 4, watched: true },
+      { fullName: "acme/down", overall: 40, level: "L2", dOverall: -3, watched: true },
+    ],
+  };
+
+  it("renders a faller's ring dashed and a riser's solid, so hue is not the only channel", () => {
+    const { container } = render(<ConstellationField c={movers} />);
+    const rings = Array.from(container.querySelectorAll('circle[fill="none"][stroke-width="0.5"]'));
+    expect(rings.length).toBe(2);
+    const riser = rings.find((r) => r.getAttribute("stroke") === "#34d399")!;
+    const faller = rings.find((r) => r.getAttribute("stroke") === "#f97316")!;
+    expect(riser.getAttribute("stroke-dasharray")).toBeNull(); // up = solid
+    expect(faller.getAttribute("stroke-dasharray")).toBeTruthy(); // down = dashed
+  });
+});
+
 describe("ConstellationField large-fleet twinkle cap (#7)", () => {
   it("twinkles by default (small fleet)", () => {
     const { container } = render(<ConstellationField c={doneConstellation()} />);

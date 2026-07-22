@@ -9,6 +9,10 @@
 
 export type SignInButtonVariant = "primary" | "nav";
 
+// NOTE: the shared bfcache-restore reset for the two CTAs' `pending` state lives in the sibling
+// usePendingReset.ts ("use client" — it needs useEffect, and THIS file must stay server-importable:
+// LeaderboardTable, a server component, imports GitHubMark from here).
+
 /** GitHub Octocat mark. Decorative — the button's accessible name comes from its label. */
 export function GitHubMark({ size = 18 }: { size?: number }) {
   return (

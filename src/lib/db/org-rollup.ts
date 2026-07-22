@@ -1,6 +1,7 @@
 // Org rollup: org-id resolution, per-repo watch/level state, and the org-rollup query that powers
 // the dashboard. All guarded by DATABASE_URL.
 
+import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
@@ -427,6 +428,12 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   let deltas: OrgRollup["deltas"] = null;
   let dimDeltas: OrgRollup["dimDeltas"] = null;
   if (start) {
+    // The retention floor applies to the BASELINE too (fleet-rollups-insights #1): period-over-period
+    // comparison is INSIDE the entitlement, same as the trend. Without this clamp a Free org (30d
+    // retention) with a 90d/quarter window computed its headline deltas/dimDeltas against scans up to
+    // arbitrarily old — history the same page's trend refuses to draw. Clamping `start` keeps both
+    // surfaces coherent: the baseline is the fleet as of the oldest instant the tier buys.
+    const effStart = retentionStart && retentionStart > start ? retentionStart : start;
     const priorScans = await prisma.scan.findMany({
       // Half-open window: the baseline is scans STRICTLY before `start`, while the in-window trend uses
       // `gte: start` (above). A scan whose timestamp is exactly `start` (e.g. seed/snapshot data at a
@@ -438,7 +445,7 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       // history into Node just to dedupe in a JS loop, which scaled with fleet AGE not the period (tens of
       // thousands of rows for an org scanned daily for a year+). Mirrors the fix getOrgMovers already
       // applies to its baseline query (org-insights.ts). (fleet-rollups-insights #1)
-      where: { repo: { orgId: org.id, ...seg }, scannedAt: { lt: start } },
+      where: { repo: { orgId: org.id, ...seg }, scannedAt: { lt: effStart } },
       select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true },
       orderBy: { scannedAt: "desc" },
       distinct: ["repoId"],
@@ -454,7 +461,9 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     }
     if (latestPerRepo.length) {
       baseline = {
-        asOf: start.toISOString(),
+        // asOf reflects the EFFECTIVE (retention-clamped) baseline instant, so a plan-limited
+        // comparison is honestly labeled rather than claiming the full window depth.
+        asOf: effStart.toISOString(),
         repos: latestPerRepo.length,
         avgOverall: avg(latestPerRepo.map((s) => s.overallScore)),
         avgAdoption: avg(latestPerRepo.map((s) => s.adoptionScore)),
@@ -611,7 +620,12 @@ export interface OrgHeaderSummary {
   kind: "org" | "personal";
 }
 
-export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSummary | null> {
+// React-`cache()`d (request-scoped memo, the repo's convention for shell+page shared reads — see
+// getOrgFindings in lib/org/nav-counts.ts): the layout runs this for EVERY org tab's shell, and any
+// page that branches on personal-vs-org kind calls it again in the SAME request. Without the memo
+// each call was its own DB round-trip on a force-dynamic route — the "the layout already ran this"
+// comments at those call sites were aspiration, not fact.
+export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHeaderSummary | null> => {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true, kind: true } });
@@ -631,7 +645,7 @@ export async function getOrgHeaderSummary(orgSlug: string): Promise<OrgHeaderSum
     avgOverall: roundedMean(scannedScores),
     kind: org.kind === "personal" ? "personal" : "org",
   };
-}
+});
 
 /** One inference engine's share of an org's scans over a window. */
 export interface EngineMixEntry {

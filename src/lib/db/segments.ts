@@ -11,7 +11,9 @@ import { getOrgId } from "@/lib/db/org-rollup";
 import { roundedMean } from "@/lib/db/org-shared";
 
 const DEFAULT_COLOR = "#3b9eff";
-const NAME_MAX = 60;
+export const SEGMENT_NAME_MAX = 60;
+const NAME_MAX = SEGMENT_NAME_MAX;
+const SEGMENT_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 /** Trim and bound a user-supplied segment name. */
 export function normalizeSegmentName(raw: string): string {
@@ -22,7 +24,28 @@ export function normalizeSegmentName(raw: string): string {
 export function normalizeColor(raw?: string | null): string {
   if (!raw) return DEFAULT_COLOR;
   const v = raw.trim();
-  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v.toLowerCase() : DEFAULT_COLOR;
+  return SEGMENT_COLOR_RE.test(v) ? v.toLowerCase() : DEFAULT_COLOR;
+}
+
+/**
+ * repositories-segments #5: the API-facing validation the normalizers deliberately don't do. The
+ * normalize* pair sanitizes-and-continues (a malformed colour silently became the brand accent, a
+ * 61+-char name was silently truncated — both behind a 200 `{ ok: true }`), which is fine as a last
+ * line of defence but rewrote API callers' intent with no signal. Routes call this FIRST and return
+ * 400, so `{ color: "rebeccapurple" }` can no longer recolor a segment to blue while claiming success.
+ * The in-app UI constrains its inputs (palette swatches + maxLength), so a 400 here is automation-only.
+ * Returns a human-readable error, or null when the input is acceptable.
+ */
+export function segmentInputError(input: { name?: string | null; color?: string | null }): string | null {
+  if (input.name != null) {
+    const n = input.name.trim();
+    if (!n) return "Segment name can't be empty.";
+    if (n.length > NAME_MAX) return `Segment name must be ${NAME_MAX} characters or fewer.`;
+  }
+  if (input.color != null && input.color !== "" && !SEGMENT_COLOR_RE.test(input.color.trim())) {
+    return "Segment colour must be a #rgb or #rrggbb hex.";
+  }
+  return null;
 }
 
 export interface SegmentRow {

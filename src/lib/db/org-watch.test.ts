@@ -25,11 +25,13 @@ vi.mock("@/lib/db/client", () => ({
 
 // org-watch imports segmentScope from org-shared (used by setWatchedSchedule, not the funcs under
 // test). Stub it so the import graph resolves without pulling the real module / a DB client.
+// getOrgBySlug backs getOrgId (used by recordConformance below) — resolve every slug to org_1.
 vi.mock("@/lib/db/org-shared", () => ({
   segmentScope: () => ({}),
+  getOrgBySlug: vi.fn(async () => ({ id: "org_1" })),
 }));
 
-import { claimRescan, listDueRescans } from "./org-watch";
+import { claimRescan, listDueRescans, recordConformance } from "./org-watch";
 
 beforeEach(() => {
   mockIsDbConfigured.mockReset();
@@ -218,5 +220,92 @@ describe("listDueRescans round-robin fairness (no org starves another)", () => {
     mockIsDbConfigured.mockReturnValue(false);
     expect(await listDueRescans()).toEqual([]);
     expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+});
+
+// ── recordConformance: the stale-re-run ordering guard (ai-native-standard 07-16 #2) ──────────
+// The doctor POSTs headSha so a conformance result can be tied to a commit. Persistence used to be
+// last-write-wins with the sha discarded — a retried 2-week-old workflow overwrote the newest score
+// invisibly. Now every accepted report appends a `conformance.reported` AuditLog ledger row carrying
+// the sha, and an incoming sha that was already reported BEFORE the repo's latest report is skipped.
+
+describe("recordConformance stale-re-run guard (conformance.reported ledger)", () => {
+  const REPO = "acme/api";
+  const meta = (sha: string | null, score = 50) =>
+    JSON.stringify({ repo: REPO, sha, score, fails: 1, warns: 2 });
+
+  /** Fake prisma: `ledger` rows (newest FIRST — mirrors the orderBy desc read), plus spies. */
+  function fakeConformancePrisma(ledger: Array<{ meta: string }>) {
+    const auditLog = {
+      findFirst: vi.fn(async (args: { where: { AND?: Array<{ meta: { contains: string } }> }; orderBy?: unknown }) => {
+        if (args.orderBy) return ledger[0] ?? null; // latest-report lookup
+        // seen-before lookup: any ledger row containing BOTH fragments.
+        const frags = (args.where.AND ?? []).map((c) => c.meta.contains);
+        return ledger.find((r) => frags.every((f) => r.meta.includes(f))) ?? null;
+      }),
+      create: vi.fn(async () => ({ id: "audit_1" })),
+    };
+    const repository = { updateMany: vi.fn(async () => ({ count: 1 })) };
+    return { prisma: { auditLog, repository }, auditLog, repository };
+  }
+
+  it("SKIPS a stale re-run: a sha already superseded by a newer report is not persisted (stale:true)", async () => {
+    // Ledger newest-first: commit bbb reported after aaa. A CI retry now re-POSTs aaa.
+    const { prisma, repository, auditLog } = fakeConformancePrisma([
+      { meta: meta("b".repeat(40), 90) },
+      { meta: meta("a".repeat(40), 40) },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await recordConformance("acme", REPO, { score: 40, fails: 9, warns: 0, headSha: "a".repeat(40) });
+
+    expect(out).toEqual({ recorded: false, stale: true });
+    expect(repository.updateMany).not.toHaveBeenCalled(); // the newest score survives
+    expect(auditLog.create).not.toHaveBeenCalled(); // a skipped report never seeds ordering state
+  });
+
+  it("records a NEW commit and appends it to the ledger", async () => {
+    const { prisma, repository, auditLog } = fakeConformancePrisma([{ meta: meta("b".repeat(40), 90) }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await recordConformance("acme", REPO, { score: 95, fails: 0, warns: 1, headSha: "c".repeat(40) });
+
+    expect(out).toEqual({ recorded: true, stale: false });
+    expect(repository.updateMany).toHaveBeenCalledTimes(1);
+    const written = auditLog.create.mock.calls[0][0] as { data: { action: string; meta: string } };
+    expect(written.data.action).toBe("conformance.reported");
+    expect(JSON.parse(written.data.meta)).toMatchObject({ repo: REPO, sha: "c".repeat(40), score: 95 });
+  });
+
+  it("allows re-reporting the SAME latest commit (a legitimate same-sha CI re-run updates the score)", async () => {
+    const { prisma, repository } = fakeConformancePrisma([{ meta: meta("b".repeat(40), 90) }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await recordConformance("acme", REPO, { score: 88, fails: 1, warns: 0, headSha: "b".repeat(40) });
+
+    expect(out).toEqual({ recorded: true, stale: false });
+    expect(repository.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("a sha-less report stays last-write-wins (documented trade-off) and its ledger row carries sha:null", async () => {
+    const { prisma, repository, auditLog } = fakeConformancePrisma([{ meta: meta("b".repeat(40), 90) }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await recordConformance("acme", REPO, { score: 10, fails: 5, warns: 5 });
+
+    expect(out).toEqual({ recorded: true, stale: false });
+    expect(repository.updateMany).toHaveBeenCalledTimes(1);
+    expect(JSON.parse((auditLog.create.mock.calls[0][0] as { data: { meta: string } }).data.meta).sha).toBeNull();
+  });
+
+  it("an untracked repo (updateMany count 0) records nothing and appends NO ledger row", async () => {
+    const { prisma, repository, auditLog } = fakeConformancePrisma([]);
+    repository.updateMany.mockResolvedValue({ count: 0 });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await recordConformance("acme", REPO, { score: 50, fails: 0, warns: 0, headSha: "d".repeat(40) });
+
+    expect(out).toEqual({ recorded: false, stale: false });
+    expect(auditLog.create).not.toHaveBeenCalled();
   });
 });

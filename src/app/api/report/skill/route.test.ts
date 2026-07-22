@@ -222,6 +222,49 @@ describe("GET /api/report/skill — authorized happy path + filename sanitizatio
     expect(filename).toMatch(/^ascent-onboard-acme-api-[A-Za-z0-9._-]+\.SKILL\.md$/);
   });
 
+  it("forwards ?tracks= as opts.include (validated, deduped) and ?max= as opts.max", async () => {
+    // The maintainer multiselect (ai-native-standard #3): the selection API existed in the library but
+    // the route never surfaced it — the download URL must be able to scope the skill.
+    const res = await GET(
+      new Request("http://localhost/api/report/skill?repo=acme%2Fapi&tracks=D2,%20D9,D2&max=2"),
+    );
+    expect(res.status).toBe(200);
+    expect(mockBuildSkill).toHaveBeenCalledWith(REPORT, { include: ["D2", "D9"], max: 2 });
+  });
+
+  it("omits opts entirely when neither ?tracks nor ?max is supplied (default track selection)", async () => {
+    await get("acme/api");
+    expect(mockBuildSkill).toHaveBeenCalledWith(REPORT); // exactly one argument — no stray opts
+  });
+
+  it("rejects an invalid ?tracks value with 400 instead of silently falling back to the default set", async () => {
+    for (const bad of ["D0", "D10", "coverage", "D2;D9", ""]) {
+      vi.clearAllMocks();
+      mockIsDbConfigured.mockReturnValue(true);
+      mockReadableOrg.mockResolvedValue("acme");
+      mockRequireOrgRead.mockResolvedValue(null);
+      mockGetReport.mockResolvedValue(REPORT as never);
+      mockBuildSkill.mockReturnValue(SKILL);
+      const res = await GET(
+        new Request(`http://localhost/api/report/skill?repo=acme%2Fapi&tracks=${encodeURIComponent(bad)}`),
+      );
+      expect(res.status).toBe(400);
+      expect(mockBuildSkill).not.toHaveBeenCalled();
+    }
+  });
+
+  it("rejects a non-positive-integer ?max with 400", async () => {
+    for (const bad of ["0", "-1", "1.5", "lots"]) {
+      vi.clearAllMocks();
+      mockIsDbConfigured.mockReturnValue(true);
+      const res = await GET(
+        new Request(`http://localhost/api/report/skill?repo=acme%2Fapi&max=${encodeURIComponent(bad)}`),
+      );
+      expect(res.status).toBe(400);
+      expect(mockBuildSkill).not.toHaveBeenCalled();
+    }
+  });
+
   it("does NOT reject the download when the fire-and-forget recordSkillGeneration rejects", async () => {
     mockRecord.mockRejectedValue(new Error("skill-history write failed"));
 

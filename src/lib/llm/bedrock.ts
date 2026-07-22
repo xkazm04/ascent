@@ -21,7 +21,7 @@ import {
   ASSESSMENT_TOOL_NAME,
 } from "@/lib/llm/schema";
 import {
-  envNumber,
+  llmMaxTokens,
   llmTemperature,
   llmTimeoutMs,
   thinkingBudgetTokens,
@@ -98,7 +98,7 @@ export class BedrockProvider implements LLMProvider {
     // feature meant to SHARPEN the assessment on complex repos instead broke it there. Reserve the FULL
     // answer budget ON TOP OF the thinking budget so the answer room is guaranteed regardless of thinking.
     const thinking = thinkingBudgetTokens();
-    const baseMaxTokens = Math.round(envNumber("BEDROCK_MAX_TOKENS", 4096));
+    const baseMaxTokens = llmMaxTokens("BEDROCK_MAX_TOKENS");
     const maxTokens = thinking > 0 ? thinking + baseMaxTokens : baseMaxTokens;
 
     let res;

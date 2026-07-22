@@ -13,11 +13,13 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/db", () => ({
+vi.mock("@/lib/db", async () => ({
   isDbConfigured: () => true,
   getSegmentOrgSlug: vi.fn(async () => "acme"),
   updateSegment: vi.fn(async () => {}),
   deleteSegment: vi.fn(async () => {}),
+  // The REAL validator (pure) so the 400 contract below exercises production rules, not a stub.
+  segmentInputError: (await vi.importActual<typeof import("@/lib/db/segments")>("@/lib/db/segments")).segmentInputError,
 }));
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
@@ -87,6 +89,14 @@ describe("PATCH /api/org/segments/:id — member-gated, segment-derived tenant",
     expect((await patch("seg-1", { name: "dup" })).status).toBe(409);
     mockUpdate.mockRejectedValueOnce({ code: "P2025" } as never);
     expect((await patch("seg-1", { name: "x" })).status).toBe(404);
+  });
+
+  // repositories-segments 2026-07-16 #5: PATCH { color: "rebeccapurple" } previously recolored the
+  // segment to the brand accent and returned { ok: true }; now it is a 400 that never writes.
+  it("400s a non-hex colour / over-long name instead of silently rewriting it", async () => {
+    expect((await patch("seg-1", { color: "rebeccapurple" })).status).toBe(400);
+    expect((await patch("seg-1", { name: "x".repeat(61) })).status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
 

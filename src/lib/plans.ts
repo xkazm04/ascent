@@ -1,8 +1,13 @@
 // Plan tiers — the single source of truth for what each plan includes, read by the credit/entitlement
 // layer (gating) and the /pricing page (display). Before this, `plan` carried four values but only
-// `enterprise` was ever special-cased (unlimited); `pro`/`team` were inert marketing. Pricing itself
-// lives in the billing provider (Polar, see CRED-1) — this map is feature/allotment metadata, not the
-// price book, so no dollar amounts are invented here.
+// `enterprise` was ever special-cased (unlimited); `pro`/`team` were inert marketing.
+//
+// PRICE CONTRACT (checkout-plans-polar 07-16 #3): what a buyer is CHARGED is whatever the Polar
+// product mapped via POLAR_PLAN_PRODUCTS costs — Polar is the price book. The `monthlyPrice` values
+// below are DISPLAY-ONLY duplicates of those Polar prices for the static /pricing page and SEO copy;
+// there is no automated reconciliation, so a price change in the Polar dashboard MUST be mirrored
+// here in lockstep or /pricing advertises a stale number and buyers are charged something else at
+// checkout. (The old header claimed "no dollar amounts are invented here", which hid this hazard.)
 
 export type PlanId = "free" | "pro" | "team" | "enterprise";
 
@@ -12,13 +17,17 @@ export type PlanBilling = "free" | "subscription" | "custom";
 export interface PlanFeature {
   id: PlanId;
   label: string;
-  /** Monthly scan allowance — free scans/month (public OR private) before overflow draws on prepaid
-   *  credits. null = unlimited (Enterprise). This is the "included" volume; see scanAllowance(). */
+  /** Monthly scan allowance — free METERED (org/private, installation-token) scans per month before
+   *  overflow draws on prepaid credits. Anonymous PUBLIC scans are never metered (src/lib/db/credits.ts,
+   *  the CreditMatrixLedger on /pricing) — they are quota-limited separately and never touch this.
+   *  null = unlimited (Enterprise). This is the "included" volume; see scanAllowance(). */
   includedCredits: number | null;
   /** True when scans never consume a credit (the `enterprise` behaviour, data-driven). */
   unlimited: boolean;
   /** Fixed monthly subscription price in whole USD; 0 for Free, null for the custom (Enterprise) tier.
-   *  Pro/Team are SUBSCRIPTIONS that bundle a monthly scan allowance; overflow buys extra scan credits. */
+   *  Pro/Team are SUBSCRIPTIONS that bundle a monthly scan allowance; overflow buys extra scan credits.
+   *  DISPLAY-ONLY: the real charge is the Polar product's price (POLAR_PLAN_PRODUCTS) — keep this in
+   *  lockstep with the Polar dashboard (see the PRICE CONTRACT note atop this file). */
   monthlyPrice: number | null;
   billing: PlanBilling;
   /** Member seats included; null = unlimited. */
@@ -39,8 +48,8 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     billing: "free",
     seats: 1,
     retentionDays: 30,
-    blurb: "5 scans a month — public or private — with the full report and badge.",
-    features: ["5 scans / month included", "Public or private repos", "Maturity report + roadmap", "README badge", "1 member"],
+    blurb: "5 private scans a month — public scans are always free — with the full report and badge.",
+    features: ["5 private scans / month included", "Unlimited free public scans", "Maturity report + roadmap", "README badge", "1 member"],
   },
   pro: {
     id: "pro",
@@ -52,7 +61,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 3,
     retentionDays: 180,
     blurb: "A monthly subscription with the org fleet dashboard for a small team.",
-    features: ["100 scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
+    features: ["100 private scans / month included", "Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
   },
   team: {
     id: "team",
@@ -64,7 +73,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeature> = {
     seats: 10,
     retentionDays: 365,
     blurb: "More volume, more seats, and segment-scoped intelligence.",
-    features: ["500 scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
+    features: ["500 private scans / month included", "Segments + comparisons", "White-label briefings", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
   },
   enterprise: {
     id: "enterprise",

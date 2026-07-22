@@ -12,6 +12,12 @@ import { isDbConfigured, purgeExpiredData } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// COUPLED CONSTANT (data-retention 07-16 #1): this literal MUST equal PURGE_MAX_DURATION_S in
+// src/lib/db/retention.ts — the purge's soft time budget is derived from it (cap − headroom) so the
+// run stops cleanly with a summary before the platform hard-kills the function. Next.js requires this
+// segment config to be a statically-analyzable literal, so it cannot import the constant; route.test.ts
+// pins the equality instead. Plan caveat: the platform honors 300s only up to the deployment plan's
+// function cap — on a lower-capped plan set RETENTION_TIME_BUDGET_MS below the REAL cap.
 export const maxDuration = 300;
 
 /**
@@ -43,11 +49,31 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   if (!isDbConfigured()) {
-    return NextResponse.json({ skipped: "Database required." });
+    // A DB-unconfigured deploy must NOT report a green 200 (data-retention 07-16 #4): the handler's own
+    // invariant is "degraded is never green" (207/500 below) because cron monitors only watch the HTTP
+    // status — yet a production deploy that loses/renames DATABASE_URL would keep returning 200 daily
+    // while every retention window silently stops being enforced. Fail closed with 503, matching the
+    // CRON_SECRET-unset branch (the same "misconfigured deploy" class). A GENUINELY DB-less deployment
+    // (the keyless MVP, where a scheduled purge is a deliberate no-op) opts into the quiet green skip
+    // explicitly via RETENTION_ALLOW_NO_DB=1.
+    if (process.env.RETENTION_ALLOW_NO_DB === "1") {
+      return NextResponse.json({ skipped: "Database required." });
+    }
+    return NextResponse.json(
+      { error: "Database is not configured (DATABASE_URL unset). Set RETENTION_ALLOW_NO_DB=1 for an intentionally DB-less deployment." },
+      { status: 503 },
+    );
   }
 
+  // Preview mode (data-retention 07-16 #2): `?dryRun=1` (or `true`) counts what every effective policy
+  // WOULD delete — per-repo stale-scan totals + in-window audit rows — without deleting anything or
+  // writing audit entries. Use it to validate a new per-org override before the next real tick applies
+  // it; the summary carries `dryRun: true` so a preview can never be mistaken for an enforcement run.
+  const dryRunParam = new URL(request.url).searchParams.get("dryRun")?.toLowerCase() ?? "";
+  const dryRun = dryRunParam === "1" || dryRunParam === "true";
+
   try {
-    const summary = await purgeExpiredData();
+    const summary = await purgeExpiredData({ dryRun });
     // A DEGRADED run must NOT report a green 200: Vercel Cron and uptime monitors only watch the HTTP
     // status, so a non-2xx is the only thing that pages an operator. Two channels signal degradation and
     // BOTH must trip the 207 — `errors` (a per-org prune threw, or a destructive purge lost its compliance

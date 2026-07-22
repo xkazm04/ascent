@@ -121,6 +121,30 @@ describe("GET /api/org/briefing/pdf", () => {
     expect(mockRender).not.toHaveBeenCalled();
   });
 
+  it("404 (fail closed, never whole-org) when ?stack= is supplied but the key doesn't resolve", async () => {
+    // The resolver returns null for a renamed/deleted key or a DB hiccup; the old behavior passed that
+    // null through as "no filter" and exported the WHOLE-org briefing under a scoped URL.
+    const { getTechGroupIdByKey } = await import("@/lib/db");
+    vi.mocked(getTechGroupIdByKey).mockResolvedValue(null);
+
+    const res = await GET(new Request("http://localhost/api/org/briefing/pdf?org=acme&stack=frontend"));
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Unknown tech-stack scope for this organization." });
+    expect(mockBuild).not.toHaveBeenCalled(); // never builds the unscoped briefing
+    expect(mockRender).not.toHaveBeenCalled();
+  });
+
+  it("renders scoped (200) when ?stack= resolves to a group id", async () => {
+    const { getTechGroupIdByKey } = await import("@/lib/db");
+    vi.mocked(getTechGroupIdByKey).mockResolvedValue("tg_1");
+
+    const res = await GET(new Request("http://localhost/api/org/briefing/pdf?org=acme&stack=frontend"));
+
+    expect(res.status).toBe(200);
+    expect(mockBuild).toHaveBeenCalledWith("acme", expect.anything(), expect.any(String), null, "tg_1");
+  });
+
   it("404 (not 500) when buildExecBriefing rejects — the route swallows the build error", async () => {
     mockBuild.mockRejectedValue(new Error("rollup db exploded"));
     const res = await get("acme");

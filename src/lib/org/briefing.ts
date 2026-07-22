@@ -22,12 +22,20 @@ export function engineMixLabel(mix: EngineMixEntry[]): string {
   return mix.map((e) => `${engineLabel(e.provider)} ×${e.count}`).join(", ");
 }
 
-/** True when the deterministic mock engine produced SOME (but not all) of the period's scores — a
- *  partial fallback that quietly weakens the read: the "mock-degraded quarter" an examiner must see. */
-export function engineMixDegraded(mix: EngineMixEntry[]): boolean {
+/** The mock-provenance caveat for the period, or null when every score came from a live engine.
+ *  Fires for ANY mock presence: "some scores…" on a partial fallback, and the stronger "all scores…"
+ *  when the entire period was mock-scored. Previously an ALL-mock period got NO caveat anywhere (the
+ *  old `engineMixDegraded` required mock AND real), so the most degraded possible quarter — 100%
+ *  synthetic scores — was the one case the honesty machinery stayed silent on. A demo deployment that
+ *  wants a clean read should gate on an explicit config flag, not on the shape of the mix.
+ *  (executive-briefing 07-16 #3) */
+export function engineMixCaveat(mix: EngineMixEntry[]): string | null {
   const mock = mix.find((e) => e.provider === "mock")?.count ?? 0;
+  if (mock === 0) return null;
   const real = mix.reduce((a, e) => a + (e.provider === "mock" ? 0 : e.count), 0);
-  return mock > 0 && real > 0;
+  return real > 0
+    ? "some scores this period used the deterministic mock engine, not the live model"
+    : "all scores this period used the deterministic mock engine, not the live model";
 }
 
 /** "trend confidence 30% · noisy" — the same hedge the exec page shows under the trajectory headline,
@@ -328,10 +336,10 @@ export function briefingMarkdown(b: ExecBriefing): string {
     out.push(
       `- Trajectory: ${b.forecastHeadline}${b.forecastConfidence != null ? ` (trend confidence ${b.forecastConfidence}%${b.forecastConfidence < 50 ? ", noisy" : ""})` : ""}`,
     );
-  if (b.engineMix.length)
-    out.push(
-      `- Scored by: ${engineMixLabel(b.engineMix)}${engineMixDegraded(b.engineMix) ? " — ⚠ some scores used the deterministic mock engine, not the live model" : ""}`,
-    );
+  if (b.engineMix.length) {
+    const caveat = engineMixCaveat(b.engineMix);
+    out.push(`- Scored by: ${engineMixLabel(b.engineMix)}${caveat ? ` — ⚠ ${caveat}` : ""}`);
+  }
   if (b.priorPeriod) {
     const p = b.priorPeriod;
     const d = (n: number) => `${n >= 0 ? "+" : ""}${n}`;

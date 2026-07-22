@@ -68,7 +68,9 @@ export default async function OrgRepositories({
 
   // ?posture= filter (deep-linked from the Overview's posture bar): scope the leaderboard to
   // repos whose LATEST scan sits in that posture quadrant. A bogus value falls back to the whole fleet
-  // (same contract as the segment/stack scopes). Tagging (RepoSegmentsPanel) and CSV stay full-fleet.
+  // (same contract as the segment/stack scopes). Tagging (RepoSegmentsPanel) stays full-fleet; the CSV
+  // export follows the active posture/stack scope (repositories-segments #3) so the file matches the
+  // on-screen numbers.
   const postureParam = typeof sp.posture === "string" ? sp.posture : null;
   const posture = postureParam && (POSTURE_ORDER as readonly string[]).includes(postureParam) ? postureParam : null;
   const visible = posture ? leaderboard.filter((r) => r.latest?.posture === posture) : leaderboard;
@@ -108,8 +110,11 @@ export default async function OrgRepositories({
           right={
             <div className="flex flex-wrap items-center gap-2">
               <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
+              {/* The export threads the ACTIVE posture/stack scope through, so "Export CSV" can never
+                  contradict the filtered table it sits next to (repositories-segments #3). */}
               <a
-                href={`/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv`}
+                href={`/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
+                title={posture || activeStack ? "Download the currently filtered repos as CSV" : "Download the full fleet as CSV"}
                 className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
               >
                 Export CSV

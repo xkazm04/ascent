@@ -3,6 +3,7 @@
 //   LLM_PROVIDER=gemini     -> Gemini (local dev & testing default). Falls back to mock
 //                              if no GEMINI_API_KEY is set.
 //   LLM_PROVIDER=openai     -> OpenAI / Azure-OpenAI / OpenAI-compatible (vLLM, Ollama, …).
+//   LLM_PROVIDER=openrouter -> OpenRouter (one key, any vendor's model — the fleet/bench path).
 //   LLM_PROVIDER=bedrock    -> AWS Bedrock / Claude Sonnet (Phase 2, enterprise privacy).
 //   LLM_PROVIDER=claude-cli -> local `claude` CLI under your subscription (LOCAL-DEV-ONLY;
 //                              throws in production builds).
@@ -63,13 +64,25 @@ export function hasLlmKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
+const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "mock", "claude-cli"] as const;
+
 export function resolveProviderChoice(): ProviderChoice {
-  const v = (process.env.LLM_PROVIDER ?? "auto").toLowerCase();
-  return (["auto", "gemini", "bedrock", "openai", "openrouter", "mock", "claude-cli"] as const).includes(
-    v as ProviderChoice,
-  )
-    ? (v as ProviderChoice)
-    : "auto";
+  const raw = (process.env.LLM_PROVIDER ?? "").trim();
+  if (!raw) return "auto";
+  const v = raw.toLowerCase();
+  if ((PROVIDER_CHOICES as readonly string[]).includes(v)) return v as ProviderChoice;
+  // Fail LOUD on an unrecognized non-empty value instead of coercing it to "auto". The rest of this
+  // module refuses to let an explicit-but-misconfigured selection degrade silently (see the bedrock/
+  // openai/gemini branches in getProvider), yet a typo in the provider NAME itself — the most likely
+  // operator error, e.g. LLM_PROVIDER=bedrok on an enterprise-privacy deploy — previously became
+  // auto → Gemini-or-mock with zero signal, routing private source to a provider the operator never
+  // chose. An unknown value is broken config, not absent config: refuse to guess.
+  // (ambiguity-ui-scan-2026-07-16 llm-provider-abstraction #1)
+  throw new Error(
+    `Unknown LLM_PROVIDER "${raw}" — expected one of ${PROVIDER_CHOICES.join(", ")}. ` +
+      `Refusing to fall back to "auto": a typo'd provider must fail loudly rather than silently ` +
+      `route scans through a provider you did not choose. Fix or unset LLM_PROVIDER.`,
+  );
 }
 
 function geminiOrMock(): LLMProvider {

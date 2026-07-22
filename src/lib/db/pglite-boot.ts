@@ -44,6 +44,50 @@ export async function bootPglite(dataDir: string): Promise<void> {
         : "[pglite] schema ensured from prisma/init.sql (idempotent; new tables/indexes applied)",
     );
 
+    // Column-drift DETECTION (database-client-schema 07-16 #5). The idempotent re-exec above fixes
+    // new-TABLE/new-INDEX drift, but a NEW COLUMN on an existing table is skipped by CREATE TABLE IF
+    // NOT EXISTS — and the developer's first symptom used to be a raw `column "X" does not exist`
+    // from some arbitrary query hours later, with nothing connecting it to the aged data dir. The
+    // boot already parses init.sql and holds a live connection, so NOTICE the drift cheaply here and
+    // name the cure. Detection only — the no-auto-ALTER decision stands (a blind ALTER of a
+    // NOT-NULL-without-default column would itself fail on a populated dev table). Best-effort: a
+    // probe failure must never break the boot.
+    if (!firstBoot) {
+      try {
+        const expected = new Map<string, string[]>();
+        for (const t of rawSql.matchAll(/CREATE TABLE "(\w+)" \(([\s\S]*?)\n\);/g)) {
+          // Column declaration lines start with a quoted identifier; CONSTRAINT lines don't match.
+          expected.set(t[1]!, [...t[2]!.matchAll(/^\s*"(\w+)"/gm)].map((c) => c[1]!));
+        }
+        const res = await pglite.query(
+          `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`,
+        );
+        const actual = new Map<string, Set<string>>();
+        for (const row of res.rows as { table_name: string; column_name: string }[]) {
+          let set = actual.get(row.table_name);
+          if (!set) actual.set(row.table_name, (set = new Set()));
+          set.add(row.column_name);
+        }
+        const drift: string[] = [];
+        for (const [table, cols] of expected) {
+          const have = actual.get(table);
+          if (!have) continue; // a missing table is the class the re-exec already handles
+          const missing = cols.filter((c) => !have.has(c));
+          if (missing.length) drift.push(`"${table}" is missing [${missing.join(", ")}]`);
+        }
+        if (drift.length) {
+          console.error(
+            `[pglite] SCHEMA DRIFT: ${drift.join("; ")} — column(s) added to prisma/init.sql AFTER this ` +
+              `data dir was created (CREATE TABLE IF NOT EXISTS skips existing tables). Wipe the data dir ` +
+              `(${dir}) or apply a manual ALTER TABLE ... ADD COLUMN; queries touching these columns will ` +
+              `otherwise fail with "column does not exist".`,
+          );
+        }
+      } catch (probeErr) {
+        console.warn("[pglite] column-drift probe failed (non-fatal):", probeErr);
+      }
+    }
+
     g.__ascentPgliteAdapter = new PrismaPGlite(pglite);
     g.__ascentPgliteBootError = undefined; // a prior failed boot (if any) is now healed
     console.log(`[pglite] embedded local DB ready (in-process) at ${dir}`);

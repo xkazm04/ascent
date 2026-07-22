@@ -7,6 +7,8 @@
 @theme {
   --color-accent: #3b9eff;
   --color-accent-soft: #7bbcff;
+  /* Paired with the TS-side BRAND_INK in src/lib/site.ts (viewport themeColor + PWA manifest read
+     that constant — CSS @theme vars aren't importable there). Change BOTH together. */
   --color-ink: #080d1a;
   /* Foreground used ON the accent (button text on bg-accent) — a near-black that was
      previously hardcoded as #04070e across connect/onboarding/auth. Utility: text-on-accent. */
@@ -17,6 +19,12 @@
   --color-danger-soft: #fca5a5;
   /* Warning accent (was raw #f97316 in inline styles). */
   --color-warn: #f97316;
+  /* Success family (was raw emerald-500/400/300 literals reinvented per surface — connect's
+     re-synced/revoked notices, the discovered-org panel + its CTA). Same shape as danger:
+     `success` for borders/bg/solid CTAs (border-success/30, bg-success/10, bg-success),
+     `success-soft` for text on dark and CTA hover (text-success-soft, hover:bg-success-soft). */
+  --color-success: #10b981;
+  --color-success-soft: #6ee7b7;
   /* Brand surface system (the editorial "Index" identity). Panels use the translucent form
      (bg-surface/40) so the body's altimeter gradient shows through; `divider` is the single hairline
      token for card borders + rules (replaces the slate-800/slate-700 drift). Utilities generated:
@@ -24,6 +32,13 @@
   --color-surface: #0f172a;          /* slate-900 — panel base; use bg-surface/40 */
   --color-surface-strong: #020617;   /* slate-950 — deeper panel; bg-surface-strong/40 */
   --color-divider: #1e293b;          /* slate-800 — hairline rules + card borders */
+  /* Direction-tone triad (rising / falling / flat) — paired with the TS-side DIRECTION_TONE in
+     src/components/ui/format.ts, which must keep literal hex (it feeds inline styles, canvas-adjacent
+     consumers, and tests that assert exact hexes — CSS vars aren't importable there). Change BOTH
+     together. Utilities generated: text-tone-rising, bg-tone-falling, … */
+  --color-tone-rising: #84cc16;      /* lime-500 — score moving up */
+  --color-tone-falling: #f97316;     /* orange-500 — score moving down (= --color-warn) */
+  --color-tone-flat: #94a3b8;        /* slate-400 — holding / within-noise */
 }
 
 @theme inline {
@@ -33,6 +48,14 @@
 
 html {
   color-scheme: dark;
+}
+
+:root {
+  /* Sticky-header height contract — the HEADER_SHELL bar in src/components/StaticNav.tsx renders
+     ~56px tall (py-3.5 + the logo line). Primitives that must clear it (Surface's scroll-mt,
+     DeckSection's top padding) derive from THIS var instead of re-encoding their own magic number,
+     so a taller header is fixed in one place. Change it when the header's vertical metrics change. */
+  --header-h: 3.5rem;
 }
 
 /* Smooth-scroll the in-page jumps from the header nav (Levels / Method / Pricing → #levels / #how /
@@ -69,36 +92,44 @@ html {
 
 /* Decorative connector — a linear hairline + glowing azure node in the bottom margin of each section,
    threading the full-viewport sections together so they don't read as disconnected screens. Hidden on
-   each deck's final section (no next section to point to). */
-.snap-deck section[id]::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 1.6rem;
-  width: 1px;
-  height: 2.75rem;
-  transform: translateX(-50%);
-  background: linear-gradient(to bottom, transparent, var(--color-divider) 45%, rgba(59, 158, 255, 0.55));
-  pointer-events: none;
+   each deck's final section (no next section to point to). Desktop-only (min-width matches Tailwind's
+   `lg`): below lg, DeckNav's fixed bottom bar occupies the bottom margin the connector renders in, so
+   it sat invisibly under (or clipped against) the bar — hide it rather than float it mid-section. */
+@media (min-width: 64rem) {
+  .snap-deck section[id]::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 1.6rem;
+    width: 1px;
+    height: 2.75rem;
+    transform: translateX(-50%);
+    background: linear-gradient(to bottom, transparent, var(--color-divider) 45%, rgba(59, 158, 255, 0.55));
+    pointer-events: none;
+  }
+  .snap-deck section[id]::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 1.25rem;
+    z-index: 1;
+    width: 6px;
+    height: 6px;
+    transform: translateX(-50%);
+    border-radius: 9999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 9px 1px rgba(59, 158, 255, 0.45);
+    pointer-events: none;
+  }
 }
-.snap-deck section[id]::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 1.25rem;
-  z-index: 1;
-  width: 6px;
-  height: 6px;
-  transform: translateX(-50%);
-  border-radius: 9999px;
-  background: var(--color-accent);
-  box-shadow: 0 0 9px 1px rgba(59, 158, 255, 0.45);
-  pointer-events: none;
-}
-.snap-deck section#pricing::after,
-.snap-deck section#pricing::before,
-.snap-deck section#cta::after,
-.snap-deck section#cta::before {
+/* Hidden on each deck's FINAL section (no next section to point to). Structural, not id-based: the
+   deck's last-section component tags itself with `data-deck-last` (AboutCTA on /about, DimensionMatrix
+   on the landing). The old form enumerated literal ids (#pricing, #cta) — a snapshot of one deck
+   layout that silently broke on restructure: the landing deck's last section became #dimensions and
+   its connector dangled into the footer until this attribute took over. When a deck's final section
+   changes, move the attribute with it. */
+.snap-deck section[data-deck-last]::after,
+.snap-deck section[data-deck-last]::before {
   display: none;
 }
 

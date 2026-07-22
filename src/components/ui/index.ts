@@ -18,3 +18,5 @@ export { Modal, ModalHeader, ModalBody, ModalFooter } from "./Modal";
 export type { ModalSize } from "./Modal";
 export { ModalRoot, MODAL_ROOT_ID } from "./ModalRoot";
 export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE, toneFor } from "./format";
+export { chipButtonClass } from "./chip";
+export type { ChipState } from "./chip";

@@ -12,7 +12,7 @@ import { validateAssessment, isAssessmentUsable } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
-import { envNumber, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { llmMaxTokens, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -52,7 +52,7 @@ export class OpenAiProvider implements LLMProvider {
           // silently degrades to the mock floor under the "openai" provider name. Bedrock sets a budget
           // explicitly and Gemini relies on a high native default; OpenAI alone set none. Mirror
           // BEDROCK_MAX_TOKENS with an env-overridable default. (llm-provider-abstraction #2)
-          max_tokens: Math.round(envNumber("OPENAI_MAX_TOKENS", 4096)),
+          max_tokens: llmMaxTokens("OPENAI_MAX_TOKENS"),
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: system },

@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { getCreditState, isDbConfigured, setOrgBranding } from "@/lib/db";
+import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 
@@ -41,8 +42,14 @@ export async function POST(request: Request) {
     logoUrl: body.logoUrl ?? null,
   });
   if (!stored) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  // org-branding #4: probe the stored logo ONCE at save time with the exact fetch the PDF render uses
+  // (resolveSafeLogoDataUri: DNS-pinned, image-only, size-capped). Validation only proved the URL is
+  // SAFE, not that it serves an image — a typo'd path / HTML page / hotlink-protected asset previously
+  // produced a green "Saved" and then silently logo-less client PDFs. Advisory only: the value stays
+  // saved; the client warns. resolveSafeLogoDataUri never throws (null on any failure).
+  const logoUnreachable = stored.branding.logoUrl ? (await resolveSafeLogoDataUri(stored.branding.logoUrl)) === null : false;
   // setOrgBranding returns { branding, rejected }; unwrap so the client gets the FLAT normalized
   // OrgBranding it reads (d.branding.brandName/…) plus the list of dropped fields to warn about —
   // passing `stored` whole would nest it under branding and blank every field client-side.
-  return NextResponse.json({ ok: true, branding: stored.branding, rejected: stored.rejected });
+  return NextResponse.json({ ok: true, branding: stored.branding, rejected: stored.rejected, logoUnreachable });
 }

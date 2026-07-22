@@ -127,8 +127,11 @@ export function MembersPanel({
           </>
         }
       />
+      {/* Error alerts use the semantic danger token (not an ad-hoc orange), so the severity signal
+          reads the same across MembersPanel / MemberInvites / OrgSwitcher; orange stays reserved for
+          genuine warnings like the self-demotion confirm below. (ambiguity-ui 2026-07-16 #5) */}
       {error && (
-        <p role="alert" className="mb-3 text-sm text-orange-300">
+        <p role="alert" className="mb-3 text-sm text-danger-soft">
           {error}
         </p>
       )}

@@ -51,7 +51,12 @@ function StandingColumn({
 }) {
   const leads = role === "leader";
   const badgeColor = deltaHex(standing.overallDelta);
-  const hasChampions = standing.champions.length > 0 && standing.aiCommitShare > 0;
+  // CHAMPION_MIN_POP is a privacy floor that "must be applied IDENTICALLY everywhere champions are
+  // surfaced" (champions.ts) — Contributors, Adoption and TeamsMatrixDetail all gate on it, but this
+  // card previously didn't, so a 1-person team's sole AI user was crowned a champion here alone.
+  // (ambiguity-ui 2026-07-16 #3)
+  const hasChampions =
+    standing.contributors >= CHAMPION_MIN_POP && standing.champions.length > 0 && standing.aiCommitShare > 0;
   return (
     <div className="p-5">
       <div className="text-sm font-medium" style={{ color: badgeColor }}>
@@ -111,9 +116,7 @@ function StandingColumn({
         </div>
         {hasChampions && (
           <div className="min-w-0">
-            <dt className="text-slate-500">
-              {standing.comparedRepos >= 0 && standing.champions.length > 0 ? "AI champions" : ""}
-            </dt>
+            <dt className="text-slate-500">AI champions</dt>
             <dd className="mt-0.5 flex flex-wrap gap-1">
               {standing.champions.slice(0, 3).map((c) => (
                 <span
@@ -160,7 +163,9 @@ export function TeamsStandings({ standings, capturedAt }: { standings: TeamStand
       </Surface>
       <p className="mt-2 text-sm text-slate-500">
         A decomposition, not a verdict — a low dimension is where a pairing or a borrowed pattern would move the number most.
-        {CHAMPION_MIN_POP > 0 && " Champions shown only where a team has AI-attributed activity."}
+        {/* Honest caption for the gate above — the old `CHAMPION_MIN_POP > 0 &&` was compile-time
+            true (it guarded nothing) and the copy omitted the population floor entirely. */}
+        {` Champions shown only for teams with at least ${CHAMPION_MIN_POP} contributors and AI-attributed activity.`}
       </p>
     </div>
   );

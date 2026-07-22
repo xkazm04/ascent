@@ -3,22 +3,29 @@
 // Dependency-free SVG charts (keeps the bundle small and the build fast).
 
 import type { Posture } from "@/lib/types";
-import { POSTURE_THRESHOLD } from "@/lib/maturity/model";
+import { POSTURE_META, POSTURE_THRESHOLD } from "@/lib/maturity/model";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { CHART_INK, linScale } from "@/components/report/chartScale";
+import { LEVEL_HEX } from "@/lib/ui";
 
+// Posture tints, sourced from the chart system's tokens instead of re-typed hex. Three postures
+// INTENTIONALLY alias score-ramp stops (best↔worst posture tracks the L5 green / L1 red the rest of
+// the report uses for best/worst, ungoverned sits at the L2 warn-orange), and "manual" — neither
+// good nor bad, just human-gated — takes the brand accent so a white-label re-skin retunes it with
+// every other accent surface (the same reason RadarChart moved to var(--color-accent)).
 const QUAD_TINT: Record<Posture["id"], string> = {
-  "ai-native": "#22c55e",
-  ungoverned: "#f97316",
-  manual: "#3b9eff",
-  early: "#ef4444",
+  "ai-native": LEVEL_HEX.L5,
+  ungoverned: LEVEL_HEX.L2,
+  manual: "var(--color-accent)",
+  early: LEVEL_HEX.L1,
 };
-const QUAD_LABEL: Record<Posture["id"], string> = {
-  "ai-native": "AI-Native",
-  ungoverned: "Ungoverned",
-  manual: "Manual",
-  early: "Getting started",
-};
+// Corner labels DERIVED from the canonical posture taxonomy (POSTURE_META.short) instead of
+// hand-copied — a rename/addition in model.ts flows through here automatically. Previously this
+// was a second source of truth that had already drifted ("Getting started" vs "Getting Started").
+const QUAD_LABEL = Object.fromEntries(POSTURE_META.map((p) => [p.id, p.short])) as Record<
+  Posture["id"],
+  string
+>;
 
 /**
  * The Adoption × Rigor quadrant — the 2D position the model actually computes (postureFor:
@@ -61,8 +68,8 @@ export function PostureQuadrant({
   const thY = toY(POSTURE_THRESHOLD);
   // posture.id comes from the (untrusted) report; an unexpected/drifted id would yield undefined
   // and the "you are here" marker would render with no stroke/fill and vanish. Fall back to the
-  // same neutral slate the inactive labels use.
-  const color = QUAD_TINT[posture.id] ?? "#475569";
+  // same neutral slate-400 the inactive labels use.
+  const color = QUAD_TINT[posture.id] ?? "#94a3b8";
 
   const dotX = toX(adoption);
   const dotY = toY(rigor);
@@ -109,32 +116,34 @@ export function PostureQuadrant({
       <line x1={thX} y1={y0} x2={thX} y2={y0 + h} stroke={CHART_INK.crosshairDash} strokeWidth={1} strokeDasharray="3 3" />
       <line x1={x0} y1={thY} x2={x0 + w} y2={thY} stroke={CHART_INK.crosshairDash} strokeWidth={1} strokeDasharray="3 3" />
 
-      {/* quadrant labels */}
+      {/* quadrant labels — inactive ink lifted slate-600 → slate-400 and 10px → 11px per the
+          RadarChart contrast precedent: slate-600 (#475569) on this canvas is ~2.7:1 and slate-500
+          ~3.9:1, both below the WCAG AA 4.5:1 floor for small text; slate-400 (#94a3b8) clears it. */}
       {regions.map((r) => (
         <text
           key={`${r.id}-l`}
           x={r.lx}
           y={r.ly}
           textAnchor={r.anchor}
-          fontSize={10}
+          fontSize={11}
           fontWeight={r.id === posture.id ? 700 : 500}
-          fill={r.id === posture.id ? QUAD_TINT[r.id] : "#475569"}
+          fill={r.id === posture.id ? QUAD_TINT[r.id] : "#94a3b8"}
           className="font-mono uppercase tracking-wider"
         >
           {QUAD_LABEL[r.id]}
         </text>
       ))}
 
-      {/* axis labels */}
-      <text x={x0 + w / 2} y={size - 8} textAnchor="middle" fontSize={10} className="fill-slate-500 font-mono uppercase tracking-wider">
+      {/* axis labels — same contrast lift as the quadrant labels (slate-500 → slate-400, 11px) */}
+      <text x={x0 + w / 2} y={size - 8} textAnchor="middle" fontSize={11} className="fill-slate-400 font-mono uppercase tracking-wider">
         AI Adoption →
       </text>
       <text
         x={12}
         y={y0 + h / 2}
         textAnchor="middle"
-        fontSize={10}
-        className="fill-slate-500 font-mono uppercase tracking-wider"
+        fontSize={11}
+        className="fill-slate-400 font-mono uppercase tracking-wider"
         transform={`rotate(-90 12 ${y0 + h / 2})`}
       >
         Rigor →

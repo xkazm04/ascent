@@ -175,12 +175,17 @@ export function HeadlineStrip({
         delta={deltas?.rigor}
         className="border-t border-slate-800 lg:border-l lg:border-t-0"
       />
+      {/* live-war-room 07-16 #4: the old `${n}/${stats.scored || stats.total}` silently swapped the
+          denominator from "repos scored" to "whole fleet" when nothing was scanned yet — and hid the
+          clarifying sub line in exactly that case, so "0/40" (fleet size) read like "0 of 40 scored"
+          on a projected wall. Pre-scan the tile now shows an honest em-dash with a named empty state;
+          the denominator is ALWAYS "repos scored" and its sub label always renders. */}
       <StatCell
         label="AI-Native repos"
         value={stats.aiNative}
         color={stats.aiNative > 0 ? POSTURE_HEX["ai-native"] : undefined}
-        render={(n) => `${n}/${stats.scored || stats.total}`}
-        sub={stats.scored > 0 ? `of ${stats.scored} scored` : undefined}
+        render={(n) => (stats.scored > 0 ? `${n}/${stats.scored}` : "—")}
+        sub={stats.scored > 0 ? `of ${stats.scored} scored` : "no scans yet"}
         className="border-l border-t border-slate-800 lg:border-t-0"
       />
     </section>

@@ -5,7 +5,7 @@ import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
-import { STATUS_ACCENT, dueLabel, type PatchOutcome } from "@/components/org/shared/backlogShared";
+import { OVERDUE_ACCENT, statusAccent, dueLabel, type PatchOutcome } from "@/components/org/shared/backlogShared";
 import { BacklogRowControls } from "@/components/org/backlog/BacklogItemRow.controls";
 import { BacklogRowExplore } from "@/components/org/backlog/BacklogItemRow.explore";
 import { BacklogRowHistory } from "@/components/org/backlog/BacklogItemRow.history";
@@ -17,7 +17,9 @@ import { BacklogRowHistory } from "@/components/org/backlog/BacklogItemRow.histo
  * lifted into BacklogPanel (keyed by item id) and passed back in — see backlog-management #2.
  */
 export interface BacklogRowState {
-  history?: RecEvent[] | "loading" | null;
+  /** "error" is distinct from [] — a failed fetch must never render as the confident
+   *  "No changes recorded yet." empty-copy (backlog-management 07-16 #3). */
+  history?: RecEvent[] | "loading" | "error" | null;
   prResult?: { url: string; reused: boolean } | null;
   prError?: string | null;
   promoted?: boolean;
@@ -155,13 +157,16 @@ export function BacklogItemRow({
   async function loadHistory() {
     const req = (historyReq.current += 1);
     onState({ history: "loading" });
+    // Error and empty are DIFFERENT states: a non-2xx or network blip must render as "couldn't load —
+    // retry", never as the empty-copy "No changes recorded yet." (a false statement contradicting the
+    // page's own "every change is recorded" promise) (backlog-management 07-16 #3).
     try {
       const res = await fetch(`/api/recommendations/${item.id}/events`);
-      const data = res.ok ? ((await res.json()) as { events: RecEvent[] }) : { events: [] };
+      const next: BacklogRowState["history"] = res.ok ? ((await res.json()) as { events: RecEvent[] }).events : "error";
       // Ignore a stale response — the panel may have been collapsed (or re-opened) since this fetch began.
-      if (historyReq.current === req) onState({ history: data.events });
+      if (historyReq.current === req) onState({ history: next });
     } catch {
-      if (historyReq.current === req) onState({ history: [] });
+      if (historyReq.current === req) onState({ history: "error" });
     }
   }
 
@@ -177,6 +182,7 @@ export function BacklogItemRow({
 
   // onPatch records a new timeline event server-side, so an already-open history list goes stale.
   // Wrap the patch to refetch history after a successful edit (and a no-op when it's collapsed).
+  // `history` truthy includes the "error" state — retrying via an edit is fine, it just reloads.
   async function patchAndRefresh(id: string, body: Record<string, unknown>): Promise<PatchOutcome> {
     const outcome = await onPatch(id, body);
     if (history) void loadHistory();
@@ -189,7 +195,7 @@ export function BacklogItemRow({
     <div
       aria-busy={saving}
       className="rounded-xl border bg-slate-900/40 p-4"
-      style={{ borderLeftWidth: 3, borderLeftColor: item.overdue ? "#f97316" : STATUS_ACCENT[shown.status] }}
+      style={{ borderLeftWidth: 3, borderLeftColor: item.overdue ? OVERDUE_ACCENT : statusAccent(shown.status) }}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
@@ -237,20 +243,25 @@ export function BacklogItemRow({
         onToggleHistory={toggleHistory}
       />
 
-      {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
-      {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
-      {prResult && (
-        <p className="mt-2 text-sm text-emerald-300">
-          {prResult.reused ? "Existing draft PR: " : "Draft PR opened: "}
-          <a href={prResult.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
-            {prResult.url}
-          </a>
-        </p>
-      )}
+      {/* One polite live region for the row's async outcomes (save error / PR error / PR link): on this
+          screen the error message is the only signal an edit was rejected — the control just visually
+          reverts — so AT must hear these appear (backlog-management 07-16 #5). */}
+      <div role="status" aria-live="polite">
+        {error && <p className="mt-2 text-sm text-orange-300">{error}</p>}
+        {prError && <p className="mt-2 text-sm text-orange-300">{prError}</p>}
+        {prResult && (
+          <p className="mt-2 text-sm text-emerald-300">
+            {prResult.reused ? "Existing draft PR: " : "Draft PR opened: "}
+            <a href={prResult.url} target="_blank" rel="noreferrer" className="underline hover:text-white">
+              {prResult.url}
+            </a>
+          </p>
+        )}
+      </div>
 
       <BacklogRowExplore item={item} />
 
-      {history && <BacklogRowHistory history={history} />}
+      {history && <BacklogRowHistory id={`history-${item.id}`} history={history} onRetry={() => void loadHistory()} />}
 
       {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect runs. */}
       <ConfirmAction

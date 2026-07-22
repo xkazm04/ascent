@@ -184,7 +184,9 @@ describe("GET /api/report/pdf", () => {
     expect(res.headers.get("content-type")).toBe("application/pdf");
     const disposition = res.headers.get("content-disposition") ?? "";
     expect(disposition).toBe('attachment; filename="ascent-acme-private-repo-deadbee.pdf"');
-    expect(res.headers.get("cache-control")).toBe("private, max-age=300");
+    // no-store, in parity with the org export routes: a fresh rescan must never be answered with a
+    // cached pre-rescan PDF (pdf-llm-export 07-16 #3).
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
     const bytes = new Uint8Array(await res.arrayBuffer());
     expect(bytes.length).toBeGreaterThan(0);
   });

@@ -8,7 +8,7 @@
 // ScheduleSelect's in-flight/disabled/inline-error presentation; refreshes the row on success.
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { readSSE } from "@/lib/sse";
 
 /** Terminal state of one rescan attempt — out-of-credits is a top-up nudge, not a failure. */
@@ -29,8 +29,14 @@ export function RepoRescanButton({
   const router = useRouter();
   const [running, setRunning] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>(null);
+  const hintId = useId();
+  // a11y (ambiguity-ui 2026-07-16 #5): a natively-disabled button leaves the tab order and `title`
+  // is hover-only, so keyboard/SR users found a dead control with no reason. Keep it focusable with
+  // aria-disabled + a click guard, and expose the reason via aria-describedby → sr-only hint.
+  const inert = disabled || running;
 
   async function run() {
+    if (inert) return;
     setRunning(true);
     setOutcome(null);
     try {
@@ -77,15 +83,25 @@ export function RepoRescanButton({
       <button
         type="button"
         onClick={run}
-        disabled={disabled || running}
+        aria-disabled={inert || undefined}
         title={disabled ? disabledHint : `Rescan ${fullName} now — draws 1 credit (free if unchanged)`}
         aria-label={`Rescan ${fullName}`}
-        className="rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        aria-describedby={disabled && disabledHint ? hintId : undefined}
+        className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition focus:border-accent focus:outline-none ${
+          inert ? "cursor-not-allowed opacity-50" : "hover:border-accent hover:text-white"
+        }`}
       >
         {running ? "Scanning…" : "↻ Rescan"}
       </button>
+      {disabled && disabledHint && (
+        <span id={hintId} className="sr-only">
+          {disabledHint}
+        </span>
+      )}
+      {/* Announced outcome: an error interrupts (alert); the credits nudge is polite (status). */}
       {outcome && (
         <span
+          role={outcome.kind === "error" ? "alert" : "status"}
           title={outcome.message}
           className={`max-w-40 truncate font-mono text-sm ${outcome.kind === "credits" ? "text-warn" : "text-danger"}`}
         >

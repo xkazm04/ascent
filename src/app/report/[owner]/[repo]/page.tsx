@@ -107,8 +107,11 @@ async function ReportPermalinkBody({
   const pinned = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug }).catch(() => null);
 
   // No persisted snapshot: confirm before launching a multi-minute live scan, so a shared / example
-  // permalink doesn't auto-scan a repo the visitor only meant to view.
-  if (!pinned) return <ColdScanGate repo={repoRef} />;
+  // permalink doesn't auto-scan a repo the visitor only meant to view. Keep the pinned `@sha` on the
+  // ref handed to the gate — dropping it made "Scan now" score HEAD while the browser URL still read
+  // …@{sha}, presenting a HEAD report under a commit-pinned permalink (the same bug FreshnessControl
+  // was fixed for; the scan flow accepts the owner/name@sha grammar). (repo-report-shell-tabs 07-16 #1)
+  if (!pinned) return <ColdScanGate repo={sha ? `${repoRef}@${sha}` : repoRef} />;
 
   // STD-6 skill history + the App Readiness Passport (P2) are independent of each other, so fetch them
   // concurrently instead of in series — this force-dynamic permalink is the most-shared URL, where TTFB

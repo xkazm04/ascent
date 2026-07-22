@@ -27,7 +27,9 @@ export interface RecommendationPatch {
   targetDate?: string | null;
 }
 
-/** Who made the change + an optional note, recorded on each resulting timeline event. */
+/** Who made the change + an optional note. The note rides the FIRST resulting timeline event (not
+ *  every event — the old per-event copy made one comment read as N comments); when nothing changed,
+ *  it becomes a dedicated "note" event so it is never silently dropped. */
 export interface RecommendationActor {
   actor?: string | null;
   note?: string | null;
@@ -37,8 +39,10 @@ export interface RecommendationActor {
  * Apply a patch (status / assignee / due date) to a recommendation and append an activity-timeline
  * event for each field that actually changed — the ownership-and-history layer behind the backlog.
  * The row update and its events commit in one transaction, so the timeline can never disagree with
- * the current state. A no-op patch (nothing actually changes) writes nothing. Returns null if the
- * DB is disabled; throws Prisma's P2025 when the id doesn't exist (so the route can 404).
+ * the current state. A no-op patch with no note writes nothing. A note always lands somewhere: on
+ * the first change event, or — when the patch changed nothing — as a dedicated "note" event
+ * (roadmap-recommendation-tracking #1: a 200 must never eat a note). Returns null if the DB is
+ * disabled; throws Prisma's P2025 when the id doesn't exist (so the route can 404).
  */
 export async function updateRecommendation(
   id: string,
@@ -75,7 +79,7 @@ export async function updateRecommendation(
   const data: Prisma.RecommendationUpdateManyMutationInput = {};
   const events: Prisma.RecommendationEventCreateManyInput[] = [];
   const event = (kind: RecEventKind, from: string | null, to: string | null) =>
-    events.push({ recommendationId: id, actor, kind, fromValue: from, toValue: to, note });
+    events.push({ recommendationId: id, actor, kind, fromValue: from, toValue: to, note: null });
 
   if (patch.status !== undefined && patch.status !== current.status) {
     data.status = patch.status;
@@ -98,7 +102,16 @@ export async function updateRecommendation(
     }
   }
 
-  // Nothing actually changed — don't write a no-op row update or an empty event.
+  // A note must never be silently discarded: attach it to the FIRST change event only (the old
+  // per-event copy duplicated one comment onto every event), or — when the patch changed nothing —
+  // record it as a dedicated "note" timeline entry.
+  if (note) {
+    const first = events[0];
+    if (first) first.note = note;
+    else events.push({ recommendationId: id, actor, kind: "note", fromValue: null, toValue: null, note });
+  }
+
+  // Nothing actually changed and no note to record — don't write a no-op row update or an empty event.
   if (events.length === 0) return toPersistedRec(current);
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -114,15 +127,19 @@ export async function updateRecommendation(
     // means a concurrent write to one of THIS patch's own fields → throw a tagged conflict the route
     // surfaces as 409 (the whole tx, incl. events + audit, rolls back) so the client refetches and
     // retries, not silently overwrites.
-    const where: Prisma.RecommendationWhereInput = { id };
-    if ("status" in data) where.status = current.status;
-    if ("assigneeLogin" in data) where.assigneeLogin = current.assigneeLogin;
-    if ("targetDate" in data) where.targetDate = current.targetDate;
-    const res = await tx.recommendation.updateMany({ where, data });
-    if (res.count === 0) {
-      throw Object.assign(new Error("Recommendation changed concurrently — refresh and retry."), {
-        code: "REC_CONFLICT",
-      });
+    // A note-only write ("note" event, no field change) skips the row update entirely — there is
+    // nothing to conflict with, and an empty-data updateMany would be a pointless write.
+    if (Object.keys(data).length > 0) {
+      const where: Prisma.RecommendationWhereInput = { id };
+      if ("status" in data) where.status = current.status;
+      if ("assigneeLogin" in data) where.assigneeLogin = current.assigneeLogin;
+      if ("targetDate" in data) where.targetDate = current.targetDate;
+      const res = await tx.recommendation.updateMany({ where, data });
+      if (res.count === 0) {
+        throw Object.assign(new Error("Recommendation changed concurrently — refresh and retry."), {
+          code: "REC_CONFLICT",
+        });
+      }
     }
     await tx.recommendationEvent.createMany({ data: events });
     // Audit IN the same transaction (was a best-effort post-tx recordAudit that could leave a

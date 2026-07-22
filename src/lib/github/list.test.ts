@@ -61,7 +61,8 @@ describe("listOrgRepos — pagination backfill", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const out = await listOrgRepos("acme", 3);
-    expect(out.map((r) => r.name)).toEqual(["a1", "a2", "a3"]); // forks/archived dropped, backfilled from page 2
+    expect(out.repos.map((r) => r.name)).toEqual(["a1", "a2", "a3"]); // forks/archived dropped, backfilled from page 2
+    expect(out.truncated).toBe(false); // `count` was reached — a complete answer
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -72,8 +73,37 @@ describe("listOrgRepos — pagination backfill", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const out = await listOrgRepos("acme", 2);
-    expect(out).toHaveLength(2);
+    expect(out.repos).toHaveLength(2);
+    expect(out.truncated).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // github-repo-data-access (2026-07-16) #5: exhausting the MAX_LIST_PAGES budget with more pages
+  // available used to hand back a short list indistinguishable from "the org has only these repos".
+  it("flags `truncated` when the page budget runs out with a next page still advertised", async () => {
+    // 5 pages (the whole budget), every repo a fork, every page advertising another page.
+    const forkPage = [ghRepo("f", { fork: true })];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(res(forkPage, { headers: { link: '<https://api.github.com/orgs/acme/repos?page=n>; rel="next"' } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await listOrgRepos("acme", 3);
+    expect(out.repos).toEqual([]); // everything filtered, budget exhausted
+    expect(out.truncated).toBe(true); // "we stopped looking", NOT "the org is empty"
+    expect(fetchMock).toHaveBeenCalledTimes(5); // MAX_LIST_PAGES
+  });
+
+  it("does NOT flag `truncated` when pages genuinely run out (no rel=next on the last page)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(res([ghRepo("a1")], { headers: { link: '<x?page=2>; rel="next"' } }))
+      .mockResolvedValueOnce(res([ghRepo("a2")])); // last page: no next link
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await listOrgRepos("acme", 5);
+    expect(out.repos.map((r) => r.name)).toEqual(["a1", "a2"]);
+    expect(out.truncated).toBe(false); // fewer than count, but the org really ended
   });
 });
 
@@ -94,7 +124,7 @@ describe("listOrgRepos — typed error mapping", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const out = await listOrgRepos("someuser", 5);
-    expect(out.map((r) => r.name)).toEqual(["u1"]);
+    expect(out.repos.map((r) => r.name)).toEqual(["u1"]);
   });
 
   it("rejects an invalid handle before any fetch", async () => {

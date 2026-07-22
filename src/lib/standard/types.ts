@@ -25,7 +25,8 @@ export interface GeneratedFile {
 }
 
 /** A tool-neutral capability: the command that fulfils a named ability. `verified` is a claim the
- *  doctor flips to true once it has actually run the command. */
+ *  doctor's `--run` writes back into manifest.yaml: true once it has actually run the command and it
+ *  passed, false when the run fails (so a stale true never outlives a broken command). */
 export interface Capability {
   command: string;
   verified: boolean;

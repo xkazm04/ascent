@@ -48,7 +48,7 @@ export function BadgeReachPanel({ badgeReach }: { badgeReach: BadgeReach | null 
   );
 }
 
-/* Abuse & limits (QUOTA-6): how often the free funnel's guardrails fired — weekly-quota
+/* Abuse & limits (QUOTA-6): how often the free funnel's guardrails fired — monthly-quota
    denials + rate-limit trips. All-time counters; public view only. */
 export function AbuseLimitsPanel({ quotaEvents }: { quotaEvents: QuotaEventTotals | null }) {
   if (!quotaEvents || quotaEvents.total <= 0) return null;

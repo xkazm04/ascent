@@ -17,24 +17,29 @@ export interface LocEntry {
 }
 
 /**
- * Path segments that mark reusable "library" internals. When resolving the
- * default copy target we skip these and land on the call site (the feature/page
- * file that *used* the shared component). Alt+right-click still reaches them.
+ * Repo-relative path PREFIXES of the shared "library" roots. When resolving the
+ * default copy target we skip files under these and land on the call site (the
+ * feature/page file that *used* the shared component). Alt+right-click still
+ * reaches them.
+ *
+ * ANCHORED prefix match, deliberately not an any-segment substring test: a
+ * feature-LOCAL `hooks/` / `utils/` / `ui/` folder (e.g.
+ * `src/components/landing/hooks/…`) is that feature's own code, and the old
+ * substring heuristic classified it as library — silently redirecting the
+ * default right-click copy to a parent file with no HUD signal. This list is a
+ * positive allowlist of the repo's shared roots and MUST track repo layout
+ * when shared code moves (it is a snapshot, not a convention detector).
  */
-const LIBRARY_SEGMENTS = [
-  "/lib/",
-  "/hooks/",
-  "/stores/",
-  "/shared/",
-  "/ui/",
-  "/utils/",
-  "/i18n/",
-  "/_dev-inspector/",
+const LIBRARY_ROOTS = [
+  "src/lib/",
+  "src/components/ui/",
+  "src/components/org/shared/",
+  "src/app/_dev-inspector/",
 ];
 
 export function isLibraryPath(path: string): boolean {
-  const p = `/${path}`;
-  return LIBRARY_SEGMENTS.some((seg) => p.includes(seg));
+  const p = path.replace(/^\.?\//, ""); // tolerate "./src/…" / "/src/…" stamps
+  return LIBRARY_ROOTS.some((root) => p.startsWith(root));
 }
 
 export function parseLoc(raw: string): Omit<LocEntry, "el"> | null {

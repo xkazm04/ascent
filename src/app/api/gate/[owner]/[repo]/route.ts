@@ -9,26 +9,13 @@ import { scanRepository } from "@/lib/scan";
 import { GitHubError } from "@/lib/github/source";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
-import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy } from "@/lib/scoring/gate";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
-
-// Query params that explicitly configure the gate policy on the URL (all consumed by policyFromParams).
-// When ANY is present the caller is overriding the policy per-request; when NONE is, the endpoint falls
-// back to the org's persisted gate policy (ci-gate-status-checks #2).
-const GATE_POLICY_PARAMS = [
-  "min_level",
-  "min_overall",
-  "min_dimension",
-  "no_ungoverned",
-  "require_protection",
-  "security",
-  "min_security",
-] as const;
 
 export async function GET(
   req: Request,
@@ -101,17 +88,20 @@ export async function GET(
       }
     }
 
-    // Policy precedence (ci-gate-status-checks #2): explicit query params override; else the org's
-    // PERSISTED gate policy — the SAME bar the App-mode Check Run + governance fleet view enforce via
-    // getOrgGatePolicy; else the archetype default. Before this, the HTTP gate built its policy ONLY
-    // from query params + archetype default and never consulted the configured org bar, so a team that
-    // saved a strict policy in GatePolicyEditor and wired `curl --fail /api/gate/...` into CI had that
-    // bar silently ignored here while the App check enforced it (the two surfaces disagreeing on the
-    // same repo). DB-less / unknown org / a read error all resolve to null → archetype default.
-    const hasPolicyParams = GATE_POLICY_PARAMS.some((k) => searchParams.has(k));
-    const policy = hasPolicyParams
-      ? policyFromParams(searchParams, report.archetype)
-      : (await getOrgGatePolicy(ownerN).catch(() => null)) ?? policyFromParams(searchParams, report.archetype);
+    // Policy precedence (ci-gate-status-checks #2, hardened by ambiguity-ui 2026-07-16 ci-gate #1):
+    // the org's PERSISTED gate policy — the SAME bar the App-mode Check Run + governance fleet view
+    // enforce via getOrgGatePolicy — is the baseline whenever it exists; explicit query params then
+    // merge ON TOP as a TIGHTEN-ONLY overlay (strictest field wins, see tightenGatePolicy). This
+    // endpoint is unauthenticated, so a param must never WEAKEN or drop the configured org bar:
+    // previously ANY single policy param (e.g. ?min_overall=60) replaced the whole persisted policy
+    // with params + archetype defaults, silently shedding the org's D9 floor / protection rule and
+    // letting an anonymous caller (or a PR author editing the workflow URL) pass ?min_dimension=1 for
+    // a green verdict the org never configured. With no persisted policy (DB-less / unknown org / a
+    // read error → null) params override the archetype default per-field, exactly as before.
+    const orgPolicy = await getOrgGatePolicy(ownerN).catch(() => null);
+    const policy = orgPolicy
+      ? tightenGatePolicy(orgPolicy, explicitPolicyFromParams(searchParams))
+      : policyFromParams(searchParams, report.archetype);
     const gate = evaluateGate(report, policy);
 
     // HONESTY GUARD (ci-gate-status-checks #2): the machine-readable verdict must never present a

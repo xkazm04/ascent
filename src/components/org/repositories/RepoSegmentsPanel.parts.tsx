@@ -5,7 +5,12 @@
 // className strings, comments, and handlers — just parameterized by props the panel already had in
 // scope. No behavior change; all state still lives in RepoSegmentsPanel.
 
+import { readableTextOn } from "@/lib/ui";
 import type { SegmentItem, RepoItem } from "@/components/org/repositories/RepoSegmentsPanel";
+
+// Mirrors SEGMENT_NAME_MAX in src/lib/db/segments.ts — the server now REJECTS (400) longer names
+// instead of silently truncating, so the inputs must stop the user at the same bound.
+const NAME_MAX = 60;
 
 export const PALETTE = ["#3b9eff", "#84cc16", "#f97316", "#a855f7", "#ec4899", "#14b8a6", "#eab308", "#64748b"];
 
@@ -81,6 +86,7 @@ export function SegmentEditor({
           if (e.key === "Enter") saveEdit(editingId);
           if (e.key === "Escape") setEditingId(null);
         }}
+        maxLength={NAME_MAX}
         autoFocus
         aria-label="Segment name"
         className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200"
@@ -202,6 +208,7 @@ export function CreateSegmentRow({
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && createSegment()}
+        maxLength={NAME_MAX}
         placeholder="New segment name"
         className="min-w-[10rem] flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 placeholder:text-slate-600"
       />
@@ -265,7 +272,10 @@ export function RepoTaggingList({
                       className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-sm transition"
                       style={
                         on
-                          ? { backgroundColor: s.color, borderColor: s.color, color: "#04070e" }
+                          ? // repositories-segments #5: the API accepts ANY valid hex (not just the
+                            // light in-app palette), so pick the label ink by luminance — fixed
+                            // near-black on e.g. #0b1220 was an unreadable chip.
+                            { backgroundColor: s.color, borderColor: s.color, color: readableTextOn(s.color) }
                           : { borderColor: "#334155", color: "#94a3b8" }
                       }
                     >

@@ -7,7 +7,7 @@
 // actually live in. Optimistic with rollback (mirrors the connect list's toggleWatch pattern).
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { SCHEDULES as OPTIONS, type Schedule } from "@/components/connect/installationRepoTypes";
 
 function normalize(s: string): Schedule {
@@ -32,8 +32,15 @@ export function ScheduleSelect({
   const [value, setValue] = useState<Schedule>(normalize(schedule));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hintId = useId();
+  // a11y (ambiguity-ui 2026-07-16 #5): a natively-disabled select leaves the tab order and `title`
+  // is hover-only — keyboard/SR users found a dead control with no reason. Keep it focusable with
+  // aria-disabled + a change guard (the controlled value simply doesn't move), and expose the
+  // reason via aria-describedby → sr-only hint.
+  const inert = disabled || saving;
 
   async function onChange(next: Schedule) {
+    if (inert) return;
     const prev = value;
     setValue(next); // optimistic
     setSaving(true);
@@ -64,11 +71,14 @@ export function ScheduleSelect({
     <span className="inline-flex flex-col items-start gap-0.5">
       <select
         value={value}
-        disabled={disabled || saving}
+        aria-disabled={inert || undefined}
         title={disabled ? disabledHint : undefined}
         onChange={(e) => onChange(normalize(e.target.value))}
         aria-label={`Autoscan cadence for ${fullName}`}
-        className="rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition hover:border-accent focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        aria-describedby={disabled && disabledHint ? hintId : undefined}
+        className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 font-mono text-sm text-slate-300 transition focus:border-accent focus:outline-none ${
+          inert ? "cursor-not-allowed opacity-50" : "hover:border-accent"
+        }`}
       >
         {OPTIONS.map((o) => (
           <option key={o} value={o}>
@@ -76,7 +86,17 @@ export function ScheduleSelect({
           </option>
         ))}
       </select>
-      {error && <span className="font-mono text-sm text-red-400">{error}</span>}
+      {disabled && disabledHint && (
+        <span id={hintId} className="sr-only">
+          {disabledHint}
+        </span>
+      )}
+      {/* Announced rollback error, on the semantic danger token (was silent text-red-400). */}
+      {error && (
+        <span role="alert" className="font-mono text-sm text-danger">
+          {error}
+        </span>
+      )}
     </span>
   );
 }

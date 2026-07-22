@@ -424,6 +424,28 @@ describe("playbooks steps serializer — cleanSteps bounds (via createPlaybook)"
   });
 });
 
+describe("playbooks single-line invariant — embedded newlines collapse (ambiguity-ui 07-16 playbooks #2)", () => {
+  it("a \\n-bearing step is collapsed to one line (markdown renders it as ONE `- [ ] …` checkbox)", async () => {
+    const fx = fakeStepsPrisma();
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    // Raw-JSON API callers can send inner newlines the modal UI can't produce.
+    await createPlaybook("acme", { title: "T", dimId: "D5", steps: ["run lint\n  then fix", "a\n\nb"] });
+
+    expect(JSON.parse(fx.serialized())).toEqual(["run lint then fix", "a b"]);
+  });
+
+  it("a \\n-bearing title is collapsed to one line (H1 / PR title / commit message stay intact)", async () => {
+    const fx = fakeStepsPrisma();
+    const create = fx.handle.playbook.create as ReturnType<typeof vi.fn>;
+    mockGetPrisma.mockReturnValue(fx.handle);
+
+    await createPlaybook("acme", { title: "Adopt CI\ngates everywhere", dimId: "D5" });
+
+    expect(create.mock.calls[0][0].data.title).toBe("Adopt CI gates everywhere");
+  });
+});
+
 describe("playbooks steps serializer — parseSteps safe-default (via getPlaybook)", () => {
   it("returns [] for malformed stored JSON instead of throwing (one bad row can't 500 the route)", async () => {
     const fx = fakeStepsPrisma();

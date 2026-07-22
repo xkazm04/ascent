@@ -7,10 +7,10 @@
 
 import { AbsoluteFill, useCurrentFrame, interpolate } from "remotion";
 import { NODES, GLINKS, NODE_ADOPT, HEAL } from "./graph";
-import { MONO, clamp01, Metric, lerpHex, W, H } from "../compositionShared";
+import { ACCENT, ACCENT_FAINT, ACCENT_SOFT, INK, MONO, WEAK, clamp01, Metric, lerpHex, W, H } from "../compositionShared";
 
-// Weak (#f87171) → strong (#3b9eff) link color, via the shared channel-wise lerp.
-const mix = (t: number): string => lerpHex("#f87171", "#3b9eff", t);
+// Weak (WEAK red) → strong (brand ACCENT) link color, via the shared channel-wise lerp.
+const mix = (t: number): string => lerpHex(WEAK, ACCENT, t);
 
 export const ChampionComposition: React.FC = () => {
   const frame = useCurrentFrame();
@@ -21,7 +21,7 @@ export const ChampionComposition: React.FC = () => {
   return (
     <AbsoluteFill
       style={{
-        backgroundColor: "#080d1a",
+        backgroundColor: INK,
         backgroundImage: "radial-gradient(60% 60% at 50% 28%, rgba(59,158,255,0.08), transparent 70%)",
       }}
     >
@@ -53,7 +53,7 @@ export const ChampionComposition: React.FC = () => {
               cx={interpolate(p, [0, 1], [a.x, b.x])}
               cy={interpolate(p, [0, 1], [a.y, b.y])}
               r={4.5}
-              fill="#cfe6ff"
+              fill={ACCENT_FAINT}
               opacity={interpolate(p, [0, 0.2, 0.8, 1], [0, 1, 1, 0])}
             />
           );
@@ -62,25 +62,25 @@ export const ChampionComposition: React.FC = () => {
           const at = clamp01((frame - NODE_ADOPT[i]!) / 12);
           const adopted = frame >= NODE_ADOPT[i]!;
           const r = n.champion ? 12 : 6.5;
-          const fill = n.champion ? "#3b9eff" : adopted ? "#7bbcff" : "#475569";
+          const fill = n.champion ? ACCENT : adopted ? ACCENT_SOFT : "#475569";
           return (
             <g key={i}>
               {at > 0 && at < 1 && (
-                <circle cx={n.x} cy={n.y} r={interpolate(at, [0, 1], [r, r + 22])} fill="none" stroke="#3b9eff" strokeWidth={1.5} opacity={interpolate(at, [0, 1], [0.7, 0])} />
+                <circle cx={n.x} cy={n.y} r={interpolate(at, [0, 1], [r, r + 22])} fill="none" stroke={ACCENT} strokeWidth={1.5} opacity={interpolate(at, [0, 1], [0.7, 0])} />
               )}
-              {n.champion && <circle cx={n.x} cy={n.y} r={r + 7} fill="none" stroke="#3b9eff" strokeOpacity={0.3} strokeWidth={2} />}
-              <circle cx={n.x} cy={n.y} r={r} fill={fill} stroke={n.champion ? "#cfe6ff" : "#0b1322"} strokeWidth={n.champion ? 2 : 1} />
+              {n.champion && <circle cx={n.x} cy={n.y} r={r + 7} fill="none" stroke={ACCENT} strokeOpacity={0.3} strokeWidth={2} />}
+              <circle cx={n.x} cy={n.y} r={r} fill={fill} stroke={n.champion ? ACCENT_FAINT : "#0b1322"} strokeWidth={n.champion ? 2 : 1} />
             </g>
           );
         })}
       </svg>
 
       <div style={{ position: "absolute", left: 36, top: 32, fontFamily: MONO }}>
-        <div style={{ color: "#3b9eff", fontSize: 32, letterSpacing: 3, textTransform: "uppercase" }}>Practices spreading</div>
+        <div style={{ color: ACCENT, fontSize: 32, letterSpacing: 3, textTransform: "uppercase" }}>Practices spreading</div>
       </div>
       <div style={{ position: "absolute", right: 36, top: 28, display: "flex", gap: 44, textAlign: "right", fontFamily: MONO }}>
-        <Metric label="weak links" value={weakRemaining} color="#f87171" />
-        <Metric label="adoption" value={`${adoptionPct}%`} color="#3b9eff" />
+        <Metric label="weak links" value={weakRemaining} color={WEAK} />
+        <Metric label="adoption" value={`${adoptionPct}%`} color={ACCENT} />
       </div>
     </AbsoluteFill>
   );

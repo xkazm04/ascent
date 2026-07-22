@@ -56,7 +56,7 @@ export async function POST(request: Request) {
   const fresh = Boolean(body.fresh);
   const parsed = parseRepoUrl(url);
   // Reject a provably-invalid URL BEFORE the quota block below: scanRepository would throw
-  // INVALID_URL anyway, but only after the weekly slot was consumed — a typo must not burn one of
+  // INVALID_URL anyway, but only after the monthly slot was consumed — a typo must not burn one of
   // the anonymous tier's free slots. Mirrors the JSON route's INVALID_URL → 400 mapping.
   if (!parsed) {
     return NextResponse.json(
@@ -93,7 +93,9 @@ export async function POST(request: Request) {
       ? (isValidEmail(viewer.email) ? viewer.email : undefined)
       : (isValidEmail(body.email) ? body.email.trim() : undefined);
 
-  // Weekly SOFT gate: public scans get a free per-window allowance (shared with /api/scan via
+  // Monthly SOFT gate (rolling 30-day window, default 5 — src/lib/public-scan-quota.ts is the single
+  // source of truth for the window and allowance): public scans get a free per-window allowance
+  // (shared with /api/scan via
   // consumeScanQuota). The /report flow peeks the cache first (cheap, unconsumed); reaching the stream
   // means a real scan, so consume one slot here. Private (token) scans are credit-metered and skip this.
   const quota = await consumeScanQuota(request, { orgSlug, token, mock });
@@ -178,9 +180,17 @@ export async function POST(request: Request) {
         // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto a
         // single run, so a double-mount / peek-then-stream / two tabs don't each pay a full ingest+LLM.
         // The token path is per-tenant — never shared — so it scans directly.
+        // A JOINER shares the owner's computation, so the slot it consumed above buys nothing — refund
+        // it ("meter on commit, not attempt", the rule the credit side honors via `deduped`). Without
+        // this, two tabs racing the same commit paid 2 of the 5 monthly slots for one shared report,
+        // while landing 1s after completion (a cache hit) paid 1. (scan-pipeline-ingestion #4)
+        let joinedInflight = false;
         const report = lookup
-          ? await coalesceScan(lookup.cacheKey, runScan, request.signal)
+          ? await coalesceScan(lookup.cacheKey, runScan, request.signal, () => {
+              joinedInflight = true;
+            })
           : await runScan(request.signal);
+        if (joinedInflight) await refundQuota();
 
         // Derive the cache-poisoning guards — shared with /api/scan via classifyScanResult.
         // degradedToMock: a transient LLM failure fell back to MockProvider but the lookup key is still
@@ -226,8 +236,8 @@ export async function POST(request: Request) {
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;
         // No report was delivered — 404/typo, upstream failure, or a client abort mid-scan. Refund
-        // the weekly slot in every case: the user received nothing, and a mid-scan refresh or a
-        // GitHub blip must not burn one of the anonymous tier's 3 free slots.
+        // the monthly slot in every case: the user received nothing, and a mid-scan refresh or a
+        // GitHub blip must not burn one of the free tier's monthly slots.
         await refundQuota();
         // A deliberate abort (client disconnect / scan timeout) is not a scan error to report — the
         // consumer is already gone and the scan stopped as intended. Don't emit a misleading
@@ -262,8 +272,8 @@ export async function POST(request: Request) {
     headers: {
       ...SSE_HEADERS,
       connection: "keep-alive",
-      // Free public scans left in this IP's rolling weekly window (after this scan), plus when the
-      // window resets; only set when the weekly gate enforced (anonymous public). Lets the client
+      // Free public scans left in this bucket's rolling 30-day window (after this scan), plus when the
+      // window resets; only set when the monthly gate enforced (public funnel). Lets the client
       // warn before the gate trips.
       ...(quotaRemaining !== null ? { "x-ascent-quota-remaining": String(quotaRemaining) } : {}),
       ...(quotaResetAt !== null ? { "x-ascent-quota-reset": String(quotaResetAt) } : {}),

@@ -6,6 +6,12 @@ import { NextResponse } from "next/server";
 import { deleteGoal, getGoalOrgSlug, isDbConfigured, updateGoal } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { invalidTargetDate } from "@/lib/api/orgPlan";
+import { GOAL_STATUSES } from "@/lib/types";
+
+// Goal status whitelist — parity with the initiatives PATCH (which validates against REC_STATUSES).
+// updateGoal writes status verbatim, so without this gate any string ("banana", a spoofed
+// "achieved") would persist (goals-initiatives #1).
+const STATUSES = new Set<string>(GOAL_STATUSES);
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +41,9 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     targetDate?: string | null;
     expected?: { status?: string; target?: number; label?: string; targetDate?: string | null };
   };
+  if (body.status !== undefined && !STATUSES.has(body.status)) {
+    return NextResponse.json({ error: `status must be one of: ${[...STATUSES].join(", ")}.` }, { status: 400 });
+  }
   // Maturity metrics are always 0..100; reject an out-of-range target on update too (matches POST) so a
   // patched goal can't drift into >100% / permanently-"Behind" state.
   if (body.target != null && (!Number.isFinite(body.target) || body.target < 0 || body.target > 100)) {

@@ -209,6 +209,20 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  // Whitelist parity with the initiatives PATCH (goals-initiatives 07-16 #1): updateGoal writes
+  // status verbatim, so the route must reject anything outside GOAL_STATUSES before the DB.
+  it("rejects a bogus status with 400 after the gate, DB untouched (status whitelist)", async () => {
+    const res = await patchGoal("goal-1", { status: "banana" });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("accepts a whitelisted status ('achieved')", async () => {
+    const res = await patchGoal("goal-1", { status: "achieved" });
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+  });
+
   it("maps a Prisma P2025 to 404 (not 500) on update", async () => {
     mockUpdate.mockRejectedValue(Object.assign(new Error("not found"), { code: "P2025" }));
     const res = await patchGoal("goal-1", { label: "x" });

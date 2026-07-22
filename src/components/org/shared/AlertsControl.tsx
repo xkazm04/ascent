@@ -34,6 +34,9 @@ export function AlertsControl({ org }: { org: string }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // Dismiss on outside click / Escape. Deliberately does NOT reset the form state: the component
+  // stays mounted, so an accidentally-dismissed dirty draft (webhook pasted, test sent, clicked
+  // elsewhere) is still there on reopen instead of being silently discarded. (ambiguity-ui #4)
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -137,11 +140,15 @@ export function AlertsControl({ org }: { org: string }) {
     }
   }
 
-  // Save is meaningful when there's a webhook to store OR a threshold field changed (thresholds save
-  // independently of the sink — the fix that lets a global-sink org tune sensitivity with no webhook).
+  // Save is meaningful only when something actually CHANGED (a touched webhook or a threshold field —
+  // thresholds save independently of the sink, the fix that lets a global-sink org tune sensitivity
+  // with no webhook). A pristine form disables Save: an always-enabled Save on an unchanged webhook
+  // read as "there's something left to do" and blurred the test-vs-save distinction below.
+  // (ambiguity-ui 2026-07-16 #4)
   const webhookTouched = webhookUrl.trim() !== initialWebhook.trim();
   const thresholdsChanged = overallDrop !== initialOverallDrop || dimensionDrop !== initialDimensionDrop;
-  const canSave = webhookUrl.trim() !== "" || thresholdsChanged;
+  const dirty = webhookTouched || thresholdsChanged;
+  const canSave = dirty;
 
   async function save() {
     const payload: Record<string, unknown> = {
@@ -174,8 +181,19 @@ export function AlertsControl({ org }: { org: string }) {
   async function test() {
     // Send the URL currently in the form so "Send test" validates the CANDIDATE webhook the admin is
     // editing — not the previously-saved sink. A blank field tests the org's resolved/saved sink.
+    // When the form is dirty, the success notice must NOT read like a terminal confirmation:
+    // "delivered ✓" alone sounded like the webhook was configured, so admins clicked away (the popover
+    // dismisses on any outside click) with the URL never saved — discovered weeks later when a real
+    // regression landed in the wrong channel. (ambiguity-ui 2026-07-16 #4)
     const d = await post({ test: true, webhookUrl }, "test");
-    if (d) setNotice(d.delivered ? "Test alert delivered ✓" : d.error ?? "No sink configured.");
+    if (d)
+      setNotice(
+        d.delivered
+          ? dirty
+            ? "Test alert delivered ✓ — not saved yet. Click Save to apply."
+            : "Test alert delivered ✓"
+          : d.error ?? "No sink configured.",
+      );
   }
 
   return (
@@ -220,7 +238,15 @@ export function AlertsControl({ org }: { org: string }) {
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 outline-none focus:border-accent"
               />
 
-              <div className="mt-3 text-sm text-slate-400">Regression sensitivity (points) — blank inherits the default.</div>
+              {/* Scope the copy honestly: these thresholds tune the PER-REPO regression alerts only
+                  (scan-alerts.ts). The weekly digest's "Regressions:" list is gated by the global
+                  noise band, a deliberate split documented in the digest route — without this line an
+                  admin reasonably concludes the fields tune the digest too, changes them, and watches
+                  "nothing happen". (ambiguity-ui 2026-07-16 #2) */}
+              <div className="mt-3 text-sm text-slate-400">
+                Regression sensitivity (points) — applies to per-repo regression alerts; blank inherits the default.
+                The weekly digest keeps its own fleet-wide noise band.
+              </div>
               <div className="mt-1.5 flex flex-wrap gap-3">
                 <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
                   overall drop
@@ -276,6 +302,10 @@ export function AlertsControl({ org }: { org: string }) {
                   </button>
                 )}
               </div>
+              {/* Standing dirty-state cue: the dialog closes on ANY outside click/Escape, so a form
+                  with unapplied edits needs a visible marker that outlasts a transient notice.
+                  (ambiguity-ui 2026-07-16 #4) */}
+              {dirty && <div className="mt-2 font-mono text-xs text-warn">Unsaved changes — Save to apply.</div>}
               {/* fleet-alerts-digests #6: a PERSISTENT polite live region so Save / Clear / Send-test
                   results (and errors) are announced to screen readers. Previously these were plain
                   <p>s that mounted on demand — no SR voiced them, so a keyboard/SR admin got no

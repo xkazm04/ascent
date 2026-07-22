@@ -10,6 +10,7 @@ import {
   digestHasSignal,
   isAlertConfigured,
   isLowCreditsCrossing,
+  ordinal,
   regressionCooldownMs,
   resolveAlertWebhook,
   validateAlertWebhookUrl,
@@ -169,17 +170,27 @@ describe("buildRegressionMessage", () => {
   });
 });
 
-describe("isLowCreditsCrossing", () => {
-  it("fires exactly on the threshold and on zero, nowhere else", () => {
-    expect(isLowCreditsCrossing(5, 5)).toBe(true);
-    expect(isLowCreditsCrossing(0, 5)).toBe(true);
-    expect(isLowCreditsCrossing(6, 5)).toBe(false);
-    expect(isLowCreditsCrossing(4, 5)).toBe(false);
-    expect(isLowCreditsCrossing(1, 5)).toBe(false);
+describe("isLowCreditsCrossing (range-based: before → after)", () => {
+  it("fires when a debit crosses the threshold line or depletion, nowhere else", () => {
+    expect(isLowCreditsCrossing(6, 5, 5)).toBe(true); // lands ON the line
+    expect(isLowCreditsCrossing(1, 0, 5)).toBe(true); // depletion
+    expect(isLowCreditsCrossing(7, 6, 5)).toBe(false); // still above
+    expect(isLowCreditsCrossing(5, 4, 5)).toBe(false); // already at/below — crossed earlier
+    expect(isLowCreditsCrossing(2, 1, 5)).toBe(false);
+  });
+  it("fires when a MULTI-CREDIT debit steps OVER the line without landing on it (the old equality missed this)", () => {
+    expect(isLowCreditsCrossing(8, 3, 5)).toBe(true); // 8 → 3 skips 5 entirely
+    expect(isLowCreditsCrossing(4, 0, 5)).toBe(true); // below threshold → depleted
+    expect(isLowCreditsCrossing(8, 0, 5)).toBe(true); // one debit, both lines — one alert
+  });
+  it("a non-debit observation (grant/refund/no-op) never alerts", () => {
+    expect(isLowCreditsCrossing(3, 12, 5)).toBe(false); // top-up
+    expect(isLowCreditsCrossing(5, 5, 5)).toBe(false); // no movement
+    expect(isLowCreditsCrossing(0, 0, 5)).toBe(false);
   });
   it("a zero threshold fires only at depletion (and only once)", () => {
-    expect(isLowCreditsCrossing(0, 0)).toBe(true);
-    expect(isLowCreditsCrossing(1, 0)).toBe(false);
+    expect(isLowCreditsCrossing(1, 0, 0)).toBe(true);
+    expect(isLowCreditsCrossing(2, 1, 0)).toBe(false);
   });
 });
 
@@ -238,6 +249,23 @@ describe("buildFleetDigestMessage credits line", () => {
   it("omits it for unmetered / healthy orgs (null or undefined)", () => {
     expect(buildFleetDigestMessage(base).text).not.toContain("Credits remaining");
     expect(buildFleetDigestMessage({ ...base, creditsRemaining: null }).text).not.toContain("Credits remaining");
+  });
+  it("renders the percentile as a correct English ordinal (no '21th')", () => {
+    expect(buildFleetDigestMessage({ ...base, percentile: 21 }).text).toContain("21st pctile");
+    expect(buildFleetDigestMessage({ ...base, percentile: 52 }).text).toContain("52nd pctile");
+    expect(buildFleetDigestMessage({ ...base, percentile: 11 }).text).toContain("11th pctile");
+  });
+});
+
+describe("ordinal", () => {
+  it("handles st/nd/rd, the 11–13 teens, and round numbers", () => {
+    const cases: [number, string][] = [
+      [1, "1st"], [2, "2nd"], [3, "3rd"], [4, "4th"],
+      [11, "11th"], [12, "12th"], [13, "13th"],
+      [21, "21st"], [22, "22nd"], [23, "23rd"],
+      [100, "100th"], [0, "0th"], [91, "91st"],
+    ];
+    for (const [n, want] of cases) expect(ordinal(n)).toBe(want);
   });
 });
 

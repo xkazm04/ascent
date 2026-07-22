@@ -6,7 +6,9 @@ import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
-import { demoOrgHref, SITE_TAGLINE_TITLE } from "@/lib/site";
+import { demoOrgHref } from "@/lib/site";
+import { SiteFooterCore } from "@/components/SiteFooterCore";
+import { HEADER_INNER, HEADER_NAV, HEADER_SHELL, MarketingNavLinks } from "@/components/StaticNav";
 import { scoreHex } from "@/lib/ui";
 
 /** Generated ascending-chevron mark + mono wordmark (Altimeter identity). */
@@ -136,23 +138,16 @@ async function OrgEntryLink() {
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-30 border-b border-divider/70 bg-ink/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
+    <header className={HEADER_SHELL}>
+      <div className={HEADER_INNER}>
         <Link href="/" className="focus-ring rounded-sm">
           <Logo />
         </Link>
-        <nav className="flex items-center gap-3 font-mono text-sm uppercase tracking-widest text-slate-400 sm:gap-6">
+        <nav className={HEADER_NAV}>
           {/* Page-level nav only — section links (Levels / Method / Pricing) live inside the deck's
-              right-edge section nav now, not the topbar. */}
-          <Link href="/leaderboard" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
-            Leaderboard
-          </Link>
-          <Link href="/pricing" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
-            Pricing
-          </Link>
-          <Link href="/about" className="focus-ring hidden rounded-sm hover:text-white sm:inline">
-            About
-          </Link>
+              right-edge section nav now, not the topbar. The static link list is shared with the
+              404's StaticHeader via StaticNav so the two can't drift. */}
+          <MarketingNavLinks />
           <OrgEntryLink />
           <HeaderAccount />
         </nav>
@@ -194,7 +189,7 @@ export function OrgHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-divider/70 bg-ink/80 backdrop-blur">
+    <header className={HEADER_SHELL}>
       <div className={`${ORG_SHELL} flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3`}>
         <div className="flex min-w-0 items-center gap-3">
           <Link href="/" className="focus-ring shrink-0 rounded-sm" title="Ascent home">
@@ -231,30 +226,12 @@ export function OrgHeader({
 }
 
 export function SiteFooter() {
+  // Content (brand slot aside) is single-sourced in SiteFooterCore — shared with /about's inline
+  // client footer (AboutCTA), which can't import this server component.
   return (
     <footer className="mt-auto border-t border-divider/70 py-8 text-center text-base text-slate-400">
       <div className="mx-auto max-w-6xl px-5">
-        <Logo className="justify-center opacity-80" />
-        <p className="mt-3 font-mono text-sm uppercase tracking-widest text-slate-400">
-          {SITE_TAGLINE_TITLE}
-        </p>
-        <div className="mt-3 flex justify-center gap-5 font-mono text-sm uppercase tracking-widest text-slate-400">
-          <Link href="/leaderboard" className="focus-ring rounded-sm hover:text-accent">
-            Leaderboard
-          </Link>
-          <Link href="/badge" className="focus-ring rounded-sm hover:text-accent">
-            Badge
-          </Link>
-          <Link href="/connect" className="focus-ring rounded-sm hover:text-accent">
-            Connect
-          </Link>
-          <Link href="/usage" className="focus-ring rounded-sm hover:text-accent">
-            Usage
-          </Link>
-        </div>
-        <p className="mt-3 text-sm text-slate-500">
-          Built on Vercel + Aurora DSQL · #H0Hackathon
-        </p>
+        <SiteFooterCore brand={<Logo className="justify-center opacity-80" />} />
       </div>
     </footer>
   );

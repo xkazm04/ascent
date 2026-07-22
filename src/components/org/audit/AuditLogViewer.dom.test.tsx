@@ -9,9 +9,9 @@
 // jest-dom matchers + auto-cleanup come from vitest.setup.dom.js. next/link is mocked to a plain
 // anchor so the scan-detail permalink renders without an App Router context.
 
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { createElement, type ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AuditLogEntry, AuditLogPage } from "@/lib/db";
 
 vi.mock("next/link", () => ({
@@ -41,6 +41,39 @@ describe("AuditLogViewer — unified empty state", () => {
     render(<AuditLogViewer org="acme" initial={page([])} />);
     expect(screen.getByText("No audit entries")).toBeInTheDocument();
     expect(screen.getByText("No entries match this filter.")).toBeInTheDocument();
+  });
+});
+
+// security-posture-audit-log 2026-07-16 #5: the CSV link must follow the APPLIED filter set (what the
+// table shows), never raw input state — typing an actor without pressing Apply previously changed the
+// export while the on-screen rows stayed put (filed evidence ≠ reviewed rows). Enter in a filter field
+// must submit (the row is a real <form> now).
+describe("AuditLogViewer — CSV follows the applied filters (#5)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const csvLink = () => screen.getByTitle("Download all matching entries as CSV") as HTMLAnchorElement;
+
+  it("typing an actor WITHOUT applying does not change the CSV href", () => {
+    render(<AuditLogViewer org="acme" initial={page([entry()])} />);
+    const before = csvLink().getAttribute("href");
+    fireEvent.change(screen.getByLabelText("Filter by actor"), { target: { value: "mallory" } });
+    expect(csvLink().getAttribute("href")).toBe(before); // unapplied input never leaks into the export
+    expect(before).not.toContain("actorId=");
+  });
+
+  it("pressing Enter in the actor field applies the filter — table load AND CSV href agree", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ entries: [], nextCursor: null }) }) as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    render(<AuditLogViewer org="acme" initial={page([entry()])} />);
+    const input = screen.getByLabelText("Filter by actor");
+    fireEvent.change(input, { target: { value: "mallory" } });
+    fireEvent.submit(input.closest("form")!); // Enter in the field submits the form
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("actorId=mallory");
+    expect(csvLink().getAttribute("href")).toContain("actorId=mallory"); // now — and only now — the CSV follows
   });
 });
 

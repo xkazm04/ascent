@@ -78,6 +78,44 @@ describe("parseRepoUrl — valid forms parse to the correct {owner, repo}", () =
   }
 });
 
+describe("parseRepoUrl — deep-link intent is surfaced, not silently discarded (github-repo-data-access 07-16 #4)", () => {
+  // A pasted PR/branch/commit URL used to parse to bare {owner, repo} and scan the DEFAULT branch
+  // with no signal the deep-link part was ignored. Unambiguous intent now rides along as
+  // `prNumber`/`ref` so callers can pin FetchOptions.ref or tell the user what will actually scan.
+
+  it("extracts the PR number from a pasted /pull/<n> URL", () => {
+    const out = parseRepoUrl("https://github.com/o/r/pull/123");
+    expect(out).toEqual({ owner: "o", repo: "r", prNumber: 123 });
+    assertSafe(out);
+    expect(parseRepoUrl("o/r/pull/7")).toEqual({ owner: "o", repo: "r", prNumber: 7 }); // bare shorthand too
+  });
+
+  it("extracts a single-segment /tree/<ref> branch, lowercases a /commit/<sha>", () => {
+    expect(parseRepoUrl("https://github.com/o/r/tree/my-branch")).toEqual({ owner: "o", repo: "r", ref: "my-branch" });
+    expect(parseRepoUrl(`https://github.com/o/r/commit/${"ABC1234".padEnd(40, "0")}`)).toEqual({
+      owner: "o",
+      repo: "r",
+      ref: "abc1234".padEnd(40, "0"),
+    });
+  });
+
+  it("leaves AMBIGUOUS shapes unset: multi-segment /tree/a/b, /blob/<ref>/<path>, non-numeric pull, unknown segments", () => {
+    // A branch containing "/" is indistinguishable from a subdirectory without the repo's ref list.
+    expect(parseRepoUrl("https://github.com/o/r/tree/main/src")).toEqual({ owner: "o", repo: "r" });
+    expect(parseRepoUrl("https://github.com/o/r/blob/main/README.md")).toEqual({ owner: "o", repo: "r" });
+    expect(parseRepoUrl("https://github.com/o/r/pull/abc")).toEqual({ owner: "o", repo: "r" });
+    expect(parseRepoUrl("https://github.com/o/r/releases")).toEqual({ owner: "o", repo: "r" });
+  });
+
+  it("never lets a hostile deep-link segment become a ref (same charset/traversal guard as the coordinates)", () => {
+    expect(parseRepoUrl("https://github.com/o/r/tree/..")).toEqual({ owner: "o", repo: "r" });
+    expect(parseRepoUrl("https://github.com/o/r/commit/deadbeef;rm")).toEqual({ owner: "o", repo: "r" });
+    const out = parseRepoUrl("owner/repo/../x"); // the pinned traversal quirk keeps its exact shape
+    expect(out).toEqual({ owner: "owner", repo: "repo" });
+    assertSafe(out);
+  });
+});
+
 describe("parseRepoUrl — SSRF / injection vectors are rejected (return null)", () => {
   // The CORE security set. Each of these, if it slipped through, would rewrite the GitHub request path.
   const reject: Array<[string, string]> = [
@@ -541,19 +579,18 @@ describe("fetchBranchGovernance — rule extraction + the readable-vs-null contr
     expect(gov!.ruleCount).toBe(1);
   });
 
-  it("one call 200 / one 404 → readable:true object (a partial read is still authoritative, not null)", async () => {
-    // branch 200, rules 404: readable === (200 || 404===200) === true. The rules array is empty (404
-    // body isn't an array) so PR flags are false — but the result is a real object, NOT the null="unknown".
+  it("branch 200 / rules 404 → null (a failed rulesets read is 'rules unknown', never fabricated 'no rules')", async () => {
+    // PREVIOUSLY pinned the opposite: a rules-read failure yielded a readable:true object with
+    // ruleCount:0 — a confident false negative on 6 ruleset-derived signals for exactly the
+    // restricted-token repos most likely to deny the rules API. The rulesets read now gets the same
+    // guard as the branch read: non-200 (or non-array body) → governance unknown → null.
+    // A 200 with a genuinely empty array remains a real "no rules" (test above).
+    // (ambiguity-ui-scan-2026-07-16 github-repo-data-access #1)
     vi.stubGlobal(
       "fetch",
       makeGovFetch({ status: 200, body: { protected: true } }, { status: 404, body: { message: "Not Found" } }),
     );
-    const gov = await fetchBranchGovernance("o", "r", "main", "tok");
-    expect(gov).not.toBeNull();
-    expect(gov!.readable).toBe(true);
-    expect(gov!.protected).toBe(true);
-    expect(gov!.requiresPullRequest).toBe(false);
-    expect(gov!.ruleCount).toBe(0);
+    expect(await fetchBranchGovernance("o", "r", "main", "tok")).toBeNull();
   });
 
   it("the protection-bearing branch read DENIED (branch 404 / rules 200) → null, NOT a false protected:false (github-repo-data-access #4)", async () => {

@@ -1,11 +1,12 @@
 "use client";
 
-// EXEC-5: owner-only (Team plan and up) form to white-label the executive-briefing PDF — brand name,
-// accent colour, logo URL. POSTs to /api/org/branding; values are validated server-side. Collapsed by default.
+// EXEC-5: owner-only (Team plan and up) form to white-label the client-facing briefing deliverables
+// (the PDF + the anonymous /share/briefing/[token] page) — brand name, accent colour, logo URL.
+// POSTs to /api/org/branding; values are validated server-side. Collapsed by default.
 
 import { useState } from "react";
 import type { OrgBranding } from "@/lib/db/branding";
-import { HEX_COLOR_RE } from "@/lib/branding/color";
+import { DEFAULT_BRAND_ACCENT, HEX_COLOR_RE } from "@/lib/branding/color";
 
 /** WCAG relative luminance (0 = black … 1 = white) of a `#rrggbb` colour; NaN for a malformed one. */
 function luminance(hex: string): number {
@@ -41,15 +42,27 @@ export function accentContrastWarning(hex: string): string | null {
 
 export function BrandingSettings({ slug, initial }: { slug: string; initial: OrgBranding }) {
   const [brandName, setBrandName] = useState(initial.brandName ?? "");
-  const [brandColor, setBrandColor] = useState(initial.brandColor ?? "#2563eb");
+  const [brandColor, setBrandColor] = useState(initial.brandColor ?? DEFAULT_BRAND_ACCENT);
+  // org-branding #2: `<input type="color">` cannot express "unset", so the picker's visible default
+  // must not be conflated with a stored value. Track whether the org actually HAS a colour (stored, or
+  // picked this session): while false we submit "" (the server's deliberate-clear), preserving the
+  // stored-null "use the current default" semantics — otherwise the first save of a name-only change
+  // silently froze #2563eb into the DB and there was no way back to null through this UI.
+  const [colorSet, setColorSet] = useState(Boolean(initial.brandColor));
   const [logoUrl, setLogoUrl] = useState(initial.logoUrl ?? "");
   const [state, setState] = useState<"idle" | "saving" | "saved" | "warn" | "error">("idle");
   const [msg, setMsg] = useState<string | null>(null);
+  // org-branding #4: the last SAVED logo URL, rendered as a thumbnail next to the field so "the URL
+  // actually serves an image" is VISIBLE — previously the only test was downloading a PDF and
+  // eyeballing it. `previewBroken` hides a thumbnail the browser can't load (distinct from the
+  // server-side probe below, which checks the PDF renderer's own guarded fetch).
+  const [preview, setPreview] = useState(initial.logoUrl ?? null);
+  const [previewBroken, setPreviewBroken] = useState(false);
 
   async function save() {
     setState("saving");
     setMsg(null);
-    const submitted = { brandName: brandName.trim(), brandColor: brandColor.trim(), logoUrl: logoUrl.trim() };
+    const submitted = { brandName: brandName.trim(), brandColor: colorSet ? brandColor.trim() : "", logoUrl: logoUrl.trim() };
     try {
       const res = await fetch("/api/org/branding", {
         method: "POST",
@@ -62,15 +75,20 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
       // logo / truncated name surfaces as a warning instead of a green "saved" that lies.
       const stored = (d.branding ?? {}) as Partial<OrgBranding>;
       const warnings: string[] = [];
-      if (submitted.logoUrl && !stored.logoUrl) warnings.push("Logo URL ignored — must be a public https image.");
+      if (submitted.logoUrl && !stored.logoUrl) warnings.push("Logo URL ignored — must be a public https image URL under 500 characters.");
       if (submitted.brandColor && !stored.brandColor) warnings.push("Accent colour ignored — must be a #rrggbb hex.");
       if (submitted.brandName && stored.brandName !== submitted.brandName) warnings.push("Brand name shortened to 80 characters.");
+      // org-branding #4: the server probed the saved logo with the SAME guarded fetch the PDF render
+      // uses; a URL that is safe but doesn't return an image would otherwise fail invisibly at export.
+      if (stored.logoUrl && d.logoUnreachable) warnings.push("Logo URL saved, but it didn't return an image — the PDF will render without a logo until it does.");
+      setPreview(stored.logoUrl ?? null);
+      setPreviewBroken(false);
       if (warnings.length) {
         setState("warn");
         setMsg(`Saved with changes — ${warnings.join(" ")}`);
       } else {
         setState("saved");
-        setMsg("Saved — the next briefing PDF uses your brand.");
+        setMsg("Saved — the next briefing PDF and shared briefing links use your brand.");
         setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 4000);
       }
     } catch (e) {
@@ -90,25 +108,83 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         Briefing branding
         <span className="font-mono text-sm font-normal uppercase tracking-widest text-accent">team+</span>
       </summary>
-      <p className="mt-2 text-sm text-slate-500">White-label the downloaded briefing PDF — your name, accent, and logo replace Ascent&apos;s.</p>
+      {/* Honest scope: branding reaches the CLIENT-FACING deliverables (PDF + shared briefing links).
+          This in-app dashboard keeps Ascent chrome — see the boundary note in executive/page.tsx. */}
+      <p className="mt-2 text-sm text-slate-500">
+        White-label your client-facing briefing deliverables — the downloaded PDF and read-only shared
+        briefing links show your name and logo instead of Ascent&apos;s (the accent colours the PDF). This
+        in-app dashboard keeps Ascent&apos;s look.
+      </p>
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
           Brand name
           <input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="Acme Inc." className={`${field} w-44`} />
         </label>
         <label className="flex flex-col gap-1 font-mono text-sm text-slate-500">
-          Accent
-          <input
-            type="color"
-            value={HEX_COLOR_RE.test(brandColor) ? brandColor : "#2563eb"}
-            onChange={(e) => setBrandColor(e.target.value)}
-            aria-describedby={contrastWarning ? "brand-accent-warning" : undefined}
-            className="h-9 w-14 rounded-lg border border-slate-700 bg-slate-900"
-          />
+          <span>
+            Accent{!colorSet && <span className="ml-1.5 text-slate-600">(default)</span>}
+          </span>
+          <span className="flex items-center gap-2">
+            <input
+              type="color"
+              value={HEX_COLOR_RE.test(brandColor) ? brandColor : DEFAULT_BRAND_ACCENT}
+              onChange={(e) => {
+                setBrandColor(e.target.value);
+                setColorSet(true);
+              }}
+              aria-describedby={contrastWarning ? "brand-accent-warning" : undefined}
+              className="h-9 w-14 rounded-lg border border-slate-700 bg-slate-900"
+            />
+            {/* org-branding #5: white-label users arrive with an EXACT brand hex from a style guide —
+                the OS colour picker can't be pasted into, so eyeball-matching was the only path. This
+                text twin is two-way synced with the swatch; an invalid value is still submitted, which
+                makes the server's hex rejection + the client "Accent colour ignored" warning live
+                (they were unreachable while the picker alone emitted only valid #rrggbb). */}
+            <input
+              type="text"
+              value={colorSet ? brandColor : ""}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                setBrandColor(v || DEFAULT_BRAND_ACCENT);
+                setColorSet(Boolean(v));
+              }}
+              maxLength={7}
+              placeholder="#rrggbb"
+              aria-label="Accent colour hex"
+              aria-describedby={contrastWarning ? "brand-accent-warning" : undefined}
+              className={`${field} w-24`}
+            />
+            {colorSet && (
+              <button
+                type="button"
+                onClick={() => {
+                  setColorSet(false);
+                  setBrandColor(DEFAULT_BRAND_ACCENT);
+                }}
+                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 transition hover:border-accent hover:text-white"
+                title="Clear the custom accent — briefings follow Ascent's current default colour"
+              >
+                Use default
+              </button>
+            )}
+          </span>
         </label>
         <label className="flex flex-1 flex-col gap-1 font-mono text-sm text-slate-500">
           Logo URL (https)
-          <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" className={`${field} min-w-[12rem]`} />
+          <span className="flex items-center gap-2">
+            <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" className={`${field} min-w-[12rem] flex-1`} />
+            {/* Saved-logo thumbnail (org-branding #4): success is visible instead of PDF-only. */}
+            {preview && !previewBroken && (
+              // eslint-disable-next-line @next/next/no-img-element -- arbitrary external host; next/image would require remotePatterns config per customer CDN
+              <img
+                src={preview}
+                alt="Saved logo preview"
+                title="The currently saved logo, as browsers load it"
+                onError={() => setPreviewBroken(true)}
+                className="h-9 w-9 shrink-0 rounded-lg border border-slate-700 bg-white/5 object-contain"
+              />
+            )}
+          </span>
         </label>
         <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {state === "saving" ? "Saving…" : "Save"}

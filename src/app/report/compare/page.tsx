@@ -9,6 +9,7 @@ import { readableOrgForOwner } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
 import { diffScans } from "@/lib/report/compare";
+import { HEADER_ACTION_LINK_CLASS } from "@/components/report/pill";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +113,17 @@ export default async function ComparePage({
   const diff = diffScans(before, after);
   const repoRef = comparison.repo.fullName;
 
+  // Requested ids the server did NOT honor (trends-comparison 07-16 #2). getScanComparison resolves
+  // ?a/?b only within the newest-`limit` window, so a bookmarked compare URL whose scan aged past the
+  // 60th slot (retention keeps ~200), a stale/mistyped id, or the degenerate a===b fall back to the
+  // default pair — previously with ZERO indication, silently breaking the shareable-URL contract
+  // (the saved link later shows different numbers). Detect the substitution here by comparing the
+  // requested ids against the resolved pair and say so above the picker.
+  const unhonored = [
+    a && after.id !== a ? a : null,
+    b && before.id !== b ? b : null,
+  ].filter((x): x is string => x !== null);
+
   return (
     <Shell>
       <div className="animate-fade-up space-y-6">
@@ -123,18 +135,31 @@ export default async function ComparePage({
           <div className="flex items-center gap-2">
             <Link
               href={`/trends?repo=${encodeURIComponent(repoRef)}`}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
+              className={HEADER_ACTION_LINK_CLASS}
             >
               Trends →
             </Link>
             <Link
               href={`/report?repo=${encodeURIComponent(repoRef)}`}
-              className="rounded-lg border border-slate-700 px-3 py-1.5 text-base text-slate-300 hover:border-accent hover:text-white"
+              className={HEADER_ACTION_LINK_CLASS}
             >
               Full report →
             </Link>
           </div>
         </div>
+
+        {unhonored.length > 0 && (
+          <p
+            role="status"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-base text-amber-200/90"
+          >
+            <span aria-hidden>ⓘ </span>
+            {unhonored.length === 1
+              ? `The requested scan ${unhonored[0]} is no longer in the comparison window (or doesn't belong to this repo)`
+              : `The requested scans ${unhonored.join(" and ")} are no longer in the comparison window (or don't belong to this repo)`}
+            {" — showing the default comparison instead. Pick the scans you want below."}
+          </p>
+        )}
 
         <ScanComparePicker
           repo={repoRef}

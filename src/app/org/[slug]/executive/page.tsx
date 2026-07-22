@@ -3,7 +3,7 @@
 // a markdown brief to paste into Claude Code (Direction #5 + the #6 LLM-consumption baseline).
 
 import Link from "next/link";
-import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixDegraded, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
+import { buildExecBriefing, briefingMarkdown, engineMixLabel, engineMixCaveat, forecastConfidenceNote, valueRealizedLine } from "@/lib/org/briefing";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { DimRow, MoveRow, PriorPeriodGrid, practiceHref } from "@/components/org/executive/briefingShared";
 import { CopyForLlm } from "@/components/CopyForLlm";
@@ -18,6 +18,7 @@ import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
+import { chipButtonClass } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,11 @@ export default async function OrgExecutive({
   const md = briefingMarkdown(briefing);
   const { maturity, benchmark } = briefing;
   // EXEC-6/EXEC-5: owner-gated sharing + (enterprise) white-label. One ownership check feeds both.
+  // White-label boundary (recorded 2026-07-16): branding applies to the CLIENT-FACING deliverables —
+  // the briefing PDF and the anonymous /share/briefing/[token] page — but NOT to this in-app view.
+  // This page lives inside the Ascent dashboard shell (OrgHeader, nav, credits) where the operator is
+  // the audience, so it intentionally keeps Ascent chrome; `getOrgBranding` is loaded here only to
+  // prefill the settings form below.
   const isOwner = await hasOrgRole(slug, "owner");
   const canShare = briefingShareEnabled() && isOwner;
   const [branding, credit] = isOwner
@@ -74,7 +80,7 @@ export default async function OrgExecutive({
             // EXEC #1: carry the active ?segment= (and the ?stack= tech scope, 3b) into the export so a
             // per-client / per-stack briefing downloads the SAME scope being viewed, not the whole org.
             href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}&range=${period.key}${period.from ? `&from=${encodeURIComponent(period.from)}` : ""}${period.to ? `&to=${encodeURIComponent(period.to)}` : ""}${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
-            className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-accent hover:text-white"
+            className={chipButtonClass()}
             title="Download the briefing as a board-ready PDF"
           >
             <span aria-hidden>↓</span> Download PDF
@@ -142,8 +148,8 @@ export default async function OrgExecutive({
           {briefing.engineMix.length > 0 && (
             <span>
               Scored by {engineMixLabel(briefing.engineMix)}
-              {engineMixDegraded(briefing.engineMix) && (
-                <span className="text-warn"> · ⚠ some scores used the deterministic mock engine</span>
+              {engineMixCaveat(briefing.engineMix) && (
+                <span className="text-warn"> · ⚠ {engineMixCaveat(briefing.engineMix)}</span>
               )}
             </span>
           )}

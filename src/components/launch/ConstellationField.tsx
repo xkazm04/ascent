@@ -3,8 +3,10 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { reportPermalink, scoreHex } from "@/lib/ui";
+import { Pill } from "./FleetMapChrome";
 import {
   ACCENT,
+  appendedStarPosition,
   CENTER,
   type Constellation,
   FAINT,
@@ -41,10 +43,20 @@ export function ConstellationField({
    *  regardless of this flag. */
   animateStars?: boolean;
 }) {
-  const repos = c.status === "done" ? c.repos.slice(0, MAX_STARS) : [];
+  // Base stars fill the phyllotaxis; stars APPENDED mid-scan (applyScanEvent) render on the outer
+  // "incoming" ring instead. Keeping them out of the layout `total` means landing a scan result never
+  // recomputes — and visibly shifts — every existing star's position mid-animation, and an appended
+  // star always renders even when the org sits at the MAX_STARS cap (a successful scan of an unknown
+  // repo used to be silently invisible there). (ambiguity-ui launch-fleet-map #4)
+  const baseRepos = c.status === "done" ? c.repos.filter((r) => !r.appended) : [];
+  const appendedRepos = c.status === "done" ? c.repos.filter((r) => r.appended) : [];
+  const repos = [...baseRepos.slice(0, MAX_STARS), ...appendedRepos];
+  const layoutTotal = Math.min(baseRepos.length, MAX_STARS);
+  const posFor = (r: RepoStar, i: number) =>
+    r.appended ? appendedStarPosition(r.fullName) : starPosition(i, layoutTotal, r.fullName);
   const scanned = c.status === "done" ? c.repos.filter((r) => r.overall != null).length : 0;
   const total = c.status === "done" ? c.repos.length : 0;
-  const overflow = c.status === "done" ? Math.max(0, c.repos.length - MAX_STARS) : 0;
+  const overflow = Math.max(0, baseRepos.length - MAX_STARS);
   const avg =
     scanned > 0
       ? Math.round(
@@ -71,13 +83,14 @@ export function ConstellationField({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {avg != null && (
-            <span
-              className="rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5 font-mono text-sm font-bold tabular-nums"
+            <Pill
+              size="sm"
+              className="font-mono text-sm font-bold tabular-nums"
               style={{ color: scoreHex(avg) }}
               title="Average maturity of scanned repos"
             >
               {avg}
-            </span>
+            </Pill>
           )}
           {c.status === "done" && onScan && (
             <button
@@ -102,7 +115,7 @@ export function ConstellationField({
           {c.status === "done" &&
             repos.map((r, i) => {
               if (r.overall == null) return null;
-              const { cx, cy } = starPosition(i, repos.length, r.fullName);
+              const { cx, cy } = posFor(r, i);
               const look = starLook(r.overall);
               const dim = matcher ? !matcher(r) : false;
               return (
@@ -133,7 +146,7 @@ export function ConstellationField({
           {/* hydrated repo stars — brightness scales with maturity; each links to its report */}
           {c.status === "done" &&
             repos.map((r, i) => {
-              const { cx, cy } = starPosition(i, repos.length, r.fullName);
+              const { cx, cy } = posFor(r, i);
               const look = starLook(r.overall);
               // MAP-4: a star outside the active filter is dimmed (not removed) so the constellation
               // shape is preserved and the matches "pop" against the faded field.
@@ -170,6 +183,10 @@ export function ConstellationField({
                       stroke={moved > 0 ? RISER : FALLER}
                       strokeWidth={0.5}
                       opacity={0.85}
+                      // WCAG 1.4.1: direction must not ride on hue alone — the emerald/orange pair
+                      // converges under deuteranopia/protanopia. A faller's ring is DASHED, a riser's
+                      // solid, so the glanceable mark carries a shape channel like the header's ▲/▼.
+                      strokeDasharray={moved > 0 ? undefined : "1 0.8"}
                     />
                   )}
                   <circle
