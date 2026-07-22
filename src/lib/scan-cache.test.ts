@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveHead } from "@/lib/github/source";
 import { getHeadHint, getScanReportByCommit } from "@/lib/db";
 import { lookupCachedScan, persistedMatchesActiveIdentity, resolveHeadWithHint } from "./scan-cache";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import type { ScanReport } from "@/lib/types";
 
 vi.mock("@/lib/github/source", async (importOriginal) => ({
@@ -22,8 +23,10 @@ const mockGetHeadHint = vi.mocked(getHeadHint);
 const mockGetScanReportByCommit = vi.mocked(getScanReportByCommit);
 
 /** Minimal persisted report — only the fields the identity guard + freshness gate read. */
-const fakeReport = (engine: { provider: string; model: string }, scannedAt = new Date().toISOString()) =>
-  ({ engine, scannedAt }) as unknown as ScanReport;
+const fakeReport = (
+  engine: { provider: string; model: string; rubricVersion?: string },
+  scannedAt = new Date().toISOString(),
+) => ({ engine, scannedAt }) as unknown as ScanReport;
 
 describe("resolveHeadWithHint — conditional head-hint reuse (#7)", () => {
   beforeEach(() => mockResolveHead.mockReset());
@@ -84,6 +87,37 @@ describe("persistedMatchesActiveIdentity — reproduce-under-current-config guar
 
   it("is CONSERVATIVE: a blank/legacy engine stamp is served (no re-scan storm)", () => {
     expect(persistedMatchesActiveIdentity(fakeReport({ provider: "", model: "" }), false)).toBe(true);
+  });
+});
+
+// Rubric self-invalidation (scan-pipeline Direction 3): the Scan row now persists rubricVersion, so a
+// SCORING_RUBRIC_VERSION bump busts the DB tier PER-ROW instead of waiting out the 7-day age gate. Same
+// CONSERVATIVE contract as provider/model: a POSITIVE mismatch (row HAS a version, and it differs) is a
+// miss; a legacy/null version keeps today's behavior (served, age-gated).
+describe("persistedMatchesActiveIdentity — rubric-version self-invalidation", () => {
+  it("ACCEPTS a row whose persisted rubricVersion equals the active SCORING_RUBRIC_VERSION", () => {
+    expect(
+      persistedMatchesActiveIdentity(
+        fakeReport({ provider: "mock", model: "deterministic-rubric", rubricVersion: SCORING_RUBRIC_VERSION }),
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  it("REJECTS a POSITIVE mismatch — provider/model still match but the rubric was bumped", () => {
+    // Isolate the rubric lever: identical provider+model, only the persisted rubric differs → miss/re-scan.
+    expect(
+      persistedMatchesActiveIdentity(
+        fakeReport({ provider: "mock", model: "deterministic-rubric", rubricVersion: `${SCORING_RUBRIC_VERSION}-stale` }),
+        false,
+      ),
+    ).toBe(false);
+  });
+
+  it("ACCEPTS a legacy row with NO persisted rubricVersion (served, age-gated — no re-scan storm)", () => {
+    expect(
+      persistedMatchesActiveIdentity(fakeReport({ provider: "mock", model: "deterministic-rubric" }), false),
+    ).toBe(true);
   });
 });
 

@@ -180,6 +180,7 @@ CREATE TABLE "Scan" (
     "passportJson" TEXT,
     "warningsJson" TEXT,
     "aiUsageJson" TEXT,
+    "rubricVersion" TEXT,
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
@@ -193,6 +194,7 @@ CREATE TABLE "Scan" (
 -- must be applied explicitly. Safe + idempotent on fresh boots (the column already exists) and psql.
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "warningsJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "aiUsageJson" TEXT;
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "rubricVersion" TEXT;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (

@@ -369,6 +369,11 @@ model Scan {
   // so a reloaded report reproduces the fresh scan's detection instead of a lossy re-derivation from
   // contributors (the tree/commits that back guidance-file detection aren't stored). reference-scan P2/aiUsage.
   aiUsageJson    String?
+  // Scoring rubric version (SCORING_RUBRIC_VERSION, src/lib/maturity/model.ts) active when this scan was
+  // scored. Persisted per-row so the cross-instance DB cache tier can self-invalidate on a rubric bump
+  // (persistedMatchesActiveIdentity) instead of serving a stale-rubric score until the 7-day age gate.
+  // Nullable: rows scored before this column keep today's behavior (served, age-gated) — never force-rescanned.
+  rubricVersion  String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens    Int?

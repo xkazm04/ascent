@@ -47,21 +47,26 @@ export function isPersistedScanFresh(scannedAt: string | undefined, now: number 
  * provider's score as current, bounded only by the 7-day age gate. Gate the persisted hit on a
  * provider+model match so a swap busts the cross-instance cache too, not just warm memory.
  *
- * CONSERVATIVE: reject ONLY on a POSITIVE mismatch (both the persisted engine stamp and the active
- * identity are known and differ). A blank / legacy engine stamp (pre-column rows) is served as before
- * rather than triggering a fleet-wide re-scan storm on deploy.
+ * CONSERVATIVE: reject ONLY on a POSITIVE mismatch (the persisted stamp and the active identity are both
+ * known and differ). A blank / legacy stamp (pre-column rows) is served as before rather than triggering
+ * a fleet-wide re-scan storm on deploy.
  *
- * NOTE — the rubric version is NOT persisted on the Scan row (the report stamps engine.provider/model
- * but no SCORING_RUBRIC_VERSION), so a rubric bump can't be detected PER-ROW here; that dimension still
- * relies on the deploy cold-starting memory + the 7-day age gate. Persisting the rubric version so the
- * DB tier can self-invalidate on a bump is the proper follow-up (needs a schema migration — out of
- * scope for this cache-key fix). Provider/model changes ARE fully invalidated at both tiers now.
+ * RUBRIC: the Scan row now persists `rubricVersion` (SCORING_RUBRIC_VERSION at scoring time), reconstructed
+ * onto report.engine.rubricVersion. A rubric bump is therefore detected PER-ROW here — a persisted row whose
+ * version differs from the active one is a miss and re-scores, instead of the DB tier serving a stale-rubric
+ * score until the 7-day age gate. A legacy/null version (rows scored before the column) keeps today's
+ * behavior: served, age-gated, never force-rescanned. Provider, model, AND rubric are now invalidated at
+ * both cache tiers (the in-memory key folds all three into its fingerprint; this is the DB-tier twin).
  */
 export function persistedMatchesActiveIdentity(report: ScanReport, useLLM: boolean): boolean {
+  const want = activeScoringIdentity(useLLM);
+  // Rubric self-invalidation: reject a POSITIVE mismatch (row HAS a version and it differs = a rubric bump).
+  // A null/blank version is legacy — fall through to the provider/model check unchanged.
+  const rubric = report.engine?.rubricVersion;
+  if (rubric && rubric !== want.rubric) return false;
   const provider = report.engine?.provider;
   const model = report.engine?.model;
   if (!provider || !model) return true; // unknown/legacy stamp — don't force a re-scan
-  const want = activeScoringIdentity(useLLM);
   return provider === want.provider && model === want.model;
 }
 

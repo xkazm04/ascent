@@ -4,6 +4,7 @@
 import type { ScanReport } from "@/lib/types";
 import { Prisma } from "@prisma/client";
 import { billableInputTokens } from "@/lib/llm/config";
+import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { matchRecommendations } from "@/lib/report/compare";
@@ -271,6 +272,11 @@ export async function persistScanReport(
             confidence: report.confidence,
             engineProvider: report.engine.provider,
             engineModel: report.engine.model,
+            // Stamp the scoring rubric version active at persist time, so the cross-instance DB cache tier
+            // can detect a rubric bump per-row (persistedMatchesActiveIdentity) and re-score instead of
+            // serving a stale-rubric snapshot until the age gate. Provider/model already round-trip via
+            // engineProvider/engineModel; this completes the {provider, model, rubric} scoring identity.
+            rubricVersion: SCORING_RUBRIC_VERSION,
             headline: report.headline,
             strengths: JSON.stringify(report.strengths),
             risks: JSON.stringify(report.risks),
