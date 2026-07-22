@@ -9,6 +9,7 @@ import type {
   DimensionId,
   DimensionResult,
   DimensionSignals,
+  Discrepancy,
   LevelId,
   LevelPath,
   LevelPathStep,
@@ -44,6 +45,33 @@ function evidenceStrings(s: DimensionSignals): string[] {
   return s.signals.map(formatSignal);
 }
 
+// D9 (Supply Chain & Security) is the ONE fully-deterministic dimension: its score is the security
+// check battery's risk-weighted mean and the LLM only narrates it (never moves the number), so it is
+// excluded from the P1-1 guardband-widening loop below. That left it with no correction path for the
+// documented "config-as-code only" ceiling (docs/CALIBRATION.md): GitHub "default-setup" CodeQL is
+// configured in repo settings and leaves NO workflow file, and an org-level SECURITY.md / dependabot
+// policy lives in the org's `.github` repo — both real, both invisible to a read-only file scan, so the
+// affected sub-checks score a false 0 and floor D9 with no escape (pallets/flask, vercel/next.js hit
+// exactly this).
+//
+// Escape hatch, per the "n/a, not 0" philosophy: when the model — acting as auditor — flags a
+// HIGH-CONFIDENCE, D9-targeted VISIBILITY blind spot (it asserts the security control exists but runs
+// where the file scan can't see it), treat D9's deterministic signal as UNMEASURABLE: exclude it and let
+// the overall/axis renormalize over the dimensions we could actually measure, rather than counting a
+// visibility 0 as a genuine security absence. The model can only mark D9 unmeasurable this way; it can
+// NEVER raise a measured D9 sub-check score (D9 is dropped, not blended up). Matching is deliberately
+// conservative — the discrepancy must be for D9 AND name a concrete invisibility mechanism (default-setup
+// scanning, an org-level/`.github`-repo policy, controls configured off-repo/in settings). A generic "D9
+// looks low" never qualifies, so this can't become a backdoor for the LLM to hand-wave the number up.
+const D9_VISIBILITY_BLIND_SPOT =
+  /\b(default[-\s]?setup|default (?:code[-\s]?)?scanning|org(?:anization)?[-\s]?(?:level|wide)|\.github (?:repo|repository)|repo(?:sitory)? settings|configured (?:in|via|at) (?:the )?(?:repo|repository|org|organization|settings|github)|off[-\s]?repo|off[-\s]?github|outside the (?:repo|repository|tree)|not committed to the (?:repo|repository|tree)|invisible to (?:a |the )?(?:file|read-only)|github[-\s]?native (?:security|scanning|codeql))\b/i;
+
+function hasD9VisibilityBlindSpot(discrepancies: Discrepancy[]): boolean {
+  return discrepancies.some(
+    (d) => d.dimension === "D9" && D9_VISIBILITY_BLIND_SPOT.test(d.claim),
+  );
+}
+
 export function assembleReport(
   snap: RepoSnapshot,
   signals: DimensionSignals[],
@@ -60,6 +88,11 @@ export function assembleReport(
   // signal — closing the loop where the model correctly diagnosed the problem in prose but couldn't move
   // the number (reference-scan P1-1). D9 stays fully deterministic (its blind spots are fixed upstream).
   const flaggedDims = new Set((assessment.discrepancies ?? []).map((d) => d.dimension));
+  // D9 visibility escape hatch (see the note above hasD9VisibilityBlindSpot): a high-confidence,
+  // D9-targeted "the security is real but the file scan can't see it" discrepancy makes D9's
+  // deterministic signal UNMEASURABLE, so it is dropped + renormalized rather than counted as a
+  // measured 0. Kept separate from flaggedDims because D9 never enters the guardband-widening blend.
+  const d9Unmeasurable = hasD9VisibilityBlindSpot(assessment.discrepancies ?? []);
   const lensW = weightsFor(archetype);
   const warnings: string[] = [];
   // Track which deterministic dimensions the LLM did NOT score: a missing dim falls back to its
@@ -97,6 +130,24 @@ export function assembleReport(
     // and warn, rather than penalize the repo for our own extraction failure.
     if (s.failed) {
       const msg = `Dimension "${s.id}" was not measured (detector error) and is excluded from the score.`;
+      warnings.push(msg);
+      console.warn(`[engine] ${msg}`);
+      return [];
+    }
+    // D9 visibility escape hatch: the model flagged (high-confidence) that this repo's security runs
+    // through channels a file scan can't see (e.g. GitHub default-setup CodeQL configured in repo
+    // settings, or an org-level SECURITY.md/dependabot policy in the org's `.github` repo). D9's
+    // deterministic 0 is then a blind spot, not a measured absence — treat it as UNMEASURABLE (n/a):
+    // exclude it so the overall + rigor axis renormalize over the dimensions we could measure, instead
+    // of flooring the repo on a control it genuinely has. The LLM only marks it unmeasurable here; it
+    // never raises the D9 number.
+    if (s.id === "D9" && d9Unmeasurable) {
+      const msg =
+        `Security (D9) was treated as UNMEASURABLE and excluded from the score: the assessment flagged ` +
+        `that this repository's security runs through channels a file scan cannot see (e.g. GitHub ` +
+        `default-setup code scanning, or an org-level security policy), so its deterministic 0 reflects a ` +
+        `visibility blind spot, not a measured absence. D9 is renormalized out (n/a) rather than counted ` +
+        `as 0 — the security score is not fully validated for this repo.`;
       warnings.push(msg);
       console.warn(`[engine] ${msg}`);
       return [];
