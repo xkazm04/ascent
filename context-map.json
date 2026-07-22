@@ -606,7 +606,9 @@
             "src/components/org/delivery/ai/AiRoiLedger.tsx",
             "src/components/org/delivery/ai/AiRoiQuadrant.tsx",
             "src/components/org/delivery/ai/aiDeliveryModel.ts",
-            "src/components/org/delivery/ai/aiShared.tsx"
+            "src/components/org/delivery/ai/aiDeliveryModel.test.ts",
+            "src/components/org/delivery/ai/aiShared.tsx",
+            "src/components/org/delivery/ai/AiRoiQuadrant.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": []
