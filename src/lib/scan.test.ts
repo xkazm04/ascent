@@ -6,7 +6,7 @@
 // A mock RepoSource keeps this fully offline; mock:true + no token avoids every network call.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { scanRepository, resolveScanAuth } from "./scan";
+import { scanRepository, resolveScanAuth, isHardLlmError, shouldRetrySameProvider } from "./scan";
 import type { FetchOptions, ParsedRepo, RepoSource } from "@/lib/github/source";
 import type { LlmAssessment, RepoSnapshot, TokenUsage } from "@/lib/types";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
@@ -345,6 +345,143 @@ describe("scanRepository — LLM usage metering + degradation honesty (#2/#3)", 
     // audit reader knows the AI layer never ran.
     expect(report.warnings ?? []).toContain(
       "No AI model is configured for this scan, so scores reflect detected signals only (the deterministic rubric — no AI nuance).",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Budget-aware LLM retry (DIRECTION 2). Under a tight (~90s hosted) budget, a HARD provider failure
+// (auth / 4xx / model-not-found) must NOT burn a same-provider retry that cannot succeed — it should
+// skip straight to the failover, preserving the budget for a provider that might work. Transient
+// failures still retry. The matrix is pinned on the pure decision functions (isHardLlmError /
+// shouldRetrySameProvider); the two timing-free wirings are pinned end-to-end through scanRepository.
+// ---------------------------------------------------------------------------
+describe("isHardLlmError — provider failure classification (conservative: unknown ⇒ transient)", () => {
+  const awsErr = (name: string) => Object.assign(new Error(name), { name });
+  const metaErr = (httpStatusCode: number) => Object.assign(new Error("aws"), { $metadata: { httpStatusCode } });
+
+  it("classifies AWS SDK (Bedrock) auth/4xx/model-not-found exception NAMES as HARD", () => {
+    for (const n of ["AccessDeniedException", "ValidationException", "ResourceNotFoundException", "UnrecognizedClientException"]) {
+      expect(isHardLlmError(awsErr(n))).toBe(true);
+    }
+  });
+
+  it("treats AWS throttling / 5xx / model-timeout exception names as TRANSIENT (still retry)", () => {
+    for (const n of ["ThrottlingException", "ServiceUnavailableException", "ModelTimeoutException", "ModelNotReadyException"]) {
+      expect(isHardLlmError(awsErr(n))).toBe(false);
+    }
+  });
+
+  it("keys off an HTTP status: 4xx client errors are HARD, except 408/429 (transient), and 5xx transient", () => {
+    for (const s of [400, 401, 403, 404, 422]) expect(isHardLlmError(metaErr(s))).toBe(true);
+    for (const s of [408, 429, 500, 502, 503]) expect(isHardLlmError(metaErr(s))).toBe(false);
+    // Gemini-SDK-shaped `.status`, and the openai/openrouter adapters that embed it in the message.
+    expect(isHardLlmError(Object.assign(new Error("x"), { status: 401 }))).toBe(true);
+    expect(isHardLlmError(Object.assign(new Error("x"), { status: 429 }))).toBe(false);
+    expect(isHardLlmError(new Error("OpenAI request failed (403): forbidden"))).toBe(true);
+    expect(isHardLlmError(new Error("OpenAI request failed (500): server error"))).toBe(false);
+    expect(isHardLlmError(new Error("OpenRouter request failed (429): rate limited"))).toBe(false);
+  });
+
+  it("classifies a missing API key, auth language, and model-not-found by message as HARD", () => {
+    expect(isHardLlmError(new Error("GEMINI_API_KEY is not set."))).toBe(true);
+    expect(isHardLlmError(new Error("OPENAI_API_KEY is not set."))).toBe(true);
+    expect(isHardLlmError(new Error("Unauthorized: invalid api key"))).toBe(true);
+    expect(isHardLlmError(new Error("The model gpt-5o does not exist"))).toBe(true);
+    expect(isHardLlmError(new Error("model_not_found"))).toBe(true);
+  });
+
+  it("defaults ambiguous / timeout / abort / empty-reply failures to TRANSIENT", () => {
+    expect(isHardLlmError(new Error("Gemini request timed out."))).toBe(false);
+    expect(isHardLlmError(Object.assign(new Error("aborted"), { name: "AbortError" }))).toBe(false);
+    expect(isHardLlmError(new Error("Empty response from Gemini."))).toBe(false);
+    expect(isHardLlmError(new Error("No JSON value found in model output"))).toBe(false);
+    expect(isHardLlmError(null)).toBe(false);
+    expect(isHardLlmError("a string, not an error")).toBe(false);
+  });
+});
+
+describe("shouldRetrySameProvider — hard→skip · transient→retry · budget-starved→skip to fallback", () => {
+  const TOTAL = 90_000; // hosted default; reserve per step = floor(TOTAL/3)=30_000, retry needs 60_000 free
+  const hard = Object.assign(new Error("denied"), { name: "AccessDeniedException" });
+  const transient = new Error("Gemini request timed out.");
+
+  it("HARD error never retries the same provider (regardless of budget or fallback)", () => {
+    expect(shouldRetrySameProvider({ lastError: hard, hasFallback: true, remainingBudgetMs: TOTAL, totalBudgetMs: TOTAL })).toBe(false);
+    expect(shouldRetrySameProvider({ lastError: hard, hasFallback: false, remainingBudgetMs: TOTAL, totalBudgetMs: TOTAL })).toBe(false);
+  });
+
+  it("TRANSIENT error retries when the budget can still fit both a retry and the fallback", () => {
+    expect(shouldRetrySameProvider({ lastError: transient, hasFallback: true, remainingBudgetMs: TOTAL, totalBudgetMs: TOTAL })).toBe(true);
+    // Boundary: exactly the reserve for both steps → still retries (guard is strict <).
+    expect(shouldRetrySameProvider({ lastError: transient, hasFallback: true, remainingBudgetMs: 60_000, totalBudgetMs: TOTAL })).toBe(true);
+  });
+
+  it("TRANSIENT error skips the retry (to the fallback) when the remaining budget can't fit both", () => {
+    expect(shouldRetrySameProvider({ lastError: transient, hasFallback: true, remainingBudgetMs: 59_999, totalBudgetMs: TOTAL })).toBe(false);
+    expect(shouldRetrySameProvider({ lastError: transient, hasFallback: true, remainingBudgetMs: 10_000, totalBudgetMs: TOTAL })).toBe(false);
+  });
+
+  it("with NO fallback there's nothing to preserve, so a transient failure still retries even on a starved budget", () => {
+    expect(shouldRetrySameProvider({ lastError: transient, hasFallback: false, remainingBudgetMs: 1, totalBudgetMs: TOTAL })).toBe(true);
+  });
+});
+
+describe("scanRepository — budget-aware retry wiring (end-to-end)", () => {
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_TOKEN", "");
+    vi.stubEnv("LLM_FALLBACK_PROVIDER", "");
+    llmControl.primary = null;
+    llmControl.fallback = null;
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    llmControl.primary = null;
+    llmControl.fallback = null;
+  });
+
+  it("a HARD primary failure skips the same-provider retry and goes STRAIGHT to the failover", async () => {
+    const { source } = mockSource("treesha-aaa");
+    // Primary throws an auth error (HARD) on the FIRST call; if it were retried it would be called twice.
+    llmControl.primary = fakeProvider("gemini", [
+      { kind: "throw", error: Object.assign(new Error("bedrock access denied"), { name: "AccessDeniedException" }) },
+    ]);
+    llmControl.fallback = fakeProvider("openai", [{ kind: "usable", usage: { inputTokens: 10, outputTokens: 5 } }]);
+    vi.stubEnv("LLM_FALLBACK_PROVIDER", "openai");
+
+    const report = await scanRepository("o/r", { source, now: NOW });
+
+    expect(report.engine.provider).toBe("openai"); // recovered via failover
+    // THE INVARIANT: the doomed same-provider retry was skipped — primary was called exactly once.
+    expect(llmControl.primary.calls).toBe(1);
+    expect(llmControl.fallback.calls).toBe(1);
+  });
+
+  it("a TRANSIENT primary failure still RETRIES the same provider before failing over", async () => {
+    const { source } = mockSource("treesha-aaa");
+    // Every primary attempt throws a transient error; ample default budget ⇒ the retry runs.
+    llmControl.primary = fakeProvider("gemini", [{ kind: "throw", error: new Error("Gemini request timed out.") }]);
+    llmControl.fallback = fakeProvider("openai", [{ kind: "usable", usage: { inputTokens: 10, outputTokens: 5 } }]);
+    vi.stubEnv("LLM_FALLBACK_PROVIDER", "openai");
+
+    const report = await scanRepository("o/r", { source, now: NOW });
+
+    expect(report.engine.provider).toBe("openai");
+    // Transient ⇒ primary got its second (retry) chance before the failover.
+    expect(llmControl.primary.calls).toBe(2);
+  });
+
+  it("a HARD primary failure with NO fallback degrades to a labeled mock WITHOUT a wasted retry", async () => {
+    const { source } = mockSource("treesha-aaa");
+    llmControl.primary = fakeProvider("gemini", [
+      { kind: "throw", error: Object.assign(new Error("no creds"), { name: "UnrecognizedClientException" }) },
+    ]);
+    const report = await scanRepository("o/r", { source, now: NOW });
+
+    expect(report.engine.provider).toBe("mock");
+    expect(llmControl.primary.calls).toBe(1); // hard error ⇒ no doomed retry, straight to the floor
+    expect(report.warnings ?? []).toContain(
+      "AI analysis was unavailable, so scores reflect detected signals only (no qualitative nuance).",
     );
   });
 });

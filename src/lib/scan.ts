@@ -59,6 +59,97 @@ function llmTotalBudgetMs(providerName: string): number {
 }
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// AWS SDK (Bedrock) exception NAMES that mean the SAME provider cannot succeed on a re-call: bad/absent
+// credentials, a malformed request, or a model id that doesn't exist. Throttling / ServiceUnavailable /
+// ModelTimeout / ModelNotReady are deliberately ABSENT — those are transient and should still retry.
+const HARD_AWS_ERROR_NAMES = new Set([
+  "AccessDeniedException",
+  "UnauthorizedException",
+  "UnrecognizedClientException",
+  "InvalidSignatureException",
+  "IncompleteSignatureException",
+  "MissingAuthenticationTokenException",
+  "ValidationException",
+  "ResourceNotFoundException",
+  "MalformedInputException",
+]);
+
+/** Best-effort HTTP status extraction across the providers' error shapes: AWS SDK `$metadata`, the
+ *  Gemini SDK's `status`/`statusCode`, and the fetch-based openai/openrouter adapters, which embed it
+ *  in the message ("… request failed (401): …"). Undefined when no status is discoverable. */
+function llmErrorStatus(err: unknown): number | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const e = err as { $metadata?: { httpStatusCode?: unknown }; status?: unknown; statusCode?: unknown; message?: unknown };
+  const meta = e.$metadata?.httpStatusCode;
+  if (typeof meta === "number") return meta;
+  if (typeof e.status === "number") return e.status;
+  if (typeof e.statusCode === "number") return e.statusCode;
+  if (typeof e.message === "string") {
+    const m = /\((\d{3})\)/.exec(e.message);
+    if (m) return Number(m[1]);
+  }
+  return undefined;
+}
+
+/**
+ * Classify a provider failure as HARD (unfixable by re-calling the SAME provider) vs transient. Hard =
+ * auth/permission, a 4xx client error (bad request / model-not-found), or a missing API key. Transient =
+ * everything else: timeouts, 429 rate limits, 5xx, network blips, empty/unusable/parse failures, and
+ * anything we can't confidently classify — the CONSERVATIVE default (unknown ⇒ transient) preserves the
+ * current retry behavior for anything ambiguous. Inspect the shapes the providers in src/lib/llm/*
+ * actually throw (AWS SDK exception names, an embedded HTTP status, the "… is not set" key guard).
+ */
+export function isHardLlmError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { name?: unknown; message?: unknown };
+  const name = typeof e.name === "string" ? e.name : "";
+  const message = typeof e.message === "string" ? e.message : "";
+
+  // An abort (client disconnect, our own per-call timeout, or the scan-wide budget) is never a HARD
+  // provider fault — a timeout is transient and abort handling is separate upstream.
+  if (name === "AbortError" || name === "TimeoutError") return false;
+
+  // AWS SDK (Bedrock) typed exceptions.
+  if (HARD_AWS_ERROR_NAMES.has(name)) return true;
+
+  // A 4xx CLIENT error can't be fixed by re-calling the same provider — EXCEPT 408 (request timeout) and
+  // 429 (rate limit), which are transient and should still retry.
+  const status = llmErrorStatus(err);
+  if (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429) return true;
+
+  // Message fingerprints for the providers without a typed status (fetch-based + claude-cli):
+  const m = message.toLowerCase();
+  if (m.includes("is not set")) return true; // missing API-key guard (gemini/openai/openrouter)
+  if (/(unauthorized|not authorized|permission denied|access denied|invalid api key|authentication failed|forbidden)/.test(m)) {
+    return true;
+  }
+  if (/(model[_ ]?not[_ ]?found|unknown model|no such model|does not exist|is not supported)/.test(m)) return true;
+
+  return false;
+}
+
+/**
+ * Decide whether the SAME-provider retry step should run, given the last error and the remaining
+ * scan-wide LLM budget. Two reasons to skip it and go straight to failover:
+ *   1. HARD failure — re-calling the same provider will fail the same way, burning an attempt that a
+ *      tight (90s hosted) budget needs for the fallback.
+ *   2. Budget guard — never START a retry that would leave the fallback step unable to run afterward.
+ *      A failover to a DIFFERENT provider is likelier to succeed than re-calling the same one, so when
+ *      the remaining budget can't fit BOTH a retry and the fallback (⅓ of the total budget reserved per
+ *      step), the retry yields the scarce budget to the fallback. With no fallback configured there's
+ *      nothing to preserve, so a transient failure still retries (the attempt is deadline-bounded).
+ */
+export function shouldRetrySameProvider(opts: {
+  lastError: unknown;
+  hasFallback: boolean;
+  remainingBudgetMs: number;
+  totalBudgetMs: number;
+}): boolean {
+  if (isHardLlmError(opts.lastError)) return false;
+  if (opts.hasFallback && opts.remainingBudgetMs < Math.floor(opts.totalBudgetMs / 3) * 2) return false;
+  return true;
+}
+
 export interface ScanOptions {
   token?: string;
   mock?: boolean;
@@ -395,29 +486,46 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   // in-flight call and every remaining attempt abort, and we fall through to mock — well under the
   // platform limit. The budget signal is distinct from the client's `signal` so a budget expiry
   // degrades to mock while a real client disconnect still unwinds the whole scan.
+  const totalBudgetMs = llmTotalBudgetMs(intendedProvider);
   const llmDeadline = new AbortController();
   const llmDeadlineTimer = setTimeout(
     () => llmDeadline.abort(new Error("LLM total budget exceeded")),
-    llmTotalBudgetMs(intendedProvider),
+    totalBudgetMs,
   );
+  const budgetRemainingMs = () => totalBudgetMs - (Date.now() - llmStartedAt);
   const llmSignal = signal ? AbortSignal.any([signal, llmDeadline.signal]) : llmDeadline.signal;
   try {
     // BYOM scans never fall over to the PLATFORM provider (that would send the org's data to Ascent's
     // account, defeating the privacy guarantee) — they retry the org's Bedrock, then degrade to mock.
     const fallback =
       intendedProvider === "mock" || byomScan ? null : providerByName(process.env.LLM_FALLBACK_PROVIDER);
-    const plan: { p: LLMProvider; note?: string }[] = [{ p: provider }];
-    if (intendedProvider !== "mock") plan.push({ p: provider, note: `Retrying ${intendedProvider}…` });
+    // Steps are tagged by kind so the loop can skip the SAME-provider retry when it can't help (a HARD
+    // error) or can't afford to run (budget needed for the failover) — see shouldRetrySameProvider.
+    const plan: { p: LLMProvider; kind: "primary" | "retry" | "fallback"; note?: string }[] = [
+      { p: provider, kind: "primary" },
+    ];
+    if (intendedProvider !== "mock")
+      plan.push({ p: provider, kind: "retry", note: `Retrying ${intendedProvider}…` });
     if (fallback && fallback.name !== intendedProvider)
-      plan.push({ p: fallback, note: `Falling over to ${fallback.name}…` });
+      plan.push({ p: fallback, kind: "fallback", note: `Falling over to ${fallback.name}…` });
+    const hasFallback = plan.some((s) => s.kind === "fallback");
 
     let resolved: Awaited<ReturnType<LLMProvider["assess"]>> | null = null;
     let lastErr: unknown;
     for (let i = 0; i < plan.length; i++) {
       const step = plan[i]!; // safe: i bounded by plan.length
+      // Budget-aware retry: a HARD failure (auth/4xx/model-not-found) can't be fixed by re-calling the
+      // same provider, and a retry must never start when the remaining budget is needed for the
+      // fallback. Either way, skip straight to the failover step (or to mock when none is configured).
+      if (
+        step.kind === "retry" &&
+        !shouldRetrySameProvider({ lastError: lastErr, hasFallback, remainingBudgetMs: budgetRemainingMs(), totalBudgetMs })
+      ) {
+        continue;
+      }
       try {
         if (i > 0) {
-          if (llmDeadline.signal.aborted) break; // budget spent — don't sleep before a doomed retry
+          if (llmDeadline.signal.aborted) break; // budget spent — don't sleep before a doomed attempt
           await sleep(LLM_RETRY_MS);
           signal?.throwIfAborted();
           emit({ stage: "score", message: step.note ?? "Retrying…", pct: 80, provider: step.p.name });
