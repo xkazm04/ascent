@@ -1144,3 +1144,39 @@ describe("assembleReport — D9 visibility escape hatch (Direction 1)", () => {
     expect(d9.llmScore).toBe(95); // recorded for transparency, but never blended into the score
   });
 });
+
+// ---------------------------------------------------------------------------
+// assembleReport — prStats threads into aiUsage (Direction 2b, P0-5)
+//
+// detectAiUsage's AUTHORITATIVE AI signal is PR-level involvement with tool attribution, not the
+// bot-commit fraction. assembleReport now accepts prStats and passes it through, so a caller gets the
+// P0-5-correct aiUsage from the engine itself. aiUsage is a separate indicator — threading it must NEVER
+// move the score.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — prStats threads into aiUsage without touching scoring (Direction 2b)", () => {
+  it("uses PR-level AI involvement for aiUsage when prStats is passed, and scoring is byte-identical", () => {
+    const signals = signalsWith({ D1: { signalScore: 60 }, D2: { signalScore: 60 } });
+    const assessment = assessmentWith({ D1: 60, D2: 60 });
+    const withPr = assembleReport(
+      snapWithCoverage(1),
+      signals,
+      assessment,
+      eng,
+      AT,
+      "org",
+      prStats({ aiInvolvedRate: 40, tools: [{ name: "Claude", count: 3 }] }),
+    );
+    const withoutPr = assembleReport(snapWithCoverage(1), signals, assessment, eng, AT, "org");
+
+    // The PR-level AI signal only surfaces in aiUsage when prStats is threaded through.
+    expect(withPr.aiUsage.detected).toBe(true);
+    expect(withPr.aiUsage.signals.some((s) => /AI involved in 40% of recent PRs/.test(s))).toBe(true);
+    // The blank snapshot has no commit/tooling AI evidence, so without prStats nothing is detected.
+    expect(withoutPr.aiUsage.detected).toBe(false);
+
+    // aiUsage is an indicator, not a scoring input — threading it must not move the headline or any dim.
+    expect(withPr.overallScore).toBe(withoutPr.overallScore);
+    expect(withPr.dimensions).toEqual(withoutPr.dimensions);
+  });
+});

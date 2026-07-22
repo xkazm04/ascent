@@ -14,6 +14,7 @@ import type {
   LevelPath,
   LevelPathStep,
   LlmAssessment,
+  PrStats,
   RepoArchetype,
   RepoSnapshot,
   SandboxProjection,
@@ -79,6 +80,12 @@ export function assembleReport(
   engine: Pick<LLMProvider, "name" | "model">,
   scannedAt: string,
   archetype: RepoArchetype,
+  // Optional PR stats. detectAiUsage's AUTHORITATIVE AI signal is PR-level involvement with tool
+  // attribution (P0-5), not the bot-commit fraction (which ≈ the Renovate/Dependabot rate). Thread it
+  // through so any caller producing a report gets the correct aiUsage from assembleReport itself,
+  // rather than a bot-fraction-only value that the pipeline then has to overwrite. Absent (tokenless /
+  // reconstructed snapshots) degrades to the commit-side signal exactly as before.
+  prStats?: PrStats | null,
 ): ScanReport {
   const llmById = new Map(assessment.dimensions.map((d) => [d.id, d]));
   // Dimensions the LLM's self-audit flagged as a detector discrepancy — a MISSED signal (a visibility
@@ -275,7 +282,7 @@ export function assembleReport(
     adoptionScore,
     rigorScore,
     posture: postureFor(adoptionScore, rigorScore),
-    aiUsage: detectAiUsage(snap),
+    aiUsage: detectAiUsage(snap, prStats),
     contributors: computeContributors(snap),
     dimensions,
     headline:

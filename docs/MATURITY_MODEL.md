@@ -149,8 +149,12 @@ Design principles:
 - **Deterministic backbone:** signals are computed in code, not by the LLM, so scores
   are reproducible and cheap. The LLM adds nuance and writes the human-readable
   rationale and recommendations.
-- **Guardbanding:** the LLM score for a dimension is clamped to within ±N of the signal
-  score (config) to prevent hallucinated extremes. Evidence must back any score.
+- **Guardbanding:** the LLM score for a dimension is clamped to within ±`LLM_GUARDBAND`
+  (default **25**) of the signal score to prevent hallucinated extremes; the blend factor is
+  `SCORE_BLEND` (default **0.6**), coverage-weighted so a partially-seen repo leans harder on the
+  deterministic signals. A dimension the LLM flags as a detector discrepancy widens the band to ±50.
+  Evidence must back any score. (D9 is fully deterministic — the LLM narrates but never re-scores it;
+  its only escape is the *visibility blind-spot* path, which marks D9 `n/a` rather than raising it.)
 - **Evidence-first:** every dimension returns the concrete signals/files it found, so
   the score is auditable.
 - **Confidence:** each report carries a confidence value driven by how much of the repo
@@ -165,7 +169,7 @@ Design principles:
   "level": { "id": "L3", "name": "Augmented", "band": [45, 64] },
   "dimensions": [
     {
-      "id": "D2", "name": "Automated Testing", "weight": 0.18,
+      "id": "D2", "name": "Automated Testing", "weight": 0.15,
       "score": 0, "signalScore": 0, "llmScore": 0,
       "summary": "…",                       // one-paragraph rationale
       "evidence": ["found vitest.config.ts", "42 *.test.ts files", "…"],
