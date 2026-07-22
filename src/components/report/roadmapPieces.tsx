@@ -3,6 +3,7 @@ import { DIMENSION_BY_ID, LEVELS } from "@/lib/maturity/model";
 import { cheapestPathToNextLevel, projectDimensionClose } from "@/lib/scoring/engine";
 import { IMPACT_RANK } from "@/lib/scoring/impact";
 import { EFFORT_CLASS, fastestPathNames, IMPACT_CLASS, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
+import { PRACTICES } from "@/lib/practices";
 import { Kicker, Surface } from "@/components/ui";
 
 /**
@@ -43,6 +44,25 @@ export function ExploreList({ items }: { items?: string[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * "What good looks like here" — the one Pillar-1 card element (docs/VISION-TRANSITION.md, Pillar 1)
+ * that the repo report card was missing: a pointer to the reusable practice that closes this gap.
+ * Joined by dimension id at render time against the org's practice catalog (src/lib/practices.ts) —
+ * no schema change, no persisted field. Renders nothing for a dimension with no mapped practice.
+ */
+export function ExemplarPointer({ dim }: { dim: DimensionId }) {
+  const practice = PRACTICES.find((p) => p.dimId === dim);
+  if (!practice) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-accent/20 bg-accent/[0.06] p-3">
+      <Kicker tone="accent">What good looks like</Kicker>
+      <p className="mt-1.5 text-base leading-relaxed text-slate-300">
+        <span className="font-semibold text-white">{practice.label}</span> — {practice.what}
+      </p>
     </div>
   );
 }
@@ -152,6 +172,7 @@ export function RoadmapSteps({ items, report }: { items: LlmRoadmapItem[]; repor
                   <p className="mt-1.5 text-base leading-relaxed text-slate-400">{item.rationale}</p>
                 )}
                 <ExploreList items={item.explore} />
+                <ExemplarPointer dim={item.dimension} />
                 <div className="mt-2.5 flex flex-wrap items-center gap-2 text-sm">
                   <RoadmapMeta item={item} className="contents" />
                   {axis && (
