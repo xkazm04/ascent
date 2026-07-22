@@ -98,6 +98,8 @@ export function ClaudeCodeSetup({ ingestToken, ingestPath }: { ingestToken: stri
         <p className="mt-1 text-sm text-slate-400">
           Set these in the environment where your team runs Claude Code (shell profile, CI, or your OTel collector). The{" "}
           <code className="font-mono text-xs text-slate-300">git.repository</code> attribute is what attributes tokens to the exact repo.
+          Keep <code className="font-mono text-xs text-slate-300">OTEL_EXPORTER_OTLP_PROTOCOL=http/json</code> — Ascent decodes OTLP over
+          JSON only, and the exporter&apos;s default protobuf wire format is rejected (415).
         </p>
       </div>
 

@@ -629,6 +629,7 @@
             "src/lib/integrations/otlp.test.ts",
             "src/app/api/integrations/ingest/route.ts",
             "src/app/api/integrations/ingest/v1/metrics/route.ts",
+            "src/app/api/integrations/ingest/v1/metrics/route.test.ts",
             "src/app/api/integrations/ingest/v1/logs/route.ts",
             "src/lib/db/integrations.ts",
             "src/app/api/dev/seed-ai-usage/route.ts"
