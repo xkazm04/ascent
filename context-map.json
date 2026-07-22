@@ -880,7 +880,9 @@
             "src/components/report/RoadmapSandbox.tsx",
             "src/components/report/RoadmapSandboxParts.tsx",
             "src/lib/db/scans-recommendations.ts",
-            "src/components/report/recommendationRowState.ts"
+            "src/components/report/recommendationRowState.ts",
+            "src/components/report/RoadmapSandboxCommit.tsx",
+            "src/components/report/RoadmapSandboxCommit.test.ts"
           ],
           "target": null,
           "apiRoutes": [
