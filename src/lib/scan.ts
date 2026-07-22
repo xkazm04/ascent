@@ -231,8 +231,10 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   const [prResult, governance, securityPosture, securityExposure] = await Promise.all([prPromise, govPromise, secPromise, expPromise]);
   const prStats = prResult?.stats ?? null;
   // graphql.ts sets `partial` when the PR page came back truncated (null nodes / an `errors` array on a
-  // 200). It documented that such results must not be treated as authoritative or cached — and then no
-  // consumer read it, so a truncated slice silently deflated D6/D7/D8 on large or rate-limited repos.
+  // 200). Such results must not be treated as authoritative or cached — so `prPartial` IS consumed below
+  // (~:545, the poisoning guard): it appends a reliability warning and stamps the typed `report.prPartial`
+  // flag classifyScanResult reads to refuse caching/persisting this scan as authoritative — instead of a
+  // truncated slice silently deflating D6/D7/D8 on large or rate-limited repos.
   const prPartial = prResult?.partial ?? false;
   // Resolve the scan timestamp up front and thread it through signal extraction, so D7's
   // recency bonus is deterministic (and the same `now` stamps the report below).

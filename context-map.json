@@ -94,7 +94,6 @@
           "filePaths": [
             "src/app/page.tsx",
             "src/components/ScanForm.tsx",
-            "src/components/landing/ScanGallery.tsx",
             "src/app/api/scan/route.ts",
             "src/app/api/scan/route.test.ts",
             "src/app/api/scan/stream/route.ts",

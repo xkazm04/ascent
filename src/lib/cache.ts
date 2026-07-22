@@ -1,6 +1,9 @@
-// Best-effort in-memory scan cache. Within a warm serverless instance this makes
-// re-scans instant and softens GitHub rate limits. Phase 2 replaces this with Aurora
-// DSQL-backed persistence (see docs/ARCHITECTURE.md).
+// Tier 1 of the two-tier scan cache: a best-effort in-memory store that makes re-scans instant on a
+// warm serverless instance and softens GitHub rate limits (lost on cold start). The durable,
+// cross-instance tier 2 already exists — getScanReportByCommit rebuilds a report from the DB (see
+// lib/scan-cache.ts), so an unchanged repo returns fast across all instances and survives cold starts.
+// This module also owns the canonical cache KEY (makeCacheKey — folds in the scoring identity) and the
+// conditional-request head-hint store the read path uses to re-validate a repo's head for free.
 
 import type { ScanReport } from "@/lib/types";
 import { getProvider } from "@/lib/llm";
