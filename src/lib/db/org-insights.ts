@@ -9,6 +9,9 @@ import { projectedGain } from "@/lib/scoring/engine";
 import type { DimensionId } from "@/lib/types";
 import { getOrgBySlug, IMPACT_WEIGHT, LEVEL_RANK, isBot, mean, roundedMean, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import type { OrgWindow } from "@/lib/db/org-rollup";
+// The single canonical parser for stored `string[]` columns (the explore questions live in one) — reuse
+// it here rather than forking a second parser, exactly as scans-read/scans-recommendations do.
+import { parseStringArray } from "@/lib/db/scans-shared";
 
 // ── F1: history / movers ──────────────────────────────────────────────────────
 
@@ -177,6 +180,13 @@ export interface OrgRec {
   title: string;
   dimId: string;
   impact: string;
+  /** Why this gap matters for AI-driven development — the companion-voice rationale carried from the
+   *  recommendation rows, so the org surface can EXPLAIN a gap the way the repo report does, not command
+   *  it. Empty string for legacy scans that predate stored rationale. */
+  rationale: string;
+  /** Invitational questions to explore the gap — the same `explore[]` the repo report surfaces (parsed
+   *  from the stored JSON via the shared parseStringArray). Empty for legacy scans. */
+  explore: string[];
   repoCount: number;
   repos: string[];
   leverage: number;
@@ -207,7 +217,12 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
           // overview can NAME the highest-leverage decision (and its maturity gain), not just rank gaps.
           archetype: true,
           dimensions: { select: { dimId: true, score: true } },
-          recommendations: { where: { status: { in: ["open", "in_progress"] } }, select: { title: true, dimId: true, impact: true } },
+          recommendations: {
+            where: { status: { in: ["open", "in_progress"] } },
+            // rationale + explore carry the companion voice (why the gap matters + questions to explore)
+            // onto the org surface — same rows already read, so no extra query.
+            select: { title: true, dimId: true, impact: true, rationale: true, explore: true },
+          },
         },
       },
     },
@@ -216,14 +231,16 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
   const w = weightsFor("org");
   // Per-repo dims + archetype, so a rec-group can compute the projected gain over exactly its affected repos.
   const repoDims = new Map<string, { archetype: string; dims: { id: string; score: number }[] }>();
-  const groups = new Map<string, { title: string; dimId: string; impact: string; repos: Set<string> }>();
+  // rationale + explore are captured from the FIRST rec seen in a group: dedup keys on `dimId::title`,
+  // and identical gaps share the same catalog-derived rationale/questions, so the first is representative.
+  const groups = new Map<string, { title: string; dimId: string; impact: string; rationale: string; explore: string[]; repos: Set<string> }>();
   for (const r of repos) {
     const scan = r.scans[0];
     if (scan) repoDims.set(r.name, { archetype: scan.archetype, dims: (scan.dimensions ?? []).map((d) => ({ id: d.dimId, score: d.score })) });
     const recs = scan?.recommendations ?? [];
     for (const rec of recs) {
       const key = `${rec.dimId}::${rec.title}`;
-      const g = groups.get(key) ?? { title: rec.title, dimId: rec.dimId, impact: rec.impact, repos: new Set<string>() };
+      const g = groups.get(key) ?? { title: rec.title, dimId: rec.dimId, impact: rec.impact, rationale: rec.rationale, explore: parseStringArray(rec.explore), repos: new Set<string>() };
       g.repos.add(r.name);
       // keep the strongest impact seen for this rec
       if ((IMPACT_WEIGHT[rec.impact] ?? 0) > (IMPACT_WEIGHT[g.impact] ?? 0)) g.impact = rec.impact;
@@ -251,6 +268,8 @@ export async function getOrgRecommendations(orgSlug: string, limit = 8, segmentI
       title: g.title,
       dimId: g.dimId,
       impact: g.impact,
+      rationale: g.rationale,
+      explore: g.explore,
       repoCount,
       repos: [...g.repos].sort(),
       leverage: Math.round(repoCount * (IMPACT_WEIGHT[g.impact] ?? 1) * (1 + dimW) * 10) / 10,
@@ -329,6 +348,12 @@ export interface BacklogItem {
   projectedPoints: number | null;
   /** The maturity level closing this gap crosses into (e.g. "L3"), or null when it stays in band. */
   unlocks: string | null;
+  /** Why this gap matters for AI-driven development — the companion-voice rationale carried from the
+   *  recommendation row (surfaced in the row's expandable area). Empty string for legacy scans. */
+  rationale: string;
+  /** Invitational questions to explore the gap — the same `explore[]` the repo report surfaces (parsed
+   *  from stored JSON via the shared parseStringArray). Empty for legacy scans. */
+  explore: string[];
 }
 
 /** Status tallies shared by the overall summary and each owner group. */
@@ -404,6 +429,9 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
               dimId: true,
               impact: true,
               effort: true,
+              // rationale + explore carry the companion voice onto the backlog row (same rows already read).
+              rationale: true,
+              explore: true,
               status: true,
               assigneeLogin: true,
               targetDate: true,
@@ -474,6 +502,8 @@ export async function getOrgBacklog(orgSlug: string, segmentId?: string | null, 
         lastActivityAt: (r.events[0]?.createdAt ?? r.createdAt).toISOString(),
         projectedPoints: gain ? gain.points : null,
         unlocks: gain ? gain.unlocks : null,
+        rationale: r.rationale,
+        explore: parseStringArray(r.explore),
       });
     }
   }

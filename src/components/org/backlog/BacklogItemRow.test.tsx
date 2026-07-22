@@ -33,6 +33,8 @@ function item(over: Partial<BacklogItem> = {}): BacklogItem {
     lastActivityAt: "2026-01-01T00:00:00Z",
     projectedPoints: null,
     unlocks: null,
+    rationale: "",
+    explore: [],
     ...over,
   };
 }
@@ -85,5 +87,27 @@ describe("BacklogItemRow accessibility", () => {
     expect(title).toHaveClass("truncate");
     expect(title).toHaveAttribute("title", long);
     expect(title.parentElement).toHaveClass("min-w-0");
+  });
+});
+
+describe("BacklogItemRow gap-exploration (companion-voice parity)", () => {
+  it("surfaces the gap's rationale and explore questions in a collapsed disclosure", () => {
+    renderRow({
+      item: item({
+        rationale: "Tests are the guardrail that makes AI-generated code safe to merge.",
+        explore: ["What would catch a regression before it merged?", "Which behaviors have no test?"],
+      }),
+    });
+    // The companion-voice disclosure summary + its content (present in the DOM inside the <details>).
+    expect(screen.getByText("Why this gap matters")).toBeInTheDocument();
+    expect(screen.getByText("Tests are the guardrail that makes AI-generated code safe to merge.")).toBeInTheDocument();
+    expect(screen.getByText("What would catch a regression before it merged?")).toBeInTheDocument();
+    // Kept collapsed by default so the row stays lean.
+    expect(screen.getByText("Why this gap matters").closest("details")).not.toHaveAttribute("open");
+  });
+
+  it("renders no disclosure for a legacy row with no rationale or questions", () => {
+    renderRow(); // default item has rationale "" and explore []
+    expect(screen.queryByText("Why this gap matters")).not.toBeInTheDocument();
   });
 });

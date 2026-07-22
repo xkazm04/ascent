@@ -806,7 +806,9 @@
             "src/components/org/BacklogPanel.tsx",
             "src/components/org/BacklogSummary.tsx",
             "src/components/org/backlogShared.ts",
-            "src/components/org/BacklogItemRow.history.tsx"
+            "src/components/org/BacklogItemRow.history.tsx",
+            "src/components/org/BacklogItemRow.controls.tsx",
+            "src/components/org/BacklogItemRow.explore.tsx"
           ],
           "target": null,
           "apiRoutes": [
