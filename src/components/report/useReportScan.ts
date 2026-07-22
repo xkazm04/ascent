@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { ScanProgress, ScanReport } from "@/lib/types";
+import type { ProviderName, ScanProgress, ScanReport } from "@/lib/types";
 import { parseScanReport } from "@/lib/report/validate";
 import { repoKey } from "@/components/report/repoKey";
-import { SCAN_CLIENT_TIMEOUT_MS } from "@/components/report/scanEstimate";
+import { scanClientTimeoutMs } from "@/components/report/scanEstimate";
 import { classifyScanAbort } from "@/components/report/reportTaxonomy";
 import { parseSSE } from "@/lib/sse";
 import { type Progress } from "@/components/report/ReportClientStatus";
@@ -77,12 +77,27 @@ export function useReportScan(
     const rescanMode = retestNonce > 0 && reportRef.current != null;
 
     const controller = new AbortController();
-    // Runaway backstop only — the scan normally resolves via its SSE `result` frame. Live AI scans
-    // run for MINUTES, so SCAN_CLIENT_TIMEOUT_MS sits above the slowest scan; only a genuine hang trips it.
-    const timeout = setTimeout(() => {
+    const scanStartAt = Date.now();
+    // Runaway backstop only — the scan normally resolves via its SSE `result` frame. The provider is
+    // unknown at scan start, so begin at the slowest-provider ceiling (scanClientTimeoutMs(undefined))
+    // and TIGHTEN it once the first progress frame names the resolved provider (a hosted scan then
+    // gives up on a genuine hang in ~200s instead of the ~12-min claude-cli ceiling). Reassigning
+    // `timeout` is safe: every clearTimeout(timeout) below reads the current binding.
+    const fireTimeout = () => {
       timedOut = true;
       controller.abort();
-    }, SCAN_CLIENT_TIMEOUT_MS);
+    };
+    let timeout = setTimeout(fireTimeout, scanClientTimeoutMs());
+    // Re-pin the backstop to the resolved provider's ceiling, ONCE, measured from scan start — so it
+    // can only ever shorten the window, never abort a scan that's legitimately still running.
+    let backstopPinned = false;
+    const pinBackstop = (provider?: ProviderName) => {
+      if (backstopPinned || !provider) return;
+      backstopPinned = true;
+      clearTimeout(timeout);
+      const remaining = Math.max(0, scanClientTimeoutMs(provider) - (Date.now() - scanStartAt));
+      timeout = setTimeout(fireTimeout, remaining);
+    };
 
     // Route a terminal outcome to the right surface: in rescan mode the existing report stays and the
     // banner updates; otherwise the page-level state machine drives Loading/error/done.
@@ -234,6 +249,9 @@ export function useReportScan(
           if (cancelled || !event) return;
           if (event === "progress") {
             const p = (data ?? {}) as Partial<ScanProgress>;
+            // Tighten the runaway backstop to the resolved provider's ceiling the first time a frame
+            // names it (provider is sticky from the first frame; this only ever shortens the window).
+            if (p.provider) pinBackstop(p.provider);
             // provider/region/fallback are sticky: a later frame omits them, but the UI keeps showing
             // which model ran and the fallback note once seen.
             setProgress((prev) => ({

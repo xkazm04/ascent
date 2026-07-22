@@ -27,6 +27,8 @@ const item: BacklogItem = {
   lastActivityAt: "2026-01-01T00:00:00.000Z",
   projectedPoints: null,
   unlocks: null,
+  rationale: "",
+  explore: [],
 };
 
 const backlog: OrgBacklog = {

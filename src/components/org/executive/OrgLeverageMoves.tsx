@@ -1,22 +1,24 @@
-// "The move to make next" — the single highest-leverage fleet decision, named on-screen with its
-// engine-true projected maturity gain, then the ranked follow-ons. Extracted from app/org/[slug]/page.tsx
-// to keep that page under the 300-LOC component limit. Server component; the caller passes a non-empty list.
+// The widest shared gaps across the fleet — companion voice: somewhere to look next, never an order.
+// The top card names the single most-shared gap with its engine-true projected maturity gain, why it
+// matters for AI-driven development (rationale), and a question to explore; the ranked follow-ons list
+// the next-widest gaps. Extracted from app/org/[slug]/executive/page.tsx to keep that page under the
+// 300-LOC component limit. Server component; the caller passes a non-empty list.
 
 import Link from "next/link";
 import { SectionHeader } from "@/components/org/shared/ui";
 import { dimShort, IMPACT_CLASS } from "@/lib/ui";
 import type { OrgRec } from "@/lib/db";
 
-/** Engine-true projected-gain phrase for the headline move, or null when no affected repo had
+/** Engine-true projected-gain phrase for the headline gap, or null when no affected repo had
  *  persisted dimension rows (so we never invent a number). */
 function gainPhrase(rec: OrgRec): string | null {
   if (rec.projectedPoints == null) return null;
   const each = `≈ +${rec.projectedPoints} maturity pts on each of ${rec.repoCount} repo${rec.repoCount > 1 ? "s" : ""} if closed`;
-  return rec.liftsRepos > 0 ? `${each} · advances ${rec.liftsRepos} to the next level` : each;
+  return rec.liftsRepos > 0 ? `${each} · would advance ${rec.liftsRepos} to the next level` : each;
 }
 
 function reach(rec: OrgRec): string {
-  return `affects ${rec.repoCount} repo${rec.repoCount > 1 ? "s" : ""}: ${rec.repos.slice(0, 6).join(", ")}${rec.repos.length > 6 ? ` +${rec.repos.length - 6}` : ""}`;
+  return `shared by ${rec.repoCount} repo${rec.repoCount > 1 ? "s" : ""}: ${rec.repos.slice(0, 6).join(", ")}${rec.repos.length > 6 ? ` +${rec.repos.length - 6}` : ""}`;
 }
 
 export function OrgLeverageMoves({ recs, slug }: { recs: OrgRec[]; slug: string }) {
@@ -24,21 +26,28 @@ export function OrgLeverageMoves({ recs, slug }: { recs: OrgRec[]; slug: string 
   return (
     <div>
       <SectionHeader
-        title="The move to make next"
-        description="The single highest-leverage fix across the fleet — ranked by reach × impact × dimension weight, with its engine-true projected maturity gain."
+        title="The widest gap to explore across the fleet"
+        description="The gap the most repositories share — ranked by reach × impact × dimension weight, with the engine-true maturity each repo stands to gain if the gap closes. Somewhere to look next, not an order."
         right={<span className="font-mono text-sm uppercase tracking-widest text-slate-600">current state · not period-scoped</span>}
       />
       {top && (
         <div className="mt-3 rounded-xl border border-accent/40 bg-accent/5 p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-accent/20 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-accent">Start here</span>
+            <span className="rounded-full bg-accent/20 px-2 py-0.5 font-mono text-xs uppercase tracking-widest text-accent">Explore first</span>
             <span className="font-semibold text-white">{top.title}</span>
             <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-sm text-slate-400">
               {dimShort(top.dimId)}
             </span>
           </div>
           {gainPhrase(top) && <div className="mt-1.5 text-sm font-medium text-emerald-300">{gainPhrase(top)}</div>}
-          <div className="mt-1 font-mono text-sm text-slate-500">{reach(top)}</div>
+          {top.rationale && <p className="mt-1.5 text-sm text-slate-400">{top.rationale}</p>}
+          {top.explore[0] && (
+            <p className="mt-1.5 flex gap-2 text-sm text-slate-300">
+              <span className="select-none text-accent" aria-hidden>?</span>
+              <span>{top.explore[0]}</span>
+            </p>
+          )}
+          <div className="mt-1.5 font-mono text-sm text-slate-500">{reach(top)}</div>
         </div>
       )}
       {rest.length > 0 && (

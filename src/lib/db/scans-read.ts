@@ -1008,6 +1008,6 @@ async function loadScanReportByCommit(
     confidence: scan.confidence,
     ...(warnings.length ? { warnings } : {}),
     scannedAt: scan.scannedAt.toISOString(),
-    engine: { provider: scan.engineProvider as ProviderName, model: scan.engineModel },
+    engine: { provider: scan.engineProvider as ProviderName, model: scan.engineModel, rubricVersion: scan.rubricVersion ?? undefined },
   };
 }

@@ -190,7 +190,8 @@ Design principles:
 - **Renormalized roll-up:** the overall is a weighted *mean* over the dimensions
   actually scored (lens weights renormalized), so a failed detector or partial scan
   can't silently deflate the headline. Deterministic D9 anchors security to the check
-  battery alone.
+  battery alone — the LLM narrates but never re-scores it; its only escape is the
+  *visibility blind-spot* path, which marks D9 `n/a` rather than raising it.
 - **Evidence-first:** every dimension returns the concrete signals/files it found, so
   the score is auditable.
 - **Confidence:** each report carries a confidence value driven by how much of the repo

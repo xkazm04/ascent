@@ -1040,3 +1040,143 @@ describe("assembleReport — discrepancy widens the guardband (P1-1)", () => {
     expect(scoreOf(d2Flagged, "D2")).toBeGreaterThan(scoreOf(d2Flagged, "D1"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// assembleReport — D9 visibility escape hatch (Direction 1)
+//
+// D9 is the ONE fully-deterministic dimension (score = the security battery's signalScore, LLM narrates
+// only) and is excluded from the P1-1 guardband-widening loop, so it had no correction path for the
+// documented "config-as-code only" ceiling (docs/CALIBRATION.md): GitHub default-setup CodeQL and
+// org-level security policy are real controls invisible to a file scan, flooring D9 at a false 0. When
+// the model flags such a HIGH-CONFIDENCE, D9-targeted VISIBILITY blind spot, D9 becomes UNMEASURABLE
+// (n/a) — excluded + renormalized, never a measured 0 and never raised by the LLM.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — D9 visibility escape hatch (Direction 1)", () => {
+  // D9 carries `deterministic: true` (its final score IS the signalScore — the security battery's
+  // risk-weighted mean); the other 8 dimensions are ordinary blended signals.
+  function d9Signals(d9 = 0, others = 60): DimensionSignals[] {
+    return DIMENSIONS.map((d) =>
+      d.id === "D9"
+        ? {
+            id: "D9",
+            signalScore: d9,
+            signals: [{ label: "SAST [posture/medium]: 0/10 — No SAST wired into CI." }],
+            deterministic: true,
+            gaps: [],
+          }
+        : { id: d.id, signalScore: others, signals: [{ label: `${d.id} signal` }] },
+    );
+  }
+  // LLM assessment scoring the 8 non-deterministic dims (D9 is deterministic, so its LLM score is inert).
+  const llmAll = (score = 60) =>
+    assessmentWith(Object.fromEntries(DIMENSIONS.filter((d) => d.id !== "D9").map((d) => [d.id, score])));
+  // A concrete, D9-targeted invisibility-mechanism claim (the two documented ceiling cases).
+  const blindspot = [
+    {
+      dimension: "D9" as const,
+      claim:
+        "D9 scored 0 but CodeQL runs via GitHub default-setup configured in repo settings (no committed workflow file), and the org enforces a SECURITY.md at the org-level in its .github repository.",
+    },
+  ];
+
+  it("a high-confidence D9 visibility discrepancy makes D9 unmeasurable (excluded + renormalized + warned)", () => {
+    const signals = d9Signals(0);
+    const withDisc = assembleReport(snapWithCoverage(1), signals, { ...llmAll(), discrepancies: blindspot }, eng, AT, "org");
+    const without = assembleReport(snapWithCoverage(1), signals, llmAll(), eng, AT, "org");
+
+    // D9 is dropped entirely — treated as n/a, not folded as a measured 0.
+    expect(withDisc.dimensions.some((d) => d.id === "D9")).toBe(false);
+    expect(withDisc.dimensions).toHaveLength(8);
+    // The escape-hatch warning is surfaced in the report.
+    expect(
+      (withDisc.warnings ?? []).some((w) => /Security \(D9\)/.test(w) && /UNMEASURABLE/i.test(w) && /visibility blind spot/i.test(w)),
+    ).toBe(true);
+    // Overall renormalizes over just the 8 measured dims — strictly higher than counting D9's 0.
+    const present = withDisc.dimensions.map((d) => ({ id: d.id, score: d.score }));
+    expect(withDisc.overallScore).toBe(overallScoreFor(present, "org"));
+    expect(withDisc.overallScore).toBeGreaterThan(without.overallScore);
+    // The discrepancy itself is still surfaced (transparency), not swallowed.
+    expect(withDisc.discrepancies).toEqual(blindspot);
+  });
+
+  it("leaves the D9 deterministic path byte-identical when no visibility discrepancy is present", () => {
+    const signals = d9Signals(0);
+    const report = assembleReport(snapWithCoverage(1), signals, llmAll(), eng, AT, "org");
+    const d9 = report.dimensions.find((d) => d.id === "D9")!;
+    expect(d9).toBeDefined();
+    expect(d9.score).toBe(0); // deterministic signalScore, unchanged
+    expect(report.dimensions).toHaveLength(9);
+    expect((report.warnings ?? []).some((w) => /UNMEASURABLE/i.test(w))).toBe(false);
+  });
+
+  it("does NOT exclude D9 for a generic discrepancy that names no invisibility mechanism (conservative)", () => {
+    const signals = d9Signals(0);
+    const generic = [{ dimension: "D9" as const, claim: "D9 seems too low for such a mature, security-conscious project." }];
+    const report = assembleReport(snapWithCoverage(1), signals, { ...llmAll(), discrepancies: generic }, eng, AT, "org");
+    expect(report.dimensions.some((d) => d.id === "D9")).toBe(true);
+    expect((report.warnings ?? []).some((w) => /UNMEASURABLE/i.test(w))).toBe(false);
+  });
+
+  it("only fires for a D9-TARGETED discrepancy, not blind-spot language on a different dimension", () => {
+    const signals = d9Signals(0);
+    const d3 = [{ dimension: "D3" as const, claim: "CI runs off-github via a default-setup pipeline outside the repo." }];
+    const report = assembleReport(snapWithCoverage(1), signals, { ...llmAll(), discrepancies: d3 }, eng, AT, "org");
+    expect(report.dimensions.some((d) => d.id === "D9")).toBe(true);
+    expect((report.warnings ?? []).some((w) => /UNMEASURABLE/i.test(w))).toBe(false);
+  });
+
+  it("never lets the LLM RAISE D9 — with the discrepancy D9 goes n/a; without it, a high LLM score can't move the deterministic 0", () => {
+    const signals = d9Signals(0);
+    // The model both flags the blind spot AND scores D9 at 95. D9 must be DROPPED (n/a), never surfaced at 95.
+    const base = llmAll();
+    const assessment = {
+      ...base,
+      dimensions: [...base.dimensions, { id: "D9" as const, score: 95, summary: "", strengths: [], gaps: [] }],
+      discrepancies: blindspot,
+    };
+    const report = assembleReport(snapWithCoverage(1), signals, assessment, eng, AT, "org");
+    expect(report.dimensions.some((d) => d.id === "D9")).toBe(false);
+    // With NO discrepancy, that same 95 llmScore still cannot move the deterministic 0 (D9 stays 0).
+    const noEsc = assembleReport(snapWithCoverage(1), signals, { ...assessment, discrepancies: [] }, eng, AT, "org");
+    const d9 = noEsc.dimensions.find((d) => d.id === "D9")!;
+    expect(d9.score).toBe(0);
+    expect(d9.llmScore).toBe(95); // recorded for transparency, but never blended into the score
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assembleReport — prStats threads into aiUsage (Direction 2b, P0-5)
+//
+// detectAiUsage's AUTHORITATIVE AI signal is PR-level involvement with tool attribution, not the
+// bot-commit fraction. assembleReport now accepts prStats and passes it through, so a caller gets the
+// P0-5-correct aiUsage from the engine itself. aiUsage is a separate indicator — threading it must NEVER
+// move the score.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — prStats threads into aiUsage without touching scoring (Direction 2b)", () => {
+  it("uses PR-level AI involvement for aiUsage when prStats is passed, and scoring is byte-identical", () => {
+    const signals = signalsWith({ D1: { signalScore: 60 }, D2: { signalScore: 60 } });
+    const assessment = assessmentWith({ D1: 60, D2: 60 });
+    const withPr = assembleReport(
+      snapWithCoverage(1),
+      signals,
+      assessment,
+      eng,
+      AT,
+      "org",
+      prStats({ aiInvolvedRate: 40, tools: [{ name: "Claude", count: 3 }] }),
+    );
+    const withoutPr = assembleReport(snapWithCoverage(1), signals, assessment, eng, AT, "org");
+
+    // The PR-level AI signal only surfaces in aiUsage when prStats is threaded through.
+    expect(withPr.aiUsage.detected).toBe(true);
+    expect(withPr.aiUsage.signals.some((s) => /AI involved in 40% of recent PRs/.test(s))).toBe(true);
+    // The blank snapshot has no commit/tooling AI evidence, so without prStats nothing is detected.
+    expect(withoutPr.aiUsage.detected).toBe(false);
+
+    // aiUsage is an indicator, not a scoring input — threading it must not move the headline or any dim.
+    expect(withPr.overallScore).toBe(withoutPr.overallScore);
+    expect(withPr.dimensions).toEqual(withoutPr.dimensions);
+  });
+});

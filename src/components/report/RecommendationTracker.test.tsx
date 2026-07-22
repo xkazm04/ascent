@@ -14,6 +14,7 @@ vi.mock("@/components/report/roadmapPieces", () => ({
   RoadmapMeta: () => null,
   PayoffChip: () => null,
   ExploreList: () => null,
+  ExemplarPointer: () => null,
 }));
 
 import { RecommendationTracker } from "./RecommendationTracker";

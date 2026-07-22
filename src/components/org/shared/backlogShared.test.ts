@@ -28,6 +28,8 @@ function item(dueInDays: number | null): BacklogItem {
     lastActivityAt: "2026-06-19T00:00:00.000Z",
     projectedPoints: null,
     unlocks: null,
+    rationale: "",
+    explore: [],
   };
 }
 

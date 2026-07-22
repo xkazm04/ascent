@@ -86,7 +86,9 @@ data, invitational framing.
   (gap-as-observation titles + invitational questions, no imperatives) + prompt rewrite ("Ascent is a
   companion, not a boss"). Persisted `Recommendation.explore`. Report shows a **Trust ladder** strip
   (L1–L5, current rung, next-rung note) and **exploration cards** ("Explore →" questions) in both the
-  roadmap and the trackable recommendations; org Overview reads "Gaps to explore across the fleet."
+  roadmap and the trackable recommendations. (The fleet-level rec rollup — the ranked "highest-leverage
+  moves" — now lives on the **Briefing** tab, `/org/[slug]/executive`; the Overview was restructured to
+  the Fleet repos×time rollup + dimension heatmap.)
 - **P2 — Practice Library.** `src/lib/practices.ts` catalog (8 practices, leak-free templatized starters)
   + `getOrgPractices` (per practice: exemplar to learn from ≥70, gap repos <40, adoption) + new
   **Practices** tab. Vercel: agent-guidance exemplar = ai-elements (9 gaps), AI-harness = workflow
@@ -102,8 +104,9 @@ run with `npm run test:e2e:org` against the live :3007 server (real Postgres, se
 `claude-cli` provider). Org-auth is the only shortcut (auth unconfigured → pages open). A
 `global-setup` fails fast if the org isn't seeded. **17 tests, all green.** Assertions are
 **business-value**, not "renders":
-- **overview** — header/tabs, real maturity/adoption/rigor, goal direction, movers, and that the
-  highest-leverage items read as *gaps to explore* (observations + "affects N repos"), not orders.
+- **overview** — header/section-nav, the Fleet repos×time rollup (group by Type/Stack/Level, inline
+  movers) and the dimension heatmap; the maturity/adoption/rigor headline, goals and highest-leverage
+  moves are asserted against their real home, the **Briefing** (`/executive`), where they moved.
 - **repositories** — leaderboard (≥10, links to reports) + heatmap exposing per-dim strengths.
 - **contributors** — asserts the *inputs-not-directives* framing + champions-as-exemplars + bus-factor.
 - **delivery** — PR discipline, branch-governance guardrail gaps, real commit activity.

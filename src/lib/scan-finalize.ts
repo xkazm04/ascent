@@ -7,9 +7,10 @@
 // response vs SSE events) and calls the shared refund()/persist routine.
 
 import { cacheSet } from "@/lib/cache";
-import { isDbConfigured, persistScanReport } from "@/lib/db";
+import { getOrgId, getScanReportByCommit, isDbConfigured, persistScanReport } from "@/lib/db";
 import { consumePublicScanQuota, refundPublicScanQuota, monthlyQuotaExceeded } from "@/lib/public-scan-quota";
 import { getViewer } from "@/lib/access";
+import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
@@ -134,15 +135,42 @@ export async function cacheAndPersistScan(
 
   let deduped = false;
   let persistedOk = true;
+  // Whether a NEW authoritative scored row was written this call (persisted, truthy, not a commit
+  // dedup) — the trigger for the interactive regression alert below, mirroring the cron/webhook guard.
+  let newRowWritten = false;
   if (isDbConfigured() && authoritative) {
+    // Capture the repo's latest persisted report BEFORE the fresh one lands, so the interactive
+    // regression check below can diff against it (checkAndAlertRegression's caller contract: capture
+    // `prev` before persisting). Best-effort — a failed read just yields a null baseline (first-scan no-op).
+    const prev = await getScanReportByCommit(report.repo.owner, report.repo.name, {
+      orgSlug: opts.orgSlug,
+    }).catch(() => null);
     try {
       const persisted = await persistScanReport(report, { orgSlug: opts.orgSlug, headEtag: lookup?.etag ?? undefined });
       deduped = persisted?.deduped ?? false;
+      newRowWritten = !!persisted && !persisted.deduped;
       // No partial-write inspection here: persistence is atomic — a partial failure THROWS (handled
       // below) rather than returning a degraded result (scan-persistence-history 07-16 #3).
     } catch (err) {
       persistedOk = false;
       console.error(`[${opts.tag}] persistence failed`, err);
+    }
+    // Live intelligence for the INTERACTIVE paths (/api/scan + /api/scan/stream both flow through here):
+    // a user's manual rescan that regresses should alert, not just the cron/webhook rescans. Wired ONCE
+    // in this shared layer, mirroring the cron/webhook call shape (getScanReportByCommit baseline →
+    // getOrgId → checkAndAlertRegression). Only on a NEW scored row (skips a dedup/failed persist).
+    // Kept OUTSIDE the persist try so an alert hiccup can't flip persistedOk; checkAndAlertRegression is
+    // itself never-throwing and honors the SAME per-repo cooldown claim, so it can neither double-alert
+    // with cron nor fail the scan.
+    if (newRowWritten) {
+      try {
+        const orgId = (await getOrgId(opts.orgSlug).catch(() => null)) ?? undefined;
+        await checkAndAlertRegression(prev, report, { orgId, orgSlug: opts.orgSlug });
+      } catch (err) {
+        // Defense-in-depth: checkAndAlertRegression is contractually never-throwing, but a regression
+        // alert must NEVER fail an already-persisted scan, so swallow anything that slips through.
+        console.error(`[${opts.tag}] regression alert failed (scan unaffected)`, err instanceof Error ? err.message : err);
+      }
     }
   }
   return { deduped, persistedOk };

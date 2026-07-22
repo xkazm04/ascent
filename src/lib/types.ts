@@ -538,7 +538,10 @@ export interface ScanReport {
    *  propagates it; before this existed the flag was computed, documented, and read by nobody. */
   prPartial?: boolean;
   scannedAt: string;
-  engine: { provider: ProviderName; model: string };
+  /** The scoring identity that produced this report. `rubricVersion` (SCORING_RUBRIC_VERSION) is
+   *  populated on a DB-reconstructed report so the cross-instance cache tier can detect a rubric bump
+   *  per-row; a live/fresh scan may omit it (the in-memory cache key already folds in the rubric). */
+  engine: { provider: ProviderName; model: string; rubricVersion?: string };
   /** LLM token usage + wall-clock latency for THIS scan's model call — the cost/usage metering basis.
    *  Absent on a mock/keyless scan, or when the provider didn't report usage. */
   usage?: { inputTokens?: number; outputTokens?: number; latencyMs?: number };

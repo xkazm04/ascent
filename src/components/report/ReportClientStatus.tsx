@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ProviderName, ScanProgress } from "@/lib/types";
 import { EmptyState } from "@/components/EmptyState";
 import { DIMENSIONS } from "@/lib/maturity/model";
-import { expectationCopy, formatDuration, timeProgressPct } from "@/components/report/scanEstimate";
+import { expectationCopy, formatDuration, scanEstimateMs, timeProgressPct } from "@/components/report/scanEstimate";
 
 export interface Progress {
   stage?: ScanProgress["stage"];
@@ -95,10 +95,18 @@ export function useElapsed(): number {
 /**
  * Blend the server's stage percentage with a time-driven asymptotic curve via max(), so the bar
  * only ever moves forward: stage jumps win early, the time curve carries it through the long score
- * wait (where the server's stage percentage sits frozen). Snaps to 100 only when actually done.
+ * wait (where the server's stage percentage sits frozen). Snaps to 100 only when actually done. The
+ * time curve is calibrated to the RESOLVED provider (progress.provider, sticky from the first frame)
+ * so a ~90s hosted scan and a ~6min claude-cli scan both fill honestly instead of one curve fitting
+ * neither.
  */
 export function displayProgressPct(progress: Progress, elapsedMs: number, done = false): number {
-  return done ? 100 : Math.max(Math.round(progress.pct), Math.round(timeProgressPct(elapsedMs)));
+  return done
+    ? 100
+    : Math.max(
+        Math.round(progress.pct),
+        Math.round(timeProgressPct(elapsedMs, scanEstimateMs(progress.provider))),
+      );
 }
 
 function StepIcon({ state }: { state: "done" | "active" | "pending" }) {
@@ -191,7 +199,7 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
           note below takes over). */}
       {!done && !progress.fallback && (
         <p className="mt-5 max-w-sm text-sm text-slate-500" role="status" aria-live="polite">
-          {expectationCopy(elapsedMs)}
+          {expectationCopy(elapsedMs, scanEstimateMs(progress.provider))}
         </p>
       )}
 

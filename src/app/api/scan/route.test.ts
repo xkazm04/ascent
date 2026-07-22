@@ -33,7 +33,11 @@ vi.mock("@/lib/db", () => ({
   persistScanReport: vi.fn(),
   consumeScanCredit: vi.fn(),
   grantCredits: vi.fn(),
-  getScanReportByCommit: vi.fn(),
+  // Default to a resolved null (a promise) so cacheAndPersistScan's interactive-regression baseline read
+  // and org-id lookup don't crash on a bare `vi.fn()` (which returns undefined). Salvage tests still
+  // override the return where they assert against it.
+  getScanReportByCommit: vi.fn(async () => null),
+  getOrgId: vi.fn(async () => null),
 }));
 
 // Entitlement gate: isMeteredScan decides whether the credit block runs; checkScanEntitlement is the
@@ -59,7 +63,11 @@ vi.mock("@/lib/rate-limit", () => ({
   SCAN_RATE_LIMIT: {},
   PEEK_RATE_LIMIT: {},
 }));
-vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
+vi.mock("@/lib/scan-alerts", () => ({
+  maybeAlertLowCredits: vi.fn(async () => {}),
+  // cacheAndPersistScan fires the interactive regression check after a new authoritative persist.
+  checkAndAlertRegression: vi.fn(async () => ({ regressed: false, verdict: null, dispatched: false })),
+}));
 vi.mock("@/lib/access", () => ({ authGateEnabled: vi.fn(() => false), getViewer: vi.fn(async () => null) }));
 
 import { GET, POST } from "./route";
@@ -162,7 +170,13 @@ describe("POST /api/scan — mock cache poisoning guard (#2)", () => {
 // A grantCredits(...,{reason:"refund"}) call is the route's ONLY refund mechanism (line 163), so its
 // call count IS the "was the user refunded?" signal.
 const meteredReport = (provider: string, confidence = 0.9) =>
-  ({ engine: { provider, model: "m" }, warnings: [], confidence }) as unknown as ScanReport;
+  ({
+    // repo identity is read by cacheAndPersistScan for the interactive-regression baseline lookup.
+    repo: { owner: "o", name: "r", headSha: "sha1" },
+    engine: { provider, model: "m" },
+    warnings: [],
+    confidence,
+  }) as unknown as ScanReport;
 
 describe("POST /api/scan — credit reserve / 402 / refund flow (money-path)", () => {
   beforeEach(() => {

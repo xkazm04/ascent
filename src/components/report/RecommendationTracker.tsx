@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types";
-import { ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/roadmapPieces";
+import { ExemplarPointer, ExploreList, PayoffChip, RoadmapMeta } from "@/components/report/roadmapPieces";
 import { isQuickWin, priorityScore, QuickWinBadge } from "@/components/report/roadmapPriority";
 import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
 import { STATUS_LABEL, STATUS_ACCENT } from "@/components/org/shared/backlogShared";
@@ -243,6 +243,7 @@ export function RecommendationTracker({
             </div>
             {item.rationale && <p className="mt-2 text-base leading-relaxed text-slate-400">{item.rationale}</p>}
             {!muted && <ExploreList items={item.explore} />}
+            {!muted && <ExemplarPointer dim={item.dimension} />}
             {err && (
               <div
                 role="alert"

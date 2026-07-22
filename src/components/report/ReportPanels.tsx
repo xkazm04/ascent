@@ -62,7 +62,7 @@ export function ReportPanels(props: ReportPanelsProps) {
       {tab === "sandbox" && (
         <div data-testid="report-tab-sandbox">
           {/* Roadmap sandbox — drag dimensions, watch the future (client-side what-if recompute) */}
-          <RoadmapSandbox report={report} />
+          <RoadmapSandbox report={report} recs={recs} />
         </div>
       )}
 

@@ -29,6 +29,11 @@ const COHORTS: { verdict: Verdict; verb: string }[] = [
   { verdict: "shadow", verb: "Bring under a plan" },
 ];
 
+// idle/shadow are money- & plan-framed ("reclaim seats", "bring under a plan") — honest actions only
+// when spend is connected. In simulated mode they'd rest on placeholder dollars, so the rail withholds
+// them (the git-real governance cohort still shows). Kept in sync with classify()'s spend-derived set.
+const MONEY_COHORTS = new Set<Verdict>(["idle", "shadow"]);
+
 export function AiRoiQuadrant({ model, slug }: { model: AiDeliveryModel; slug: string }) {
   const [active, setActive] = useState<Verdict | null>(null);
   const [hover, setHover] = useState<AiRepoRoi | null>(null);
@@ -165,9 +170,11 @@ export function AiRoiQuadrant({ model, slug }: { model: AiDeliveryModel; slug: s
           </div>
         </div>
 
-        {/* action rail — the concern cohorts as work lists */}
+        {/* action rail — the concern cohorts as work lists. Money-framed cohorts (idle/shadow) are
+            withheld in simulated mode since their dollars are a placeholder; the git-real governance
+            cohort survives, and a connect prompt replaces the fake all-clear. */}
         <div className="space-y-3">
-          {COHORTS.map(({ verdict, verb }) => {
+          {COHORTS.filter(({ verdict }) => !(simulated && MONEY_COHORTS.has(verdict))).map(({ verdict, verb }) => {
             const rows = model.repos.filter((r) => r.verdict === verdict);
             if (rows.length === 0) return null;
             const spend = rows.reduce((s, r) => s + r.monthlySpend, 0);
@@ -193,11 +200,23 @@ export function AiRoiQuadrant({ model, slug }: { model: AiDeliveryModel; slug: s
               </div>
             );
           })}
-          {model.summary.counts.ungoverned === 0 && model.summary.counts.idle === 0 && model.summary.counts.shadow === 0 && (
-            <div className="rounded-xl border border-divider bg-surface/40 p-4 text-sm text-slate-400">
-              <span aria-hidden className="mr-2 text-lime-400">✓</span>
-              No idle, ungoverned, or shadow AI spend detected across the fleet.
+          {simulated ? (
+            <div className="rounded-xl border border-divider bg-surface/40 p-3 text-xs text-slate-500">
+              Idle-seat and shadow-AI verdicts rest on spend Ascent can&apos;t see yet.{" "}
+              <Link href={`/org/${slug}/integrations`} className="text-accent transition hover:underline">
+                Connect a provider
+              </Link>{" "}
+              to surface reclaimable seats and unplanned AI.
             </div>
+          ) : (
+            model.summary.counts.ungoverned === 0 &&
+            model.summary.counts.idle === 0 &&
+            model.summary.counts.shadow === 0 && (
+              <div className="rounded-xl border border-divider bg-surface/40 p-4 text-sm text-slate-400">
+                <span aria-hidden className="mr-2 text-lime-400">✓</span>
+                No idle, ungoverned, or shadow AI spend detected across the fleet.
+              </div>
+            )
           )}
         </div>
       </div>

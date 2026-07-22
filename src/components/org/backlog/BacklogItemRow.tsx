@@ -2,11 +2,12 @@
 
 import { useRef, useState } from "react";
 import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
-import { type RecEvent, type RecStatus } from "@/lib/types";
+import { type RecEvent } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 import { PRACTICES } from "@/lib/practices";
 import { OVERDUE_ACCENT, statusAccent, dueLabel, type PatchOutcome } from "@/components/org/shared/backlogShared";
-import { StatusSelect } from "@/components/org/shared/recStatusUi";
+import { BacklogRowControls } from "@/components/org/backlog/BacklogItemRow.controls";
+import { BacklogRowExplore } from "@/components/org/backlog/BacklogItemRow.explore";
 import { BacklogRowHistory } from "@/components/org/backlog/BacklogItemRow.history";
 
 /**
@@ -226,82 +227,21 @@ export function BacklogItemRow({
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
-          status
-          <StatusSelect
-            value={shown.status as RecStatus}
-            disabled={saving}
-            onChange={(status) => patchField({ status })}
-            aria-label="Status"
-            data-focus-key={`${item.id}:status`}
-          />
-        </label>
-
-        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
-          owner
-          <select
-            value={shown.assigneeLogin ?? ""}
-            disabled={saving}
-            onChange={(e) => patchField({ assigneeLogin: e.target.value || null })}
-            aria-label="Owner"
-            data-focus-key={`${item.id}:owner`}
-            className="max-w-[10rem] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-          >
-            <option value="">Unassigned</option>
-            {options.map((login) => (
-              <option key={login} value={login}>
-                @{login}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
-          due
-          <input
-            type="date"
-            value={shown.targetDate ?? ""}
-            disabled={saving}
-            onChange={(e) => patchField({ targetDate: e.target.value || null })}
-            aria-label="Due date"
-            data-focus-key={`${item.id}:due`}
-            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-          />
-        </label>
-
-        {practice && (
-          <button
-            onClick={() => setConfirmingPr(true)}
-            disabled={prBusy || saving}
-            title={`Open a draft PR seeding the "${practice.label}" starter into ${item.repo}`}
-            className="rounded-md border border-accent/50 bg-accent/10 px-2.5 py-1 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
-          >
-            {prBusy ? "Opening PR…" : "Open draft PR →"}
-          </button>
-        )}
-
-        <button
-          onClick={promoteToInitiative}
-          disabled={promoteBusy || promoted || saving}
-          title="Roll this gap up into a tracked org initiative"
-          className="rounded-md border border-slate-700 px-2.5 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
-        >
-          {promoted ? "✓ Initiative" : promoteBusy ? "Promoting…" : "Promote to initiative"}
-        </button>
-
-        {/* Standard disclosure ARIA (backlog-management 07-16 #5): without aria-expanded/-controls a
-            non-visual user only hears the label text flip; the region id is stable per item. */}
-        <button
-          onClick={toggleHistory}
-          aria-expanded={!!history}
-          aria-controls={history ? `history-${item.id}` : undefined}
-          className="ml-auto rounded-md border border-slate-700 px-2 py-1 font-mono text-sm text-slate-400 transition hover:text-white"
-        >
-          {history ? "Hide history" : "History"}
-        </button>
-        {saving && <span role="status" className="font-mono text-sm text-slate-500">saving…</span>}
-      </div>
+      <BacklogRowControls
+        item={item}
+        shown={shown}
+        saving={saving}
+        options={options}
+        practice={practice}
+        prBusy={prBusy}
+        promoteBusy={promoteBusy}
+        promoted={promoted}
+        historyOpen={!!history}
+        onPatchField={patchField}
+        onOpenPr={() => setConfirmingPr(true)}
+        onPromote={promoteToInitiative}
+        onToggleHistory={toggleHistory}
+      />
 
       {/* One polite live region for the row's async outcomes (save error / PR error / PR link): on this
           screen the error message is the only signal an edit was rejected — the control just visually
@@ -318,6 +258,8 @@ export function BacklogItemRow({
           </p>
         )}
       </div>
+
+      <BacklogRowExplore item={item} />
 
       {history && <BacklogRowHistory id={`history-${item.id}`} history={history} onRetry={() => void loadHistory()} />}
 

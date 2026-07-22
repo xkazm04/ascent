@@ -94,7 +94,6 @@
           "filePaths": [
             "src/app/page.tsx",
             "src/components/ScanForm.tsx",
-            "src/components/landing/ScanGallery.tsx",
             "src/app/api/scan/route.ts",
             "src/app/api/scan/route.test.ts",
             "src/app/api/scan/stream/route.ts",
@@ -606,7 +605,9 @@
             "src/components/org/delivery/ai/AiRoiLedger.tsx",
             "src/components/org/delivery/ai/AiRoiQuadrant.tsx",
             "src/components/org/delivery/ai/aiDeliveryModel.ts",
-            "src/components/org/delivery/ai/aiShared.tsx"
+            "src/components/org/delivery/ai/aiDeliveryModel.test.ts",
+            "src/components/org/delivery/ai/aiShared.tsx",
+            "src/components/org/delivery/ai/AiRoiQuadrant.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": []
@@ -627,6 +628,7 @@
             "src/lib/integrations/otlp.test.ts",
             "src/app/api/integrations/ingest/route.ts",
             "src/app/api/integrations/ingest/v1/metrics/route.ts",
+            "src/app/api/integrations/ingest/v1/metrics/route.test.ts",
             "src/app/api/integrations/ingest/v1/logs/route.ts",
             "src/lib/db/integrations.ts",
             "src/app/api/dev/seed-ai-usage/route.ts"
@@ -806,7 +808,9 @@
             "src/components/org/BacklogPanel.tsx",
             "src/components/org/BacklogSummary.tsx",
             "src/components/org/backlogShared.ts",
-            "src/components/org/BacklogItemRow.history.tsx"
+            "src/components/org/BacklogItemRow.history.tsx",
+            "src/components/org/BacklogItemRow.controls.tsx",
+            "src/components/org/BacklogItemRow.explore.tsx"
           ],
           "target": null,
           "apiRoutes": [
@@ -878,7 +882,9 @@
             "src/components/report/RoadmapSandbox.tsx",
             "src/components/report/RoadmapSandboxParts.tsx",
             "src/lib/db/scans-recommendations.ts",
-            "src/components/report/recommendationRowState.ts"
+            "src/components/report/recommendationRowState.ts",
+            "src/components/report/RoadmapSandboxCommit.tsx",
+            "src/components/report/RoadmapSandboxCommit.test.ts"
           ],
           "target": null,
           "apiRoutes": [

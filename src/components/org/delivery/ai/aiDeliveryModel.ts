@@ -95,13 +95,22 @@ function hash(s: string): number {
   return h >>> 0;
 }
 
-function classify(r: { aiInvolvedRate: number; governedRate: number | null; planned: boolean; monthlySpend: number }): Verdict {
+// `spendReal` = the spend/seat/plan layer is a connected provider (measured|allocated), not the FNV
+// placeholder. The two SPEND-DERIVED verdicts — `shadow` (adopted but no assigned plan) and `idle`
+// (paying with little AI reaching PRs) — are only honest judgments when spend is real; in simulated
+// mode they'd rest on fabricated dollars, so we fall through to the git-derived verdicts instead
+// (adopted → ungoverned/working by real governance; not-adopted → starter). Adoption & governance are
+// always real (git), so ungoverned/working/starter never depend on `spendReal`.
+function classify(
+  r: { aiInvolvedRate: number; governedRate: number | null; planned: boolean; monthlySpend: number },
+  spendReal: boolean,
+): Verdict {
   const adopted = r.aiInvolvedRate >= ADOPT_HI;
-  if (adopted && !r.planned) return "shadow"; // AI in the work, no assigned plan
+  if (adopted && spendReal && !r.planned) return "shadow"; // AI in the work, no assigned plan
   if (adopted && r.governedRate != null && r.governedRate < GOV_HI) return "ungoverned";
   if (adopted) return "working"; // governed (or too small a sample to fault)
   // Not meaningfully adopted: paying real money for it anyway = idle waste; otherwise just early.
-  if (r.monthlySpend >= SPEND_MEANINGFUL) return "idle";
+  if (spendReal && r.monthlySpend >= SPEND_MEANINGFUL) return "idle";
   return "starter";
 }
 
@@ -161,7 +170,7 @@ export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRo
       tool = toolName;
     }
 
-    const verdict = classify({ aiInvolvedRate: row.aiInvolvedRate, governedRate: row.aiGovernedRate, planned, monthlySpend });
+    const verdict = classify({ aiInvolvedRate: row.aiInvolvedRate, governedRate: row.aiGovernedRate, planned, monthlySpend }, fidelity !== "simulated");
     return {
       fullName: row.fullName,
       name: row.name,

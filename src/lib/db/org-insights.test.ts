@@ -736,4 +736,43 @@ describe("getOrgRecommendations — leverage formula, ranking, dedup, and zero-e
     const recs = await getOrgRecommendations("acme", 2);
     expect(recs!.map((r) => r.title)).toEqual(["Top", "Mid"]); // top-2 by leverage, "Low" dropped
   });
+
+  it("carries the recommendation's rationale + explore questions onto each org move (companion-voice parity)", async () => {
+    // The org surface must be able to EXPLAIN a gap the way the repo report does. The rationale rides
+    // through verbatim; the stored explore JSON is parsed via the shared parseStringArray (not a fork).
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
+      repository: {
+        findMany: vi.fn(async () => [
+          {
+            name: "alpha",
+            scans: [
+              {
+                archetype: "org",
+                dimensions: [],
+                recommendations: [
+                  {
+                    title: "Few tests vouch for behavior",
+                    dimId: "D2",
+                    impact: "high",
+                    rationale: "Tests are the guardrail that makes AI-generated code safe to merge.",
+                    explore: JSON.stringify([
+                      "What would catch a regression before it merged?",
+                      "Which critical behaviors have no test?",
+                    ]),
+                  },
+                ],
+              },
+            ],
+          },
+        ]),
+      },
+    } as never);
+    const recs = await getOrgRecommendations("acme");
+    expect(recs![0].rationale).toContain("guardrail");
+    expect(recs![0].explore).toEqual([
+      "What would catch a regression before it merged?",
+      "Which critical behaviors have no test?",
+    ]);
+  });
 });
