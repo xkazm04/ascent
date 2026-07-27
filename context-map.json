@@ -456,7 +456,12 @@
             "src/components/onboarding/tour/useTourEngine.ts",
             "src/components/onboarding/tour/useTourEngine.dom.test.tsx",
             "src/components/onboarding/useOnboardingFlow.resetRun.dom.test.tsx",
-            "src/components/onboarding/useOnboardingFlow.presetOrg.dom.test.tsx"
+            "src/components/onboarding/useOnboardingFlow.presetOrg.dom.test.tsx",
+            "src/components/onboarding/scanGate.ts",
+            "src/components/onboarding/OnboardingGateStep.tsx",
+            "src/components/onboarding/scanGate.test.ts",
+            "src/components/onboarding/OnboardingGateStep.dom.test.tsx",
+            "src/components/onboarding/useOnboardingFlow.gate.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": []

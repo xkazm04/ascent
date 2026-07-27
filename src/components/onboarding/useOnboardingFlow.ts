@@ -7,6 +7,7 @@ import type { OrgRepo } from "@/components/onboarding/types";
 import { runImportScan } from "@/components/onboarding/importScan";
 import { canRunRealScan } from "@/components/onboarding/canRunReal";
 import { byProminence } from "@/components/onboarding/byProminence";
+import { classifyScanFailure, gateAnnouncement, type ScanGate } from "@/components/onboarding/scanGate";
 import {
   MAX_LIST,
   MAX_SELECT,
@@ -52,6 +53,11 @@ export function useOnboardingFlow() {
   // How many repos the server deferred for insufficient credits this run — surfaced on the done
   // screen so a credit shortfall is disclosed rather than left as ghost "scanning…" rows.
   const [creditSkipped, setCreditSkipped] = useState(0);
+  // An ACCESS gate returned by the import kickoff (401/403) — rendered as a human recovery step
+  // INSTEAD of the raw server string. Distinct from `error` on purpose: `error` stays the channel for
+  // genuine unexpected failures (where losing the server's diagnostic would be worse than a raw
+  // string), while a gate is a known state the wizard knows how to get the user out of.
+  const [gate, setGate] = useState<ScanGate | null>(null);
 
   // Abort controller for the streaming import — aborted on Cancel and on unmount.
   const abortRef = useRef<AbortController | null>(null);
@@ -117,6 +123,16 @@ export function useOnboardingFlow() {
     heading?.focus();
   }, [phase]);
 
+  // The gate replaces the step content without a phase change, so it needs the same focus discipline
+  // the phase effect gives every other step — otherwise a keyboard/SR user whose scan was refused
+  // hears nothing and focus stays where the (now unmounted) Scan button used to be. Its announcement
+  // is DERIVED (below, at the return) rather than stored: a gate always lands in the same commit as
+  // the return to "select", so a second setState here would only race the phase effect's title.
+  useEffect(() => {
+    if (!gate) return;
+    flowRef.current?.querySelector<HTMLElement>("[data-step-heading]")?.focus();
+  }, [gate]);
+
   // ONB-2 — rehydrate once on mount (must run BEFORE the persist effect below so the snapshot is read
   // before that effect could overwrite it). Reads the saved source + selection and re-enters the
   // select step. Only the inputs are restored; the repo list is re-fetched live, so a stale scanning/
@@ -181,6 +197,7 @@ export function useOnboardingFlow() {
     if (preset) setOrg(preset);
     setLoading(true);
     setError(null);
+    setGate(null); // a fresh source starts clean — the previous source's access gate no longer applies
     setRepos([]);
     setSourceInstallId(null); // public-handle path — no installation token
     setPhase("select"); // switch first so skeleton rows show while GitHub responds
@@ -213,6 +230,7 @@ export function useOnboardingFlow() {
     setOrg(login);
     setLoading(true);
     setError(null);
+    setGate(null); // a fresh source starts clean — the previous source's access gate no longer applies
     setRepos([]);
     setSourceInstallId(id);
     setPhase("select");
@@ -292,6 +310,7 @@ export function useOnboardingFlow() {
     setPreviewCause(null);
     setInvitedCount(0);
     setCreditSkipped(0);
+    setGate(null);
   }
 
   async function startScan() {
@@ -300,6 +319,7 @@ export function useOnboardingFlow() {
     setPhase("scanning");
     setRows(Object.fromEntries(picks.map((r) => [r.fullName, { repo: r.fullName }])));
     setError(null);
+    setGate(null);
     setCreditSkipped(0);
     setAnnounce(`Scanning ${picks.length} ${picks.length === 1 ? "repository" : "repositories"}.`);
 
@@ -396,7 +416,13 @@ export function useOnboardingFlow() {
         if (outcome.aborted) {
           setError(outcome.stalled ? "The scan stalled (no response). Please try again." : "Scan canceled.");
         } else {
-          setError(outcome.message ?? "Scan failed.");
+          // An ACCESS refusal (401/403 from requireOrgAccess) is a known state with a real recovery —
+          // render the gate step instead of echoing the server's raw string, which is the dead end the
+          // public-preview funnel used to hit at its very last click. Anything else is a genuine
+          // failure and keeps the server's diagnostic.
+          const g = classifyScanFailure({ status: outcome.status, message: outcome.message }, sourceLabel);
+          if (g) setGate(g);
+          else setError(outcome.message ?? "Scan failed.");
         }
         setPhase("select");
       }
@@ -431,8 +457,11 @@ export function useOnboardingFlow() {
     setInvitedCount,
     creditSkipped,
     listTruncated,
+    gate,
+    setGate,
     flowRef,
-    stepAnnounce,
+    // The gate's title wins while a gate is up — it IS the step the user is looking at.
+    stepAnnounce: gate ? gateAnnouncement(gate) : stepAnnounce,
     loadRepos,
     loadInstallationRepos,
     toggle,

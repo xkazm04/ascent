@@ -60,9 +60,14 @@ export async function runImportScan(
   request: ImportScanRequest,
   controller: AbortController,
   cb: ImportScanCallbacks,
-): Promise<{ ok: true } | { ok: false; aborted: boolean; stalled: boolean; message?: string }> {
+): Promise<{ ok: true } | { ok: false; aborted: boolean; stalled: boolean; message?: string; status?: number }> {
   let stallTimer: ReturnType<typeof setTimeout> | null = null;
   let stalled = false;
+  // The HTTP status of a non-OK import POST, carried out to the caller. Without it a 401/403 gate
+  // (requireOrgAccess / requireFleetOrg answer BEFORE the stream opens) is indistinguishable from a
+  // genuine scan failure, so the wizard could only echo the raw server string instead of offering the
+  // human recovery the situation actually calls for (sign in / no access / personal workspace).
+  let status: number | undefined;
   const armStall = () => {
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {
@@ -98,6 +103,7 @@ export async function runImportScan(
       signal: controller.signal,
     });
     if (!res.ok || !res.body) {
+      status = res.status;
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       throw new Error(data?.error ?? `Import failed (${res.status}).`);
     }
@@ -137,7 +143,13 @@ export async function runImportScan(
     if (controller.signal.aborted) {
       return { ok: false, aborted: true, stalled };
     }
-    return { ok: false, aborted: false, stalled, message: err instanceof Error ? err.message : "Scan failed." };
+    return {
+      ok: false,
+      aborted: false,
+      stalled,
+      message: err instanceof Error ? err.message : "Scan failed.",
+      status,
+    };
   } finally {
     if (stallTimer) clearTimeout(stallTimer);
   }

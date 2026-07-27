@@ -209,7 +209,8 @@ describe("runImportScan — error / non-2xx outcomes", () => {
     const { cb, onRepo, onResult, onError } = makeCallbacks();
     const result = await runImportScan(request, new AbortController(), cb);
 
-    expect(result).toEqual({ ok: false, aborted: false, stalled: false, message: "out of credits" });
+    // `status` rides along so the wizard can tell an ACCESS refusal (401/403) from a genuine failure.
+    expect(result).toEqual({ ok: false, aborted: false, stalled: false, message: "out of credits", status: 402 });
     expect(onRepo).not.toHaveBeenCalled();
     expect(onResult).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
@@ -227,6 +228,7 @@ describe("runImportScan — error / non-2xx outcomes", () => {
       aborted: false,
       stalled: false,
       message: "Import failed (500).",
+      status: 500,
     });
   });
 });

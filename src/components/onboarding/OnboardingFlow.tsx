@@ -5,6 +5,8 @@ import { PickStep, type Installation } from "@/components/onboarding/OnboardingP
 import { SelectStep } from "@/components/onboarding/OnboardingSelectStep";
 import { ScanStep } from "@/components/onboarding/OnboardingScanStep";
 import { Shell } from "@/components/onboarding/OnboardingFlow.Shell";
+import { GateStep } from "@/components/onboarding/OnboardingGateStep";
+import type { AuthMode } from "@/components/auth/SignInButtonFor";
 import { MAX_SELECT, buildChecklistSteps, type OrgCredit } from "@/components/onboarding/OnboardingFlow.model";
 import { useOnboardingFlow } from "@/components/onboarding/useOnboardingFlow";
 
@@ -16,9 +18,13 @@ export function OnboardingFlow({
   installations = [],
   suggestedOrgs = [],
   seededOrg,
+  auth = null,
 }: {
   hasInstallation?: boolean;
   installations?: Installation[];
+  /** Which OAuth backend this deployment runs, resolved server-side — so the access gate can render
+   *  the matching sign-in CTA instead of a dead button. */
+  auth?: AuthMode;
   /** Orgs auto-discovered at login that aren't installed yet — one-click "scan this org" nudges. */
   suggestedOrgs?: string[];
   /** Most-active org whose watchlist was pre-seeded at login; surfaced as a "dashboard ready" CTA. */
@@ -45,6 +51,8 @@ export function OnboardingFlow({
     setInvitedCount,
     creditSkipped,
     listTruncated,
+    gate,
+    setGate,
     flowRef,
     stepAnnounce,
     loadRepos,
@@ -76,6 +84,18 @@ export function OnboardingFlow({
       submittingRef.current = false;
     });
   };
+
+  // ---- access gate: the import kickoff was refused (401/403) ---------------
+  // Rendered ahead of the phase switch: the gate lands together with the return to "select", and the
+  // recovery (sign in / connect) is the ONLY meaningful next action — the repo list stays selected
+  // behind it and "Back to repositories" restores it untouched.
+  if (gate) {
+    return (
+      <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
+        <GateStep gate={gate} auth={auth} selectedCount={selected.size} onBack={() => setGate(null)} />
+      </Shell>
+    );
+  }
 
   // ---- pick phase: choose an installed org (private repos) or enter a handle ----------
   if (phase === "pick") {
