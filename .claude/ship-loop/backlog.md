@@ -29,7 +29,7 @@ _Seeded from the BOOT audit (2026-07-05): gate + 6 lenses (functional, tests, se
 | 14 | ☑ | 2-Func | S | DONE (M3): ClaudeCodeSetup Test now hits `…/v1/metrics` (the real receiver) + accurate success copy (was "persistence ships next"); base ingest route docstring/note corrected to point at the persisting /v1/metrics sub-route. |
 | 15 | ✕ | 8-Ops | S | CUT (2026-07-27 resume): premise wrong — `src/app/api/dev/seed-ai-usage/route.ts` exists (as item 40 recorded); context-map staleness handled under 20. |
 | 16 | ☐ | 2-Func | M | integrations/v1/logs accepts-and-drops (v1/logs/route.ts:18, persisted:false). Implement or remove. |
-| 17 | ☐ | 2-Func | S | Gate API product defaults to deterministic rubric not LLM (gate route:38 `mock` defaults true). Document/surface the choice (ties to #28). |
+| 17 | ☑ | 2-Func | S | DONE (M13, f7610d4): deterministic default now user-visible — badge-page GateSection states it outright; gate PR-comment mock footer reframes it as reproducible-by-design. |
 
 ## Architecture / tech-debt
 | # | S | Dim | Size | Item |
@@ -65,9 +65,9 @@ _Seeded from the BOOT audit (2026-07-05): gate + 6 lenses (functional, tests, se
 ## Derived from CP1 strategy (new work; execute per severity under continuous cadence)
 | # | S | Dim | Size | Item |
 |---|---|-----|------|------|
-| 33 | ☐ | 2-Func | M | Two-tier copy/IA: label the gate "AI-native Scorecard" (free, deterministic) and the report "AI-native readiness briefing" (paid) across pricing, gate PR comment, report headers. |
+| 33 | ☑ | 2-Func | M | DONE (M13, f7610d4): Scorecard/briefing vocabulary live on pricing sub-headline, gate PR-comment headline (check-run name pinned unchanged), badge GateSection, report header kicker. User-approved wording. |
 | 34 | ☐ | 5-Bill | L | Packaging: gate free / briefing paid; reconcile with Polar plans + the 5/mo public gate allowance. (pairs w/ 38 pricing) |
-| 35 | ☐ | 7-UX | S | Disclaim narrative variance: visible "AI estimate — may vary between runs" marker on the scored briefing (implements D29). |
+| 35 | ☑ | 7-UX | S | DONE (M13, f7610d4): "AI estimate · may vary between runs" chip (hover + sr-only hint) on LLM-scored report headers; live gate-comment footer carries the same note. |
 | 36 | ◐ | 9-Value | M | M9: added a DETERMINISTIC rollup-level regression test (signals.test.ts "golang-floor regression") — a golang/go-style off-GitHub repo now credits D3 (was ~1), un-flooring lifts the overall, and its GitHub-Actions twin scores within 8 pts (was the 20-vs-74 chasm). This is the reproducible stand-in for a live re-scan (fits D29). REMAINING: the actual live 10-org re-scan + reference-data/ refresh is a USER task (needs LLM+GH infra; PGlite persist caveat). |
 | 37 | ☑ | 1-Build | L | ALREADY DONE (discovered M9 via investigation — backlog was stale): the audit's P0/P1 broadening all landed + is tested. D3 detects Gerrit/bors/Buildkite/generic off-GitHub CI + inline guardrails (analyze/index.ts:313-357, 527-531); D6 off-platform review from trailers (:500-505); D9 GitHub-native checks return null-not-0 (security/checks.ts); D4 org-level dep-bot fallback; P1-1 guardband widen. Locked by signals.test.ts (P0-1/P0-2/P0-4) + checks.test.ts (P0-3). No further code needed. |
 | 38 | ☐ | 5-Bill | L | Reprice for platform/eng-leader buyer: team/seat tiers, briefing-as-leadership-dashboard; away from $10 self-serve. (product/pricing — likely its own checkpoint) |

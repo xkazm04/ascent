@@ -27,3 +27,6 @@ Brief: docs/VALUE-CASE.md. Verified in code first (engine.ts guardband + D9-dete
 ## CP2 — M12 pick (2026-07-27) — USER PRESENT
 - Collision resolved by the user: other terminals stopped, everything merged to master; loop owns master.
 - M12 = **A. Invariant repair**: 44 (300-LOC re-extraction), 20 residual (context-map re-sweep), 19 (tour OnboardingChecklist rename). B/C/D remain queued; pricing (34/38) still its own future checkpoint.
+
+## CP3 — M13 pick (2026-07-27) — USER PRESENT
+- M13 = **B. Two-tier execution**: 33 (Scorecard/briefing labels), 35 (AI-variance disclaimer), 17 (surface gate's deterministic default). Wording to be shown to the user before commit (product-visible copy). C/D/E queued.

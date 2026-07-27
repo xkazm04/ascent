@@ -55,13 +55,17 @@ DONE: 1-10,12,13,14,18,24,37,40 · 28-32 decided (M1). CUT: 15. PARTIAL: 20,22,2
 - 19 ☑ (009b514 TourChecklist rename) · 44 ☑ (bc77e50, 7 parallel extractions, ZERO .tsx >300) · 20 ☑ (64a1212, full context-map reconciliation: 548 attached / 93 ghosts fixed / 4 new contexts, drift 0/0).
 - GATE GREEN (sequential): lint ✓ 0 err (27 warn) · vitest ✓ 4240/4240 (item-45 flake passed this run) · build ✓ · tsc ✓ 0. Three atomic commits, tree clean.
 
-## NEXT ACTION — CP3 (awaiting user)
-M13 candidates by severity under continuous cadence:
-- **B. Two-tier execution (33 + 35 + 17)** — the decided-but-unshipped D28/D29 copy: "AI-native Scorecard"/"readiness briefing" labels + "AI estimate — may vary" disclaimer + gate-default surfacing. Product-visible copy; user may want wording review. (recommended — last decided-but-unexecuted strategy work)
-- **C. e2e in CI (11)** — wire mock-LLM Playwright into ci.yml.
+## M13 "two-tier copy" ☑ COMPLETE (2026-07-27, CP3 pick = B; wording user-approved)
+- 33+35+17 ☑ in f7610d4: report kicker "AI-native readiness briefing" + variance chip; gate PR comment "Ascent AI-native Scorecard" (check-run name pinned) + reproducible-by-design mock footer; badge GateSection + pricing sub-headline carry both tier names. Entitlements untouched.
+- GATE GREEN (sequential): lint ✓ 0 err · vitest ✓ 4240/4240 · build ✓ · tsc ✓ 0.
+- Scorecard moves: dim 2 gap 17 closed; dim 9 strategy execution now only lacks packaging/pricing (34/38) + live re-scan (36).
+
+## NEXT ACTION — CP4 (awaiting user)
+M14 candidates by severity under continuous cadence:
+- **C. e2e in CI (11)** — wire mock-LLM Playwright into ci.yml. (recommended — dim 4's only structural gap)
 - **D. Sec hardening (26 + 27)** — prod hard-off for the dev ingest secret; untrusted-data delimiters in the scoring prompt.
 - **E. Func/debt (16 logs-stub, 39 verdict taxonomy, 21 barrel splits)** · flakes (43 auth.test, 45 report-document.test).
-- Pricing/packaging (34/38) still needs its own user checkpoint.
+- **F. Pricing/packaging checkpoint (34 + 38)** — needs dedicated user decisions (team/seat tiers, gate-free vs briefing-paid packaging).
 
 ## Checkpoint history
 - CP0 (2026-07-05): ship bar="just keep improving"; cadence=continuous; allowance=5/mo; M1=strategy-first.
@@ -69,3 +73,4 @@ M13 candidates by severity under continuous cadence:
 - M2 (2026-07-05): gate GREEN. → M3 = AI-delivery synthetic-$ disclosure (continuous; no checkpoint).
 - CP2 (2026-07-27): pending — M12 pick (A/B/C/D above).
 - CP3 (2026-07-27): pending — M13 pick (B/C/D/E above).
+- CP4 (2026-07-27): pending — M14 pick (C/D/E/F above).
