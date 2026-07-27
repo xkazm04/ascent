@@ -1,7 +1,24 @@
 // Shared, pure presentational helpers for the App Readiness Passport (P2/P3) — band labels/colors and
 // compact stack chips, so the per-repo card and the fleet table/scatter render the same vocabulary.
 
-import type { AppPassport, ProductionBand } from "@/lib/types";
+import type { AppPassport, ArtifactGrade, ProductionBand } from "@/lib/types";
+import { upgradePassport } from "@/lib/analyze/passport-migrate";
+
+/** Normalize any passport handed to a view — a passport can reach a component straight off a persisted
+ *  report blob (not only via parsePassportJson), so the display layer lifts old stored shapes too. Cheap:
+ *  returns the same object when it is already current. */
+export const passportForDisplay = (pp: AppPassport): AppPassport => upgradePassport(pp);
+
+// ── graded artifact ladders (0.2.0) ─────────────────────────────────────────────────────────────
+export const GRADE_LABEL: Record<ArtifactGrade, string> = {
+  none: "None",
+  adhoc: "Ad-hoc",
+  curated: "Curated",
+  governed: "Governed",
+};
+/** Meter fill for a grade — same 0–100 vocabulary the production rungs use. */
+export const GRADE_PCT: Record<ArtifactGrade, number> = { none: 0, adhoc: 33, curated: 67, governed: 100 };
+export const gradeLabel = (g: string): string => GRADE_LABEL[g as ArtifactGrade] ?? g;
 
 export const BAND_LABEL: Record<ProductionBand, string> = {
   prototype: "Prototype",
