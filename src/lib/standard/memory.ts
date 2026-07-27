@@ -5,6 +5,7 @@
 
 import type { ScanReport } from "@/lib/types";
 import type { GeneratedFile } from "./types";
+import { SPEC_PATH } from "./spec";
 
 const README = `# \`.ai/memory\` — the codebase's durable memory
 
@@ -60,7 +61,7 @@ refs: []
 Adopted the \`.ai/\` AI-native standard (manifest + structured memory + a co-located CONTEXT graph +
 an executable \`doctor\`) on ${date}, seeded from an Ascent scan. **Why:** make the repo legible,
 verifiable, and self-maintaining for agents, and shift maturity controls left of CI — the agent
-self-certifies pre-push, CI is the thin backstop. See \`.ai/manifest.yaml\` and \`${"docs/AI_MANIFEST_SPEC.md"}\`.
+self-certifies pre-push, CI is the thin backstop. See \`.ai/manifest.yaml\` and \`${SPEC_PATH}\`.
 `;
 
   return [

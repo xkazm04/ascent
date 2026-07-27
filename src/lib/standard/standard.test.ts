@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -9,6 +9,9 @@ import {
   buildMemorySeed,
   buildContextScaffold,
   buildDoctor,
+  buildSpec,
+  buildGuardrails,
+  NEVER_COMMIT,
   buildConformanceWiring,
   buildMaintain,
   buildFoundation,
@@ -71,6 +74,17 @@ describe("ai-manifest", () => {
     expect(d.controls.ciHardPass).toEqual(["test", "sast", "merge-gate"]);
     expect(d.paths.memory).toBe(".ai/memory/");
     expect(d.paths.contextIndex).toBe(".ai/context-index.json");
+    // Only pointers the foundation SHIPS are declared. `evals` is deliberately absent: the doctor
+    // validates every declared path, so declaring one we never scaffold was a guaranteed install warn.
+    expect(d.paths.guardrails).toBe(".ai/guardrails.yaml");
+    expect(d.paths.evals).toBeUndefined();
+    expect(serializeManifestYaml(d)).not.toMatch(/^\s+evals:/m);
+  });
+
+  it("points `spec` at the copy that SHIPS with the foundation, not a path inside Ascent's repo", () => {
+    const d = buildManifestData(makeReport());
+    expect(d.spec).toBe(".ai/SPEC.md");
+    expect(serializeManifestYaml(d)).not.toContain("docs/AI_MANIFEST_SPEC.md");
   });
 
   it("records provenance for drift detection and carries a semver", () => {
@@ -232,15 +246,65 @@ function loadPushLineParser(): (stdin: string) => { localSha: string; remoteSha:
 }
 
 describe("foundation", () => {
-  it("bundles manifest, doctor, CI gate, maintain, memory and context in scaffold order", () => {
+  it("bundles manifest, spec, doctor, guardrails, CI gate, maintain, memory and context in scaffold order", () => {
     const files = buildFoundation(makeReport());
     const paths = files.map((f) => f.path);
     expect(paths[0]).toBe(".ai/manifest.yaml"); // spine first
-    expect(paths[1]).toBe(".ai/doctor.mjs"); // then the baseline check
+    expect(paths[1]).toBe(".ai/SPEC.md"); // the contract the spine points at, shipped beside it
+    expect(paths[2]).toBe(".ai/doctor.mjs"); // then the baseline check
+    expect(paths).toContain(".ai/guardrails.yaml"); // the invariants the manifest points at
     expect(paths).toContain(".github/workflows/ai-conformance.yml"); // its CI backstop
     expect(paths).toContain(".ai/maintain.mjs"); // self-maintaining upkeep
     expect(paths).toContain(".ai/memory/README.md");
     expect(paths).toContain(".ai/context-index.json");
+    for (const f of files) expect(f.body.length, f.path).toBeGreaterThan(0);
+  });
+
+  it("SHIPS every path the manifest points at — no pointer without an artifact", () => {
+    // The self-consistency invariant behind "a foundation that passes its own doctor": if the
+    // manifest declares a pointer, buildFoundation must generate something at it. (`.ai/memory/` is a
+    // directory, so it matches by prefix.)
+    const report = makeReport();
+    const paths = new Set(buildFoundation(report).map((f) => f.path));
+    const declared = Object.values(buildManifestData(report).paths).filter((p): p is string => typeof p === "string");
+    expect(declared.length).toBeGreaterThan(0);
+    for (const p of declared) {
+      const hit = p.endsWith("/") ? [...paths].some((f) => f.startsWith(p)) : paths.has(p);
+      expect(hit, `manifest declares ${p} but buildFoundation generates nothing there`).toBe(true);
+    }
+    // The spec pointer is subject to the same rule.
+    expect(paths.has(buildManifestData(report).spec)).toBe(true);
+  });
+});
+
+describe("spec (shipped in-repo, mirrored from the doc)", () => {
+  it("the .ai/SPEC.md body is byte-identical to docs/AI_MANIFEST_SPEC.md (drift guard)", () => {
+    // SPEC_MD is a hand-mirrored copy of the doc so it survives bundling (no fs at runtime). If the
+    // doc is edited without re-mirroring, the adopting repo ships a stale contract — fail loudly.
+    const onDisk = readFileSync(join(process.cwd(), "docs", "AI_MANIFEST_SPEC.md"), "utf8").replace(/\r\n/g, "\n");
+    expect(buildSpec().body).toBe(onDisk);
+    expect(buildSpec().path).toBe(".ai/SPEC.md");
+  });
+});
+
+describe("guardrails (the invariants half — real, not a dangling pointer)", () => {
+  it("declares a doctor-readable neverCommit flow list and the review discipline", () => {
+    const g = buildGuardrails();
+    expect(g.path).toBe(".ai/guardrails.yaml");
+    expect(g.body).toContain("schema: ai-guardrails");
+    // The doctor parses neverCommit with its own flow() helper — pin the round-trip, not the string.
+    const { flow } = loadDoctorParsers();
+    expect(flow(g.body, "neverCommit")).toEqual(NEVER_COMMIT);
+    expect(g.body).toContain("humanApproval: required");
+  });
+
+  it("keeps the never-commit patterns conservative (no near-miss that matches a legit file)", () => {
+    // A guardrail that fires on `.env.example` or a committed public key is worse than none: the
+    // gate becomes noise and gets disabled. Pin the exclusions explicitly.
+    expect(NEVER_COMMIT).not.toContain(".env.*");
+    expect(NEVER_COMMIT).not.toContain("*.key");
+    expect(NEVER_COMMIT).toContain(".env");
+    expect(NEVER_COMMIT).toContain("*.pem");
   });
 });
 
@@ -353,8 +417,19 @@ describe("manifest <-> doctor round-trip", () => {
     const pathsBlock = (yaml.split(/\npaths:\n/)[1] || "").split(/\n[a-z]/i)[0];
     expect(parsers.sub(pathsBlock, "contextIndex")).toBe(data.paths.contextIndex);
     expect(parsers.sub(pathsBlock, "memory")).toBe(data.paths.memory);
-    expect(parsers.sub(pathsBlock, "evals")).toBe(data.paths.evals);
     expect(parsers.sub(pathsBlock, "guardrails")).toBe(data.paths.guardrails);
+    // An undeclared optional pointer reads back as null (not "", not a stray comment line) — the
+    // doctor's "check every DECLARED path" loop depends on that.
+    expect(parsers.sub(pathsBlock, "evals")).toBeNull();
+  });
+
+  it("an OPTIONAL pointer added by the repo round-trips through the same paths block", () => {
+    // The repo grows an eval harness and declares it; the serializer emits it and the doctor reads it.
+    const data = buildManifestData(makeReport());
+    data.paths.evals = "evals/";
+    const yaml = serializeManifestYaml(data);
+    const pathsBlock = (yaml.split(/\npaths:\n/)[1] || "").split(/\n[a-z]/i)[0];
+    expect(parsers.sub(pathsBlock, "evals")).toBe("evals/");
   });
 
   it("flow lists (controls.prePush / ciHardPass / generatedFrom) round-trip via flow()", () => {
@@ -527,6 +602,110 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     expect(status).toBe(1);
     expect(json.fails).toBeGreaterThanOrEqual(1);
     expect(json.findings.some((f) => f.level === "fail" && /schema id is not/.test(f.msg))).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // THE FRESH INSTALL. The kit used to ship contradictions that made its OWN scaffold score yellow
+  // the moment it landed: `paths.evals` pointed at a directory buildFoundation never generated (and
+  // the doctor warned about it), `paths.guardrails` pointed at a file that did not exist anywhere,
+  // and `spec` named a path that only exists inside Ascent's repo. Those are gone — every pointer is
+  // now backed by a generated artifact. What remains is a deliberate, load-bearing distinction:
+  //
+  //   * an ascent-side CONTRADICTION (a pointer/check with no artifact) is a bug — zero remain, and
+  //     these tests fail if one comes back;
+  //   * an ADAPTATION marker ("this scaffold isn't yours yet") is the product. A standards tool that
+  //     reported green over an unfilled template would be worse than one that says what's missing.
+  //
+  // So the fresh-install finding set is pinned EXACTLY: any new finding — of either kind — breaks it.
+  // -------------------------------------------------------------------------------------------
+
+  /** Materialize ONLY buildFoundation's output — nothing else. This is what a merged install PR
+   *  (or a SKILL.md Step 0) leaves on disk before the maintainer has adapted anything. */
+  function writeFreshInstall(dir: string, report = makeReport()) {
+    for (const f of buildFoundation(report)) {
+      const p = join(dir, f.path);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, f.body, "utf8");
+    }
+  }
+
+  /** The warns a fresh install is DESIGNED to emit — each says "adapt this to your repo", and each
+   *  has an in-kit way to clear it. Anything outside this set is a regression. */
+  const ADAPTATION_WARNS = [
+    /pre-push control "scan-secrets" has no backing capability/,
+    /manifest still has TODO placeholders/,
+    /CONTEXT\.md is still the unfilled template/,
+  ];
+
+  it("FRESH INSTALL → no ascent-side contradiction survives: the only fail is the pre-push hook, and every warn is an adaptation marker", () => {
+    writeFreshInstall(tmp);
+    const { status, json } = runDoctor(tmp);
+
+    // The one intentional fail: the foundation cannot install a hook into your hook runner for you.
+    expect(json.findings.filter((f) => f.level === "fail").map((f) => f.msg)).toEqual([
+      expect.stringMatching(/prePush controls declared but NO local hook/),
+    ]);
+    expect(status).toBe(1); // exit(fails>0?1:0) — unchanged semantics
+
+    // Every warn is one of the three designed adaptation markers, and each marker appears exactly once.
+    const warns = json.findings.filter((f) => f.level === "warn").map((f) => f.msg);
+    for (const w of warns) {
+      expect(ADAPTATION_WARNS.some((re) => re.test(w)), `unexpected warn on a fresh install: ${w}`).toBe(true);
+    }
+    expect(warns.length).toBe(ADAPTATION_WARNS.length);
+
+    // The specific contradictions this direction removed — pinned so they cannot creep back.
+    expect(warns.some((w) => /evals/i.test(w))).toBe(false); // pointer to a subsystem we never scaffold
+    expect(warns.some((w) => /guardrails/i.test(w))).toBe(false); // pointer to a file we never generated
+    expect(json.findings.some((f) => /declared path guardrails/.test(f.msg) && f.level === "pass")).toBe(true);
+    // The CI backstop ships in the foundation, so ciHardPass never warns about "no CI workflows".
+    expect(warns.some((w) => /no CI workflows/.test(w))).toBe(false);
+  });
+
+  it("FRESH INSTALL + the one thing it asks for (a wired pre-push hook) → gate PASSES, nothing but adaptation warns", () => {
+    writeFreshInstall(tmp);
+    writeFileSync(
+      join(tmp, "lefthook.yml"),
+      "pre-push:\n  commands:\n    lint: { run: npm run lint }\n    typecheck: { run: npx tsc --noEmit }\n    conformance: { run: node .ai/doctor.mjs }\n",
+      "utf8",
+    );
+    const { status, json } = runDoctor(tmp);
+
+    expect(json.fails).toBe(0);
+    expect(status).toBe(0);
+    expect(json.warns).toBe(ADAPTATION_WARNS.length);
+    // Passes dominate: the scaffold verifies itself rather than merely existing.
+    expect(json.findings.filter((f) => f.level === "pass").length).toBeGreaterThanOrEqual(5);
+    expect(json.score).toBeGreaterThanOrEqual(80);
+  });
+
+  it("a FILLED CONTEXT.md clears the placeholder warn (the check reads content, not existence)", () => {
+    writeFreshInstall(tmp);
+    // The template passes a bare existsSync but is not context — that was the whole complaint.
+    expect(runDoctor(tmp).json.findings.some((f) => /unfilled template/.test(f.msg))).toBe(true);
+    writeFileSync(
+      join(tmp, "CONTEXT.md"),
+      "# CONTEXT: .\n\n## Owns\nThe billing API service.\n\n## Key files\n- `src/index.ts` — the HTTP entrypoint.\n",
+      "utf8",
+    );
+    const after = runDoctor(tmp).json;
+    expect(after.findings.some((f) => /unfilled template/.test(f.msg))).toBe(false);
+    expect(after.warns).toBe(ADAPTATION_WARNS.length - 1);
+  });
+
+  it("a DECLARED pointer that doesn't resolve warns; an UNDECLARED one is silent (evals no longer nags)", () => {
+    writeFreshInstall(tmp);
+    const manifestPath = join(tmp, ".ai", "manifest.yaml");
+    // Baseline: the shipped manifest declares no evals pointer -> not a finding at all.
+    expect(runDoctor(tmp).json.findings.some((f) => /evals/.test(f.msg))).toBe(false);
+    // Declare one the repo doesn't have -> the doctor holds the manifest to its own claim.
+    const declared = readFileSync(manifestPath, "utf8").replace(/^  memory: (.+)$/m, "  memory: $1\n  evals: evals/");
+    writeFileSync(manifestPath, declared, "utf8");
+    const json = runDoctor(tmp).json;
+    expect(json.findings.some((f) => f.level === "warn" && /declared path evals -> evals\//.test(f.msg))).toBe(true);
+    // ...and creating it clears the warn (a claim you can actually satisfy).
+    mkdirSync(join(tmp, "evals"), { recursive: true });
+    expect(runDoctor(tmp).json.findings.some((f) => f.level === "pass" && /declared path evals/.test(f.msg))).toBe(true);
   });
 
   it("the --json payload has exactly the {score,fails,warns,findings} shape conformance/route.ts ingests", () => {

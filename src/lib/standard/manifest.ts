@@ -5,8 +5,9 @@
 import type { ScanReport } from "@/lib/types";
 import { commandsFor, type LangCommands } from "@/lib/practice-artifact";
 import { type GeneratedFile, type ManifestData, MANIFEST_SCHEMA_VERSION } from "./types";
-
-const SPEC_PATH = "docs/AI_MANIFEST_SPEC.md";
+// The spec ships INSIDE the foundation (.ai/SPEC.md), so this pointer resolves in the adopting repo —
+// it used to name a path that only exists in Ascent's own repo.
+import { SPEC_PATH } from "./spec";
 
 /** Language-manifest file a repo's commands derive from — the doctor drift-checks it. */
 const SOURCE_FILE: Record<LangCommands["ci"], string> = {
@@ -50,10 +51,12 @@ export function buildManifestData(report: ScanReport): ManifestData {
       archetype: report.archetype,
     },
     capabilities,
+    // ONLY pointers the foundation ships. The doctor validates every path declared here, so a
+    // pointer to something we never generate (the old `evals: "evals/"`) was a guaranteed warn on
+    // every fresh install for a subsystem a scan cannot synthesize. Declare `evals` when you have one.
     paths: {
       contextIndex: ".ai/context-index.json",
       memory: ".ai/memory/",
-      evals: "evals/",
       guardrails: ".ai/guardrails.yaml",
     },
     context: { rule: "every module directory over 12 files has a CONTEXT.md" },
@@ -115,12 +118,15 @@ repo:
 capabilities:
 ${caps}
 
-# Pointers — these subsystems can change format underneath without breaking this contract.
+# Pointers — these subsystems can change format underneath without breaking this contract. Every
+# path DECLARED here must exist (the doctor checks it); a pointer you don't declare is not a finding.
+# Add optional ones as the repo grows them, e.g.:
+#   evals: evals/
 paths:
-  contextIndex: ${scalar(d.paths.contextIndex)}
-  memory: ${scalar(d.paths.memory)}
-  evals: ${scalar(d.paths.evals)}
-  guardrails: ${scalar(d.paths.guardrails)}
+${Object.entries(d.paths)
+  .filter((e): e is [string, string] => typeof e[1] === "string")
+  .map(([k, v]) => `  ${k}: ${scalar(v)}`)
+  .join("\n")}
 
 context:
   rule: ${JSON.stringify(d.context.rule)}

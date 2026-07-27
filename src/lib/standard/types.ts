@@ -53,12 +53,21 @@ export interface ManifestData {
   };
   /** Open map: capability name → command. Add keys freely; older readers ignore unknowns. */
   capabilities: Record<string, Capability>;
-  /** Pointers to the rest of the system — formats can change underneath these paths. */
+  /**
+   * Pointers to the rest of the system — formats can change underneath these paths.
+   *
+   * Only pointers the foundation actually SHIPS are required. Everything else is optional and open
+   * (`evals`, or any key a repo invents): the doctor validates every path declared here and says
+   * nothing about one that isn't. A pointer to a file the standard never generates is a dangling
+   * reference — it warned on every fresh install for a subsystem the kit offered no way to create.
+   */
   paths: {
     contextIndex: string;
     memory: string;
-    evals: string;
     guardrails: string;
+    /** Optional: declare it once the repo HAS an eval harness; the doctor then checks it resolves. */
+    evals?: string;
+    [pointer: string]: string | undefined;
   };
   context: {
     /** The structural rule the doctor enforces (e.g. "every module dir over N files has CONTEXT.md"). */
@@ -81,3 +90,6 @@ export interface ManifestData {
 
 /** The schema version this build of Ascent emits. */
 export const MANIFEST_SCHEMA_VERSION = "0.1.0";
+
+/** Semver of the `.ai/guardrails.yaml` invariants schema (versioned independently of the spine). */
+export const GUARDRAILS_SCHEMA_VERSION = "0.1.0";

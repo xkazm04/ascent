@@ -261,6 +261,8 @@
             "src/lib/standard/memory.ts",
             "src/lib/standard/context.ts",
             "src/lib/standard/types.ts",
+            "src/lib/standard/spec.ts",
+            "src/lib/standard/guardrails.ts",
             "src/lib/standard/pr.ts",
             "src/lib/standard/standard.test.ts",
             "src/app/api/report/foundation/pr/route.ts",

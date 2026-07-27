@@ -155,9 +155,10 @@ describe("POST /api/report/foundation/pr — the PR file manifest", () => {
       expect(calls[i].owner).toBe("acme");
       expect(calls[i].repo).toBe("web");
     }
-    // The spine leads (so a collision there means "already installed") and the doctor follows it.
+    // The spine leads (so a collision there means "already installed"), followed by the spec it points at.
     expect(calls[0].path).toBe(".ai/manifest.yaml");
-    expect(calls[1].path).toBe(".ai/doctor.mjs");
+    expect(calls[1].path).toBe(".ai/SPEC.md");
+    expect(calls.map((c) => c.path)).toContain(".ai/doctor.mjs");
 
     // The response reports what landed; the audit row names the foundation action.
     expect(json.committed).toEqual(expected.map((f) => f.path));

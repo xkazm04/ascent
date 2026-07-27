@@ -1,7 +1,8 @@
 // Emits `.ai/doctor.mjs` — the executable conformance check that PROVES what the manifest claims,
 // in-repo and pre-push (the maturity rubric shifted left, out of the remote scanner). Zero runtime
 // dependencies (only Node built-ins) so any repo with Node can run it; the check *contract* is
-// language-neutral (see docs/AI_MANIFEST_SPEC.md) so it can be reimplemented elsewhere.
+// language-neutral (docs/AI_MANIFEST_SPEC.md, shipped to the repo as .ai/SPEC.md) so it can be
+// reimplemented elsewhere.
 //
 // The script is authored with NO backticks or ${...} so it embeds verbatim in this template literal
 // and in the onboarding SKILL.md without escaping.
@@ -19,7 +20,7 @@ const DOCTOR = `#!/usr/bin/env node
 //           In CI, gate --run/reporting to trusted events (push, or same-repo PRs) only.
 //   --json  prints a JSON summary and (when ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN are
 //           set, e.g. in CI) POSTs it to Ascent — closing the adopt->verify->re-score loop.
-// Contract: docs/AI_MANIFEST_SPEC.md. Reimplement freely; the checks are what matter, not this runner.
+// Contract: .ai/SPEC.md. Reimplement freely; the checks are what matter, not this runner.
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
@@ -92,7 +93,36 @@ if (!existsSync(path)) {
   const ctxIndex = sub(pathsBlock, 'contextIndex') || '.ai/context-index.json';
   check(existsSync(ctxIndex), 'context index ' + ctxIndex, 'warn');
   check(existsSync(sub(pathsBlock, 'memory') || '.ai/memory/'), 'memory store', 'warn');
-  check(existsSync(sub(pathsBlock, 'evals') || 'evals/'), 'evals harness (recommended)', 'warn');
+  // Every OTHER pointer the manifest DECLARES must resolve too (guardrails, evals, whatever the repo
+  // adds). We deliberately do NOT check for pointers that are absent: this doctor used to warn that
+  // 'evals/' was missing on every fresh install, for a subsystem the standard never scaffolds - a
+  // guaranteed yellow you had no in-kit way to fix. Declare a pointer and it is enforced; leave it
+  // out and it is silent.
+  const declared = Object.create(null);
+  for (const line of pathsBlock.split('\\n')) {
+    const m = line.match(/^\\s+([\\w-]+):\\s*(.+)$/);
+    if (!m) continue;
+    const key = m[1], val = m[2].trim().replace(/^"|"$/g, '');
+    declared[key] = val;
+    if (key === 'contextIndex' || key === 'memory') continue;
+    check(existsSync(val), 'declared path ' + key + ' -> ' + val, 'warn');
+  }
+
+  // 2b. GUARDRAILS - the invariants file is machine-checkable, so check the part a machine can: a
+  // pattern the repo itself declared as never-commit must not be tracked by git. This is the one
+  // guardrail that is a HARD failure, because by the time it trips the secret is already in history.
+  const gPath = declared['guardrails'];
+  if (gPath && existsSync(gPath)) {
+    const never = flow(readFileSync(gPath, 'utf8'), 'neverCommit');
+    if (never.length) {
+      let tracked = null; // null = git unavailable (shallow tarball, no repo) -> report nothing
+      try {
+        tracked = execSync('git ls-files -- ' + never.map((p) => JSON.stringify(p)).join(' '), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      } catch { tracked = null; }
+      if (tracked) add('fail', 'GUARDRAIL VIOLATION: git tracks never-commit file(s): ' + tracked.split('\\n').slice(0, 5).join(', '));
+      else if (tracked !== null) add('pass', 'no never-commit secret files are tracked (' + never.length + ' patterns)');
+    }
+  }
 
   // 3. capabilities (declared, optionally proven)
   const caps = capabilities(text);
@@ -147,8 +177,18 @@ if (!existsSync(path)) {
   }
   if (existsSync(ctxIndex)) {
     try {
-      for (const m of (JSON.parse(readFileSync(ctxIndex, 'utf8')).modules || []))
-        if (m.context && !existsSync(m.context)) add('fail', 'context-index references missing ' + m.context);
+      for (const m of (JSON.parse(readFileSync(ctxIndex, 'utf8')).modules || [])) {
+        if (!m.context) continue;
+        if (!existsSync(m.context)) { add('fail', 'context-index references missing ' + m.context); continue; }
+        // A CONTEXT.md that is STILL THE SHIPPED TEMPLATE tells an agent nothing, yet a bare
+        // existsSync passes it - the scaffold scoring itself green while empty. Detect the template's
+        // own <placeholder> markers: its heading, or several angle-bracket tokens containing a space
+        // (real prose and HTML tags rarely do, so this doesn't fire on a genuinely written doc).
+        const ctext = readFileSync(m.context, 'utf8');
+        const marks = ctext.match(/<[^>\\n]*\\s[^>\\n]*>/g) || [];
+        if (/^#\\s*CONTEXT:\\s*<module path>/m.test(ctext) || marks.length >= 3)
+          add('warn', m.context + ' is still the unfilled template (<...> placeholders) - write the real context for ' + (m.path || m.id));
+      }
     } catch { add('warn', 'context-index.json is not valid JSON'); }
   }
   if (/TODO/.test(text)) add('warn', 'manifest still has TODO placeholders (purpose / secretsFrom / boundaries / agents)');
