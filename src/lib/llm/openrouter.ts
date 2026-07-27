@@ -132,10 +132,14 @@ export class OpenRouterProvider implements LLMProvider {
  * `response_format: json_object`. A plain text ping proves only the first two. OpenRouter happily
  * accepts a request for a model that cannot do JSON mode and returns prose; that model then fails
  * parseJsonLoose/validateAssessment on EVERY real scan and silently degrades the org to the mock
- * floor — after a green check mark. So the test sends the same JSON-mode request shape a real
- * assessment sends and requires a parseable JSON OBJECT back, just with a tiny prompt and a small
- * max_tokens (the assessment prompt is multi-KB and its completion is the expensive half; neither
- * adds anything to what is being validated).
+ * floor — after a green check mark. So the test sends a JSON-mode request and requires a parseable
+ * JSON OBJECT back, just with a tiny prompt and a small max_tokens (the assessment prompt is multi-KB
+ * and its completion is the expensive half; neither adds anything to what is being validated).
+ *
+ * DELIBERATELY json_object, not the strict json_schema assess() now tries FIRST: strict support is
+ * optional (assess() falls back per-model via isResponseFormatRejection), so json_object is the FLOOR
+ * capability every scannable model must hold — testing the floor validates every model the adapter
+ * can actually run, without failing models that only lack the optional strict path.
  *
  * Returns { ok } on success, or { ok:false, error } with a bounded, sanitized message (never the key).
  */
@@ -161,7 +165,8 @@ export async function testOpenRouterConnection(opts: {
         model,
         temperature: 0,
         max_tokens: 64,
-        // Mirrors assess()'s JSON-mode setting — this is the capability under test.
+        // The FLOOR capability under test (see docblock): assess() tries strict json_schema first but
+        // every model must at minimum hold JSON mode for its fallback path to work.
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "You reply with a single JSON object and nothing else." },
