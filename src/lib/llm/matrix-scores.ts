@@ -63,3 +63,63 @@ export function rankModels(scores: MatrixScores): ModelScore[] {
 export function bestModel(scores: MatrixScores): ModelScore | null {
   return rankModels(scores)[0] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Reading the matrix honestly: adapter artifacts + staleness
+// ---------------------------------------------------------------------------
+
+/**
+ * The output-token ceiling the bench ran each model under — the default of the adapters'
+ * OPENROUTER_MAX_TOKENS / OPENAI_MAX_TOKENS knob (llmMaxTokens' fallback). Mirrored as a literal
+ * rather than imported so this module stays pure and client-safe (no process.env reads).
+ */
+export const MATRIX_OUTPUT_TOKEN_CAP = 4096;
+
+/** At/above this share of the cap, the model's mean output is "pinned" — i.e. it was cut off. */
+const CAP_PINNED_RATIO = 0.99;
+/** Reliability at or below this is a total failure to produce the shape, not a quality gradient. */
+const ARTIFACT_RELIABILITY_MAX = 0.05;
+
+/**
+ * Is this row a DECODE-ADAPTER artifact rather than a model verdict?
+ *
+ * A model that scored zero because its every attempt ran into the output cap didn't "fail the
+ * assessment" — the harness truncated it (docs/LLM_MODEL_MATRIX.md). Rendering that as
+ * "claude-sonnet-5 · 0.0 · ⚠ 0%" discredits the scorecard, not the model, in front of the enterprise
+ * buyer using it to choose. Detected structurally (near-zero reliability AND mean output pinned at the
+ * cap) so the rule keeps working after a re-bake — never a hardcoded model name.
+ */
+export function isAdapterArtifact(m: ModelScore): boolean {
+  return m.reliability <= ARTIFACT_RELIABILITY_MAX && m.outTok >= MATRIX_OUTPUT_TOKEN_CAP * CAP_PINNED_RATIO;
+}
+
+/** The label to render in place of an artifact row's scores. */
+export const ADAPTER_ARTIFACT_LABEL = "adapter limit — not a model verdict";
+
+/** Models measured on their merits (artifacts excluded) — the rows that carry a real verdict. */
+export function scoredModels(scores: MatrixScores): ModelScore[] {
+  return rankModels(scores).filter((m) => !isAdapterArtifact(m));
+}
+
+/** Beyond this age the baked matrix is a historical record, not a current recommendation. */
+export const MATRIX_STALE_AFTER_DAYS = 45;
+const DAY_MS = 86_400_000;
+
+/**
+ * Age of the baked run in whole days at `now` (epoch ms, passed IN so callers/tests control the
+ * clock — never read from Date.now() here). NaN for an unparseable timestamp.
+ */
+export function matrixAgeDays(scores: Pick<MatrixScores, "measuredAt">, now: number): number {
+  const measured = Date.parse(scores.measuredAt);
+  if (!Number.isFinite(measured)) return NaN;
+  return Math.floor((now - measured) / DAY_MS);
+}
+
+/**
+ * Should the scorecard warn that this run is old? A 6-month-old matrix otherwise reads identically to
+ * a fresh one, and model lineups turn over far faster than that.
+ */
+export function isMatrixStale(scores: Pick<MatrixScores, "measuredAt">, now: number): boolean {
+  const age = matrixAgeDays(scores, now);
+  return Number.isFinite(age) && age > MATRIX_STALE_AFTER_DAYS;
+}

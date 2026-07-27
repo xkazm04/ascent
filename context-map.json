@@ -68,6 +68,7 @@
             "src/components/org/settings/LlmProviderSettings.tsx",
             "src/components/org/settings/LlmProviderSettings.test.tsx",
             "src/components/org/settings/ModelScorecard.tsx",
+            "src/components/org/settings/ModelScorecard.test.tsx",
             "src/components/org/settings/OpenRouterByomSettings.tsx",
             "src/lib/crypto/secret-box.test.ts",
             "src/lib/crypto/secret-box.ts",
@@ -79,6 +80,7 @@
             "src/lib/llm/matrix-capture.ts",
             "src/lib/llm/matrix-scores.data.ts",
             "src/lib/llm/matrix-scores.ts",
+            "src/lib/llm/matrix-scores.test.ts",
             "src/lib/llm/openrouter.ts",
             "src/lib/llm/openai.test.ts",
             "src/lib/llm/openrouter.test.ts"

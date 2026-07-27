@@ -138,7 +138,9 @@ function strictifyNode(node: SchemaNode): SchemaNode {
   if (node.type === "array") {
     return node.items ? { ...node, items: strictifyNode(node.items) } : node;
   }
-  const { minimum: _min, maximum: _max, ...rest } = node;
+  const rest = { ...node };
+  delete rest.minimum;
+  delete rest.maximum;
   return rest;
 }
 
