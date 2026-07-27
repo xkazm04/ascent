@@ -23,17 +23,31 @@ export function LlmProviderSettings({
   planAllowed: boolean;
   encryptionConfigured: boolean;
 }) {
-  const [modelId, setModelId] = useState(initial?.modelId ?? DEFAULT_MODEL);
-  const [region, setRegion] = useState(initial?.region ?? "us-east-1");
+  // An org has ONE active connected provider, and `initial` is that shared config object — so it
+  // describes THIS card only when the active provider is bedrock. Reading it unconditionally (the old
+  // behavior, and the reason the sibling OpenRouterByomSettings guards on `provider === "openrouter"`)
+  // pre-filled an OpenRouter org's Bedrock card with the OpenRouter model slug, a pre-checked "use this
+  // provider", and "configured ••••" AWS fields — none of which are this provider's state.
+  const isActive = initial?.provider === "bedrock";
+  const [modelId, setModelId] = useState(isActive ? (initial?.modelId ?? DEFAULT_MODEL) : DEFAULT_MODEL);
+  const [region, setRegion] = useState(isActive ? (initial?.region ?? "us-east-1") : "us-east-1");
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
-  const [enabled, setEnabled] = useState(initial?.enabled ?? false);
-  const [hasCreds, setHasCreds] = useState(initial?.hasCredentials ?? false);
+  const [enabled, setEnabled] = useState(isActive ? (initial?.enabled ?? false) : false);
+  const [hasCreds, setHasCreds] = useState(isActive ? (initial?.hasCredentials ?? false) : false);
   const [busy, setBusy] = useState<null | "save" | "test" | "disable">(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-  const [lastValidatedAt, setLastValidatedAt] = useState(initial?.lastValidatedAt ?? null);
+  const [lastValidatedAt, setLastValidatedAt] = useState(isActive ? (initial?.lastValidatedAt ?? null) : null);
 
   const disabledAll = !planAllowed || !encryptionConfigured;
+  // Saving here TAKES OVER the org's single provider slot. The stored credential blob is only replaced
+  // when a new one is supplied, so switching from another provider without entering AWS keys would
+  // leave that provider's secret behind under provider "bedrock" — the Bedrock credential resolver then
+  // returns null and the fail-closed guard aborts EVERY scan with a misleading ENCRYPTION_KEY message.
+  // Require the keys for a cross-provider switch so the takeover always carries its own credential.
+  const switchingProvider = Boolean(initial && initial.provider !== "bedrock");
+  const credsEntered = accessKeyId.trim() !== "" && secretAccessKey.trim() !== "";
+  const blockedBySwitch = switchingProvider && !credsEntered;
 
   async function save() {
     setBusy("save");
@@ -44,6 +58,9 @@ export function LlmProviderSettings({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           org: slug,
+          // Explicit, not the route's default — this card owns exactly one provider, and an implicit
+          // default is what made a mis-filled save land as "bedrock" by accident.
+          provider: "bedrock",
           modelId: modelId.trim(),
           region: region.trim() || undefined,
           enabled,
@@ -181,8 +198,16 @@ export function LlmProviderSettings({
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-300">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} disabled={disabledAll} className="accent-accent" />
-          Use this provider for scans (enable)
+          Use this provider for scans (replaces any other connected provider)
         </label>
+
+        {blockedBySwitch && (
+          <p className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-sm text-orange-200">
+            This org currently runs on <span className="font-mono">{initial?.provider}</span>. Switching to Bedrock
+            replaces it, so enter the AWS access key and secret above — saving without them would leave the previous
+            provider&apos;s credential in place and break every scan.
+          </p>
+        )}
 
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <button
@@ -194,7 +219,7 @@ export function LlmProviderSettings({
           </button>
           <button
             onClick={save}
-            disabled={disabledAll || busy !== null || !modelId.trim()}
+            disabled={disabledAll || busy !== null || !modelId.trim() || blockedBySwitch}
             className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
           >
             {busy === "save" ? "Saving…" : "Save"}

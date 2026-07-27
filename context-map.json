@@ -66,6 +66,7 @@
             "src/app/api/org/llm-provider/test/route.ts",
             "src/app/org/[slug]/settings/page.tsx",
             "src/components/org/settings/LlmProviderSettings.tsx",
+            "src/components/org/settings/LlmProviderSettings.test.tsx",
             "src/components/org/settings/ModelScorecard.tsx",
             "src/components/org/settings/OpenRouterByomSettings.tsx",
             "src/lib/crypto/secret-box.test.ts",
