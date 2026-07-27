@@ -3,15 +3,22 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { readSSE } from "@/lib/sse";
-import { scoreHex } from "@/lib/ui";
 import { ConstellationField } from "./ConstellationField";
-import { EmptyFleet, Pill, Stat } from "./FleetMapChrome";
+import { EmptyFleet } from "./FleetMapChrome";
+import { FleetHeader } from "./FleetMap.Header";
 import { type Installation } from "./FleetMap.constants";
 import { TriageControls } from "./FleetMap.TriageControls";
 import { useFleetData } from "./useFleetData";
 import { applyScanEvent } from "./applyScanEvent";
-import { type SortKey, fleetStats, makeMatcher, orderConstellations } from "./fleetMapDerive";
-import { type Constellation, DENSE_FLEET_STARS, FALLER, RISER } from "./fleetMapStars";
+import {
+  type SortKey,
+  countMatches,
+  fleetStats,
+  makeMatcher,
+  orderConstellations,
+  showTriageControls,
+} from "./fleetMapDerive";
+import { type Constellation, DENSE_FLEET_STARS } from "./fleetMapStars";
 
 export function FleetMap({
   installations,
@@ -157,6 +164,9 @@ export function FleetMap({
   // no filter is active, so the "clear" affordance derives from the matcher rather than re-deriving
   // the three-term predicate here.
   const filterActive = matcher !== undefined;
+  // How much of the fleet survives the filter. Because filtering DIMS rather than removes, a
+  // zero-match query and "the whole fleet is faint" look identical — the count says which it is.
+  const matchCount = useMemo(() => countMatches(constellations, matcher), [constellations, matcher]);
 
   // Order the org cards by the chosen key; loaded constellations rank ahead of loading/error ones.
   const ordered = useMemo(() => orderConstellations(constellations, sortKey), [constellations, sortKey]);
@@ -183,43 +193,12 @@ export function FleetMap({
       />
 
       <div className="relative mx-auto w-full max-w-6xl px-5 py-10">
-        <header className="animate-fade-up">
-          <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Mission Control</div>
-          <h1 className="mt-1 text-3xl font-bold text-white">
-            Welcome back, <span className="text-accent">{userName}</span>
-          </h1>
-          <p className="mt-2 max-w-2xl text-slate-400">
-            Your engineering fleet, mapped as living constellations — each org a cluster, each repo a star that
-            brightens with its maturity. Scores stream in below as Ascent reads your installations.
-          </p>
+        <FleetHeader userName={userName} stats={stats} hydrating={hydrating} />
 
-          <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
-            <Stat label="orgs" value={String(stats.orgs)} />
-            <Stat label="repos" value={hydrating && stats.repos === 0 ? "…" : String(stats.repos)} />
-            <Stat label="scanned" value={hydrating && stats.scanned === 0 ? "…" : String(stats.scanned)} />
-            <Stat
-              label="avg maturity"
-              value={stats.avg == null ? "—" : String(stats.avg)}
-              color={stats.avg == null ? undefined : scoreHex(stats.avg)}
-            />
-            {(stats.risers > 0 || stats.fallers > 0) && (
-              <Stat label="movers · 30d" value={`▲${stats.risers} ▼${stats.fallers}`} color={stats.risers >= stats.fallers ? RISER : FALLER} />
-            )}
-            <Pill className="font-mono uppercase tracking-widest text-slate-400" role="status" aria-live="polite">
-              {/* Progress counts SETTLED orgs so the fraction climbs monotonically to N/N (an errored org
-                  is progress, not a stall). On completion, surface any that never loaded as "· N unreachable"
-                  rather than pretending the whole fleet charted cleanly. aria-live stays polite. */}
-              {hydrating
-                ? `charting ${stats.settled}/${stats.orgs}…`
-                : stats.errored > 0
-                  ? `fleet charted · ${stats.errored} unreachable`
-                  : "fleet charted"}
-            </Pill>
-          </div>
-        </header>
-
-        {/* Triage controls — usable once more than one org is charted, where the grid gets busy. */}
-        {constellations.length > 1 && (
+        {/* Triage controls — for any multi-org fleet, and for a single org once it is dense enough to
+            need triage. Gating on `length > 1` alone left the one-org / many-repos user (who needs
+            search most) with no search box at all. */}
+        {showTriageControls(constellations.length, stats.repos) && (
           <TriageControls
             query={query}
             setQuery={setQuery}
@@ -230,6 +209,7 @@ export function FleetMap({
             sortKey={sortKey}
             setSortKey={setSortKey}
             filterActive={filterActive}
+            matchCount={matchCount}
             onClear={() => {
               setQuery("");
               setLevels(new Set());

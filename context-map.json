@@ -395,6 +395,8 @@
             "src/components/launch/mergeStars.ts",
             "src/components/launch/FleetMap.constants.ts",
             "src/components/launch/FleetMap.TriageControls.tsx",
+            "src/components/launch/FleetMap.Header.tsx",
+            "src/components/launch/fleetMapTriage.test.tsx",
             "src/components/launch/useFleetData.ts",
             "src/components/launch/applyScanEvent.test.ts",
             "src/components/launch/ConstellationField.test.tsx",

@@ -1,9 +1,9 @@
 "use client";
 
-import { type SortKey } from "./fleetMapDerive";
+import { type MatchCount, type SortKey } from "./fleetMapDerive";
 import { LEVEL_BANDS, SORTS } from "./FleetMap.constants";
 
-// Triage controls — usable once more than one org is charted, where the grid gets busy.
+// Triage controls for the fleet map (see showTriageControls for when they render).
 export function TriageControls({
   query,
   setQuery,
@@ -14,6 +14,7 @@ export function TriageControls({
   sortKey,
   setSortKey,
   filterActive,
+  matchCount,
   onClear,
 }: {
   query: string;
@@ -25,6 +26,8 @@ export function TriageControls({
   sortKey: SortKey;
   setSortKey: (v: SortKey) => void;
   filterActive: boolean;
+  /** Fleet-wide tally of repos passing the active filter (see countMatches). */
+  matchCount: MatchCount;
   onClear: () => void;
 }) {
   return (
@@ -77,13 +80,31 @@ export function TriageControls({
         </select>
       </label>
       {filterActive && (
-        <button
-          type="button"
-          onClick={onClear}
-          className="font-mono text-sm text-slate-500 hover:text-white"
-        >
-          clear
-        </button>
+        <>
+          {/* Filtering DIMS stars rather than removing them, so a query that matches NOTHING renders a
+              uniformly faded field — pixel-identical to a fleet that is simply all low-scoring. Saying
+              the count out loud is the only thing that distinguishes them. Zero matches is called out
+              in warn amber so it reads as a dead end, not as a result. aria-live announces the tally
+              as the user types. */}
+          <span
+            role="status"
+            aria-live="polite"
+            className={`font-mono text-sm tabular-nums ${
+              matchCount.matched === 0 ? "text-amber-400/80" : "text-slate-400"
+            }`}
+          >
+            {matchCount.matched === 0
+              ? `no repos match · ${matchCount.total} charted`
+              : `${matchCount.matched} of ${matchCount.total} match`}
+          </span>
+          <button
+            type="button"
+            onClick={onClear}
+            className="font-mono text-sm text-slate-500 hover:text-white"
+          >
+            clear
+          </button>
+        </>
       )}
     </div>
   );

@@ -94,12 +94,35 @@ export function ConstellationField({
             </Pill>
           )}
           {c.status === "done" && onScan && (
+            // The single-scan lock (FleetMap.scanOrg) faded EVERY other org's Scan button to 50%
+            // while one scan ran, with the tooltip unchanged — the button read as broken rather than
+            // queued. Now it explains itself, and stays FOCUSABLE while it does: `disabled` strips a
+            // button from the tab order and takes its title with it, so a keyboard/AT user could
+            // never reach the explanation. `aria-disabled` announces the state and keeps it
+            // reachable; the click is guarded below. (The org's OWN button while it scans keeps the
+            // real `disabled` — that one has a visibly changed label, "Scanning…".)
             <button
               type="button"
-              onClick={onScan}
-              disabled={scanning || scanDisabled}
-              title="Scan this org's watched repos and brighten the map"
-              className="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+              onClick={() => {
+                if (!scanning && !scanDisabled) onScan();
+              }}
+              disabled={scanning}
+              aria-disabled={scanDisabled || undefined}
+              title={
+                scanning
+                  ? `Scanning ${c.login}'s watched repos…`
+                  : scanDisabled
+                    ? "One scan at a time — another organization is scanning. This will be available when it finishes."
+                    : "Scan this org's watched repos and brighten the map"
+              }
+              aria-label={
+                scanning
+                  ? `Scanning ${c.login}'s watched repos`
+                  : scanDisabled
+                    ? `Scan ${c.login} — unavailable, one scan at a time; another organization is scanning`
+                    : `Scan ${c.login}'s watched repos`
+              }
+              className="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-accent/10"
             >
               {scanning ? "Scanning…" : "Scan"}
             </button>

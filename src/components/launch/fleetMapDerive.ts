@@ -83,6 +83,57 @@ export function makeMatcher({
   };
 }
 
+/** How many repos a SINGLE-org fleet needs before the triage controls are worth showing. The controls
+ *  used to require `constellations.length > 1`, which left a one-org user with 300 repos — the person
+ *  who needs search MOST — with no search box at all. Below this the whole field fits in a glance and
+ *  the controls are just chrome. */
+export const TRIAGE_MIN_REPOS = 8;
+
+/** Should the fleet triage controls render? Yes for any multi-org fleet (the grid is already busy),
+ *  and yes for a single org once its constellation is dense enough to need triage. Pure. */
+export function showTriageControls(orgs: number, repos: number): boolean {
+  if (orgs === 0) return false;
+  if (orgs > 1) return true;
+  return repos >= TRIAGE_MIN_REPOS;
+}
+
+export interface MatchCount {
+  /** Repos passing the active filter. */
+  matched: number;
+  /** Repos in the fleet that the filter was applied to. */
+  total: number;
+}
+
+/** Tally how many of the fleet's repos the active filter matches. Filters DIM rather than remove, so a
+ *  zero-match query renders as a uniformly faded field — pixel-identical to "everything is dim because
+ *  everything scored low". Counting lets the UI say so in words. `matcher === undefined` means no filter
+ *  is active, in which case everything matches by definition. Only `done` orgs hold repos. Pure. */
+export function countMatches(
+  constellations: Constellation[],
+  matcher: ((r: RepoStar) => boolean) | undefined,
+): MatchCount {
+  let matched = 0;
+  let total = 0;
+  for (const c of constellations) {
+    if (c.status !== "done") continue;
+    for (const r of c.repos) {
+      total += 1;
+      if (!matcher || matcher(r)) matched += 1;
+    }
+  }
+  return { matched, total };
+}
+
+/** The /launch greeting. This page's ONLY entry moment is the OAuth callback — for most visitors that
+ *  is their FIRST ever sign-in, so "Welcome back" greeted a brand-new user like a returning one. Fleet
+ *  framing works for both: it states what they are looking at rather than guessing their history.
+ *  Returns a null `name` when the viewer has no usable display name, so the heading degrades to plain
+ *  "Your fleet" instead of a dangling comma. Pure. */
+export function fleetGreeting(userName: string | null | undefined): { lead: string; name: string | null } {
+  const name = (userName ?? "").trim();
+  return { lead: "Your fleet", name: name === "" ? null : name };
+}
+
 /** Order the org cards by the chosen key. `done` constellations always rank ahead of loading/error
  *  ones (regardless of sortKey); within the `done` group, `name` sorts by login A→Z and
  *  maturity/repos/movement sort high→low by their per-org metric. Returns a new array. Pure. */

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import type { ComponentPropsWithoutRef } from "react";
+import { Kicker } from "@/components/ui";
+import { PublicConstellation } from "./PublicConstellation";
 
 /** The launch map's "mono metric chip" shell — ONE source for the pill geometry the header stats,
  *  the live-status pill (FleetMap), and the per-org avg badge (ConstellationField) all share. They
@@ -36,8 +38,17 @@ export function Stat({ label, value, color }: { label: string; value: string; co
 export function EmptyFleet() {
   return (
     <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-8 text-center">
-      <div className="text-4xl">🛰️</div>
-      <h2 className="mt-3 text-lg font-semibold text-white">No constellations yet</h2>
+      {/* Was a 4xl 🛰️ — the one off-tone element in an instrument-grade product, and the only emoji
+          on the page. Replaced with a small, static rendering of the very thing the empty state is
+          promising: the constellation itself, drawn by the same pure helpers the live map uses. It
+          shows what connecting GitHub buys you instead of decorating the absence of it. */}
+      <div aria-hidden className="mx-auto h-20 w-20 opacity-60">
+        <PublicConstellation count={12} />
+      </div>
+      <Kicker className="mt-4" tone="muted">
+        Fleet map
+      </Kicker>
+      <h2 className="mt-1 text-lg font-semibold text-white">No constellations yet</h2>
       <p className="mx-auto mt-1 max-w-md text-base text-slate-400">
         Install the Ascent GitHub App on an organization or account and your repositories will appear here as a
         star-map of maturity.
