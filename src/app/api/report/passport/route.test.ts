@@ -26,7 +26,13 @@ vi.mock("@/lib/authz", () => ({ requireOrgRead: h.requireOrgRead }));
 import { GET } from "./route";
 
 const req = (qs: string) => new Request(`http://t/api/report/passport${qs}`);
-const samplePassport = { passport: "app-passport", identity: { name: "web" }, automationReadiness: { level: "L4" }, productionReadiness: { band: "beta" } };
+const samplePassport = {
+  passport: "app-passport",
+  passportVersion: "0.2.0",
+  identity: { name: "web" },
+  automationReadiness: { level: "L4", artifacts: { memory: "curated", skills: "none" } },
+  productionReadiness: { band: "beta" },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -66,6 +72,27 @@ describe("GET /api/report/passport", () => {
     expect(await res.json()).toEqual(samplePassport);
     expect(h.getRepoPassport).toHaveBeenCalledWith("acme", "web", { orgSlug: "acme", headSha: "abc123" });
     expect(res.headers.get("content-disposition")).toBeNull(); // no download by default
+  });
+
+  it("lifts a stored 0.1.0 row to the current shape on export, tagged so the grade isn't read as assessed", async () => {
+    h.getRepoPassport.mockResolvedValue({
+      passport: "app-passport",
+      passportVersion: "0.1.0",
+      identity: { name: "web" },
+      automationReadiness: { level: "L3", artifacts: { memory: true, skills: false } },
+      productionReadiness: { band: "beta" },
+      evidence: { confidence: 0.6, source: "static-scan", files: [] },
+    });
+    const body = (await (await GET(req("?repo=acme/web"))).json()) as {
+      passportVersion: string;
+      migratedFrom?: string;
+      automationReadiness: { artifacts: { memory: string; skills: string } };
+      evidence: { notes?: string[] };
+    };
+    expect(body.passportVersion).toBe("0.2.0");
+    expect(body.migratedFrom).toBe("0.1.0");
+    expect(body.automationReadiness.artifacts).toEqual({ memory: "adhoc", skills: "none" });
+    expect(body.evidence.notes?.length).toBeGreaterThan(0);
   });
 
   it("sets a sanitized download filename with ?download", async () => {

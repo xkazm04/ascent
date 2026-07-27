@@ -1,4 +1,4 @@
-# The App Readiness Passport — design document (v0.1.0)
+# The App Readiness Passport — design document (v0.2.0)
 
 > A small, **descriptive, tool-naming** JSON fingerprint you drop into every app so you can
 > cross-compare a whole portfolio **on first sight**: what the app *is*, what it's *built on*, how
@@ -63,7 +63,8 @@ Reuses Ascent's existing **L1–L5 ladder** so it plugs straight into the maturi
 
 The level is driven by three observable things:
 - **`artifacts`** — the agent-facing *inputs*: `agentInstructions` (CLAUDE.md/AGENTS.md/…), a
-  `contextGraph` (none/partial/full), `memory`, an agent `manifest`, `evals`, reusable `skills`.
+  `contextGraph` (none/partial/full), **`memory` and `skills` as graded ladders** (§2c), an agent
+  `manifest`, `evals`.
 - **`selfVerify`** — which of `build`/`test`/`lint`/`typecheck` an agent can run **locally** to prove a
   change *before* a human looks. This is the single biggest determinant of safe autonomy — it's the
   difference between "the agent guesses" and "the agent knows it didn't break the build."
@@ -89,6 +90,60 @@ short enum so a fleet sorts trivially:
 > `gated` means it stops a release. That present-vs-enforced line is where most "looks ready, isn't"
 > surprises live — these enums make it explicit, which is exactly your "CI level / test coverage level"
 > ask, generalized.
+
+---
+
+### 2c. Graded artifact ladders (0.2.0) — `memory` and `skills`
+
+In 0.1.0 both were **booleans**, and `true` was nearly meaningless: a repo with one stale `NOTES.md`
+under `.ai/memory/` scored the same as one running a superseded-fact memory library with a CI check.
+A boolean also can't show *movement* — the thing a portfolio owner actually wants to see. So 0.2.0
+replaces them with the same four-rung ordinal ladder used everywhere else in the passport:
+
+| Rung | Means | `memory` criteria | `skills` criteria |
+|---|---|---|---|
+| **`none`** | Absent | No path under `.ai/memory[.md]` or `.claude/memory[.md]` | No path under `.claude/skills/` or `skills/` |
+| **`adhoc`** | Present but unstructured | The home exists but isn't a library — a single flat memory file, or one lone entry | Skills exist but aren't a library — loose files, or a single named skill |
+| **`curated`** | Structured / maintained | **≥2** per-fact entry files under the memory dir, **or** an index (`index/memory/readme.*`) plus ≥1 entry | **≥2** distinct skills that each carry their own definition file (`<name>/SKILL.md`) |
+| **`governed`** | Curated **+ process** | Curated **and** one of: a supersede lineage link (`supersedes:` / `superseded-by:` / `replaces:`) inside a fetched entry, a `schema`/`policy`/`conventions` file in the memory tree, or a CI job that references `.ai/memory` \| `.claude/memory` | Curated **and** one of: a registry/index at the skills root, a CI job that references the skills tree, or a package script that lints/validates skills |
+
+Two honesty rules, inherited from the **present-vs-enforced** cap that already governs `ci`/`security`:
+
+1. **Only fetched content can prove `governed`.** A snapshot that *lists* a memory tree but whose files
+   weren't fetched within the byte budget caps at `curated`. We never claim a rung the evidence can't
+   support.
+2. **When two rungs are arguable, score the lower one.** The ladder is a floor, not a guess.
+
+A `none` on either rung now emits an automation `blocker`, which is exactly the kind of gap an owner may
+legitimately **decline by choice** (§2d).
+
+### 2d. Declined by choice (0.2.0) — the passport as decision memory
+
+A blocker an owner has read and deliberately accepted is *not* the same as an unread finding, but 0.1.0
+had no way to say so — every re-scan re-surfaced it, and the reader re-litigated it. 0.2.0 lets the owner
+mark specific field paths as **declined by choice**, with an optional reason:
+
+```jsonc
+// PATCH /api/report/passport/overrides
+{ "repo": "acme/web",
+  "declined": { "stack.monitoring.errorTracking": { "reason": "Internal cron worker; failures page via the platform." } } }
+```
+
+The rules that make this decision *memory* rather than decoration:
+
+- **It never moves a score.** Choosing to skip a gap is a decision, not a fix. `productionReadiness.score`
+  is identical before and after. A fleet comparison stays honest.
+- **It re-renders, it doesn't hide.** The matching `blockers` line is retired from the blocker list and
+  re-emitted under top-level `declined[]` as `{ path, label, reason?, blocker? }` — annotated as a
+  decision, with the original blocker text preserved for audit.
+- **A re-scan cannot clear it.** Declines live in `Repository.passportOverridesJson`, keyed by field path,
+  and are applied as a **read-time overlay**. A scan writes `passportJson` and never touches the overrides
+  column, so the choice survives every regeneration — including one where the passport shape changed.
+- **Only allow-listed paths.** `DECLINABLE_PATHS` (see `src/lib/analyze/passport-overlay.ts`) enumerates
+  what an owner may decline — the monitoring vendors, the production sub-scales, `delivery.iac`/`rollback`,
+  and the automation artifacts. Deliberately **not** declinable: the tokenless "enforcement not observable"
+  caveat. That is a limitation of the *evidence*, and letting an owner silence it would let a trade-off
+  annotation launder a blind spot.
 
 ---
 
@@ -134,6 +189,12 @@ Two deliberate modelling choices:
 2. **Must-ignore-unknown.** A reader at `0.y` parses any `0.*` passport by ignoring fields it doesn't
    recognize. New integration kinds, new sub-scales, new metadata → **no schema migration, no broken
    readers**. (`additionalProperties: true` throughout enforces this.)
+   **Corollary — migrate on READ, never backfill.** A passport is persisted at scan time and read back
+   months later; there is no rewrite pass and no guaranteed re-scan. When a field's *type* changes (0.2.0's
+   booleans → ladders), `upgradePassport()` lifts the stored object at every read path
+   (`src/lib/analyze/passport-migrate.ts`, wired into `parsePassportJson`). A lifted object is **tagged**
+   with `migratedFrom` and an `evidence.notes` caveat, because a migrated ordinal is a *floor implied by
+   the old shape*, not a measurement — a reader must be able to tell the two apart.
 3. **Pointers, not embeds.** The heavy artifacts (the agent manifest, the context map, the full report)
    are referenced from `links`, never inlined. The passport stays one screen long.
 4. **Snapshot, with provenance.** A passport is true *as of* `generatedAt`. `evidence.files` is the
@@ -200,6 +261,45 @@ and the gaps surfaced as explicit `blockers` you can sort and act on.
 4. **Auto-generation.** The biggest force-multiplier: teach Ascent's scanner to emit a passport
    alongside its report (it already computes ~90% of these signals). That turns "drop a file in each
    app" into "every scan produces one." Flag it and I'll scope it against `src/lib/scoring/`.
+
+---
+
+## 9. Version history
+
+### 0.2.0 — from display artifact to **decision memory**
+
+Two patterns proven in the sibling **Personas** project, brought over intact.
+
+| Change | 0.1.0 | 0.2.0 |
+|---|---|---|
+| `automationReadiness.artifacts.memory` | `boolean` | ordinal `none \| adhoc \| curated \| governed` (§2c) |
+| `automationReadiness.artifacts.skills` | `boolean` | ordinal `none \| adhoc \| curated \| governed` (§2c) |
+| Owner "I've accepted this gap" | *nothing* — every re-scan re-surfaced it | top-level `declined[]`, keyed by field path in the overrides store (§2d) |
+| Stored-passport reads | parsed as-is | lifted by `upgradePassport()` at every read path, tagged `migratedFrom` |
+| New optional fields | — | `migratedFrom`, `declined[]`, `evidence.notes[]` |
+| Schema `$id` | `app-passport-0.1.json` | `app-passport-0.2.json` |
+
+**Why the ladders.** A boolean answered "does a file exist?", which is not the question. It couldn't
+distinguish a stray note from a governed memory library, and — worse for a portfolio — it couldn't show
+*movement*: a team investing all quarter in their agent memory saw the same `true` on day 1 and day 90.
+The four-rung ladder is the vocabulary the rest of the passport already uses (`ci`, `tests`, `security`,
+`observability`), so it sorts and charts with everything else.
+
+**Why declines.** The passport's whole value is that a reader trusts its blockers. A blocker the owner has
+consciously accepted poisons that trust — it trains the reader to skim. Declining moves it out of the
+"unread findings" list and into an explicit, reasoned, *auditable* decision, **without touching the
+score**, and — because it is stored beside the scan rather than inside it — it survives every re-scan.
+
+**Migration (automatic, no action needed).** Stored 0.1.0 rows are lifted on read: `memory`/`skills`
+`true → "adhoc"`, `false → "none"`. `adhoc` is the honest ceiling for a boolean `true`, which only ever
+proved presence. Every lifted passport carries `migratedFrom: "0.1.0"` and an `evidence.notes` entry, so a
+migrated `adhoc` is never mistaken for an assessed one. Re-scan to get a real grade.
+
+### 0.1.0 — initial
+
+Two readiness axes (`automationReadiness` L1–L5, `productionReadiness` band/score), the tool-naming
+`stack` block, `identity`/`links`/`evidence`, and the derived production score. Owner overrides (P4) for
+the three facts a scan can't observe: `criticality`, `lifecycle`, `rollback`.
 
 ---
 
