@@ -13,6 +13,7 @@ export function SelectStep({
   loading,
   sourceLabel,
   sourceInstallId,
+  listTruncated = false,
   credit,
   maxSelect,
   onToggle,
@@ -26,6 +27,9 @@ export function SelectStep({
   loading: boolean;
   sourceLabel: string;
   sourceInstallId: string | null;
+  /** True when the public listing stopped before the end of the account (/api/org/repos `truncated`) —
+   *  the list is then a recent slice, not the whole org, and must say so. */
+  listTruncated?: boolean;
   /** Prepaid balance for the source org (App path only) — null hides the balance half.
    *  `allowanceRemaining` is the org's INCLUDED free monthly scans. canRunReal counts it as headroom,
    *  so the recurring-cost copy below must subtract the same value or a qualifying Free-tier org is
@@ -53,10 +57,27 @@ export function SelectStep({
       <h2 data-step-heading tabIndex={-1} className="text-2xl font-bold text-white focus:outline-none">
         Choose repositories
       </h2>
+      {/* Order, stated honestly. The two paths really do differ: the public listing (/api/org/repos)
+          comes back most-recently-pushed and is rendered in that order, while the App path sorts the
+          installation's repos by prominence before slicing. Preselection is byProminence in BOTH cases
+          (stars, then recent activity) — the old single "we preselected the most-starred" line described
+          neither list's order and contradicted the public route outright. */}
       <p className="mt-1 text-slate-400">
-        Up to {maxSelect}. We preselected the {sourceInstallId ? "most recently active" : "most-starred"}.
+        Up to {maxSelect}.{" "}
+        {sourceInstallId
+          ? "Listed by stars, then recent activity — the top few are preselected."
+          : "Listed most-recently-pushed; the most-starred are preselected."}
         {sourceLabel && <> Source: {sourceLabel}</>}
       </p>
+      {/* The listing walks a bounded number of pages, so a big/fork-heavy account can be cut short. The
+          route has always reported that as `truncated`; saying it here is the difference between "these
+          are the recent ones" and silently presenting a slice as the whole account. */}
+      {listTruncated && !listing && repos.length > 0 && (
+        <p className="mt-1 font-mono text-xs text-slate-500">
+          Showing the {repos.length} most recently pushed — {sourceLabel || "this account"} has more than this
+          listing reaches. Scan these now; add the rest from the dashboard.
+        </p>
+      )}
 
       {/* Sticky action bar: bulk select/clear + a filled progress pill for the cap. */}
       <div className="sticky top-16 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 backdrop-blur">

@@ -35,15 +35,21 @@ export function ConnectDiscovered({
           <p className="text-base text-slate-400">
             You belong to {suggestedOrgs.length === 1 ? "this organization" : "these organizations"} —
             install the App to scan private repos, or{" "}
-            <Link href="/onboarding" className="text-accent hover:text-white">
+            <Link
+              href={suggestedOrgs.length === 1 ? `/onboarding?org=${encodeURIComponent(suggestedOrgs[0]!)}` : "/onboarding"}
+              className="text-accent hover:text-white"
+            >
               scan their public repos now →
             </Link>
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
+            {/* Carry the org the user just clicked into the wizard (?org=), instead of dropping the
+                intent at the door and landing them on a blank "choose a source" step. The wizard reads
+                the param on mount and goes straight to that account's repo selection. */}
             {suggestedOrgs.map((o) => (
               <Link
                 key={o}
-                href="/onboarding"
+                href={`/onboarding?org=${encodeURIComponent(o)}`}
                 className="focus-ring rounded-full border border-slate-700 px-3 py-1 font-mono text-sm text-slate-300 transition hover:border-accent hover:text-white"
               >
                 {o}

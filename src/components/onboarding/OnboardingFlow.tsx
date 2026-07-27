@@ -44,6 +44,7 @@ export function OnboardingFlow({
     invitedCount,
     setInvitedCount,
     creditSkipped,
+    listTruncated,
     flowRef,
     stepAnnounce,
     loadRepos,
@@ -106,6 +107,7 @@ export function OnboardingFlow({
           loading={loading}
           sourceLabel={sourceLabel}
           sourceInstallId={sourceInstallId}
+          listTruncated={listTruncated}
           credit={credit && credit.org === sourceLabel ? credit : null}
           maxSelect={MAX_SELECT}
           onToggle={toggle}

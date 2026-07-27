@@ -44,6 +44,11 @@ export function useOnboardingFlow() {
   const [previewScan, setPreviewScan] = useState(true);
   // How many teammates were invited from the done state (App path) — marks the checklist step done.
   const [invitedCount, setInvitedCount] = useState(0);
+  // Whether the public listing STOPPED LOOKING before the end of the account (/api/org/repos returns
+  // `truncated` for exactly this: its page budget ran out with more pages available). The flag has been
+  // on the response since the listing was bounded, but nothing ever read it — so a fork-heavy org's
+  // partial list was presented as the org's complete reality. The select step discloses it.
+  const [listTruncated, setListTruncated] = useState(false);
   // How many repos the server deferred for insufficient credits this run — surfaced on the done
   // screen so a credit shortfall is disclosed rather than left as ghost "scanning…" rows.
   const [creditSkipped, setCreditSkipped] = useState(0);
@@ -127,7 +132,17 @@ export function useOnboardingFlow() {
     } catch {
       snap = null;
     }
-    if (snap?.sourceLabel) void resumeFrom(snap);
+    if (snap?.sourceLabel) {
+      void resumeFrom(snap);
+    } else {
+      // ?org=<handle> — the intent handoff for links that already know which account the user wants
+      // (the connect page's discovered-org chips). Without it those chips dropped the org and dumped
+      // the user on a blank step 1. An in-progress snapshot always wins: a half-finished selection is
+      // more specific than a link's suggestion. Read off location rather than useSearchParams so this
+      // stays a plain mount effect (no CSR bailout / Suspense boundary needed).
+      const preset = new URLSearchParams(window.location.search).get("org")?.trim();
+      if (preset) void loadRepos(undefined, preset);
+    }
     // Run-once on mount; resumeFrom is stable for this purpose and intentionally excluded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -176,6 +191,7 @@ export function useOnboardingFlow() {
       const list = (data.repos ?? []) as OrgRepo[];
       if (list.length === 0) throw new Error("No public repositories found for that account.");
       setRepos(list);
+      setListTruncated(Boolean(data.truncated));
       setSelected(topSelection(list));
       // Lowercase the source label to match the App path: the import route persists under
       // org.trim().toLowerCase(), and the org dashboard resolves the slug exactly — so a mixed-case
@@ -414,6 +430,7 @@ export function useOnboardingFlow() {
     invitedCount,
     setInvitedCount,
     creditSkipped,
+    listTruncated,
     flowRef,
     stepAnnounce,
     loadRepos,
