@@ -46,10 +46,15 @@ vi.mock("@/lib/cache", () => ({
 }));
 // Gate evaluation is mocked so gate-mode is deterministic AND so we can detect any leak of a
 // real verdict: if the gate were ever evaluated for a private repo, it would call evaluateGate.
-vi.mock("@/lib/scoring/gate", () => ({
+// explicitPolicyFromParams / tightenGatePolicy stay REAL so the badge's org-policy merge (ci-gate
+// Direction 2) is exercised end-to-end — the badge must resolve the SAME policy /api/gate does.
+vi.mock("@/lib/scoring/gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/scoring/gate")>()),
   evaluateGate: vi.fn(() => ({ pass: true, failures: [] })),
   policyFromParams: vi.fn(() => ({})),
 }));
+// The org's persisted gate policy — null by default (DB-less), overridden for the merge cases.
+vi.mock("@/lib/db/org-gate", () => ({ getOrgGatePolicy: vi.fn(async () => null) }));
 vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true })),
   BADGE_RATE_LIMIT: {},
@@ -64,7 +69,8 @@ import { LEVEL_HEX } from "@/lib/ui";
 import { scanRepository } from "@/lib/scan";
 import { cacheGet } from "@/lib/cache";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
-import { evaluateGate } from "@/lib/scoring/gate";
+import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { recordBadgeImpression } from "@/lib/db";
 
 const mockScan = vi.mocked(scanRepository);
@@ -580,5 +586,76 @@ describe("?color= cannot repaint a verdict (usage-metering 2026-07-16 #5)", () =
     const body = await res.text();
     expect(body).toContain("unknown");
     expect(body).toContain("#3b9eff"); // the named "blue" mapping
+  });
+});
+
+// --- THE BADGE AGREES WITH THE GATE (ci-gate Direction 2) --------------------
+// Four surfaces render the same verdict: /api/gate, the App check run, the fleet governance view —
+// and this badge. The first three all resolve the org's PERSISTED gate policy; the badge called
+// evaluateGate(report, policyFromParams(...)) only, so a README could advertise "✓ pass" while
+// /api/gate FAILED the same repo against the org's tightened bar. These pin the shared semantics.
+describe("GET /api/badge — gate mode honors the ORG policy (agrees with /api/gate)", () => {
+  const mockOrgPolicy = vi.mocked(getOrgGatePolicy);
+  const mockPolicyFromParams = vi.mocked(policyFromParams);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEvaluateGate.mockReturnValue({ pass: true, failures: [] } as never);
+    mockRecordImpression.mockResolvedValue(undefined as never);
+    mockPolicyFromParams.mockReturnValue({} as never);
+    mockOrgPolicy.mockResolvedValue(null);
+    mockCacheGet.mockReturnValue(reportWith(false));
+  });
+
+  it("evaluates against the PERSISTED org policy when one exists (the bar the gate endpoint enforces)", async () => {
+    mockOrgPolicy.mockResolvedValue({ minOverall: 70, minDimensionFor: { D9: 70 }, requireProtectedBranch: true });
+
+    await get("?gate=1");
+
+    expect(mockOrgPolicy).toHaveBeenCalledWith("o"); // normalized owner, as on the gate endpoint
+    const [, policy] = mockEvaluateGate.mock.calls[0];
+    expect(policy).toEqual({ minOverall: 70, minDimensionFor: { D9: 70 }, requireProtectedBranch: true });
+    // Archetype defaults never dilute an existing org policy (same rule as the endpoint).
+    expect(mockPolicyFromParams).not.toHaveBeenCalled();
+  });
+
+  it("a query param can NOT weaken the org bar on a badge (tighten-only overlay)", async () => {
+    mockOrgPolicy.mockResolvedValue({ minOverall: 70, minDimensionFor: { D9: 70 } });
+
+    await get("?gate=1&min_overall=10&min_security=5");
+
+    const [, policy] = mockEvaluateGate.mock.calls[0];
+    expect(policy.minOverall).toBe(70); // the lax param is discarded
+    expect(policy.minDimensionFor).toEqual({ D9: 70 }); // ...as is the lax D9 floor
+  });
+
+  it("a query param CAN tighten the org bar per-field (other fields kept)", async () => {
+    mockOrgPolicy.mockResolvedValue({ minOverall: 50, minDimensionFor: { D9: 70 } });
+
+    await get("?gate=1&min_overall=90&min_level=L4");
+
+    const [, policy] = mockEvaluateGate.mock.calls[0];
+    expect(policy).toEqual({ minLevel: "L4", minOverall: 90, minDimensionFor: { D9: 70 } });
+  });
+
+  it("without a persisted org policy, params + the archetype default resolve as before (unchanged)", async () => {
+    mockOrgPolicy.mockResolvedValue(null);
+
+    await get("?gate=1&min_overall=60");
+
+    expect(mockPolicyFromParams).toHaveBeenCalledTimes(1);
+    const [params, archetype] = mockPolicyFromParams.mock.calls[0];
+    expect((params as URLSearchParams).get("min_overall")).toBe("60");
+    expect(archetype).toBe("service"); // archetype-aware off the scanned report
+  });
+
+  it("a DB error resolving the org policy degrades to the param/archetype policy — the badge never breaks", async () => {
+    mockOrgPolicy.mockRejectedValue(new Error("db down"));
+
+    const res = await get("?gate=1");
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("pass");
+    expect(mockPolicyFromParams).toHaveBeenCalledTimes(1);
   });
 });

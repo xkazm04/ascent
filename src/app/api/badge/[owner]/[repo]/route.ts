@@ -21,7 +21,8 @@ import { NextResponse } from "next/server";
 import { scanRepository, GitHubError } from "@/lib/scan";
 import { resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
-import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy } from "@/lib/scoring/gate";
+import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, BADGE_RATE_LIMIT } from "@/lib/rate-limit";
 import { recordBadgeImpression, recordQuotaEvent } from "@/lib/db";
 import { LEVEL_GLYPH, LEVEL_HEX, relLuminance, rgbOf } from "@/lib/ui";
@@ -381,9 +382,23 @@ export async function GET(
     const isMock = report.engine?.provider === "mock";
     const verdictLabel = isMock ? `${label} · demo` : label;
 
-    // Gate badge: a green pass / red fail against the (configurable, archetype-aware) policy.
+    // Gate badge: a green pass / red fail against the SAME policy /api/gate enforces.
     if (gateMode) {
-      const gate = evaluateGate(report, policyFromParams(searchParams, report.archetype));
+      // Policy precedence, byte-identical to the gate endpoint (route.ts) — the org's PERSISTED policy
+      // is the baseline whenever it exists, with explicit query params merged on top as a TIGHTEN-ONLY
+      // overlay; no persisted policy → params over the archetype default, exactly as before.
+      //
+      // WHY (ci-gate Direction 2): this was the ONE of four gate surfaces that never read the org
+      // policy. The endpoint, the App check run, and the fleet governance view all resolve it, so a
+      // README badge could render a confident "✓ pass" while `/api/gate` FAILED the same repo against
+      // the org's tightened bar — the badge quietly advertising a bar the org had raised. Same
+      // unauthenticated-surface reasoning as the endpoint: a query param must never WEAKEN the
+      // configured org bar, or any embedder could mint a green badge with ?min_dimension=1.
+      const orgPolicy = await getOrgGatePolicy(ownerN).catch(() => null);
+      const policy = orgPolicy
+        ? tightenGatePolicy(orgPolicy, explicitPolicyFromParams(searchParams))
+        : policyFromParams(searchParams, report.archetype);
+      const gate = evaluateGate(report, policy);
       return respond(
         badgeSvg({
           label: verdictLabel,

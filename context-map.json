@@ -31,7 +31,8 @@
             "src/app/api/gate/[owner]/[repo]/route.test.ts",
             "src/lib/db/org-gate.test.ts",
             "src/lib/github/checks.test.ts",
-            "src/lib/github/write.test.ts"
+            "src/lib/github/write.test.ts",
+            "src/app/api/badge/[owner]/[repo]/gate-consistency.test.ts"
           ],
           "target": null,
           "apiRoutes": [
