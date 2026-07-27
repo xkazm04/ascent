@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
 import type { OrgRepo } from "@/components/onboarding/types";
 import { runImportScan } from "@/components/onboarding/importScan";
-import { canRunRealScan } from "@/components/onboarding/canRunReal";
+import { resolveScanMode, type CreditRead } from "@/components/onboarding/scanMode";
+import { runRepoRetry } from "@/components/onboarding/retryRepo";
 import { byProminence } from "@/components/onboarding/byProminence";
 import { classifyScanFailure, gateAnnouncement, type ScanGate } from "@/components/onboarding/scanGate";
 import {
@@ -67,7 +68,18 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
 
   // Abort controller for the streaming import — aborted on Cancel and on unmount.
   const abortRef = useRef<AbortController | null>(null);
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Per-repo RETRIES run outside the batch: each owns its own controller (Cancel belongs to the batch,
+  // and a retry must not hijack it) but still has to die on unmount, or an in-flight retry would write
+  // state into an unmounted tree. The same set is the synchronous double-click guard — a React state
+  // flag can't stop the second half of a double-click, which would fire two POSTs for one repo.
+  const retriesRef = useRef<Map<string, AbortController>>(new Map());
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      for (const c of retriesRef.current.values()) c.abort();
+    },
+    [],
+  );
 
   // Whether the just-run preview was caused by a FAILED credit read (network blip / 500) rather than
   // a genuine lack of credits — the done-screen banner must not tell a paying, App-installed org to
@@ -80,11 +92,11 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // distinguishable so startScan can retry once and the done screen can explain honestly). startScan
   // awaits this so the money-gate decision never reads a null `credit` from an un-awaited fetch and
   // fabricates a preview on an org that actually has credits (ONB-1 race).
-  const creditReady = useRef<Promise<OrgCredit | "failed" | null> | null>(null);
+  const creditReady = useRef<Promise<CreditRead> | null>(null);
 
   // One credit read, shared by the load-time kick-off and startScan's retry. Resolves "failed" on a
   // non-OK response or a thrown fetch — never rejects, so awaiting it is always safe.
-  function fetchCredit(creditOrg: string): Promise<OrgCredit | "failed" | null> {
+  function fetchCredit(creditOrg: string): Promise<CreditRead> {
     return fetch(`/api/org/credits?org=${encodeURIComponent(creditOrg)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
@@ -340,32 +352,21 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     const controller = new AbortController();
     abortRef.current = controller;
     const total = picks.length;
-    // Settle the balance before the money-gate decision: on the App path the credit read is kicked off
-    // fire-and-forget, so a fast "Scan" click can arrive while `credit` is still null. Awaiting the
-    // stashed read (only when it hasn't already landed for this source) keeps a paying org from being
-    // silently downgraded to a preview (ONB-1). The public-handle path has no installation id, so
-    // canRunRealScan is false regardless and no wait is needed.
-    let settled: OrgCredit | "failed" | null = credit && credit.org === sourceLabel ? credit : null;
-    if (sourceInstallId && !settled && creditReady.current) {
-      // The credit read is its own fetch (not tied to `controller`), so it still resolves even if the
-      // user cancels mid-wait; an aborted controller is handled below by runImportScan ("Scan canceled").
-      settled = await creditReady.current;
-    }
-    // "failed" means the balance is UNKNOWN (transient fetch error), NOT that the org has no credits.
-    // Retry the read once before deciding — a single network blip must not silently downgrade a paying
-    // org's first scan to a mock preview. If the retry also fails we still fail closed to a preview
-    // (never charge on an unknown balance), but record the cause so the done screen explains it honestly.
-    if (sourceInstallId && settled === "failed") {
-      const retry = fetchCredit(sourceLabel);
-      creditReady.current = retry;
-      settled = await retry;
-    }
-    const creditUnknown = settled === "failed";
-    const settledCredit = settled === "failed" ? null : settled;
+    // Settle the balance before deciding real-vs-preview. The whole decision (await the in-flight read,
+    // retry once on an unknown balance, fail closed) lives in scanMode.ts so the per-repo retry on the
+    // done screen re-checks the money gate through the SAME code path. The credit read is its own fetch
+    // (not tied to `controller`), so it still resolves if the user cancels mid-wait; an aborted
+    // controller is handled below by runImportScan ("Scan canceled").
     // Run a REAL scan only on the App path AND when the org has credits (the import route meters +
     // refunds on failure) — otherwise a disclosed preview, so a credit-less org never dead-ends on a
     // 402 and scores are never silently fabricated. The public-handle funnel is always a preview.
-    const canRunReal = canRunRealScan({ sourceInstallId, credit: settledCredit, sourceLabel });
+    const { canRunReal, creditUnknown } = await resolveScanMode({
+      sourceInstallId,
+      sourceLabel,
+      credit,
+      creditReady,
+      fetchCredit,
+    });
     setPreviewScan(!canRunReal);
     setPreviewCause(!canRunReal && creditUnknown ? "credit_unknown" : null);
     try {
@@ -445,6 +446,22 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     }
   }
 
+
+  // Re-run ONE errored repo. The mechanism lives in retryRepo.ts (a pure function over injected deps)
+  // so this hook doesn't grow another 80 lines and the retry is directly testable on its own.
+  const retryRepo = (fullName: string) =>
+    runRepoRetry({
+      fullName,
+      sourceLabel,
+      sourceInstallId,
+      credit,
+      creditReady,
+      fetchCredit,
+      retries: retriesRef,
+      setRows,
+      setAnnounce,
+    });
+
   return {
     router,
     phase,
@@ -484,5 +501,6 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     cancelScan,
     resetRun,
     startScan,
+    retryRepo,
   };
 }

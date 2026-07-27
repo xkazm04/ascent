@@ -67,6 +67,7 @@ export function OnboardingFlow({
     cancelScan,
     resetRun,
     startScan,
+    retryRepo,
   } = useOnboardingFlow({ personalOrg });
 
   const checklistSteps = (): ReturnType<typeof buildChecklistSteps> =>
@@ -165,6 +166,9 @@ export function OnboardingFlow({
         inviteOrg={sourceInstallId ? sourceLabel : null}
         onInvited={() => setInvitedCount((c) => c + 1)}
         onCancel={cancelScan}
+        // Per-repo recovery on the done screen: re-runs ONE errored repo (money gate re-checked, other
+        // rows untouched) instead of forcing "Scan another", which resets the whole run.
+        onRetryRepo={retryRepo}
         onViewDashboard={() => router.push(`/org/${encodeURIComponent(sourceLabel)}`)}
         // resetRun clears the FULL per-run state — including the pre-scan credit snapshot, the
         // creditReady promise, preview flags, invite count, and creditSkipped — so a second run

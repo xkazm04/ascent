@@ -464,7 +464,11 @@
             "src/components/onboarding/useOnboardingFlow.gate.dom.test.tsx",
             "src/components/onboarding/personalWatch.ts",
             "src/components/onboarding/OnboardingGatePersonal.tsx",
-            "src/components/onboarding/personalGate.dom.test.tsx"
+            "src/components/onboarding/personalGate.dom.test.tsx",
+            "src/components/onboarding/scanMode.ts",
+            "src/components/onboarding/retryRepo.ts",
+            "src/components/onboarding/OnboardingInvitePanel.tsx",
+            "src/components/onboarding/retryRepo.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": []

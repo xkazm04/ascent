@@ -12,7 +12,7 @@ export interface ScanRow {
   skipped?: string;
 }
 
-export function ScanRowView({ row }: { row: ScanRow }) {
+export function ScanRowView({ row, onRetry }: { row: ScanRow; onRetry?: (repo: string) => void }) {
   const done = row.level && typeof row.overall === "number";
   const lc = row.level ? LEVEL_CLASSES[row.level] : null;
 
@@ -43,7 +43,22 @@ export function ScanRowView({ row }: { row: ScanRow }) {
     <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-2.5">
       <span className="flex-1 truncate font-mono text-base text-white">{row.repo}</span>
       {row.error ? (
-        <span className="text-sm text-danger">{row.error}</span>
+        <>
+          <span className="text-sm text-danger">{row.error}</span>
+          {/* A terminal error used to be DEAD red text: one failed row out of ten cost the user the
+              whole wizard, because the only recovery ("Scan another") resets the run to step one.
+              Retry re-runs just this repo through the same import path. */}
+          {onRetry && (
+            <button
+              type="button"
+              onClick={() => onRetry(row.repo)}
+              aria-label={`Retry ${row.repo}`}
+              className="focus-ring rounded-md border border-divider px-2.5 py-1 text-sm text-slate-300 transition hover:border-accent/50 hover:text-white"
+            >
+              Retry
+            </button>
+          )}
+        </>
       ) : row.skipped ? (
         <span className="text-sm text-amber-300">skipped — out of credits</span>
       ) : (
