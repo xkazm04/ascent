@@ -261,7 +261,9 @@
             "src/lib/standard/memory.ts",
             "src/lib/standard/context.ts",
             "src/lib/standard/types.ts",
+            "src/lib/standard/pr.ts",
             "src/lib/standard/standard.test.ts",
+            "src/app/api/report/foundation/pr/route.ts",
             "src/lib/onboarding/index.ts",
             "src/lib/onboarding/skill.ts",
             "src/lib/onboarding/skill.test.ts",
@@ -272,7 +274,8 @@
           ],
           "target": null,
           "apiRoutes": [
-            "/api/report/skill"
+            "/api/report/skill",
+            "/api/report/foundation/pr"
           ]
         },
         {
