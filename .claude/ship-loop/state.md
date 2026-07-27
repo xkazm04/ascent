@@ -34,13 +34,27 @@
 - **M9 "value execution" ☑ COMPLETE** (2026-07-05): item 37 confirmed already-shipped+tested; item 36 validated deterministically (golang-floor regression test); item 38 deferred (pricing decisions). Gate green.
 - **M10 candidates**: context-map refresh (20, quite stale after M7's ~30 files); OR large-.ts barrel splits (21) + name collision (19); OR e2e-in-CI (11); OR functional (16 logs-stub, 39 verdict-taxonomy); OR security hardening (26 ingest-token dev-secret, 27 prompt delimiters).
 
-## Backlog status (as of M9)
-DONE: 1,2,3,4 (M2) · 5,6,7 (M4) · 8,9,10 (M5) · 12,13,14 (M3) · 18 (M7) · 24 (M8) · 37 (M9, was already-done) · 28-32 decided (M1). PARTIAL: 23 (M6), 25 (M8), 36 (M9). OPEN: 11,15,16,17,19,20,21,22,26,27,33,34,35,38,39,40.
+## Backlog status (as of 2026-07-27 resume)
+DONE: 1-10,12,13,14,18,24,37,40 · 28-32 decided (M1). CUT: 15. PARTIAL: 20,22,23,25,36. OPEN: 11,16,17,19,21,26,27,33,34,35,38,39 + new 41,42,43,44 (41/42 were fixed at M11 then lost — see below).
 
-## NEXT ACTION
-**9 milestones stacked uncommitted** (+62 tests session-total). Await user: **commit** (recommended), **M10** (pick a candidate), or pause. Gate green throughout.
+## Resume 2026-07-27 (skill adopted + gate re-certified)
+- The loop's procedure is now codified: `.claude/skills/ship-loop/SKILL.md` (adopted from personas). State stays here.
+- 74 commits landed during the 22-day pause (M2-M9 WIP committed; scan-pipeline feature run). Tree again carries a large uncommitted WIP (badge generator + org briefing + scan UX + uat/ artifacts) — NOT the loop's; audit AS-IS, stage only loop paths.
+- **M10 "context-map refresh" ☑ (retro)**: the 7 boot-named unmapped files are all in context-map.json now; residual drift (ScanModal, ColdScanGate) tracked under 20 ◐.
+- **M11 "re-green the gate" ✕ EXECUTED-THEN-LOST (2026-07-27)**: items 41+42 were fixed and the gate went GREEN (lint ✓0 err · vitest ✓3579/3579 · build ✓ · tsc ✓0, 13:40) — then a CONCURRENT SESSION integrated/committed the tree mid-run (HEAD c3fe9ab→2bb5e90 "report-shell"; theirs.tmp + integration-personas-ports worktree). Both fixes reverted; 41/42 reopened in backlog. Gate results for the PRE-integration tree; the post-integration tree is UNCERTIFIED.
+- Gate methodology addendum: do NOT run lint concurrently with the vitest suite — 1 contention flake in auth.test.ts (item 43).
+- **300-LOC invariant re-broken** (item 44): PracticeApply 326 · RepoSegmentsPanel 317 · Simulator 312 (two are regrowth of M7 extractions).
+
+## NEXT ACTION — CP2 (awaiting user; loop PAUSED on tree collision)
+FIRST: wait for the concurrent report-shell/personas-ports integration to settle, then re-run the gate on the integrated tree and re-apply 41 (+42 if still applicable). Then M12 candidates by severity under continuous cadence:
+- **A. Invariant repair (44 + 20 residual + 19)** — 300-LOC re-extraction ×3, context-map re-sweep, OnboardingChecklist rename. Mechanical, no product calls. (recommended default)
+- **B. Two-tier execution (33 + 35 + 17)** — the decided-but-unshipped D28/D29 copy: "AI-native Scorecard"/"readiness briefing" labels + "AI estimate — may vary" disclaimer + gate-default surfacing. Product-visible copy; user may want wording review.
+- **C. e2e in CI (11)** — wire mock-LLM Playwright into ci.yml.
+- **D. Sec hardening (26 + 27)** — prod hard-off for the dev ingest secret; untrusted-data delimiters in the scoring prompt.
+- Pricing/packaging (34/38) still needs its own user checkpoint. Commit of the 2-file M11 delta (eslint.config.mjs + BadgeGenerator.tsx) also awaits the user — separable from the WIP soup on request.
 
 ## Checkpoint history
 - CP0 (2026-07-05): ship bar="just keep improving"; cadence=continuous; allowance=5/mo; M1=strategy-first.
 - CP1 (2026-07-05): M1 strategy decisions D28-D32 (see decisions.md). → M2 = green the gate.
 - M2 (2026-07-05): gate GREEN. → M3 = AI-delivery synthetic-$ disclosure (continuous; no checkpoint).
+- CP2 (2026-07-27): pending — M12 pick (A/B/C/D above).

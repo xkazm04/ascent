@@ -27,7 +27,7 @@ _Seeded from the BOOT audit (2026-07-05): gate + 6 lenses (functional, tests, se
 | 12 | ☑ | 2-Func | S | DONE (M3): $-tiles (AI spend/mo, Cost/AI-PR, Idle, Ungoverned) now render a locked "connect a provider" placeholder when `fidelity==="simulated"`; verdict line drops fabricated $ and links to Integrations. AiRoiLedger.tsx. |
 | 13 | ☑ | 2-Func | S | DONE (M3): per-row tool/seats/$/mo/$AI-PR dash to "—" when simulated (AiRoiLedger); quadrant gets a "sample spend" watermark + $/seats stripped from tooltip/hover/action-rail (AiRoiQuadrant). |
 | 14 | ☑ | 2-Func | S | DONE (M3): ClaudeCodeSetup Test now hits `…/v1/metrics` (the real receiver) + accurate success copy (was "persistence ships next"); base ingest route docstring/note corrected to point at the persisting /v1/metrics sub-route. |
-| 15 | ☐ | 8-Ops | S | seed-ai-usage dev route referenced in context-map (610,615) but source deleted (only stale .next). Restore or drop. |
+| 15 | ✕ | 8-Ops | S | CUT (2026-07-27 resume): premise wrong — `src/app/api/dev/seed-ai-usage/route.ts` exists (as item 40 recorded); context-map staleness handled under 20. |
 | 16 | ☐ | 2-Func | M | integrations/v1/logs accepts-and-drops (v1/logs/route.ts:18, persisted:false). Implement or remove. |
 | 17 | ☐ | 2-Func | S | Gate API product defaults to deterministic rubric not LLM (gate route:38 `mock` defaults true). Document/surface the choice (ties to #28). |
 
@@ -36,9 +36,9 @@ _Seeded from the BOOT audit (2026-07-05): gate + 6 lenses (functional, tests, se
 |---|---|-----|------|------|
 | 18 | ☑ | 7-UX | L | DONE (M7): all 11 extracted via pure relocation (11 parallel agents) → zero .tsx >300 LOC (PowerShell-verified). New LOC: InstallationRepos 136, OnboardingFlow 132, Simulator 293, usage/page 143, RepoSegmentsPanel 285, FleetMap 232, ReportView 223, ScanModal 252, SkillsPanel 236, BacklogItemRow 292, TrendChart 240. ~30 co-located files created; exports + eslint-disables preserved; gate green. AGENTS.md invariant restored. |
 | 19 | ☐ | 1-Build | S | Rename tour `OnboardingChecklist` (name collision with onboarding/OnboardingChecklist — invites wrong-import bugs). |
-| 20 | ☐ | 8-Ops | S | Refresh context-map.json: 7 unmapped files (securityRegisterShared[.test], tracklight[.test], tour/OnboardingChecklist, security/checks, security/exposure). |
+| 20 | ◐ | 8-Ops | S | M10 (2026-07-05) refreshed the 7 named files (verified mapped 2026-07-27). RESIDUAL: ScanModal (landing/prototypes/index) + report/ColdScanGate absent from context-map.json — re-drift after the commit gap; re-verify sweep. |
 | 21 | ☐ | 1-Build | L | Split 3 large .ts modules into themed sub-modules + barrel (org-insights 937, scans-read 913, analyze/index 883). |
-| 22 | ☐ | 1-Build | S | Update stale docstrings: provider.ts:1 (omits claude-cli/openai), tour steps.ts/types.ts (deleted variants). |
+| 22 | ◐ | 1-Build | S | provider.ts docstring FIXED since (lists ClaudeCli+OpenAI, verified 2026-07-27). Remaining: tour steps.ts/types.ts stale variant references — re-verify. |
 
 ## UX polish
 | # | S | Dim | Size | Item |
@@ -76,4 +76,12 @@ _Seeded from the BOOT audit (2026-07-05): gate + 6 lenses (functional, tests, se
 | # | S | Dim | Size | Item |
 |---|---|-----|------|------|
 | 39 | ☐ | 2-Func | M | Deeper than M3: in `simulated` fidelity the VERDICT taxonomy itself is partly fabricated — `idle` (spend≥$500) and `shadow` (`planned` flag) in aiDeliveryModel.ts `classify()` derive from hash-synthesized spend/plan, so the verdict chips + action-rail cohorts read as detected when they're placeholder. M3 dashed the $ numbers; this needs the verdict/cohort layer to suppress or relabel spend-derived verdicts when simulated (or lead with adoption/governance only). |
-| 40 | ☐ | 8-Ops | S | Note: `src/app/api/dev/seed-ai-usage/route.ts` DOES exist (contra the boot functional lens) — so item 15 is really context-map staleness only (route present, map path fine); verify + fold into item 20 (context-map refresh). |
+| 40 | ☑ | 8-Ops | S | RESOLVED 2026-07-27: route re-verified present; item 15 cut; residual map drift tracked under 20. |
+
+## Discovered at 2026-07-27 resume (gate re-cert after the 74-commit gap)
+| # | S | Dim | Size | Item |
+|---|---|-----|------|------|
+| 41 | ☐ | 1-Build | S | ESLint scans `.claude/worktrees/**` (stale agent worktrees → 12 of 13 gate errors + ~200 dup warnings). Fix = add to `globalIgnores` in eslint.config.mjs. WAS APPLIED at M11 then LOST to the concurrent report-shell integration — re-apply once the tree settles. |
+| 42 | ☐ | 1-Build | S | BadgeGenerator.tsx preview-loading `setState` synchronously in effect (lint error). Fix = React render-time reset (prev-URL compare). WAS APPLIED at M11 then LOST with the integration's BadgeGenerator rewrite — re-check the NEW version (previewState may not even exist there) before re-applying. |
+| 43 | ☐ | 3-Test | S | auth.test.ts "readableOrgForOwner — cross-tenant read gate" flaked once under full-suite + concurrent-lint contention (1/3579; green twice re-run, green isolated). Root-cause order/timing dependence; meanwhile: never run lint concurrently with vitest. |
+| 44 | ☐ | 7-UX | M | 300-LOC invariant re-broken: PracticeApply.tsx 326 · RepoSegmentsPanel.tsx 317 · plan/Simulator.tsx 312 (two regrown after M7). Pure-relocation extraction per AGENTS.md. Re-measure after the integration lands. |
