@@ -6,6 +6,7 @@ import { Kicker } from "@/components/ui";
 import { FreshnessControl } from "@/components/report/FreshnessControl";
 import { pillClass } from "@/components/report/pill";
 import { SkillDownload } from "@/components/report/SkillDownload";
+import { FoundationPrButton } from "@/components/report/FoundationPrButton";
 
 /** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row.
  *  `isMock` (keyless deterministic demo, no LLM) is derived once by ReportView and threaded down so
@@ -15,12 +16,17 @@ export function ReportHeader({
   isMock,
   onRetest,
   rescanning,
+  installFoundation,
 }: {
   report: ScanReport;
   isMock: boolean;
   onRetest?: () => void;
   /** A re-test is in flight — forwarded to the freshness control so it shows "Re-scanning…". */
   rescanning?: boolean;
+  /** Viewer is an org member of a non-public repo (server-resolved on the permalink path) — shows the
+   *  one-click ".ai/ foundation" install-PR button beside the skill download. The route re-checks
+   *  access; this only spares everyone else a button that would 403. */
+  installFoundation?: boolean;
 }) {
   const { repo } = report;
 
@@ -103,6 +109,9 @@ export function ReportHeader({
             repoParam={`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`}
             dimensions={report.dimensions}
           />
+          {/* Same customer-repo write surface as the passport PR — one click seeds the generated .ai/
+              tree as a draft PR instead of asking the adopting agent to transcribe SKILL.md's blocks. */}
+          {installFoundation && <FoundationPrButton repo={`${repo.owner}/${repo.name}`} />}
         </div>
       </div>
     </div>

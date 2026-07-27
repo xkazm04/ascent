@@ -26,6 +26,7 @@ export function ReportView({
   serverPassport,
   serverHistory,
   serverRecs,
+  installFoundation,
 }: {
   report: ScanReport;
   onRetest?: () => void;
@@ -43,6 +44,9 @@ export function ReportView({
   serverPassport?: AppPassport | null;
   serverHistory?: RepositoryHistory | null;
   serverRecs?: PersistedRecommendation[] | null;
+  /** Viewer is an org member of this non-public repo (the permalink path resolves it server-side) —
+   *  forwarded to the header so the .ai/ foundation install-PR button can render. */
+  installFoundation?: boolean;
 }) {
   const { repo } = report;
   const repoFull = `${repo.owner}/${repo.name}`;
@@ -198,7 +202,13 @@ export function ReportView({
   return (
     <div className="animate-fade-up space-y-8" data-testid="report">
       {/* Header */}
-      <ReportHeader report={report} isMock={isMock} onRetest={onRetest} rescanning={rescanning} />
+      <ReportHeader
+        report={report}
+        isMock={isMock}
+        onRetest={onRetest}
+        rescanning={rescanning}
+        installFoundation={installFoundation}
+      />
 
       {/* App Readiness Passport — the first thing seen: the two-axis trust scorecard for this codebase,
           full-width above the section nav so it leads every tab. Omitted when no passport is available. */}

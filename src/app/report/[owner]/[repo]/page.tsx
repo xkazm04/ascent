@@ -139,12 +139,22 @@ async function ReportPermalinkBody({
   ]);
   // Owner-only passport controls (P4): editable only for a non-public org-owned repo by an owner.
   const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
+  // The .ai/ foundation install-PR button: any org MEMBER of a non-public repo (mirrors the route's
+  // requireOrgAccess — member-level, unlike the owner-only passport controls). UX courtesy only; the
+  // route re-checks access and the App installation before writing anything.
+  const canInstallFoundation = orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "member").catch(() => false));
 
   return (
     <ReportErrorBoundary>
       {/* ReportView carries its own animate-fade-up entrance (and its own repo header, which lands over
           the masthead at the same position). The panels below stagger in after it. */}
-      <ReportView report={pinned} serverPassport={passport} serverHistory={history} serverRecs={recs} />
+      <ReportView
+        report={pinned}
+        serverPassport={passport}
+        serverHistory={history}
+        serverRecs={recs}
+        installFoundation={canInstallFoundation}
+      />
       {passport && (
         <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
           <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} />
