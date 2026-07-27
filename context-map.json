@@ -212,6 +212,7 @@
           "filePaths": [
             "src/app/api/app/setup/route.ts",
             "src/app/api/app/repos/route.ts",
+            "src/app/api/app/repos/route.test.ts",
             "src/app/api/app/webhook/route.ts",
             "src/app/api/app/webhook/route.test.ts",
             "src/lib/github/app.ts",
@@ -404,7 +405,8 @@
             "src/components/launch/fleetMapStars.test.ts",
             "src/components/launch/mergeStars.test.ts",
             "src/components/launch/starLayout.test.ts",
-            "src/components/launch/useFleetData.test.ts"
+            "src/components/launch/useFleetData.test.ts",
+            "src/components/launch/useFleetData.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": []
@@ -1904,12 +1906,12 @@
     "Repository Scanning & Scoring › Maturity Model & Scoring Engine [lib] — 27 files",
     "Repository Scanning & Scoring › Scan Pipeline & Ingestion [api] — 27 files",
     "Identity & GitHub Connectivity › GitHub Repo Data Access [lib] — 14 files",
-    "Identity & GitHub Connectivity › GitHub App Installation & Webhooks [api] — 11 files",
+    "Identity & GitHub Connectivity › GitHub App Installation & Webhooks [api] — 12 files",
     "Identity & GitHub Connectivity › GitHub OAuth & Session [api] — 25 files",
     "Onboarding, Shell & AI Standard › Dev Inspector [tooling] — 10 files",
     "Onboarding, Shell & AI Standard › App Shell, SEO & Error Pages [ui] — 25 files",
     "Onboarding, Shell & AI Standard › AI-Native Standard & Onboarding Skill [lib] — 27 files",
-    "Onboarding, Shell & AI Standard › Launch Fleet Map [ui] — 18 files",
+    "Onboarding, Shell & AI Standard › Launch Fleet Map [ui] — 19 files",
     "Onboarding, Shell & AI Standard › Connect & Repo Selection [ui] — 16 files",
     "Onboarding, Shell & AI Standard › First-Run Onboarding Wizard [ui] — 29 files",
     "Org Scanning & Fleet Rollups › Fleet Alerts & Digests [lib] — 16 files",
