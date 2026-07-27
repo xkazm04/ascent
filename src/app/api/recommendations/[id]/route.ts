@@ -16,6 +16,7 @@ import { getRecommendationOrgSlug, isDbConfigured, updateRecommendation, type Re
 import { PUBLIC_ORG } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
+import { isClosedRecStatus, recordRecommendationClose } from "@/lib/memory/scan-feed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -126,6 +127,13 @@ export async function PATCH(
 
   try {
     const updated = await updateRecommendation(id, patch, { actor: actorLogin, note });
+    // Auto-feed Shared Org Memory: a gap actually CLOSED is org intelligence, and until now it lived
+    // only in this recommendation's private event timeline. Fires on the persisted post-state (so a
+    // rejected/no-op patch can't record a close), resolves org + repo itself, is never-throwing, and
+    // dedups on content — a retried PATCH or a double-click writes one row, not two.
+    if (isClosedRecStatus(patch.status) && updated && isClosedRecStatus(updated.status)) {
+      await recordRecommendationClose(id, { title: updated.title, dimension: updated.dimension });
+    }
     return NextResponse.json(updated);
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") {

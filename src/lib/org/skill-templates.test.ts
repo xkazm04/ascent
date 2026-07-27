@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { SKILL_TEMPLATES } from "@/lib/org/skill-templates";
 import { isSkillCategory } from "@/lib/org/skill-categories";
+import { parseSkillFrontmatter } from "@/lib/org/skill-frontmatter";
 
 describe("SKILL_TEMPLATES", () => {
   it("has a few curated templates", () => {
@@ -21,6 +22,22 @@ describe("SKILL_TEMPLATES", () => {
       expect(t.content.length).toBeLessThanOrEqual(50_000);
       expect(Array.isArray(t.tags)).toBe(true);
       expect(t.tags.length).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it("every template body carries a VALID frontmatter block matching its fields", () => {
+    for (const t of SKILL_TEMPLATES) {
+      const fm = parseSkillFrontmatter(t.content);
+      expect(fm.errors).toEqual([]);
+      expect(fm.ok).toBe(true);
+      expect(fm.data).toEqual({
+        name: t.name,
+        description: t.description,
+        category: t.category,
+        tags: t.tags,
+      });
+      // the markdown body survives the wrap (a starter is still a readable SKILL.md)
+      expect(fm.body.startsWith("# ")).toBe(true);
     }
   });
 

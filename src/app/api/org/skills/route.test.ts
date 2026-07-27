@@ -1,6 +1,7 @@
 // Route test for /api/org/skills (Org Skills Library, Feature 2). Pins the create-path authorization
 // chain and its ORDER — the invariants the route alone owns:
-//   DB-configured -> body validation -> member gate -> Team+ plan gate -> category validation -> create.
+//   DB-configured -> body validation -> member gate -> Team+ plan gate -> category validation ->
+//   frontmatter contract -> create.
 // A non-member is denied (gate verbatim, no write); a non-Team plan is 403 (no write); a duplicate name
 // (P2002) maps to 409. GET is read-gated and returns the curated category list. next/server is faked as
 // a Response subclass; authz + db + auth are mocked; plans.ts runs REAL (driven by the mocked plan).
@@ -61,7 +62,13 @@ const postReq = (body: unknown) =>
     body: JSON.stringify(body),
     headers: { "content-type": "application/json" },
   });
-const valid = { org: "acme", name: "PR review", category: "workflow", content: "do the thing" };
+const valid = {
+  org: "acme",
+  name: "PR review",
+  category: "workflow",
+  content: "do the thing",
+  description: "Review a PR.",
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -117,6 +124,50 @@ describe("POST /api/org/skills — auth chain + order", () => {
     expect(res.status).toBe(200);
     expect(mockCreateOrgSkill).toHaveBeenCalledTimes(1);
     expect(mockCreateOrgSkill.mock.calls[0][2]).toBe("alice");
+  });
+
+  it("rejects a DECLARED but broken frontmatter block with 400 + the errors, no write", async () => {
+    const content = `---
+name: Not A Slug
+description: X.
+category: devops
+---
+
+body`;
+    const res = await POST(postReq({ ...valid, content }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.errors.join(" ")).toMatch(/kebab-case/);
+    expect(json.errors.join(" ")).toMatch(/category/);
+    expect(mockCreateOrgSkill).not.toHaveBeenCalled();
+  });
+
+  it("frontmatter WINS: the stored columns are synced from the block", async () => {
+    const content = `---
+name: from-file
+description: From the file.
+category: security
+---
+
+body`;
+    const res = await POST(postReq({ ...valid, content }));
+    expect(res.status).toBe(200);
+    expect(mockCreateOrgSkill.mock.calls[0][1]).toMatchObject({
+      name: "from-file",
+      description: "From the file.",
+      category: "security",
+      content,
+    });
+  });
+
+  it("wraps a block-less body from the request fields (name becomes the slug)", async () => {
+    expect((await POST(postReq(valid))).status).toBe(200);
+    const input = mockCreateOrgSkill.mock.calls[0][1];
+    expect(input.name).toBe("pr-review");
+    expect(input.content).toContain(`---
+name: pr-review
+`);
+    expect(input.content.endsWith("do the thing")).toBe(true);
   });
 
   it("maps a duplicate name (P2002) to 409", async () => {

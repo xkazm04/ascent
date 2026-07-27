@@ -256,6 +256,8 @@ export {
   updateOrgSkill,
   archiveOrgSkill,
   getOrgSkillAdoption,
+  listOrgSkillAdoptionRows,
+  getOrgSkillUsageRows,
   adoptOrgSkill,
   unadoptOrgSkill,
   recordSkillDownload,
@@ -268,6 +270,9 @@ export {
   type SkillSort,
   type SkillListOpts,
   type SkillAdoption,
+  type SkillAdoptionRow,
+  type SkillEventStat,
+  type SkillUsageRows,
   type SkillManifestEntry,
   type SkillPushResult,
   type SkillEventType,
@@ -301,6 +306,15 @@ export {
   type MemoryListOpts,
 } from "@/lib/db/org-memory";
 export {
+  lifecycleWorkingSet,
+  bumpMemoryAccessCounts,
+  archiveOrgMemories,
+  applyReflection,
+  ReflectionMembersNotFoundError,
+  type LifecycleFetchOpts,
+  type ApplyReflectionInput,
+} from "@/lib/db/org-memory-lifecycle";
+export {
   syncTechStackGroups,
   listTechStackGroups,
   getTechGroupIdByKey,
@@ -309,7 +323,7 @@ export {
   type TechGroupSummary,
 } from "@/lib/db/tech-groups";
 export { getDbMode, dbModeLabel, dbModeIsAws, type DbMode } from "@/lib/db/mode";
-export { getPassportOverrides, setPassportOverrides } from "@/lib/db/passport-overrides";
+export { getPassportOverrides, mergePassportDeclines, setPassportOverrides } from "@/lib/db/passport-overrides";
 export {
   getOrgLlmConfig,
   setOrgLlmConfig,

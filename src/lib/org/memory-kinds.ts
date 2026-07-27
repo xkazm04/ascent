@@ -46,6 +46,20 @@ export function memoryKindLabel(v: string | null | undefined): string {
   );
 }
 
+// ── Source (provenance) ───────────────────────────────────────────────────────────────────────
+
+/**
+ * The `source` stamped on memories the SCAN PIPELINE writes about itself (regressions, maturity band
+ * changes, closed recommendations — see src/lib/memory/scan-feed.ts). It lives here, beside the rest of
+ * the taxonomy, because both the writer (a server module that imports Prisma) and the CLIENT card that
+ * renders its provenance badge need it — and a client component must never import the writer.
+ */
+export const SCAN_PIPELINE_SOURCE = "scan-pipeline";
+
+/** Was this memory auto-fed by the scan pipeline rather than written by a person? */
+export const isScanPipelineSource = (source: string | null | undefined): boolean =>
+  (source ?? "").trim() === SCAN_PIPELINE_SOURCE;
+
 // ── Visibility ────────────────────────────────────────────────────────────────────────────────
 
 /** `shared` = readable by every org member. `private` = readable only by its author (agent scratch). */

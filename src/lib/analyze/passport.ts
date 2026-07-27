@@ -8,21 +8,32 @@
 // and Security require branch protection (report.governance), which is null on a tokenless scan. When
 // governance is absent we HONESTLY CAP ci/security at the present rung and say so in evidence/blockers —
 // never claim an enforcement we couldn't observe. See docs/concepts/2026-06-22-app-passport-scan-integration.md.
+//
+// This file is the BUILDER + the barrel. The themed pieces live beside it and are re-exported here so no
+// caller's import path changes: passport-grades.ts (the 0.2.0 memory/skills ladders), passport-score.ts
+// (the derived production score), passport-overlay.ts (owner overrides + declined-by-choice), and
+// passport-migrate.ts (PASSPORT_VERSION + the stored-passport upgrade applied in parsePassportJson).
 
-import type { AppPassport, AutomationLevel, Criticality, Governance, Lifecycle, PrStats, ProductionBand, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
+import type { AppPassport, AutomationLevel, Governance, PrStats, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
 import { AI_TOOL_ALT } from "./ai-tools";
+import { gradeMemory, gradeSkills } from "./passport-grades";
+import { deriveProductionScore } from "./passport-score";
+import { PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
 
-export type { AppPassport, AutomationLevel, ProductionBand } from "@/lib/types";
-
-/** Owner-set overrides for the fields a scan can't observe (P4). Applied as a read-time overlay over the
- *  scan-derived passport; `rollback` re-derives the production score/band (it feeds the delivery axis). */
-export interface PassportOverrides {
-  criticality?: Criticality;
-  lifecycle?: Lifecycle;
-  rollback?: boolean;
-}
-
-export const PASSPORT_VERSION = "0.1.0";
+export type { AppPassport, ArtifactGrade, AutomationLevel, DeclinedByChoice, ProductionBand } from "@/lib/types";
+// Barrel: the themed sub-modules stay the implementation, this file stays the one import path callers use.
+export { GRADE_RANK, gradeMemory, gradeSkills } from "./passport-grades";
+export { deriveProductionScore } from "./passport-score";
+export { PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
+export {
+  DECLINABLE_PATHS,
+  applyPassportOverrides,
+  isDeclinablePath,
+  parseDeclined,
+  parsePassportOverrides,
+  type DeclineEntry,
+  type PassportOverrides,
+} from "./passport-overlay";
 
 type Snap = Pick<RepoSnapshot, "meta" | "tree" | "files" | "commits" | "coverage">;
 
@@ -160,10 +171,12 @@ function detectArtifacts(p: ReturnType<typeof probes>): AppPassport["automationR
     : p.hasPath((x) => x.endsWith("context.md"))
       ? "partial"
       : "none";
-  const memory = p.hasPath((x) => x.startsWith(".ai/memory") || x.startsWith(".claude/memory"));
+  // 0.2.0: memory/skills are graded ladders (none→adhoc→curated→governed), not booleans — see
+  // passport-grades.ts for the rung criteria and the "score the lower rung when in doubt" rule.
+  const memory = gradeMemory(p);
   const manifest = p.hasPath((x) => x === ".ai/manifest.yaml" || x === ".ai/manifest.yml");
   const evals = p.hasPath((x) => /(^|\/)(eval|evals|golden)(\/|s?\.)/.test(x) || x.includes(".golden.")) ? "partial" : "none";
-  const skills = p.hasPath((x) => x.startsWith(".claude/skills/") || (x.startsWith("skills/") && x.endsWith("skill.md")));
+  const skills = gradeSkills(p);
   return { agentInstructions, contextGraph, memory, manifest, evals, skills };
 }
 
@@ -267,28 +280,6 @@ function detectDelivery(p: ReturnType<typeof probes>, persistence: AppPassport["
   return { migrations, iac, rollback: false };
 }
 
-// Derived production score (design §8.3 — derive, don't author). Documented contributions per sub-scale,
-// weighted; band by the same 0/25/45/65/85 cutoffs as the L-ladder.
-const CI_PTS: Record<string, number> = { none: 0, build: 20, checks: 45, gated: 70, delivery: 85, progressive: 100 };
-const TEST_PTS: Record<string, number> = { none: 0, smoke: 25, partial: 50, substantial: 75, comprehensive: 100 };
-const SEC_PTS: Record<string, number> = { none: 0, policy: 25, scanning: 50, gated: 75, "supply-chain": 100 };
-const OBS_PTS: Record<string, number> = { none: 0, logs: 40, errors: 60, metrics: 80, tracing: 100 };
-
-/** Derive the production score + band from the sub-scales (single source for both buildPassport and the
- *  owner-override re-derivation in applyPassportOverrides). */
-export function deriveProductionScore(pr: Omit<AppPassport["productionReadiness"], "band" | "score" | "blockers">): { score: number; band: ProductionBand } {
-  const deliv = (pr.delivery.migrations === "versioned" ? 50 : pr.delivery.migrations === "scripted" ? 25 : 0) + (pr.delivery.iac ? 25 : 0) + (pr.delivery.rollback ? 25 : 0);
-  const score = Math.round(
-    0.25 * (CI_PTS[pr.ci.level] ?? 0) +
-      0.25 * (TEST_PTS[pr.tests.level] ?? 0) +
-      0.2 * (SEC_PTS[pr.security.level] ?? 0) +
-      0.15 * (OBS_PTS[pr.observability.level] ?? 0) +
-      0.15 * Math.min(100, deliv),
-  );
-  const band: ProductionBand = score < 25 ? "prototype" : score < 45 ? "internal" : score < 65 ? "beta" : score < 85 ? "production" : "hardened";
-  return { score, band };
-}
-
 /**
  * Build the App Readiness Passport for a finished scan. Pure + deterministic over (report, snapshot).
  */
@@ -306,6 +297,8 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   const autoBlockers: string[] = [];
   if (!artifacts.manifest) autoBlockers.push("No in-repo .ai/manifest.yaml (agent-facing capability contract).");
   if (artifacts.contextGraph === "none") autoBlockers.push("No machine-readable context graph (context-map.json / CONTEXT.md).");
+  if (artifacts.memory === "none") autoBlockers.push("No agent memory (.ai/memory) — decisions and gotchas aren't carried between sessions.");
+  if (artifacts.skills === "none") autoBlockers.push("No reusable agent skills library (.claude/skills) — repeated work is re-prompted each time.");
   if (!aiInWorkflow) autoBlockers.push("No evidence AI is actually used (no AI co-author trailers / agent PRs).");
   const selfVerifyGaps = (Object.entries(selfVerify) as [string, boolean][]).filter(([, v]) => !v).map(([k]) => k);
   if (selfVerifyGaps.length) autoBlockers.push(`Agent can't self-verify: missing ${selfVerifyGaps.join(", ")} script(s).`);
@@ -364,48 +357,16 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   };
 }
 
-const CRITICALITY = new Set<Criticality>(["experimental", "internal", "business", "mission-critical"]);
-const LIFECYCLE = new Set<Lifecycle>(["prototype", "alpha", "beta", "ga", "maintenance", "deprecated"]);
-
-/** Apply owner overrides as an overlay over a scan-derived passport (P4). Returns the passport unchanged
- *  when there are none. criticality/lifecycle are identity-only; a `rollback` change re-derives the
- *  production score + band (rollback feeds the delivery sub-scale). Pure — clones, never mutates input. */
-export function applyPassportOverrides(pp: AppPassport, ov: PassportOverrides | null | undefined): AppPassport {
-  if (!ov || (ov.criticality === undefined && ov.lifecycle === undefined && ov.rollback === undefined)) return pp;
-  const next: AppPassport = JSON.parse(JSON.stringify(pp));
-  if (ov.criticality) next.identity.criticality = ov.criticality;
-  if (ov.lifecycle) next.identity.lifecycle = ov.lifecycle;
-  if (ov.rollback !== undefined && ov.rollback !== next.productionReadiness.delivery.rollback) {
-    next.productionReadiness.delivery.rollback = ov.rollback;
-    const { score, band } = deriveProductionScore(next.productionReadiness);
-    next.productionReadiness.score = score;
-    next.productionReadiness.band = band;
-  }
-  return next;
-}
-
-/** Tolerant parse + validate of stored overrides JSON — drops unknown enum values. Null when empty. */
-export function parsePassportOverrides(raw: string | null | undefined): PassportOverrides | null {
-  if (!raw) return null;
-  try {
-    const v = JSON.parse(raw) as Partial<PassportOverrides>;
-    const out: PassportOverrides = {};
-    if (v.criticality && CRITICALITY.has(v.criticality)) out.criticality = v.criticality;
-    if (v.lifecycle && LIFECYCLE.has(v.lifecycle)) out.lifecycle = v.lifecycle;
-    if (typeof v.rollback === "boolean") out.rollback = v.rollback;
-    return Object.keys(out).length ? out : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Tolerant parse of a persisted passport JSON blob — null on missing/malformed (read-path degrade). */
+/** Tolerant parse of a persisted passport JSON blob — null on missing/malformed (read-path degrade).
+ *  THE version-migration seam: every read path (export route, org rollup, personal passports, the report
+ *  page) funnels through here, so a stored 0.1.0 row is lifted to the current shape exactly once, right
+ *  where it is deserialized. See passport-migrate.ts. */
 export function parsePassportJson(raw: string | null | undefined): AppPassport | null {
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as Partial<AppPassport>;
     if (v && v.passport === "app-passport" && v.identity && v.automationReadiness && v.productionReadiness) {
-      return v as AppPassport;
+      return upgradePassport(v as AppPassport);
     }
     return null;
   } catch {

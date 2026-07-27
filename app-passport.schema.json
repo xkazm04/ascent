@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ascent.dev/schemas/app-passport-0.1.json",
+  "$id": "https://ascent.dev/schemas/app-passport-0.2.json",
   "title": "App Readiness Passport",
   "description": "A small, descriptive, tool-naming fingerprint for cross-comparing many apps at a glance: what an app is, what it is built on, how ready it is for LLM-automated development, and how ready it is for production. Sibling to the vendor-neutral .ai/manifest.yaml (which is the agent-facing CONTRACT); the passport is the human/portfolio-facing SCORECARD. Readers MUST ignore fields they do not recognize.",
   "type": "object",
@@ -11,6 +11,22 @@
     "passportVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Semver of THIS schema. Additive within a major; readers ignore unknown fields." },
     "generatedAt": { "type": "string", "format": "date", "description": "YYYY-MM-DD this passport was produced." },
     "generatedBy": { "type": "string", "description": "Who/what produced it: 'manual', a scanner name, a CI job, etc." },
+    "migratedFrom": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Present when this object was LIFTED from an older stored passportVersion rather than freshly assessed. Migrated ordinal values are floors implied by the old shape, not measurements — re-generate to assess them." },
+    "declined": {
+      "type": "array",
+      "description": "Gaps the owner has SEEN and deliberately opted out of ('no error tracking by choice'). Owner intent, applied as a read-time overlay — never a scan output, and never a score change: a decline retires the matching blocker line and re-renders it here as a decision. Keyed by field path so it survives every re-scan.",
+      "items": {
+        "type": "object",
+        "required": ["path", "label"],
+        "additionalProperties": true,
+        "properties": {
+          "path": { "type": "string", "description": "Dotted passport field path, e.g. 'stack.monitoring.errorTracking'." },
+          "label": { "type": "string", "description": "Human label for the declined field." },
+          "reason": { "type": "string", "description": "Owner rationale for the choice." },
+          "blocker": { "type": "string", "description": "The blocker line this decline retired, kept so the choice stays auditable." }
+        }
+      }
+    },
 
     "identity": {
       "type": "object",
@@ -112,10 +128,10 @@
           "properties": {
             "agentInstructions": { "type": "array", "items": { "type": "string" }, "description": "Files present: CLAUDE.md, AGENTS.md, .cursorrules, copilot-instructions.md, ..." },
             "contextGraph": { "enum": ["none", "partial", "full"], "description": "Machine-readable map of modules->features (context-map.json, CONTEXT.md coverage)." },
-            "memory": { "type": "boolean", "description": "Structured agent-written memory (decisions, gotchas)." },
+            "memory": { "enum": ["none", "adhoc", "curated", "governed"], "description": "Agent-written memory (decisions, gotchas), GRADED (0.2.0; was boolean in 0.1.0). none = absent · adhoc = present but unstructured (a single flat file / one lone entry) · curated = >=2 structured per-fact entries under .ai|.claude/memory, or an index plus entries · governed = curated PLUS observable process (supersede/replaces links between entries, a schema/policy file, or a CI job that checks the memory tree)." },
             "manifest": { "type": "boolean", "description": "Carries an agent-facing capability manifest (.ai/manifest.yaml or equivalent)." },
             "evals": { "enum": ["none", "partial", "full"], "description": "Golden/eval tests for any LLM-produced output." },
-            "skills": { "type": "boolean", "description": "Reusable agent skills / subagents / prompt library." }
+            "skills": { "enum": ["none", "adhoc", "curated", "governed"], "description": "Reusable agent skills / subagents, GRADED (0.2.0; was boolean in 0.1.0). none = absent · adhoc = present but not a library (loose files, or a single skill) · curated = >=2 distinct skills that each carry their own definition file · governed = curated PLUS observable process (a registry/index at the skills root, a CI job referencing the skills tree, or a package script that lints/validates them)." }
           }
         },
         "selfVerify": {
@@ -208,7 +224,8 @@
       "properties": {
         "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "0..1 — how much of the app could be inspected." },
         "source": { "type": "string", "description": "How it was produced: 'static-scan', 'manual-audit', 'ci-export'." },
-        "files": { "type": "array", "items": { "type": "string" }, "description": "Files the assessment was synthesized from — drift-check these." }
+        "files": { "type": "array", "items": { "type": "string" }, "description": "Files the assessment was synthesized from — drift-check these." },
+        "notes": { "type": "array", "items": { "type": "string" }, "description": "Caveats a reader must carry, e.g. the note a version migration leaves when an ordinal was lifted from an older shape instead of assessed." }
       }
     }
   }

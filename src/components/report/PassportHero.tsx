@@ -10,13 +10,16 @@
 import { motion } from "framer-motion";
 import type { AppPassport } from "@/lib/types";
 import { scoreHex } from "@/lib/ui";
-import { bandColor, bandLabel } from "@/lib/org/passport-display";
+import { bandColor, bandLabel, passportForDisplay } from "@/lib/org/passport-display";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
+import { PassportArtifactGrades, PassportDeclined } from "@/components/report/PassportDeclined";
 import { Surface, Kicker } from "@/components/ui";
 import { r2 } from "@/components/report/svgCoord";
 
-export function PassportHero({ passport: pp, repo }: { passport: AppPassport; repo: string }) {
+export function PassportHero({ passport, repo }: { passport: AppPassport; repo: string }) {
   const reduced = usePrefersReducedMotion();
+  // Display read path: a passport can arrive straight off a stored report blob, so lift older shapes here.
+  const pp = passportForDisplay(passport);
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
 
@@ -72,6 +75,11 @@ export function PassportHero({ passport: pp, repo }: { passport: AppPassport; re
           <Kicker tone="muted" className="mb-1.5">Stack</Kicker>
           <StackChips pp={pp} />
         </div>
+
+        {/* Graded agent artifacts (0.2.0) + owner declines — decision memory, not raw gaps */}
+        <PassportArtifactGrades pp={pp} />
+        <PassportDeclined declined={pp.declined} />
+
 
         {/* Provenance + export */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2">

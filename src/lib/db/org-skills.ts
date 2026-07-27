@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isSkillCategory, normalizeSkillCategory } from "@/lib/org/skill-categories";
+import { effectiveSkillFrontmatter, type SkillFrontmatter } from "@/lib/org/skill-frontmatter";
 
 /** How the list is ordered. `recent` (default) = last edited; `downloads` = most used. */
 export type SkillSort = "name" | "recent" | "downloads";
@@ -20,6 +21,12 @@ export interface SkillRow {
   content: string;
   category: string;
   tags: string[];
+  /**
+   * The frontmatter contract this skill EFFECTIVELY declares, resolved at read time: the document's own
+   * block when it has one, otherwise derived from the columns above (rows written before the contract
+   * existed still render + still download as a conformant SKILL.md). Never written back to `content`.
+   */
+  frontmatter: SkillFrontmatter;
   /** Bumped on each content edit — the change-history anchor. */
   version: number;
   /** sha256 hex of `content` — the sync-manifest change key (diff without shipping the body). */
@@ -74,13 +81,20 @@ const cleanContent = (s: string) => s.slice(0, MAX_CONTENT);
 const hashContent = (s: string) => createHash("sha256").update(cleanContent(s)).digest("hex");
 
 function toRow(s: Prisma.OrgSkillGetPayload<{ include: { _count: { select: { adoptions: true } } } }>): SkillRow {
+  const tags = parseTags(s.tags);
   return {
     id: s.id,
     name: s.name,
     description: s.description,
     content: s.content,
     category: s.category,
-    tags: parseTags(s.tags),
+    tags,
+    frontmatter: effectiveSkillFrontmatter(s.content, {
+      name: s.name,
+      description: s.description,
+      category: s.category,
+      tags,
+    }),
     version: s.version,
     contentHash: s.contentHash,
     downloadCount: s.downloadCount,
@@ -228,6 +242,76 @@ export async function getOrgSkillAdoption(orgSlug: string): Promise<Record<strin
     }
   }
   return out;
+}
+
+/** One adoption row WITH its timestamp — the anchor the adoption→outcome loop pairs scans around
+ *  (src/lib/org/skill-outcomes.ts). getOrgSkillAdoption's map is deliberately timestamp-less (it only
+ *  answers "which repos"), so this is the richer read rather than a widening of that shape. */
+export interface SkillAdoptionRow {
+  skillId: string;
+  repoFullName: string;
+  adoptedAt: string;
+}
+
+/** Every skill→repo adoption in the org, oldest first. [] when off / unknown org. */
+export async function listOrgSkillAdoptionRows(orgSlug: string): Promise<SkillAdoptionRow[]> {
+  if (!isDbConfigured()) return [];
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return [];
+  const rows = await getPrisma().orgSkillAdoption.findMany({
+    where: { orgId },
+    orderBy: { adoptedAt: "asc" },
+    select: { skillId: true, repoFullName: true, adoptedAt: true },
+  });
+  return rows.map((r) => ({ skillId: r.skillId, repoFullName: r.repoFullName, adoptedAt: r.adoptedAt.toISOString() }));
+}
+
+/** Per-(skill, event type) rollup: when that kind of use last happened and how often. Aggregated in the
+ *  DB so a chatty `invoke` stream is never shipped row-by-row just to find a max timestamp. */
+export interface SkillEventStat {
+  skillId: string;
+  type: string;
+  lastAt: string;
+  count: number;
+}
+
+/** The raw material of the dormancy verdict (src/lib/org/skill-usage.ts): every live skill's birthday,
+ *  its event rollup, and its adoptions. Kept as a pure ROW read so the verdict itself stays a pure,
+ *  unit-testable function over data instead of a query. Null when persistence is off. */
+export interface SkillUsageRows {
+  skills: { id: string; name: string; createdAt: string }[];
+  events: SkillEventStat[];
+  adoptions: SkillAdoptionRow[];
+}
+
+export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageRows | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return { skills: [], events: [], adoptions: [] };
+  const skills = await prisma.orgSkill.findMany({
+    where: { orgId, archived: false },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, createdAt: true },
+  });
+  if (!skills.length) return { skills: [], events: [], adoptions: [] };
+  const ids = skills.map((s) => s.id);
+  const [grouped, adoptions] = await Promise.all([
+    prisma.orgSkillEvent.groupBy({
+      by: ["skillId", "type"],
+      where: { orgId, skillId: { in: ids } },
+      _max: { createdAt: true },
+      _count: { _all: true },
+    }),
+    listOrgSkillAdoptionRows(orgSlug),
+  ]);
+  return {
+    skills: skills.map((s) => ({ id: s.id, name: s.name, createdAt: s.createdAt.toISOString() })),
+    events: grouped
+      .filter((g) => g._max.createdAt)
+      .map((g) => ({ skillId: g.skillId, type: g.type, lastAt: g._max.createdAt!.toISOString(), count: g._count._all })),
+    adoptions: adoptions.filter((a) => ids.includes(a.skillId)),
+  };
 }
 
 /** Record that a repo adopted a skill (idempotent per skill+repo). False if org/skill unknown —

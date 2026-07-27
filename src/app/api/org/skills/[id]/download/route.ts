@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { getOrgSkill, getOrgSkillOrgSlug, isDbConfigured, recordSkillDownload } from "@/lib/db";
 import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
+import { ensureFrontmatter } from "@/lib/org/skill-frontmatter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,10 +32,18 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
   if (new URL(request.url).searchParams.get("count") !== "0") {
     void recordSkillDownload(id); // fire-and-forget — must not block the download
   }
-  return new NextResponse(skill.content, {
+  // Read-time backfill: a row stored before the frontmatter contract existed still downloads as a
+  // CONFORMANT SKILL.md — the block is derived from its columns here, never written back to storage.
+  const document = ensureFrontmatter(skill.content, {
+    name: skill.name,
+    description: skill.description,
+    category: skill.category,
+    tags: skill.tags,
+  });
+  return new NextResponse(document, {
     headers: {
       "content-type": "text/markdown; charset=utf-8",
-      "content-disposition": `attachment; filename="${safeFilename(skill.name)}"`,
+      "content-disposition": `attachment; filename="${safeFilename(skill.frontmatter.name || skill.name)}"`,
     },
   });
 }

@@ -6,7 +6,7 @@
 // member-authored memory can't inject markup. Mirrors SkillCard.
 
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { confidenceLabel, memoryKindLabel } from "@/lib/org/memory-kinds";
+import { confidenceLabel, isScanPipelineSource, memoryKindLabel } from "@/lib/org/memory-kinds";
 import type { MemoryRow } from "@/lib/db";
 
 const CONFIDENCE_TONE: Record<string, string> = {
@@ -28,6 +28,9 @@ export function MemoryCard({
 }) {
   const band = confidenceLabel(m.confidence);
   const mine = Boolean(viewerLogin && m.createdBy === viewerLogin);
+  // Machine-observed vs. human-claimed is the first thing a reader needs from provenance — an
+  // auto-fed row has no author, so "by unknown" alone would read as a gap rather than a robot.
+  const autoFed = isScanPipelineSource(m.source);
 
   // Count a "Copy for LLM" as a recall (best-effort, fire-and-forget — never block the copy).
   function countRecall() {
@@ -58,6 +61,14 @@ export function MemoryCard({
               title={mine ? "Only you can see this memory." : "Private to its author."}
             >
               private
+            </span>
+          )}
+          {autoFed && (
+            <span
+              className="rounded border border-sky-500/40 px-1.5 py-0.5 font-mono text-xs text-sky-300"
+              title="Recorded automatically by the scan pipeline — an observed fact, not a human claim."
+            >
+              auto · scan
             </span>
           )}
           {m.version > 1 && (
@@ -105,7 +116,7 @@ export function MemoryCard({
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 font-mono text-sm text-slate-500">
         {/* Provenance — the design doc's answer to memory poisoning: always show who/what wrote this. */}
         <span title="Who recorded this memory">
-          by <span className="text-slate-300">{m.createdBy ?? "unknown"}</span>
+          by <span className="text-slate-300">{m.createdBy ?? (autoFed ? "the scan pipeline" : "unknown")}</span>
           {mine && <span className="ml-1 text-slate-600">(you)</span>}
         </span>
         {m.source && (

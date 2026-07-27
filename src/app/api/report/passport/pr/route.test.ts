@@ -107,7 +107,7 @@ describe("POST /api/report/passport/pr — commit", () => {
     expect((await res.json()).number).toBe(7);
     const arg = h.openDraftPr.mock.calls[0][0];
     expect(arg).toMatchObject({ owner: "acme", repo: "web", path: ".ai/passport.json" });
-    expect(arg.content).toContain("app-passport-0.1.json"); // $schema pointer
+    expect(arg.content).toContain("app-passport-0.2.json"); // $schema pointer
     expect(arg.content).toContain('"app-passport"');
     expect(h.recordOrgAudit.mock.calls[0][0]).toBe("passport.pr_opened");
   });

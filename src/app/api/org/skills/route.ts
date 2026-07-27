@@ -2,6 +2,9 @@
 // POST /api/org/skills { org, name, category, content, description?, tags? } -> { id }
 // Org Skills Library (Feature 2). The list is read-gated (any member of the org); creating a skill is
 // member-gated AND requires a Team+ plan (authoring is the gated capability; reads stay open — §8.6).
+// The stored body must satisfy the frontmatter CONTRACT (src/lib/org/skill-frontmatter.ts): a declared
+// block must validate (else 400 with the specific errors) and WINS over the request's columns; a body
+// with no block is wrapped from them, so every stored skill is a conformant SKILL.md.
 
 import { NextResponse } from "next/server";
 import {
@@ -16,6 +19,7 @@ import {
 } from "@/lib/db";
 import { authorizeOrgApi, isDenied, principalLogin } from "@/lib/api-token-auth";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
+import { reconcileSkillWrite } from "@/lib/org/skill-frontmatter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,6 +73,16 @@ export async function POST(request: Request) {
   if (!isSkillCategory(body.category)) {
     return NextResponse.json({ error: `category must be one of: ${SKILL_CATEGORIES.join(", ")}.` }, { status: 400 });
   }
+  // Frontmatter contract — validated AFTER the gates so an unauthorized caller learns nothing about it.
+  const fm = reconcileSkillWrite(body.content, {
+    name: body.name,
+    description: body.description,
+    category: body.category,
+    tags: Array.isArray(body.tags) ? body.tags : undefined,
+  });
+  if (!fm.ok) {
+    return NextResponse.json({ error: fm.errors[0], errors: fm.errors }, { status: 400 });
+  }
   // The audit actor is the token label for a machine call, else the Supabase viewer (the dormant
   // custom-OAuth session is null under the ACTIVE Supabase wall).
   const actorLogin = await principalLogin(auth.principal);
@@ -76,11 +90,11 @@ export async function POST(request: Request) {
     const created = await createOrgSkill(
       body.org,
       {
-        name: body.name,
-        category: body.category,
-        content: body.content,
-        description: body.description,
-        tags: Array.isArray(body.tags) ? body.tags : undefined,
+        name: fm.fields.name,
+        category: fm.fields.category,
+        content: fm.content,
+        description: fm.fields.description,
+        tags: fm.fields.tags,
       },
       actorLogin,
     );
