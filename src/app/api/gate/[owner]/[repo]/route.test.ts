@@ -41,7 +41,13 @@ vi.mock("@/lib/scan", () => ({
     }
   },
 }));
-vi.mock("@/lib/scan-cache", () => ({ resolveHeadWithHint: vi.fn(async () => "sha123") }));
+// scan-cache supplies BOTH the conditional head resolve and the DB (cross-instance) tier probe.
+// lookupPersistedScanByCommit defaults to a MISS so every pre-existing test keeps its exact
+// cache-miss → ingest behavior; the warm-DB tests below opt in per-case.
+vi.mock("@/lib/scan-cache", () => ({
+  resolveHeadWithHint: vi.fn(async () => "sha123"),
+  lookupPersistedScanByCommit: vi.fn(async () => null),
+}));
 vi.mock("@/lib/cache", () => ({
   cacheGet: vi.fn(),
   cacheSet: vi.fn(),
@@ -73,6 +79,7 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 import { GET } from "./route";
+import { lookupPersistedScanByCommit } from "@/lib/scan-cache";
 import { scanRepository } from "@/lib/scan";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
@@ -80,6 +87,7 @@ import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, tooManyRequests } from "@/lib/rate-limit";
 
 const mockScan = vi.mocked(scanRepository);
+const mockPersisted = vi.mocked(lookupPersistedScanByCommit);
 const mockCacheGet = vi.mocked(cacheGet);
 const mockCacheSet = vi.mocked(cacheSet);
 const mockEvaluateGate = vi.mocked(evaluateGate);
@@ -135,6 +143,7 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
     mockPolicyFromParams.mockReturnValue({ minLevel: "L3", minDimension: 40 } as never);
     mockGetOrgGatePolicy.mockResolvedValue(null);
+    mockPersisted.mockResolvedValue(null); // DB tier misses by default (see the warm-DB describe below)
   });
 
   // --- (1) PASS -> 200 with the documented pass body --------------------------
@@ -460,5 +469,97 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect(body.confidence).toBe(0.92);
     expect(Array.isArray(body.warnings)).toBe(true);
     expect(body.warnings).toEqual([]);
+  });
+});
+
+// --- WARM PR GATES FROM THE DB TIER (ci-gate Direction 1) ---------------------
+// Every cold serverless instance used to re-ingest the whole repo: the gate's only cache was
+// per-instance memory, while the cross-instance DB tier /api/scan already writes (and that the App
+// webhook has usually just populated for this very sha) was never consulted. The route now probes it
+// between the memory tier and the ingest — keyed on the EXACT sha + requested mode, behind the same
+// identity/freshness guards (unit-pinned in src/lib/scan-cache.test.ts). Here we pin the ROUTE's
+// wiring: what it passes, when it skips the ingest, and that a miss is byte-identical to before.
+describe("GET /api/gate — warm DB tier (no cold-start re-ingest)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
+    mockGetOrgGatePolicy.mockResolvedValue(null);
+    mockPolicyFromParams.mockReturnValue({ minLevel: "L3", minDimension: 40 } as never);
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+    mockCacheGet.mockReturnValue(undefined); // memory tier COLD for every case here
+    mockPersisted.mockResolvedValue(null);
+    mockScan.mockResolvedValue(report());
+  });
+
+  it("HEAD PATH — a DB hit for the resolved head sha serves the verdict WITHOUT ingesting", async () => {
+    mockPersisted.mockResolvedValue(report());
+
+    const res = await get();
+
+    expect(res.status).toBe(200);
+    expect(mockScan).not.toHaveBeenCalled(); // the whole point: no repo ingest on a cold instance
+    // Probed with the resolved head sha and the REQUESTED mode (useLLM = !mock), so a default gate can
+    // never be answered by an LLM-scored row (that would make the deterministic verdict stochastic).
+    expect(mockPersisted).toHaveBeenCalledWith({ owner: "acme", repo: "widget", headSha: "sha123", useLLM: false });
+    expect(mockCacheSet).toHaveBeenCalledTimes(1); // warms the in-memory tier for the next reader
+    // A warm hit spends neither LLM budget nor a GitHub ingest, so it is classified with the warm
+    // MEMORY hit: unthrottled. Otherwise the same PR could 429 on a cold instance and pass on a warm one.
+    expect(mockRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("HEAD PATH — the in-memory tier stays IN FRONT (a memory hit never touches the DB)", async () => {
+    mockCacheGet.mockReturnValue(report());
+
+    const res = await get();
+
+    expect(res.status).toBe(200);
+    expect(mockPersisted).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("HEAD PATH — a DB MISS is byte-identical to today: rate-limited, then a fresh ingest", async () => {
+    const res = await get();
+
+    expect(res.status).toBe(200);
+    expect(mockPersisted).toHaveBeenCalledTimes(1);
+    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, noAmbientToken: true });
+    expect(mockRateLimit).toHaveBeenCalledTimes(1); // the ingest branch still pays GATE_RATE_LIMIT
+    expect(mockCacheSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("?mock=0 probes the DB tier with useLLM:true (mode is part of the key)", async () => {
+    await get("?mock=0");
+    expect(mockPersisted).toHaveBeenCalledWith({ owner: "acme", repo: "widget", headSha: "sha123", useLLM: true });
+  });
+
+  const SHA = "0".repeat(39) + "a"; // a full 40-hex commit sha
+
+  it("REF PATH — a DB hit for the EXACT requested sha skips the ingest (the warm PR gate)", async () => {
+    mockPersisted.mockResolvedValue(report());
+
+    const res = await get(`?ref=${SHA}`);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ref).toBe(SHA); // the body still echoes the gated ref
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockPersisted).toHaveBeenCalledWith({ owner: "acme", repo: "widget", headSha: SHA, useLLM: false });
+    expect(mockRateLimit).not.toHaveBeenCalled(); // no ingest → no throttle, as on the head path
+  });
+
+  it("REF PATH — a DB miss falls back to today's exact behavior (throttle, then a ref-scoped ingest)", async () => {
+    const res = await get(`?ref=${SHA}`);
+
+    expect(res.status).toBe(200);
+    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, ref: SHA, noAmbientToken: true });
+    expect(mockRateLimit).toHaveBeenCalledTimes(1);
+  });
+
+  it("REF PATH — a BRANCH name is never probed (not a commit key) and ingests as before", async () => {
+    const res = await get("?ref=main");
+
+    expect(res.status).toBe(200);
+    expect(mockPersisted).not.toHaveBeenCalled();
+    expect(mockScan).toHaveBeenCalledWith("acme/widget", { mock: true, ref: "main", noAmbientToken: true });
   });
 });

@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import { GitHubError } from "@/lib/github/source";
-import { resolveHeadWithHint } from "@/lib/scan-cache";
+import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy } from "@/lib/scoring/gate";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
@@ -47,6 +47,12 @@ export async function GET(
   //    GitHub-touching branches get a generous GATE_RATE_LIMIT (real CI calls once per PR event and
   //    never trips). A warm cache HIT only does a cheap conditional head-resolve (free 304) and stays
   //    unthrottled, preserving the deterministic-CI contract that a cache-hit gate is effectively free.
+  //  - A warm DB-TIER hit (see below) is classified with the warm MEMORY hit — also unthrottled. It
+  //    spends no LLM budget and runs no GitHub ingest; it is one indexed, commit-pinned read. Throttling
+  //    it would make the gate's throttle behavior depend on WHICH tier happened to answer, so the same
+  //    PR could 429 on a cold instance and sail through on a warm one — exactly the nondeterminism the
+  //    "a cache-hit gate is effectively free" contract exists to prevent. Only the branches that
+  //    actually ingest from GitHub pay the limiter.
   if (!mock) {
     const rl = rateLimitRequest(req, SCAN_RATE_LIMIT);
     if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
@@ -55,12 +61,32 @@ export async function GET(
     let report;
     if (ref) {
       // Ref-scoped: bypass the default-branch cache (keyed by the default head sha) and score the
-      // requested ref directly. This always ingests from GitHub, so throttle the default path here too.
-      if (mock) {
-        const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
-        if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+      // requested ref directly.
+      //
+      // DB TIER FIRST (warm PR gates): when the ref IS an exact commit sha, the cross-instance
+      // persistent cache is probed before any ingest. The GitHub App webhook has usually ALREADY
+      // scanned and persisted this very sha by the time the Action's gate call lands, so a cold
+      // serverless instance re-ingesting the whole repo is pure duplicated work. The correctness
+      // contract ("a ?ref gate is always fresh FOR THIS REF") is preserved because the hit is pinned
+      // to the SAME commit — same tree, same score — and is additionally gated on freshness +
+      // persistedMatchesActiveIdentity, so a provider/model/rubric change still re-scans.
+      // Only a 40-hex sha is probed: a branch/tag name is not a commit key, and resolving one would
+      // cost the GitHub round-trip this fast path exists to avoid.
+      const refSha = /^[0-9a-f]{40}$/i.test(ref) ? ref.toLowerCase() : null;
+      const persisted = refSha
+        ? await lookupPersistedScanByCommit({ owner: ownerN, repo: repoN, headSha: refSha, useLLM: !mock })
+        : null;
+      if (persisted) {
+        // Warm hit — no ingest, no LLM spend, so no rate-limit charge (see the strategy note above).
+        report = persisted;
+      } else {
+        // Miss → a full ingest from GitHub; throttle the default path here too (unchanged).
+        if (mock) {
+          const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
+          if (!rl.ok) return tooManyRequests(rl.retryAfterSec);
+        }
+        report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref, noAmbientToken: true });
       }
-      report = await scanRepository(`${ownerN}/${repoN}`, { mock, ref, noAmbientToken: true });
     } else {
       // Resolve the current head commit so the gate keys the same per-commit entry as the scan
       // flow and badge — a push misses the cache and re-evaluates against fresh signals instead
@@ -76,9 +102,30 @@ export async function GET(
       // populated the cache first. Read and write the same key (useLLM = !mock) so the default gate is
       // deterministic and reproducible, matching the verdict's stated provider.
       const key = makeCacheKey(ownerN, repoN, !mock, sha);
+      // Tier 1: this instance's warm memory — always in front, it is the fastest possible answer.
       report = cacheGet(key);
+      if (!report && sha) {
+        // Tier 2: the cross-instance DB cache the scan flow already writes (lookupCachedScan's
+        // persistent tier). A cold instance would otherwise re-ingest the entire repo for a commit
+        // the webhook (or an earlier instance) already scored. Keyed on the EXACT resolved head sha
+        // and the requested mode, behind the same freshness + scoring-identity guards, so this can
+        // only ever return the report a fresh scan of this commit would reproduce. A DB hit warms
+        // tier 1 for the next reader on this instance. Skipped when the head resolve failed (a
+        // SHA-less key has no commit to pin a persisted row to).
+        const persisted = await lookupPersistedScanByCommit({
+          owner: ownerN,
+          repo: repoN,
+          headSha: sha,
+          useLLM: !mock,
+        });
+        if (persisted) {
+          cacheSet(key, persisted);
+          report = persisted;
+        }
+      }
       if (!report) {
-        // Cache miss → about to run a full GitHub ingest; throttle the default path before spending it.
+        // Both cache tiers missed → about to run a full GitHub ingest; throttle the default path
+        // before spending it.
         if (mock) {
           const rl = rateLimitRequest(req, GATE_RATE_LIMIT);
           if (!rl.ok) return tooManyRequests(rl.retryAfterSec);

@@ -168,6 +168,41 @@ export async function lookupCachedScan(opts: {
 }
 
 /**
+ * DB-tier (cross-instance) probe for a commit the caller ALREADY knows — tier 2 of
+ * {@link lookupCachedScan} without its head resolution or its in-memory tier.
+ *
+ * Exists for the CI gate endpoint, which is the one surface that holds an exact sha up front (either
+ * `?ref=<pr-head-sha>` from the Action, or a head it resolved itself) and previously had ONLY a
+ * per-instance in-memory cache: every cold serverless instance re-ingested the whole repo even
+ * though the GitHub App webhook had usually just scanned — and persisted — that same sha.
+ *
+ * Same three gates as the persistent tier in lookupCachedScan, so the two tiers can never disagree:
+ *   - the row must be pinned to THIS commit (getScanReportByCommit's headSha filter),
+ *   - it must be within scanMaxCacheAgeMs (weekly-refresh allowance),
+ *   - {@link persistedMatchesActiveIdentity} must hold, so a provider/model/rubric change is a miss
+ *     rather than serving a score the current config would not reproduce.
+ * A DB error degrades to null (a miss → the caller scans), never an exception into the CI path.
+ *
+ * Anonymous-safe: `orgSlug` defaults to the shared public org, and loadScanReportByCommit refuses to
+ * serve a PRIVATE repo's report out of it — so this cannot become a private-repo disclosure channel
+ * on the unauthenticated gate/badge surfaces.
+ */
+export async function lookupPersistedScanByCommit(opts: {
+  owner: string;
+  repo: string;
+  headSha: string;
+  useLLM: boolean;
+  orgSlug?: string;
+}): Promise<ScanReport | null> {
+  const { owner, repo, headSha, useLLM, orgSlug = "public" } = opts;
+  const persisted = await getScanReportByCommit(owner, repo, { headSha, orgSlug }).catch(() => null);
+  if (!persisted) return null;
+  if (!isPersistedScanFresh(persisted.scannedAt)) return null;
+  if (!persistedMatchesActiveIdentity(persisted, useLLM)) return null;
+  return persisted;
+}
+
+/**
  * Resolve a repo's current head sha for the read-only badge/gate surfaces while reusing the
  * in-memory conditional-request hint. Unlike an unconditional head lookup, this sends the prior
  * ETag (`If-None-Match`): an unchanged repo answers `304 Not Modified`, which GitHub does NOT

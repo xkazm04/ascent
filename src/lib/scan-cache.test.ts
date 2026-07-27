@@ -6,7 +6,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolveHead } from "@/lib/github/source";
 import { getHeadHint, getScanReportByCommit } from "@/lib/db";
-import { lookupCachedScan, persistedMatchesActiveIdentity, resolveHeadWithHint } from "./scan-cache";
+import {
+  lookupCachedScan,
+  lookupPersistedScanByCommit,
+  persistedMatchesActiveIdentity,
+  resolveHeadWithHint,
+} from "./scan-cache";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import type { ScanReport } from "@/lib/types";
 
@@ -145,5 +150,82 @@ describe("lookupCachedScan — tier-2 (DB) honors the identity guard", () => {
     expect(res.cached).toBeNull(); // identity mismatch → don't serve the stale-config score
     expect(res.source).toBeNull();
     expect(res.headSha).toBe("sha-swap"); // still resolved the sha so the re-scan is cached
+  });
+});
+
+// The CI gate's warm path (ci-gate Direction 1): the gate endpoint holds an EXACT sha (?ref=<pr head>
+// or a head it resolved) and, before this, had only a per-instance memory cache — so every cold
+// serverless instance re-ingested the whole repo even though the App webhook had just scanned that
+// same sha. lookupPersistedScanByCommit is tier 2 without the head resolve, and it must carry the
+// SAME three guards as lookupCachedScan's persistent tier, or the two tiers could disagree.
+describe("lookupPersistedScanByCommit — DB tier for a known commit", () => {
+  beforeEach(() => {
+    mockGetScanReportByCommit.mockReset();
+  });
+
+  it("HIT: serves a fresh, identity-matching row pinned to the requested commit (no ingest needed)", async () => {
+    mockGetScanReportByCommit.mockResolvedValueOnce(fakeReport({ provider: "mock", model: "deterministic-rubric" }));
+
+    const res = await lookupPersistedScanByCommit({
+      owner: "octo",
+      repo: "warm",
+      headSha: "abc123",
+      useLLM: false,
+    });
+
+    expect(res).not.toBeNull();
+    // Keyed on the EXACT sha + the shared PUBLIC org (the anonymous read surface, which refuses to
+    // serve a private repo's report) — never an unpinned "latest scan for this repo" read.
+    expect(mockGetScanReportByCommit).toHaveBeenCalledWith("octo", "warm", { headSha: "abc123", orgSlug: "public" });
+  });
+
+  it("MISS: no persisted row for this commit → null (caller ingests)", async () => {
+    mockGetScanReportByCommit.mockResolvedValueOnce(null);
+    expect(
+      await lookupPersistedScanByCommit({ owner: "octo", repo: "cold", headSha: "abc123", useLLM: false }),
+    ).toBeNull();
+  });
+
+  it("IDENTITY MISMATCH: a row from a different provider/model is a miss (re-scan, never a stale-config score)", async () => {
+    mockGetScanReportByCommit.mockResolvedValueOnce(fakeReport({ provider: "gemini", model: "gemini-3-flash" }));
+    expect(
+      await lookupPersistedScanByCommit({ owner: "octo", repo: "swap", headSha: "abc123", useLLM: false }),
+    ).toBeNull();
+  });
+
+  it("RUBRIC MISMATCH: a row scored under an older SCORING_RUBRIC_VERSION is a miss", async () => {
+    mockGetScanReportByCommit.mockResolvedValueOnce(
+      fakeReport({ provider: "mock", model: "deterministic-rubric", rubricVersion: `${SCORING_RUBRIC_VERSION}-stale` }),
+    );
+    expect(
+      await lookupPersistedScanByCommit({ owner: "octo", repo: "rubric", headSha: "abc123", useLLM: false }),
+    ).toBeNull();
+  });
+
+  it("MODE MISMATCH: an LLM-scored row cannot answer a DEFAULT (mock) gate — the deterministic verdict stays deterministic", async () => {
+    // The gate's ?mock default demands the deterministic rubric. Serving the LLM row would make the
+    // verdict stochastic (a PR flipping pass↔fail with identical code), the same class of bug the
+    // in-memory tier's per-mode key already prevents.
+    mockGetScanReportByCommit.mockResolvedValueOnce(fakeReport({ provider: "claude-cli", model: "claude-opus" }));
+    expect(
+      await lookupPersistedScanByCommit({ owner: "octo", repo: "mode", headSha: "abc123", useLLM: false }),
+    ).toBeNull();
+  });
+
+  it("STALE: a row older than the max cache age is a miss (weekly-refresh allowance)", async () => {
+    const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000).toISOString();
+    mockGetScanReportByCommit.mockResolvedValueOnce(
+      fakeReport({ provider: "mock", model: "deterministic-rubric" }, eightDaysAgo),
+    );
+    expect(
+      await lookupPersistedScanByCommit({ owner: "octo", repo: "stale", headSha: "abc123", useLLM: false }),
+    ).toBeNull();
+  });
+
+  it("a DB error degrades to a miss — never an exception into the CI gate path", async () => {
+    mockGetScanReportByCommit.mockRejectedValueOnce(new Error("db down"));
+    await expect(
+      lookupPersistedScanByCommit({ owner: "octo", repo: "down", headSha: "abc123", useLLM: false }),
+    ).resolves.toBeNull();
   });
 });
