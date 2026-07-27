@@ -1,8 +1,9 @@
 // OpenAI / Azure-OpenAI / OpenAI-compatible provider (vLLM, Ollama, LM Studio, …) — the most-
 // requested enterprise LLM, which the closed 4-way ProviderName union previously locked out of real
-// scans entirely. Fetch-based (no SDK dependency added). Uses JSON mode (response_format:
-// json_object) plus the shared assessment prompt + the validateAssessment safety net — the most
-// portable path across OpenAI-compatible endpoints (not all support strict json_schema).
+// scans entirely. Fetch-based (no SDK dependency added). Decodes against the STRICT json_schema
+// derived from ASSESSMENT_JSON_SCHEMA (the same contract gemini/bedrock constrain to), with an
+// automatic one-shot fallback to plain json_object for OpenAI-compatible targets that don't implement
+// it — plus the shared assessment prompt + the validateAssessment safety net.
 //
 // Config: OPENAI_API_KEY (required), OPENAI_MODEL (default gpt-4o-mini), OPENAI_BASE_URL (override
 // for Azure / self-hosted; default https://api.openai.com/v1). Select with LLM_PROVIDER=openai.
@@ -13,6 +14,7 @@ import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
 import { llmMaxTokens, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { assessmentResponseFormat, isResponseFormatRejection, JSON_OBJECT_RESPONSE_FORMAT } from "@/lib/llm/schema";
 
 export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -38,8 +40,8 @@ export class OpenAiProvider implements LLMProvider {
     // signals and owns the timer/listener lifecycle so no listener leaks. (Was a hand-rolled
     // addEventListener/removeEventListener pair.)
     const { signal, clear } = withLlmTimeout(opts.signal, llmTimeoutMs(), "OpenAI request timed out.");
-    try {
-      const res = await fetch(`${this.baseUrl}/chat/completions`, {
+    const post = (responseFormat: unknown) =>
+      fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
         body: JSON.stringify({
@@ -53,7 +55,7 @@ export class OpenAiProvider implements LLMProvider {
           // explicitly and Gemini relies on a high native default; OpenAI alone set none. Mirror
           // BEDROCK_MAX_TOKENS with an env-overridable default. (llm-provider-abstraction #2)
           max_tokens: llmMaxTokens("OPENAI_MAX_TOKENS"),
-          response_format: { type: "json_object" },
+          response_format: responseFormat,
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },
@@ -62,6 +64,25 @@ export class OpenAiProvider implements LLMProvider {
         signal,
         cache: "no-store",
       });
+    try {
+      // Constrain the SHAPE, not just "is JSON" — the strict json_schema derived from
+      // ASSESSMENT_JSON_SCHEMA. Not every OpenAI-compatible target implements it (older Azure
+      // api-versions, some vLLM/Ollama builds), and those reject the REQUEST rather than answer badly,
+      // so a rejection naming response_format retries ONCE on the previous json_object path. That keeps
+      // the strict win for endpoints that support it without adding a new hard-failure mode.
+      let res = await post(assessmentResponseFormat());
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        if (isResponseFormatRejection(res.status, body)) {
+          console.warn(
+            `[llm/openai] model "${this.model}" rejected strict json_schema decoding; ` +
+              "retrying with json_object (shape is then prompt-enforced only).",
+          );
+          res = await post(JSON_OBJECT_RESPONSE_FORMAT);
+        } else {
+          throw new Error(`OpenAI request failed (${res.status}): ${body.slice(0, 200)}`);
+        }
+      }
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         throw new Error(`OpenAI request failed (${res.status}): ${body.slice(0, 200)}`);
@@ -74,9 +95,10 @@ export class OpenAiProvider implements LLMProvider {
       if (!text) throw new Error("Empty response from OpenAI.");
       opts.onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens });
 
-      // `response_format: json_object` guarantees VALID JSON, not the assessment SHAPE (unlike Gemini's
-      // responseJsonSchema / Bedrock's forced tool schema). An OpenAI-compatible endpoint (vLLM / Ollama
-      // / LM Studio) can therefore return parseable-but-wrong output. Guard the shape here so a
+      // The json_object FALLBACK path guarantees VALID JSON, not the assessment SHAPE, and even under
+      // strict json_schema a non-conforming endpoint may ignore the constraint. An OpenAI-compatible
+      // endpoint (vLLM / Ollama / LM Studio) can therefore still return parseable-but-wrong output —
+      // this shape guard stays the outer net regardless of decode path. Guard the shape here so a
       // fundamentally wrong reply (a JSON string/number/array, or `{ "error": … }`) surfaces as a clear
       // LLM failure — which scan.ts logs and degrades-to-mock on — instead of validateAssessment silently
       // coercing it to an empty assessment that reads as a real (deterministic-floor) scan.

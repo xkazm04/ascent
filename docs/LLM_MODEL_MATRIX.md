@@ -50,8 +50,14 @@ deterministic-signal fallback, which would otherwise credit the model for the ba
 
 ## The `json_object` shape finding
 
-The OpenRouter (and OpenAI-compatible) adapter decodes with `response_format: { type: "json_object" }`,
-which guarantees **valid JSON but not the assessment SHAPE** — unlike Gemini's `responseJsonSchema` or
+> **Superseded for future runs (not yet re-baked).** Both adapters now request a STRICT
+> `response_format: { type: "json_schema", … }` derived from `ASSESSMENT_JSON_SCHEMA`, falling back to
+> `json_object` only when a target/upstream rejects the format. The numbers below were measured on the
+> old json_object-only path and are expected to change (upward for glm/deepseek/sonnet) on the next
+> bench run. Until then, read the reliability column as path-specific, not as a model verdict.
+
+At the time of this run, the OpenRouter (and OpenAI-compatible) adapter decoded with
+`response_format: { type: "json_object" }`, which guarantees **valid JSON but not the assessment SHAPE** — unlike Gemini's `responseJsonSchema` or
 Bedrock's forced tool schema, which constrain the structure up front. On this multi-field assessment
 schema (9 scored dimensions + headline + roadmap + discrepancies):
 

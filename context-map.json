@@ -78,7 +78,9 @@
             "src/lib/llm/matrix-capture.ts",
             "src/lib/llm/matrix-scores.data.ts",
             "src/lib/llm/matrix-scores.ts",
-            "src/lib/llm/openrouter.ts"
+            "src/lib/llm/openrouter.ts",
+            "src/lib/llm/openai.test.ts",
+            "src/lib/llm/openrouter.test.ts"
           ],
           "target": null,
           "apiRoutes": []

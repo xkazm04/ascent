@@ -1,8 +1,10 @@
 // OpenRouter provider — one API key, hundreds of models behind an OpenAI-compatible endpoint. This is
 // the fleet path: it lets an operator (and the model-quality bench, scripts/llm-matrix.mjs) run any
 // vendor's model through a single key, which is what the model-comparison scorecard is measured on.
-// Fetch-based, JSON mode + the shared assessment prompt + the validateAssessment safety net — the same
-// portable path as the OpenAI-compatible adapter (OpenRouter speaks the OpenAI /chat/completions API).
+// Fetch-based; decodes against the STRICT json_schema derived from ASSESSMENT_JSON_SCHEMA (OpenRouter
+// proxies OpenAI's response_format contract), with a one-shot fallback to json_object for upstreams
+// that refuse it, plus the shared assessment prompt + the validateAssessment safety net — the same
+// path as the OpenAI-compatible adapter (OpenRouter speaks the OpenAI /chat/completions API).
 //
 // Config: OPENROUTER_API_KEY (required), OPENROUTER_MODEL (default openai/gpt-4o-mini — OpenRouter
 // models are always "vendor/model" slugs). Select with LLM_PROVIDER=openrouter. Attribution headers
@@ -14,6 +16,7 @@ import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
 import { llmMaxTokens, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { assessmentResponseFormat, isResponseFormatRejection, JSON_OBJECT_RESPONSE_FORMAT } from "@/lib/llm/schema";
 
 export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini";
 const BASE_URL = "https://openrouter.ai/api/v1";
@@ -37,8 +40,8 @@ export class OpenRouterProvider implements LLMProvider {
     // Abort on client disconnect OR our own timeout, whichever fires first (shared helper owns the
     // timer/listener lifecycle so no listener leaks) — same as the openai/gemini/bedrock adapters.
     const { signal, clear } = withLlmTimeout(opts.signal, llmTimeoutMs(), "OpenRouter request timed out.");
-    try {
-      const res = await fetch(`${BASE_URL}/chat/completions`, {
+    const post = (responseFormat: unknown) =>
+      fetch(`${BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -57,7 +60,7 @@ export class OpenRouterProvider implements LLMProvider {
           // a small completion cap truncates the JSON mid-object → parseJsonLoose recovers nothing →
           // the scan silently degrades to the mock floor under the "openrouter" name.
           max_tokens: llmMaxTokens("OPENROUTER_MAX_TOKENS"),
-          response_format: { type: "json_object" },
+          response_format: responseFormat,
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },
@@ -66,6 +69,25 @@ export class OpenRouterProvider implements LLMProvider {
         signal,
         cache: "no-store",
       });
+    try {
+      // Constrain the SHAPE, not just "is JSON". This is the decode path the baked model matrix was
+      // measured on: docs/LLM_MODEL_MATRIX.md attributes glm/deepseek/sonnet's low reliability to
+      // json_object-only decoding, so a strict json_schema is the lever. OpenRouter fans out to many
+      // upstreams and not all of them accept it — a rejection naming response_format retries ONCE on
+      // the old json_object path so no model that worked before starts hard-failing.
+      let res = await post(assessmentResponseFormat());
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        if (isResponseFormatRejection(res.status, body)) {
+          console.warn(
+            `[llm/openrouter] model "${this.model}" rejected strict json_schema decoding; ` +
+              "retrying with json_object (shape is then prompt-enforced only).",
+          );
+          res = await post(JSON_OBJECT_RESPONSE_FORMAT);
+        } else {
+          throw new Error(`OpenRouter request failed (${res.status}): ${body.slice(0, 200)}`);
+        }
+      }
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         throw new Error(`OpenRouter request failed (${res.status}): ${body.slice(0, 200)}`);
@@ -78,8 +100,9 @@ export class OpenRouterProvider implements LLMProvider {
       if (!text) throw new Error("Empty response from OpenRouter.");
       opts.onUsage?.({ inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens });
 
-      // `response_format: json_object` guarantees VALID JSON, not the assessment SHAPE — an OpenRouter
-      // model can return parseable-but-wrong output. Guard the shape so a fundamentally wrong reply
+      // The json_object FALLBACK path guarantees VALID JSON, not the assessment SHAPE, and an upstream
+      // can ignore even a strict schema — so an OpenRouter model can still return parseable-but-wrong
+      // output on either path. This shape guard stays the outer net. Guard it so a wrong reply
       // surfaces as a clear LLM failure (which scan.ts logs + degrades-to-mock on) instead of being
       // coerced to an empty assessment that reads as a real (deterministic-floor) scan.
       const parsed = parseJsonLoose(text);
