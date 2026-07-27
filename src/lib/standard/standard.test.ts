@@ -558,6 +558,17 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     rmSync(tmp, { recursive: true, force: true });
   });
 
+  it("--json without report-back env names the skip machine-readably (never a silent no-report)", () => {
+    // The doctor spawns with the test runner's env minus any conformance vars — the common unattended
+    // CI case where report-back was never configured. The summary must SAY it didn't report, in the
+    // JSON itself, naming every missing var; a consumer of {score,fails,warns,findings} is unaffected.
+    writeConformantRepo(tmp);
+    const { json } = runDoctor(tmp);
+    expect(json.reportSkipped).toMatch(/not reported to Ascent/);
+    expect(json.reportSkipped).toMatch(/ASCENT_CONFORMANCE_URL/);
+    expect(json.reportSkipped).toMatch(/ASCENT_CONFORMANCE_TOKEN/);
+  });
+
   it("CONFORMANT fixture → gate PASSES: exit 0 and JSON fails===0", () => {
     writeConformantRepo(tmp);
     const { status, json } = runDoctor(tmp);
@@ -712,9 +723,11 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     // The doctor auto-POSTs { repo, headSha, score, fails, warns } and prints { score, fails, warns,
     // findings }. The route reads score/fails/warns as numbers — pin those keys + types so a payload
     // rename can't silently break ingestion (the route would then 400 on missing numerics).
+    // `reportSkipped` is the one documented OPTIONAL addition (present only when report-back env is
+    // missing — which it is in this spawn); anything else appearing here is contract drift.
     writeConformantRepo(tmp);
     const { json } = runDoctor(tmp);
-    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "score", "warns"]);
+    expect(Object.keys(json).sort()).toEqual(["fails", "findings", "reportSkipped", "score", "warns"]);
     expect(typeof json.score).toBe("number");
     expect(typeof json.fails).toBe("number");
     expect(typeof json.warns).toBe("number");

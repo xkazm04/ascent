@@ -207,10 +207,17 @@ console.log('Then re-scan in Ascent to confirm the maturity delta.');
 
 // --json: machine-readable summary + optional auto-report to Ascent (the adopt->verify->re-score loop).
 if (process.argv.includes('--json')) {
-  process.stdout.write(JSON.stringify({ score: score, fails: fails, warns: warns, findings: findings }) + '\\n');
   const reportUrl = process.env.ASCENT_CONFORMANCE_URL;
   const reportTok = process.env.ASCENT_CONFORMANCE_TOKEN;
   const reportRepo = process.env.GITHUB_REPOSITORY;
+  // Machine-readable SKIP reason: an unattended CI run with report-back half-configured used to be
+  // completely silent about it (the setup tip only printed in the human, non---json branch), so the
+  // adopt->verify->re-score loop looked closed while Ascent never heard a thing. Additive field -
+  // consumers of { score, fails, warns, findings } are unaffected.
+  const missing = [!reportUrl && 'ASCENT_CONFORMANCE_URL', !reportTok && 'ASCENT_CONFORMANCE_TOKEN', !reportRepo && 'GITHUB_REPOSITORY'].filter(Boolean);
+  const summary = { score: score, fails: fails, warns: warns, findings: findings };
+  if (missing.length) summary.reportSkipped = 'not reported to Ascent - set ' + missing.join(' + ') + ' (e.g. in CI)';
+  process.stdout.write(JSON.stringify(summary) + '\\n');
   if (reportUrl && reportTok && reportRepo && typeof fetch === 'function') {
     try {
       const res = await fetch(reportUrl, {
