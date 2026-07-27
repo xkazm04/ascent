@@ -6,7 +6,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { PUBLIC_ORG } from "@/lib/org-constants";
-import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
+import { applyPassportOverrides, parsePassportJson, parsePassportOverrides, upgradePassport } from "@/lib/analyze/passport";
 import type { AppPassport } from "@/lib/types";
 
 export interface PersonalPassport {
@@ -44,8 +44,12 @@ export async function getPersonalPassports(personalSlug: string): Promise<Person
 
   const out: PersonalPassport[] = [];
   for (const r of repos) {
-    const pp = parsePassportJson(r.passportJson);
-    if (!pp) continue;
+    const parsed = parsePassportJson(r.passportJson);
+    if (!parsed) continue;
+    // Cached rows can predate the current passport shape — lift before the overlay so a lens read never
+    // shows a 0.1.0 boolean where a grade belongs. (parsePassportJson migrates too; this is the explicit
+    // contract at the read path, and a no-op when the row is already current.)
+    const pp = upgradePassport(parsed);
     out.push({ fullName: r.fullName, passport: applyPassportOverrides(pp, parsePassportOverrides(r.passportOverridesJson)) });
   }
   return out;

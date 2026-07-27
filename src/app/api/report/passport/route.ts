@@ -13,6 +13,7 @@ import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
 import { parseRepoParam } from "@/lib/report/repoParam";
 import { safeFilenameSegment } from "@/lib/export/filename";
+import { upgradePassport } from "@/lib/analyze/passport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,10 +39,14 @@ export async function GET(request: Request) {
     );
   }
 
+  // Exported bytes are always the CURRENT passport version: a row stored under an older shape is lifted
+  // here (tagged `migratedFrom`) so a downloaded file always validates against the current schema.
+  const current = upgradePassport(passport);
+
   const headers: Record<string, string> = { "content-type": "application/json; charset=utf-8" };
   if (url.searchParams.has("download")) {
     const filename = `${safeFilenameSegment(parsed.owner)}-${safeFilenameSegment(parsed.name)}.passport.json`;
     headers["content-disposition"] = `attachment; filename="${filename}"`;
   }
-  return new NextResponse(JSON.stringify(passport, null, 2), { headers });
+  return new NextResponse(JSON.stringify(current, null, 2), { headers });
 }

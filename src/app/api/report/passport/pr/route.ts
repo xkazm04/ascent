@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No passport for this repository yet. Scan it first." }, { status: 404 });
   }
   // The committed file: schema pointer first, then the (override-applied) passport.
-  const fileContent = JSON.stringify({ $schema: "https://ascent.dev/schemas/app-passport-0.1.json", ...passport }, null, 2) + "\n";
+  const fileContent = JSON.stringify({ $schema: "https://ascent.dev/schemas/app-passport-0.2.json", ...passport }, null, 2) + "\n";
   // resolveViewerLogin: getSession() is null under the ACTIVE Supabase wall, so this PR-write audit
   // row recorded a null actor in production.
   const actorLogin = await resolveViewerLogin();

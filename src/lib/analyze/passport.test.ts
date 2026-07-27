@@ -5,8 +5,17 @@
 // CI/security rung it couldn't observe, and must say so in evidence/blockers.
 
 import { describe, it, expect } from "vitest";
-import { applyPassportOverrides, buildPassport, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
-import type { Governance, RepoMeta, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
+import {
+  PASSPORT_VERSION,
+  applyPassportOverrides,
+  buildPassport,
+  isDeclinablePath,
+  parseDeclined,
+  parsePassportJson,
+  parsePassportOverrides,
+  upgradePassport,
+} from "@/lib/analyze/passport";
+import type { AppPassport, Governance, RepoMeta, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
 
 function meta(over: Partial<RepoMeta> = {}): RepoMeta {
   return { owner: "acme", name: "web", url: "https://github.com/acme/web", stars: 0, forks: 0, defaultBranch: "main", primaryLanguage: "TypeScript", ...over };
@@ -81,6 +90,11 @@ describe("buildPassport — golden output (full token scan)", () => {
     expect(pp.automationReadiness.artifacts.contextGraph).toBe("full");
     expect(pp.automationReadiness.selfVerify).toEqual({ build: true, test: true, lint: true, typecheck: true });
     expect(pp.automationReadiness.aiInWorkflow).toBe(true); // commit co-author trailer
+    // 0.2.0: graded ladders, not booleans. This snapshot carries neither artifact.
+    expect(pp.automationReadiness.artifacts.memory).toBe("none");
+    expect(pp.automationReadiness.artifacts.skills).toBe("none");
+    expect(pp.passportVersion).toBe(PASSPORT_VERSION);
+    expect(pp.migratedFrom).toBeUndefined(); // freshly assessed, never a migration floor
   });
 
   it("production axis: CI gated (enforced), tests substantial, derived band", () => {
@@ -135,6 +149,241 @@ describe("buildPassport — determinism + parse", () => {
     expect(pp.productionReadiness.ci.level).toBe("none");
     expect(pp.productionReadiness.observability.level).toBe("none");
     expect(pp.automationReadiness.selfVerify).toEqual({ build: false, test: false, lint: false, typecheck: false });
+  });
+});
+
+// ── 0.2.0: graded artifact ladders ────────────────────────────────────────────────────────────────
+// The ladder must be a FLOOR, never a guess: each rung needs evidence the snapshot actually carries, and
+// `governed` needs process evidence that only fetched file CONTENT (or CI text) can prove.
+describe("buildPassport — memory ladder (none → adhoc → curated → governed)", () => {
+  const grade = (opts: { tree?: string[]; files?: Record<string, string> }) =>
+    buildPassport(report(), snap({ tree: ["package.json", ...(opts.tree ?? [])], files: { "package.json": PKG, ...(opts.files ?? {}) } })).automationReadiness
+      .artifacts.memory;
+
+  it("none — no memory home at all", () => {
+    expect(grade({})).toBe("none");
+  });
+
+  it("adhoc — a single flat memory file is presence, not structure", () => {
+    expect(grade({ tree: [".ai/memory.md"] })).toBe("adhoc");
+    expect(grade({ tree: [".ai/memory/notes.md"] })).toBe("adhoc"); // one lone entry
+  });
+
+  it("curated — several per-fact entries, or an index plus an entry", () => {
+    expect(grade({ tree: [".ai/memory/auth-decision.md", ".ai/memory/pglite-drift.md"] })).toBe("curated");
+    expect(grade({ tree: [".ai/memory/index.md", ".ai/memory/auth-decision.md"] })).toBe("curated");
+  });
+
+  it("governed — curated PLUS a supersede lineage link in fetched content", () => {
+    expect(
+      grade({
+        tree: [".ai/memory/a.md", ".ai/memory/b.md"],
+        files: { ".ai/memory/b.md": "# B\nsuperseded-by: .ai/memory/c.md\n" },
+      }),
+    ).toBe("governed");
+  });
+
+  it("governed — curated PLUS a CI job that checks the memory tree", () => {
+    expect(
+      grade({
+        tree: [".ai/memory/a.md", ".ai/memory/b.md", ".github/workflows/ci.yml"],
+        files: { ".github/workflows/ci.yml": "jobs:\n  memcheck:\n    steps:\n      - run: node scripts/lint.mjs .ai/memory\n" },
+      }),
+    ).toBe("governed");
+  });
+
+  it("HONESTY: a curated tree whose files weren't fetched caps at curated, never governed", () => {
+    // The tree lists the entries but no content came back within the byte budget — no lineage provable.
+    expect(grade({ tree: [".ai/memory/a.md", ".ai/memory/b.md", ".ai/memory/c.md"] })).toBe("curated");
+  });
+});
+
+describe("buildPassport — skills ladder (none → adhoc → curated → governed)", () => {
+  const grade = (opts: { tree?: string[]; files?: Record<string, string>; pkg?: string }) =>
+    buildPassport(report(), snap({ tree: ["package.json", ...(opts.tree ?? [])], files: { "package.json": opts.pkg ?? PKG, ...(opts.files ?? {}) } }))
+      .automationReadiness.artifacts.skills;
+
+  it("none — no skills home", () => {
+    expect(grade({})).toBe("none");
+  });
+
+  it("adhoc — loose files, or a single named skill, is not a library", () => {
+    expect(grade({ tree: [".claude/skills/scratch.md"] })).toBe("adhoc"); // loose, no skill dir
+    expect(grade({ tree: [".claude/skills/deploy/skill.md"] })).toBe("adhoc"); // exactly one skill
+  });
+
+  it("curated — >=2 distinct skills that each carry their own definition file", () => {
+    expect(grade({ tree: [".claude/skills/deploy/skill.md", ".claude/skills/review/skill.md"] })).toBe("curated");
+  });
+
+  it("governed — curated PLUS a registry at the skills root", () => {
+    expect(grade({ tree: [".claude/skills/deploy/skill.md", ".claude/skills/review/skill.md", ".claude/skills/index.md"] })).toBe("governed");
+  });
+
+  it("governed — curated PLUS a package script that validates them", () => {
+    const pkg = JSON.stringify({ scripts: { "lint:skills": "node scripts/check-skills.mjs" } });
+    expect(grade({ tree: [".claude/skills/deploy/skill.md", ".claude/skills/review/skill.md"], pkg })).toBe("governed");
+  });
+
+  it("a `none` rung surfaces as an automation blocker (the thing an owner may then decline)", () => {
+    const pp = buildPassport(report(), fullSnap());
+    expect(pp.automationReadiness.blockers.some((b) => /^No agent memory/.test(b))).toBe(true);
+    expect(pp.automationReadiness.blockers.some((b) => /^No reusable agent skills/.test(b))).toBe(true);
+  });
+});
+
+// ── 0.2.0: version migration on read ──────────────────────────────────────────────────────────────
+const V010: AppPassport = {
+  passport: "app-passport",
+  passportVersion: "0.1.0",
+  generatedAt: "2026-01-01",
+  generatedBy: "ascent-scan",
+  identity: { name: "web", slug: "web", purpose: "p", archetype: "team", visibility: "public", license: null },
+  stack: { languages: [], frameworks: [], persistence: [], monitoring: { errorTracking: null, logs: null, metrics: null, tracing: null, uptime: null }, hosting: null, integrations: [] },
+  automationReadiness: {
+    level: "L3",
+    score: 50,
+    // the 0.1.0 shape: booleans where 0.2.0 has ladders
+    artifacts: { agentInstructions: ["CLAUDE.md"], contextGraph: "full", memory: true, manifest: false, evals: "none", skills: false } as unknown as AppPassport["automationReadiness"]["artifacts"],
+    selfVerify: { build: true, test: true, lint: false, typecheck: false },
+    aiInWorkflow: true,
+    blockers: [],
+  },
+  productionReadiness: {
+    band: "beta",
+    score: 50,
+    ci: { level: "checks", provider: "github-actions", gates: [] },
+    tests: { level: "partial", coveragePct: null, frameworks: [], criticalPathCovered: false },
+    security: { level: "none", tools: [] },
+    observability: { level: "none" },
+    delivery: { migrations: "none", iac: false, rollback: false },
+    blockers: [],
+  },
+  links: {},
+  evidence: { confidence: 0.7, source: "static-scan", files: [] },
+};
+
+describe("upgradePassport — 0.1.0 → 0.2.0 on read", () => {
+  it("lifts boolean memory/skills to the ladder: true→adhoc, false→none", () => {
+    const up = upgradePassport(V010);
+    expect(up.automationReadiness.artifacts.memory).toBe("adhoc");
+    expect(up.automationReadiness.artifacts.skills).toBe("none");
+    expect(up.passportVersion).toBe("0.2.0");
+  });
+
+  it("TAGS the result so a migrated floor is never read as a fresh assessment", () => {
+    const up = upgradePassport(V010);
+    expect(up.migratedFrom).toBe("0.1.0");
+    expect(up.evidence.notes?.some((n) => /migration floors|Lifted from passport 0\.1\.0/i.test(n))).toBe(true);
+  });
+
+  it("is pure — the stored object is never mutated", () => {
+    upgradePassport(V010);
+    expect((V010.automationReadiness.artifacts as unknown as { memory: unknown }).memory).toBe(true);
+    expect(V010.passportVersion).toBe("0.1.0");
+  });
+
+  it("is a no-op (same reference) for an already-current passport, and idempotent", () => {
+    const fresh = buildPassport(report(), fullSnap());
+    expect(upgradePassport(fresh)).toBe(fresh);
+    const once = upgradePassport(V010);
+    expect(upgradePassport(once)).toBe(once);
+  });
+
+  it("treats a missing/garbage version as the oldest shape (conservative)", () => {
+    const noVersion = { ...V010, passportVersion: "" } as AppPassport;
+    expect(upgradePassport(noVersion).migratedFrom).toBe("0.1.0");
+    expect(upgradePassport(noVersion).automationReadiness.artifacts.memory).toBe("adhoc");
+  });
+
+  it("parsePassportJson is the read-path seam — a stored 0.1.0 blob comes back migrated", () => {
+    const parsed = parsePassportJson(JSON.stringify(V010));
+    expect(parsed?.automationReadiness.artifacts.memory).toBe("adhoc");
+    expect(parsed?.passportVersion).toBe(PASSPORT_VERSION);
+    expect(parsed?.migratedFrom).toBe("0.1.0");
+  });
+});
+
+// ── 0.2.0: declined by choice ─────────────────────────────────────────────────────────────────────
+describe("applyPassportOverrides — declined by choice", () => {
+  // A bare repo: carries the observability / CI / memory / skills blockers a decline stands down.
+  const base = buildPassport(report({ governance: null }), snap({}));
+
+  it("retires the matching blocker and re-renders it as an annotated decision", () => {
+    expect(base.productionReadiness.blockers.some((b) => /^Zero observability/.test(b))).toBe(true);
+    const pp = applyPassportOverrides(base, {
+      declined: { "stack.monitoring.errorTracking": { reason: "Internal cron worker; platform pages on failure." } },
+    });
+    expect(pp.productionReadiness.blockers.some((b) => /^Zero observability/.test(b))).toBe(false);
+    expect(pp.declined).toEqual([
+      {
+        path: "stack.monitoring.errorTracking",
+        label: "Error tracking",
+        reason: "Internal cron worker; platform pages on failure.",
+        blocker: expect.stringMatching(/^Zero observability/),
+      },
+    ]);
+  });
+
+  it("NEVER moves a score — a decline is a decision, not a fix", () => {
+    const pp = applyPassportOverrides(base, { declined: { "productionReadiness.observability": {}, "productionReadiness.ci": {} } });
+    expect(pp.productionReadiness.score).toBe(base.productionReadiness.score);
+    expect(pp.productionReadiness.band).toBe(base.productionReadiness.band);
+    expect(pp.automationReadiness.score).toBe(base.automationReadiness.score);
+  });
+
+  it("declines an automation-axis gap too, and leaves the input untouched", () => {
+    const pp = applyPassportOverrides(base, { declined: { "automationReadiness.artifacts.memory": { reason: "Single-owner repo." } } });
+    expect(pp.automationReadiness.blockers.some((b) => /^No agent memory/.test(b))).toBe(false);
+    expect(base.automationReadiness.blockers.some((b) => /^No agent memory/.test(b))).toBe(true);
+    expect(base.declined).toBeUndefined();
+  });
+
+  it("SURVIVES A RE-SCAN: the same overlay re-applies to a freshly built passport", () => {
+    // A re-scan rewrites passportJson only; the declines live in the overrides store, keyed by field path.
+    const ov = parsePassportOverrides(JSON.stringify({ declined: { "stack.monitoring.errorTracking": { reason: "by choice" } } }));
+    const rescanned = buildPassport(report({ governance: null, overallScore: 81 }), snap({}));
+    const pp = applyPassportOverrides(rescanned, ov);
+    expect(pp.declined?.[0]?.path).toBe("stack.monitoring.errorTracking");
+    expect(pp.declined?.[0]?.reason).toBe("by choice");
+    expect(pp.productionReadiness.blockers.some((b) => /^Zero observability/.test(b))).toBe(false);
+  });
+
+  it("is deterministic — declines render sorted by path", () => {
+    const pp = applyPassportOverrides(base, {
+      declined: { "productionReadiness.delivery.iac": {}, "automationReadiness.artifacts.evals": {} },
+    });
+    expect(pp.declined?.map((d) => d.path)).toEqual(["automationReadiness.artifacts.evals", "productionReadiness.delivery.iac"]);
+  });
+
+  it("ignores an unknown field path (must-ignore-unknown) rather than inventing a decline", () => {
+    const pp = applyPassportOverrides(base, { declined: { "productionReadiness.notAField": {} } as never });
+    expect(pp.declined).toBeUndefined();
+  });
+});
+
+describe("parseDeclined / isDeclinablePath — allow-list validation", () => {
+  it("keeps allow-listed paths, drops the rest", () => {
+    expect(isDeclinablePath("stack.monitoring.errorTracking")).toBe(true);
+    expect(isDeclinablePath("productionReadiness.score")).toBe(false);
+    // the tokenless enforcement caveat is deliberately NOT declinable — that's an evidence limit
+    expect(isDeclinablePath("evidence.source")).toBe(false);
+    expect(parseDeclined({ "stack.monitoring.logs": {}, bogus: {} })).toEqual({ "stack.monitoring.logs": {} });
+    expect(parseDeclined({ bogus: {} })).toBeNull();
+    expect(parseDeclined(null)).toBeNull();
+    expect(parseDeclined([])).toBeNull();
+  });
+
+  it("trims + caps a reason and drops a malformed date", () => {
+    const out = parseDeclined({ "stack.monitoring.metrics": { reason: `  ${"x".repeat(400)}  `, at: "yesterday" } });
+    expect(out?.["stack.monitoring.metrics"]?.reason).toHaveLength(280);
+    expect(out?.["stack.monitoring.metrics"]?.at).toBeUndefined();
+    expect(parseDeclined({ "stack.monitoring.metrics": { at: "2026-07-27" } })?.["stack.monitoring.metrics"]?.at).toBe("2026-07-27");
+  });
+
+  it("round-trips through the stored-overrides parser alongside the P4 fields", () => {
+    const raw = JSON.stringify({ criticality: "business", declined: { "productionReadiness.tests": { reason: "prototype" }, nope: {} } });
+    expect(parsePassportOverrides(raw)).toEqual({ criticality: "business", declined: { "productionReadiness.tests": { reason: "prototype" } } });
   });
 });
 

@@ -1,7 +1,7 @@
 {
   "$schema": "./app-passport.schema.json",
   "passport": "app-passport",
-  "passportVersion": "0.1.0",
+  "passportVersion": "0.2.0",
   "generatedAt": "2026-06-17",
   "generatedBy": "manual (hand-authored from a repo read; replace with a scanner export)",
 
@@ -62,15 +62,16 @@
     "artifacts": {
       "agentInstructions": ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md"],
       "contextGraph": "full",
-      "memory": false,
+      "memory": "none",
       "manifest": false,
       "evals": "partial",
-      "skills": true
+      "skills": "curated"
     },
     "selfVerify": { "build": true, "test": true, "lint": true, "typecheck": true },
     "aiInWorkflow": true,
     "blockers": [
       "No in-repo .ai/manifest.yaml or .ai/memory — Ascent generates the standard for other repos but does not yet carry it itself (dogfood gap).",
+      "Skills are a curated library (many .claude/skills/*/SKILL.md) but nothing governs them — no registry at the skills root and no CI check, so the rung stays curated, not governed.",
       "Evals are calibration unit tests, not a golden-set harness for the app's own LLM output.",
       "No AI review bot / LLM step gating its own PRs (would lift L4 -> L5)."
     ]
@@ -108,6 +109,14 @@
       "Ironic gap for a security-scoring tool: no SAST/secret/dep scanning wired into its own CI."
     ]
   },
+
+  "declined": [
+    {
+      "path": "productionReadiness.delivery.iac",
+      "label": "Infrastructure as code",
+      "reason": "Deliberate: hosting is Vercel's git integration + managed Aurora DSQL; there is no infrastructure to declare."
+    }
+  ],
 
   "links": {
     "manifest": ".ai/manifest.yaml (generated for scanned repos; see docs/AI_MANIFEST_SPEC.md)",
