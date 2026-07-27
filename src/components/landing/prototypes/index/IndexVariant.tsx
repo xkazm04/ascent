@@ -8,6 +8,7 @@
 import type { LandingData } from "../types";
 import { IndexHero } from "./IndexHero";
 import { IndexOrg } from "./IndexOrg";
+import { IndexFleet } from "./IndexFleet";
 import { IndexGallery } from "./IndexGallery";
 import { IndexLevels } from "./IndexLevels";
 import { DimensionMatrix } from "./DimensionMatrix";
@@ -21,6 +22,9 @@ export function IndexVariant(props: LandingData) {
       <div className="mx-auto w-full max-w-6xl px-5">
         <Reveal>
           <IndexOrg />
+        </Reveal>
+        <Reveal>
+          <IndexFleet />
         </Reveal>
         {props.gallery && (
           <Reveal>

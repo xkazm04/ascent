@@ -40,6 +40,9 @@ const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 export const CENTER = 60;
 export const ACCENT = "#3b9eff";
 export const FAINT = "#64748b";
+/** The org-core beacon's inner disc (slate-200). Shared by the live map and the public, data-free
+ *  field so the constellation's center reads identically on both surfaces. */
+export const CORE = "#e2e8f0";
 // The launch map's mover-direction palette (riser = emerald, faller = orange). Shared by the
 // per-star directional ring and the header "movers · 30d" stat so the up/down semantic stays in
 // one place. NOTE: deliberately distinct from the org DIRECTION_TONE palette — this is the

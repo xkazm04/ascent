@@ -384,6 +384,9 @@
           "filePaths": [
             "src/app/launch/page.tsx",
             "src/components/launch/ConstellationField.tsx",
+            "src/components/launch/PublicConstellation.tsx",
+            "src/components/launch/publicStars.ts",
+            "src/components/launch/publicStars.test.tsx",
             "src/components/launch/FleetMap.tsx",
             "src/components/launch/FleetMapChrome.tsx",
             "src/components/launch/fleetMapStars.ts",
@@ -1734,6 +1737,8 @@
             "src/components/landing/prototypes/index/IndexGallery.tsx",
             "src/components/landing/prototypes/index/IndexHero.tsx",
             "src/components/landing/prototypes/index/IndexLevels.tsx",
+            "src/components/landing/prototypes/index/IndexFleet.tsx",
+            "src/components/landing/prototypes/index/IndexFleet.test.tsx",
             "src/components/landing/prototypes/index/IndexOrg.tsx",
             "src/components/landing/prototypes/index/IndexVariant.tsx",
             "src/components/landing/prototypes/index/ScoreGauge.tsx",

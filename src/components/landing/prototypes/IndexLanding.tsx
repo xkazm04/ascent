@@ -18,6 +18,7 @@ export function IndexLanding(props: LandingData) {
     () => [
       { id: "hero", label: "Overview" },
       { id: "org", label: "Organization" },
+      { id: "fleet", label: "The fleet" },
       ...(props.gallery ? [{ id: "gallery", label: "The register" }] : []),
       { id: "levels", label: "Levels" },
       { id: "dimensions", label: "Dimensions" },

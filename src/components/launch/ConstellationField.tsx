@@ -9,6 +9,7 @@ import {
   appendedStarPosition,
   CENTER,
   type Constellation,
+  CORE,
   FAINT,
   FALLER,
   MAX_STARS,
@@ -207,7 +208,7 @@ export function ConstellationField({
 
           {/* the org core: a pulsing beacon at the heart of the constellation */}
           <circle className="launch-glow" cx={CENTER} cy={CENTER} r={7} fill={ACCENT} opacity={0.4} />
-          <circle cx={CENTER} cy={CENTER} r={2.6} fill="#e2e8f0" />
+          <circle cx={CENTER} cy={CENTER} r={2.6} fill={CORE} />
         </svg>
 
         {c.status === "done" && total === 0 && (
