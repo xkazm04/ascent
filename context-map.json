@@ -274,7 +274,9 @@
             "src/app/api/report/skill/route.ts",
             "src/app/api/report/skill/route.test.ts",
             "src/lib/db/skill-history.ts",
-            "src/app/api/report/conformance/route.ts"
+            "src/app/api/report/conformance/route.ts",
+            "src/components/report/SkillDownload.tsx",
+            "src/components/report/SkillDownload.test.tsx"
           ],
           "target": null,
           "apiRoutes": [

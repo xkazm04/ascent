@@ -148,16 +148,65 @@ describe("buildOnboardingSkill", () => {
     expect(body.indexOf("Step 0")).toBeLessThan(body.indexOf("Tracks (highest leverage first)"));
   });
 
-  it("celebrates strengths and emits no tracks when the repo is already strong", () => {
-    const skill = buildOnboardingSkill(makeReport({}, 90)); // all dims default 80 → strong
-    expect(selectTracks(makeReport({}, 90))).toHaveLength(0);
-    expect(skill.body).toContain("already broadly");
+  it("selects no GAP tracks when the repo is already strong (the rubric verdict is unchanged)", () => {
+    expect(selectTracks(makeReport({}, 90))).toHaveLength(0); // all dims default 80 → no weak dimension
+    expect(buildOnboardingSkill(makeReport({}, 90)).body).toContain("already broadly");
   });
 
   it("renders a definition-of-done checklist per track", () => {
     const skill = buildOnboardingSkill(makeReport({ D8: 45 }), { include: ["D8"] });
     expect(skill.body).toContain("Definition of done");
     expect(skill.body).toContain("golden test"); // D8 DoD leads with the local eval run
+  });
+});
+
+// ── Maintainer selection + the all-strong refinement offer ────────────────────────────────────────
+// The defect: an all-strong repo downloaded an EMPTY Tracks shell — a file with nothing to do in it —
+// even though `include` could always surface a refinement on a strong dimension. Now the same track
+// machinery renders the lowest-scoring dimensions as explicitly-framed refinements, and the generated
+// trackIds (what the history dedups on) reflect that offer instead of being empty.
+describe("all-strong refinement offer", () => {
+  const strong = () => makeReport({ D1: 95, D2: 92, D3: 90, D4: 88, D5: 72, D6: 74, D7: 71, D8: 73, D9: 85 }, 90);
+
+  it("offers refinement tracks on the lowest-scoring dimensions instead of an empty shell", () => {
+    const skill = buildOnboardingSkill(strong());
+    expect(skill.trackIds).toHaveLength(3);
+    expect(skill.body).toContain("Tracks — refinement (no open gaps)");
+    expect(skill.body).toContain("already broadly AI-native");
+    // The three lowest scores are D7 (71), D5 (72), D8 (73) — offered as refinements, not gaps.
+    expect(skill.body).toContain("D7 ");
+    expect(skill.body).toContain("D5 ");
+    expect(skill.body).toContain("D8 ");
+    expect(skill.body).not.toContain("D1 Agent"); // the strongest dimension is not dragged in
+  });
+
+  it("frames refinements as a higher bar for acting, not as gaps to close", () => {
+    const body = buildOnboardingSkill(strong()).body;
+    expect(body).toContain("Raise the bar, don't re-lay the floor");
+    expect(body).toContain("only take a refinement if you can");
+  });
+
+  it("is deterministic — the same all-strong report yields the same offer and the same trackIds", () => {
+    expect(buildOnboardingSkill(strong()).trackIds).toEqual(buildOnboardingSkill(strong()).trackIds);
+    expect(buildOnboardingSkill(strong()).body).toBe(buildOnboardingSkill(strong()).body);
+  });
+
+  it("caps the refinement offer with `max`", () => {
+    expect(buildOnboardingSkill(strong(), { max: 1 }).trackIds).toHaveLength(1);
+  });
+
+  it("does NOT trigger for an explicit maintainer selection that yields tracks", () => {
+    const skill = buildOnboardingSkill(strong(), { include: ["D1"] });
+    expect(skill.trackIds).toHaveLength(1);
+    expect(skill.body).not.toContain("Tracks — refinement");
+    expect(skill.body).toContain("Tracks (highest leverage first)");
+  });
+
+  it("does NOT trigger for a repo with real gaps — those stay gap tracks", () => {
+    const skill = buildOnboardingSkill(makeReport({ D4: 40 }));
+    expect(skill.body).toContain("Tracks (highest leverage first)");
+    expect(skill.body).not.toContain("Tracks — refinement");
+    expect(skill.trackIds).toEqual(["agent-in-loop"]);
   });
 });
 

@@ -5,6 +5,7 @@ import { timeAgo } from "@/lib/ui";
 import { Kicker } from "@/components/ui";
 import { FreshnessControl } from "@/components/report/FreshnessControl";
 import { pillClass } from "@/components/report/pill";
+import { SkillDownload } from "@/components/report/SkillDownload";
 
 /** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row.
  *  `isMock` (keyless deterministic demo, no LLM) is derived once by ReportView and threaded down so
@@ -96,13 +97,12 @@ export function ReportHeader({
           >
             <span aria-hidden>↓</span> Export PDF
           </a>
-          <a
-            href={`/api/report/skill?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
-            className={pillClass({ accent: true, focusRing: true, textSm: true })}
-            title="Download a personalized Claude Code onboarding skill (drop it in .claude/skills/ and run it to act on this report)"
-          >
-            <span aria-hidden>✦</span> Onboarding skill
-          </a>
+          {/* The pill keeps its one-click default download; the co-located picker beside it exposes the
+              generator's maintainer multiselect (?dims=) so a session can be scoped to chosen dimensions. */}
+          <SkillDownload
+            repoParam={`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`}
+            dimensions={report.dimensions}
+          />
         </div>
       </div>
     </div>

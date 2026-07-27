@@ -63,11 +63,11 @@ const SKILL: GeneratedSkill = {
 const deny = (status: number) =>
   new Response(JSON.stringify({ error: "denied" }), { status });
 
-function get(repo?: string) {
+function get(repo?: string, query = "") {
   const url =
     repo == null
-      ? "http://localhost/api/report/skill"
-      : `http://localhost/api/report/skill?repo=${encodeURIComponent(repo)}`;
+      ? `http://localhost/api/report/skill${query ? `?${query.replace(/^&/, "")}` : ""}`
+      : `http://localhost/api/report/skill?repo=${encodeURIComponent(repo)}${query}`;
   return GET(new Request(url));
 }
 
@@ -190,7 +190,7 @@ describe("GET /api/report/skill — authorized happy path + filename sanitizatio
       headSha: "abcdef1234567890",
       orgSlug: "acme",
     });
-    expect(mockBuildSkill).toHaveBeenCalledWith(REPORT);
+    expect(mockBuildSkill).toHaveBeenCalledWith(REPORT, {}); // no selection params → empty SelectOpts
 
     expect(res.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
     expect(res.headers.get("cache-control")).toBe("private, max-age=300");
@@ -232,5 +232,68 @@ describe("GET /api/report/skill — authorized happy path + filename sanitizatio
     expect(await res.text()).toBe(SKILL.body);
     // The history write was attempted (fire-and-forget) but its failure is swallowed.
     expect(mockRecord).toHaveBeenCalledWith("acme/api", null, SKILL.trackIds);
+  });
+});
+
+// ── Maintainer track selection (?dims / ?max) ─────────────────────────────────────────────────────
+// buildOnboardingSkill has always accepted SelectOpts include/max, but the route never passed one — so
+// nobody could scope a session to a dimension or ask for a refinement on a strong one. These pin the
+// query contract AND its strictness: an unknown dimension id must be a 400, never a silently-dropped
+// param, because silently dropping it returns a DIFFERENT skill than the caller asked for and then
+// records that other selection in the generation history.
+describe("GET /api/report/skill — maintainer track selection", () => {
+  it("forwards a comma-separated ?dims as the include set", async () => {
+    const res = await get("acme/api", "&dims=D2,D9");
+    expect(res.status).toBe(200);
+    expect(mockBuildSkill).toHaveBeenCalledWith(REPORT, { include: ["D2", "D9"] });
+  });
+
+  it("accepts repeated ?dims params, lowercase ids, whitespace, and de-duplicates", async () => {
+    const res = await get("acme/api", "&dims=+d2+&dims=D9,d2");
+    expect(res.status).toBe(200);
+    expect(mockBuildSkill).toHaveBeenCalledWith(REPORT, { include: ["D2", "D9"] });
+  });
+
+  it("forwards ?max as the track cap", async () => {
+    await get("acme/api", "&dims=D1,D2,D3&max=2");
+    expect(mockBuildSkill).toHaveBeenCalledWith(REPORT, { include: ["D1", "D2", "D3"], max: 2 });
+  });
+
+  it.each(["D0", "D10", "X1", "D2;drop", "../etc"])(
+    "rejects the unknown dimension id %s with 400 — never silently ignored",
+    async (bad) => {
+      const res = await get("acme/api", `&dims=D2,${encodeURIComponent(bad)}`);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toContain("Use D1..D9.");
+      // A rejected selection must not build, download, or RECORD anything.
+      expect(mockBuildSkill).not.toHaveBeenCalled();
+      expect(mockRecord).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects an empty ?dims (a selection was intended but nothing valid was named)", async () => {
+    const res = await get("acme/api", "&dims=");
+    expect(res.status).toBe(400);
+    expect(mockBuildSkill).not.toHaveBeenCalled();
+  });
+
+  it.each(["0", "10", "-1", "2.5", "abc", ""])("rejects an out-of-range/non-integer ?max=%s", async (bad) => {
+    const res = await get("acme/api", `&max=${encodeURIComponent(bad)}`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("Use an integer 1-9.");
+    expect(mockBuildSkill).not.toHaveBeenCalled();
+  });
+
+  it("validates the selection AFTER the repo param but BEFORE the gate and the report read", async () => {
+    const res = await get("acme/api", "&dims=D42");
+    expect(res.status).toBe(400);
+    expect(mockRequireOrgRead).not.toHaveBeenCalled();
+    expect(mockGetReport).not.toHaveBeenCalled();
+  });
+
+  it("records the CHOSEN track set in the history (skill.trackIds, not the rubric's weak set)", async () => {
+    mockBuildSkill.mockReturnValue({ ...SKILL, trackIds: ["D2"] });
+    await get("acme/api", "&dims=D2");
+    expect(mockRecord).toHaveBeenCalledWith("acme/api", null, ["D2"]);
   });
 });

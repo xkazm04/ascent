@@ -7,7 +7,7 @@
 // Everything the running agent needs is BAKED IN, because the scanned repo has no access to
 // Ascent's database. Pure string assembly (no LLM, no I/O) — deterministic and testable.
 
-import type { ScanReport } from "@/lib/types";
+import type { DimensionId, ScanReport } from "@/lib/types";
 import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { buildFoundation, type GeneratedFile } from "@/lib/standard";
 import { publicBaseUrl } from "@/lib/site";
@@ -30,17 +30,37 @@ export interface GeneratedSkill {
 
 const SKILL_NAME = "ascent-onboard";
 
+/** How many refinement tracks an already-strong repo is offered when it has no weak dimension. */
+const REFINEMENT_COUNT = 3;
+
+/** The lowest-scoring dimensions — the refinement targets for a repo with no dimension below the weak
+ *  threshold. Ties break on the dimension id so the offer (and its history record) is deterministic. */
+function refinementTargets(report: ScanReport, count: number): DimensionId[] {
+  return [...report.dimensions]
+    .sort((a, b) => a.score - b.score || a.id.localeCompare(b.id))
+    .slice(0, count)
+    .map((d) => d.id);
+}
+
 /** Build the onboarding skill for a report. `opts` forwards to track selection (e.g. an explicit
- *  maintainer multiselect); by default the weak dimensions are chosen automatically. */
+ *  maintainer multiselect); by default the weak dimensions are chosen automatically.
+ *
+ *  When the repo has NO weak dimension and the maintainer picked nothing, this no longer ships an
+ *  empty Tracks shell (a download with nothing to do in it) — it offers refinement tracks on the
+ *  lowest-scoring dimensions instead, which is exactly what `include` was built for. */
 export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts): GeneratedSkill {
-  const tracks = selectTracks(report, opts);
+  const selected = selectTracks(report, opts);
+  const isRefinement = selected.length === 0 && !opts?.include?.length;
+  const tracks = isRefinement
+    ? selectTracks(report, { include: refinementTargets(report, opts?.max ?? REFINEMENT_COUNT) })
+    : selected;
   const body = [
     frontmatter(report, tracks),
     mission(report),
     currentState(report, tracks),
     controlModel(),
     foundation(report),
-    tracksMenu(tracks),
+    tracksMenu(tracks, isRefinement),
     runProtocol(tracks),
     guardrails(),
     footer(report),
@@ -185,7 +205,7 @@ own legibility instead of decaying between scans.
 ${blocks}`;
 }
 
-function tracksMenu(tracks: OnboardingTrack[]): string {
+function tracksMenu(tracks: OnboardingTrack[], isRefinement = false): string {
   if (tracks.length === 0) {
     return `## Tracks
 
@@ -193,6 +213,23 @@ The scan found no open dimension below ${WEAK_THRESHOLD}/100 — this repo is al
 AI-native. Re-scan after any major change, or pass specific dimensions to revisit a refinement.`;
   }
   const blocks = tracks.map((t, i) => trackBlock(t, i + 1)).join("\n\n");
+  if (isRefinement) {
+    // The all-strong path. Same track machinery, different framing: nothing here is a gap, so the
+    // agent must be told to raise the bar rather than "fix" a finding — and to skip a track outright
+    // if the repo's existing mechanism already covers it.
+    return `## Tracks — refinement (no open gaps)
+
+The scan found no dimension below ${WEAK_THRESHOLD}/100: this repo is **already broadly AI-native**.
+So these are not gap-closing tracks — they are the ${tracks.length} lowest-scoring dimensions, offered as
+**refinements**: places where the practice exists but isn't yet load-bearing enough for an agent to
+lean on unsupervised. Raise the bar, don't re-lay the floor.
+
+Because there is no gap to confirm, the bar for acting is higher: **only take a refinement if you can
+name a concrete way the current mechanism would fail an agent.** If you can't, say so and skip it —
+adding ceremony to a working control is a regression, not progress.
+
+${blocks}`;
+  }
   return `## Tracks (highest leverage first)
 
 ${blocks}`;
