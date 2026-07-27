@@ -36,6 +36,53 @@ describe("commandsFor — language→commands map", () => {
       "Rust",
       { install: "cargo fetch", test: "cargo test", lint: "cargo clippy -- -D warnings", build: "cargo build --release", ci: "rust" },
     ],
+    // ── extended families: real commands, `ci: "generic"` (the exhaustive Record<ci,…> maps in
+    // standard/manifest.ts + onboarding/tracks.ts must stay unaffected), explicit `ciSetup`.
+    [
+      "ruby",
+      "Ruby",
+      { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby" },
+    ],
+    [
+      "php",
+      "PHP",
+      { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php" },
+    ],
+    [
+      "java",
+      "Java",
+      { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java" },
+    ],
+    [
+      "kotlin",
+      "Kotlin",
+      { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java" },
+    ],
+    [
+      "scala",
+      "Scala",
+      { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java" },
+    ],
+    [
+      "c#",
+      "C#",
+      { install: "dotnet restore", test: "dotnet test", lint: "dotnet format --verify-no-changes", build: "dotnet build -c Release", ci: "generic", ciSetup: "actions/setup-dotnet" },
+    ],
+    [
+      "swift",
+      "Swift",
+      { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift" },
+    ],
+    [
+      "dart",
+      "Dart",
+      { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart" },
+    ],
+    [
+      "elixir",
+      "Elixir",
+      { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam" },
+    ],
   ];
 
   const GENERIC: LangCommands = {
@@ -53,6 +100,28 @@ describe("commandsFor — language→commands map", () => {
   it("is case-insensitive on the language name", () => {
     expect(commandsFor("PYTHON")).toEqual(commandsFor("python"));
     expect(commandsFor("typescript")).toEqual(commandsFor("TypeScript"));
+    expect(commandsFor("RUBY")).toEqual(commandsFor("ruby"));
+  });
+
+  it("maps every alias onto its family's tuple (node family, C#)", () => {
+    for (const alias of ["JavaScript", "Node", "Node.js"]) {
+      expect(commandsFor(alias)).toEqual(commandsFor("TypeScript"));
+    }
+    expect(commandsFor("csharp")).toEqual(commandsFor("C#"));
+  });
+
+  it("every extended family carries a ciSetup action and keeps ci: 'generic'", () => {
+    // The pair is the whole contract: `ci` stays inside the five-value union the exhaustive
+    // Record<ci,…> maps key on, while ciSetup names the real Actions setup step for the workflow.
+    for (const lang of ["Ruby", "PHP", "Java", "Kotlin", "Scala", "C#", "Swift", "Dart", "Elixir"]) {
+      const c = commandsFor(lang);
+      expect(c.ci, lang).toBe("generic");
+      expect(c.ciSetup, lang).toMatch(/^[\w.-]+\/[\w.-]+$/);
+    }
+    // The original five derive their setup id from `ci` and must NEVER carry ciSetup.
+    for (const lang of ["TypeScript", "Python", "Go", "Rust", "Cobol", null]) {
+      expect(commandsFor(lang).ciSetup, String(lang)).toBeUndefined();
+    }
   });
 
   it.each([
@@ -81,23 +150,67 @@ describe("commandsFor — language→commands map", () => {
   });
 
   it("stability guard: dropping any language's commands fails this test", () => {
-    // Snapshot the full map so a regression that drops/alters a case is caught here.
-    expect({
-      typescript: commandsFor("TypeScript"),
-      javascript: commandsFor("JavaScript"),
-      python: commandsFor("Python"),
-      go: commandsFor("Go"),
-      rust: commandsFor("Rust"),
-      fallback: commandsFor(null),
-    }).toEqual({
+    // Snapshot the FULL map (14 language families + the fallback = 15 tuples) so a regression that
+    // drops/alters a case is caught here — the header claim that this file pins the single source of
+    // truth only holds if every branch is present.
+    const actual = Object.fromEntries(
+      [...cases.map(([label, input]) => [label, commandsFor(input)] as const), ["fallback", commandsFor(null)] as const],
+    );
+    expect(Object.keys(actual)).toHaveLength(15);
+    expect(actual).toEqual({
       typescript: { install: "npm ci", test: "npm test", lint: "npm run lint", build: "npm run build", ci: "node" },
       javascript: { install: "npm ci", test: "npm test", lint: "npm run lint", build: "npm run build", ci: "node" },
       python: { install: "pip install -e .[dev]", test: "pytest", lint: "ruff check .", build: "python -m build", ci: "python" },
       go: { install: "go mod download", test: "go test ./...", lint: "golangci-lint run", build: "go build ./...", ci: "go" },
       rust: { install: "cargo fetch", test: "cargo test", lint: "cargo clippy -- -D warnings", build: "cargo build --release", ci: "rust" },
+      ruby: { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby" },
+      php: { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php" },
+      java: { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java" },
+      kotlin: { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java" },
+      scala: { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java" },
+      "c#": { install: "dotnet restore", test: "dotnet test", lint: "dotnet format --verify-no-changes", build: "dotnet build -c Release", ci: "generic", ciSetup: "actions/setup-dotnet" },
+      swift: { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift" },
+      dart: { install: "dart pub get", test: "dart test", lint: "dart analyze", build: "dart compile exe", ci: "generic", ciSetup: "dart-lang/setup-dart" },
+      elixir: { install: "mix deps.get", test: "mix test", lint: "mix credo --strict", build: "mix compile --warnings-as-errors", ci: "generic", ciSetup: "erlef/setup-beam" },
       fallback: GENERIC,
     });
   });
+});
+
+// A repo in an EXTENDED family used to get real commands under "# TODO: add the language setup step
+// for this repo" — a workflow that lints/tests with a toolchain the runner never installed, i.e. a
+// guaranteed-red PR. ciWorkflow now emits the family's `ciSetup` action.
+describe("buildArtifact ci-gates — extended families emit a RUNNABLE setup step", () => {
+  it("Ruby: full workflow has a pinned setup-ruby step and no TODO placeholder", () => {
+    const a = buildArtifact("ci-gates", { ...ctx, primaryLanguage: "Ruby" })!;
+    expect(a.path).toBe(".github/workflows/ci.yml");
+    expect(a.body).toContain("      - uses: ruby/setup-ruby@v1\n        with:\n          ruby-version: '3.3'\n          bundler-cache: true\n");
+    expect(a.body).not.toContain("# TODO: add the language setup step");
+    expect(a.body).not.toContain("setup-node");
+    // The step sits between checkout and the commands, in a single well-formed steps: sequence.
+    expect(a.body.indexOf("actions/checkout")).toBeLessThan(a.body.indexOf("ruby/setup-ruby"));
+    expect(a.body.indexOf("ruby/setup-ruby")).toBeLessThan(a.body.indexOf("- run: bundle install"));
+    expect(a.body).toContain("- run: bundle exec rspec");
+  });
+
+  it("Java: setup-java carries the `distribution` input the action REQUIRES to run", () => {
+    const a = buildArtifact("ci-gates", { ...ctx, primaryLanguage: "Java" })!;
+    expect(a.body).toContain("- uses: actions/setup-java@v4");
+    expect(a.body).toContain("distribution: temurin");
+    expect(a.body).not.toContain("# TODO: add the language setup step");
+    expect(a.body).toContain("- run: mvn -B test");
+  });
+
+  it.each(["Ruby", "PHP", "Java", "Kotlin", "Scala", "C#", "Swift", "Dart", "Elixir"])(
+    "%s emits a version-pinned uses: step (never a floating ref) and never a TODO",
+    (lang) => {
+      const a = buildArtifact("ci-gates", { ...ctx, primaryLanguage: lang })!;
+      const setup = commandsFor(lang).ciSetup!;
+      expect(a.body).toMatch(new RegExp(`- uses: ${setup.replace(/[/.]/g, "\\$&")}@v\\d+`));
+      expect(a.body).not.toContain("# TODO: add the language setup step");
+      expect(a.body).not.toContain("<run tests>");
+    },
+  );
 });
 
 describe("buildArtifact ci-gates — unknown language never inherits a node toolchain", () => {

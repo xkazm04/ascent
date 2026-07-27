@@ -187,7 +187,37 @@ function safeText(s: string): string {
 
 const TODO = "<!-- TODO: fill in for this repo -->";
 
+/**
+ * The runnable GitHub Actions step for each EXTENDED family's `ciSetup` action: the pinned ref plus
+ * the `with:` inputs that action REQUIRES to run at all (setup-java without `distribution` and
+ * erlef/setup-beam without its versions fail on the first tick). Kept local to the workflow writer —
+ * `ciSetup` stays a bare action NAME on LangCommands because src/lib/onboarding/stack.ts renders it
+ * as a prose hint, and widening that value would change the onboarding track copy.
+ *
+ * Version pinning follows the convention already used above for the five `ci` families: the action's
+ * major tag (`@v4`, `@v5`), never a floating branch.
+ */
+const CI_SETUP_STEPS: Record<string, { ref: string; with?: [string, string][] }> = {
+  "ruby/setup-ruby": { ref: "v1", with: [["ruby-version", "'3.3'"], ["bundler-cache", "true"]] },
+  "shivammathur/setup-php": { ref: "v2", with: [["php-version", "'8.3'"]] },
+  "actions/setup-java": { ref: "v4", with: [["distribution", "temurin"], ["java-version", "'21'"]] },
+  "actions/setup-dotnet": { ref: "v4", with: [["dotnet-version", "'8.0.x'"]] },
+  "swift-actions/setup-swift": { ref: "v2", with: [["swift-version", "'5.10'"]] },
+  "dart-lang/setup-dart": { ref: "v1" },
+  "erlef/setup-beam": { ref: "v1", with: [["otp-version", "'27'"], ["elixir-version", "'1.17'"]] },
+};
+
+/** Render the `- uses:` setup step for an extended family's `ciSetup` action (indented for `steps:`). */
+function ciSetupStep(action: string): string {
+  const spec = CI_SETUP_STEPS[action] ?? { ref: "v1" };
+  const inputs = (spec.with ?? []).map(([k, v]) => `          ${k}: ${v}\n`).join("");
+  return `      - uses: ${action}@${spec.ref}\n${inputs ? `        with:\n${inputs}` : ""}`;
+}
+
 function ciWorkflow(ctx: RepoContext, cmd: LangCommands): string {
+  // The extended families carry `ciSetup` (and keep `ci: "generic"`), so the ciSetup branch must be
+  // consulted BEFORE the generic fallback — otherwise a Ruby/Java/… repo gets real commands under a
+  // "# TODO: add the language setup step" placeholder, i.e. a workflow that cannot run.
   const setup =
     cmd.ci === "node"
       ? "      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n"
@@ -197,7 +227,9 @@ function ciWorkflow(ctx: RepoContext, cmd: LangCommands): string {
           ? "      - uses: actions/setup-go@v5\n        with:\n          go-version: '1.22'\n"
           : cmd.ci === "rust"
             ? "      - uses: dtolnay/rust-toolchain@stable\n"
-            : "      # TODO: add the language setup step for this repo\n";
+            : cmd.ciSetup
+              ? ciSetupStep(cmd.ciSetup)
+              : "      # TODO: add the language setup step for this repo\n";
   return `# Continuous integration — gate every PR on lint + tests so AI-generated changes are safe to merge.
 name: CI
 on:
