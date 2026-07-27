@@ -23,3 +23,7 @@ Brief: docs/VALUE-CASE.md. Verified in code first (engine.ts guardband + D9-dete
 - **D30 GH-native bias = VALIDATE NOW, BROADEN NEXT**: re-scan the biased cohort (golang etc.) to prove the P0 floor-fix landed before any external claim; then reduce GitHub-native signal weighting. Scope external claims to GH-Actions shops until validated.
 - **D31 Buyer = PLATFORM / ENG-EFFECTIVENESS LEADER**: internal buyer improving how their org works; briefing = leadership dashboard + gate; move pricing toward team/seat (away from $10 self-serve).
 - D32 (principle, applied): no hash-synthesized/unvalidated number in a customer-facing headline without a real-data path + visible fidelity marker → elevates backlog 12-14.
+
+## CP2 — M12 pick (2026-07-27) — USER PRESENT
+- Collision resolved by the user: other terminals stopped, everything merged to master; loop owns master.
+- M12 = **A. Invariant repair**: 44 (300-LOC re-extraction), 20 residual (context-map re-sweep), 19 (tour OnboardingChecklist rename). B/C/D remain queued; pricing (34/38) still its own future checkpoint.

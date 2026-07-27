@@ -51,16 +51,21 @@ DONE: 1-10,12,13,14,18,24,37,40 · 28-32 decided (M1). CUT: 15. PARTIAL: 20,22,2
 - **Gate re-certified on the INTEGRATED tree** (sequential, per the addendum): lint ✓ 0 errors · vitest ✓ 4240/4240 · tsc ✓ 0 · build ✓. `report-document.test.ts` times out under full-suite load and passes 22/22 alone — pre-existing flake, new item 45.
 - Lesson worth keeping: tsc + 4240 unit tests were ALL GREEN while `npm run build` could not resolve dns/fs/net/tls — a client component had imported a runtime `@/lib/db` symbol. Only the build catches the client/server boundary; it belongs in the gate, not after it.
 
-## NEXT ACTION — CP2 (awaiting user; loop READY to resume)
-M12 candidates by severity under continuous cadence:
-- **A. Invariant repair (44 + 20 residual + 19)** — 300-LOC re-extraction ×3, context-map re-sweep, OnboardingChecklist rename. Mechanical, no product calls. (recommended default)
-- **B. Two-tier execution (33 + 35 + 17)** — the decided-but-unshipped D28/D29 copy: "AI-native Scorecard"/"readiness briefing" labels + "AI estimate — may vary" disclaimer + gate-default surfacing. Product-visible copy; user may want wording review.
+## M12 "invariant repair" ☑ COMPLETE (2026-07-27, CP2 user pick = A)
+- 19 ☑ (009b514 TourChecklist rename) · 44 ☑ (bc77e50, 7 parallel extractions, ZERO .tsx >300) · 20 ☑ (64a1212, full context-map reconciliation: 548 attached / 93 ghosts fixed / 4 new contexts, drift 0/0).
+- GATE GREEN (sequential): lint ✓ 0 err (27 warn) · vitest ✓ 4240/4240 (item-45 flake passed this run) · build ✓ · tsc ✓ 0. Three atomic commits, tree clean.
+
+## NEXT ACTION — CP3 (awaiting user)
+M13 candidates by severity under continuous cadence:
+- **B. Two-tier execution (33 + 35 + 17)** — the decided-but-unshipped D28/D29 copy: "AI-native Scorecard"/"readiness briefing" labels + "AI estimate — may vary" disclaimer + gate-default surfacing. Product-visible copy; user may want wording review. (recommended — last decided-but-unexecuted strategy work)
 - **C. e2e in CI (11)** — wire mock-LLM Playwright into ci.yml.
 - **D. Sec hardening (26 + 27)** — prod hard-off for the dev ingest secret; untrusted-data delimiters in the scoring prompt.
-- Pricing/packaging (34/38) still needs its own user checkpoint. Commit of the 2-file M11 delta (eslint.config.mjs + BadgeGenerator.tsx) also awaits the user — separable from the WIP soup on request.
+- **E. Func/debt (16 logs-stub, 39 verdict taxonomy, 21 barrel splits)** · flakes (43 auth.test, 45 report-document.test).
+- Pricing/packaging (34/38) still needs its own user checkpoint.
 
 ## Checkpoint history
 - CP0 (2026-07-05): ship bar="just keep improving"; cadence=continuous; allowance=5/mo; M1=strategy-first.
 - CP1 (2026-07-05): M1 strategy decisions D28-D32 (see decisions.md). → M2 = green the gate.
 - M2 (2026-07-05): gate GREEN. → M3 = AI-delivery synthetic-$ disclosure (continuous; no checkpoint).
 - CP2 (2026-07-27): pending — M12 pick (A/B/C/D above).
+- CP3 (2026-07-27): pending — M13 pick (B/C/D/E above).
