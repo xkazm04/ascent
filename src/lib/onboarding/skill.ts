@@ -208,12 +208,22 @@ function trackBlock(t: OnboardingTrack, n: number): string {
   const explore = t.explore.length
     ? `\n- **Questions to explore (inputs, not directives):**\n${t.explore.map((q) => `  - ${q}`).join("\n")}`
     : "";
+  // The rationale says why it matters; the evidence says what the scan actually SAW. Nesting the
+  // observations under "Why" gives the agent something specific to re-confirm against the live code.
+  const evidence = t.evidence.length
+    ? `\n  - _What the scan observed:_\n${t.evidence.map((e) => `    - ${e}`).join("\n")}`
+    : "";
+  // Stack-specific lines (detected frameworks/roles) — absent entirely when nothing was detected, so
+  // a report without techStack renders exactly the pre-stack track.
+  const stack = t.stackNotes.length
+    ? `\n- **Tuned to this stack${t.stackLabel ? ` (${t.stackLabel})` : ""}:**\n${t.stackNotes.map((s) => `  - ${s}`).join("\n")}`
+    : "";
   return `### ${n}. ${t.title} — ${t.dimId} ${t.dimName} (now ${t.score}/100)
 
 > **Unlocks:** ${t.autonomyUnlock}
 
-- **Why (from the scan):** ${t.why}
-- **Impact / effort:** ${t.impact} / ${t.effort}${unlock}
+- **Why (from the scan):** ${t.why}${evidence}
+- **Impact / effort:** ${t.impact} / ${t.effort}${unlock}${stack}
 - **Scan-found gaps:**
 ${gaps}
 - **Deliverable anchor:** \`${t.deliverable.path}\` — ${t.deliverable.summary}

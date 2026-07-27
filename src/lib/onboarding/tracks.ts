@@ -14,9 +14,17 @@
 
 import type { DimensionId, Effort, Impact, ScanReport } from "@/lib/types";
 import { PRACTICES, type PracticeDef } from "@/lib/practices";
-import { commandsFor, type LangCommands } from "@/lib/practice-artifact";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { IMPACT_RANK } from "@/lib/scoring/impact";
+import {
+  ciSetupHint,
+  coverageHint,
+  frameworkBuildHint,
+  resolveStack,
+  stackLabel,
+  stackNotesFor,
+  type StackContext,
+} from "./stack";
 
 /** Where a control is primarily enforced. */
 export type ControlLayer = "pre-push" | "ci-hard-pass" | "both";
@@ -50,8 +58,15 @@ export interface OnboardingTrack {
   autonomyUnlock: string;
   /** Why this gap matters — from the scan's roadmap rationale when present, else dimension gaps. */
   why: string;
+  /** What the scan actually SAW for this dimension (DimensionResult.evidence) — the observable basis
+   *  under `why`, so the agent re-confirms against a specific finding instead of a rationale. */
+  evidence: string[];
   /** Concrete gaps the scan found for this dimension. */
   gaps: string[];
+  /** Stack-specific lines for this dimension (detected frameworks/roles). Empty when no stack matched. */
+  stackNotes: string[];
+  /** "TypeScript · Next.js · React" — the detected stack these notes came from, or null. */
+  stackLabel: string | null;
   /** The concrete control to create/extend (path + one-line purpose). */
   deliverable: { path: string; summary: string };
   primaryLayer: ControlLayer;
@@ -294,51 +309,31 @@ function leverage(t: OnboardingTrack): number {
   return (IMPACT_RANK[t.impact] ?? 0) * 2 + EFFORT_RANK[t.effort];
 }
 
-type CiKind = LangCommands["ci"];
-
-// Coverage commands aren't in commandsFor (which is generic build/test), so map them here, keyed by
-// the same CI-family discriminant commandsFor returns.
-// No markdown backticks here: skill.ts already renders the whole deliverable path as one code span,
-// so inner backticks would create broken nested spans.
-const COVERAGE: Record<CiKind, string> = {
-  node: "vitest --coverage thresholds in vitest.config (or jest coverageThreshold)",
-  python: "pytest --cov with --cov-fail-under in pyproject.toml",
-  go: "go test -coverprofile + a coverage-threshold check",
-  rust: "cargo llvm-cov (or tarpaulin) with a min-coverage threshold",
-  generic: "a coverage threshold for your test runner",
-};
-
-const CI_SETUP: Record<CiKind, string> = {
-  node: "setup-node",
-  python: "setup-python",
-  go: "setup-go",
-  rust: "rust-toolchain",
-  generic: "the language setup step",
-};
-
 /**
- * Language-aware deliverable for the dimensions whose concrete control depends on the stack — D2
+ * Stack-aware deliverable for the dimensions whose concrete control depends on the stack — D2
  * (coverage runner) and D3 (CI setup + commands). Returns null to fall back to the static,
  * language-agnostic control when the stack is unknown (so we don't emit `<run tests>` placeholders).
+ *
+ * Specialization is FRAMEWORK-first (see stack.ts): a Next.js repo gets `next build` appended to its
+ * CI recipe and an app-router coverage recipe, where an Express repo on the same language does not.
  */
-function langDeliverable(
-  dimId: DimensionId,
-  language?: string | null,
-): { path: string; summary: string } | null {
+function stackDeliverable(dimId: DimensionId, stack: StackContext): { path: string; summary: string } | null {
   if (dimId !== "D2" && dimId !== "D3") return null;
-  const cmd = commandsFor(language);
-  if (cmd.ci === "generic") return null; // unknown stack → keep the nicer generic static text
-  // Only the `path` is language-aware; the `summary` is the same promise as the static control, so
-  // pull it from the source of truth (CONTROL) rather than re-stating the literal — editing the D2/D3
-  // summary in CONTROL now flows into the language-aware path too, which is the common case.
+  if (!stack.concrete) return null; // unknown stack → keep the nicer generic static text
+  // Only the `path` is stack-aware; the `summary` is the same promise as the static control, so pull it
+  // from the source of truth (CONTROL) rather than re-stating the literal — editing the D2/D3 summary
+  // in CONTROL now flows into the stack-aware path too, which is the common case.
   if (dimId === "D2") {
     return {
-      path: `${COVERAGE[cmd.ci]} + a coverage step in your existing hook, with a CI floor`,
+      path: `${coverageHint(stack)} + a coverage step in your existing hook, with a CI floor`,
       summary: CONTROL.D2.deliverable.summary,
     };
   }
+  const cmd = stack.commands;
+  const fwBuild = frameworkBuildHint(stack);
+  const steps = [ciSetupHint(stack), cmd.install, cmd.lint, cmd.test, ...(fwBuild ? [fwBuild] : [])].join(" → ");
   return {
-    path: `.github/workflows/ci.yml (${CI_SETUP[cmd.ci]} → ${cmd.install} → ${cmd.lint} → ${cmd.test}) gated on merge + the same checks pre-push`,
+    path: `.github/workflows/ci.yml (${steps}) gated on merge + the same checks pre-push`,
     summary: CONTROL.D3.deliverable.summary,
   };
 }
@@ -362,6 +357,11 @@ export function selectTracks(report: ScanReport, opts: SelectOpts = {}): Onboard
     ? opts.include.filter((id) => byId.has(id))
     : report.dimensions.filter((d) => d.score < WEAK_THRESHOLD).map((d) => d.id);
 
+  // Resolved ONCE per report (not per track) so every track speaks about the same detected stack.
+  // Degrades to the language-only path when `report.techStack` is absent (older persisted rows).
+  const stack = resolveStack(report);
+  const label = stackLabel(stack);
+
   const tracks: OnboardingTrack[] = [];
   for (const id of ids) {
     const dim = byId.get(id);
@@ -378,8 +378,11 @@ export function selectTracks(report: ScanReport, opts: SelectOpts = {}): Onboard
       score: dim.score,
       autonomyUnlock: control.autonomyUnlock,
       why: rec?.rationale?.trim() || dim.summary?.trim() || practice.what,
+      evidence: (dim.evidence ?? []).filter((e) => typeof e === "string" && e.trim()).slice(0, 4),
       gaps: dim.gaps ?? [],
-      deliverable: langDeliverable(id, report.repo.primaryLanguage) ?? control.deliverable,
+      stackNotes: stackNotesFor(id, stack),
+      stackLabel: label,
+      deliverable: stackDeliverable(id, stack) ?? control.deliverable,
       primaryLayer: control.primaryLayer,
       prePushChecklist: control.prePushChecklist,
       ciHardPasses: control.ciHardPasses,

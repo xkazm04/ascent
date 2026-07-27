@@ -42,14 +42,31 @@ export interface LangCommands {
   build: string;
   /** GitHub Actions setup step language id. */
   ci: "node" | "python" | "go" | "rust" | "generic";
+  /**
+   * GitHub Actions setup ACTION for languages outside the five `ci` families (e.g. "ruby/setup-ruby").
+   * Additive and optional on purpose: the `ci` union is the discriminant of exhaustive `Record<...>`
+   * maps in standard/manifest.ts and onboarding/tracks.ts, so widening it would be a breaking change.
+   * The extended languages therefore keep `ci: "generic"` (nothing downstream mis-fires) while still
+   * carrying REAL commands, and this field names the setup step for a generated CI recipe.
+   * Never set for the original five — their setup id is derived from `ci`.
+   */
+  ciSetup?: string;
 }
 
 /** Map a repo's primary language to its canonical install/test/lint/build commands + CI setup id.
- *  The single source of truth for language→commands; reused by the onboarding-skill generator. */
+ *  The single source of truth for language→commands; reused by the onboarding-skill generator.
+ *
+ *  The first five families own a `ci` id (a real GitHub Actions setup family). The languages below
+ *  them were added so a Ruby/PHP/JVM/… repo stops receiving the `<run tests>` PLACEHOLDERS — those
+ *  placeholders travel into generated manifests and then make the generated doctor warn on every run,
+ *  which is a guaranteed-warn artifact for any repo outside the original five. They intentionally
+ *  keep `ci: "generic"` (see `ciSetup` above) so the exhaustive maps keyed on `ci` are unaffected. */
 export function commandsFor(language?: string | null): LangCommands {
   switch ((language ?? "").toLowerCase()) {
     case "typescript":
     case "javascript":
+    case "node":
+    case "node.js":
       return { install: "npm ci", test: "npm test", lint: "npm run lint", build: "npm run build", ci: "node" };
     case "python":
       return { install: "pip install -e .[dev]", test: "pytest", lint: "ruff check .", build: "python -m build", ci: "python" };
@@ -57,9 +74,98 @@ export function commandsFor(language?: string | null): LangCommands {
       return { install: "go mod download", test: "go test ./...", lint: "golangci-lint run", build: "go build ./...", ci: "go" };
     case "rust":
       return { install: "cargo fetch", test: "cargo test", lint: "cargo clippy -- -D warnings", build: "cargo build --release", ci: "rust" };
+    // ── extended families: real commands, generic `ci`, explicit `ciSetup` ────────────────────────
+    case "ruby":
+      return {
+        install: "bundle install",
+        test: "bundle exec rspec",
+        lint: "bundle exec rubocop",
+        build: "bundle exec rake build",
+        ci: "generic",
+        ciSetup: "ruby/setup-ruby",
+      };
+    case "php":
+      return {
+        install: "composer install",
+        test: "vendor/bin/phpunit",
+        lint: "vendor/bin/php-cs-fixer fix --dry-run",
+        build: "composer dump-autoload -o",
+        ci: "generic",
+        ciSetup: "shivammathur/setup-php",
+      };
+    case "java":
+      return {
+        install: "mvn -B dependency:go-offline",
+        test: "mvn -B test",
+        lint: "mvn -B checkstyle:check",
+        build: "mvn -B package",
+        ci: "generic",
+        ciSetup: "actions/setup-java",
+      };
+    case "kotlin":
+      return {
+        install: "./gradlew dependencies",
+        test: "./gradlew test",
+        lint: "./gradlew ktlintCheck",
+        build: "./gradlew build",
+        ci: "generic",
+        ciSetup: "actions/setup-java",
+      };
+    case "scala":
+      return {
+        install: "sbt update",
+        test: "sbt test",
+        lint: "sbt scalafmtCheckAll",
+        build: "sbt package",
+        ci: "generic",
+        ciSetup: "actions/setup-java",
+      };
+    case "c#":
+    case "csharp":
+      return {
+        install: "dotnet restore",
+        test: "dotnet test",
+        lint: "dotnet format --verify-no-changes",
+        build: "dotnet build -c Release",
+        ci: "generic",
+        ciSetup: "actions/setup-dotnet",
+      };
+    case "swift":
+      return {
+        install: "swift package resolve",
+        test: "swift test",
+        lint: "swiftlint",
+        build: "swift build -c release",
+        ci: "generic",
+        ciSetup: "swift-actions/setup-swift",
+      };
+    case "dart":
+      return {
+        install: "dart pub get",
+        test: "dart test",
+        lint: "dart analyze",
+        build: "dart compile exe",
+        ci: "generic",
+        ciSetup: "dart-lang/setup-dart",
+      };
+    case "elixir":
+      return {
+        install: "mix deps.get",
+        test: "mix test",
+        lint: "mix credo --strict",
+        build: "mix compile --warnings-as-errors",
+        ci: "generic",
+        ciSetup: "erlef/setup-beam",
+      };
     default:
       return { install: "<install deps>", test: "<run tests>", lint: "<run linter>", build: "<build>", ci: "generic" };
   }
+}
+
+/** True when `commandsFor` resolved REAL commands (not the `<…>` placeholder tuple). The placeholder
+ *  test command is the cheapest, stable discriminant — every placeholder field is `<…>`-wrapped. */
+export function hasConcreteCommands(cmd: LangCommands): boolean {
+  return !cmd.test.startsWith("<");
 }
 
 /** Checklist bullets from the practice's reusable shape. */

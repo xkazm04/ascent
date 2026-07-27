@@ -270,7 +270,9 @@
             "src/lib/onboarding/skill.ts",
             "src/lib/onboarding/skill.test.ts",
             "src/lib/onboarding/tracks.ts",
+            "src/lib/onboarding/stack.ts",
             "src/app/api/report/skill/route.ts",
+            "src/app/api/report/skill/route.test.ts",
             "src/lib/db/skill-history.ts",
             "src/app/api/report/conformance/route.ts"
           ],
