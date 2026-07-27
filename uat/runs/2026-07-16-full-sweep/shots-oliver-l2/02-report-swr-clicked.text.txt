@@ -1,0 +1,37 @@
+Skip to content
+ASCENT
+LEADERBOARD
+PRICING
+ABOUT
+vercel
+→
+developer
+Sign out
+
+vercel/swr
+
+Reading repository metadata…
+
+0:01
+·
+1%
+
+Reading repository metadata…
+Reading file tree & history
+Reading key files
+Analyzing 9 dimensions
+Scoring against the rubric
+Composing your report
+
+A live AI scan reads the repo and scores 9 dimensions — this usually takes a few minutes. You can leave this tab open.
+
+ASCENT
+
+THE MATURITY INDEX FOR AI-NATIVE ENGINEERING
+
+LEADERBOARD
+BADGE
+CONNECT
+USAGE
+
+Built on Vercel + Aurora DSQL · #H0Hackathon

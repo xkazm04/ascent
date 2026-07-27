@@ -1,0 +1,159 @@
+Skip to content
+ASCENT
+vercel
+L4 · 72
+OWNER
+🔔
+Alerts
+0
+credits
+Scan all watched (6)
+developer
+Sign out
+OVERVIEW
+23
+FLEET
+, 23 awaiting a decision
+33
+INTEL
+, 33 awaiting a decision
+17
+PLAN
+, 17 awaiting a decision
+LIBRARY
+GOVERN
+(contains the current page)
+GOVERN
+Members
+Governance
+Integrations
+Audit
+Settings
+Governance
+
+One maturity gate, applied as policy-as-code to every repo in the fleet. See who clears the bar, where the rest fall short, and copy the snippet that enforces the exact same gate in CI.
+
+⧉
+Copy governance brief for LLM
+GATE PASS RATE
+50%
+3/6 repos
+PASSING
+3
+clear the gate
+FAILING
+3
+below the bar
+REPOS SCANNED
+6
+in the fleet
+Active policy
+
+The bar every repo is held to — change it once, enforce it everywhere.
+
+▸
+Minimum overall level L3
+▸
+Every dimension ≥ 40
+▸
+No "ungoverned" posture
+EDIT POLICY
+Minimum level
+any
+L1
+L2
+L3
+L4
+L5
+Min overall
+Min per-dimension
+Security floor (D9 ≥)
+Forbid "ungoverned" posture
+Require a protected default branch
+Save policy
+Reset to default
+Where the fleet fails
+
+Repos failing each gate condition (counted once per repo).
+
+Below required level
+0 repos
+A dimension below floor
+3 repos
+Ungoverned posture
+0 repos
+Below overall score
+0 repos
+Unprotected default branch
+0 repos
+Failing repos
+
+Worst first — the specific conditions each repo misses.
+
+vercel/v0-sdk
+L3 · overall 50
+✕
+D1 AI Tooling & Conventions scored 0, below the required 40.
+✕
+D4 Agentic Workflows scored 15, below the required 40.
+✕
+D8 AI Process & Harness scored 28, below the required 40.
+vercel/next.js
+L4 · overall 68
+✕
+D4 Agentic Workflows scored 15, below the required 40.
+vercel/ai
+L4 · overall 80
+✕
+D4 Agentic Workflows scored 35, below the required 40.
+Cheapest path to green
+
+Failing repos closest to passing — fewest conditions and smallest gap first. Apply the linked practice to clear each dimension.
+
+vercel/ai
+1 condition · +5 pts to clear
+D4 Agentic Workflows: 35→40 (+5) →
+vercel/next.js
+1 condition · +25 pts to clear
+D4 Agentic Workflows: 15→40 (+25) →
+vercel/v0-sdk
+3 conditions · +77 pts to clear
+D8 AI Process & Harness: 28→40 (+12) →
+D4 Agentic Workflows: 15→40 (+25) →
+D1 AI Tooling & Conventions: 0→40 (+40) →
+Enforce in CI
+
+The dashboard gate and your pipeline run the identical policy — no drift.
+
+⧉
+Copy CI snippet
+GATE API
+GET <ASCENT_URL>/api/gate/<owner>/<repo>?min_level=L3&min_dimension=40&no_ungoverned=1
+# 200 = pass · 422 = fail (curl --fail exits non-zero)
+GITHUB ACTION
+- uses: <owner>/ascent@v1
+  with:
+    ascent-url: ${{ vars.ASCENT_URL }}
+    min-level: L3
+    min-dimension: '40'
+    no-ungoverned: 'true'
+◂
+GUIDED SETUP
+GUIDED SETUP
+Learn this dashboard
+1/6
+▸
+SET THE SCOPE
+Set your scan scope
+Choose what’s in scope
+READ THE RESULTS
+Read the fleet
+Scope what you read
+EXPLORE MODULES
+Each module is a lens
+Open a module
+
+Every dashboard starts with a scan. “Scan all watched” runs the whole fleet; the scope controls that decide what gets scored live sit right here.
+
+Back
+Next step

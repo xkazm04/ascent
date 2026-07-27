@@ -1,0 +1,78 @@
+Skip to content
+ASCENT
+vercel
+L4 · 72
+OWNER
+🔔
+Alerts
+0
+credits
+Scan all watched (6)
+developer
+Sign out
+OVERVIEW
+23
+FLEET
+, 23 awaiting a decision
+33
+INTEL
+, 33 awaiting a decision
+17
+PLAN
+, 17 awaiting a decision
+LIBRARY
+(contains the current page)
+GOVERN
+LIBRARY
+Skills
+Memory
+Skills Library
+
+Your org's reusable Claude/LLM skills — author once, the whole team discovers and reuses them. Copy a skill into Claude Code, or download it as a SKILL.md.
+
+All categories
+CI / CD
+Testing
+Security
+AI-Native
+Docs
+Workflow
+Other
+Recently updated
+Most used
+Name (A–Z)
+
+No skills yet — author your org's first reusable skill below.
+
+Authoring the Skills Library is a Team-plan feature. Members can browse, copy and download existing skills.
+
+API tokens
+
+Give a repo, the sync CLI, or CI machine access to this library — no browser session needed. A token is shown once; store it as ASCENT_TOKEN.
+
+No tokens yet — mint one below to connect a repo or CI.
+
+Create token
+Read / download skills
+Register / update skills
+Report usage
+◂
+GUIDED SETUP
+GUIDED SETUP
+Learn this dashboard
+1/6
+▸
+SET THE SCOPE
+Set your scan scope
+Choose what’s in scope
+READ THE RESULTS
+Read the fleet
+Scope what you read
+EXPLORE MODULES
+Each module is a lens
+Open a module
+
+Every dashboard starts with a scan. “Scan all watched” runs the whole fleet; the scope controls that decide what gets scored live sit right here.
+
+Back
+Next step

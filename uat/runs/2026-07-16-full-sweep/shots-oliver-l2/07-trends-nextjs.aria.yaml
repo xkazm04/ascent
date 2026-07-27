@@ -1,0 +1,139 @@
+- link "Skip to content":
+  - /url: "#main"
+- banner:
+  - link "Ascent":
+    - /url: /
+  - navigation:
+    - link "Leaderboard":
+      - /url: /leaderboard
+    - link "Pricing":
+      - /url: /pricing
+    - link "About":
+      - /url: /about
+    - link "vercel":
+      - /url: /org/vercel
+    - text: developer
+    - button "Sign out":
+      - text: Sign out
+      - status
+- main:
+  - text: Maturity trends
+  - heading "vercel/next.js" [level=1]
+  - text: L4 — Integrated
+  - link "Full report →":
+    - /url: /report?repo=vercel%2Fnext.js
+  - link "Export CSV ↓":
+    - /url: /api/history?repo=vercel%2Fnext.js&format=csv
+  - paragraph: Only a baseline scan so far — the trend lines fill in after the next scan.
+  - text: 1 scan shown
+  - button "5d"
+  - button "30d"
+  - button "90d"
+  - button "All" [pressed]
+  - heading "Overall maturity" [level=2]
+  - img "Overall score over time": L5 L4 L3 L2 L1 0 25 45 65 85 100 Jul 16 68
+  - table "Overall maturity score over time":
+    - caption: Overall maturity score over time
+    - rowgroup:
+      - row "Scan date Score Level Report":
+        - columnheader "Scan date"
+        - columnheader "Score"
+        - columnheader "Level"
+        - columnheader "Report"
+    - rowgroup:
+      - row "Jul 16 68 L4 Integrated Open this scan's report · GitHub commit":
+        - cell "Jul 16"
+        - cell "68"
+        - cell "L4 Integrated"
+        - cell "Open this scan's report · GitHub commit":
+          - link "Open this scan's report":
+            - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+          - text: ·
+          - link "GitHub commit":
+            - /url: https://github.com/vercel/next.js/commit/153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - heading "By dimension" [level=2]
+  - text: 1 scans D1
+  - heading "AI Tooling & Conventions" [level=3]
+  - text: "65"
+  - img "AI Tooling & Conventions score trend, currently 65 of 100": "65"
+  - list:
+    - listitem:
+      - link "AI Tooling & Conventions 65 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: D2
+  - heading "Automated Testing" [level=3]
+  - text: "100"
+  - img "Automated Testing score trend, currently 100 of 100": "65"
+  - list:
+    - listitem:
+      - link "Automated Testing 100 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: D3
+  - heading "CI/CD & Delivery" [level=3]
+  - text: "83"
+  - img "CI/CD & Delivery score trend, currently 83 of 100": "65"
+  - list:
+    - listitem:
+      - link "CI/CD & Delivery 83 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: D4
+  - heading "Agentic Workflows" [level=3]
+  - text: "15"
+  - img "Agentic Workflows score trend, currently 15 of 100": "65"
+  - list:
+    - listitem:
+      - link "Agentic Workflows 15 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: D5
+  - heading "Documentation & Knowledge" [level=3]
+  - text: "65"
+  - img "Documentation & Knowledge score trend, currently 65 of 100": "65"
+  - list:
+    - listitem:
+      - link "Documentation & Knowledge 65 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: D6
+  - heading "Code Quality & Guardrails" [level=3]
+  - text: "94"
+  - img "Code Quality & Guardrails score trend, currently 94 of 100": "65"
+  - list:
+    - listitem:
+      - link "Code Quality & Guardrails 94 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: D7
+  - heading "Commit & Velocity Signals" [level=3]
+  - text: "45"
+  - img "Commit & Velocity Signals score trend, currently 45 of 100": "65"
+  - list:
+    - listitem:
+      - link "Commit & Velocity Signals 45 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: D8
+  - heading "AI Process & Harness" [level=3]
+  - text: "91"
+  - img "AI Process & Harness score trend, currently 91 of 100": "65"
+  - list:
+    - listitem:
+      - link "AI Process & Harness 91 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+  - text: D9
+  - heading "Supply Chain & Security" [level=3]
+  - text: "40"
+  - img "Supply Chain & Security score trend, currently 40 of 100": "65"
+  - list:
+    - listitem:
+      - link "Supply Chain & Security 40 of 100 on Jul 16 — open this scan's report":
+        - /url: /report/vercel/next.js@153bf8ac5fa00888ef5fbb2b65cac12f0942a44f
+- contentinfo:
+  - text: Ascent
+  - paragraph: The maturity index for AI-native engineering
+  - link "Leaderboard":
+    - /url: /leaderboard
+  - link "Badge":
+    - /url: /badge
+  - link "Connect":
+    - /url: /connect
+  - link "Usage":
+    - /url: /usage
+  - paragraph: "Built on Vercel + Aurora DSQL · #H0Hackathon"
+- alert

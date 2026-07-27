@@ -1,0 +1,25 @@
+
+> ascent@0.1.0 dev
+> next dev
+
+▲ Next.js 16.3.0-preview.5 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://10.0.0.140:3000
+- Environments: .env.local
+✓ Ready in 2.2s
+[pglite] schema ensured from prisma/init.sql (idempotent; new tables/indexes applied)
+[pglite] embedded local DB ready (in-process) at C:\Users\kazda\kiro\ascent\.pglite\ascent
+
+Persisting failed: Unable to commit operations
+
+Caused by:
+    Access is denied. (os error 5)
+Persisting is disabled for this session due to an unrecoverable error. Stopping the background persisting process.
+ GET /api/health 200 in 2.5s (next.js: 2.0s, proxy.ts: 228ms, application-code: 218ms)
+ GET /api/health 200 in 18ms (next.js: 7ms, proxy.ts: 4ms, application-code: 7ms)
+○ Compiling /org/[slug]/executive ...
+ GET /org/vercel/executive 200 in 18.1s (next.js: 11.2s, proxy.ts: 5ms, application-code: 6.9s)
+ GET /usage?org=vercel 200 in 3.2s (next.js: 1729ms, proxy.ts: 10ms, application-code: 1510ms)
+ GET /org/vercel/executive 200 in 2.6s (next.js: 25ms, proxy.ts: 6ms, application-code: 2.5s)
+ GET /usage?org=vercel 200 in 585ms (next.js: 6ms, proxy.ts: 4ms, application-code: 575ms)
+ GET /api/org/briefing/pdf?org=vercel&range=90d 200 in 4.9s (next.js: 1498ms, proxy.ts: 4ms, application-code: 3.4s)
