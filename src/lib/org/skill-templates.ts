@@ -1,21 +1,31 @@
 // Starter skill templates (Skills P3) so authoring a library entry isn't a blank form — mirrors
 // PLAYBOOK_TEMPLATES. Curated, reusable Claude/LLM "skills" (SKILL.md-like bodies) across the
-// categories; the author picks one and edits before saving. Pure + client-safe (only a type import),
-// so SkillsPanel can prefill its form inline.
+// categories; the author picks one and edits before saving. Pure + client-safe (only the frontmatter
+// helpers + the category enum), so SkillsPanel can prefill its form inline.
+//
+// Each template's `content` is finished through ensureFrontmatter, so a starter is BORN conformant with
+// the library's frontmatter contract — the bodies below stay readable markdown, and the block can never
+// drift from the template's own name/description/category/tags.
 
+import { ensureFrontmatter, slugifySkillName } from "@/lib/org/skill-frontmatter";
 import type { SkillCategory } from "@/lib/org/skill-categories";
 
 export interface SkillTemplate {
+  /** The kebab-case slug the skill is stored under (also the frontmatter `name`). */
   name: string;
   category: SkillCategory;
   description: string;
+  /** A full SKILL.md — frontmatter block included. */
   content: string;
   tags: string[];
 }
 
-export const SKILL_TEMPLATES: SkillTemplate[] = [
+/** Authoring shape: the markdown body only; the frontmatter block is generated from the fields. */
+type TemplateSeed = Omit<SkillTemplate, "name"> & { title: string };
+
+const SEEDS: TemplateSeed[] = [
   {
-    name: "PR Review Checklist",
+    title: "PR Review Checklist",
     category: "workflow",
     description: "A structured pull-request review pass: correctness, tests, security, and clarity.",
     tags: ["review", "pull-request"],
@@ -32,7 +42,7 @@ When reviewing a pull request, work through these in order and comment inline:
 End with a one-line verdict: approve / approve-with-nits / request-changes, and the single most important thing to fix.`,
   },
   {
-    name: "Generate Tests for a Module",
+    title: "Generate Tests for a Module",
     category: "testing",
     description: "Produce focused unit tests for a target file — risk-first, no success theater.",
     tags: ["tests", "coverage"],
@@ -49,7 +59,7 @@ Given a target source file, write tests that pin its real behavior:
 Output the test file in the project's existing test framework + style; do not change the source.`,
   },
   {
-    name: "Security Audit Pass",
+    title: "Security Audit Pass",
     category: "security",
     description: "A focused OWASP-style sweep of changed code: injection, authz, secrets, SSRF.",
     tags: ["security", "owasp"],
@@ -66,7 +76,7 @@ Review the changed files for exploitable issues, highest-severity first:
 For each finding: file:line, the exploit, and the minimal fix. Default to "needs a fix" when uncertain.`,
   },
   {
-    name: "CI Pipeline Hardening",
+    title: "CI Pipeline Hardening",
     category: "ci-cd",
     description: "Make the CI workflow a real gate: pinned, fast, fail-closed, with a maturity check.",
     tags: ["ci", "github-actions"],
@@ -83,7 +93,7 @@ Audit and improve the project's CI workflow:
 Output the updated workflow YAML with a one-line rationale per change.`,
   },
   {
-    name: "API Reference from Code",
+    title: "API Reference from Code",
     category: "docs",
     description: "Generate accurate, example-driven API docs from the route/handler definitions.",
     tags: ["docs", "api"],
@@ -99,7 +109,7 @@ From the route/handler files, produce reference docs that match the code (not as
 Output as Markdown grouped by resource. Keep it terse and copy-pasteable.`,
   },
   {
-    name: "Bootstrap the AI-Native Standard",
+    title: "Bootstrap the AI-Native Standard",
     category: "ai-native",
     description: "Scaffold an .ai/ foundation — manifest, memory, CONTEXT graph — for a repo.",
     tags: ["ai-native", "agents"],
@@ -116,3 +126,14 @@ Set up the vendor-neutral \`.ai/\` foundation so agents work from durable contex
 Tailor each file to this repo's actual stack and layout; don't emit placeholders.`,
   },
 ];
+
+export const SKILL_TEMPLATES: SkillTemplate[] = SEEDS.map(({ title, ...t }) => ({
+  ...t,
+  name: slugifySkillName(title),
+  content: ensureFrontmatter(t.content, {
+    name: title,
+    description: t.description,
+    category: t.category,
+    tags: t.tags,
+  }),
+}));
