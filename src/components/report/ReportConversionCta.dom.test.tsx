@@ -64,6 +64,15 @@ describe("ReportConversionCta — Track this repo (individual tier)", () => {
     expect(screen.getByRole("button", { name: /track this repo/i })).toBeEnabled();
   });
 
+  // The CTA passes data-testid to <Surface>, which used to destructure only its styling props and drop
+  // it — the hook never reached the DOM. Surface now forwards data-*/aria attributes.
+  it("exposes its data-testid on the rendered panel", async () => {
+    vi.stubGlobal("fetch", mockFetch({ signedIn: true }));
+    render(<ReportConversionCta repo="sindresorhus/slugify" />);
+
+    expect(await screen.findByTestId("report-conversion-cta")).toBeInTheDocument();
+  });
+
   it("signed-out: no track button — the original sign-in funnel renders instead", async () => {
     vi.stubGlobal("fetch", mockFetch({ signedIn: false }));
     render(<ReportConversionCta repo="sindresorhus/slugify" />);

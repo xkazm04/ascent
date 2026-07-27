@@ -8,6 +8,7 @@ export function Surface({
   id,
   radius = "2xl",
   tone = "base",
+  ...rest
 }: {
   children: React.ReactNode;
   className?: string;
@@ -16,11 +17,18 @@ export function Surface({
   radius?: "xl" | "2xl";
   /** `base` (panel) or `strong` (deeper fill, e.g. behind a chart). */
   tone?: "base" | "strong";
-}) {
+  // Pass-through for the plain div attributes a panel legitimately needs — `data-testid` above all.
+  // Before this, callers that passed one (PassportHero, ReportConversionCta) had it silently dropped,
+  // leaving DEAD test hooks: a query by testid found nothing and the attribute never reached the DOM.
+  // Deliberately narrow — className/id/radius/tone stay the styling contract, so a caller can't
+  // smuggle in a competing `style`/`className` and break the one-radius/one-hairline panel identity.
+} & Pick<React.HTMLAttributes<HTMLDivElement>, "role" | "aria-label" | "aria-labelledby" | "aria-hidden"> & {
+    [dataAttr: `data-${string}`]: string | number | boolean | undefined;
+  }) {
   const r = radius === "xl" ? "rounded-xl" : "rounded-2xl";
   const bg = tone === "strong" ? "bg-surface-strong/40" : "bg-surface/40";
   return (
-    <div id={id} className={`${r} border border-divider ${bg} ${id ? "scroll-mt-24" : ""} ${className}`}>
+    <div id={id} className={`${r} border border-divider ${bg} ${id ? "scroll-mt-24" : ""} ${className}`} {...rest}>
       {children}
     </div>
   );

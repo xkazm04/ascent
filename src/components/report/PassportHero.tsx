@@ -13,6 +13,7 @@ import { scoreHex } from "@/lib/ui";
 import { bandColor, bandLabel } from "@/lib/org/passport-display";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { Surface, Kicker } from "@/components/ui";
+import { r2 } from "@/components/report/svgCoord";
 
 export function PassportHero({ passport: pp, repo }: { passport: AppPassport; repo: string }) {
   const reduced = usePrefersReducedMotion();
@@ -121,9 +122,13 @@ function CredentialSeal({
   const rInner = 62;
   const rText = 52;
   const topArc = `M ${c - rText},${c} A ${rText},${rText} 0 0 1 ${c + rText},${c}`;
+  // Round to 2dp (same fix as RadarChart): Node and the browser can disagree on the last ULP of
+  // Math.cos/sin, and each seal emits 52 ticks × 4 raw float coordinates as SVG attributes — 416 across
+  // the two seals — so a single last-digit difference produced a React hydration mismatch on EVERY
+  // permalink load. 2dp is far sub-pixel in this 150-unit viewBox, so nothing moves visually.
   const ticks = Array.from({ length: 52 }, (_, i) => {
     const a = (i / 52) * 2 * Math.PI;
-    return [c + 64 * Math.cos(a), c + 64 * Math.sin(a), c + 67.5 * Math.cos(a), c + 67.5 * Math.sin(a)] as const;
+    return [r2(c + 64 * Math.cos(a)), r2(c + 64 * Math.sin(a)), r2(c + 67.5 * Math.cos(a)), r2(c + 67.5 * Math.sin(a))] as const;
   });
   const markFont = mark.length <= 3 ? 30 : mark.length <= 6 ? 21 : 16;
 
