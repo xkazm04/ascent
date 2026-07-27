@@ -974,6 +974,7 @@
             "src/components/report/ScoringTab.tsx",
             "src/components/report/FreshnessControl.tsx",
             "src/components/report/ContributorsPanel.tsx",
+            "src/components/report/ContributorsPanel.dom.test.tsx",
             "src/components/report/repoKey.ts",
             "src/components/report/reportTaxonomy.ts",
             "src/components/report/reportSeries.ts",
