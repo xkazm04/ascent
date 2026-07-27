@@ -15,6 +15,13 @@ where `severity` ∈ `critical | warning | null`:
 | **critical** | A level demotion (e.g. L4 → L3); sliding **into** the "ungoverned" posture. |
 | **warning** | Overall score drop ≥ 5 (configurable `thresholds.overallDrop`); any single-dimension drop ≥ 15 (configurable). |
 
+`detectPromotion(diff)` → `PromotionVerdict { promoted, severity: "celebration" | null, reasons[] }`
+is the sibling condition in the same module: an **upward** band crossing (L3 → L4). It is a
+separate verdict on purpose — `RegressionVerdict.regressed` gates the `scan.regression` audit
+row and the regression memory, so a celebration must never set it. `buildPromotionMessage`
+renders the celebratory voice (🎉 "leveled up", "What got you here:" attributions, no alarm
+chrome).
+
 `buildRegressionMessage(repo, diff, verdict)` formats a Slack-compatible message (emoji
 headline 🔻/⚠️, reason bullets, top-3 movement attributions from `diff.movements`, report
 link). `dispatchAlert(message, opts)` POSTs to `ALERT_WEBHOOK_URL` (Slack incoming
@@ -29,8 +36,12 @@ webhook); it never throws and returns `false` when the sink is unset or the POST
    [report.md](report.md)).
 2. Detect a regression and record a `scan.regression` audit entry **even without a webhook
    sink**.
-3. If a sink is configured, build and dispatch the message.
-4. Return `{ regressed, verdict, dispatched }`. Never throws.
+3. If a sink is configured, claim the per-repo cooldown and dispatch the message.
+4. **If it did not regress**, check `detectPromotion`: an upward band crossing dispatches the
+   celebratory message through the same sink and the same claim pool (a promotion *consumes*
+   the window, so a repo flapping across a band edge can't alternate 🎉/🔻 every scan). No
+   audit row — the level change is already recorded to Shared Org Memory, both directions.
+5. Return `{ regressed, verdict, dispatched, promoted? }`. Never throws.
 
 It's called by the [rescan cron](cron-and-retention.md) and the [push webhook](github-app.md)
 *after* a new scan is persisted (capturing the prior report before persist, diffing after).
@@ -69,7 +80,7 @@ implying a send.
 
 ## Known gaps
 
-- **Slack-only delivery** — a single `ALERT_WEBHOOK_URL` sink; no email/in-app routing or
-  per-org sink configuration.
-- **Only on tracked re-scans** — alerts fire on cron/webhook re-scans of watched repos, not
-  on ad-hoc one-off scans.
+- **Slack-only delivery** — regression/digest/low-credit alerts POST to a webhook sink; there
+  is still no email or in-app routing for them (per-org *sink* routing does exist).
+- **Promotions are band-crossings only** — a large in-band gain (46 → 60, still L3) is not
+  pushed; only a level crossing is.

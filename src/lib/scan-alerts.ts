@@ -10,10 +10,12 @@ import type { ScanReport } from "@/lib/types";
 import { diffReports } from "@/lib/scoring/engine";
 import {
   buildLowCreditsMessage,
+  buildPromotionMessage,
   buildRegressionMessage,
   claimRegressionAlert,
   creditsAlertThreshold,
   DEFAULT_THRESHOLDS,
+  detectPromotion,
   detectRegression,
   dispatchAlert,
   isAlertConfigured,
@@ -26,8 +28,10 @@ import { publicBaseUrl } from "@/lib/site";
 export interface RegressionOutcome {
   regressed: boolean;
   verdict: RegressionVerdict | null;
-  /** Whether an alert was actually dispatched to a configured sink. */
+  /** Whether an alert was actually dispatched to a configured sink (regression OR promotion). */
   dispatched: boolean;
+  /** Whether this scan crossed a maturity band UPWARD and took the celebratory path instead. */
+  promoted?: boolean;
 }
 
 /** Absolute report URL when a public base is configured, else the relative permalink. */
@@ -42,10 +46,14 @@ async function orgWebhook(orgSlug?: string): Promise<string | null> {
 }
 
 /**
- * Compare `fresh` against `prev` and act on a regression. Records a `scan.regression` audit entry
+ * Compare `fresh` against `prev` and act on what moved. Records a `scan.regression` audit entry
  * whenever a regression is detected (so it's tracked even with no alert sink), and dispatches an
  * alert to the org's own webhook when `orgSlug` resolves one (multi-tenant routing), falling back
  * to the global ALERT_WEBHOOK_URL. Never throws — alerting must not fail the scan.
+ *
+ * A scan that did NOT regress but crossed a maturity band UPWARD takes the celebratory branch instead
+ * (`promoted: true`) and pushes a distinctly-voiced promotion message through the same sink. The name
+ * is kept for its three call sites — this is the single "did anything alert-worthy happen" entry point.
  */
 export async function checkAndAlertRegression(
   prev: ScanReport | null,
@@ -62,9 +70,31 @@ export async function checkAndAlertRegression(
       overallDrop: orgT?.overallDrop ?? DEFAULT_THRESHOLDS.overallDrop,
       dimensionDrop: orgT?.dimensionDrop ?? DEFAULT_THRESHOLDS.dimensionDrop,
     });
-    if (!verdict.regressed) return { regressed: false, verdict, dispatched: false };
-
     const fullName = `${fresh.repo.owner}/${fresh.repo.name}`;
+    // Not a regression → the ONE other thing worth interrupting a human for: a promotion. Handled here,
+    // inside the same never-throwing glue every fire site already calls (cron rescan, push webhook,
+    // interactive finalize), so all three get the celebratory push with ZERO changes at the call sites.
+    // No audit row: `scan.regression` is the regression trail, and the level change is already recorded
+    // to Shared Org Memory by recordScanMemories (both directions, see memory/scan-feed.ts) — a
+    // promotion needs a push, not a second record.
+    if (!verdict.regressed) {
+      const promotion = detectPromotion(diff);
+      if (!promotion.promoted) return { regressed: false, verdict, dispatched: false };
+      let dispatched = false;
+      const webhookUrl = await orgWebhook(opts.orgSlug);
+      // SHARED claim pool with regressions, and the promotion CONSUMES it (see the cooldown block in
+      // alerts.ts): a repo flapping across a band edge can't alternate 🎉/🔻 every scan.
+      if (isAlertConfigured(webhookUrl) && claimRegressionAlert(fullName)) {
+        const message = buildPromotionMessage(
+          { fullName, url: reportUrl(fullName, fresh.repo.headSha) },
+          diff,
+          promotion,
+        );
+        dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
+      }
+      return { regressed: false, verdict, dispatched, promoted: true };
+    }
+
     // Best-effort audit — a flaky audit write must NOT suppress the regression alert below, so its
     // failure is swallowed (logged) rather than skipping straight to the outer catch (which would
     // return dispatched:false and silently drop a real alert).

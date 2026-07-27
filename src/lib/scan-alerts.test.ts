@@ -18,8 +18,12 @@ import type { ScanReport } from "@/lib/types";
 vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn() }));
 vi.mock("@/lib/alerts", () => ({
   detectRegression: vi.fn(),
+  // The celebratory sibling condition: default = no promotion, so every pre-existing case keeps its
+  // exact behavior and only the promotion tests opt in.
+  detectPromotion: vi.fn(() => ({ promoted: false, severity: null, reasons: [] })),
   dispatchAlert: vi.fn(),
   buildRegressionMessage: vi.fn(() => ({ text: "msg", blocks: [] })),
+  buildPromotionMessage: vi.fn(() => ({ text: "🎉 leveled up", blocks: [] })),
   // Per-repo cooldown gate (fleet #4). Default = allowed (claim wins); one test flips it to false to
   // pin that a repo inside its cooldown window is throttled (verdict still real, no POST).
   claimRegressionAlert: vi.fn(() => true),
@@ -44,8 +48,10 @@ import { checkAndAlertRegression, maybeAlertLowCredits } from "./scan-alerts";
 import { diffReports } from "@/lib/scoring/engine";
 import {
   detectRegression,
+  detectPromotion,
   dispatchAlert,
   buildRegressionMessage,
+  buildPromotionMessage,
   buildLowCreditsMessage,
   claimRegressionAlert,
   creditsAlertThreshold,
@@ -64,6 +70,8 @@ const mockAudit = vi.mocked(recordAudit);
 const mockCrossing = vi.mocked(isLowCreditsCrossing);
 const mockCreditsThreshold = vi.mocked(creditsAlertThreshold);
 const mockBuildLow = vi.mocked(buildLowCreditsMessage);
+const mockDetectPromo = vi.mocked(detectPromotion);
+const mockBuildPromo = vi.mocked(buildPromotionMessage);
 
 // A ScanReport is only read by the orchestrator for fresh.repo.{owner,name,headSha}; the diff itself
 // is mocked, so a minimal shape cast is sufficient and keeps the test focused on the decision logic.
@@ -83,6 +91,8 @@ function fakeDiff() {
 
 const REGRESSED = { regressed: true, severity: "critical", reasons: [{ code: "level-demotion" }] } as never;
 const CLEAN = { regressed: false, severity: null, reasons: [] } as never;
+const PROMOTED = { promoted: true, severity: "celebration", reasons: [{ code: "level-promotion" }] } as never;
+const NO_PROMOTION = { promoted: false, severity: null, reasons: [] } as never;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -92,6 +102,8 @@ beforeEach(() => {
   mockAudit.mockResolvedValue(undefined as never);
   mockDispatch.mockResolvedValue(true);
   mockClaimCooldown.mockReturnValue(true); // default: not throttled (cooldown slot claimed)
+  mockDetectPromo.mockReturnValue(NO_PROMOTION);
+  mockBuildPromo.mockReturnValue({ text: "🎉 leveled up", blocks: [] } as never);
 });
 
 describe("checkAndAlertRegression — gate correctness", () => {
@@ -140,6 +152,88 @@ describe("checkAndAlertRegression — gate correctness", () => {
     expect(mockAudit).toHaveBeenCalledTimes(1); // still tracked
     expect(mockClaimCooldown).toHaveBeenCalledWith("acme/api"); // cooldown keyed by the repo fullName
     expect(mockDispatch).not.toHaveBeenCalled(); // throttled — no duplicate alert
+  });
+});
+
+// --- Promotions ------------------------------------------------------------------------------
+// The celebratory branch rides the SAME glue (so the cron rescan, the push webhook and the
+// interactive finalize all get it with no call-site change), the same per-tenant sink resolution and
+// the same claim pool as regressions.
+describe("checkAndAlertRegression — promotions", () => {
+  it("pushes a promotion through the org's sink with the celebratory builder, and never as a regression", async () => {
+    mockDetect.mockReturnValue(CLEAN);
+    mockDetectPromo.mockReturnValue(PROMOTED);
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+
+    const out = await checkAndAlertRegression(report("acme", "api"), report("acme", "api"), {
+      orgId: "org_acme",
+      orgSlug: "acme",
+    });
+
+    expect(out).toEqual({ regressed: false, verdict: CLEAN, dispatched: true, promoted: true });
+    // The celebratory builder, NOT buildRegressionMessage — good news must not borrow alarm chrome.
+    expect(mockBuildPromo).toHaveBeenCalledWith(
+      expect.objectContaining({ fullName: "acme/api" }),
+      expect.anything(),
+      PROMOTED,
+    );
+    expect(mockBuildMsg).not.toHaveBeenCalled();
+    expect(mockDispatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ webhookUrl: "https://hooks.example/acme" }));
+    // `scan.regression` is the regression trail: a promotion must never be filed into it.
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("a REGRESSING scan never takes the promotion branch (demotion wins, celebration never evaluated)", async () => {
+    mockDetect.mockReturnValue(REGRESSED);
+    mockDetectPromo.mockReturnValue(PROMOTED); // even if it somehow claimed a promotion
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+
+    const out = await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
+
+    expect(out.regressed).toBe(true);
+    expect(out.promoted).toBeUndefined();
+    expect(mockBuildMsg).toHaveBeenCalledTimes(1);
+    expect(mockBuildPromo).not.toHaveBeenCalled();
+  });
+
+  it("consumes the SHARED per-repo claim, so a flapping repo can't alternate 🎉/🔻 every scan", async () => {
+    mockDetect.mockReturnValue(CLEAN);
+    mockDetectPromo.mockReturnValue(PROMOTED);
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+    // Same key as the regression path — one pool, keyed by repo fullName.
+    await checkAndAlertRegression(report("acme", "api"), report("acme", "api"), { orgSlug: "acme" });
+    expect(mockClaimCooldown).toHaveBeenCalledWith("acme/api");
+
+    // The next scan of the same repo demotes it, but the promotion already consumed the window:
+    // the demotion is still detected + AUDITED, only its Slack push is throttled.
+    mockClaimCooldown.mockReturnValue(false);
+    mockDetect.mockReturnValue(REGRESSED);
+    const demoted = await checkAndAlertRegression(report("acme", "api"), report("acme", "api"), { orgSlug: "acme" });
+    expect(demoted.regressed).toBe(true);
+    expect(demoted.dispatched).toBe(false);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(mockDispatch).toHaveBeenCalledTimes(1); // only the promotion went out
+  });
+
+  it("a promotion with no resolvable sink is a clean no-op (still reported as promoted)", async () => {
+    mockDetect.mockReturnValue(CLEAN);
+    mockDetectPromo.mockReturnValue(PROMOTED);
+    mockWebhook.mockResolvedValue(null);
+
+    const out = await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
+    expect(out.promoted).toBe(true);
+    expect(out.dispatched).toBe(false);
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockClaimCooldown).not.toHaveBeenCalled(); // no sink → the window isn't burned
+  });
+
+  it("a flat scan (no regression, no promotion) stays a clean no-op", async () => {
+    mockDetect.mockReturnValue(CLEAN);
+    mockDetectPromo.mockReturnValue(NO_PROMOTION);
+    mockWebhook.mockResolvedValue("https://hooks.example/acme");
+    const out = await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
+    expect(out).toEqual({ regressed: false, verdict: CLEAN, dispatched: false });
+    expect(mockDispatch).not.toHaveBeenCalled();
   });
 });
 

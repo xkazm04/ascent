@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   detectRegression,
+  detectPromotion,
   buildRegressionMessage,
+  buildPromotionMessage,
   buildFleetDigestMessage,
   buildLowCreditsMessage,
   claimRegressionAlert,
@@ -167,6 +169,77 @@ describe("buildRegressionMessage", () => {
     expect(msg.text).toContain("D2 -20");
     expect(msg.text).toContain("https://x/report");
     expect(Array.isArray(msg.blocks)).toBe(true);
+  });
+});
+
+// --- Promotions (the one push that isn't bad news) -------------------------------------------
+const PROMOTION = diff({
+  level: { before: { id: "L3", name: "Augmented" }, after: { id: "L4", name: "Integrated" }, changed: true, up: true },
+  overall: { before: 62, after: 68, delta: 6 },
+  movements: ["D5 +14: added Agent guardrails documented"],
+});
+
+describe("detectPromotion", () => {
+  it("flags an upward band crossing with the celebration severity", () => {
+    const v = detectPromotion(PROMOTION);
+    expect(v.promoted).toBe(true);
+    expect(v.severity).toBe("celebration");
+    expect(v.reasons[0]!.code).toBe("level-promotion");
+    expect(v.reasons[0]!.message).toContain("L3 → L4");
+  });
+
+  it("does NOT fire on a demotion, or on a move within the same band", () => {
+    const demotion = diff({
+      level: { before: { id: "L4", name: "Integrated" }, after: { id: "L3", name: "Augmented" }, changed: true, up: false },
+    });
+    expect(detectPromotion(demotion).promoted).toBe(false);
+    expect(detectPromotion(demotion).severity).toBeNull();
+    // A big in-band gain is not a level change — the push is reserved for a band crossing.
+    expect(detectPromotion(diff({ overall: { before: 46, after: 60, delta: 14 } })).promoted).toBe(false);
+  });
+
+  // The two detectors must stay disjoint: a promotion may NEVER set `regressed` (that flag gates the
+  // scan.regression audit row and the regression memory), and a demotion may never look celebratory.
+  it("is disjoint from detectRegression on the same diff", () => {
+    expect(detectRegression(PROMOTION).regressed).toBe(false);
+    const demotion = diff({
+      level: { before: { id: "L4", name: "Integrated" }, after: { id: "L3", name: "Augmented" }, changed: true, up: false },
+    });
+    expect(detectRegression(demotion).regressed).toBe(true);
+    expect(detectPromotion(demotion).promoted).toBe(false);
+  });
+});
+
+describe("buildPromotionMessage", () => {
+  it("reads as congratulation, not an incident — no alarm chrome anywhere in it", () => {
+    const msg = buildPromotionMessage(
+      { fullName: "acme/api", url: "https://x/report" },
+      PROMOTION,
+      detectPromotion(PROMOTION),
+    );
+    expect(msg.text).toContain("acme/api leveled up");
+    expect(msg.text).toContain("🎉");
+    expect(msg.text).toContain("L3 → L4");
+    expect(msg.text).toContain("overall 62 → 68 (+6)");
+    expect(msg.text).toContain("What got you here:");
+    expect(msg.text).toContain("D5 +14");
+    expect(msg.text).toContain("https://x/report");
+    // Tone guard: none of the regression vocabulary/emoji may leak into the celebratory variant.
+    expect(msg.text).not.toContain("regressed");
+    expect(msg.text).not.toContain("🔻");
+    expect(msg.text).not.toContain("⚠️");
+    expect(msg.text).not.toContain("Why:");
+    expect(msg.blocks.length).toBe(3); // headline+detail, attributions, link
+  });
+
+  it("omits the attribution section when the diff explains nothing", () => {
+    const bare = diff({
+      level: { before: { id: "L1", name: "Ad-hoc" }, after: { id: "L2", name: "Assisted" }, changed: true, up: true },
+      overall: { before: 22, after: 30, delta: 8 },
+    });
+    const msg = buildPromotionMessage({ fullName: "acme/api" }, bare, detectPromotion(bare));
+    expect(msg.text).not.toContain("What got you here");
+    expect(msg.blocks).toHaveLength(1);
   });
 });
 

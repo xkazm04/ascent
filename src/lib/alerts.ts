@@ -13,8 +13,13 @@ import type { ScanDiff } from "@/lib/report/compare";
 import { isWithinNoise } from "@/lib/maturity/noise";
 import { isPrivateOrInternalHost } from "@/lib/net/ssrf";
 
-/** How loud the regression is — drives whether/how prominently it's surfaced. */
-export type AlertSeverity = "critical" | "warning";
+/**
+ * How loud the alert is — drives whether/how prominently it's surfaced (SEV_EMOJI, the digest, the
+ * audit payload). `celebration` is the one NON-alarm band: an upward level change. It exists as a
+ * severity rather than a separate axis so every renderer that already switches on severity gets the
+ * celebratory chrome for free instead of borrowing 🔻/⚠️ for good news.
+ */
+export type AlertSeverity = "critical" | "warning" | "celebration";
 
 export interface RegressionReason {
   severity: AlertSeverity;
@@ -120,6 +125,50 @@ export function detectRegression(
   return { regressed, severity, reasons };
 }
 
+// --- Promotion (the one push that isn't bad news) --------------------------------------------------
+
+export interface PromotionReason {
+  severity: "celebration";
+  /** Short, human-readable explanation (e.g. "Maturity climbed L3 → L4 (Integrated)"). */
+  message: string;
+  code: "level-promotion";
+}
+
+export interface PromotionVerdict {
+  promoted: boolean;
+  severity: "celebration" | null;
+  reasons: PromotionReason[];
+}
+
+/**
+ * The counterpart condition to detectRegression, over the SAME ScanDiff and living beside it so the
+ * detection layer stays one module: did this scan cross a maturity band UPWARD? Every other condition
+ * in this file fires on a slide (`diff.level.up` only ever SUPPRESSED an alert), so the L3→L4 moment a
+ * team would happily paste into Slack was the one durable event the layer stayed silent about.
+ *
+ * Why it is a sibling function rather than another `reasons` entry inside detectRegression: that
+ * verdict's `regressed` flag is load-bearing downstream — it gates the `scan.regression` audit row and
+ * the regression memory in src/lib/memory/scan-feed.ts. A celebration that flipped `regressed` (or that
+ * rode along in `reasons` on a mixed scan) would file a promotion as a regression in the org's audit
+ * trail and its memory store. Same module, same diff, same message-builder family; separate verdict.
+ *
+ * Pure — no env, no Date, no I/O.
+ */
+export function detectPromotion(diff: ScanDiff): PromotionVerdict {
+  if (!diff.level.changed || !diff.level.up) return { promoted: false, severity: null, reasons: [] };
+  return {
+    promoted: true,
+    severity: "celebration",
+    reasons: [
+      {
+        severity: "celebration",
+        code: "level-promotion",
+        message: `Maturity climbed ${diff.level.before.id} → ${diff.level.after.id} (${diff.level.after.name})`,
+      },
+    ],
+  };
+}
+
 // --- Per-repo regression-alert cooldown (fleet-alerts-digests #4) ----------------------------------
 // A repo whose overall score oscillates ACROSS the regression threshold (a flapping test, a noisy LLM
 // re-grade, a dependency that lands then reverts) fires a fresh Slack alert on EVERY autoscan/push
@@ -128,6 +177,16 @@ export function detectRegression(
 // Best-effort + in-memory: a cooldown is spam-suppression, not a correctness guarantee, so a cold
 // serverless start (empty map) at worst re-sends once — never drops a distinct new regression. Keyed by
 // repo fullName; the map is globalThis-pinned so it survives Next.js HMR and a warm serverless instance.
+//
+// ONE CLAIM POOL, AND A PROMOTION CONSUMES IT (fleet-alerts promotions). The promotion push shares this
+// map rather than getting its own: a repo oscillating across a band edge (L3→L4→L3 as an LLM re-grade
+// or a reverted dependency moves it a point) is EXACTLY the flapping the cooldown exists to mute, and a
+// separate pool would let it alternate "🎉 leveled up" / "🔻 regressed" every scan — each pool
+// individually within its window, the channel unreadable. Consuming (stamping) rather than merely
+// reading also means the two directions can't double-fire inside one window. The cost is real and
+// accepted: a genuine demotion within 6h of a genuine promotion for the same repo is suppressed to a
+// Slack push — but it is still detected, audited and remembered (the audit row + memory feed are
+// written before the claim), so nothing is lost from the record, only from the pager.
 const DEFAULT_REGRESSION_COOLDOWN_MINUTES = 360; // 6h between repeat alerts for one repo
 
 /** Cooldown window (ms) between regression alerts for the SAME repo. REGRESSION_COOLDOWN_MINUTES
@@ -183,7 +242,7 @@ export interface AlertMessage {
   blocks: unknown[];
 }
 
-const SEV_EMOJI: Record<AlertSeverity, string> = { critical: "🔻", warning: "⚠️" };
+const SEV_EMOJI: Record<AlertSeverity, string> = { critical: "🔻", warning: "⚠️", celebration: "🎉" };
 
 /** A Slack Block-Kit `section` block with an `mrkdwn` text body — the shape the four message builders
  *  restated inline ~7 times. Pure; returns a fresh object each call. */
@@ -244,6 +303,34 @@ export function buildRegressionMessage(repo: RepoAlertRef, diff: ScanDiff, verdi
     blocks.push(linkContext(repo.url, "View report"));
   }
   return { text, blocks };
+}
+
+/**
+ * Build the Slack message for a maturity PROMOTION. Pure — same family as buildRegressionMessage
+ * (plain-text fallback + Block Kit sections + a report link), deliberately different in VOICE:
+ *
+ *   - 🎉, and the headline says "leveled up", not "regressed" — no alarm chrome anywhere.
+ *   - the movement attributions are framed as "What got you here" (credit) rather than "Why:"
+ *     (post-mortem), because this message's job is to be forwarded, not triaged.
+ *   - no severity bullet list: a promotion has exactly one reason, and stacking it like a set of
+ *     findings would make good news read like an incident report.
+ */
+export function buildPromotionMessage(repo: RepoAlertRef, diff: ScanDiff, verdict: PromotionVerdict): AlertMessage {
+  const headline = `${SEV_EMOJI.celebration} Ascent: ${repo.fullName} leveled up`;
+  const line =
+    verdict.reasons[0]?.message ??
+    `Maturity climbed ${diff.level.before.id} → ${diff.level.after.id} (${diff.level.after.name})`;
+  const detail = `${line} · overall ${diff.overall.before} → ${diff.overall.after} (${signed(diff.overall.delta)})`;
+  const why = diff.movements.slice(0, 3);
+
+  const textParts = [headline, detail];
+  if (why.length) textParts.push("", "What got you here:", ...why.map((m) => `• ${m}`));
+  if (repo.url) textParts.push("", repo.url);
+
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${detail}`)];
+  if (why.length) blocks.push(mrkdwnSection(`*What got you here:*\n${why.map((m) => `• ${m}`).join("\n")}`));
+  if (repo.url) blocks.push(linkContext(repo.url, "View report"));
+  return { text: textParts.join("\n"), blocks };
 }
 
 /** Inputs for a weekly fleet digest — the periodic positive push, not just per-repo regressions. */
