@@ -11,6 +11,7 @@ import { buildPracticeRows, type PracticeRow } from "./practiceRows";
 import { PracticeLedger } from "./PracticeLedger";
 import { PracticeDetailModal } from "./PracticeDetailModal";
 import { NewPracticeModal } from "./NewPracticeModal";
+import { usePracticeHash } from "./usePracticeHash";
 import type { OrgPractice, PlaybookRow, PlaybookAdoption } from "@/lib/db";
 
 interface DimOption {
@@ -42,6 +43,10 @@ export function PracticesView({
     () => buildPracticeRows(practices, playbooks, adoption, repoOptions.length),
     [practices, playbooks, adoption, repoOptions.length],
   );
+
+  // `#practice-<id>` deep links (governance / briefing / initiatives / overview) land on the row AND
+  // open its apply flow — the destination those surfaces actually promised.
+  usePracticeHash(rows, setOpenRow);
 
   // Optimistic remove for an authored playbook (DELETE is admin-gated); restore on failure so a 403
   // can't leave a data-loss illusion — mirrors PlaybooksPanel.remove.

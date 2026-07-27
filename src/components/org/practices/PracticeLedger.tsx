@@ -26,7 +26,16 @@ export function PracticeLedger({ rows, onOpen }: { rows: PracticeRow[]; onOpen: 
       }
     >
       {rows.map((r) => (
-        <tr key={r.key} onClick={() => onOpen(r)} className="cursor-pointer align-middle">
+        <tr
+          key={r.key}
+          // The deep-link anchor five surfaces route to (`…/practices#practice-<id>`): governance's
+          // "cheapest path to green" chips, the executive briefing, plan initiatives, the overview's
+          // fix-first list and its posture dimensions. Mined practices only — the emitted id is always
+          // a catalogued practice id, never an authored playbook's uuid. See usePracticeHash.
+          id={r.source === "mined" ? `practice-${r.id}` : undefined}
+          onClick={() => onOpen(r)}
+          className="cursor-pointer align-middle"
+        >
           <td className="px-4 py-3">
             <div className="font-medium text-white">{r.label}</div>
             <div className="mt-0.5 max-w-md truncate text-sm text-slate-500">{r.what}</div>

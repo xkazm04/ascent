@@ -772,6 +772,8 @@
             "src/components/org/practices/PracticeLedger.tsx",
             "src/components/org/practices/practiceRows.ts",
             "src/components/org/practices/PracticesView.tsx",
+            "src/components/org/practices/usePracticeHash.ts",
+            "src/components/org/practices/usePracticeHash.test.tsx",
             "src/lib/github/pr-route.ts",
             "src/lib/practices/apply.ts",
             "src/lib/practices/fingerprint.ts"
