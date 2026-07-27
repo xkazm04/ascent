@@ -275,9 +275,23 @@ describe("PATCH /api/recommendations/:id — every body validator rejects its ba
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it("a note-only body (no status/assignee/targetDate) is an empty patch and is rejected (400, no write)", async () => {
-    // `note` is metadata, not a patched field — on its own it produces no patch keys.
+  // --- note contract (roadmap-recommendation-tracking 07-16 #1): a note is never silently lost ---
+  it("a note-only body is a VALID patch: forwarded with an empty field patch so the DB layer writes a dedicated note event", async () => {
+    // Previously 400 ("Provide at least one of…") — you could not comment without changing a field.
     const res = await patch("rec_1", { note: "just a comment" });
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith("rec_1", {}, expect.objectContaining({ note: "just a comment" }));
+  });
+
+  it("an over-long note (>500 chars) is REJECTED with 400, not silently truncated (no write)", async () => {
+    // Previously body.note.slice(0, 500) ate the tail and returned 200 — invisible data loss.
+    const res = await patch("rec_1", { status: "done", note: "x".repeat(501) });
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("a non-string note is rejected with 400 (no write)", async () => {
+    const res = await patch("rec_1", { status: "done", note: 42 });
     expect(res.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
   });

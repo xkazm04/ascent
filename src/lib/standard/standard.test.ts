@@ -150,6 +150,21 @@ describe("doctor", () => {
     // The doctor uses it, not the old raw includes().
     expect(buildDoctor().body).toContain("al.some((a) => wired(hookText, a))");
   });
+
+  it("documents the score semantics in the banner and names the 180s timeout in a killed FAIL", () => {
+    // Finding #4: the score is a weighted pass ratio over a RUN-DEPENDENT finding set, and --run kills
+    // a capability at 180s — neither was documented anywhere, and a timed-out suite read as a bare
+    // message-less FAIL. Pin the banner note, the timeout being named in the FAIL finding, and that
+    // the weight map / timeout stay in sync with the documented values.
+    const body = buildDoctor().body;
+    expect(body).toContain("Score semantics:");
+    expect(body).toContain("pass=1, warn=0.5, fail=0");
+    expect(body).toContain("const weight = { pass: 1, warn: 0.5, fail: 0 }");
+    expect(body).toContain("timeout: 180000");
+    expect(body).toContain("180s --run timeout");
+    // The timeout note rides ON the FAIL finding (via e.signal), not just in a comment.
+    expect(body).toContain("FAILED' + (e && e.signal ?");
+  });
 });
 
 /** Extract the doctor's SHIPPED `wired()` helper verbatim and compile it (mirrors loadDoctorParsers). */
@@ -192,6 +207,22 @@ describe("maintain (self-maintaining upkeep)", () => {
     expect(m.body).toContain("diff --name-only");
     expect(m.body).not.toContain("`");
     expect(m.body).not.toContain("${");
+  });
+
+  it("note creates the entry with the exclusive 'wx' flag and retries on EEXIST (no truncating overwrite)", () => {
+    // Finding #5: `note` was read-then-write with a default-flag writeFileSync — two concurrent
+    // writers could compute the same id and the second write TRUNCATED the first (silent loss in the
+    // append-only ledger). The write must be exclusive-create, with the id recomputed on collision.
+    const body = buildMaintain().body;
+    expect(body).toContain("{ encoding: 'utf8', flag: 'wx' }");
+    expect(body).toContain("e.code !== 'EEXIST'");
+    // The id derivation is INSIDE the retry loop, so a losing writer re-lists and picks max+1 again.
+    const loopStart = body.indexOf("for (let attempt = 0;");
+    const idDerive = body.indexOf("const next = String((ids.length ? Math.max(...ids) : 0) + 1)");
+    expect(loopStart).toBeGreaterThan(-1);
+    expect(idDerive).toBeGreaterThan(loopStart);
+    // The note body write itself carries the exclusive flag (the old truncating form is gone).
+    expect(body).toContain("(sha ? '\\n\\n(at ' + sha + ')' : '') + '\\n', { encoding: 'utf8', flag: 'wx' })");
   });
 
   it("check diffs the PUSHED RANGE at pre-push, not the (clean) worktree", () => {
@@ -717,6 +748,36 @@ describe("doctor execution gate (score + exit code against fixture repos)", () =
     // ...and creating it clears the warn (a claim you can actually satisfy).
     mkdirSync(join(tmp, "evals"), { recursive: true });
     expect(runDoctor(tmp).json.findings.some((f) => f.level === "pass" && /declared path evals/.test(f.msg))).toBe(true);
+  });
+
+  it("--run writes the verify outcome back into manifest.yaml: pass → verified: true, fail → verified: false", () => {
+    // The contract three docs promise (doctor banner, manifest comment, Capability type): `verified`
+    // is a claim the doctor's --run flips to the ACTUAL run outcome. Before this write-back existed,
+    // every adopting repo carried `verified: false` forever even after a green --run.
+    writeConformantRepo(tmp);
+    const data = buildManifestData(makeReport());
+    data.capabilities = {
+      build: { command: 'node -e "process.exit(0)"', verified: false }, // passes → must flip true
+      test: { command: 'node -e "process.exit(1)"', verified: true }, // stale true → must flip false
+      lint: { command: 'node -e "process.exit(0)"', verified: false }, // passes → must flip true
+    };
+    const manifestPath = join(tmp, ".ai", "manifest.yaml");
+    writeFileSync(manifestPath, serializeManifestYaml(data), "utf8");
+
+    const res = spawnSync(process.execPath, [join(tmp, ".ai", "doctor.mjs"), "--run", "--json"], {
+      cwd: tmp,
+      encoding: "utf8",
+      env: { ...process.env, ASCENT_CONFORMANCE_URL: "", ASCENT_CONFORMANCE_TOKEN: "", GITHUB_REPOSITORY: "" },
+    });
+    expect(res.error, res.error?.message).toBeUndefined();
+    expect(res.status).toBe(1); // the failing `test` capability still gates (exit fails>0)
+
+    const after = readFileSync(manifestPath, "utf8");
+    expect(after).toMatch(/^ {2}build: \{.*verified: true \}$/m);
+    expect(after).toMatch(/^ {2}test: \{.*verified: false \}$/m);
+    expect(after).toMatch(/^ {2}lint: \{.*verified: true \}$/m);
+    // The commands themselves round-trip untouched — only the verified token was rewritten.
+    expect(after).toContain('command: "node -e \\"process.exit(0)\\""');
   });
 
   it("the --json payload has exactly the {score,fails,warns,findings} shape conformance/route.ts ingests", () => {

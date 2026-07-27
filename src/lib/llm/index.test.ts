@@ -3,7 +3,7 @@
 // failover must never hand the orchestrator a mock that masquerades as the intended provider.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getProvider, providerAvailable, providerByName } from "./index";
+import { getProvider, providerAvailable, providerByName, resolveProviderChoice } from "./index";
 
 // Every env var the bedrock/gemini availability checks read — stubbed empty so the host
 // machine's real AWS/Gemini config can't leak into the assertions.
@@ -109,6 +109,33 @@ describe("getProvider with LLM_PROVIDER=gemini — explicit selection must not s
     // The auto/default path is unchanged: no key → mock is correct there (not 'success theater').
     vi.stubEnv("LLM_PROVIDER", "auto");
     expect(getProvider().name).toBe("mock");
+  });
+});
+
+describe("resolveProviderChoice — unknown values fail LOUD, never coerce to auto (ambiguity llm #1)", () => {
+  it("throws on a typo'd provider name instead of silently becoming auto", () => {
+    // The enterprise-privacy nightmare: LLM_PROVIDER=bedrok (typo) used to coerce to "auto" →
+    // Gemini-or-mock, routing private source through a provider the operator never chose, with no signal.
+    vi.stubEnv("LLM_PROVIDER", "bedrok");
+    expect(() => resolveProviderChoice()).toThrow(/Unknown LLM_PROVIDER "bedrok"/);
+    expect(() => getProvider()).toThrow(/bedrok/);
+  });
+
+  it("throws on other unrecognized values too (e.g. 'claude' — not a valid choice)", () => {
+    vi.stubEnv("LLM_PROVIDER", "claude");
+    expect(() => resolveProviderChoice()).toThrow(/expected one of/);
+  });
+
+  it("still resolves unset/blank to auto — absent config is not broken config", () => {
+    vi.stubEnv("LLM_PROVIDER", "");
+    expect(resolveProviderChoice()).toBe("auto");
+    vi.stubEnv("LLM_PROVIDER", "   ");
+    expect(resolveProviderChoice()).toBe("auto");
+  });
+
+  it("tolerates case and surrounding whitespace on a KNOWN value ('  Bedrock ' → bedrock)", () => {
+    vi.stubEnv("LLM_PROVIDER", "  Bedrock ");
+    expect(resolveProviderChoice()).toBe("bedrock");
   });
 });
 

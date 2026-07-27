@@ -51,6 +51,10 @@ export function ProjectionResult({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
+        {/* AUTHORITATIVE multi-leg policy: tracking is single-dimension by design, enforced here by
+            disabling the button. The handler (Simulator.trackAsInitiative) matches: it posts exactly
+            one initiative and refuses multi-leg results — a per-leg loop was rejected as non-atomic
+            (partial failure + retry duplicates initiatives). (investment 07-16 #2) */}
         <button
           onClick={onTrack}
           disabled={tracking || tracked || result.fixes.length > 1}
@@ -75,8 +79,11 @@ export function ProjectionResult({
             Tracking supports one dimension — remove the extra legs to track the primary move.
           </span>
         )}
-        {tracked && <span className="font-mono text-sm text-emerald-300">Added to the Initiatives panel below.</span>}
-        {trackError && <span className="font-mono text-sm text-orange-300">{trackError}</span>}
+        {/* role="status": the track outcome (success or failure) must reach assistive tech — the
+            visual-only strips left a screen-reader user unable to confirm the page's core action
+            completed (investment 07-16 #5). */}
+        {tracked && <span role="status" className="font-mono text-sm text-emerald-300">Added to the Initiatives panel below.</span>}
+        {trackError && <span role="status" className="font-mono text-sm text-orange-300">{trackError}</span>}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">

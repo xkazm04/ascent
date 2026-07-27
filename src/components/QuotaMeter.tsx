@@ -6,7 +6,8 @@
 // inactive (DB-less / disabled), so it's invisible on deployments without the monthly quota.
 
 import { useEffect, useState } from "react";
-import { formatResetAt } from "@/components/report/QuotaNotice";
+import { canOfferSignIn, formatResetAt } from "@/components/report/QuotaNotice";
+import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
 
 interface Quota {
   enforced: boolean;
@@ -69,15 +70,21 @@ export function QuotaMeter() {
     // uses for this state) instead of a raw amber hex, so a theme change to "warn" propagates here too.
     <p className={`mt-2 font-mono text-sm ${low ? "text-warn" : "text-slate-500"}`}>
       <span className="font-semibold">{q.remaining}</span> of {q.limit} free scans left this month
-      {q.scope === "anon" && (
+      {/* A real CTA, not dead text — and the SAME action hierarchy as the report-side QuotaNotice
+          banners (sign in first, plans as fallback), so the two quota surfaces give one answer to
+          "what do I do about the limit". Suppressed while the visitor still holds the FULL allowance:
+          an upsell before anything has been spent is a premature nudge. */}
+      {q.scope === "anon" && q.remaining < q.limit && (
         <>
           {" "}
           ·{" "}
-          {/* A real CTA, not dead text: an anonymous visitor deciding pre-scan can act on the upsell.
-              Matches the report banner's link style so the two quota surfaces read as one system. */}
-          <a href="/pricing" className="text-accent hover:text-white">
-            upgrade for more scans
-          </a>
+          {canOfferSignIn(q.scope) ? (
+            <SupabaseSignInButton variant="nav" label="Sign in for more scans" />
+          ) : (
+            <a href="/pricing" className="text-accent hover:text-white">
+              upgrade for more scans
+            </a>
+          )}
         </>
       )}
       {q.remaining === 0 && reset && <> · resets {reset}</>}

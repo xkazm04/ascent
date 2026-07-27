@@ -6,7 +6,7 @@ import { SectionEmpty } from "@/components/org/shared/ui";
 import { MembersPanel } from "@/components/org/members/MembersPanel";
 import { isDbConfigured, listOrgMembers, listPendingInvites } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
-import { getSession } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +22,15 @@ export default async function OrgMembers({ params }: { params: Promise<{ slug: s
       </SectionEmpty>
     );
   }
-  const [members, invites, session] = await Promise.all([
+  // Resolve "who am I" across BOTH auth stacks (custom session first, then the ACTIVE Supabase
+  // viewer) — the same precedence the routes use. This used to read the DORMANT getSession() only:
+  // under the Supabase wall it was always null in prod, so MembersPanel never showed the "you"
+  // badge and the self-demotion confirm gate silently never fired — an owner could lock themselves
+  // out with one unconfirmed select change (the invite page had the identical bug, fixed earlier).
+  const [members, invites, selfLogin] = await Promise.all([
     listOrgMembers(slug),
     listPendingInvites(slug),
-    getSession(),
+    resolveViewerLogin(),
   ]);
   const initial = members.map((m) => ({
     login: m.login,
@@ -42,5 +47,5 @@ export default async function OrgMembers({ params }: { params: Promise<{ slug: s
     role: i.role,
     expiresAt: i.expiresAt,
   }));
-  return <MembersPanel slug={slug} initial={initial} initialInvites={initialInvites} selfLogin={session?.login ?? null} />;
+  return <MembersPanel slug={slug} initial={initial} initialInvites={initialInvites} selfLogin={selfLogin} />;
 }

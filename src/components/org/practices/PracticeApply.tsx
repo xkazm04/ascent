@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ConfirmAction, batchPrConfirm } from "@/components/ConfirmAction";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
 
 interface RepoRef {
   name: string;
@@ -128,19 +129,26 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
   async function apply() {
     // Apply the repo we actually PREVIEWED, never whatever the dropdown reads now — the previewed
     // artifact (commands/description) is repo-specific, so opening a PR in a different repo would land
-    // content the user never reviewed.
-    const target = artifact?.repo;
-    if (!target) return;
+    // content the user never reviewed. The fingerprint extends the same contract to CONTENT: the
+    // server regenerates at apply time, so it compares against the body we rendered and 409s if the
+    // repo's context changed since the preview.
+    if (!artifact) return;
+    const target = artifact.repo;
     setBusy("apply");
     setError(null);
     try {
       const res = await fetch("/api/practices/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo: target, practiceId }),
+        body: JSON.stringify({ repo: target, practiceId, previewFingerprint: artifactFingerprint(artifact.body) }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
+      if (!res.ok) {
+        // Content drift: the preview is stale — drop it so the apply button disappears until the
+        // user re-previews the regenerated starter.
+        if (data.code === "content-drift") setArtifact(null);
+        throw new Error(data.error ?? "Failed to open PR.");
+      }
       setPr({ url: data.url, reused: data.reused });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to open PR.");
@@ -284,8 +292,10 @@ export function PracticeApply({ practiceId, gapRepos }: { practiceId: string; ga
                 })()}
               {batchResults && (
                 <ul className="mt-2 space-y-1">
-                  {batchResults.map((res) => (
-                    <li key={res.repo} className="font-mono text-sm">
+                  {/* Key includes the index: the server dedupes, but a defensive duplicate repo in
+                      the results must not blow up the list with colliding React keys. */}
+                  {batchResults.map((res, i) => (
+                    <li key={`${res.repo}-${i}`} className="font-mono text-sm">
                       {res.ok ? (
                         <span className="text-emerald-300">
                           ✓ {res.repo.split("/").pop()} —{" "}

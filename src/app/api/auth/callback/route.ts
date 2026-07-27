@@ -1,5 +1,13 @@
 // GET /api/auth/callback — GitHub OAuth redirect. Verifies CSRF state, exchanges the
 // code, loads the user + their App installations, sets the signed session cookie.
+//
+// ── DIVERGENCE (github-oauth-session 07-16 #3): this is the DORMANT custom-OAuth stack ────────────
+// In production the ACTIVE sign-in path is the Supabase wall (src/app/auth/callback/route.ts);
+// `.env.production` carries no GITHUB_OAUTH_*/AUTH_SECRET, so isAuthConfigured() is false and THIS
+// route never runs there. Everything below — installation upsert, session-version stamping, org
+// auto-discovery, watchlist seeding, the /launch first-login cinematic, resync=1 — executes ONLY
+// when the custom stack is configured (local/self-hosted). Do not read these comments as the
+// product's live sign-in behavior; the Supabase callback runs none of it (its header lists the gap).
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";

@@ -27,7 +27,12 @@ const REPOS: { name: string; base: number; testing: number; cicd: number; conv: 
   { name: "auth-service", base: 44, testing: 26, cicd: 42, conv: 35 },
   { name: "docs-site", base: 29, testing: 12, cicd: 20, conv: 18 },
 ];
-const W = 0.16; // each dimension's contribution to the overall index (illustrative)
+// Each dimension's contribution to the overall index in THIS demo. Deliberately NOT the production
+// weighting: the index is nine dimensions (≈ 1/9 ≈ 0.11 each), rounded up to 0.16 so the three
+// sliders here produce visible movement and level promotions at demo scale. The real /org what-if
+// simulator computes lift from the rubric's actual archetype weights — keep this constant and the
+// paired copy in features.ts (the `roi` entry's copy contract) honest together.
+const W = 0.16;
 
 export function RoiSimulator() {
   // ABOUT #1: the bars animate `width` (non-transform), which reducedMotion="user" doesn't degrade —

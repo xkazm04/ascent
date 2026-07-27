@@ -31,11 +31,12 @@ vi.mock("@/lib/db", () => ({
   getOrgRollup: vi.fn(),
   getOrgTeamRollup: vi.fn(),
   listSegments: vi.fn(),
+  listTechStackGroups: vi.fn(),
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
 
 import { GET } from "./route";
-import { isDbConfigured, getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, listSegments } from "@/lib/db";
+import { isDbConfigured, getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, listSegments, listTechStackGroups } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
@@ -44,6 +45,7 @@ const mockGetOrgGovernance = vi.mocked(getOrgGovernance);
 const mockGetOrgRollup = vi.mocked(getOrgRollup);
 const mockGetOrgTeamRollup = vi.mocked(getOrgTeamRollup);
 const mockListSegments = vi.mocked(listSegments);
+const mockListTechStackGroups = vi.mocked(listTechStackGroups);
 const mockRequireOrgRead = vi.mocked(requireOrgRead);
 
 const get = (qs: string) => GET(new Request(`http://localhost/api/org/export${qs}`));
@@ -68,6 +70,7 @@ beforeEach(() => {
   // Default: authorized. Individual tests override to a denial Response.
   mockRequireOrgRead.mockResolvedValue(null);
   mockListSegments.mockResolvedValue([]);
+  mockListTechStackGroups.mockResolvedValue([] as never);
   mockGetContributorInsights.mockResolvedValue({ contributors: [contributor()] } as never);
   mockGetOrgGovernance.mockResolvedValue({ perRepo: [] } as never);
   mockGetOrgRollup.mockResolvedValue({ repos: [] } as never);
@@ -238,6 +241,72 @@ describe("GET /api/org/export — authorized export", () => {
     const res = await get("?org=acme&kind=delivery");
 
     expect(res.status).toBe(404);
+  });
+
+  it("returns 400 (fail closed, never whole-fleet) when ?segment= doesn't resolve for this org", async () => {
+    // Old behavior: a stale/renamed/typo'd segment id resolved to null = NO filter, silently exporting
+    // the ENTIRE fleet under a URL the caller believed was segment-scoped. Explicit request → explicit failure.
+    mockListSegments.mockResolvedValue([{ id: "seg_real", name: "Payments" }] as never);
+
+    const res = await get("?org=acme&kind=contributors&segment=seg_deleted&format=csv");
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Unknown segment for this org." });
+    // The full-fleet read must never fire behind an unresolvable scope.
+    expect(mockGetContributorInsights).not.toHaveBeenCalled();
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("scopes the read AND marks the filename + envelope when ?segment= resolves", async () => {
+    mockListSegments.mockResolvedValue([{ id: "seg_real", name: "Payments" }] as never);
+
+    const csv = await get("?org=acme&kind=contributors&segment=seg_real&format=csv");
+    expect(csv.status).toBe(200);
+    expect(mockGetContributorInsights).toHaveBeenCalledWith("acme", "seg_real", null);
+    // A segment export is no longer byte-indistinguishable from a full-fleet one once forwarded.
+    expect(csv.headers.get("content-disposition")).toBe('attachment; filename="ascent-contributors-acme-seg-real.csv"');
+
+    const json = await (await get("?org=acme&kind=contributors&segment=seg_real")).json();
+    expect(json.segment).toBe("seg_real");
+  });
+
+  it("returns 400 (fail closed, never whole-fleet) when ?stack= doesn't resolve for this org", async () => {
+    // Same data-egress contract as ?segment=: an explicit stack scope that doesn't resolve must fail,
+    // not silently export the whole fleet under a URL the caller believed was stack-scoped.
+    mockListTechStackGroups.mockResolvedValue([{ id: "tg_1", key: "react" }] as never);
+
+    const res = await get("?org=acme&kind=contributors&stack=deleted-stack&format=csv");
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Unknown tech stack for this org." });
+    expect(mockGetContributorInsights).not.toHaveBeenCalled();
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("scopes the read AND marks the filename + envelope when ?stack= resolves (composes with ?segment=)", async () => {
+    // The pages compose segment AND stack; the export must honor both, so the CSV matches the screen.
+    mockListSegments.mockResolvedValue([{ id: "seg_real", name: "Payments" }] as never);
+    mockListTechStackGroups.mockResolvedValue([{ id: "tg_1", key: "react" }] as never);
+
+    const csv = await get("?org=acme&kind=contributors&segment=seg_real&stack=react&format=csv");
+    expect(csv.status).toBe(200);
+    expect(mockGetContributorInsights).toHaveBeenCalledWith("acme", "seg_real", "tg_1");
+    expect(csv.headers.get("content-disposition")).toBe(
+      'attachment; filename="ascent-contributors-acme-seg-real-react.csv"',
+    );
+
+    const json = await (await get("?org=acme&kind=contributors&stack=react")).json();
+    expect(json.stack).toBe("react");
+  });
+
+  it("threads the resolved stack scope into the teams and delivery reads too", async () => {
+    mockListTechStackGroups.mockResolvedValue([{ id: "tg_1", key: "react" }] as never);
+
+    await get("?org=acme&kind=teams&stack=react");
+    expect(mockGetOrgTeamRollup).toHaveBeenCalledWith("acme", null, "tg_1");
+
+    await get("?org=acme&kind=delivery&stack=react");
+    expect(mockGetOrgGovernance).toHaveBeenCalledWith("acme", null, "tg_1");
   });
 
   it("still serves a header-only 200 for a genuinely empty (non-null) dataset", async () => {

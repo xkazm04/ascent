@@ -32,15 +32,46 @@ export const PURGE_ACTION = "retention.purged";
 const DAY_MS = 86_400_000;
 export const RETENTION_DEFAULT_BATCH_SIZE = 500;
 const RETENTION_MAX_BATCH_SIZE = 5000;
-// Soft wall-clock budget for a single purge run (data-retention #2). The /api/cron/purge function caps
-// at maxDuration=300s, so stop cleanly a bit before that: a large fleet then returns a proper (partial)
-// summary that records where it stopped, instead of being hard-killed mid-delete with no throw and no
-// summary log. Override via RETENTION_TIME_BUDGET_MS (ms). Governs the per-org loop, its INNER repo/scan/
-// audit batches (data-retention #1 — a single mega-org must yield too, not only the gaps between orgs),
-// and the trailing sweeps.
-export const RETENTION_DEFAULT_TIME_BUDGET_MS = 250_000;
+/**
+ * The function cap the /api/cron/purge route DECLARES (`export const maxDuration = 300`). Next.js
+ * requires that segment config to be a statically-analyzable literal, so the route cannot import this
+ * constant — instead this is the single source the time budget is DERIVED from, and a route test pins
+ * `route.maxDuration === PURGE_MAX_DURATION_S` so the two can never drift apart silently
+ * (data-retention 07-16 #1: they used to be two unrelated magic numbers in two files).
+ *
+ * CONTRACT / plan caveat: `maxDuration` is a *request*, not a guarantee — the platform honors it only
+ * up to the deployment plan's function cap (e.g. Vercel Hobby caps far lower). On such a plan the
+ * derived budget below never trips and large runs are hard-killed mid-delete with no summary; set
+ * RETENTION_TIME_BUDGET_MS comfortably below the REAL cap for your plan (purgeExpiredData warns when
+ * the env budget is >= this declared cap).
+ */
+export const PURGE_MAX_DURATION_S = 300;
+/** Headroom the budget leaves before the declared function cap, so the run can stop at a batch
+ *  boundary, write its (partial) summary, and return a 207 before the platform kills the function. */
+export const RETENTION_BUDGET_HEADROOM_MS = 50_000;
+// Soft wall-clock budget for a single purge run (data-retention #2), DERIVED from the route's declared
+// cap (never hardcoded independently — see PURGE_MAX_DURATION_S). Stop cleanly a bit before the cap: a
+// large fleet then returns a proper (partial) summary that records where it stopped, instead of being
+// hard-killed mid-delete with no throw and no summary log. Override via RETENTION_TIME_BUDGET_MS (ms).
+// Governs the per-org loop, its INNER repo/scan/audit batches (data-retention #1 — a single mega-org
+// must yield too, not only the gaps between orgs), and the trailing sweeps.
+// `RETENTION_TIME_BUDGET_MS=0` means UNLIMITED — no budget, run to completion (data-retention 07-16 #5):
+// this matches the module-wide "0 = disabled" convention its sibling env vars follow (a self-hosted
+// deployment with no platform kill-timer needs a way to disable the budget). Unset/blank/invalid falls
+// back to this derived default.
+export const RETENTION_DEFAULT_TIME_BUDGET_MS = PURGE_MAX_DURATION_S * 1000 - RETENTION_BUDGET_HEADROOM_MS;
 /** Repos enumerated per page when pruning an org, so a fleet org's repo list is never read all at once. */
 const REPO_PAGE_SIZE = 500;
+
+// Destructive-override safety floor (data-retention 07-16 #2). A per-org override is applied verbatim,
+// so a fat-fingered `retentionMaxScans = 1` (meant `100`) or `retentionAuditDays = 1` would irreversibly
+// wipe nearly all of an org's scan history / audit trail on the next cron tick — for an audit product,
+// the compliance evidence itself. A configured-but-below-floor window is therefore REFUSED (the org is
+// skipped and an error is pushed, so the route's 207 alerting pages an operator) unless the operator
+// explicitly opts in with RETENTION_FORCE=1. `0` still means "keep everything" and is never floored.
+// Preview what any policy would delete first via `?dryRun=1` on /api/cron/purge (PurgeOptions.dryRun).
+export const RETENTION_MIN_SCANS_PER_REPO = 5;
+export const RETENTION_MIN_AUDIT_DAYS = 7;
 
 /** An effective retention policy. A window of `0` means "keep everything" (disabled). */
 export interface RetentionPolicy {
@@ -236,16 +267,25 @@ export interface PurgeSummary {
   stoppedEarly: boolean;
   /** Orgs left unprocessed when the run stopped early (0 on a complete run) — the resume tail. */
   orgsRemaining: number;
+  /** True when this was a preview run: nothing was deleted and no audit entry was written. Scan
+   *  counts are per-repo would-delete totals; dependent dimension/recommendation(-event) rows are NOT
+   *  enumerated in a dry run (reported as 0) — the scan count is the decision-relevant number. */
+  dryRun: boolean;
 }
 
 /** Options for {@link purgeExpiredData}. The clock is injectable so the budget + the per-tick rotation
  *  (which is DERIVED from the clock, not from an RNG) are deterministically testable. */
 export interface PurgeOptions {
   actorId?: string;
-  /** Wall-clock budget (ms) for the org loop; defaults to RETENTION_TIME_BUDGET_MS env or 250_000. */
+  /** Wall-clock budget (ms) for the org loop; defaults to the RETENTION_TIME_BUDGET_MS env var, then
+   *  RETENTION_DEFAULT_TIME_BUDGET_MS. `0` = unlimited (no budget), per the module's 0-sentinel. */
   timeBudgetMs?: number;
   /** Monotonic-ish clock (ms). Defaults to Date.now. Also seeds the per-tick rotation offset. */
   now?: () => number;
+  /** Preview mode (data-retention 07-16 #2): count what each policy WOULD delete without deleting
+   *  anything or writing audit entries. Surfaced as `?dryRun=1` on /api/cron/purge. The safety floor
+   *  is not enforced in a dry run (previewing a sub-floor policy is exactly what it is for). */
+  dryRun?: boolean;
 }
 
 /**
@@ -258,6 +298,19 @@ export interface PurgeOptions {
  * `length` ticks — a BOUNDED worst-case reach — while staying stateless (no persisted cursor). The input
  * order is the query's `createdAt asc` (oldest first), so an un-rotated tick already drains the oldest
  * data first; the rotation only guarantees the tail is eventually reached.
+ *
+ * PRECONDITIONS the bound depends on (data-retention 07-16 #3) — neither is checked at runtime:
+ *  1. EXACTLY ONE tick per calendar day. The offset is `floor(startedAt / DAY_MS)` (the epoch-day
+ *     index), so it advances once per day regardless of cron cadence: schedule the purge more often
+ *     than daily (vercel.json is the source of truth, not the route's "daily" comment) and every tick
+ *     within a day retries the identical prefix — the bound becomes `length` DAYS, not ticks.
+ *  2. A STABLE org population. The modulo is over `orgs.length`, so an org created/deleted between
+ *     ticks changes `n` and `offset % n` jumps discontinuously — during org churn the round-robin
+ *     bound degrades to probabilistic again and an unlucky tail org can be skipped repeatedly.
+ * Under churn/steeper cadence the guarantee is best-effort, not broken-by-construction: every tick
+ * still drains oldest-first from wherever it starts. The durable fix — a persisted cursor row — was
+ * REJECTED to keep this module schema-free and stateless (no migration, no cursor row to corrupt or
+ * to contend on under concurrent ticks); revisit if real deployments schedule sub-daily crons.
  */
 export function rotateForTick<T>(arr: T[], offset: number): void {
   const n = arr.length;
@@ -280,8 +333,22 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   const prisma = getPrisma();
   const defaults = envRetentionDefaults();
   const now = opts.now ?? Date.now;
-  const timeBudgetMs =
-    opts.timeBudgetMs ?? (parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS) || RETENTION_DEFAULT_TIME_BUDGET_MS);
+  const envBudget = opts.timeBudgetMs == null ? parseNonNegInt(process.env.RETENTION_TIME_BUDGET_MS) : null;
+  // `??`, not `||` (data-retention 07-16 #5): everywhere else in this module 0 is the documented
+  // "disabled/unlimited" sentinel, but falsy-coalescing silently swallowed an explicit
+  // RETENTION_TIME_BUDGET_MS=0 into the 250s default — leaving no way to express "no budget" at all.
+  // 0 now means unlimited (overBudget below never trips); unset/invalid still gets the derived default.
+  const timeBudgetMs = opts.timeBudgetMs ?? envBudget ?? RETENTION_DEFAULT_TIME_BUDGET_MS;
+  // Budget/cap coupling warning (data-retention 07-16 #1): a budget at or beyond the route's declared
+  // maxDuration can never trip BEFORE the platform kill, so the "stop cleanly with a summary" guarantee
+  // is silently void. Warn (env-configured budgets only — injected test budgets are deliberate; an
+  // explicit 0 = unlimited is likewise a deliberate operator choice, not an accidental over-cap).
+  if (envBudget != null && envBudget !== 0 && envBudget >= PURGE_MAX_DURATION_S * 1000) {
+    console.warn(
+      `[retention] RETENTION_TIME_BUDGET_MS=${envBudget} >= the route's maxDuration (${PURGE_MAX_DURATION_S}s) — ` +
+        `the budget will never trip before the platform kills the function; set it below the plan's real cap`,
+    );
+  }
   const startedAt = now();
 
   const orgs = await prisma.organization.findMany({
@@ -313,7 +380,8 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   // this run returns a partial (but visible + resumable) summary instead of dying mid-delete with no
   // log. Committed batches survive; the next tick's re-shuffle reaches the unprocessed tail. Also
   // governs the trailing org-less / public-scan-quota sweeps below.
-  const overBudget = () => now() - startedAt >= timeBudgetMs;
+  // timeBudgetMs === 0 is the "unlimited" sentinel (data-retention 07-16 #5): never over budget.
+  const overBudget = () => timeBudgetMs > 0 && now() - startedAt >= timeBudgetMs;
 
   // Count only the orgs from `from` onward that actually have a policy to enforce (data-retention #6):
   // an org whose effective window is 0/0 is skipped as a no-op below, so counting it as "unprocessed"
@@ -339,6 +407,27 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     // Nothing to enforce for this org — skip (don't write a no-op audit entry).
     if (policy.maxScansPerRepo <= 0 && policy.auditDays <= 0) continue;
 
+    // Safety floor (data-retention 07-16 #2): refuse to DESTRUCTIVELY apply a configured window below
+    // the floor — a single mistyped integer must not silently wipe an org's compliance evidence. The
+    // error trips the route's 207 so an operator is paged instead of the data quietly vanishing.
+    // Dry runs preview sub-floor policies unimpeded; RETENTION_FORCE=1 applies them for real.
+    if (!opts.dryRun && process.env.RETENTION_FORCE !== "1") {
+      const belowFloor: string[] = [];
+      if (policy.maxScansPerRepo > 0 && policy.maxScansPerRepo < RETENTION_MIN_SCANS_PER_REPO) {
+        belowFloor.push(`maxScansPerRepo=${policy.maxScansPerRepo} < ${RETENTION_MIN_SCANS_PER_REPO}`);
+      }
+      if (policy.auditDays > 0 && policy.auditDays < RETENTION_MIN_AUDIT_DAYS) {
+        belowFloor.push(`auditDays=${policy.auditDays} < ${RETENTION_MIN_AUDIT_DAYS}`);
+      }
+      if (belowFloor.length) {
+        errors.push(
+          `${org.slug}: retention policy is below the safety floor (${belowFloor.join(", ")}) — refusing to purge ` +
+            `this org. Preview with ?dryRun=1; set RETENTION_FORCE=1 to apply an intentionally aggressive policy.`,
+        );
+        continue;
+      }
+    }
+
     // Declare the counters OUTSIDE the try (data-retention #3). Each delete batch is its own committed
     // transaction, so if a LATER batch/sweep throws, earlier batches are already durable — the counters
     // hold real deletions. The old code declared these inside try and only results.push()'d at the very
@@ -352,6 +441,34 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     let auditDeleted = 0;
 
     try {
+      // Preview mode (data-retention 07-16 #2): count what the policy WOULD delete — per-repo scan
+      // counts beyond the keep-window plus in-window audit rows — with no deletes, no transactions,
+      // and no self-audit entry. Dependent dimension/recommendation rows are not enumerated (0).
+      if (opts.dryRun) {
+        if (policy.maxScansPerRepo > 0) {
+          const perRepo = await prisma.scan.groupBy({
+            by: ["repoId"],
+            where: { repo: { orgId: org.id } },
+            _count: { _all: true },
+          });
+          for (const row of perRepo) scansDeleted += Math.max(0, row._count._all - policy.maxScansPerRepo);
+        }
+        if (policy.auditDays > 0) {
+          const cutoff = new Date(now() - policy.auditDays * DAY_MS);
+          auditDeleted = await prisma.auditLog.count({ where: { orgId: org.id, at: { lt: cutoff } } });
+        }
+        results.push({
+          orgSlug: org.slug,
+          policy,
+          scansDeleted,
+          dimensionsDeleted,
+          recommendationsDeleted,
+          recommendationEventsDeleted,
+          auditDeleted,
+        });
+        continue;
+      }
+
       // Set once the wall-clock budget trips WHILE this org is being pruned (data-retention #1). The
       // budget used to be polled only between orgs, so the one fleet org it exists to protect — thousands
       // of repos, huge scan histories — ran its entire delete loop past maxDuration and was hard-killed
@@ -493,10 +610,14 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
       // together instead of silently diverging them. Thread overBudget in so a large org-less sweep also
       // yields between batches, and mark stoppedEarly if it stopped short.
       const cutoff = new Date(now() - defaults.auditDays * DAY_MS);
-      const auditDeleted = await pruneAudit(prisma, { orgId: null, at: { lt: cutoff } }, defaults.batchSize, overBudget);
+      const auditDeleted = opts.dryRun
+        ? await prisma.auditLog.count({ where: { orgId: null, at: { lt: cutoff } } })
+        : await pruneAudit(prisma, { orgId: null, at: { lt: cutoff } }, defaults.batchSize, overBudget);
       if (overBudget()) stoppedEarly = true;
       if (auditDeleted > 0) {
-        const audited = await recordAudit(PURGE_ACTION, { auditDeleted, scope: "orphan" }, { actorId: opts.actorId });
+        const audited =
+          opts.dryRun ||
+          (await recordAudit(PURGE_ACTION, { auditDeleted, scope: "orphan" }, { actorId: opts.actorId }));
         if (!audited) {
           errors.push(`(orphan): retention audit write failed (deletes applied, compliance trace missing)`);
         }
@@ -521,7 +642,8 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
   // over its time budget, in which case it's deferred to the next pass; best-effort.
   if (overBudget()) {
     stoppedEarly = true;
-  } else {
+  } else if (!opts.dryRun) {
+    // Skipped in a dry run — the sweep is destructive and carries no per-org policy to preview.
     try {
       await purgeStalePublicScanQuota();
     } catch (err) {
@@ -540,5 +662,6 @@ export async function purgeExpiredData(opts: PurgeOptions = {}): Promise<PurgeSu
     errors,
     stoppedEarly,
     orgsRemaining,
+    dryRun: opts.dryRun === true,
   };
 }

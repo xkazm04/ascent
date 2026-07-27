@@ -47,6 +47,26 @@ describe("QuotaMeter render states", () => {
     // remaining 4 of 5 is NOT low → the quiet slate tone, never the warn token.
     expect(link.closest("p")!.className).toContain("text-slate-500");
   });
+
+  it("suppresses the upsell entirely while the visitor still holds the FULL allowance", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res({ enforced: true, remaining: 5, limit: 5, resetAt: null, scope: "anon" })));
+    await act(async () => { render(<QuotaMeter />); });
+    await flush();
+    expect(screen.queryByRole("link", { name: "upgrade for more scans" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in for more scans" })).toBeNull();
+    expect(document.querySelector("p span.font-semibold")?.textContent).toBe("5"); // meter itself still shows
+  });
+
+  it("offers the SIGN-IN CTA first (the report banners' hierarchy) when Supabase auth is wired", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://supabase.example");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res({ enforced: true, remaining: 3, limit: 5, resetAt: null, scope: "anon" })));
+    await act(async () => { render(<QuotaMeter />); });
+    expect(await screen.findByRole("button", { name: "Sign in for more scans" })).toBeInTheDocument();
+    // The paid link is the FALLBACK, not a sibling — one CTA, matching quotaCta's hierarchy.
+    expect(screen.queryByRole("link", { name: "upgrade for more scans" })).toBeNull();
+    vi.unstubAllEnvs();
+  });
 });
 
 describe("QuotaMeter out-of-order fetch race", () => {

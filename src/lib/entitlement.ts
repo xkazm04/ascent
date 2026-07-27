@@ -26,7 +26,8 @@ export interface ScanEntitlement {
   /** Free metered scans LEFT in the monthly allowance (max(0, allowance − usageThisMonth)); Infinity
    *  on the unlimited plan. The batch paths cap on `balance + allowanceRemaining`, not balance alone —
    *  capping on prepaid credits only wrongly denied an org's INCLUDED free scans (a Free org with 0
-   *  purchased credits but its 10 monthly free scans had every bulk scan/import skipped). */
+   *  purchased credits but its included monthly free scans — PLAN_FEATURES.free.includedCredits,
+   *  currently 5 — had every bulk scan/import skipped). */
   allowanceRemaining: number;
   /** `false` ONLY when a DB is configured and the slug matched NO org row (deletion / casing / typo).
    *  Mirrors CreditState.orgExists so a caller can 404 a phantom slug instead of trusting `allowed`.

@@ -11,7 +11,7 @@ import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
-import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 
@@ -119,9 +119,16 @@ export async function POST(request: Request) {
         // Scan with bounded concurrency rather than strictly serially: each lane sends its own
         // per-repo events as it resolves (the SSE consumer already keys off each message's repo,
         // not arrival order), so the war-room fills in a fraction of the wall-clock and a realistic
-        // fleet finishes inside the 300s budget. `done` is incremented in a single-threaded lane, so
-        // the count is race-free.
+        // fleet finishes inside the 300s budget. Counters are incremented in single-threaded lanes,
+        // so they are race-free.
+        //
+        // `done` is the progress-denominator index (repos handled, skips included); `scanned` is the
+        // OUTCOME metric (repos an actual scan ran for). One variable used to serve both roles, so
+        // claim-collision and mid-run credit skips were reported as `scanned` in the final result.
+        // (ambiguity-ui 2026-07-16 #4)
         let done = 0;
+        let scanned = 0;
+        let skippedInProgress = 0;
         await mapPool(scanList, SCAN_CONCURRENCY, async (repo) => {
           // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the manual
           // path was missing. If another in-flight run (a second tab, another member, or an overlapping
@@ -131,6 +138,7 @@ export async function POST(request: Request) {
           const claim = claimRepoScan(org, repo.fullName);
           if (claim === null) {
             send("repo", { repo: repo.fullName, skipped: "in_progress" });
+            skippedInProgress += 1;
             done += 1;
             send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
             return;
@@ -159,7 +167,6 @@ export async function POST(request: Request) {
             try {
               const report = await scanRepository(repo.fullName, { token, orgSlug: org });
               const persisted = await persistScanReport(report, { orgSlug: org });
-              logPartialWrites("org/scan", repo.fullName, persisted);
               // Refund the reservation when nothing billable was produced: either the scan degraded to
               // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
               // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
@@ -180,6 +187,7 @@ export async function POST(request: Request) {
               await recordScanOutcome(org, repo.fullName, { ok: false, error: msg }).catch(() => {});
               send("repo", { repo: repo.fullName, error: msg });
             }
+            scanned += 1; // a scan actually ran for this repo (scored or failed) — never a skip
             done += 1;
             send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
           } finally {
@@ -192,7 +200,7 @@ export async function POST(request: Request) {
         // Capture the team-standings decomposition as a durable output of this full org scan
         // (best-effort — a failure here must never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { scanned: done, total: scanList.length, skippedForCredits });
+        send("result", { scanned, total: scanList.length, skippedForCredits, skippedInProgress });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Bulk scan failed." });
       } finally {

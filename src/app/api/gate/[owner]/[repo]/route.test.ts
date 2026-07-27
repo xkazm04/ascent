@@ -51,11 +51,15 @@ vi.mock("@/lib/cache", () => ({
 }));
 // Gate evaluation is mocked so we drive pass/fail deterministically and can assert that the route's
 // status maps off `gate.pass` exactly. policyFromParams is mocked to a spy so we can assert query
-// params reach it.
-vi.mock("@/lib/scoring/gate", () => ({
+// params reach it; explicitPolicyFromParams / tightenGatePolicy stay REAL so the tighten-only org
+// policy merge (ci-gate 2026-07-16 #1) is exercised end-to-end through the route.
+vi.mock("@/lib/scoring/gate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/scoring/gate")>()),
   evaluateGate: vi.fn(),
   policyFromParams: vi.fn(() => ({ minLevel: "L3", minDimension: 40 })),
 }));
+// The persisted org gate policy — null by default (DB-less), overridden per-test for the merge cases.
+vi.mock("@/lib/db/org-gate", () => ({ getOrgGatePolicy: vi.fn(async () => null) }));
 vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: vi.fn(() => ({ ok: true, retryAfterSec: 0 })),
   tooManyRequests: vi.fn((sec: number) =>
@@ -72,6 +76,7 @@ import { GET } from "./route";
 import { scanRepository } from "@/lib/scan";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { evaluateGate, policyFromParams } from "@/lib/scoring/gate";
+import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { rateLimitRequest, tooManyRequests } from "@/lib/rate-limit";
 
 const mockScan = vi.mocked(scanRepository);
@@ -79,6 +84,7 @@ const mockCacheGet = vi.mocked(cacheGet);
 const mockCacheSet = vi.mocked(cacheSet);
 const mockEvaluateGate = vi.mocked(evaluateGate);
 const mockPolicyFromParams = vi.mocked(policyFromParams);
+const mockGetOrgGatePolicy = vi.mocked(getOrgGatePolicy);
 const mockRateLimit = vi.mocked(rateLimitRequest);
 const mockTooManyRequests = vi.mocked(tooManyRequests);
 
@@ -128,6 +134,7 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     mockCacheGet.mockReturnValue(report());
     mockRateLimit.mockReturnValue({ ok: true, retryAfterSec: 0 });
     mockPolicyFromParams.mockReturnValue({ minLevel: "L3", minDimension: 40 } as never);
+    mockGetOrgGatePolicy.mockResolvedValue(null);
   });
 
   // --- (1) PASS -> 200 with the documented pass body --------------------------
@@ -337,6 +344,48 @@ describe("GET /api/gate/[owner]/[repo] — the 200/422 CI contract (high)", () =
     expect((params as URLSearchParams).get("min_dimension")).toBe("50");
     expect((params as URLSearchParams).get("no_ungoverned")).toBe("1");
     expect(archetype).toBe("org"); // policy is archetype-aware off the scanned report
+  });
+
+  // --- (5b) TIGHTEN-ONLY org-policy merge (ambiguity-ui 2026-07-16 ci-gate #1) --
+  // The endpoint is unauthenticated; a query param must never WEAKEN or drop the persisted org bar.
+  // Previously ANY single policy param replaced the entire persisted policy with params + archetype
+  // defaults — an anonymous caller could pass ?min_dimension=1 for a green verdict the org never set.
+  it("a query param can NOT weaken the persisted org policy (stricter org field survives)", async () => {
+    mockGetOrgGatePolicy.mockResolvedValue({
+      minOverall: 70,
+      minDimensionFor: { D9: 70 },
+      requireProtectedBranch: true,
+    });
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    await get("?min_overall=10");
+
+    const [, policy] = mockEvaluateGate.mock.calls[0];
+    // The lax param is discarded; every persisted field survives untouched.
+    expect(policy).toEqual({ minOverall: 70, minDimensionFor: { D9: 70 }, requireProtectedBranch: true });
+    // Archetype defaults never dilute an existing org policy (the old full-replacement path is gone).
+    expect(mockPolicyFromParams).not.toHaveBeenCalled();
+  });
+
+  it("a query param CAN tighten the persisted org policy per-field (other fields kept)", async () => {
+    mockGetOrgGatePolicy.mockResolvedValue({ minOverall: 50, minDimensionFor: { D9: 70 } });
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    await get("?min_overall=90&min_level=L4");
+
+    const [, policy] = mockEvaluateGate.mock.calls[0];
+    expect(policy).toEqual({ minLevel: "L4", minOverall: 90, minDimensionFor: { D9: 70 } });
+  });
+
+  it("without a persisted org policy, params + archetype default resolve via policyFromParams (unchanged)", async () => {
+    mockGetOrgGatePolicy.mockResolvedValue(null);
+    mockEvaluateGate.mockReturnValue({ pass: true, policy: {}, failures: [] } as never);
+
+    await get("?min_overall=60");
+
+    expect(mockPolicyFromParams).toHaveBeenCalledTimes(1);
+    const [, policy] = mockEvaluateGate.mock.calls[0];
+    expect(policy).toEqual({ minLevel: "L3", minDimension: 40 }); // the policyFromParams spy's return
   });
 
   // --- (6) DEGRADATION HONESTY (ci-gate-status-checks #2) ----------------------

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { CTA_OUTLINE, CTA_PRIMARY } from "@/lib/ui";
 
 export interface EmptyStateAction {
   label: string;
@@ -69,16 +70,10 @@ export function EmptyState({
       {(actions.length > 0 || children) && (
         <div className={`flex flex-wrap items-center justify-center gap-3 ${section ? "mt-3" : "mt-6"}`}>
           {children}
+          {/* The canonical CTA pair (shared with RouteError/not-found) — one geometry + the
+              brand focus-ring, so identical-role actions can't drift across adjacent pages. */}
           {actions.map((a) => (
-            <Link
-              key={`${a.href}::${a.label}`}
-              href={a.href}
-              className={
-                a.primary
-                  ? "rounded-xl bg-accent px-5 py-2.5 text-base font-medium text-on-accent transition hover:bg-accent-soft"
-                  : "rounded-xl border border-slate-700 px-5 py-2.5 text-base text-slate-300 transition hover:border-accent hover:text-white"
-              }
-            >
+            <Link key={`${a.href}::${a.label}`} href={a.href} className={a.primary ? CTA_PRIMARY : CTA_OUTLINE}>
               {a.label}
             </Link>
           ))}

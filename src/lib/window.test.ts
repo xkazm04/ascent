@@ -146,6 +146,24 @@ describe("resolveWindow — custom half-open boundary (to is inclusive of its wh
     expect(w.start!.getTime()).toBeLessThan(w.end!.getTime());
     expect(w.from).toBe("2026-01-01");
     expect(w.to).toBe("2026-03-31");
+    // The swap is silent — the title must confirm the FINAL bounds so the correction is visible.
+    expect(w.title).toBe("2026-01-01 → 2026-03-31");
+  });
+
+  it("a custom range's title echoes the resolved dates (never the opaque 'Custom range' literal)", () => {
+    // A shared link / remembered cookie shows deltas scoped to a window the preset titles would name;
+    // custom alone has parameters worth echoing back — an unknowable window invites wrong conclusions.
+    const closed = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
+    expect(closed.title).toBe("2026-01-01 → 2026-03-31");
+    expect(closed.reviewTitle).toBe("2026-01-01 → 2026-03-31 in review");
+
+    const open = resolveWindow({ range: "custom", from: "2026-01-01" }, NOW);
+    expect(open.title).toBe("2026-01-01 → now");
+
+    // No parseable start = nothing to echo; the generic label is the honest fallback.
+    const bad = resolveWindow({ range: "custom", from: "not-a-date" }, NOW);
+    expect(bad.title).toBe("Custom range");
+    expect(bad.reviewTitle).toBe("Range in review");
   });
 });
 

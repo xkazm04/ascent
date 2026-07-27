@@ -2,7 +2,7 @@
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { briefingMarkdown, engineMixDegraded, valueRealizedLine, type ExecBriefing } from "./briefing";
+import { briefingMarkdown, engineMixCaveat, valueRealizedLine, type ExecBriefing } from "./briefing";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
 // a prior-window rollup it derives itself). Mock the db boundary so we can drive the assembly math
@@ -80,12 +80,22 @@ describe("valueRealizedLine — the renewal-justification, only when there's val
   });
 });
 
-describe("engineMixDegraded — flags a PARTIAL mock fallback, not a clean single-engine period", () => {
-  it("is true only when mock AND a real engine both scored in the period", () => {
-    expect(engineMixDegraded([{ provider: "claude-cli", count: 7 }, { provider: "mock", count: 1 }])).toBe(true);
-    expect(engineMixDegraded([{ provider: "claude-cli", count: 8 }])).toBe(false); // all live
-    expect(engineMixDegraded([{ provider: "mock", count: 8 }])).toBe(false); // all mock (a demo/mock deployment, not a fallback)
-    expect(engineMixDegraded([])).toBe(false);
+describe("engineMixCaveat — fires on ANY mock presence, with wording scaled to the degradation", () => {
+  it("names a PARTIAL mock fallback as 'some scores'", () => {
+    expect(engineMixCaveat([{ provider: "claude-cli", count: 7 }, { provider: "mock", count: 1 }])).toBe(
+      "some scores this period used the deterministic mock engine, not the live model",
+    );
+  });
+  it("an ALL-mock period gets the STRONGER caveat, not silence (executive-briefing 07-16 #3)", () => {
+    // The old engineMixDegraded required mock AND real, so a quarter where every scan fell back to
+    // the mock engine — the strongest possible degradation — printed no warning anywhere.
+    expect(engineMixCaveat([{ provider: "mock", count: 8 }])).toBe(
+      "all scores this period used the deterministic mock engine, not the live model",
+    );
+  });
+  it("is null for a clean all-live period (and for an empty mix)", () => {
+    expect(engineMixCaveat([{ provider: "claude-cli", count: 8 }])).toBeNull();
+    expect(engineMixCaveat([])).toBeNull();
   });
 });
 
@@ -113,7 +123,12 @@ describe("briefingMarkdown", () => {
 
   it("records the scoring provenance and flags a mock-degraded period (engine mix in the durable artifact)", () => {
     expect(md).toContain("Scored by: Claude CLI ×7, Mock (deterministic) ×1");
-    expect(md).toContain("some scores used the deterministic mock engine");
+    expect(md).toContain("some scores this period used the deterministic mock engine");
+  });
+
+  it("an ALL-mock period carries the 'all scores' caveat in the markdown (not a bare mock label)", () => {
+    const md2 = briefingMarkdown({ ...fixture, engineMix: [{ provider: "mock", count: 8 }] });
+    expect(md2).toContain("all scores this period used the deterministic mock engine, not the live model");
   });
 
   it("surfaces the value realized this period (the renewal-justification line)", () => {

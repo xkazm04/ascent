@@ -739,13 +739,28 @@ describe("parseRepos (via listInitiatives) — tolerant of corrupt repos JSON, n
 });
 
 describe("parseTargetDate (via createGoal write + listInitiatives read) — valid ⇒ Date, junk ⇒ null, never NaN/throw", () => {
-  /** createGoal upserts the org then creates the goal; capture the `targetDate` value it writes. */
-  function fakeCreateGoalPrisma() {
+  /** createGoal upserts the org, reads the fleet snapshot (already-met guard), then creates the goal;
+   *  capture the `targetDate` value it writes. `repos` seeds the snapshot (default: scan-less fleet). */
+  function fakeCreateGoalPrisma(repos: RepoSeed[] = []) {
     const created: Array<{ targetDate: unknown }> = [];
+    const repoRows = repos.map((r) => ({
+      fullName: r.fullName,
+      name: r.name,
+      scans: [
+        {
+          overallScore: r.overall,
+          adoptionScore: r.adoption ?? r.overall,
+          rigorScore: r.rigor ?? r.overall,
+          archetype: "org",
+          dimensions: Object.entries(r.dims ?? {}).map(([dimId, score]) => ({ dimId, score })),
+        },
+      ],
+    }));
     return {
       created,
       prisma: {
         organization: { upsert: vi.fn(async () => ({ id: ORG_ID })) },
+        repository: { findMany: vi.fn(async () => repoRows) },
         goal: {
           create: vi.fn(async ({ data }: { data: { targetDate: unknown } }) => {
             created.push({ targetDate: data.targetDate });
@@ -779,6 +794,30 @@ describe("parseTargetDate (via createGoal write + listInitiatives read) — vali
     mockGetPrisma.mockReturnValue(prisma);
     await createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 70, targetDate: input as string | null });
     expect(created[0]!.targetDate).toBeNull();
+  });
+
+  // ambiguity-ui 07-16 goals #5: pct has no baseline, so a target the fleet already meets would be
+  // stamped "achieved" (zero-movement milestone) on the very next listGoals pass — reject at create.
+  describe("createGoal already-met guard", () => {
+    it("rejects target <= the fleet's current value with GOAL_ALREADY_MET naming the current number", async () => {
+      const { prisma } = fakeCreateGoalPrisma([{ fullName: "acme/web", name: "web", overall: 47 }]);
+      mockGetPrisma.mockReturnValue(prisma);
+      await expect(createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 47 })).rejects.toMatchObject({
+        code: "GOAL_ALREADY_MET",
+        message: expect.stringContaining("already at 47"),
+      });
+      expect(prisma.goal.create).not.toHaveBeenCalled();
+    });
+
+    it("allows a target above the current value, and any target on a scan-less fleet (metrics read 0)", async () => {
+      const fleet = fakeCreateGoalPrisma([{ fullName: "acme/web", name: "web", overall: 47 }]);
+      mockGetPrisma.mockReturnValue(fleet.prisma);
+      await expect(createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 48 })).resolves.toEqual({ id: "g_new" });
+
+      const empty = fakeCreateGoalPrisma();
+      mockGetPrisma.mockReturnValue(empty.prisma);
+      await expect(createGoal(ORG_SLUG, { label: "G", metric: "overall", target: 10 })).resolves.toEqual({ id: "g_new" });
+    });
   });
 
   it("a stored targetDate Date round-trips to its YYYY-MM-DD in listInitiatives", async () => {
@@ -892,6 +931,50 @@ function fakeCasModel(opts: { current: Record<string, unknown> | null; stored?: 
   });
   return { findUnique, updateMany };
 }
+
+describe("createInitiative — promote idempotency (backlog-management #1)", () => {
+  // The only pre-fix guard against double-promotion was a client-session `promoted` flag; the server
+  // now dedupes on (org, title, dimId), merging newly-scoped repos into the existing initiative.
+  function fakeInitiativePrisma(existing: { id: string; repos: string } | null) {
+    return {
+      organization: { upsert: vi.fn(async () => ({ id: ORG_ID })) },
+      goal: { findUnique: vi.fn(async () => null) },
+      initiative: {
+        findFirst: vi.fn(async () => existing),
+        update: vi.fn(async () => ({})),
+        create: vi.fn(async () => ({ id: "init_new" })),
+      },
+    };
+  }
+
+  it("re-promoting the same (org, title, dim) reuses the existing initiative and merges repos — no duplicate row", async () => {
+    const prisma = fakeInitiativePrisma({ id: "init_1", repos: JSON.stringify(["acme/api"]) });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await createInitiative(ORG_SLUG, { title: "Add CI gate", dimId: "D2", repos: ["acme/web"] });
+
+    expect(out).toEqual({ id: "init_1" }); // existing id returned, so the caller links to the canonical row
+    expect(prisma.initiative.create).not.toHaveBeenCalled();
+    expect(prisma.initiative.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orgId: ORG_ID, title: "Add CI gate", dimId: "D2" } }),
+    );
+    // The new repo scope is merged into the existing initiative, not lost.
+    const upd = prisma.initiative.update.mock.calls[0][0] as { where: { id: string }; data: { repos: string } };
+    expect(upd.where).toEqual({ id: "init_1" });
+    expect(JSON.parse(upd.data.repos).sort()).toEqual(["acme/api", "acme/web"]);
+  });
+
+  it("creates a fresh initiative when no (org, title, dim) match exists", async () => {
+    const prisma = fakeInitiativePrisma(null);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await createInitiative(ORG_SLUG, { title: "Add CI gate", dimId: "D2", repos: ["acme/api"] });
+
+    expect(out).toEqual({ id: "init_new" });
+    expect(prisma.initiative.create).toHaveBeenCalledTimes(1);
+    expect(prisma.initiative.update).not.toHaveBeenCalled();
+  });
+});
 
 describe("updateGoal — optimistic compare-and-set", () => {
   const base = { status: "active", target: 50, label: "old", targetDate: null };

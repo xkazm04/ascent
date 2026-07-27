@@ -1,4 +1,5 @@
 import type { ScanReport } from "@/lib/types";
+import { REVERT_RATE_ELEVATED, SMALL_PR_MAX_LINES } from "@/lib/analyze/pr-thresholds";
 import { scoreHex } from "@/lib/ui";
 import { Kicker, Surface } from "@/components/ui";
 
@@ -63,6 +64,10 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
           </span>
         )}
       </div>
+      {/* Rate metrics (review coverage / merge rate / small PRs) reuse scoreHex's L1–L5 maturity
+          ramp purely as a good→bad color scale — a familiar red→green gradient, NOT a claim that
+          e.g. a 60% small-PR rate is "Defined"-tier. The thresholds that actually move the score
+          live in pulls.ts (prScore); this coloring is presentation only. */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <PrMetric
           label="Review coverage"
@@ -71,14 +76,19 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
           hint={stats.reviewedRate == null ? "no human-merged PRs" : "human PRs reviewed"}
         />
         <PrMetric label="Merge rate" value={`${stats.mergeRate}%`} color={scoreHex(stats.mergeRate)} hint="vs closed unmerged" />
-        <PrMetric label="Small PRs" value={`${stats.smallPrRate}%`} color={scoreHex(stats.smallPrRate)} hint="≤200 lines" />
+        <PrMetric
+          label="Small PRs"
+          value={`${stats.smallPrRate}%`}
+          color={scoreHex(stats.smallPrRate)}
+          hint={`≤${SMALL_PR_MAX_LINES} lines`}
+        />
         <PrMetric label="Time to merge" value={fmtHours(stats.medianHoursToMerge)} hint="median" />
         <PrMetric label="Time to review" value={fmtHours(stats.medianHoursToFirstReview)} hint="median 1st" />
         <PrMetric
           label="Revert rate"
           value={`${stats.revertRate}%`}
-          color={stats.revertRate > 10 ? "var(--color-warn)" : "#fff"}
-          elevated={stats.revertRate > 10}
+          color={stats.revertRate > REVERT_RATE_ELEVATED ? "var(--color-warn)" : "#fff"}
+          elevated={stats.revertRate > REVERT_RATE_ELEVATED}
           hint="reverted PRs"
         />
       </div>

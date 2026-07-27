@@ -87,6 +87,10 @@ export function buildTrajectories(repos: RepoLatest[], histories: OrgRepoHistory
 
 // ── Display maps: type (posture) dots + stack (role) labels ────────────────────
 
+/** The POSTURE_DOT fallback for an unknown/legacy posture id — one exported constant so renderers
+ *  don't re-inline the slate hex ad hoc (the module rule: colors never hand-picked at call sites). */
+export const POSTURE_DOT_FALLBACK = "#64748b";
+
 /** Colored dot per posture "type" — reuses the war-room posture palette. Unknown → slate. */
 export const POSTURE_DOT: Record<string, string> = {
   "ai-native": "#22c55e",

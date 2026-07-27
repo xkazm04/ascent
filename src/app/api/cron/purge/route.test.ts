@@ -28,8 +28,14 @@ vi.mock("@/lib/db", () => ({
   purgeExpiredData: vi.fn(),
 }));
 
-import { GET } from "./route";
+import { GET, maxDuration } from "./route";
 import { isDbConfigured, purgeExpiredData } from "@/lib/db";
+import {
+  PURGE_MAX_DURATION_S,
+  RETENTION_BUDGET_HEADROOM_MS,
+  RETENTION_DEFAULT_TIME_BUDGET_MS,
+} from "@/lib/db/retention";
+import { RETIRE_CLIENT_GRACE_MS } from "@/lib/db/client";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockPurge = vi.mocked(purgeExpiredData);
@@ -139,13 +145,29 @@ describe("GET /api/cron/purge — auth gate (fail-closed) + error surface", () =
 
   // ---- (4) DB-not-configured short-circuit (still requires auth first) ----
 
-  it("authorizes first, then skips (no purge) when the DB is not configured", async () => {
+  it("returns 503 (not a green 200) when the DB is not configured — a broken prod env must page", async () => {
+    // data-retention 07-16 #4: cron monitors only watch the HTTP status, so a prod deploy that lost
+    // DATABASE_URL returning 200 daily would silently stop enforcing every retention window forever.
     mockIsDb.mockReturnValue(false);
     const res = await GET(req({ auth: `Bearer ${SECRET}` }));
     const body = await bodyOf(res);
-    expect(res.status ?? 200).toBe(200);
-    expect(body.skipped).toBeDefined();
+    expect(res.status).toBe(503);
+    expect(body.error).toBeDefined();
     expect(mockPurge).not.toHaveBeenCalled();
+  });
+
+  it("skips quietly with 200 when RETENTION_ALLOW_NO_DB=1 opts a DB-less deployment in", async () => {
+    mockIsDb.mockReturnValue(false);
+    process.env.RETENTION_ALLOW_NO_DB = "1";
+    try {
+      const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+      const body = await bodyOf(res);
+      expect(res.status ?? 200).toBe(200);
+      expect(body.skipped).toBeDefined();
+      expect(mockPurge).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.RETENTION_ALLOW_NO_DB;
+    }
   });
 
   // ---- (5) A thrown purge → 500, never a 200 implying success ------------
@@ -165,6 +187,35 @@ describe("GET /api/cron/purge — auth gate (fail-closed) + error surface", () =
   });
 
   // ---- (6) A run that COLLECTED errors → 207 (not a green 200) -----------
+  // ---- (7) Dry-run preview plumbing (data-retention 07-16 #2) --------------
+  it("passes dryRun: true to purgeExpiredData for ?dryRun=1 (and false otherwise)", async () => {
+    await GET(new Request(`http://localhost/api/cron/purge?dryRun=1`, { headers: { authorization: `Bearer ${SECRET}` } }));
+    expect(mockPurge).toHaveBeenLastCalledWith({ dryRun: true });
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(mockPurge).toHaveBeenLastCalledWith({ dryRun: false });
+  });
+
+  // ---- (8) The maxDuration ↔ time-budget contract (data-retention 07-16 #1) ----
+  it("the route's declared maxDuration equals PURGE_MAX_DURATION_S — the single source the budget derives from", () => {
+    // Next.js segment config must be a literal, so the route cannot import the constant; this pin is
+    // the coupling. If you change one, change the other (and re-read the plan-cap caveat at both).
+    expect(maxDuration).toBe(PURGE_MAX_DURATION_S);
+  });
+
+  it("the default purge time budget undercuts maxDuration by the declared headroom", () => {
+    expect(RETENTION_DEFAULT_TIME_BUDGET_MS).toBe(maxDuration * 1000 - RETENTION_BUDGET_HEADROOM_MS);
+    expect(RETENTION_DEFAULT_TIME_BUDGET_MS).toBeLessThan(maxDuration * 1000);
+    expect(RETENTION_BUDGET_HEADROOM_MS).toBeGreaterThan(0);
+  });
+
+  it("the DB client-retirement grace equals the cron cap (database-client-schema 07-16 #1)", () => {
+    // client.ts cannot import PURGE_MAX_DURATION_S (retention.ts imports client.ts — a cycle), so this
+    // pin IS the coupling: the retirement grace must cover the longest plausible in-flight request,
+    // which is this route's cap. The grace also bounds the documented 2× transient connection footprint
+    // during DSQL token rotations (see applyConnectionBudget / RETIRE_CLIENT_GRACE_MS docs).
+    expect(RETIRE_CLIENT_GRACE_MS).toBe(PURGE_MAX_DURATION_S * 1000);
+  });
+
   it("returns 207 (not 200) when the run collected errors — so cron alerting trips", async () => {
     // A degraded purge (a per-org prune threw, or the audit-trace write failed) surfaces its failures
     // in summary.errors. The route must translate a non-empty errors[] into a non-2xx so Vercel Cron /

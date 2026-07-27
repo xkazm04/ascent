@@ -5,6 +5,7 @@ import {
   getRepoSegmentMap,
   normalizeColor,
   normalizeSegmentName,
+  segmentInputError,
   setRepoSegment,
   setRepoSegmentsBulk,
   type SegmentSummary,
@@ -40,6 +41,28 @@ describe("normalizeColor", () => {
     expect(normalizeColor("")).toBe("#3b9eff");
     expect(normalizeColor(null)).toBe("#3b9eff");
     expect(normalizeColor(undefined)).toBe("#3b9eff");
+  });
+});
+
+// repositories-segments 2026-07-16 #5: the routes now REJECT (400) what the normalizers would have
+// silently rewritten — a malformed colour became the brand accent, a 61+-char name was truncated,
+// both behind a 200 { ok } that misreported the caller's value as applied.
+describe("segmentInputError", () => {
+  it("accepts a normal name + palette hex (and 3-digit hexes)", () => {
+    expect(segmentInputError({ name: "platform", color: "#3b9eff" })).toBeNull();
+    expect(segmentInputError({ name: "platform", color: "#abc" })).toBeNull();
+  });
+  it("accepts a partial PATCH (fields omitted are untouched)", () => {
+    expect(segmentInputError({})).toBeNull();
+    expect(segmentInputError({ color: "#0b1220" })).toBeNull(); // any VALID hex is allowed, incl. dark
+  });
+  it("rejects a non-hex colour instead of silently recoloring to the accent", () => {
+    expect(segmentInputError({ color: "rebeccapurple" })).toMatch(/hex/i);
+  });
+  it("rejects an over-long or empty name instead of silently truncating", () => {
+    expect(segmentInputError({ name: "x".repeat(61) })).toMatch(/60 characters/);
+    expect(segmentInputError({ name: "   " })).toMatch(/empty/i);
+    expect(segmentInputError({ name: "x".repeat(60) })).toBeNull(); // at the bound is fine
   });
 });
 

@@ -15,15 +15,14 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   // `fresh=1` (from a "Re-test" link) forces a re-score that bypasses the report cache. The
   // ingestion layer still issues conditional requests, so an unchanged repo stays cheap on the wire.
   const initialFresh = params.get("fresh") === "1" || params.get("fresh") === "true";
-  // "Email me when it's done" opt-in (set by the scan form). The flag rides the URL; a CUSTOM email
-  // (used only when the signed-in account has none) is stashed in sessionStorage so PII stays out of
-  // a shareable/loggable URL. Read-only feeds the scan request body — no DOM, so no hydration risk.
+  // "Email me when it's done" opt-in (set by the scan form; the flag rides the URL). The recipient is
+  // resolved SERVER-side from the viewer's verified account email — the old sessionStorage custom
+  // address ("ascent:notify-email") was silently dropped by the stream route for authenticated viewers
+  // (open-relay hardening), so the form no longer collects it and this no longer forwards it.
+  // (ambiguity-ui-scan-2026-07-16 scan-pipeline-ingestion #1)
   const notify = params.get("notify") === "1";
-  const notifyEmail =
-    typeof window !== "undefined" ? window.sessionStorage.getItem("ascent:notify-email") ?? undefined : undefined;
   const { state, progress, quota, rescan, attempt, retest, dismissRescan } = useReportScan(repo, initialFresh, {
     notify,
-    email: notifyEmail,
   });
 
   const signInNext = `/report?repo=${encodeURIComponent(repo)}`;

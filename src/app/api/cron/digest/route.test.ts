@@ -380,6 +380,38 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     expect((opts as { webhookUrl?: string }).webhookUrl).toBe("https://hooks.example.com/GOOD");
   });
 
+  it("treats a FAILED webhook lookup as an error — never misroutes to the global sink, never burns the claim (fleet #1)", async () => {
+    // A transient DB error on getOrgAlertWebhook used to be .catch(() => null)'d into "no webhook
+    // configured", which resolveAlertWebhook maps to the operator's GLOBAL sink — the tenant's fleet
+    // digest landed in the wrong channel AND the window claim was kept, dropping the real digest.
+    mockListOrgs.mockResolvedValue(["orgFlaky", "orgOk"]);
+    mockOrgWebhook.mockImplementation(async (org: string) => {
+      if (org === "orgFlaky") throw new Error("db connection reset");
+      return "https://hooks.example.com/OK";
+    });
+    mockRollup.mockResolvedValue(rollupWith());
+
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+
+    // The flaky org is an ERROR (retryable next run), not a skipped-no-sink or a misrouted send.
+    expect(body.sent).toBe(1);
+    expect(body.skippedNoSink).toBe(0);
+    expect((body.errors as string[]).some((e) => e.includes("orgFlaky"))).toBe(true);
+
+    // No claim was taken for the flaky org — the next run retries its window.
+    expect(mockClaim).toHaveBeenCalledTimes(1);
+    expect(mockClaim.mock.calls[0][1]).toBe("orgOk");
+
+    // Exactly one dispatch, and it is orgOk to its OWN sink — nothing ever dispatched for orgFlaky
+    // (a misroute would have shown up as a dispatch with webhookUrl null → global fallback).
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+    expect((mockDispatch.mock.calls[0][0] as { text: string }).text).toBe("digest:orgOk");
+    expect((mockDispatch.mock.calls[0][1] as { webhookUrl?: string }).webhookUrl).toBe(
+      "https://hooks.example.com/OK",
+    );
+  });
+
   it("movement-gates a flat org: a sink + scanned fleet but no signal → skippedFlat, nothing built/dispatched", async () => {
     mockListOrgs.mockResolvedValue(["orgFlat"]);
     mockOrgWebhook.mockResolvedValue("https://hooks.example.com/FLAT");

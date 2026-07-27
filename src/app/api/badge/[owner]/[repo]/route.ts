@@ -111,7 +111,14 @@ function readableOn(bg: string): string {
   return contrastInk > contrastWhite ? "#04070e" : "#fff";
 }
 
-/** Named colors map to brand hex; a #rrggbb / rrggbb value is accepted verbatim. */
+/** Named colors map to brand hex; a #rrggbb / rrggbb value is accepted verbatim.
+ *
+ *  SCOPE (usage-metering 07-16 #5): `?color=` is shields.io-parity for the NEUTRAL states only
+ *  (unknown / private / rate limited — no verdict to misrepresent). It deliberately does NOT apply
+ *  to a VERDICT fill (gate pass/fail, a resolved level/score): hue is the most-glanced channel on a
+ *  README, and letting an embedder render "✗ fail" on bright green (or an L1 repo in L5 green)
+ *  would undo every other honesty guard this route carries (demo suffix, glyph redundancy, private
+ *  gating). Mirrors how the demo suffix refuses to let a mock pose as a verdict. */
 function resolveColor(input: string | null, fallback: string): string {
   if (!input) return fallback;
   const named: Record<string, string> = {
@@ -143,6 +150,13 @@ function badgeSvg(opts: {
   const { label, value, color, style } = opts;
   const big = style === "for-the-badge";
   const fontSize = big ? 11 : 12;
+  // AVERAGE Latin glyph width for proportional Verdana at this font size (6.7px at 12px; 7.2 at the
+  // 11px uppercase for-the-badge style) — an average-case estimate tuned against typical badge text,
+  // NOT a per-character width table (shields.io ships one for exactly this reason). Verdana glyphs
+  // actually range ~3px (i/l/.) to ~11px (W/M) at 12px, so the estimate over/under-shoots on skewed
+  // strings; wide non-ASCII glyphs (CJK, emoji) are counted DOUBLE below, and the rendered <text>
+  // pins textLength to the same estimate so any residual error is absorbed by the renderer
+  // squeezing/stretching the run instead of overrunning the label/value boundary (fail-soft).
   const charW = big ? 7.2 : 6.7;
   // for-the-badge renders uppercase with letter-spacing="1"; fold that 1px-per-gap into the width
   // estimate so long values ("L5 Autonomous") aren't clipped against the value fill boundary.
@@ -156,7 +170,23 @@ function badgeSvg(opts: {
   const renderValue = big ? value.toUpperCase() : value;
   const ls = big ? `letter-spacing="1"` : "";
 
-  const textW = (s: string) => Math.ceil(s.length * charW + Math.max(0, s.length - 1) * letterSpace);
+  // Codepoint-aware width units: CJK/emoji/symbol glyphs render roughly double an average Latin
+  // glyph at these sizes, and `?label=` accepts arbitrary text — pricing every character at charW
+  // made a CJK project name overrun the label rect into the value fill. Iterating the string
+  // iterator (not .length) also stops surrogate pairs from double-counting as two glyphs.
+  const widthUnits = (s: string) => {
+    let units = 0;
+    let glyphs = 0;
+    for (const ch of s) {
+      glyphs += 1;
+      units += (ch.codePointAt(0) ?? 0) > 0x7f ? 2 : 1;
+    }
+    return { units, glyphs };
+  };
+  const textW = (s: string) => {
+    const { units, glyphs } = widthUnits(s);
+    return Math.ceil(units * charW + Math.max(0, glyphs - 1) * letterSpace);
+  };
   const lw = textW(renderLabel) + pad * 2 + logoW;
   const vw = textW(renderValue) + pad * 2;
   const w = lw + vw;
@@ -181,8 +211,8 @@ function badgeSvg(opts: {
   <rect rx="${rx}" x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" fill="none" stroke="rgba(148,163,184,0.4)" stroke-width="1"/>
   ${logoEl}
   <g font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="${fontSize}" font-weight="600" ${ls}>
-    <text x="${labelX}" y="${ty}" fill="#cbd5e1">${esc(renderLabel)}</text>
-    <text x="${lw + pad}" y="${ty}" fill="${readableOn(color)}">${esc(renderValue)}</text>
+    <text x="${labelX}" y="${ty}" fill="#cbd5e1" textLength="${textW(renderLabel)}" lengthAdjust="spacingAndGlyphs">${esc(renderLabel)}</text>
+    <text x="${lw + pad}" y="${ty}" fill="${readableOn(color)}" textLength="${textW(renderValue)}" lengthAdjust="spacingAndGlyphs">${esc(renderValue)}</text>
   </g>
 </svg>`;
 
@@ -359,7 +389,8 @@ export async function GET(
           label: verdictLabel,
           // ✓/✗ so the pass/fail verdict survives without color (red/green collapses for CVD viewers).
           value: gate.pass ? "✓ pass" : "✗ fail",
-          color: resolveColor(customColor, gate.pass ? LEVEL_HEX.L5 : LEVEL_HEX.L1),
+          // Semantic verdict color ONLY — `?color=` must not let "✗ fail" wear green (see resolveColor).
+          color: gate.pass ? LEVEL_HEX.L5 : LEVEL_HEX.L1,
           style,
           logo,
           href,
@@ -368,7 +399,11 @@ export async function GET(
       );
     }
 
-    const color = resolveColor(customColor, LEVEL_HEX[report.level.id as LevelId] ?? neutral);
+    // Semantic level color for a RESOLVED level — `?color=` must not dress an L1 repo in L5 green
+    // (see resolveColor's scope note). Only an unrecognized level id (no verdict hue to protect)
+    // falls back to the caller's custom color / neutral, matching the other neutral states.
+    const levelHex = LEVEL_HEX[report.level.id as LevelId];
+    const color = levelHex ?? resolveColor(customColor, neutral);
     // Score variant (USE-2): the numeric headline (with the level glyph + colour) instead of the level name.
     if (scoreMode) {
       return respond(

@@ -17,14 +17,14 @@ export function ConnectDiscovered({
     <section className="mt-6 rounded-2xl border border-divider bg-surface/40 p-6">
       <div className="font-mono text-sm uppercase tracking-[0.3em] text-accent">Discovered from your GitHub</div>
       {seededOrg && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success/30 bg-success/5 p-4">
           <p className="text-base text-slate-300">
             We pre-loaded <span className="font-mono text-white">{seededOrg}</span>&apos;s most active
             repositories onto your watchlist — its dashboard is ready to scan.
           </p>
           <Link
             href={`/org/${encodeURIComponent(seededOrg)}`}
-            className="focus-ring shrink-0 rounded-lg bg-emerald-500 px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-emerald-400"
+            className="focus-ring shrink-0 rounded-lg bg-success px-4 py-2 text-base font-semibold text-on-accent transition hover:bg-success-soft"
           >
             View {seededOrg} dashboard →
           </Link>

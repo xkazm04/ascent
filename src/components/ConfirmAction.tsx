@@ -169,7 +169,7 @@ export function batchPrConfirm(selectedCount: number, cap: number, org: string):
   return {
     kicker: "Fleet rollout",
     title: `Open ${n} draft ${plural(n, "PR")} across ${n} ${org} ${plural(n, "repo", "repos")}?`,
-    body: `This opens a real draft pull request in ${n} ${plural(n, "repository", "repositories")} under ${org}, each writing its own branch and commit.${over} Every repo's owners see it — recoverable per PR, but ${n} at once.`,
+    body: `This opens a real draft pull request in ${n} ${plural(n, "repository", "repositories")} under ${org}, each writing its own branch and commit. Each repo's starter content is generated for that repo at apply time — it is not individually previewed.${over} Every repo's owners see it — recoverable per PR, but ${n} at once.`,
     confirmLabel: `Open ${n} ${plural(n, "PR")}`,
     tone: "default",
   };

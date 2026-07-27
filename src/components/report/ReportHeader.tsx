@@ -4,9 +4,19 @@ import { ARCHETYPE_HINT, ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { timeAgo } from "@/lib/ui";
 import { Kicker } from "@/components/ui";
 import { FreshnessControl } from "@/components/report/FreshnessControl";
+import { DownloadButton } from "@/components/report/DownloadButton";
 import { pillClass } from "@/components/report/pill";
 import { SkillDownload } from "@/components/report/SkillDownload";
 import { FoundationPrButton } from "@/components/report/FoundationPrButton";
+
+// Chip hints: `title=` fires only on pointer hover, so every hinted chip ALSO carries the hint as
+// sr-only text — screen-reader users hear the explanation inline, and hover users get the tooltip.
+// Hoisted so the title and the sr-only copy can't drift apart (repo-report-shell-tabs #3).
+const DEMO_HINT = "Keyless demo: scores are computed from deterministic signals, not LLM-written analysis";
+const bedrockHint = (model: string) =>
+  `Inference ran in-account on AWS Bedrock (${model}) — code never leaves the AWS boundary and is never used for training`;
+const CONFIDENCE_HINT =
+  "Evidence coverage: the share of the repository's signal-bearing files the scan could actually read — lower means the scores rest on thinner evidence";
 
 /** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row.
  *  `isMock` (keyless deterministic demo, no LLM) is derived once by ReportView and threaded down so
@@ -62,6 +72,7 @@ export function ReportHeader({
             title={ARCHETYPE_HINT[report.archetype]}
           >
             {ARCHETYPE_LABEL[report.archetype]}
+            <span className="sr-only"> — {ARCHETYPE_HINT[report.archetype]}</span>
           </span>
           {report.aiUsage.detected && (
             <span className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-accent">
@@ -71,38 +82,49 @@ export function ReportHeader({
           )}
           {isMock ? (
             <span
-              className="rounded-full border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-sky-300"
-              title="Keyless demo: scores are computed from deterministic signals, not LLM-written analysis"
+              className="cursor-help rounded-full border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-sky-300"
+              title={DEMO_HINT}
             >
               Demo · deterministic rubric
+              <span className="sr-only"> — {DEMO_HINT}</span>
             </span>
           ) : report.engine.provider === "bedrock" ? (
             // Surface the enterprise-privacy inference path on screen: when scoring ran on AWS Bedrock,
             // the customer's code stayed in-account and was never used for training (see docs/ARCHITECTURE.md).
             <span
-              className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-300"
-              title={`Inference ran in-account on AWS Bedrock (${report.engine.model}) — code never leaves the AWS boundary and is never used for training`}
+              className="cursor-help rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-300"
+              title={bedrockHint(report.engine.model)}
             >
               inference · AWS Bedrock · {report.engine.model}
+              <span className="sr-only"> — {bedrockHint(report.engine.model)}</span>
             </span>
           ) : (
             <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
               engine: {report.engine.provider} · {report.engine.model}
             </span>
           )}
-          <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
+          {/* The report's own credibility signal must explain itself — it's the number most likely
+              to be challenged in a shared report (repo-report-shell-tabs #3). */}
+          <span
+            className="cursor-help rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400"
+            title={CONFIDENCE_HINT}
+          >
             confidence {Math.round(report.confidence * 100)}%
+            <span className="sr-only"> — {CONFIDENCE_HINT}</span>
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <FreshnessControl report={report} onRetest={onRetest} rescanning={rescanning} />
-          <a
+          {/* Fetch-and-download buttons (not bare anchors): the PDF render can take up to a minute and
+              any error branch returns JSON — a plain <a> gave no pending feedback and navigated the
+              user onto a raw JSON page on failure (pdf-llm-export #1). */}
+          <DownloadButton
             href={`/api/report/pdf?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
             className={pillClass({ focusRing: true, textSm: true })}
             title="Download this report as a PDF"
           >
             <span aria-hidden>↓</span> Export PDF
-          </a>
+          </DownloadButton>
           {/* The pill keeps its one-click default download; the co-located picker beside it exposes the
               generator's maintainer multiselect (?dims=) so a session can be scoped to chosen dimensions. */}
           <SkillDownload

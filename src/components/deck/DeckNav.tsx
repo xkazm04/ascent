@@ -69,10 +69,14 @@ export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
 
       {/* Below lg the right-edge dots are hidden, leaving mandatory snap-scrolling with no overview.
           A compact bottom bar reuses the same `sections` array: current chapter + a progress strip +
-          prev/next jumps (anchors, so they smooth-scroll + snap exactly like the dots). */}
+          prev/next jumps (anchors, so they smooth-scroll + snap exactly like the dots).
+          The bar is a fixed overlay, so the deck's bottom rhythm must compensate: DeckSection (and
+          the hand-rolled landing sections + the AboutCTA footer) reserve `pb-24 lg:pb-10` beneath it,
+          and the bottom padding grows into `env(safe-area-inset-bottom)` so the prev/next targets sit
+          above the iOS home-indicator zone instead of inside it. */}
       <nav
         aria-label="Section navigation"
-        className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-divider bg-surface-strong/90 px-4 py-2 backdrop-blur-sm lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-divider bg-surface-strong/90 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-sm lg:hidden"
       >
         {prev ? (
           <a href={`#${prev.id}`} aria-label={`Previous: ${prev.label}`} className="focus-ring shrink-0 rounded-md p-2 text-slate-300 transition hover:text-white">

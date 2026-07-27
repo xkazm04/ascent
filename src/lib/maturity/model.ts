@@ -23,8 +23,17 @@ import type {
  * instead of serving the pre-bump number for up to the 7-day cache age. Forgetting to bump it after
  * editing a rubric knob means stale scores are served as current (the failure this constant prevents).
  * Keep it ONE short, monotonic token; never scatter copies — this is the only place it lives.
+ *
+ * MECHANICAL BACKSTOP: model.test.ts pins a sha256 of the rubric surface (weights+criteria, bands,
+ * blend, guardband, posture threshold, lenses, and the assessment SYSTEM prompt) — any change there
+ * fails the suite until the hash is re-pinned, putting the bump decision in the same diff.
+ * DETECTOR POINT TABLES COUNT TOO: a calibration retune (docs/CALIBRATION.md step 3) moves signal
+ * scores and therefore final scores — bump for those as well, even though they live in analyze/*
+ * where the hash test can't see them.
  */
-export const SCORING_RUBRIC_VERSION = "r1";
+// r2 (2026-07-17): classifyArchetype now caps star-driven "org" escalation at "team" for repos with
+// ≤2 active human authors — the archetype lens (and therefore the weights) moved for viral solo repos.
+export const SCORING_RUBRIC_VERSION = "r2";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
@@ -78,6 +87,24 @@ export const LEVELS: MaturityLevel[] = [
       "A fully autonomous, reliable, established system. Agents propose, test, document, and ship changes with humans supervising at the policy level. Comprehensive automated tests, docs, and CI/CD; high reliability; governance and guardrails are first-class.",
   },
 ];
+
+/**
+ * Planning defaults, single-sourced here so the Plan tab, the initiatives seed flow, and the DB-layer
+ * default can't drift (ambiguity-ui 07-16 goals #4 — these were three inlined literals with no
+ * recorded rationale).
+ *
+ * SUGGESTED_GOAL_LIFT: the points a one-click suggested goal proposes above today's weakest-dimension
+ * average — roughly half a LEVELS band (bands are ~20 wide), i.e. an ambitious-but-reachable
+ * one-quarter/one-half-level push rather than a whole-band jump.
+ *
+ * DEFAULT_INITIATIVE_TARGET: the per-dimension score a seeded initiative steers repos toward (and the
+ * adoption floor below which an adoption goal is suggested). 70 sits solidly inside the L4
+ * "Integrated" band [65, 84] — comfortably past the L3→L4 boundary, so a repo "at target" is
+ * unambiguously operating at the Integrated level, not hovering on its edge. Product-tuning values,
+ * not laws — change them HERE, nowhere else.
+ */
+export const SUGGESTED_GOAL_LIFT = 12;
+export const DEFAULT_INITIATIVE_TARGET = 70;
 
 export const DIMENSIONS: DimensionDef[] = [
   {
@@ -334,6 +361,17 @@ export function axisMeasured(
 
 // ---- Two-axis posture (Adoption × Rigor) --------------------------------------
 
+/**
+ * An axis counts as "high" at ≥ 50 — deliberately STRICTER than the L3 band floor (45), so a repo
+ * scoring 45–49 on both axes reads "Augmented" (L3) yet "Getting Started" on the same report. That
+ * pairing is a design choice, not an accident of two independently-picked constants: the LEVEL is a
+ * weighted average (partial strength on a few dimensions can legitimately carry it into L3), while
+ * the POSTURE asserts each axis independently — and a quadrant claim like "AI-Native" off a sub-half
+ * axis would overstate more than the mixed headline understates. Aligning the cut to 45 would instead
+ * let a 45/45 repo claim AI-Native. The 45–55 corridor is inherently borderline (±1-point noise can
+ * flip the quadrant; there is no hysteresis) — documented in docs/MATURITY_MODEL.md §2b.
+ * (ambiguity-ui maturity-model #4)
+ */
 export const POSTURE_THRESHOLD = 50;
 
 export function postureFor(adoption: number, rigor: number): Posture {
@@ -369,11 +407,14 @@ export function postureFor(adoption: number, rigor: number): Posture {
  * One source of truth for any UI that enumerates postures (e.g. the Posture distribution),
  * so adding/renaming a posture here automatically flows through instead of silently dropping it.
  */
-export const POSTURE_META: ReadonlyArray<{ id: Posture["id"]; label: string }> = [
-  { id: "ai-native", label: "AI-Native" },
-  { id: "ungoverned", label: "Fast & Ungoverned" },
-  { id: "manual", label: "Solid but Manual" },
-  { id: "early", label: "Getting Started" },
+export const POSTURE_META: ReadonlyArray<{ id: Posture["id"]; label: string; short: string }> = [
+  // `short` is the INTENTIONAL abbreviation for tight chart surfaces (the quadrant SVG's corner
+  // labels can't fit "Fast & Ungoverned" at 11px mono uppercase). Derive chart labels from here —
+  // never re-type them — so a posture rename can't strand a chart on a stale or mis-cased copy.
+  { id: "ai-native", label: "AI-Native", short: "AI-Native" },
+  { id: "ungoverned", label: "Fast & Ungoverned", short: "Ungoverned" },
+  { id: "manual", label: "Solid but Manual", short: "Manual" },
+  { id: "early", label: "Getting Started", short: "Getting Started" },
 ];
 
 // ---- Startup invariant --------------------------------------------------------

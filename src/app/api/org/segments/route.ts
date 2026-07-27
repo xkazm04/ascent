@@ -4,7 +4,7 @@
 // optional segment filter scoping it to a segment's tagged repos. See src/lib/db/segments.ts.
 
 import { NextResponse } from "next/server";
-import { createSegment, getRepoSegmentMap, isDbConfigured, listSegments } from "@/lib/db";
+import { createSegment, getRepoSegmentMap, isDbConfigured, listSegments, segmentInputError } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
@@ -37,6 +37,11 @@ export async function POST(request: Request) {
   }
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
+  // repositories-segments #5: reject-with-400 instead of sanitize-and-continue — a malformed colour
+  // was silently rewritten to the brand accent and an over-long name silently truncated, both behind
+  // a 200 { ok } that told API callers their value was applied verbatim.
+  const invalid = segmentInputError({ name: body.name, color: body.color });
+  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
   try {
     const created = await createSegment(body.org, { name: body.name, color: body.color });
     return NextResponse.json(created ?? { error: "Failed to create segment." }, { status: created ? 200 : 500 });

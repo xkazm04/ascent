@@ -15,13 +15,13 @@
 
 import { NextResponse } from "next/server";
 import { buildOnboardingSkill } from "@/lib/onboarding";
+import { isDimensionId } from "@/lib/maturity/model";
+import type { DimensionId } from "@/lib/types";
 import { getScanReportByCommit, isDbConfigured, recordSkillGeneration } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
 import { parseRepoParam } from "@/lib/report/repoParam";
 import { safeFilenameSegment } from "@/lib/export/filename";
-import { isDimensionId } from "@/lib/maturity/model";
-import type { DimensionId } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +34,9 @@ function parseSelection(params: URLSearchParams): SelectParams | { error: string
 
   // `dims` accepts a comma-separated list and/or repeated params, so both ?dims=D2,D9 and
   // ?dims=D2&dims=D9 work. Order is preserved but not load-bearing — selectTracks re-sorts by leverage.
-  const raw = params.getAll("dims").flatMap((v) => v.split(","));
+  // `tracks` is the alias the route shipped under first; both name the same selection, so a caller
+  // written against either spelling keeps working.
+  const raw = [...params.getAll("dims"), ...params.getAll("tracks")].flatMap((v) => v.split(","));
   const tokens = raw.map((t) => t.trim().toUpperCase()).filter(Boolean);
   if (raw.length > 0) {
     const bad = tokens.filter((t) => !isDimensionId(t));

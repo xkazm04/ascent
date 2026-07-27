@@ -19,7 +19,22 @@ interface ScanState {
   error?: string;
 }
 
-export function SegmentActions({ org, segmentId, repos }: { org: string; segmentId: string; repos: string[] }) {
+export function SegmentActions({
+  org,
+  segmentId,
+  repos,
+  taggedCount = repos.length,
+}: {
+  org: string;
+  segmentId: string;
+  /** The WATCHED repos in this segment — exactly what POST /api/org/scan will accept. The server
+   *  intersects the request with the watch list, so passing every tagged repo made the button promise
+   *  "Scan segment (7)", briefly show "0/7…", then snap to 3 mid-flight (repositories-segments #2). */
+  repos: string[];
+  /** How many repos are tagged into the segment in total (>= repos.length); shown so the label can
+   *  say "3 of 7 watched" instead of overstating scope. */
+  taggedCount?: number;
+}) {
   const router = useRouter();
   const [cadence, setCadence] = useState("");
   const [cadenceBusy, setCadenceBusy] = useState(false);
@@ -100,10 +115,19 @@ export function SegmentActions({ org, segmentId, repos }: { org: string; segment
       <button
         onClick={scanSegment}
         disabled={!!scan?.running || repos.length === 0}
-        title={repos.length === 0 ? "No repos tagged into this segment yet" : `Scan the watched repos in this segment`}
+        title={
+          repos.length === 0
+            ? taggedCount > 0
+              ? `None of this segment's ${taggedCount} tagged repo(s) are watched — watch them on the Repositories tab to scan`
+              : "No repos tagged into this segment yet"
+            : "Scan the watched repos in this segment"
+        }
         className="rounded-md border border-accent/50 bg-accent/10 px-2.5 py-1 font-mono text-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
       >
-        {scan?.running ? `Scanning ${scan.done}/${scan.total}…` : `Scan segment (${repos.length})`}
+        {scan?.running
+          ? `Scanning ${scan.done}/${scan.total}…`
+          : // Honest scope: only the WATCHED slice is scanned, so say so whenever it's a subset.
+            `Scan segment (${repos.length < taggedCount ? `${repos.length} of ${taggedCount} watched` : repos.length})`}
       </button>
       {note && <span className="font-mono text-sm text-slate-500">{note}</span>}
       {scan?.error && <span className="font-mono text-sm text-orange-300">{scan.error}</span>}

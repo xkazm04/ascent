@@ -14,8 +14,8 @@ import { signedDelta } from "@/components/ui/format";
 export const GATE_COMMENT_MARKER = "<!-- ascent-maturity-gate -->";
 
 export interface GateComment {
-  /** GitHub Check Run conclusion. */
-  conclusion: "success" | "failure";
+  /** GitHub Check Run conclusion. `neutral` = the verdict is non-authoritative (PR head not scored). */
+  conclusion: "success" | "failure" | "neutral";
   /** Short check-run title (≤ ~80 chars), e.g. "Passed — L3 Augmented (58/100)". */
   title: string;
   /** Markdown for the check-run summary. */
@@ -45,6 +45,15 @@ function deltaPhrase(diff?: ScanDiff | null): string | null {
 export interface GateCommentOptions {
   /** Suffix describing what `baseline` compares against, e.g. "in this PR" or "vs last scan". */
   baselineSuffix?: string;
+  /**
+   * Whether the report actually scored the PR HEAD ref. `false` = the head was unreachable (typical
+   * for fork PRs) and the report describes the DEFAULT BRANCH instead — a verdict that structurally
+   * cannot reflect anything the PR changes. The check then posts as `neutral` with an explicit
+   * "default-branch verdict, PR head not scored" framing so a required-status consumer never treats
+   * it as an authoritative pass/fail on the PR (github-app-installation-webhooks 2026-07-16 #3).
+   * Defaults to true (the normal head-scored path).
+   */
+  scoredHead?: boolean;
 }
 
 /**
@@ -60,16 +69,33 @@ export function buildGateComment(
   opts: GateCommentOptions = {},
 ): GateComment {
   const baselineSuffix = opts.baselineSuffix ?? "vs last scan";
+  const scoredHead = opts.scoredHead !== false;
   const { level, overallScore, posture, archetype } = report;
   const pass = gate.pass;
-  const conclusion = pass ? "success" : "failure";
+  // A fallback (default-branch) verdict must never post as a confident success/failure on the PR:
+  // it is `neutral`, and every headline surface says what it actually scored.
+  const conclusion: GateComment["conclusion"] = scoredHead ? (pass ? "success" : "failure") : "neutral";
   const verdict = pass ? "Passed" : "Failed";
-  const title = `${verdict} — ${level.id} ${level.name} (${overallScore}/100)`;
+  const title = scoredHead
+    ? `${verdict} — ${level.id} ${level.name} (${overallScore}/100)`
+    : `Default branch ${verdict.toLowerCase()} — PR head not scored (${level.id} ${overallScore}/100)`;
 
   const delta = deltaPhrase(baseline);
   const lines: string[] = [];
 
-  lines.push(`### ${pass ? "✅" : "❌"} Ascent maturity gate — ${verdict}`);
+  lines.push(
+    scoredHead
+      ? `### ${pass ? "✅" : "❌"} Ascent maturity gate — ${verdict}`
+      : `### ⚠️ Ascent maturity gate — Default-branch verdict (PR head not scored)`,
+  );
+  if (!scoredHead) {
+    lines.push("");
+    lines.push(
+      "> ⚠️ **The PR head was unreachable (typical for fork PRs), so this scored the DEFAULT BRANCH " +
+        "instead.** This verdict does not reflect the PR's own changes — treat it as non-authoritative " +
+        "for merge decisions.",
+    );
+  }
   lines.push("");
   lines.push(
     `**${level.id} · ${level.name}** — ${overallScore}/100 · posture **${posture.label}** · ${ARCHETYPE_LABEL[archetype]} lens`,

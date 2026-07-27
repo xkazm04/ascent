@@ -15,7 +15,7 @@ import {
   listInitiatives,
   metricLabel,
 } from "@/lib/db";
-import { DIMENSIONS, DIMENSION_BY_ID, LEVELS, levelForScore } from "@/lib/maturity/model";
+import { DEFAULT_INITIATIVE_TARGET, DIMENSIONS, DIMENSION_BY_ID, LEVELS, SUGGESTED_GOAL_LIFT, levelForScore } from "@/lib/maturity/model";
 import { PRACTICES } from "@/lib/practices";
 import type { DimensionId } from "@/lib/types";
 
@@ -74,7 +74,7 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
   const goalSuggestions: { label: string; metric: string; target: number }[] = [];
   const weakest = dimOptions.filter((d) => d.avg > 0).sort((a, b) => a.avg - b.avg)[0];
   if (weakest && !activeMetrics.has(weakest.id)) {
-    const target = Math.min(100, weakest.avg + 12);
+    const target = Math.min(100, weakest.avg + SUGGESTED_GOAL_LIFT);
     goalSuggestions.push({ label: `Lift ${weakest.id} · ${weakest.label} to ${target}`, metric: weakest.id, target });
   }
   if (!activeMetrics.has("overall")) {
@@ -82,8 +82,12 @@ export default async function OrgPlan({ params }: { params: Promise<{ slug: stri
     const next = idx >= 0 && idx < LEVELS.length - 1 ? LEVELS[idx + 1] : null;
     if (next) goalSuggestions.push({ label: `Reach ${next.id} · ${next.name} (overall ${next.band[0]})`, metric: "overall", target: next.band[0] });
   }
-  if (goalSuggestions.length < 3 && !activeMetrics.has("adoption") && rollup.avgAdoption < 70) {
-    goalSuggestions.push({ label: "AI Adoption to 70", metric: "adoption", target: 70 });
+  if (goalSuggestions.length < 3 && !activeMetrics.has("adoption") && rollup.avgAdoption < DEFAULT_INITIATIVE_TARGET) {
+    goalSuggestions.push({
+      label: `AI Adoption to ${DEFAULT_INITIATIVE_TARGET}`,
+      metric: "adoption",
+      target: DEFAULT_INITIATIVE_TARGET,
+    });
   }
 
   return (

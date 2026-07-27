@@ -2,13 +2,15 @@
 
 // Shared App Router error-boundary card. An error.tsx MUST be a Client Component and stay self-contained
 // (no @/components/Brand — that pulls in server-only @/lib/auth, which can't be bundled into a client
-// component), so this depends only on react + next/link. The root boundary renders it full-screen; a
-// segment boundary renders the compact card inside its own persistent layout (e.g. the org shell keeps
-// SiteHeader + OrgNav). One card, one bounded telemetry line — so the three boundaries can't drift.
+// component), so this depends only on react + next/link + the pure-string @/lib/ui constants. The root
+// boundary renders it full-screen; a segment boundary renders the compact card inside its own persistent
+// layout (e.g. the org shell keeps SiteHeader + OrgNav). One card, one bounded telemetry line — so the
+// three boundaries can't drift.
 
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CTA_OUTLINE, CTA_PRIMARY } from "@/lib/ui";
 
 export function RouteError({
   error,
@@ -52,16 +54,10 @@ export function RouteError({
       <p className="mt-3 max-w-md text-base text-slate-400">{description}</p>
       {error.digest && <p className="mt-2 font-mono text-sm text-slate-500">Reference: {error.digest}</p>}
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-        <button
-          onClick={retry}
-          className="focus-ring rounded-md bg-accent px-4 py-2 font-medium text-on-accent transition hover:bg-accent-soft"
-        >
+        <button onClick={retry} className={CTA_PRIMARY}>
           Try again
         </button>
-        <Link
-          href={homeHref}
-          className="focus-ring rounded-md border border-slate-700 px-4 py-2 text-slate-200 transition hover:border-accent hover:text-white"
-        >
+        <Link href={homeHref} className={CTA_OUTLINE}>
           {homeLabel}
         </Link>
       </div>

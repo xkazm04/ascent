@@ -30,7 +30,9 @@ describe("OnboardingPickStep step-heading focus target (ONB #3)", () => {
     const { container } = renderPick();
     const heading = container.querySelector<HTMLElement>("[data-step-heading]");
     expect(heading).not.toBeNull();
-    expect(heading!.tagName).toBe("H1");
+    // h2, not h1: the page-level h1 lives in onboarding/page.tsx — a step-level h1 put two h1s in
+    // the document at once (ambiguity-ui-scan-2026-07-16 first-run-onboarding-wizard #4).
+    expect(heading!.tagName).toBe("H2");
     expect(heading).toHaveAttribute("tabindex", "-1");
     expect(heading).toHaveTextContent("Choose a source");
   });

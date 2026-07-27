@@ -41,10 +41,12 @@ export function PickStep({
       {/* ONB a11y #3: focus target for the step transition, matching the select/scan steps. Returning
           to step 1 (Back / Scan another) focuses this so keyboard/SR users land on the step instead of
           <body>; it's visually hidden because the pick step leads with banners/the handle form, not a
-          heading. On the FIRST render the flow hook skips this (the handle input keeps its autofocus). */}
-      <h1 data-step-heading tabIndex={-1} className="sr-only focus:outline-none">
+          heading. On the FIRST render the flow hook skips this (the handle input keeps its autofocus).
+          h2, not h1: the page-level h1 ("Scan your organization") lives in onboarding/page.tsx — a
+          second h1 per step gave SR users an ambiguous h1 → h1 → h2 outline (ambiguity-ui #4). */}
+      <h2 data-step-heading tabIndex={-1} className="sr-only focus:outline-none">
         Choose a source
-      </h1>
+      </h2>
       {seededOrg && <SeededOrgBanner org={seededOrg} />}
       {installations.length > 0 && (
         <InstallationPicker installations={installations} onPick={onLoadInstallation} loading={loading} />

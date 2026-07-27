@@ -81,3 +81,21 @@ describe("decideScanCharge — hybrid: allowance, then a credit, then denied", (
     expect(decideScanCharge({ unlimited: false, allowance: 0, usageThisMonth: 0, balance: 0 })).toBe("denied");
   });
 });
+
+describe("marketing copy matches the metering engine (checkout-plans-polar 07-16 #5)", () => {
+  // The engine (src/lib/db/credits.ts, decideScanCharge callers) meters only PRIVATE (org) scans;
+  // public scans are free and unmetered. The plan cards' copy must never re-claim the old
+  // "public or private" allowance model — the CreditMatrixLedger on the same /pricing page states
+  // the opposite, and a visitor comparing the two blocks would see a direct contradiction.
+  it("no plan blurb or feature line claims public scans draw the allowance", () => {
+    for (const p of Object.values(PLAN_FEATURES)) {
+      for (const text of [p.blurb, ...p.features]) {
+        expect(text.toLowerCase()).not.toContain("public or private");
+      }
+    }
+  });
+  it("the Free tier pitches the real model: private scans metered, public scans always free", () => {
+    expect(PLAN_FEATURES.free.blurb).toMatch(/private scans/i);
+    expect(PLAN_FEATURES.free.blurb).toMatch(/public scans are always free/i);
+  });
+});

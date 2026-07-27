@@ -52,10 +52,39 @@ export function useOnboardingFlow() {
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // The in-flight credit read for the App-path source, resolving to the OrgCredit (or null). startScan
+  // Whether the just-run preview was caused by a FAILED credit read (network blip / 500) rather than
+  // a genuine lack of credits — the done-screen banner must not tell a paying, App-installed org to
+  // "install the GitHub App" when the only problem was a transient balance read.
+  const [previewCause, setPreviewCause] = useState<"credit_unknown" | null>(null);
+
+  // The in-flight credit read for the App-path source. It resolves to the OrgCredit, null ("the org
+  // verifiably has no readable credit object"), or "failed" (the read itself errored — balance UNKNOWN,
+  // a distinct state: fail-closed-to-preview is deliberate billing safety, but the cause must be
+  // distinguishable so startScan can retry once and the done screen can explain honestly). startScan
   // awaits this so the money-gate decision never reads a null `credit` from an un-awaited fetch and
   // fabricates a preview on an org that actually has credits (ONB-1 race).
-  const creditReady = useRef<Promise<OrgCredit | null> | null>(null);
+  const creditReady = useRef<Promise<OrgCredit | "failed" | null> | null>(null);
+
+  // One credit read, shared by the load-time kick-off and startScan's retry. Resolves "failed" on a
+  // non-OK response or a thrown fetch — never rejects, so awaiting it is always safe.
+  function fetchCredit(creditOrg: string): Promise<OrgCredit | "failed" | null> {
+    return fetch(`/api/org/credits?org=${encodeURIComponent(creditOrg)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => {
+        if (d && typeof d.balance === "number") {
+          const c: OrgCredit = {
+            org: creditOrg,
+            balance: d.balance,
+            unlimited: Boolean(d.unlimited),
+            allowanceRemaining: typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : null,
+          };
+          setCredit(c);
+          return c;
+        }
+        return null;
+      })
+      .catch(() => "failed" as const);
+  }
 
   // ONB a11y #1: a multi-step wizard must move focus to the new step and announce it, or keyboard/SR
   // users lose their place (focus falls to <body>) and get no feedback that a step advanced. We hold
@@ -176,22 +205,7 @@ export function useOnboardingFlow() {
     // promise is stashed in creditReady so startScan can AWAIT the settled balance before choosing
     // real-vs-preview (a fast "Scan" click must not race an unresolved read into a mock — ONB-1).
     const creditOrg = login.toLowerCase();
-    creditReady.current = fetch(`/api/org/credits?org=${encodeURIComponent(creditOrg)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d && typeof d.balance === "number") {
-          const c: OrgCredit = {
-            org: creditOrg,
-            balance: d.balance,
-            unlimited: Boolean(d.unlimited),
-            allowanceRemaining: typeof d.allowanceRemaining === "number" ? d.allowanceRemaining : null,
-          };
-          setCredit(c);
-          return c;
-        }
-        return null;
-      })
-      .catch(() => null);
+    creditReady.current = fetchCredit(creditOrg);
     try {
       const qs = new URLSearchParams({ org: login, installation_id: id });
       const res = await fetch(`/api/app/repos?${qs.toString()}`);
@@ -244,6 +258,26 @@ export function useOnboardingFlow() {
     abortRef.current?.abort();
   }
 
+  // "Scan another": reset the FULL per-run state, not just the visible rows/selection. The original
+  // inline reset list predated the money/checklist state and left `credit` (a pre-scan snapshot the
+  // next run's cost copy + money-gate would trust over a fresh read), `creditReady`, `previewScan`/
+  // `previewCause`, `invitedCount`, and `creditSkipped` to leak into the second run — understating
+  // recurring cost on a just-drained org and pre-ticking "Invite your team". (ambiguity-ui #3)
+  function resetRun() {
+    setPhase("pick");
+    setRepos([]);
+    setSelected(new Set());
+    setRows({});
+    setError(null);
+    setSourceInstallId(null);
+    setCredit(null);
+    creditReady.current = null;
+    setPreviewScan(true);
+    setPreviewCause(null);
+    setInvitedCount(0);
+    setCreditSkipped(0);
+  }
+
   async function startScan() {
     const picks = repos.filter((r) => selected.has(r.fullName));
     if (picks.length === 0) return;
@@ -261,17 +295,29 @@ export function useOnboardingFlow() {
     // stashed read (only when it hasn't already landed for this source) keeps a paying org from being
     // silently downgraded to a preview (ONB-1). The public-handle path has no installation id, so
     // canRunRealScan is false regardless and no wait is needed.
-    let settledCredit = credit && credit.org === sourceLabel ? credit : null;
-    if (sourceInstallId && !settledCredit && creditReady.current) {
+    let settled: OrgCredit | "failed" | null = credit && credit.org === sourceLabel ? credit : null;
+    if (sourceInstallId && !settled && creditReady.current) {
       // The credit read is its own fetch (not tied to `controller`), so it still resolves even if the
       // user cancels mid-wait; an aborted controller is handled below by runImportScan ("Scan canceled").
-      settledCredit = await creditReady.current;
+      settled = await creditReady.current;
     }
+    // "failed" means the balance is UNKNOWN (transient fetch error), NOT that the org has no credits.
+    // Retry the read once before deciding — a single network blip must not silently downgrade a paying
+    // org's first scan to a mock preview. If the retry also fails we still fail closed to a preview
+    // (never charge on an unknown balance), but record the cause so the done screen explains it honestly.
+    if (sourceInstallId && settled === "failed") {
+      const retry = fetchCredit(sourceLabel);
+      creditReady.current = retry;
+      settled = await retry;
+    }
+    const creditUnknown = settled === "failed";
+    const settledCredit = settled === "failed" ? null : settled;
     // Run a REAL scan only on the App path AND when the org has credits (the import route meters +
     // refunds on failure) — otherwise a disclosed preview, so a credit-less org never dead-ends on a
     // 402 and scores are never silently fabricated. The public-handle funnel is always a preview.
     const canRunReal = canRunRealScan({ sourceInstallId, credit: settledCredit, sourceLabel });
     setPreviewScan(!canRunReal);
+    setPreviewCause(!canRunReal && creditUnknown ? "credit_unknown" : null);
     try {
       const outcome = await runImportScan(
         {
@@ -364,6 +410,7 @@ export function useOnboardingFlow() {
     announce,
     credit,
     previewScan,
+    previewCause,
     invitedCount,
     setInvitedCount,
     creditSkipped,
@@ -375,6 +422,7 @@ export function useOnboardingFlow() {
     selectTop,
     clearSelection,
     cancelScan,
+    resetRun,
     startScan,
   };
 }

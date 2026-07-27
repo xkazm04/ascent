@@ -30,6 +30,16 @@ export const SITE_TAGLINE_TITLE = SITE_TAGLINE.charAt(0).toUpperCase() + SITE_TA
 export const LEVEL_COUNT = LEVELS.length;
 export const DIMENSION_COUNT = DIMENSIONS.length;
 
+/**
+ * The brand "ink" — the page/shell background. TS twin of globals.css `--color-ink`: CSS @theme vars
+ * can't be imported by the manifest/viewport code, so the PWA + status-bar consumers (viewport
+ * themeColor, manifest background_color/theme_color) read this constant instead of re-hardcoding the
+ * hex. If the ink ever changes, update BOTH this and `--color-ink` (plus body background) in
+ * globals.css — global-error.tsx keeps its own documented literals to stay self-contained. Not to be
+ * confused with og-brand's BRAND_INK (#04070e), the glyph ink ON the accent tile.
+ */
+export const BRAND_INK = "#080d1a";
+
 /** The canonical search/share description — count-derived so the snippet can never contradict the model. */
 export function siteDescription(): string {
   return `Score how AI-native your engineering org is from a GitHub repo: a ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap to the next level.`;

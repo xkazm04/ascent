@@ -12,7 +12,9 @@ import type { GeneratedFile } from "./types";
 const DOCTOR = `#!/usr/bin/env node
 // .ai/doctor.mjs - executable conformance for the .ai/ standard (reference impl, zero-dependency).
 // Usage: node .ai/doctor.mjs [--run] [--json]
-//   --run   also executes capability commands to verify they actually pass (flips "verified").
+//   --run   also executes capability commands to verify they actually pass, then writes each result
+//           back to .ai/manifest.yaml: "verified" flips to the run outcome (true on pass, false on
+//           fail — a stale true never outlives a broken command).
 //           SECURITY: --run shell-executes the commands declared in .ai/manifest.yaml. Run it ONLY on
 //           code you trust. Do NOT run it on untrusted pull_request builds from forks, and never expose
 //           ASCENT_CONFORMANCE_TOKEN (or any secret) to a fork-PR workflow that runs --run: a malicious
@@ -20,8 +22,12 @@ const DOCTOR = `#!/usr/bin/env node
 //           In CI, gate --run/reporting to trusted events (push, or same-repo PRs) only.
 //   --json  prints a JSON summary and (when ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN are
 //           set, e.g. in CI) POSTs it to Ascent — closing the adopt->verify->re-score loop.
+// Score semantics: the percentage is a weighted pass ratio over the findings THIS run emitted
+//   (pass=1, warn=0.5, fail=0) — --run adds one finding per capability, so only compare scores from
+//   same-shaped runs; "fails"/"warns" are the stable headline numbers. --run gives each capability
+//   command 180 seconds before it is killed and reported as FAIL. Details: .ai/SPEC.md.
 // Contract: .ai/SPEC.md. Reimplement freely; the checks are what matter, not this runner.
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
 const ROOT = process.cwd();
@@ -129,11 +135,32 @@ if (!existsSync(path)) {
   const names = Object.keys(caps);
   if (names.length) add('pass', 'declares ' + names.length + ' capabilities: ' + names.join(', '));
   else add('fail', 'no capabilities declared');
+  const runResults = {};
   for (const n of names) {
     if (/<.*>/.test(caps[n])) add('warn', 'capability "' + n + '" has a placeholder command - fill it in');
     else if (RUN) {
-      try { execSync(caps[n], { stdio: 'ignore', timeout: 180000 }); add('pass', 'verified "' + n + '": ' + caps[n]); }
-      catch { add('fail', 'capability "' + n + '" FAILED: ' + caps[n]); }
+      // 180000ms = the documented 180s per-capability budget (see the usage banner + the spec). A
+      // timeout kill surfaces as e.signal — name it in the finding so a slow-but-green suite reads
+      // as "hit the time limit", not as a silent, message-less failure.
+      try { execSync(caps[n], { stdio: 'ignore', timeout: 180000 }); add('pass', 'verified "' + n + '": ' + caps[n]); runResults[n] = true; }
+      catch (e) { add('fail', 'capability "' + n + '" FAILED' + (e && e.signal ? ' (killed by ' + e.signal + ' - likely hit the 180s --run timeout)' : '') + ': ' + caps[n]); runResults[n] = false; }
+    }
+  }
+  // --run write-back: "verified" is a CLAIM this doctor PROVES, so flip each run capability's flag to
+  // its actual outcome (pass -> true, fail -> false — a stale true never outlives a broken command).
+  // The serializer's one-line-per-capability format makes the targeted rewrite safe; placeholder
+  // capabilities are never touched. Without this the manifest promised a flip that never happened.
+  if (RUN && Object.keys(runResults).length) {
+    let updated = text;
+    for (const n of Object.keys(runResults)) {
+      updated = updated.replace(
+        new RegExp('^(\\\\s{2}' + n + ':\\\\s*\\\\{[^\\\\n]*verified:\\\\s*)(true|false)', 'm'),
+        function (m, p1) { return p1 + runResults[n]; },
+      );
+    }
+    if (updated !== text) {
+      try { writeFileSync(path, updated); add('pass', 'manifest updated: ' + Object.keys(runResults).map(function (n) { return n + ' verified=' + runResults[n]; }).join(', ')); }
+      catch (e) { add('warn', 'could not write verified flags back to ' + path + ': ' + (e && e.message)); }
     }
   }
 
@@ -194,6 +221,9 @@ if (!existsSync(path)) {
   if (/TODO/.test(text)) add('warn', 'manifest still has TODO placeholders (purpose / secretsFrom / boundaries / agents)');
 }
 
+// Weighted pass ratio over the findings THIS run emitted — the denominator varies with --run and
+// with which optional surfaces (hooks, CI) exist, so treat fails/warns as the stable numbers and
+// only compare percentages between same-shaped runs (documented in docs/AI_MANIFEST_SPEC.md).
 const weight = { pass: 1, warn: 0.5, fail: 0 };
 const score = findings.length ? Math.round(100 * findings.reduce((a, f) => a + weight[f.level], 0) / findings.length) : 0;
 const icon = { pass: 'OK  ', warn: 'WARN', fail: 'FAIL' };
@@ -231,6 +261,7 @@ if (process.argv.includes('--json')) {
       // loop is closed while the dashboard silently never updates.
       const data = await res.json().catch(() => ({}));
       if (!res.ok) console.error('Conformance report rejected: HTTP ' + res.status + (data && data.error ? ' - ' + data.error : ''));
+      else if (data && data.stale) console.error('Conformance report ignored as stale: this commit was already superseded by a newer reported commit, so the dashboard score was not overwritten.');
       else if (data && data.recorded === false) console.error('Conformance report accepted but NOT recorded: this repo is not watched under its org in Ascent yet - watch it, then re-report.');
       else console.log('Reported conformance to Ascent.');
     } catch (err) {

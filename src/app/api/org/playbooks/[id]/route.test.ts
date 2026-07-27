@@ -34,6 +34,7 @@ vi.mock("next/server", () => ({
 const {
   mockIsDbConfigured,
   mockGetPlaybookOrgSlug,
+  mockGetPlaybook,
   mockUpdatePlaybook,
   mockDeletePlaybook,
   mockRecordAudit,
@@ -43,6 +44,7 @@ const {
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetPlaybookOrgSlug: vi.fn(),
+  mockGetPlaybook: vi.fn(),
   mockUpdatePlaybook: vi.fn(),
   mockDeletePlaybook: vi.fn(),
   mockRecordAudit: vi.fn(),
@@ -54,6 +56,7 @@ const {
 vi.mock("@/lib/db", () => ({
   isDbConfigured: mockIsDbConfigured,
   getPlaybookOrgSlug: mockGetPlaybookOrgSlug,
+  getPlaybook: mockGetPlaybook,
   updatePlaybook: mockUpdatePlaybook,
   deletePlaybook: mockDeletePlaybook,
   // The route now audits via the consolidated recordOrgAudit (resolve-orgId-then-record).
@@ -93,6 +96,7 @@ beforeEach(() => {
   mockRequireOrgAccess.mockResolvedValue(null); // member access granted
   mockRequireOrgRole.mockResolvedValue(null); // admin access granted
   mockUpdatePlaybook.mockResolvedValue(undefined);
+  mockGetPlaybook.mockResolvedValue({ id: "p1", title: "CI everywhere" });
   mockDeletePlaybook.mockResolvedValue(undefined);
   mockRecordAudit.mockResolvedValue(undefined);
   mockGetSession.mockResolvedValue({ login: "alice" });
@@ -141,6 +145,22 @@ describe("PATCH — body validation fires AFTER the gate", () => {
     expect(mockRequireOrgAccess).toHaveBeenCalledWith("acme");
     // ...but no write on invalid input.
     expect(mockUpdatePlaybook).not.toHaveBeenCalled();
+  });
+
+  // POST-parity (playbooks 07-16 #1): PATCH must not let a member blank the title updatePlaybook
+  // would otherwise persist as "".
+  it("rejects a blank title with 400 and does not write", async () => {
+    const res = await PATCH(patchReq({ title: "   " }), ctx("p1"));
+    expect(res.status).toBe(400);
+    expect(mockUpdatePlaybook).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty patch body with 400 — no no-op write, no changed:[] audit row", async () => {
+    const res = await PATCH(patchReq({}), ctx("p1"));
+    expect(res.status).toBe(400);
+    expect(mockUpdatePlaybook).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
   it("does NOT validate dimId when the caller is unauthorized (gate wins)", async () => {
@@ -234,6 +254,25 @@ describe("DELETE /api/org/playbooks/[id] — admin gate + per-row", () => {
     const res = await DELETE(new Request("http://t", { method: "DELETE" }), ctx("p1"));
     expect(res.status).toBe(200);
     expect(mockDeletePlaybook).toHaveBeenCalledWith("p1");
+  });
+
+  // Audit parity with PATCH (ambiguity-ui 07-16 playbooks #5): the irreversible op leaves a trail.
+  it("audits `playbook.deleted` with the title fetched BEFORE the row is gone", async () => {
+    const res = await DELETE(new Request("http://t", { method: "DELETE" }), ctx("p1"));
+    expect(res.status).toBe(200);
+    expect(mockRecordAudit).toHaveBeenCalledTimes(1);
+    const [kind, org, detail] = mockRecordAudit.mock.calls[0];
+    expect(kind).toBe("playbook.deleted");
+    expect(org).toBe("acme");
+    expect(detail).toMatchObject({ playbookId: "p1", title: "CI everywhere" });
+    // The title lookup must precede the delete, or the audit row is meaningless.
+    expect(mockGetPlaybook.mock.invocationCallOrder[0]).toBeLessThan(mockDeletePlaybook.mock.invocationCallOrder[0]);
+  });
+
+  it("denied delete records NO audit", async () => {
+    mockRequireOrgRole.mockResolvedValue(Response.json({ error: "no" }, { status: 403 }));
+    await DELETE(new Request("http://t", { method: "DELETE" }), ctx("p1"));
+    expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
   it("maps P2025 to 404 and other errors to 500", async () => {

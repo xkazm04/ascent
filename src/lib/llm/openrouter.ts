@@ -13,7 +13,7 @@ import { validateAssessment, isAssessmentUsable } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { parseJsonLoose } from "@/lib/llm/json";
-import { envNumber, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { llmMaxTokens, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4o-mini";
 const BASE_URL = "https://openrouter.ai/api/v1";
@@ -49,11 +49,14 @@ export class OpenRouterProvider implements LLMProvider {
         },
         body: JSON.stringify({
           model: this.model,
-          temperature: envNumber("LLM_TEMPERATURE", 0.2),
+          // llmTemperature(), not an inlined envNumber("LLM_TEMPERATURE", …): that function is
+          // documented as "the single source the real providers read", and the inline copy here
+          // silently skipped its [0,2] clamp. (llm-provider-abstraction #3)
+          temperature: llmTemperature(),
           // Give the reply room to complete the multi-KB assessment JSON (mirrors OPENAI_MAX_TOKENS);
           // a small completion cap truncates the JSON mid-object → parseJsonLoose recovers nothing →
           // the scan silently degrades to the mock floor under the "openrouter" name.
-          max_tokens: Math.round(envNumber("OPENROUTER_MAX_TOKENS", 4096)),
+          max_tokens: llmMaxTokens("OPENROUTER_MAX_TOKENS"),
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: system },

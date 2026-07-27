@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { claimRepoScan, dueBucketFor, releaseRepoScan } from "@/lib/db/org";
 import { computeWindowDeltas, type RepoScoreSnap } from "@/lib/db/org-rollup";
 
-// Pure due-date bucketing behind the org backlog's "by due date" grouping. UTC date-only dates keep
-// these assertions free of the runner's local timezone.
+// Pure due-date bucketing behind the org backlog's "by due date" grouping. Due dates are stored
+// date-only (UTC midnight when parsed) and interpreted as the literal day the user picked, while
+// `now` is bucketed on its LOCAL calendar day — matching the dashboard's unified local-day semantics
+// (window.ts). `now` is therefore constructed with LOCAL date fields so every assertion is
+// deterministic in any runner timezone.
 describe("dueBucketFor", () => {
-  const now = new Date("2026-06-02T12:00:00Z");
+  const now = new Date(2026, 5, 2, 12, 0, 0); // local noon, 2026-06-02
   const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
   it("buckets a missing due date as no_date", () => {
@@ -33,8 +36,18 @@ describe("dueBucketFor", () => {
   });
 
   it("treats the due date as date-only (time of day on `now` doesn't shift the bucket)", () => {
-    const lateInDay = new Date("2026-06-02T23:59:59Z");
+    const lateInDay = new Date(2026, 5, 2, 23, 59, 59); // local, still 2026-06-02
     expect(dueBucketFor(day("2026-06-02"), lateInDay)).toBe("this_week"); // still today, not overdue
+  });
+
+  // ambiguity-ui 2026-07-16 #4: the whole dashboard buckets on LOCAL calendar days (window.ts
+  // startOfDay); the old all-UTC daysUntil flipped overdue/this_week for hours around local
+  // midnight on any non-UTC deployment — on the bucket that drives the owner sort.
+  it("uses LOCAL calendar days, so the overdue flip happens at local midnight (not UTC midnight)", () => {
+    const justAfterLocalMidnight = new Date(2026, 5, 3, 0, 30); // local 2026-06-03 00:30
+    expect(dueBucketFor(day("2026-06-02"), justAfterLocalMidnight)).toBe("overdue");
+    const lateLocalEvening = new Date(2026, 5, 2, 23, 30); // local 2026-06-02 23:30
+    expect(dueBucketFor(day("2026-06-02"), lateLocalEvening)).toBe("this_week");
   });
 
   // ---- boundary edges: pin the exact day each bucket flips, tied to the dueInDays sign. The

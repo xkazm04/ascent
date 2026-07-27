@@ -1,4 +1,5 @@
 import { Tile, TILE_LEDGER } from "@/components/org/shared/ui";
+import { DUE_SOON_DAYS, OVERDUE_ACCENT } from "@/components/org/shared/backlogShared";
 import type { BacklogOwnerGroup, OrgBacklog } from "@/lib/db";
 
 export function SummaryStrip({ b }: { b: OrgBacklog }) {
@@ -7,8 +8,8 @@ export function SummaryStrip({ b }: { b: OrgBacklog }) {
   return (
     <div className={`${TILE_LEDGER} grid-cols-2 sm:grid-cols-3 lg:grid-cols-6`}>
       <Tile label="Active" value={b.active} />
-      <Tile label="Overdue" value={b.overdue} color={b.overdue ? "#f97316" : undefined} />
-      <Tile label="Due ≤ 7d" value={b.dueSoon} color={b.dueSoon ? "#eab308" : undefined} />
+      <Tile label="Overdue" value={b.overdue} color={b.overdue ? OVERDUE_ACCENT : undefined} />
+      <Tile label={`Due ≤ ${DUE_SOON_DAYS}d`} value={b.dueSoon} color={b.dueSoon ? "#eab308" : undefined} />
       <Tile label="Unassigned" value={b.unassigned} color={b.unassigned ? "#fbbf24" : undefined} />
       <Tile label="In progress" value={b.inProgress} />
       <Tile label="Done" value={b.done} color={b.done ? "#22c55e" : undefined} />

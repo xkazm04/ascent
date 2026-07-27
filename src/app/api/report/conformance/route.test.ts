@@ -57,7 +57,7 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   mockIsDbConfigured.mockReturnValue(true);
   mockRequireOrgAccess.mockResolvedValue(null); // allowed
-  mockRecord.mockResolvedValue(true);
+  mockRecord.mockResolvedValue({ recorded: true, stale: false });
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -70,7 +70,7 @@ describe("POST /api/report/conformance — auth (CI token vs org access)", () =>
 
     expect(res.status).toBe(200);
     expect(mockRequireOrgAccess).not.toHaveBeenCalled(); // the unattended path is not org-gated
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3 });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null });
   });
 
   it("matches the Bearer prefix case-insensitively (curl/doctor header casing varies)", async () => {
@@ -93,7 +93,7 @@ describe("POST /api/report/conformance — auth (CI token vs org access)", () =>
       vi.clearAllMocks();
       mockIsDbConfigured.mockReturnValue(true);
       mockRequireOrgAccess.mockResolvedValue(null);
-      mockRecord.mockResolvedValue(true);
+      mockRecord.mockResolvedValue({ recorded: true, stale: false });
 
       await post(OK, { authorization: auth });
 
@@ -127,33 +127,33 @@ describe("POST /api/report/conformance — auth (CI token vs org access)", () =>
 describe("POST /api/report/conformance — clamping the self-attested values", () => {
   it("clamps an absurd score to 0..100 instead of persisting it", async () => {
     await post({ ...OK, score: 999999 });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 1, warns: 3 });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 1, warns: 3, headSha: null });
   });
 
   it("clamps a negative score to 0", async () => {
     await post({ ...OK, score: -50 });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 0, fails: 1, warns: 3 });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 0, fails: 1, warns: 3, headSha: null });
   });
 
   it("clamps fails/warns to a non-negative, sanely-capped count", async () => {
     await post({ ...OK, fails: -7, warns: 5_000_000 });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 0, warns: 100_000 });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 0, warns: 100_000, headSha: null });
   });
 
   it("truncates fractional values rather than persisting a float", async () => {
     await post({ ...OK, score: 82.9, fails: 1.7, warns: 3.2 });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3 });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 82, fails: 1, warns: 3, headSha: null });
   });
 
   it("clamps on the CI-TOKEN path too — the unattended reporter is not more trusted", async () => {
     vi.stubEnv("CONFORMANCE_INGEST_TOKEN", "s3cret");
     await post({ ...OK, score: 12345, fails: -1, warns: -1 }, { authorization: "Bearer s3cret" });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 0, warns: 0 });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 0, warns: 0, headSha: null });
   });
 
   it("accepts numeric STRINGS (a shell-built JSON payload) and still bounds them", async () => {
     await post({ ...OK, score: "150", fails: "2", warns: "0" });
-    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 2, warns: 0 });
+    expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", { score: 100, fails: 2, warns: 0, headSha: null });
   });
 });
 
@@ -199,17 +199,17 @@ describe("POST /api/report/conformance — validation and the recorded:false pat
   });
 
   it("returns 200 with recorded:false when the repo isn't watched under the org (not an error)", async () => {
-    mockRecord.mockResolvedValue(false);
+    mockRecord.mockResolvedValue({ recorded: false, stale: false });
 
     const res = await post(OK);
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, recorded: false, repo: "acme/api" });
+    expect(await res.json()).toEqual({ ok: true, recorded: false, stale: false, repo: "acme/api" });
   });
 
   it("echoes the NORMALIZED owner/name, so a full GitHub URL round-trips to the canonical form", async () => {
     const res = await post({ ...OK, repo: "https://github.com/acme/api.git" });
-    expect(await res.json()).toEqual({ ok: true, recorded: true, repo: "acme/api" });
+    expect(await res.json()).toEqual({ ok: true, recorded: true, stale: false, repo: "acme/api" });
     expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", expect.anything());
   });
 });

@@ -314,41 +314,52 @@ describe("checkAndAlertRegression — throw-safety (never fails the scan path)",
 });
 
 // --- maybeAlertLowCredits — fires-EXACTLY-ONCE on the threshold crossing -----------------------
-// Sibling of checkAndAlertRegression: pushes a depletion alert after a metered unit debit. The
-// design (alerts.ts) deliberately keys off the EDGE, not the level: debits are unit-sized, so the
-// balance lands EXACTLY on the threshold once on the way down (and exactly on 0 once at depletion).
-// isLowCreditsCrossing(b, t) === (b === 0 || b === t). These tests pin that the alert fires once at
-// the crossing and never spams on the subsequent below-threshold scans — the test-mastery
-// "fires exactly once, never skipped" invariant. We give the mocked predicate its REAL semantics so
-// the fires-once edge is pinned honestly rather than against a hard-wired stub.
+// Sibling of checkAndAlertRegression: pushes a depletion alert after a metered debit. The design
+// (alerts.ts) deliberately keys off the EDGE, not the level, and is RANGE-based: a crossing happens
+// when the balance was strictly above a line (threshold or 0) before the debit and at/below it
+// after — so it fires once per descent regardless of debit size (no unit-sized invariant). These
+// tests pin that the alert fires once at the crossing and never spams on the subsequent
+// below-threshold scans — the test-mastery "fires exactly once, never skipped" invariant. We give
+// the mocked predicate its REAL semantics so the fires-once edge is pinned honestly rather than
+// against a hard-wired stub.
 describe("maybeAlertLowCredits — fires exactly once on the threshold crossing", () => {
   const THRESH = 5;
   beforeEach(() => {
-    // Honest predicate: only the exact-threshold and exact-zero landings count as a crossing,
-    // mirroring isLowCreditsCrossing's real body (b === 0 || b === threshold).
-    mockCrossing.mockImplementation((balanceAfter: number, threshold: number) => balanceAfter === 0 || balanceAfter === threshold);
+    // Honest predicate: mirrors isLowCreditsCrossing's real range-based body.
+    mockCrossing.mockImplementation(
+      (before: number, after: number, threshold: number) =>
+        after < before && ((before > threshold && after <= threshold) || (before > 0 && after <= 0)),
+    );
     mockCreditsThreshold.mockReturnValue(THRESH);
     mockBuildLow.mockReturnValue({ text: "low", blocks: [] } as never);
     mockWebhook.mockResolvedValue("https://hooks.example/acme");
     mockDispatch.mockResolvedValue(true);
   });
 
-  it("fires exactly ONCE on the way down: the alert is sent only on the scan that lands ON the threshold", async () => {
-    // Simulate a unit-debit descent 8 → 7 → 6 → 5(threshold) → 4 → 3. Only the balance that lands
-    // exactly on 5 is a crossing; every other observation is a clean no-op. This is the core
-    // "fires exactly once, never skipped, no spam" invariant.
-    const descent = [8, 7, 6, 5, 4, 3];
+  it("fires exactly ONCE on the way down: the alert is sent only on the debit that crosses the threshold", async () => {
+    // Simulate a unit-debit descent 9→8 → … → 6→5(crosses) → 5→4 → 4→3. Only the debit that takes
+    // the balance from above the line to at/below it is a crossing; every other observation is a
+    // clean no-op. This is the core "fires exactly once, never skipped, no spam" invariant.
+    const descent: [number, number][] = [[9, 8], [8, 7], [7, 6], [6, 5], [5, 4], [4, 3]];
     const results: boolean[] = [];
-    for (const b of descent) results.push(await maybeAlertLowCredits("acme", b));
+    for (const [before, after] of descent) results.push(await maybeAlertLowCredits("acme", before, after));
 
     expect(results).toEqual([false, false, false, true, false, false]);
     // The dispatch fired exactly once across the whole descent — no spam on the sub-threshold scans.
     expect(mockDispatch).toHaveBeenCalledTimes(1);
   });
 
+  it("fires ONCE even when a bulk debit steps OVER the threshold without landing on it", async () => {
+    // The scenario the old equality predicate silently missed: an 8 → 3 debit (batch, priced
+    // re-scan, admin adjustment) crosses the line without ever equaling it.
+    expect(await maybeAlertLowCredits("acme", 8, 3)).toBe(true);
+    expect(await maybeAlertLowCredits("acme", 3, 2)).toBe(false); // already below — no re-fire
+    expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+
   it("does NOT fire while strictly above the threshold (level, not crossing)", async () => {
-    for (const b of [100, 50, 9, 6]) {
-      expect(await maybeAlertLowCredits("acme", b)).toBe(false);
+    for (const [before, after] of [[101, 100], [51, 50], [10, 9], [7, 6]] as const) {
+      expect(await maybeAlertLowCredits("acme", before, after)).toBe(false);
     }
     expect(mockDispatch).not.toHaveBeenCalled();
   });
@@ -357,38 +368,37 @@ describe("maybeAlertLowCredits — fires exactly once on the threshold crossing"
     // Cross down to 5 (fire #1), recover to 12 (top-up, no fire), then debit back down through 5
     // again (fire #2). The alert keys on the crossing edge, so each fresh descent through the line
     // re-arms — it does NOT stay latched, and it does NOT stay silent after recovery.
-    const series = [6, 5 /* cross #1 */, 12 /* recover, no fire */, 6, 5 /* cross #2 */];
+    const series: [number, number][] = [[7, 6], [6, 5] /* cross #1 */, [5, 12] /* recover, no fire */, [7, 6], [6, 5] /* cross #2 */];
     const results: boolean[] = [];
-    for (const b of series) results.push(await maybeAlertLowCredits("acme", b));
+    for (const [before, after] of series) results.push(await maybeAlertLowCredits("acme", before, after));
 
     expect(results).toEqual([false, true, false, false, true]);
     expect(mockDispatch).toHaveBeenCalledTimes(2);
   });
 
-  it("fires on the depletion crossing too: landing exactly on 0 alerts even below the threshold", async () => {
+  it("fires on the depletion crossing too: reaching 0 alerts even from below the threshold", async () => {
     // Per the real predicate, 0 is its own crossing (depletion), distinct from the threshold line —
     // so a fleet draining 5 → … → 0 alerts at the threshold AND again at empty.
-    expect(await maybeAlertLowCredits("acme", 0)).toBe(true);
+    expect(await maybeAlertLowCredits("acme", 1, 0)).toBe(true);
     expect(mockDispatch).toHaveBeenCalledTimes(1);
     expect(mockBuildLow).toHaveBeenCalledWith(expect.objectContaining({ balance: 0, threshold: THRESH }));
   });
 
-  it("a balance already below the threshold at first observation is NOT a crossing (no retroactive fire)", async () => {
-    // First time we ever see this org it's already at 3 (below 5, above 0). Because the predicate is
-    // edge-based and this debit did not LAND on the line, it must not fire — matching the real code,
-    // which has no dedupe table and relies purely on the unit-sized landing.
-    expect(await maybeAlertLowCredits("acme", 3)).toBe(false);
+  it("a debit fully below the threshold (and above 0) is NOT a crossing (no retroactive fire)", async () => {
+    // The org is already at 4 (below 5, above 0) and debits to 3 — the line was crossed on an
+    // earlier debit, so this one must not fire. No dedupe table needed: the range check is enough.
+    expect(await maybeAlertLowCredits("acme", 4, 3)).toBe(false);
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
   it("a crossing with NO resolvable sink is a clean no-op (does not dispatch, does not throw)", async () => {
     mockWebhook.mockResolvedValue(null); // isAlertConfigured(null) => false
-    expect(await maybeAlertLowCredits("acme", THRESH)).toBe(false);
+    expect(await maybeAlertLowCredits("acme", THRESH + 1, THRESH)).toBe(false);
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
   it("never throws into the scan path when dispatch rejects on a real crossing; resolves false", async () => {
     mockDispatch.mockRejectedValue(new Error("webhook 500"));
-    await expect(maybeAlertLowCredits("acme", THRESH)).resolves.toBe(false);
+    await expect(maybeAlertLowCredits("acme", THRESH + 1, THRESH)).resolves.toBe(false);
   });
 });

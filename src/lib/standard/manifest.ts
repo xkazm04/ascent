@@ -114,7 +114,8 @@ repo:
   archetype: ${scalar(d.repo.archetype)}
 
 # Capabilities, not tools. Add keys freely; older readers ignore unknown ones.
-# \`verified\` is a claim the doctor flips to true once it has actually run the command.
+# \`verified\` is a claim the doctor's --run writes back: true once it has actually run the command
+# and it passed, false when the run fails (a stale true never outlives a broken command).
 capabilities:
 ${caps}
 

@@ -17,12 +17,28 @@ import { validateAssessment } from "@/lib/llm/provider";
 import { parseJsonLoose } from "@/lib/llm/json";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
+import { envNumber } from "@/lib/llm/config";
 
 export const DEFAULT_CLAUDE_MODEL = "sonnet";
-// A claude-cli scan runs a full local CLI session per call — ~6 min median, up to ~10 min on a large
-// repo. The old 150s default cut most real scans off mid-answer, which then failed over to the mock
-// floor. Default to 10 min so a stock deploy completes live; override with CLAUDE_CLI_TIMEOUT_MS.
-const CLI_TIMEOUT_MS = Number(process.env.CLAUDE_CLI_TIMEOUT_MS) || 600_000;
+// Floor for the CLI timeout, mirroring config.ts's MIN_LLM_TIMEOUT_MS rationale: a 0/negative/tiny
+// CLAUDE_CLI_TIMEOUT_MS is a misconfiguration, not "no timeout" — it would SIGKILL every CLI run
+// instantly and silently route all local-dev scans to the mock floor (the exact failure class the
+// other four providers' timeout floor exists to prevent).
+const MIN_CLI_TIMEOUT_MS = 1_000;
+/**
+ * A claude-cli scan runs a full local CLI session per call — ~6 min median, up to ~10 min on a large
+ * repo. The old 150s default cut most real scans off mid-answer, which then failed over to the mock
+ * floor. Default to 10 min so a stock deploy completes live; override with CLAUDE_CLI_TIMEOUT_MS.
+ * Read at CALL time via config.ts's envNumber (same knob semantics as the other providers: blank /
+ * garbage → default, NOT NaN→default-by-accident; a configured 0 is floored, not silently reverted)
+ * so tests/ops can restub the env without module-load ordering games.
+ * Budget note: this 10-min default deliberately exceeds scan.ts's normal 90s total LLM budget —
+ * scan.ts's llmTotalBudgetMs() special-cases claude-cli to a 15-min budget, so one full CLI call plus
+ * failover headroom fits. The two knobs are sized together; don't shrink one without the other.
+ */
+function cliTimeoutMs(): number {
+  return Math.max(MIN_CLI_TIMEOUT_MS, envNumber("CLAUDE_CLI_TIMEOUT_MS", 600_000));
+}
 
 interface CliResult {
   result?: string;
@@ -103,7 +119,7 @@ export class ClaudeCliProvider implements LLMProvider {
  * and reach it through a `NODE_ENV !== "production"` dynamic import, so the prod build dead-code-prunes
  * this file (and its child_process.spawn) out of the Node File Trace.
  *
- * `timeoutMs` defaults to the scan-sized CLI_TIMEOUT_MS (10 min). An INTERACTIVE caller (a user waiting
+ * `timeoutMs` defaults to the scan-sized cliTimeoutMs() (10 min). An INTERACTIVE caller (a user waiting
  * on a UI action) should pass something far smaller — a duplicate check that hangs for ten minutes is a
  * broken page, not a slow one.
  */
@@ -120,7 +136,7 @@ function runClaude(
   model: string,
   stdin: string,
   signal?: AbortSignal,
-  timeoutMs: number = CLI_TIMEOUT_MS,
+  timeoutMs: number = cliTimeoutMs(),
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {

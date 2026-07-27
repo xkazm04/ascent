@@ -17,7 +17,16 @@ export function mergeStars(prev: RepoStar[], fresh: RepoStar[]): RepoStar[] {
     if (!f) continue; // gone upstream — remove the dead star instead of letting the list only ever grow
     freshBy.delete(p.fullName);
     merged.push(
-      f.overall === p.overall && f.level === p.level && f.dOverall === p.dOverall && f.watched === p.watched ? p : f,
+      // The `appended` comparison matters: a star appended mid-scan (outer "incoming" ring) that
+      // reappears in the authoritative list must adopt the fresh flag-less object, so it re-flows
+      // into the phyllotaxis instead of orbiting the incoming ring forever.
+      f.overall === p.overall &&
+        f.level === p.level &&
+        f.dOverall === p.dOverall &&
+        f.watched === p.watched &&
+        Boolean(f.appended) === Boolean(p.appended)
+        ? p
+        : f,
     );
   }
   for (const f of freshBy.values()) merged.push(f); // repos that appeared since the last pull

@@ -170,3 +170,30 @@ describe("buildGateComment", () => {
     expect(c.commentBody).toContain("Policy: min L3 · min overall 50 · no dim < 40 · no D9 < 50 · forbid ungoverned · protected branch");
   });
 });
+
+// github-app-installation-webhooks 2026-07-16 #3: the fork-PR fallback scores the DEFAULT BRANCH, not
+// the PR head — that verdict must never post as a confident success/failure required-status result.
+describe("buildGateComment — default-branch fallback (scoredHead: false)", () => {
+  it("posts NEUTRAL (not success) and says it scored the default branch, even on a passing verdict", () => {
+    const c = buildGateComment(report(), passGate, null, { scoredHead: false });
+    expect(c.conclusion).toBe("neutral");
+    expect(c.title).toContain("PR head not scored");
+    expect(c.title).not.toMatch(/^Passed/); // no confident per-PR verdict framing
+    expect(c.summary).toContain("Default-branch verdict");
+    expect(c.summary).toContain("does not reflect the PR's own changes");
+    // The sticky comment carries the same honest framing (it is built from the summary).
+    expect(c.commentBody).toContain("does not reflect the PR's own changes");
+  });
+
+  it("posts NEUTRAL (not failure) on a failing fallback verdict — a red default branch must not block an innocent fork PR as its own failure", () => {
+    const c = buildGateComment(report({ overallScore: 40 }), failGate, null, { scoredHead: false });
+    expect(c.conclusion).toBe("neutral");
+    expect(c.title).toContain("Default branch failed");
+    expect(c.title).toContain("PR head not scored");
+  });
+
+  it("scoredHead: true (and the default) keep the exact confident per-PR framing", () => {
+    expect(buildGateComment(report(), passGate, null, { scoredHead: true }).conclusion).toBe("success");
+    expect(buildGateComment(report(), passGate).title).toMatch(/^Passed — /);
+  });
+});

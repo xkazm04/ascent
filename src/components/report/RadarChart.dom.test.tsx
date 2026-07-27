@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { DimensionResult } from "@/lib/types";
 import { RadarChart } from "./RadarChart";
 
@@ -49,5 +49,42 @@ describe("RadarChart accessibility", () => {
       expect(cls).toContain("fill-slate-400");
       expect(cls).not.toContain("fill-slate-500");
     }
+  });
+});
+
+describe("RadarChart picker reach (keyboard + touch)", () => {
+  it("with onSelect, every dimension row exposes a real button that fires the selection", () => {
+    // The SVG pick path is pointer-geometry only; keyboard/SR users select via the sr-only table's
+    // per-dimension buttons (the DimLine sr-only link-list pattern).
+    const onSelect = vi.fn();
+    render(<RadarChart dimensions={DIMS} onSelect={onSelect} />);
+    for (const d of DIMS) {
+      const btn = screen.getByRole("button", { name: d.name });
+      fireEvent.click(btn);
+      expect(onSelect).toHaveBeenLastCalledWith(d.id);
+    }
+    expect(onSelect).toHaveBeenCalledTimes(DIMS.length);
+  });
+
+  it("without onSelect, the table stays static — no buttons", () => {
+    render(<RadarChart dimensions={DIMS} />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("a stationary tap (pointerdown, no pointermove) resolves the vertex so click selects it", () => {
+    // Back-ported onPointerDown snap: previously `active` was only set by pointermove, so a touch
+    // tap clicked with active === null and the pick silently no-oped.
+    const onSelect = vi.fn();
+    const { container } = render(<RadarChart dimensions={DIMS} onSelect={onSelect} size={340} />);
+    const svg = container.querySelector("svg")!;
+    // jsdom has no layout — give the svg a concrete box so the pointer→viewBox math works.
+    svg.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 436, height: 340, right: 436, bottom: 340, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    // D1's vertex sits straight up from center at frac 72/100: center (170,170), radius 114 →
+    // viewBox (170, 87.92); client x = viewBox x + labelPadX(48) = 218, y = 88 (1:1 box).
+    // Tap it: pointerdown then click, NO pointermove.
+    fireEvent.pointerDown(svg, { clientX: 218, clientY: 88 });
+    fireEvent.click(svg);
+    expect(onSelect).toHaveBeenCalledWith("D1");
   });
 });

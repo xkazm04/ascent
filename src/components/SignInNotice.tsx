@@ -39,9 +39,17 @@ export function SignInNotice({
         ) : null
       }
       body={
+        // What sign-in GRANTS differs per backend (github-oauth-session 07-16 #5): the custom-OAuth
+        // callback loads App installations, so its sign-in really does unlock private-org reads. A
+        // Supabase login only authenticates IDENTITY — private-repo access still requires the Ascent
+        // GitHub App installation (canReadOrg) — so promising "access private repositories" there
+        // over-promised at the most conversion-sensitive moment: users signed in and read the
+        // still-public view as a bug.
         expired
-          ? "Re-authenticate with GitHub to restore access to your repositories, history, and usage."
-          : "Connect your GitHub account to access private repositories, history, and usage."
+          ? "Re-authenticate with GitHub to restore access to your history, usage, and repositories."
+          : backend === "supabase"
+            ? "Sign in with GitHub to access your history and usage. Private repositories additionally require the Ascent GitHub App to be installed."
+            : "Connect your GitHub account to access private repositories, history, and usage."
       }
     >
       {backend === "supabase" ? (

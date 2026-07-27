@@ -81,14 +81,25 @@ describe("getScanComparison — baseline never reaches forward in time", () => {
     expect(cmp!.before?.id).toBe("idB"); // the next-older scan, baseline in the past
   });
 
-  it("an explicit beforeId NEWER than after is rejected (no axis inversion) — falls back to the older default (#7)", async () => {
+  it("an explicit beforeId NEWER than after is honored — the picker's Swap produces the swapped pair (07-16 #1)", async () => {
     const prisma = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
 
-    // after = idB (middle); beforeId = idA is NEWER than idB → honoring it would invert the axis.
+    // Swap of (before=idB, after=idA) requests (after=idB, before=idA). compare.ts documents that an
+    // older `after` is valid (deltas read as regressions), so the explicit pair must be honored —
+    // the old guard rewrote it to (idB, idC), a diff of two scans the user never selected.
     const cmp = await getScanComparison("o", "r", { afterId: "idB", beforeId: "idA" });
     expect(cmp!.after?.id).toBe("idB");
-    expect(cmp!.before?.id).toBe("idC"); // fell back to the scan OLDER than idB, not the newer idA
+    expect(cmp!.before?.id).toBe("idA"); // the swapped baseline, not a silent default substitution
+  });
+
+  it("an explicit beforeId equal to after (degenerate self-diff) falls back to the default baseline", async () => {
+    const prisma = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const cmp = await getScanComparison("o", "r", { afterId: "idB", beforeId: "idB" });
+    expect(cmp!.after?.id).toBe("idB");
+    expect(cmp!.before?.id).toBe("idC"); // the scan immediately older than idB
   });
 
   it("an explicit beforeId OLDER than after is still honored", async () => {

@@ -54,6 +54,14 @@ Started* (low/low). The L1–L5 level is the lens-weighted overall; posture carr
 nuance. An **LLM auditor** also flags suspected detector misses (`discrepancies`). Canonical
 logic lives in `src/lib/maturity/model.ts` + `src/lib/scoring/engine.ts`.
 
+**Posture cut vs. level bands (deliberate):** each axis is "high" at
+`POSTURE_THRESHOLD = 50`, which is **stricter than the L3 band floor (45)**. A repo scoring
+45–49 on both axes therefore reads *Augmented* (L3) **and** *Getting Started* — that's by
+design, not drift: the level is a weighted average that partial strength can carry into L3,
+while the posture quadrant is a claim about each axis independently, and we'd rather
+under-claim a quadrant than assert "AI-Native" off a sub-half axis. Treat the 45–55 corridor
+as borderline: a ±1-point re-scan can flip the quadrant there (there is no hysteresis).
+
 ### Dimension detail
 
 #### D1 — AI Tooling & Conventions (15%)
@@ -132,33 +140,63 @@ the repo? This is the shift-left guardrail against vulnerable or secret-leaking 
 
 ## 3. Scoring Methodology (hybrid & explainable)
 
-```
-For each dimension D:
-  signals(D)        = deterministic detectors over the repo (files, patterns, metadata)
-  signalScore(D)    = rubric mapping of signals -> 0..100  (cheap, reliable, explainable)
-  llmScore(D)       = LLM judgment 0..100 given signals + sampled content + the rubric
-  dimensionScore(D) = round( BLEND * llmScore(D) + (1-BLEND) * signalScore(D) )
-                      // BLEND default 0.6; LLM can adjust within a guardband of the
-                      // signal score so it can't hallucinate a wildly off number.
+This pseudo-code mirrors the implemented pipeline (`src/lib/scoring/engine.ts`
+`assembleReport` + `src/lib/maturity/model.ts` `overallScoreFor`); the constants quoted
+are `SCORE_BLEND = 0.6` and `LLM_GUARDBAND = 25` from `src/lib/maturity/model.ts`.
 
-overall = round( Σ weight(D) * dimensionScore(D) )
-level   = band(overall)   // L1..L5 per the table above
+```
+coverage = fraction of the repo actually inspected (0..1; also surfaced as report.confidence)
+
+For each dimension D:
+  signals(D)     = deterministic detectors over the repo (files, patterns, metadata)
+  signalScore(D) = rubric mapping of signals -> 0..100  (cheap, reliable, explainable)
+  llmScore(D)    = LLM judgment 0..100 given signals + sampled content + the rubric
+
+  # Guardband: the LLM may nuance but not contradict the evidence. The band is DOUBLED for
+  # a dimension the LLM's self-audit flagged as a detector discrepancy (a missed signal or a
+  # false positive) — the deterministic signal is suspect there, so the model's judgment is
+  # trusted further, still bounded.
+  band(D)    = flagged_discrepancy(D) ? 2 * GUARDBAND : GUARDBAND      # GUARDBAND = 25
+  guarded(D) = clamp(llmScore(D), signalScore(D) - band(D), signalScore(D) + band(D))
+
+  # Coverage-scaled blend: the LLM's pull is scaled by how much of the repo we inspected. A
+  # half-seen (rate-limited / truncated) repo leans harder on the deterministic signals; at
+  # full coverage this is exactly BLEND.
+  effectiveBlend    = BLEND * coverage                                 # BLEND = 0.6
+  dimensionScore(D) = round( effectiveBlend * guarded(D) + (1 - effectiveBlend) * signalScore(D) )
+
+  # Exception — D9 (Supply Chain & Security) is fully deterministic: its check battery IS the
+  # score. The LLM narrates it but never moves the number. dimensionScore(D9) = signalScore(D9).
+
+# Overall: a RENORMALIZED, archetype-lens-weighted MEAN over the dimensions actually present.
+# A dimension whose detector failed (or that a partial scan dropped) is EXCLUDED and the
+# remaining lens weights renormalize — it is never charged as a 0. lensWeight(D) comes from
+# the archetype lens (§2b), not the base org weights.
+overall = round( Σ lensWeight(D) * dimensionScore(D) / Σ lensWeight(D) )   # over present D
+level   = band(overall)   # L1..L5 per the table above
 ```
 
 Design principles:
 - **Deterministic backbone:** signals are computed in code, not by the LLM, so scores
   are reproducible and cheap. The LLM adds nuance and writes the human-readable
   rationale and recommendations.
-- **Guardbanding:** the LLM score for a dimension is clamped to within ±`LLM_GUARDBAND`
-  (default **25**) of the signal score to prevent hallucinated extremes; the blend factor is
-  `SCORE_BLEND` (default **0.6**), coverage-weighted so a partially-seen repo leans harder on the
-  deterministic signals. A dimension the LLM flags as a detector discrepancy widens the band to ±50.
-  Evidence must back any score. (D9 is fully deterministic — the LLM narrates but never re-scores it;
-  its only escape is the *visibility blind-spot* path, which marks D9 `n/a` rather than raising it.)
+- **Guardbanding:** the LLM score for a dimension is clamped to within ±25
+  (`LLM_GUARDBAND`) of the signal score to prevent hallucinated extremes; the band
+  doubles (±50) only where the LLM's self-audit flagged the detector signal itself as
+  suspect. Evidence must back any score.
+- **Coverage-weighted blend:** the LLM's blend weight scales with inspection coverage,
+  so a partially-seen repo leans on the coverage-robust deterministic signals rather
+  than blending a low-information LLM read at full weight.
+- **Renormalized roll-up:** the overall is a weighted *mean* over the dimensions
+  actually scored (lens weights renormalized), so a failed detector or partial scan
+  can't silently deflate the headline. Deterministic D9 anchors security to the check
+  battery alone — the LLM narrates but never re-scores it; its only escape is the
+  *visibility blind-spot* path, which marks D9 `n/a` rather than raising it.
 - **Evidence-first:** every dimension returns the concrete signals/files it found, so
   the score is auditable.
 - **Confidence:** each report carries a confidence value driven by how much of the repo
-  we could actually inspect (file budget, rate-limit truncation).
+  we could actually inspect (file budget, rate-limit truncation) — the same coverage
+  that scales the blend.
 
 ## 4. Report Output (per scan)
 
@@ -169,7 +207,7 @@ Design principles:
   "level": { "id": "L3", "name": "Augmented", "band": [45, 64] },
   "dimensions": [
     {
-      "id": "D2", "name": "Automated Testing", "weight": 0.15,
+      "id": "D2", "name": "Automated Testing", "weight": 0.15,  // the lens-adjusted weight (org lens shown)
       "score": 0, "signalScore": 0, "llmScore": 0,
       "summary": "…",                       // one-paragraph rationale
       "evidence": ["found vitest.config.ts", "42 *.test.ts files", "…"],

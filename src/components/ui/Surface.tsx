@@ -28,7 +28,9 @@ export function Surface({
   const r = radius === "xl" ? "rounded-xl" : "rounded-2xl";
   const bg = tone === "strong" ? "bg-surface-strong/40" : "bg-surface/40";
   return (
-    <div id={id} className={`${r} border border-divider ${bg} ${id ? "scroll-mt-24" : ""} ${className}`} {...rest}>
+    // Anchor offset = the shared sticky-header height token (globals.css --header-h, defined next to
+    // the HEADER_SHELL contract) + 2.5rem breathing room — not a locally re-guessed magic number.
+    <div id={id} className={`${r} border border-divider ${bg} ${id ? "scroll-mt-[calc(var(--header-h)+2.5rem)]" : ""} ${className}`} {...rest}>
       {children}
     </div>
   );

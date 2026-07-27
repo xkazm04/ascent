@@ -274,6 +274,16 @@ export async function clawbackOrderRefund(
  * Count the org's metered scans so far this calendar month — the allowance-usage basis. Cached/dedup
  * re-scans persist NO new Scan row (so they're naturally free), and degraded-to-mock runs are excluded
  * (engineProvider "mock"), so this counts only the real-inference scans that draw on the allowance.
+ *
+ * WINDOW CHOICE (credits-entitlements 07-16 #4): the allowance window is the UTC CALENDAR month
+ * (resets at 00:00 UTC on the 1st) — the cheapest window computable from Scan.scannedAt with no
+ * schema change. Deliberate trade-offs, accepted: (a) users west of UTC see the reset mid-evening on
+ * the month's last day; (b) it is NOT anchored to the Polar billing anniversary, so an org that
+ * subscribes on the 20th gets a full allowance for the partial month and a fresh one on the 1st — a
+ * bounded first-month double allowance we accept for simplicity. User-facing copy (CreditsControl's
+ * allowance line, /pricing) says "resets on the 1st (UTC)" to match. Anyone "fixing" this to
+ * billing-cycle anchoring must also update that copy and the reconciliation surfaces that assume
+ * calendar months.
  */
 export async function countMeteredScansThisMonth(orgSlug: string): Promise<number> {
   if (!isDbConfigured()) return 0;

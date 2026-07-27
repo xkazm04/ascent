@@ -3,7 +3,7 @@
 // and a trailing remediation ASK.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { securityMarkdown, type SecurityOverview } from "./security";
+import { buildGateSnippet, securityMarkdown, type SecurityOverview } from "./security";
 
 // `buildSecurityOverview` is pure assembly over two @/lib/db reads (rollup + governance). Mock the db
 // boundary so we can drive the band math and the security-gate verdict directly. The real maturity
@@ -41,6 +41,43 @@ const fixture: SecurityOverview = {
     { name: "web", fullName: "acme/web", score: 51, gateReason: null, rules: { protected: true, review: true, checks: false, signed: false }, checks: [], issues: [], summary: "" },
   ],
 };
+
+// security-posture-audit-log 2026-07-16 #4: the "paste-ready CI gate snippet" must cover EVERY
+// gate-failing repo, not the display-capped securityGate.failingRepos (8) — an org with 20 failing
+// repos previously copied a snippet that silently gated 8 of them.
+describe("buildGateSnippet — exhaustive over the full register", () => {
+  it("emits one curl per gate-failing repo even past the 8-repo display cap", () => {
+    const failing = Array.from({ length: 12 }, (_, i) => ({
+      name: `repo-${i}`,
+      fullName: `acme/repo-${i}`,
+      score: 20,
+      gateReason: "Security 20 < 50",
+      rules: null,
+      checks: [],
+      issues: [],
+      summary: "",
+    }));
+    const o: SecurityOverview = {
+      ...fixture,
+      register: [...failing, { ...fixture.register[1]! }],
+      securityGate: { ...fixture.securityGate, failing: 12, failingRepos: fixture.securityGate.failingRepos },
+    };
+    const snippet = buildGateSnippet(o);
+    for (const r of failing) expect(snippet).toContain(`curl -sf "$ASCENT_URL/api/gate/${r.fullName}?security=1"`);
+    // Passing repos are not gated into the snippet when there are failures.
+    expect(snippet).not.toContain("acme/web?security=1");
+  });
+
+  it("falls back to two example lines when the whole fleet passes", () => {
+    const o: SecurityOverview = {
+      ...fixture,
+      register: fixture.register.map((r) => ({ ...r, gateReason: null })),
+    };
+    const snippet = buildGateSnippet(o);
+    expect(snippet).toContain("acme/legacy-api?security=1");
+    expect(snippet).toContain("acme/web?security=1");
+  });
+});
 
 describe("securityMarkdown — degraded supply chain is stated, never implied clean", () => {
   // getOrgSupplyChain returns { degraded: true, scanned: 0 } when the advisory fetch FAILED. The old

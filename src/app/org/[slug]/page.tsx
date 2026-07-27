@@ -6,6 +6,7 @@ import { RepoDimensionHeatmap } from "@/components/org/overview/RepoDimensionHea
 import { buildTrajectories } from "@/components/org/overview/repoTrajectory";
 import { getOrgHeaderSummary, getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import { PersonalOverview } from "@/components/org/PersonalOverview";
+import { BillingReturnNotice } from "@/components/org/shared/BillingReturnNotice";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
@@ -44,11 +45,37 @@ export default async function OrgOverview({
   const { slug } = await params;
   const sp = await searchParams;
 
+  // Post-checkout return (checkout-plans-polar #1): /api/billing/checkout redirects the buyer back
+  // here with ?credits=pending (paid; webhook fulfilment in flight) or ?credits=error (session
+  // creation failed, not charged). Consume it into a visible, dismissible notice — the redirect
+  // contract existed on the API side but no UI ever read the param, so a paying buyer landed on an
+  // unchanged dashboard (balance chip still showing the OLD number) with zero feedback.
+  const creditsParam = Array.isArray(sp.credits) ? sp.credits[0] : sp.credits;
+  const billingStatus = creditsParam === "pending" ? ("pending" as const) : creditsParam === "error" ? ("error" as const) : null;
+  const remaining = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (k === "credits" || v === undefined) continue;
+    for (const val of Array.isArray(v) ? v : [v]) remaining.append(k, val);
+  }
+  const remainingQs = remaining.toString();
+  const dismissHref = `/org/${encodeURIComponent(slug)}${remainingQs ? `?${remainingQs}` : ""}`;
+  const billingNotice = billingStatus ? <BillingReturnNotice status={billingStatus} dismissHref={dismissHref} /> : null;
+
   // A PERSONAL workspace renders the individual overview — the watchlist lens over the shared public
   // corpus — instead of the fleet rollup (whose reads would find nothing: a personal org holds pointer
-  // rows, never scans). One cheap read; the layout already ran the same query for the shell.
+  // rows, never scans). One cheap read, deduped per request with the layout's identical call — the
+  // export is React-`cache()`d, so this really is free rather than a second round-trip.
   const headerSummary = await getOrgHeaderSummary(slug);
-  if (headerSummary?.kind === "personal") return <PersonalOverview slug={slug} />;
+  if (headerSummary?.kind === "personal") {
+    return billingNotice ? (
+      <div className="space-y-6">
+        {billingNotice}
+        <PersonalOverview slug={slug} />
+      </div>
+    ) : (
+      <PersonalOverview slug={slug} />
+    );
+  }
 
   // An explicit ?range= wins (shareable links stay authoritative); otherwise the remembered period
   // cookie, then the default. Shared with every org tab via resolveOrgWindow so the range carries across.
@@ -70,12 +97,15 @@ export default async function OrgOverview({
   // where the layout's did — render a page-scale empty state with a way out, not a blank panel.
   if (!rollup) {
     return (
-      <OrgEmpty
-        title="No data for this view"
-        body="No scans match the selected period or segment yet. Widen the time range, clear the segment filter, or scan some repositories to populate the dashboard."
-        href={`/org/${slug}/repositories`}
-        cta="View repositories"
-      />
+      <div className="space-y-6">
+        {billingNotice}
+        <OrgEmpty
+          title="No data for this view"
+          body="No scans match the selected period or segment yet. Widen the time range, clear the segment filter, or scan some repositories to populate the dashboard."
+          href={`/org/${slug}/repositories`}
+          cta="View repositories"
+        />
+      </div>
     );
   }
 
@@ -99,6 +129,8 @@ export default async function OrgOverview({
 
   return (
     <div className="space-y-6">
+      {billingNotice}
+
       {/* Period control + active-scope readout (filtering now lives in the view's header dropdowns) */}
       <div data-tour="results-controls" className="flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-sm uppercase tracking-widest text-slate-500">

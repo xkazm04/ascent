@@ -19,6 +19,18 @@ import { SideNav, type SideNavGroup } from "@/components/ui";
 // surviving consumer was this type import — the tab switcher itself migrated to SideNav.)
 export type ReportTab = "scoring" | "dimensions" | "roadmap" | "sandbox" | "contributors";
 
+// Single source of truth for the report's section tabs. URL-param validation (`validTabs`) and the
+// rendered SideNav items both derive from this one list, so adding/removing/gating a tab is a
+// one-line change — previously they were two hand-synced enumerations, where a miss meant either a
+// dead `?tab=` deep link or a rendered tab whose URL param silently reset on refresh.
+const ALL_TABS: ReadonlyArray<{ id: ReportTab; label: string; needsActivity?: boolean }> = [
+  { id: "scoring", label: "Scoring" },
+  { id: "dimensions", label: "Dimensions" },
+  { id: "roadmap", label: "Roadmap" },
+  { id: "sandbox", label: "Sandbox" },
+  { id: "contributors", label: "Contributors", needsActivity: true },
+];
+
 export function ReportView({
   report,
   onRetest,
@@ -164,7 +176,10 @@ export function ReportView({
   // tab (e.g. ?tab=contributors on a scan with no activity) falls back to scoring.
   const params = useSearchParams();
   const pathname = usePathname();
-  const validTabs: ReportTab[] = ["scoring", "dimensions", "roadmap", "sandbox", ...(showActivity ? (["contributors"] as const) : [])];
+  // Both the URL-param whitelist and the rendered nav derive from the one ALL_TABS list, filtered
+  // once on the activity gate.
+  const tabs = ALL_TABS.filter((t) => !t.needsActivity || showActivity);
+  const validTabs: ReportTab[] = tabs.map((t) => t.id);
   const tabParam = params.get("tab") as ReportTab | null;
   const tab: ReportTab = tabParam && validTabs.includes(tabParam) ? tabParam : "scoring";
   const setTab = (t: ReportTab) => {
@@ -179,13 +194,6 @@ export function ReportView({
     // in Next's App Router (so `tab` above recomputes on the next render). (report-report-shell-tabs #4)
     window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
   };
-  const tabs: { id: ReportTab; label: string }[] = [
-    { id: "scoring", label: "Scoring" },
-    { id: "dimensions", label: "Dimensions" },
-    { id: "roadmap", label: "Roadmap" },
-    { id: "sandbox", label: "Sandbox" },
-  ];
-  if (showActivity) tabs.push({ id: "contributors", label: "Contributors" });
   // After an in-place re-test the new report may drop a tab the user was on (e.g. the fresh scan
   // surfaces no activity, removing "Contributors"). The selection would then point at a tab that
   // no longer renders, leaving a blank panel with nothing active. Clamp back to Scoring whenever

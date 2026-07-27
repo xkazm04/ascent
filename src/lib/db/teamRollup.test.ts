@@ -106,6 +106,23 @@ describe("rollupTeams", () => {
     expect(data.aiCommitShare).toBe(8); // 1 / (8+4)
   });
 
+  it("champion volume floor: a sub-3-commit AI contributor is not crowned (ambiguity-ui #3)", () => {
+    // Aligned with getContributorInsights' picker (commits >= 3 && aiCommits > 0): a 1-commit
+    // drive-by AI contributor must not headline a team card the Contributors tab would withhold.
+    const floored = rollupTeams("acme", [
+      repo("acme/tiny", {
+        teams: [{ slug: "@acme/tiny" }],
+        scans: [{ overall: 50, adoption: 50, rigor: 50, dims: [{ dimId: "D1", score: 50 }] }],
+        contributors: [
+          { login: "driveby", commits: 1, aiCommits: 1 },
+          { login: "core", commits: 12, aiCommits: 4 },
+        ],
+      }),
+    ]);
+    const tiny = floored.teams.find((t) => t.slug === "@acme/tiny")!;
+    expect(tiny.champions.map((c) => c.login)).toEqual(["core"]);
+  });
+
   it("computes since-last-scan movers from each repo's two latest scans", () => {
     expect(frontend.comparedRepos).toBe(1);
     expect(frontend.improving).toBe(1);
@@ -133,6 +150,40 @@ describe("rollupTeams", () => {
     // D1 (85→30) and D8 (80→25) both qualify with a 55 gap (tie → dimId order); D2 doesn't (learner 55 ≥ TEAM_WEAK).
     expect(out.pairings.map((p) => p.dimId)).toEqual(["D1", "D8"]);
     expect(out.pairings[0]).toEqual(out.pairing);
+  });
+});
+
+describe("rollupTeams — period-scoped movers via windowDelta (fleet-rollups-insights 07-16 #2)", () => {
+  const team = { teams: [{ slug: "@acme/frontend" }] };
+  const scan = (overall: number) => ({ overall, adoption: overall, rigor: overall, dims: [] as Dim[] });
+
+  it("uses the precomputed windowed delta INSTEAD of latest-vs-previous when windowDelta is a number", () => {
+    // Latest two scans say +10 (80 vs 70), but the selected period's half-open baseline says −5.
+    // The Teams tab must report the PERIOD number, not the cadence-dependent since-last-scan one.
+    const r = { ...repo("acme/web", { ...team, scans: [scan(80), scan(70)] }), windowDelta: -5 };
+    const out = rollupTeams("acme", [r]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(1);
+    expect(t.avgDelta).toBe(-5);
+    expect(t.improving).toBe(0);
+    expect(t.declining).toBe(1);
+  });
+
+  it("windowDelta: null EXCLUDES the repo from movers (no silent since-last-scan fallback mixing scopes)", () => {
+    // The repo has two scans (legacy movers would compare them), but the window has no comparable pair.
+    const r = { ...repo("acme/web", { ...team, scans: [scan(80), scan(70)] }), windowDelta: null };
+    const out = rollupTeams("acme", [r]);
+    const t = out.teams[0]!;
+    expect(t.comparedRepos).toBe(0);
+    expect(t.avgDelta).toBe(0);
+    // The snapshot side is untouched — the repo still contributes its latest scan to the averages.
+    expect(t.avgOverall).toBe(80);
+  });
+
+  it("windowDelta absent (windowless caller) keeps the legacy since-last-scan movers", () => {
+    const out = rollupTeams("acme", [repo("acme/web", { ...team, scans: [scan(80), scan(70)] })]);
+    expect(out.teams[0]!.comparedRepos).toBe(1);
+    expect(out.teams[0]!.avgDelta).toBe(10);
   });
 });
 

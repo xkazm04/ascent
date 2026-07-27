@@ -76,7 +76,6 @@ export function ScanForm({
   // "email me when it's done" opt-in. Null until resolved; the toggle stays hidden for signed-out users.
   const [viewer, setViewer] = useState<{ signedIn: boolean; email: string | null } | null>(null);
   const [notifyOn, setNotifyOn] = useState(false);
-  const [customEmail, setCustomEmail] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -125,24 +124,14 @@ export function ScanForm({
       requestAnimationFrame(() => setShake(true));
       return;
     }
-    // "Email me when it's done" opt-in (signed-in only). The flag rides the URL; a custom address —
-    // needed only when the account has no email — goes to sessionStorage so PII stays out of the URL.
-    let notifyQs = "";
-    if (viewer?.signedIn && notifyOn) {
-      if (viewer.email) {
-        try { window.sessionStorage.removeItem("ascent:notify-email"); } catch {}
-      } else {
-        const email = customEmail.trim();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-          setError("Enter a valid email to be notified, or uncheck the box.");
-          setShake(false);
-          requestAnimationFrame(() => setShake(true));
-          return;
-        }
-        try { window.sessionStorage.setItem("ascent:notify-email", email); } catch {}
-      }
-      notifyQs = "&notify=1";
-    }
+    // "Email me when it's done" opt-in (signed-in only; the flag rides the URL). The recipient is
+    // ALWAYS the viewer's own verified account email — the stream route's open-relay hardening drops a
+    // client-supplied address for authenticated viewers, so the old custom-address path (collected +
+    // validated here, stashed in sessionStorage, then silently discarded server-side) promised an email
+    // that never sent. Accounts with no email now see an honest explanation in NotifyToggle instead of
+    // the field, and notifyOn can only be true when an account email exists.
+    // (ambiguity-ui-scan-2026-07-16 scan-pipeline-ingestion #1)
+    const notifyQs = viewer?.signedIn && notifyOn && viewer.email ? "&notify=1" : "";
     setError(null);
     setSubmitting(true);
     router.push(`/report?repo=${encodeURIComponent(normalized)}${notifyQs}`);
@@ -244,8 +233,6 @@ export function ScanForm({
         viewerEmail={viewer?.email}
         notifyOn={notifyOn}
         onNotifyChange={setNotifyOn}
-        customEmail={customEmail}
-        onCustomEmailChange={setCustomEmail}
         auth={auth}
       />
 

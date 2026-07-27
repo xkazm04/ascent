@@ -7,7 +7,7 @@
 
 import { randomBytes } from "node:crypto";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { isOrgRole, setMembershipRole, type OrgRole } from "@/lib/db/members";
+import { getMembershipRole, isOrgRole, roleAtLeast, setMembershipRole, type OrgRole } from "@/lib/db/members";
 import { getOrgId } from "@/lib/db/org-rollup";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -114,7 +114,9 @@ export async function revokeInvite(orgSlug: string, id: string): Promise<boolean
 
 export type AcceptResult =
   | { ok: true; org: string; role: OrgRole }
-  | { ok: false; reason: "not_found" | "expired" | "used" | "wrong_user" | "wrong_email" | "db" };
+  // `last_owner` — the grant was REFUSED by policy (demoting the org's only owner), distinct from a
+  // transient "db" failure so the UI never tells a sole owner to "try again" at an impossible action.
+  | { ok: false; reason: "not_found" | "expired" | "used" | "wrong_user" | "wrong_email" | "last_owner" | "db" };
 
 /** Identity of the viewer accepting an invite — their GitHub login plus, under the Supabase wall, the
  *  verified email used to bind an EMAIL-pinned invite. */
@@ -156,6 +158,23 @@ export async function acceptInvite(token: string, identity: AcceptIdentity): Pro
   }
 
   const role: OrgRole = isOrgRole(invite.role) ? invite.role : "member";
+  // NEVER DOWNGRADE (members-access-control 07-16 #2): an unpinned invite link dropped in a channel
+  // can be opened by someone who is ALREADY an admin/owner of the org. setMembershipRole UPSERTS
+  // unconditionally (correct for the owner-driven admin route), so accepting used to rewrite their
+  // role to the invite's — silent privilege LOSS (owner→viewer with one click), and a SOLE owner got
+  // the guard's `last_owner` collapsed into a misleading "db"/try-again error. If the accepter's
+  // existing role already covers the invited role, consume the invite as a no-op grant and keep the
+  // higher role.
+  const existingRole = await getMembershipRole(invite.org.slug, gh);
+  if (existingRole && roleAtLeast(existingRole, role)) {
+    const claimed = await prisma.invite.updateMany({
+      where: { id: invite.id, status: "pending" },
+      data: { status: "accepted" },
+    });
+    if (claimed.count !== 1) return { ok: false, reason: "used" };
+    return { ok: true, org: invite.org.slug, role: existingRole };
+  }
+
   // Claim-first: atomically flip the row pending→accepted keyed on BOTH id AND status, BEFORE granting.
   // The three-step accept (read pending → grant → flip) was not atomic and the final update keyed on id
   // alone, so two viewers racing to accept the SAME unpinned invite (a deliberately common case: an
@@ -176,7 +195,9 @@ export async function acceptInvite(token: string, identity: AcceptIdentity): Pro
     await prisma.invite
       .updateMany({ where: { id: invite.id, status: "accepted" }, data: { status: "pending" } })
       .catch(() => {});
-    return { ok: false, reason: "db" };
+    // A policy refusal (would demote the org's only owner — reachable if the accepter's role changed
+    // between the read above and the grant) gets its own reason; only genuine failures stay "db".
+    return { ok: false, reason: granted === "last_owner" ? "last_owner" : "db" };
   }
   return { ok: true, org: invite.org.slug, role };
 }

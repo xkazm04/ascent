@@ -35,6 +35,12 @@ function isSafeLogoUrl(raw: string): boolean {
   return isSafePublicHttpsUrl(raw);
 }
 
+// Storage bound for logoUrl. Over-long URLs are REJECTED, never sliced: the old `.slice(0, 500)` ran
+// AFTER the SSRF check, so a safe-but-600-char signed CDN URL passed validation, had its query string
+// chopped, and was stored as a silently broken (and no-longer-validated) URL that only failed at PDF
+// render time. Rejecting keeps the invariant "the stored string is exactly the validated string".
+const MAX_LOGO_URL_LEN = 500;
+
 /** A branding field the caller SENT but that failed validation and was stored as null. Lets the API
  *  route / settings form warn "logo URL ignored — must be an https image URL" instead of a blanket
  *  "saved" that hides the drop. (brandName is truncated, never rejected, so it isn't listed here.) */
@@ -61,7 +67,8 @@ export async function setOrgBranding(orgSlug: string, input: OrgBranding): Promi
   if (!org) return null;
   const brandName = input.brandName?.trim().slice(0, 80) || null;
   const brandColor = input.brandColor && HEX_COLOR_RE.test(input.brandColor.trim()) ? input.brandColor.trim().toLowerCase() : null;
-  const logoUrl = input.logoUrl && isSafeLogoUrl(input.logoUrl.trim()) ? input.logoUrl.trim().slice(0, 500) : null;
+  const trimmedLogo = input.logoUrl?.trim() ?? "";
+  const logoUrl = trimmedLogo && trimmedLogo.length <= MAX_LOGO_URL_LEN && isSafeLogoUrl(trimmedLogo) ? trimmedLogo : null;
   // A field the caller actually filled in but that normalized away to null was REJECTED (bad hex, or a
   // non-https / unsafe logo URL). An empty/whitespace value is a deliberate clear, not a rejection.
   const rejected: RejectedBrandingField[] = [];

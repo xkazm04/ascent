@@ -35,7 +35,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to open a starter PR." }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as { repo?: string; practiceId?: string; base?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    repo?: string;
+    practiceId?: string;
+    base?: string;
+    /** Fingerprint of the previewed artifact body (artifactFingerprint) — apply regenerates, so this
+     *  is what guarantees the committed content is the content the user actually reviewed. */
+    previewFingerprint?: string;
+  };
   const parsed = parseRepoUrl(body.repo ?? "");
   if (!parsed || !body.practiceId) {
     return NextResponse.json({ error: "Provide { repo: 'owner/name', practiceId }." }, { status: 400 });
@@ -57,12 +64,23 @@ export async function POST(request: Request) {
     const ctx = await requirePrWriteContext(parsed.owner);
     if (ctx instanceof Response) return ctx;
     const orgId = (await getOrgId(parsed.owner).catch(() => null)) ?? undefined;
-    const result = await applyPracticeToRepo(ctx.token, parsed, body.practiceId, body.base, {
-      orgId,
-      actorId: actorLogin ?? undefined,
-    });
+    const result = await applyPracticeToRepo(
+      ctx.token,
+      parsed,
+      body.practiceId,
+      body.base,
+      { orgId, actorId: actorLogin ?? undefined },
+      { expectedFingerprint: typeof body.previewFingerprint === "string" ? body.previewFingerprint : undefined },
+    );
     if (result.kind === "unknown-practice") {
       return NextResponse.json({ error: `Unknown practice "${body.practiceId}".` }, { status: 404 });
+    }
+    if (result.kind === "content-drift") {
+      // The repo's context changed since the preview — refuse rather than commit unreviewed content.
+      return NextResponse.json(
+        { error: "The repo changed since your preview — the starter would differ from what you reviewed. Preview again to see the current version.", code: "content-drift" },
+        { status: 409 },
+      );
     }
 
     return NextResponse.json({ ...result.pr, path: result.artifact.path });

@@ -52,6 +52,7 @@ export function StatusSelect({
   disabled = false,
   busy = false,
   onChange,
+  onBusyChange,
   "aria-label": ariaLabel,
   "data-focus-key": dataFocusKey,
   statuses = REC_STATUSES,
@@ -64,6 +65,12 @@ export function StatusSelect({
    *  `disabled` + the data-focus-key restore path; those that save in place pass `busy`. */
   busy?: boolean;
   onChange: (status: RecStatus) => void;
+  /** Fired when a change arrives WHILE busy and is therefore dropped. Because the control is
+   *  controlled, the picked option visually snaps back to the in-flight value on the next render with
+   *  no other cue — a fast keyboard/SR user believes they set the new status while the row saves the
+   *  old one. Consumers use this to explain the swallow (e.g. via their per-row live region)
+   *  (roadmap-recommendation-tracking 07-16 #4). */
+  onBusyChange?: () => void;
   "aria-label": string;
   /** Stable key so a parent can restore focus to THIS control after a refresh remounts the row. */
   "data-focus-key"?: string;
@@ -76,6 +83,7 @@ export function StatusSelect({
       aria-busy={busy || undefined}
       onChange={(e) => {
         if (!busy) onChange(e.target.value as RecStatus);
+        else onBusyChange?.(); // dropped, not saved — let the consumer say so
       }}
       aria-label={ariaLabel}
       data-focus-key={dataFocusKey}

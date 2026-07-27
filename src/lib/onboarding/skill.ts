@@ -210,7 +210,9 @@ function tracksMenu(tracks: OnboardingTrack[], isRefinement = false): string {
     return `## Tracks
 
 The scan found no open dimension below ${WEAK_THRESHOLD}/100 — this repo is already broadly
-AI-native. Re-scan after any major change, or pass specific dimensions to revisit a refinement.`;
+AI-native. Re-scan after any major change, or re-download this skill with \`?tracks=D2,D9\`
+(comma-separated dimension ids, optionally \`&max=N\`) appended to the export URL to force
+refinement tracks on otherwise-strong dimensions.`;
   }
   const blocks = tracks.map((t, i) => trackBlock(t, i + 1)).join("\n\n");
   if (isRefinement) {

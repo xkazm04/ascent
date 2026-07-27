@@ -100,21 +100,23 @@ export async function checkAndAlertRegression(
 }
 
 /**
- * Fire a low-credits / depleted alert when a debit's resulting balance lands on the alert line
+ * Fire a low-credits / depleted alert when a debit CROSSES the alert line
  * (CREDITS_ALERT_THRESHOLD, default 5, or zero). Sibling of checkAndAlertRegression: called after
- * each successful unit debit at the metered scan paths; debits are unit-sized so each crossing
- * fires exactly once with no dedupe table. Routes to the org's own webhook when one is set,
- * falling back to the global ALERT_WEBHOOK_URL; a clean no-op when neither is configured —
- * without this push, depletion is only discoverable via the next 402, possibly weeks after the
- * scheduled fleet quietly stopped updating. Returns whether an alert was sent.
+ * each successful debit at the metered scan paths with the balance BEFORE and AFTER the debit —
+ * the crossing is range-based (was above, now at/below), so it fires exactly once per descent with
+ * no dedupe table and no reliance on debits being unit-sized. Routes to the org's own webhook when
+ * one is set, falling back to the global ALERT_WEBHOOK_URL; a clean no-op when neither is
+ * configured — without this push, depletion is only discoverable via the next 402, possibly weeks
+ * after the scheduled fleet quietly stopped updating. Returns whether an alert was sent.
  */
 export async function maybeAlertLowCredits(
   orgSlug: string,
+  balanceBefore: number,
   balanceAfter: number,
   opts: { signal?: AbortSignal } = {},
 ): Promise<boolean> {
   try {
-    if (!isLowCreditsCrossing(balanceAfter, creditsAlertThreshold())) return false;
+    if (!isLowCreditsCrossing(balanceBefore, balanceAfter, creditsAlertThreshold())) return false;
     const webhookUrl = await orgWebhook(orgSlug);
     if (!isAlertConfigured(webhookUrl)) return false;
     const base = publicBaseUrl();

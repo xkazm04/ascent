@@ -18,6 +18,7 @@ export function RemotionStage({
   width,
   height,
   legend,
+  ariaLabel,
 }: {
   component: React.FC;
   durationInFrames: number;
@@ -25,6 +26,11 @@ export function RemotionStage({
   width: number;
   height: number;
   legend?: ReactNode;
+  /** One-sentence summary announced in place of the animation. The Player renders its composition
+   *  as real DOM, so without this a screen reader walks unlabeled mid-animation text ("Gate Fail",
+   *  half-counted stats) frozen at whatever frame playback is on. The stage exposes the label via
+   *  role="img" and hides the frame-state DOM behind aria-hidden. */
+  ariaLabel: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const playerRef = useRef<PlayerRef>(null);
@@ -65,7 +71,15 @@ export function RemotionStage({
 
   return (
     <div ref={ref}>
-      <div className="overflow-hidden rounded-xl border border-divider bg-surface-strong/40">
+      {/* The stage is an animated illustration, not interactive content: announce it as a single
+          labeled image and aria-hide the Player's internals so AT never walks the composition's
+          frame-state DOM. The legend + replay control stay OUTSIDE this hidden region below. */}
+      <div
+        role="img"
+        aria-label={ariaLabel}
+        className="overflow-hidden rounded-xl border border-divider bg-surface-strong/40"
+      >
+        <div aria-hidden="true">
         {mounted ? (
           <Player
             ref={playerRef}
@@ -86,6 +100,7 @@ export function RemotionStage({
         ) : (
           <div className="aspect-video w-full" />
         )}
+        </div>
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3 font-mono text-xs text-slate-500">
@@ -116,7 +131,16 @@ export function RemotionStage({
  * so the champion network and risk radar can't drift in canvas size or timing. Thin wrapper over
  * RemotionStage — collapses the two near-identical per-diagram wrappers into one.
  */
-export function RemotionDiagram({ component, legend }: { component: React.FC; legend?: ReactNode }) {
+export function RemotionDiagram({
+  component,
+  legend,
+  ariaLabel,
+}: {
+  component: React.FC;
+  legend?: ReactNode;
+  /** See RemotionStage.ariaLabel — the diagram's one-sentence accessible summary. */
+  ariaLabel: string;
+}) {
   return (
     <RemotionStage
       component={component}
@@ -125,6 +149,7 @@ export function RemotionDiagram({ component, legend }: { component: React.FC; le
       width={W}
       height={H}
       legend={legend}
+      ariaLabel={ariaLabel}
     />
   );
 }

@@ -158,6 +158,19 @@ describe("EmptyState — action row gating", () => {
     expect(outline.props.className).not.toContain("bg-accent");
   });
 
+  it("both action branches carry the shared focus-ring token (canonical CTA pair)", () => {
+    // Regression pin: EmptyState was the only shell CTA without `focus-ring`, so keyboard users got
+    // the browser default outline instead of the brand focus affordance. The classes are now the
+    // CTA_PRIMARY/CTA_OUTLINE pair shared with RouteError/not-found.
+    const els = tree({
+      title: "T",
+      actions: [action({ label: "Primary", href: "/p", primary: true }), action({ label: "Outline", href: "/o" })],
+    });
+    for (const el of links(els)) {
+      expect(el.props.className).toContain("focus-ring");
+    }
+  });
+
   it("renders children inside the action row alongside actions", () => {
     const els = tree({ title: "T", children: "CTA-CHILD", actions: [action()] });
     expect(els.some((el) => textOf(el).includes("CTA-CHILD"))).toBe(true);

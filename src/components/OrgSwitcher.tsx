@@ -19,6 +19,8 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -26,7 +28,12 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      // Escape closes AND returns focus to the trigger — the second half of the dismissal the ARIA
+      // menu pattern promises (without it, focus is dropped on <body> for keyboard/SR users).
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
     }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -36,8 +43,48 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
     };
   }, [open]);
 
+  // a11y (ambiguity-ui 2026-07-16 #4): the trigger declares aria-haspopup="menu" and the popup
+  // role="menu"/"menuitemradio", which PROMISES the ARIA menu keyboard contract to AT users — focus
+  // moves into the menu on open, ArrowUp/ArrowDown roam, Home/End jump, Escape restores the trigger.
+  // The roles previously shipped without the behavioral half, which is worse than plain buttons:
+  // AT users are told "menu" and then find the announced key bindings dead. On open, focus the
+  // checked item (fallback: the first).
+  useEffect(() => {
+    if (!open) return;
+    const items = menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]');
+    const checked = menuRef.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]');
+    (checked ?? items?.[0])?.focus();
+  }, [open]);
+
+  /** Roving focus + Home/End for the open menu; Tab closes it (disclosure semantics) so the menu
+   *  never stays visually open while focus has walked elsewhere on the page. */
+  function onMenuKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? []);
+    if (items.length === 0) return;
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      items[(idx + 1) % items.length]!.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length]!.focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      items[0]!.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      items[items.length - 1]!.focus();
+    } else if (e.key === "Tab") {
+      // Close and hand focus back to the trigger so the default Tab continues from a mounted node
+      // (the items are about to unmount) instead of stranding focus on <body>.
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+  }
+
   async function choose(org: string) {
     setOpen(false);
+    triggerRef.current?.focus(); // the focused menu item unmounts — return focus to the trigger
     setError(null); // clear any prior failure so a fresh attempt starts clean
     if (org.toLowerCase() === active.toLowerCase()) return;
     setBusy(true);
@@ -68,6 +115,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
   return (
     <div ref={ref} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => {
           if (!open) setError(null); // opening the menu clears a stale failure banner
@@ -93,7 +141,10 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
       </button>
       {open && (
         <div
+          ref={menuRef}
           role="menu"
+          aria-label="Switch organization"
+          onKeyDown={onMenuKeyDown}
           className="absolute right-0 z-40 mt-2 max-h-80 min-w-[12rem] overflow-y-auto rounded-lg border border-slate-700 bg-[#0b1120] py-1 shadow-xl shadow-black/40"
         >
           {orgs.map((org) => {
@@ -104,6 +155,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
                 type="button"
                 role="menuitemradio"
                 aria-checked={isActive}
+                tabIndex={-1} // roving focus: arrows/Home/End move focus; Tab exits the menu
                 onClick={() => choose(org)}
                 className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-base transition hover:bg-slate-800/70 ${
                   isActive ? "text-white" : "text-slate-300"
@@ -119,7 +171,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
       {error && (
         <div
           role="alert"
-          className="absolute right-0 top-full z-40 mt-2 max-w-[16rem] rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300 shadow-xl"
+          className="absolute right-0 top-full z-40 mt-2 max-w-[16rem] rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger-soft shadow-xl"
         >
           {error}
         </div>

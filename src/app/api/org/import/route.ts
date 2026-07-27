@@ -1,7 +1,9 @@
 // POST /api/org/import  { org, count?, repos?, mock?, watch?, schedule?, installationId? }  — Server-Sent Events.
 //
 // Bulk scan of an org's (or user's) repositories, scanning each, persisting under the `org`
-// slug, and optionally marking them watched + scheduled.
+// slug, and marking them watched + scheduled BY DEFAULT (watch defaults to true, schedule to
+// "weekly" — recurring autoscans are opt-out; pass watch:false / schedule:"off" for a one-shot
+// import). An invalid `schedule` is rejected with 400, parity with /api/org/schedule.
 //
 // This powers three things:
 //   1. The free-tier funnel: "scan a whole public org" without installing the App.
@@ -18,6 +20,7 @@ import { NextResponse } from "next/server";
 import { scanRepository } from "@/lib/scan";
 import {
   getInstallationIdForOwner,
+  isByomActive,
   isDbConfigured,
   persistScanReport,
   persistTeamStandings,
@@ -36,7 +39,7 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
-import { logPartialWrites, refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequest, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
@@ -94,8 +97,18 @@ export async function POST(request: Request) {
 
   const count = Math.min(100, Math.max(1, body.count ?? 20));
   const mock = body.mock ?? true;
+  // DEFAULTS ARE OPT-OUT by design: a bare { org } import watches every imported repo and enrolls it
+  // in WEEKLY recurring autoscans (a standing credit draw for metered orgs) — the onboarding funnel
+  // wants a live, self-updating fleet, and the client echoes { watch, schedule } on the "found"
+  // progress event so the choice is visible. Pass watch:false / schedule:"off" to import passively.
   const watch = body.watch ?? true;
-  const schedule = body.schedule && SCHEDULES.has(body.schedule) ? body.schedule : "weekly";
+  // Validate rather than coerce (ambiguity-ui 2026-07-16 #3): the sibling /api/org/schedule 400s on
+  // an invalid cadence, but this route silently rewrote "biweekly"/"Weekly"/typos to weekly — a
+  // caller's explicit cadence intent became a recurring credit spend with a 200 and no signal.
+  if (body.schedule !== undefined && !SCHEDULES.has(body.schedule)) {
+    return NextResponse.json({ error: "Invalid schedule (off|daily|weekly|monthly)." }, { status: 400 });
+  }
+  const schedule = body.schedule ?? "weekly";
 
   // Mint an installation token (PRIVATE-repo access) ONLY for a caller with real standing in this org.
   //
@@ -138,12 +151,22 @@ export async function POST(request: Request) {
   // the ambient PAT was handed to every scan and the confused deputy above was fully reachable. Key it
   // on "no auth stack is live at all" instead, which is what "auth-off local/demo" actually means.
   const authOff = !authGateEnabled() && !isAuthConfigured();
-  const scanOpts = appTokenMinted || authOff ? { token, mock } : { noAmbientToken: true, mock };
+  // `orgSlug` mirrors /api/org/scan: scanRepository resolves the LLM provider via
+  // getProviderForOrg(opts.orgSlug) (BYOM orgs run on their OWN Bedrock) and reads the org's standing
+  // decisions (decisionSlug defaults to orgSlug). Omitting it made every import run on the PLATFORM
+  // provider — even for a BYOM org whose inference is billed to its AWS account.
+  const scanOpts = appTokenMinted || authOff
+    ? { token, mock, orgSlug: org }
+    : { noAmbientToken: true, mock, orgSlug: org };
 
   // Credits: a real-LLM import into a private org dashboard draws on prepaid credits. The default mock
   // import and the public funnel are free (mock runs no inference). Refuse up front when out of credits;
   // the per-repo slice below caps the batch to the balance. Enterprise is unlimited.
-  const metered = !mock && org !== "public";
+  // BYOM (parity with /api/org/scan and /api/cron/rescan): when the org scans on its OWN Bedrock,
+  // inference is billed to its AWS account, so the platform never charges a scan credit — without this
+  // term a BYOM org's import reserved platform credits per repo (or truncated the batch at balance 0).
+  const byom = await isByomActive(org).catch(() => false);
+  const metered = !mock && org !== "public" && !byom;
   // Supabase login wall on the PRIVATE/metered import path only — a real-inference import into a
   // tenant org is a gated "org feature". The free funnel (mock import, or the shared public org)
   // stays open / no-signup. Mirrors the scan-route gate (orgSlug !== "public").
@@ -192,8 +215,13 @@ export async function POST(request: Request) {
           }
         } else {
           send("progress", { stage: "list", message: `Listing public repos for ${org}…` });
-          const repos = await listOrgRepos(org, count, token);
+          const { repos, truncated } = await listOrgRepos(org, count, token);
           fullNames = repos.map((r) => ({ owner: r.owner, name: r.name, fullName: r.fullName, url: r.url }));
+          // The listing's page budget ran out with more pages available (fork/archive-heavy org):
+          // surface it like the other batch caps so a short import isn't read as the org's whole reality.
+          if (truncated) {
+            send("notice", { reason: "listing_truncated", scanning: fullNames.length });
+          }
         }
 
         if (fullNames.length === 0) {
@@ -214,8 +242,16 @@ export async function POST(request: Request) {
         // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
         // as it resolves; the SSE consumer keys off each message's repo, not arrival order). A
         // realistic org import finishes in a fraction of the serial wall-clock and is far likelier
-        // to fit the 300s budget. `scanned` is incremented in single-threaded lanes — race-free.
+        // to fit the 300s budget. Counters are incremented in single-threaded lanes — race-free.
+        //
+        // `processed` is the progress-denominator index ("repos handled so far", skips included);
+        // `scanned` is the OUTCOME metric (repos an actual scan ran for). The old code used one
+        // variable for both, so claim-collision and mid-run credit skips were reported as `scanned`
+        // in the final result — a run where every repo was claimed elsewhere emitted a
+        // perfect-looking "scanned: N" with zero scans. (ambiguity-ui 2026-07-16 #4)
+        let processed = 0;
         let scanned = 0;
+        let skippedInProgress = 0;
         await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
           // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard the import
           // path was missing. If another in-flight run (a second import tab, another member, or an
@@ -226,8 +262,9 @@ export async function POST(request: Request) {
           const claim = claimRepoScan(org, r.fullName);
           if (claim === null) {
             send("repo", { repo: r.fullName, skipped: "in_progress" });
-            scanned += 1;
-            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            skippedInProgress += 1;
+            processed += 1;
+            send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
             return;
           }
           try {
@@ -241,19 +278,18 @@ export async function POST(request: Request) {
               const reservation = await reserveScanCredit(org, r.fullName);
               if (reservation.skip) {
                 skippedForCredits += 1;
+                processed += 1;
                 send("repo", { repo: r.fullName, skipped: "insufficient_credits" });
-                scanned += 1;
-                send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+                send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
                 return; // finally releases the claim
               }
               reserved = reservation.reserved;
             }
             const refundCredit = () => refundScanCredit(org, reserved);
-            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
             try {
               const report = await scanRepository(r.fullName, scanOpts);
               const persisted = await persistScanReport(report, { orgSlug: org });
-              logPartialWrites("org/import", r.fullName, persisted);
               // Refund the reservation when nothing billable was produced: either the scan degraded to
               // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
               // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
@@ -291,8 +327,9 @@ export async function POST(request: Request) {
               if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
               send("repo", { repo: r.fullName, error: msg });
             }
-            scanned += 1;
-            send("progress", { stage: "scan", repo: r.fullName, index: scanned, total: fullNames.length });
+            scanned += 1; // a scan actually ran for this repo (scored or failed) — never a skip
+            processed += 1;
+            send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
           } finally {
             // Release on EVERY exit — normal completion, the insufficient-credits early return, or a
             // throw from reserveScanCredit (which mapPool rethrows). A leaked claim would bar this repo
@@ -304,7 +341,7 @@ export async function POST(request: Request) {
         // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
         // never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { org, scanned, total: fullNames.length, skippedForCredits, dashboard: `/org/${org}` });
+        send("result", { org, scanned, total: fullNames.length, skippedForCredits, skippedInProgress, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });
       } finally {
