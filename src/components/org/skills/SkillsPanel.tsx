@@ -11,8 +11,11 @@ import { Card, OrgTable, SectionHeader } from "@/components/org/shared/ui";
 import { SkillCard } from "@/components/org/skills/SkillCard";
 import { SkillsFilterBar } from "@/components/org/skills/SkillsPanel.FilterBar";
 import { SkillsAuthorForm } from "@/components/org/skills/SkillsPanel.AuthorForm";
+import { SkillDormancyBadge } from "@/components/org/skills/SkillDormancyBadge";
 import { skillCategoryLabel, type SkillCategory } from "@/lib/org/skill-categories";
 import { SKILL_TEMPLATES } from "@/lib/org/skill-templates";
+import type { SkillUsage } from "@/lib/org/skill-usage";
+import type { SkillOutcome } from "@/lib/org/skill-outcomes";
 import type { SkillAdoption, SkillRow, SkillSort } from "@/lib/db";
 
 export function SkillsPanel({
@@ -20,6 +23,8 @@ export function SkillsPanel({
   initial,
   categories,
   adoption,
+  usage,
+  outcomes,
   repoOptions,
   canAuthor,
   isAdmin,
@@ -29,6 +34,10 @@ export function SkillsPanel({
   initial: SkillRow[];
   categories: readonly string[];
   adoption: Record<string, SkillAdoption>;
+  /** Server-computed dormancy verdict per skill id (src/lib/org/skill-usage.ts). */
+  usage: Record<string, SkillUsage>;
+  /** Server-computed adoption→outcome deltas per skill id (src/lib/org/skill-outcomes.ts). */
+  outcomes: Record<string, SkillOutcome[]>;
   repoOptions: string[];
   canAuthor: boolean;
   isAdmin: boolean;
@@ -160,12 +169,13 @@ export function SkillsPanel({
           </p>
         ) : (
           <OrgTable
-            caption="Org skills: name, category, adoptions and downloads"
-            minWidth={560}
+            caption="Org skills: name, category, use status, adoptions and downloads"
+            minWidth={660}
             head={
               <tr>
                 <th className="px-3 py-2 text-left">Name</th>
                 <th className="px-3 py-2 text-left">Category</th>
+                <th className="px-3 py-2 text-left">Status</th>
                 <th className="px-3 py-2 text-right">Adoptions</th>
                 <th className="px-3 py-2 text-right">Uses</th>
               </tr>
@@ -188,16 +198,23 @@ export function SkillsPanel({
                         {skillCategoryLabel(s.category)}
                       </span>
                     </td>
+                    <td className="px-3 py-2">
+                      {/* Server-computed, so it's absent for a skill authored since this page loaded —
+                          the badge renders nothing rather than guessing a verdict. */}
+                      <SkillDormancyBadge usage={usage[s.id]} />
+                    </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{s.adoptionCount}</td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-slate-400">{s.downloadCount}</td>
                   </tr>
                   {open && (
                     <tr>
-                      <td colSpan={4} className="px-3 pb-3">
+                      <td colSpan={5} className="px-3 pb-3">
                         <SkillCard
                           skill={s}
                           slug={slug}
                           adoption={adoption[s.id]}
+                          usage={usage[s.id]}
+                          outcomes={outcomes[s.id]}
                           repoOptions={repoOptions}
                           canArchive={isAdmin}
                           onArchive={() => archive(s.id)}
