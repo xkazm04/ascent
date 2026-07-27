@@ -966,6 +966,7 @@
             "src/components/report/ReportHeader.tsx",
             "src/components/report/ReportTabBar.tsx",
             "src/components/report/ReportView.tsx",
+            "src/components/report/ReportView.dom.test.tsx",
             "src/components/report/ReportPanels.tsx",
             "src/components/report/PassportHero.tsx",
             "src/components/report/ReportCards.tsx",

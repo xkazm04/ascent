@@ -23,12 +23,26 @@ export function ReportView({
   report,
   onRetest,
   rescanning,
+  serverPassport,
+  serverHistory,
+  serverRecs,
 }: {
   report: ScanReport;
   onRetest?: () => void;
   /** An in-place re-test is running — the report stays mounted while ReportClient shows a re-scan
    *  banner; forwarded to the header so the Re-test control reflects the in-flight state. */
   rescanning?: boolean;
+  /** SERVER-PROVIDED DATA (permalink path only). The /report/{owner}/{repo} route already holds a DB
+   *  session and reads the report there, so it composes the same readers /api/report/passport,
+   *  /api/history and /api/recommendations use and threads the results down. When a prop is present
+   *  the matching client fetch is SKIPPED — the passport hero (and the trend/roadmap data) is then in
+   *  the SSR HTML and paints with the report instead of popping in a beat later. The live-scan path
+   *  (/report?repo= → ReportClient) passes none of these, so its fetch-after-hydration flow is
+   *  unchanged, and each prop is independently optional (a server read that was gated or failed
+   *  simply stays undefined and falls back to its fetch). */
+  serverPassport?: AppPassport | null;
+  serverHistory?: RepositoryHistory | null;
+  serverRecs?: PersistedRecommendation[] | null;
 }) {
   const { repo } = report;
   const repoFull = `${repo.owner}/${repo.name}`;
@@ -36,8 +50,8 @@ export function ReportView({
   // flag so the demo signal stays consistent everywhere the engine is shown.
   const isMock = report.engine.provider === "mock";
 
-  const [history, setHistory] = useState<RepositoryHistory | null>(null);
-  const [recs, setRecs] = useState<PersistedRecommendation[] | null>(null);
+  const [history, setHistory] = useState<RepositoryHistory | null>(serverHistory ?? null);
+  const [recs, setRecs] = useState<PersistedRecommendation[] | null>(serverRecs ?? null);
   // Distinguishes a genuine history-fetch failure (offline / transient) from the legitimate
   // "no history yet" baseline — otherwise both render an identical "Baseline established" panel.
   const [histError, setHistError] = useState(false);
@@ -49,6 +63,7 @@ export function ReportView({
 
   useEffect(() => {
     if (report.passport) return; // already in hand from the live scan — no fetch needed
+    if (serverPassport !== undefined) return; // permalink: the server already resolved it (or proved there is none)
     let active = true;
     (async () => {
       try {
@@ -61,11 +76,19 @@ export function ReportView({
     return () => {
       active = false;
     };
-  }, [repoFull, report.passport]);
+  }, [repoFull, report.passport, serverPassport]);
 
-  // Live report's own passport wins; otherwise the fetched one, but only while it still matches this repo.
+  // Live report's own passport wins; then the server-rendered one (permalink — present in first paint);
+  // otherwise the fetched one, but only while it still matches this repo.
   const passport: AppPassport | null =
-    report.passport ?? (fetchedPassport?.repo === repoFull ? fetchedPassport.passport : null);
+    report.passport ?? serverPassport ?? (fetchedPassport?.repo === repoFull ? fetchedPassport.passport : null);
+
+  // The server props describe the scan that was server-rendered. An in-place re-test replaces the
+  // report under us (scannedAt moves), at which point they're stale and the fetches must run again —
+  // so pin the rendered scan and only honor the props while the report still matches it.
+  // (Pinned with useState, not useRef: reading a ref during render is a React-Compiler violation.)
+  const [serverScannedAt] = useState(report.scannedAt);
+  const serverDataCurrent = serverScannedAt === report.scannedAt;
 
   useEffect(() => {
     const repoRef = `${repo.owner}/${repo.name}`;
@@ -76,6 +99,9 @@ export function ReportView({
     // payload (or a recs-only network fail) flipped the Trend panel to "Couldn't load history" even
     // though history loaded fine, while the genuine recs failure was swallowed with no signal.
     (async () => {
+      // Permalink: the server already read this repo's history under the same org scope and gate —
+      // it's in `history` from the initial state, so there is nothing to fetch.
+      if (serverHistory !== undefined && serverHistory !== null && serverDataCurrent) return;
       try {
         const h = await fetch(`/api/history?repo=${encodeURIComponent(repoRef)}`);
         // A non-OK history response is a FAILURE, not "no history yet" — without this branch an
@@ -94,6 +120,9 @@ export function ReportView({
       }
     })();
     (async () => {
+      // Permalink: server-provided (see `serverRecs`). `[]` is a real answer — "no persisted
+      // recommendations", which renders the read-only roadmap fallback — so only `null`/absent refetches.
+      if (serverRecs !== undefined && serverRecs !== null && serverDataCurrent) return;
       try {
         const r = await fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`);
         if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
@@ -108,7 +137,7 @@ export function ReportView({
     // report.scannedAt changes after an in-place re-test (owner/name don't), so include it to
     // re-fetch history + recommendations for the fresh scan — otherwise the Roadmap tab keeps
     // rendering the previous scan's recommendations and stale compare/"what changed" affordances.
-  }, [repo.owner, repo.name, report.scannedAt]);
+  }, [repo.owner, repo.name, report.scannedAt, serverHistory, serverRecs, serverDataCurrent]);
 
   // Reconcile the live report with persisted history (delta baseline, trend series, per-dimension
   // sparkline series, prior posture). All pure history×report shaping — extracted to computeReportSeries.

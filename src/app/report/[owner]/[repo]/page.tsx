@@ -11,8 +11,17 @@ import { ReportView } from "@/components/report/ReportView";
 import { PassportCard } from "@/components/org/passports/PassportCard";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { Kicker } from "@/components/ui";
-import { getScanReportByCommit, getRepoPassport, getSkillHistory, diffTrackSets } from "@/lib/db";
-import { PUBLIC_ORG, readableOrgForOwner } from "@/lib/auth";
+import {
+  getScanReportByCommit,
+  getRepoPassport,
+  getSkillHistory,
+  getRepositoryHistory,
+  getLatestRecommendations,
+  diffTrackSets,
+  type RepositoryHistory,
+} from "@/lib/db";
+import { PUBLIC_ORG, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { hasOrgRole, canReadOrg } from "@/lib/authz";
 import { PRACTICES } from "@/lib/practices";
 import { parseRepoParam } from "./repoParam";
@@ -87,8 +96,8 @@ export default async function ReportPermalink({
  * The data-dependent report body — resolved off the request's DB reads and streamed in via Suspense.
  * Its sections fade up with a small per-section stagger so the report assembles component-by-component
  * (masthead already painted → report → passport → skill history) rather than popping in as one block.
- * ReportView additionally loads its own dynamic sub-parts (passport hero, trend, roadmap) client-side,
- * giving a natural second wave of progressive reveal.
+ * ReportView's data-dependent sub-parts (passport hero, trend, roadmap) are served from HERE as props
+ * rather than re-fetched after hydration, so they're part of that first paint too.
  */
 async function ReportPermalinkBody({
   owner,
@@ -110,13 +119,23 @@ async function ReportPermalinkBody({
   // permalink doesn't auto-scan a repo the visitor only meant to view.
   if (!pinned) return <ColdScanGate repo={repoRef} />;
 
-  // STD-6 skill history + the App Readiness Passport (P2) are independent of each other, so fetch them
-  // concurrently instead of in series — this force-dynamic permalink is the most-shared URL, where TTFB
-  // (unfurl / first paint) matters most. Both are gated identically to the report via the same orgSlug,
-  // so a private passport never leaks. canEditPassport still awaits after, as it depends on `passport`.
-  const [skillHistory, passport] = await Promise.all([
+  // STD-6 skill history, the App Readiness Passport (P2), and the two series ReportView used to fetch
+  // AFTER hydration (scan history / persisted recommendations) are independent of each other, so fetch
+  // them concurrently instead of in series — this force-dynamic permalink is the most-shared URL, where
+  // TTFB (unfurl / first paint) matters most. All are gated identically to the report via the same
+  // orgSlug, so a private passport never leaks. canEditPassport still awaits after, as it depends on
+  // `passport`.
+  //
+  // The last two exist purely to kill the post-hydration fetch wave: this component already holds the
+  // DB session, yet ReportView re-asked the server for the passport (on EVERY permalink — a DB-rebuilt
+  // report never carries one), history and recommendations over HTTP a beat after paint, so the hero
+  // popped in late. They call the SAME readers the three API routes compose, under the same org
+  // resolution and the same access gate, so the served data is identical — just already in the HTML.
+  const [skillHistory, passport, history, recs] = await Promise.all([
     getSkillHistory(repoRef).catch(() => []),
     getRepoPassport(owner, name, { orgSlug, headSha: sha }).catch(() => null),
+    readReportHistory(owner, name, orgSlug),
+    readReportRecommendations(owner, name),
   ]);
   // Owner-only passport controls (P4): editable only for a non-public org-owned repo by an owner.
   const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
@@ -125,7 +144,7 @@ async function ReportPermalinkBody({
     <ReportErrorBoundary>
       {/* ReportView carries its own animate-fade-up entrance (and its own repo header, which lands over
           the masthead at the same position). The panels below stagger in after it. */}
-      <ReportView report={pinned} />
+      <ReportView report={pinned} serverPassport={passport} serverHistory={history} serverRecs={recs} />
       {passport && (
         <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
           <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} />
@@ -138,6 +157,34 @@ async function ReportPermalinkBody({
       )}
     </ReportErrorBoundary>
   );
+}
+
+/**
+ * The repo's scan history, server-side — the same `getRepositoryHistory` read GET /api/history serves,
+ * under the same org scope AND the same sign-in gate that route applies, so server-rendering it can't
+ * widen who sees a trend line. Returns `null` when the gate blocks it (or the read fails), which leaves
+ * ReportView on its existing client fetch → 401 → quiet-baseline path, exactly as before. When the gate
+ * passes we mirror the route's empty-history fallback so "no history yet" is an ANSWER (no refetch)
+ * rather than an absent prop.
+ */
+async function readReportHistory(owner: string, name: string, orgSlug: string): Promise<RepositoryHistory | null> {
+  if ((authGateEnabled() || isAuthConfigured()) && !(await resolveViewerLogin().catch(() => null))) return null;
+  const history = await getRepositoryHistory(owner, name, { orgSlug }).catch(() => null);
+  return history ?? { repo: { owner, name, fullName: `${owner}/${name}` }, scans: [] };
+}
+
+/**
+ * The latest scan's persisted recommendations, server-side — the same `getLatestRecommendations` read
+ * GET /api/recommendations serves. Its org resolution deliberately mirrors that route's (owner-as-slug
+ * when readable, else the public org) rather than reusing the report's `orgSlug`: the report resolves
+ * via the dormant-session `readableOrgForOwner`, which under-permissions a private-org member and would
+ * hand back an empty list where the client fetch found the real tracker.
+ */
+async function readReportRecommendations(owner: string, name: string) {
+  const ownerOrg = owner.toLowerCase();
+  const orgSlug = (await canReadOrg(ownerOrg).catch(() => false)) ? ownerOrg : PUBLIC_ORG;
+  const result = await getLatestRecommendations(owner, name, { orgSlug }).catch(() => null);
+  return result?.items ?? [];
 }
 
 /** Instant repo masthead — derived purely from the URL, so it paints with zero data dependency. Doubles
