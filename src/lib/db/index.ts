@@ -301,6 +301,15 @@ export {
   type MemoryListOpts,
 } from "@/lib/db/org-memory";
 export {
+  lifecycleWorkingSet,
+  bumpMemoryAccessCounts,
+  archiveOrgMemories,
+  applyReflection,
+  ReflectionMembersNotFoundError,
+  type LifecycleFetchOpts,
+  type ApplyReflectionInput,
+} from "@/lib/db/org-memory-lifecycle";
+export {
   syncTechStackGroups,
   listTechStackGroups,
   getTechGroupIdByKey,

@@ -114,7 +114,9 @@ const cleanSource = (s: string | undefined) => {
   return v === "" ? null : v;
 };
 
-function toRow(m: OrgMemory): MemoryRow {
+/** Exported for the lifecycle sibling (org-memory-lifecycle.ts) so recall/reflect/forget serialize rows
+ *  through the SAME mapper as CRUD — one shape, one place it is produced. */
+export function toRow(m: OrgMemory): MemoryRow {
   return {
     id: m.id,
     namespace: m.namespace ?? "",
@@ -139,14 +141,14 @@ function toRow(m: OrgMemory): MemoryRow {
  * `private` ones only by their author. An ANONYMOUS/unknown viewer sees ONLY shared rows — never
  * another person's scratch. This is the single place that rule is expressed.
  */
-function visibilityScope(viewerLogin: string | null | undefined): Prisma.OrgMemoryWhereInput {
+export function visibilityScope(viewerLogin: string | null | undefined): Prisma.OrgMemoryWhereInput {
   return viewerLogin
     ? { OR: [{ visibility: "shared" }, { visibility: "private", createdBy: viewerLogin }] }
     : { visibility: "shared" };
 }
 
 /** The TTL fragment (§8): a row with no `expiresAt` is permanent; one in the past is already gone. */
-function notExpired(now: Date): Prisma.OrgMemoryWhereInput {
+export function notExpired(now: Date): Prisma.OrgMemoryWhereInput {
   return { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
 }
 
