@@ -7,10 +7,7 @@
 // current webhook on open; a non-admin viewer just sees an "admins only" note (the GET 403s).
 
 import { useEffect, useRef, useState } from "react";
-
-// Tabbable elements inside the dialog — drives the focus trap + the "focus the first field on open".
-const FOCUSABLE_SELECTOR =
-  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+import { FOCUSABLE_SELECTOR, ThresholdFields, trapTab } from "./AlertsControlParts";
 
 export function AlertsControl({ org }: { org: string }) {
   const [open, setOpen] = useState(false);
@@ -71,28 +68,6 @@ export function AlertsControl({ org }: { org: string }) {
     if (document.activeElement !== dialogRef.current) return;
     dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
   }, [open, loaded]);
-
-  // Keep Tab/Shift+Tab inside the dialog while it's open (cycle at the edges).
-  function trapTab(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== "Tab" || !dialogRef.current) return;
-    const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-    if (focusables.length === 0) {
-      e.preventDefault();
-      return;
-    }
-    const firstEl = focusables[0]!;
-    const lastEl = focusables[focusables.length - 1]!;
-    const active = document.activeElement;
-    if (e.shiftKey) {
-      if (active === firstEl || active === dialogRef.current) {
-        e.preventDefault();
-        lastEl.focus();
-      }
-    } else if (active === lastEl) {
-      e.preventDefault();
-      firstEl.focus();
-    }
-  }
 
   // Load the current webhook the first time the popover opens.
   useEffect(() => {
@@ -216,7 +191,7 @@ export function AlertsControl({ org }: { org: string }) {
           role="dialog"
           aria-label="Alert routing"
           tabIndex={-1}
-          onKeyDown={trapTab}
+          onKeyDown={(e) => trapTab(e, dialogRef.current)}
           className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl outline-none"
         >
           <div className="font-mono text-sm uppercase tracking-widest text-accent">Alert routing</div>
@@ -238,41 +213,12 @@ export function AlertsControl({ org }: { org: string }) {
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-sm text-slate-200 outline-none focus:border-accent"
               />
 
-              {/* Scope the copy honestly: these thresholds tune the PER-REPO regression alerts only
-                  (scan-alerts.ts). The weekly digest's "Regressions:" list is gated by the global
-                  noise band, a deliberate split documented in the digest route — without this line an
-                  admin reasonably concludes the fields tune the digest too, changes them, and watches
-                  "nothing happen". (ambiguity-ui 2026-07-16 #2) */}
-              <div className="mt-3 text-sm text-slate-400">
-                Regression sensitivity (points) — applies to per-repo regression alerts; blank inherits the default.
-                The weekly digest keeps its own fleet-wide noise band.
-              </div>
-              <div className="mt-1.5 flex flex-wrap gap-3">
-                <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
-                  overall drop
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={overallDrop}
-                    onChange={(e) => setOverallDrop(e.target.value)}
-                    placeholder="5"
-                    className="w-16 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
-                  />
-                </label>
-                <label className="flex items-center gap-1.5 font-mono text-sm text-slate-500">
-                  dimension drop
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={dimensionDrop}
-                    onChange={(e) => setDimensionDrop(e.target.value)}
-                    placeholder="15"
-                    className="w-16 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent"
-                  />
-                </label>
-              </div>
+              <ThresholdFields
+                overallDrop={overallDrop}
+                dimensionDrop={dimensionDrop}
+                setOverallDrop={setOverallDrop}
+                setDimensionDrop={setDimensionDrop}
+              />
 
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
