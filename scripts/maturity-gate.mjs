@@ -16,6 +16,11 @@
 //
 // Exit codes: 0 = pass, 1 = fail (below the bar), 2 = error. Hits GET /api/gate, which
 // already returns 200/422 — this wrapper just turns that into a clean CI exit + summary.
+//
+// PRIVATE REPOS: /api/gate is unauthenticated by design (CI calls it with plain curl), so it never
+// ingests a repo with an operator token — a private repo simply isn't publicly readable and answers
+// 404. Private repos are gated by the Ascent GitHub App's CHECK RUN instead; see the 404 branch
+// below, which says so rather than leaving an operator staring at an unexplained error exit.
 
 const argv = process.argv.slice(2);
 const repo = argv.find((a) => !a.startsWith("--"));
@@ -54,8 +59,22 @@ try {
   // triaging a red check. Before the gate surfaced this, a fabricated floor score could pass CI silently.
   if (body.degraded) {
     console.error(`✖ Gate could not produce an authoritative grade for ${repo} — ${body.error ?? "the AI grade was unavailable"}`);
-    console.error(`  engine: ${body.engine?.provider ?? "?"} (expected a real provider); retry, or pass --mock for the deterministic rubric.`);
+    // Name the REAL remedy: there is no --mock flag (the deterministic rubric is the DEFAULT), so the
+    // fix is to DROP --live. The old text advertised a flag this script never parsed, leaving the
+    // operator to discover by trial that it did nothing.
+    console.error(`  engine: ${body.engine?.provider ?? "?"} (expected a real provider); retry, or drop --live to gate on the deterministic rubric (the default).`);
     for (const w of body.warnings ?? []) console.error(`  - ${w}`);
+    process.exit(2);
+  }
+  // 404 — the repo is not publicly readable. Overwhelmingly this means a PRIVATE repo, the most
+  // common enterprise shape, which this endpoint deliberately cannot gate (it never uses an operator
+  // token, so it cannot see private repos at all). Exit 2 ("the gate could not run"), never 1 ("below
+  // the bar"), and say exactly where a private repo IS gated instead of failing mysteriously.
+  if (res.status === 404) {
+    console.error(`✖ Gate could not read ${repo} — ${body.error ?? "not found or not publicly readable"}`);
+    console.error(`  PRIVATE repositories are gated by the Ascent GitHub App's CHECK RUN, not this endpoint:`);
+    console.error(`  install the App on the repository and require its check in your branch-protection rules.`);
+    console.error(`  If the repository is public, check the owner/repo spelling and that ASCENT_URL points at your deployment (${base}).`);
     process.exit(2);
   }
   if (res.status >= 500) {

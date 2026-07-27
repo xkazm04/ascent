@@ -12,8 +12,14 @@
 #
 # `repo` defaults to the workflow's own repository. Combine with the PR Check + comment posted by
 # the Ascent GitHub App for inline feedback; this action is the hard merge gate.
+#
+# PRIVATE REPOSITORIES ARE NOT GATED BY THIS ACTION. /api/gate is unauthenticated by design (CI calls
+# it with plain curl) and therefore never ingests a repo with an operator token — a private repo is
+# not publicly readable and the endpoint answers 404, which this action reports as an ERROR exit
+# (never a false "below the bar" failure). Gate a private repo with the Ascent GitHub App's CHECK RUN
+# instead: install the App on the repository and require its check in your branch-protection rules.
 name: "Ascent maturity gate"
-description: "Fail CI when a repository is below the AI-native maturity bar (scored by Ascent)."
+description: "Fail CI when a repository is below the AI-native maturity bar (scored by Ascent). The security floor (min-security) gates a fully deterministic signal — an LLM cannot move it."
 branding:
   icon: "trending-up"
   color: "green"
@@ -63,19 +69,36 @@ runs:
     - uses: actions/setup-node@v4
       with:
         node-version: "20"
+    # SECURITY: EVERY input reaches the script through `env:`, never through `${{ }}` interpolation in
+    # the `run:` body. GitHub expands `${{ }}` into the shell script TEXT before bash ever sees it, so
+    # an input carrying shell metacharacters is executed, not quoted — and a consumer workflow commonly
+    # feeds these from event data (`repo: ${{ github.event.client_payload.repo }}`, a PR title, a
+    # dispatch input), which is attacker-controllable. Passing them as environment variables and
+    # referencing "$VAR" keeps every value inert data.
     - shell: bash
       env:
         ASCENT_URL: ${{ inputs.ascent-url }}
+        INPUT_REPO: ${{ inputs.repo }}
+        INPUT_REF: ${{ inputs.ref }}
+        INPUT_MIN_LEVEL: ${{ inputs.min-level }}
+        INPUT_MIN_OVERALL: ${{ inputs.min-overall }}
+        INPUT_MIN_DIMENSION: ${{ inputs.min-dimension }}
+        INPUT_MIN_SECURITY: ${{ inputs.min-security }}
+        INPUT_NO_UNGOVERNED: ${{ inputs.no-ungoverned }}
+        INPUT_REQUIRE_PROTECTION: ${{ inputs.require-protection }}
+        INPUT_LIVE: ${{ inputs.live }}
+        ACTION_PATH: ${{ github.action_path }}
       run: |
-        REPO="${{ inputs.repo }}"
-        if [ -z "$REPO" ]; then REPO="${{ github.repository }}"; fi
+        set -euo pipefail
+        # GITHUB_REPOSITORY is the runner's own default env var — no interpolation needed.
+        REPO="${INPUT_REPO:-$GITHUB_REPOSITORY}"
         ARGS=("$REPO")
-        if [ -n "${{ inputs.min-level }}" ]; then ARGS+=(--min-level "${{ inputs.min-level }}"); fi
-        if [ -n "${{ inputs.min-overall }}" ]; then ARGS+=(--min-overall "${{ inputs.min-overall }}"); fi
-        if [ -n "${{ inputs.min-dimension }}" ]; then ARGS+=(--min-dimension "${{ inputs.min-dimension }}"); fi
-        if [ -n "${{ inputs.min-security }}" ]; then ARGS+=(--min-security "${{ inputs.min-security }}"); fi
-        if [ -n "${{ inputs.ref }}" ]; then ARGS+=(--ref "${{ inputs.ref }}"); fi
-        if [ "${{ inputs.no-ungoverned }}" = "true" ]; then ARGS+=(--no-ungoverned); fi
-        if [ "${{ inputs.require-protection }}" = "true" ]; then ARGS+=(--require-protection); fi
-        if [ "${{ inputs.live }}" = "true" ]; then ARGS+=(--live); fi
-        node "${{ github.action_path }}/scripts/maturity-gate.mjs" "${ARGS[@]}"
+        if [ -n "$INPUT_MIN_LEVEL" ]; then ARGS+=(--min-level "$INPUT_MIN_LEVEL"); fi
+        if [ -n "$INPUT_MIN_OVERALL" ]; then ARGS+=(--min-overall "$INPUT_MIN_OVERALL"); fi
+        if [ -n "$INPUT_MIN_DIMENSION" ]; then ARGS+=(--min-dimension "$INPUT_MIN_DIMENSION"); fi
+        if [ -n "$INPUT_MIN_SECURITY" ]; then ARGS+=(--min-security "$INPUT_MIN_SECURITY"); fi
+        if [ -n "$INPUT_REF" ]; then ARGS+=(--ref "$INPUT_REF"); fi
+        if [ "$INPUT_NO_UNGOVERNED" = "true" ]; then ARGS+=(--no-ungoverned); fi
+        if [ "$INPUT_REQUIRE_PROTECTION" = "true" ]; then ARGS+=(--require-protection); fi
+        if [ "$INPUT_LIVE" = "true" ]; then ARGS+=(--live); fi
+        node "$ACTION_PATH/scripts/maturity-gate.mjs" "${ARGS[@]}"
