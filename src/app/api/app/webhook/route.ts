@@ -21,7 +21,6 @@ import {
 import {
   claimWebhookDelivery,
   getInstallationIdForOwner,
-  getOrgGatePolicy,
   getOrgId,
   getScanReportByCommit,
   isDbConfigured,
@@ -30,18 +29,17 @@ import {
   reconcileWatchedRepos,
   releaseWebhookDelivery,
   removeInstallation,
-  reportPermalink,
   resumeInstallation,
   suspendInstallation,
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
-import { publicBaseUrl } from "@/lib/site";
-import { evaluateGate } from "@/lib/scoring/gate";
-import { buildGateComment, GATE_COMMENT_MARKER } from "@/lib/scoring/gate-comment";
-import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
+// The PR gate itself now lives in @/lib/github/pr-gate so the org gate-policy sweep can re-run the
+// SAME check-writing path (a route file may only export the HTTP-method / segment-config names, so
+// it could not be shared from here). This route still owns the replay/dedup machinery and injects
+// it as hooks — behavior is unchanged.
+import { runPrGate, type PrGateHooks } from "@/lib/github/pr-gate";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
-import { diffReports } from "@/lib/scoring/engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,9 +59,6 @@ interface WebhookPayload {
 }
 
 const PR_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
-
-/** The "Re-run" button surfaced on the gate Check Run — clicking it re-delivers a check_run webhook. */
-const RERUN_ACTION = [{ label: "Re-run", description: "Re-evaluate this PR's maturity", identifier: "rescan" }];
 
 // Replay defense. GitHub stamps each delivery with a unique X-GitHub-Delivery id. A captured,
 // still-valid signed request can be re-sent (the HMAC still verifies) to re-trigger scans/gates;
@@ -205,119 +200,20 @@ async function confirmRevocationWithGitHub(installationId: number, action: "dele
   }
 }
 
-interface PrGateRef {
-  installationId: number;
-  owner: string;
-  repo: string;
-  prNumber: number;
-  /** PR head commit SHA — what the check is attached to AND the ref we score. */
-  headSha: string;
-  /** PR base branch (e.g. "main") — the ref we diff against to show the PR's impact. */
-  baseRef: string;
-  /** GitHub delivery id, released from the seen-set if this deferred run fails so a redelivery retries. */
-  deliveryId?: string;
-}
-
 /**
- * Run the maturity gate for a PR. Scores the PR's **head** (so adding tests / a CLAUDE.md / CI in
- * the PR actually moves the gate), diffs it against the **base** branch to show what the PR
- * changes, and posts a Check Run (the merge status) + a sticky comment. Deterministic (mock) so
- * it's fast and free of LLM spend; both scans use the same engine + token, so the diff is clean.
+ * The webhook's half of the shared PR gate (@/lib/github/pr-gate): bind the claimed installation to
+ * its owner before a token is minted, and release the delivery's dedup claim on any abort/failure so
+ * a GitHub redelivery can retry. runPrGate itself carries no webhook state.
  */
-async function runPrGate(ref: PrGateRef) {
-  const { installationId, owner, repo, prNumber, headSha, baseRef } = ref;
-  // Hoisted so the catch can post a neutral check on the SAME token when a failure happens after mint.
-  let token: string | undefined;
-  try {
-    if (!(await installationMatchesOwner(installationId, owner))) {
-      // github-app-installation-webhooks #2: installationMatchesOwner collapses "forged/misrouted
-      // mismatch" (want: drop) and "transient DB/GitHub blip" (want: retry) into one `false`. A bare
-      // `return` here is INSIDE the try, so the catch's forgetDelivery never runs and the delivery stays
-      // claimed in BOTH the in-memory Map and the DB claim — a momentary blip then permanently loses this
-      // PR gate (GitHub only redelivers on a non-2xx, and we already 2xx'd). Release on EVERY exit path so
-      // a redelivery retries; a genuine forgery simply re-fails the owner check again, harmlessly.
-      if (ref.deliveryId) await forgetDelivery(ref.deliveryId);
-      return;
-    }
-    token = await getInstallationToken(installationId);
-    const fullName = `${owner}/${repo}`;
-
-    // Score the PR head. A fork PR's head commit can be unreachable via the base repo's tree API —
-    // fall back to the default branch so the check still posts (availability trade-off). INTEGRITY
-    // trade-off (github-app-installation-webhooks 2026-07-16 #3): a default-branch verdict structurally
-    // cannot fail on anything the PR itself changes (a fork PR deleting the test suite would sail
-    // through, and a red default branch would block an innocent fork PR). scoredHead therefore threads
-    // into buildGateComment below, which posts the fallback as a NEUTRAL check that says plainly it
-    // scored the default branch — a required-status consumer must treat fallback verdicts as
-    // non-authoritative, never as a pass/fail on the PR's own tree.
-    let headReport;
-    let scoredHead = true;
-    try {
-      headReport = await scanRepository(fullName, { mock: true, token, ref: headSha });
-    } catch (err) {
-      console.warn("[webhook] head-ref scan failed, falling back to default branch", err instanceof Error ? err.message : err);
-      headReport = await scanRepository(fullName, { mock: true, token });
-      scoredHead = false;
-    }
-    // Honor the org's persisted gate policy (GATE-1) — the App check previously ignored any configured
-    // bar and always used archetype defaults. Falls back to the default when unset/DB-less.
-    const policy = (await getOrgGatePolicy(owner).catch(() => null)) ?? undefined;
-    const gate = evaluateGate(headReport, policy);
-
-    // Diff base → head to show the PR's impact. Only meaningful when we actually scored the head
-    // ref; both scans are mock at two refs, so the delta reflects the PR's tree changes alone.
-    let baseline = null;
-    if (scoredHead) {
-      const baseReport = await scanRepository(fullName, { mock: true, token, ref: baseRef }).catch(() => null);
-      if (baseReport) baseline = diffReports(baseReport, headReport);
-    }
-
-    const comment = buildGateComment(headReport, gate, baseline, { baselineSuffix: "in this PR", scoredHead });
-    const detailsUrl = publicBaseUrl() + reportPermalink(fullName, headReport.repo.headSha);
-
-    // GATE-3 / ci-gate-status-checks #3: the Check Run IS the required merge status — a swallowed failure
-    // here leaves it permanently pending. createCheckRun now retries transient GitHub errors internally;
-    // if it STILL rejects, let it THROW (no inline .catch) so the outer catch posts the neutral "could not
-    // run" check AND releases the delivery for a redelivery retry. Silently logging it (the old behavior)
-    // returned normally, skipping both the neutral fallback and the release — the exact silent hole.
-    await createCheckRun({
-      token,
-      owner,
-      repo,
-      headSha,
-      conclusion: comment.conclusion,
-      title: comment.title,
-      summary: comment.summary,
-      detailsUrl: detailsUrl.startsWith("http") ? detailsUrl : undefined,
-      actions: RERUN_ACTION, // GATE-2: a "Re-run" button so a verdict can be refreshed without a new push
-    });
-
-    // The sticky comment is best-effort narrative (not the merge gate) — a failure here is logged and
-    // swallowed so it doesn't spuriously trip the neutral-check fallback; the redelivery retry reposts it.
-    await upsertStickyComment({ token, owner, repo, prNumber, marker: GATE_COMMENT_MARKER, body: comment.commentBody }).catch(
-      (err) => console.error("[webhook] sticky comment failed", err instanceof Error ? err.message : err),
-    );
-  } catch (err) {
-    console.error("[webhook] PR gate failed", err instanceof Error ? err.message : err);
-    // GATE-3: a hard failure must NOT leave a *required* check silently absent (it would block merge
-    // forever with no explanation). Post a neutral "couldn't evaluate" check (with a Re-run button) so
-    // the author sees a reason and has recourse. Best-effort — only possible once a token was minted.
-    if (token) {
-      await createCheckRun({
-        token,
-        owner,
-        repo,
-        headSha,
-        conclusion: "neutral",
-        title: "Maturity gate could not run",
-        summary: "Ascent couldn't evaluate this PR's maturity (a transient error). Re-run the check, or push a new commit.",
-        actions: RERUN_ACTION,
-      }).catch((e) => console.error("[webhook] neutral check failed", e instanceof Error ? e.message : e));
-    }
-    // The deferred gate failed after we already 2xx'd — release the delivery so a redelivery retries.
-    if (ref.deliveryId) await forgetDelivery(ref.deliveryId);
-  }
+function webhookGateHooks(deliveryId?: string): PrGateHooks {
+  return {
+    confirmOwner: installationMatchesOwner,
+    onRetryable: async () => {
+      if (deliveryId) await forgetDelivery(deliveryId);
+    },
+  };
 }
+
 
 /**
  * Reconcile the DB watch state against an installation's CURRENT accessible repos. Re-lists the live
@@ -583,7 +479,9 @@ export async function POST(request: Request) {
       if (installationId && owner && repo && prNumber && headSha && baseRef && PR_ACTIONS.has(payload.action ?? "")) {
         // Defer the scan to after the response so GitHub gets its fast 2xx. Pass the delivery id so a
         // transient failure in the deferred gate releases the dedup slot for a redelivery retry.
-        after(() => runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef, deliveryId: delivery ?? undefined }));
+        after(() =>
+          runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef }, webhookGateHooks(delivery ?? undefined)),
+        );
       }
     } else if (event === "check_run" && isAppConfigured()) {
       // A "Re-run" button click (requested_action with our identifier) or GitHub's native
@@ -600,7 +498,9 @@ export async function POST(request: Request) {
       const prNumber = pr?.number;
       const baseRef = pr?.base?.ref ?? payload.repository?.default_branch;
       if (isRerun && installationId && owner && repo && prNumber && headSha && baseRef) {
-        after(() => runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef, deliveryId: delivery ?? undefined }));
+        after(() =>
+          runPrGate({ installationId, owner, repo, prNumber, headSha, baseRef }, webhookGateHooks(delivery ?? undefined)),
+        );
       }
     } else if (event === "push" && isAppConfigured() && isDbConfigured()) {
       const installationId = payload.installation?.id;

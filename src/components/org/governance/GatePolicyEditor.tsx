@@ -11,6 +11,29 @@ import type { LevelId } from "@/lib/types";
 
 const LEVELS: LevelId[] = ["L1", "L2", "L3", "L4", "L5"];
 
+/** What the POST handler scheduled after the save (see the gate-policy route). */
+export type SweepPlan =
+  | { status: "scheduled"; repos: number; cap: number }
+  | { status: "skipped"; reason: "no-installation" | "no-watched-repos"; repos: number; cap: number };
+
+/**
+ * Say WHEN the new bar actually takes effect — the one thing this form never told the owner. Saving
+ * used to imply instant org-wide enforcement while every already-open PR kept its stale verdict until
+ * the next push. The copy is driven by the server's sweep plan, so it is honest in BOTH installation
+ * states rather than promising a re-check the App can't perform. Exported for its unit test.
+ */
+export function appliesWhen(sweep: SweepPlan | undefined): string | null {
+  if (!sweep) return null;
+  if (sweep.status === "scheduled") {
+    return `Open PRs re-check within a minute — up to ${sweep.cap} across ${sweep.repos} watched ${
+      sweep.repos === 1 ? "repo" : "repos"
+    }. Anything past that applies on the next push, or a "Re-run" on the check.`;
+  }
+  return sweep.reason === "no-watched-repos"
+    ? "No watched repos yet, so nothing was re-checked — the new bar applies the next time a repo is scanned or gated."
+    : "No GitHub App installation, so open PRs were not re-checked — the new bar applies on each PR's next push or CI run.";
+}
+
 export function GatePolicyEditor({ org, initial }: { org: string; initial: GatePolicy | null }) {
   const router = useRouter();
   const [minLevel, setMinLevel] = useState<string>(initial?.minLevel ?? "");
@@ -28,6 +51,8 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
   const [requireProtection, setRequireProtection] = useState<boolean>(Boolean(initial?.requireProtectedBranch));
   const [busy, setBusy] = useState<"save" | "reset" | null>(null);
   const [msg, setMsg] = useState<{ kind: "note" | "error"; text: string } | null>(null);
+  // When the saved bar takes effect, from the server's sweep plan (never assumed).
+  const [applies, setApplies] = useState<string | null>(null);
 
   function buildPolicy(): GatePolicy {
     const p: GatePolicy = {};
@@ -77,14 +102,20 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
   async function post(policy: GatePolicy | null, kind: "save" | "reset") {
     setBusy(kind);
     setMsg(null);
+    setApplies(null);
     try {
       const res = await fetch("/api/org/gate-policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, policy }),
       });
-      const d = (await res.json().catch(() => ({}))) as { error?: string; policy?: GatePolicy | null };
+      const d = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        policy?: GatePolicy | null;
+        sweep?: SweepPlan;
+      };
       if (!res.ok) throw new Error(d.error ?? "Failed to save policy.");
+      setApplies(appliesWhen(d.sweep));
       // Drive the success copy from the SERVER's echoed result, not from the request. sanitizeGatePolicy
       // drops out-of-range/zero floors, and an all-invalid policy sanitizes to null — which CLEARS the
       // gate back to the archetype default. So a save of e.g. "min overall = 0" actually RESETS the bar.
@@ -109,6 +140,7 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
       router.refresh();
     } catch (e) {
       setMsg({ kind: "error", text: e instanceof Error ? e.message : "Failed to save policy." });
+      setApplies(null);
     } finally {
       setBusy(null);
     }
@@ -171,6 +203,10 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
           </span>
           <input
             type="number"
+            // This <label> wraps TWO controls (the enable checkbox and this threshold), so the label
+            // text names only the first — the number input reached assistive tech unnamed. Name it
+            // explicitly; it carries the actual merge-blocking value.
+            aria-label="Security floor (D9 minimum)"
             min={1}
             max={100}
             value={securityFloor}
@@ -203,18 +239,24 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
         >
           Reset to default
         </button>
-        {/* Persistent polite live region (rendered always, content swapped) so save/reset outcomes are
-            ANNOUNCED to screen readers — the old `{msg && <span …>}` was inserted after the fact, which
-            assistive tech never reads, leaving success, silent field-dropping, and failure all
-            indistinguishable on a merge-blocking form. Errors carry a textual "Error:" prefix so the
-            kind isn't conveyed by color alone (WCAG 1.4.1). (ambiguity-ui ci-gate #5) */}
-        <span
-          role="status"
-          aria-live="polite"
-          className={`font-mono text-sm ${msg?.kind === "error" ? "text-orange-300" : "text-emerald-300"}`}
-        >
+      </div>
+      {/* ONE persistent polite live region (rendered always, content swapped) so save/reset outcomes are
+          ANNOUNCED to screen readers — the old `{msg && <span …>}` was inserted after the fact, which
+          assistive tech never reads, leaving success, silent field-dropping, and failure all
+          indistinguishable on a merge-blocking form. Errors carry a textual "Error:" prefix so the
+          kind isn't conveyed by color alone (WCAG 1.4.1). (ambiguity-ui ci-gate #5)
+
+          The second line says WHEN the bar takes effect. Saving a merge-blocking policy used to imply
+          instant org-wide enforcement; in reality every open PR kept its old verdict until the next
+          push. The server now re-runs the gate on open PRs and reports what it scheduled — this states
+          that outcome verbatim, including the honest "nothing was re-checked" case. It shares this
+          region rather than mounting its own: a conditionally-mounted live region is never announced,
+          and two competing polite regions race each other when both do fire. */}
+      <div role="status" aria-live="polite" className="mt-2">
+        <span className={`font-mono text-sm ${msg?.kind === "error" ? "text-orange-300" : "text-emerald-300"}`}>
           {msg ? (msg.kind === "error" ? `Error: ${msg.text}` : msg.text) : ""}
         </span>
+        <p className="mt-1 text-sm text-slate-500">{applies ?? ""}</p>
       </div>
     </div>
   );

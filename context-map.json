@@ -32,11 +32,15 @@
             "src/lib/db/org-gate.test.ts",
             "src/lib/github/checks.test.ts",
             "src/lib/github/write.test.ts",
-            "src/app/api/badge/[owner]/[repo]/gate-consistency.test.ts"
+            "src/app/api/badge/[owner]/[repo]/gate-consistency.test.ts",
+            "src/lib/github/pr-gate.ts",
+            "src/app/api/org/gate-policy/route.test.ts",
+            "src/components/org/governance/GatePolicyEditor.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
-            "/api/gate/[owner]/[repo]"
+            "/api/gate/[owner]/[repo]",
+            "/api/org/gate-policy"
           ]
         },
         {

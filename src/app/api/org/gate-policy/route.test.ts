@@ -1,0 +1,219 @@
+// Pins the "a policy change takes effect honestly" contract of POST /api/org/gate-policy.
+//
+// Tightening the org gate bar used to re-evaluate nothing: the handler wrote an audit row and
+// returned, so already-open PRs kept their stale GREEN check until the next push while the fleet
+// dashboard re-evaluated live — the fastest way to lose trust in a merge-blocking control. A save
+// now schedules a bounded sweep that re-runs the gate through the SAME check-writing path the
+// webhook uses (@/lib/github/pr-gate), and the response states what was (or was not) scheduled so
+// the editor can tell the owner when the bar applies instead of implying instant enforcement.
+//
+// What must hold: the sweep is SCHEDULED (deferred, never blocking the save), CAPPED, SKIPPED
+// cleanly with a stated reason when the org has no App installation / no watched repos, and
+// ISOLATED — one repo's GitHub failure can neither abort the rest of the sweep nor bubble out of
+// after() (which would surface as an unhandled rejection in the deferred context).
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("next/server", () => ({
+  // A class, not a bare object: the handler branches on `gate instanceof NextResponse`.
+  NextResponse: class {
+    static json(body: unknown, init?: ResponseInit) {
+      return Response.json(body, init);
+    }
+  },
+  after: vi.fn(),
+}));
+vi.mock("@/lib/db", () => ({
+  isDbConfigured: () => true,
+  getOrgGatePolicy: vi.fn(async () => null),
+  setOrgGatePolicy: vi.fn(async (_org: string, p: unknown) => p),
+  recordOrgAudit: vi.fn(async () => {}),
+  getInstallationIdForOwner: vi.fn(async () => "42"),
+  listWatchedRepos: vi.fn(async () => []),
+}));
+vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null), requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
+vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-login") }));
+vi.mock("@/lib/scoring/gate", () => ({ sanitizeGatePolicy: vi.fn((p: unknown) => p) }));
+vi.mock("@/lib/github/app", () => ({
+  isAppConfigured: () => true,
+  getInstallationToken: vi.fn(async () => "tok"),
+  githubAppFetch: vi.fn(async () => []),
+}));
+vi.mock("@/lib/github/pr-gate", () => ({ runPrGate: vi.fn(async () => {}) }));
+
+import { POST } from "./route";
+import { after } from "next/server";
+import { getInstallationIdForOwner, listWatchedRepos } from "@/lib/db";
+import { getInstallationToken, githubAppFetch } from "@/lib/github/app";
+import { runPrGate } from "@/lib/github/pr-gate";
+
+const mockAfter = vi.mocked(after);
+const mockInstallId = vi.mocked(getInstallationIdForOwner);
+const mockWatched = vi.mocked(listWatchedRepos);
+const mockFetch = vi.mocked(githubAppFetch);
+const mockToken = vi.mocked(getInstallationToken);
+const mockGate = vi.mocked(runPrGate);
+
+type Watched = Awaited<ReturnType<typeof listWatchedRepos>>;
+
+/** A watched-repo row shaped like listWatchedRepos returns (only owner/name are read by the sweep). */
+function repo(owner: string, name: string): Watched[number] {
+  return { owner, name, fullName: `${owner}/${name}`, url: "", isPrivate: false, lastScanAt: null };
+}
+
+/** An open-PR row shaped like GitHub's `GET /repos/:o/:r/pulls` returns. */
+function pr(number: number) {
+  return { number, head: { sha: `sha${number}` }, base: { ref: "main" } };
+}
+
+function save(policy: unknown = { minLevel: "L3" }) {
+  return POST(
+    new Request("http://localhost/api/org/gate-policy", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ org: "acme", policy }),
+    }),
+  );
+}
+
+/** Run every callback the handler handed to after(), the way the runtime would post-response. */
+async function runDeferred() {
+  for (const [cb] of mockAfter.mock.calls) await (cb as () => unknown | Promise<unknown>)();
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockInstallId.mockResolvedValue("42");
+  mockWatched.mockResolvedValue([]);
+  mockToken.mockResolvedValue("tok");
+  mockFetch.mockResolvedValue([]);
+  mockGate.mockResolvedValue(undefined);
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(console, "info").mockImplementation(() => {});
+});
+
+describe("POST /api/org/gate-policy — open-PR re-check sweep", () => {
+  it("schedules a sweep and re-runs the SHARED gate path on every open PR of the watched repos", async () => {
+    mockWatched.mockResolvedValue([repo("acme", "api"), repo("acme", "web")]);
+    mockFetch.mockResolvedValueOnce([pr(1), pr(2)]).mockResolvedValueOnce([pr(7)]);
+
+    const res = await save();
+    const body = (await res.json()) as { ok: boolean; sweep: { status: string; repos: number; cap: number } };
+
+    // The response is answered BEFORE any GitHub work: the sweep is only scheduled here.
+    expect(body.ok).toBe(true);
+    expect(body.sweep).toEqual({ status: "scheduled", repos: 2, cap: 20 });
+    expect(mockAfter).toHaveBeenCalledTimes(1);
+    expect(mockGate).not.toHaveBeenCalled();
+
+    await runDeferred();
+
+    expect(mockGate).toHaveBeenCalledTimes(3);
+    // The gate is re-run through @/lib/github/pr-gate — the same writer the webhook uses — with the
+    // PR's own head/base, never a forked check-writing path.
+    expect(mockGate).toHaveBeenCalledWith({
+      installationId: 42,
+      owner: "acme",
+      repo: "api",
+      prNumber: 1,
+      headSha: "sha1",
+      baseRef: "main",
+    });
+    expect(mockGate).toHaveBeenCalledWith(
+      expect.objectContaining({ repo: "web", prNumber: 7, headSha: "sha7" }),
+    );
+  });
+
+  it("caps the sweep at 20 PRs even when the fleet has far more open", async () => {
+    mockWatched.mockResolvedValue([repo("acme", "a"), repo("acme", "b")]);
+    mockFetch.mockResolvedValue(Array.from({ length: 50 }, (_, i) => pr(i + 1)));
+
+    await save();
+    await runDeferred();
+
+    expect(mockGate).toHaveBeenCalledTimes(20);
+    // Budget exhausted on the first repo → the second repo is never even listed (no wasted API call).
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps the number of repos it lists PRs for", async () => {
+    mockWatched.mockResolvedValue(Array.from({ length: 80 }, (_, i) => repo("acme", `r${i}`)));
+    mockFetch.mockResolvedValue([]); // no open PRs anywhere → the PR budget never bites
+
+    const res = await save();
+    const body = (await res.json()) as { sweep: { repos: number } };
+    expect(body.sweep.repos).toBe(25);
+
+    await runDeferred();
+    expect(mockFetch).toHaveBeenCalledTimes(25);
+  });
+
+  it("skips cleanly, and SAYS SO, when the org has no App installation", async () => {
+    mockInstallId.mockResolvedValue(null);
+    mockWatched.mockResolvedValue([repo("acme", "api")]);
+
+    const res = await save();
+    const body = (await res.json()) as { ok: boolean; sweep: { status: string; reason: string } };
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true); // the save itself still succeeded
+    expect(body.sweep).toMatchObject({ status: "skipped", reason: "no-installation" });
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+  });
+
+  it("skips with a distinct reason when the installation exists but nothing is watched", async () => {
+    mockWatched.mockResolvedValue([]);
+
+    const body = (await (await save()).json()) as { sweep: { status: string; reason: string } };
+
+    expect(body.sweep).toMatchObject({ status: "skipped", reason: "no-watched-repos" });
+    expect(mockAfter).not.toHaveBeenCalled();
+  });
+
+  it("isolates a repo whose PR listing fails — the rest of the fleet is still re-checked", async () => {
+    mockWatched.mockResolvedValue([repo("acme", "gone"), repo("acme", "web")]);
+    mockFetch.mockRejectedValueOnce(new Error("404 Not Found")).mockResolvedValueOnce([pr(9)]);
+
+    await save();
+    await expect(runDeferred()).resolves.toBeUndefined();
+
+    expect(mockGate).toHaveBeenCalledTimes(1);
+    expect(mockGate).toHaveBeenCalledWith(expect.objectContaining({ repo: "web", prNumber: 9 }));
+  });
+
+  it("gives up quietly — never throwing out of after() — when the installation token can't be minted", async () => {
+    mockWatched.mockResolvedValue([repo("acme", "api")]);
+    mockToken.mockRejectedValue(new Error("401"));
+
+    await save();
+    await expect(runDeferred()).resolves.toBeUndefined();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockGate).not.toHaveBeenCalled();
+  });
+
+  it("skips malformed PR rows rather than gating a PR with no head SHA", async () => {
+    mockWatched.mockResolvedValue([repo("acme", "api")]);
+    mockFetch.mockResolvedValue([{ number: 3, base: { ref: "main" } }, pr(4)]);
+
+    await save();
+    await runDeferred();
+
+    expect(mockGate).toHaveBeenCalledTimes(1);
+    expect(mockGate).toHaveBeenCalledWith(expect.objectContaining({ prNumber: 4 }));
+  });
+
+  it("sweeps on a CLEAR too — relaxing the bar must stop blocking PRs, not only tightening it", async () => {
+    mockWatched.mockResolvedValue([repo("acme", "api")]);
+    mockFetch.mockResolvedValue([pr(1)]);
+
+    const body = (await (await save(null)).json()) as { policy: unknown; sweep: { status: string } };
+    expect(body.policy).toBeNull();
+    expect(body.sweep.status).toBe("scheduled");
+
+    await runDeferred();
+    expect(mockGate).toHaveBeenCalledTimes(1);
+  });
+});
