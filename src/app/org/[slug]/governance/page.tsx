@@ -5,9 +5,10 @@
 import Link from "next/link";
 import { buildGovernanceOverview, ciActionYaml, governanceMarkdown } from "@/lib/org/governance";
 import { Card, InlineEmpty, Meter, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { GatePolicyEditor } from "@/components/org/governance/GatePolicyEditor";
-import { getOrgGatePolicy, isDbConfigured } from "@/lib/db";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
 import { scoreHex } from "@/lib/ui";
 
@@ -23,27 +24,47 @@ const REASONS = [
   { key: "governance", label: "Unprotected default branch" },
 ] as const;
 
-export default async function OrgGovernance({ params }: { params: Promise<{ slug: string }> }) {
+export default async function OrgGovernance({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const { slug } = await params;
-  const g = await buildGovernanceOverview(slug);
+  const sp = await searchParams;
+
+  // Segment + tech-stack scope (?segment=/?stack=), matching adoption/backlog/contributors/delivery/
+  // teams: a lead who filtered the fleet elsewhere used to land here on an unfiltered fleet gate with
+  // no control to explain why. The scope narrows WHO is measured; the policy stays org-wide.
+  const { barProps, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
+  const scoped = segmentId != null || techGroupId != null;
+
+  // Owners can edit the persisted gate policy (GATE-1); everyone sees the active policy read-only.
+  // The overview hands back the policy row it already read (g.savedPolicy), so the page no longer
+  // issues a SECOND getOrgGatePolicy — and the role check now runs alongside the overview instead of
+  // behind it.
+  const [g, canEdit] = await Promise.all([buildGovernanceOverview(slug, segmentId, techGroupId), hasOrgRole(slug, "owner")]);
+
+  const filterBar = <ScopeFilterBar {...barProps} />;
 
   if (!g) {
     return (
-      <SectionEmpty>
-        No scanned repositories yet — scan some of this org&apos;s repositories to evaluate the fleet against the governance gate.
-      </SectionEmpty>
+      <div>
+        <div className="mb-4 flex justify-end">{filterBar}</div>
+        <SectionEmpty>
+          {scoped
+            ? "No scanned repositories for this filter — pick another segment/stack or clear the filter to evaluate the whole fleet."
+            : "No scanned repositories yet — scan some of this org's repositories to evaluate the fleet against the governance gate."}
+        </SectionEmpty>
+      </div>
     );
   }
 
   const md = governanceMarkdown(g);
   const snippet = ciActionYaml(g.ciWith).join("\n");
   const passColor = scoreHex(g.passRate);
-
-  // Owners can edit the persisted gate policy (GATE-1); everyone sees the active policy read-only.
-  const [canEdit, gatePolicy] = await Promise.all([
-    hasOrgRole(slug, "owner"),
-    isDbConfigured() ? getOrgGatePolicy(slug) : Promise.resolve(null),
-  ]);
+  const gatePolicy = g.savedPolicy;
 
   return (
     <div className="space-y-6">
@@ -53,7 +74,10 @@ export default async function OrgGovernance({ params }: { params: Promise<{ slug
           title="Governance"
           description="One maturity gate, applied as policy-as-code to every repo in the fleet. See who clears the bar, where the rest fall short, and copy the snippet that enforces the exact same gate in CI."
         />
-        <CopyForLlm text={md} label="Copy governance brief for LLM" />
+        <div className="flex flex-wrap items-center gap-2">
+          {filterBar}
+          <CopyForLlm text={md} label="Copy governance brief for LLM" />
+        </div>
       </div>
 
       <div className={TILE_GRID}>

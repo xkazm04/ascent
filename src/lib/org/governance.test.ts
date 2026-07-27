@@ -253,4 +253,58 @@ describe("buildGovernanceOverview", () => {
     expect(ov.policyText).toContain("Default branch must be protected");
     expect(ov.policyText.some((t) => /D9.*≥\s*50/.test(t))).toBe(true);
   });
+
+  // ── Scope coherence with the adoption builder ───────────────────────────────
+  // A lead who filters the fleet on Adoption used to lose the filter here: the builder took no
+  // segment/techGroup and the page rendered no ScopeFilterBar, so Governance silently answered for the
+  // WHOLE fleet. It now takes the same (orgSlug, segmentId?, techGroupId?) contract buildAdoptionOverview
+  // takes (see adoption.test.ts "threads the segment/stack scope…"), and threads it into the rollup.
+
+  it("threads the segment/stack scope into the rollup it evaluates", async () => {
+    mockGetOrgRollup.mockResolvedValue(rollupOf(1, [PASS("ok")]));
+
+    await buildGovernanceOverview("acme", "seg-1", "tg-9");
+    // getOrgRollup(orgSlug, window, segmentId, techGroupId) — the window stays default (undefined).
+    expect(mockGetOrgRollup).toHaveBeenCalledWith("acme", undefined, "seg-1", "tg-9");
+  });
+
+  it("defaults to the whole fleet when no scope is passed", async () => {
+    mockGetOrgRollup.mockResolvedValue(rollupOf(1, [PASS("ok")]));
+
+    await buildGovernanceOverview("acme");
+    expect(mockGetOrgRollup).toHaveBeenCalledWith("acme", undefined, undefined, undefined);
+  });
+
+  it("keeps the gate policy ORG-wide under a scope — narrowing WHO is measured never lowers the bar", async () => {
+    mockGetOrgGatePolicy.mockResolvedValue({ minLevel: "L3", minDimension: 40, forbidPostures: ["ungoverned"] });
+    mockGetOrgRollup.mockResolvedValue(rollupOf(1, [PASS("ok")]));
+
+    const scoped = (await buildGovernanceOverview("acme", "seg-1", "tg-9"))!;
+    const whole = (await buildGovernanceOverview("acme"))!;
+    expect(scoped.policyText).toEqual(whole.policyText);
+    expect(scoped.gateQuery).toEqual(whole.gateQuery);
+    expect(mockGetOrgGatePolicy).toHaveBeenCalledWith("acme");
+  });
+
+  it("reads the gate policy ONCE and hands the stored row back for the page's editor", async () => {
+    // The page used to fetch getOrgGatePolicy a SECOND time (sequentially, after this builder) purely
+    // to seed GatePolicyEditor. It now reads `savedPolicy` off the overview — so one fetch per load.
+    const stored = { minLevel: "L4", minDimension: 55, forbidPostures: [] } as const;
+    mockGetOrgGatePolicy.mockResolvedValue(stored);
+    mockGetOrgRollup.mockResolvedValue(rollupOf(1, [PASS("ok")]));
+
+    const ov = (await buildGovernanceOverview("acme"))!;
+    expect(mockGetOrgGatePolicy).toHaveBeenCalledTimes(1);
+    expect(ov.savedPolicy).toEqual(stored);
+  });
+
+  it("reports savedPolicy as null when the org has no stored policy (inheriting the archetype default)", async () => {
+    // The editor must distinguish "unset, inheriting the default" from "explicitly set to the default",
+    // so the RAW row is returned — not the resolved policy the gate math ran on.
+    mockGetOrgRollup.mockResolvedValue(rollupOf(1, [PASS("ok")]));
+
+    const ov = (await buildGovernanceOverview("acme"))!;
+    expect(ov.savedPolicy).toBeNull();
+    expect(ov.policyText.length).toBeGreaterThan(0); // …while the default still drives the reading
+  });
 });

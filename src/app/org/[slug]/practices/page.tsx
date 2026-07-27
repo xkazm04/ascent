@@ -9,6 +9,7 @@ import { buildPracticeLibrarySummary, practiceLibraryMarkdown } from "@/lib/org/
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { Tile, TILE_GRID } from "@/components/org/shared/ui";
 import { BAND } from "../adoption/AdoptionSpectrum";
+import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { PracticesView } from "@/components/org/practices/PracticesView";
 
@@ -28,9 +29,12 @@ export default async function OrgPractices({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  // Optional tech-stack scope (Feature 3b): the MINED library honors a ?stack= param; the switcher's
-  // client wrapper renders the tab strip + shared modals.
-  const { techGroupId } = await resolveStackScope(slug, sp);
+  // Optional tech-stack scope (Feature 3b): the MINED library honors a ?stack= param. The page used
+  // to resolve this scope and then DISCARD techGroups/activeStack — filtering the library while
+  // rendering no control, so ?stack= silently narrowed the table with nothing on screen to explain or
+  // clear it (docs/harness/biz-bug-scan-2026-06-29). The selector now renders, same as every sibling
+  // tab. No segment selector here: getOrgPractices' segment scope isn't wired on this surface yet.
+  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const [playbooks, adoption, rollup, practices] = await Promise.all([
     listPlaybooks(slug),
     getPlaybookAdoption(slug),
@@ -47,6 +51,7 @@ export default async function OrgPractices({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <ScopeFilterBar segments={[]} segmentId={null} techGroups={techGroups} activeStack={activeStack} />
         <CopyForLlm text={md} label="Copy practice library brief for LLM" />
       </div>
 

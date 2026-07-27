@@ -62,6 +62,14 @@ export interface GovernanceOverview {
   gateQuery: string;
   /** GitHub Action `with:` lines that enforce the SAME policy in CI. */
   ciWith: string[];
+  /**
+   * The PERSISTED org gate policy this overview read (null = none stored, i.e. the archetype default
+   * was applied). Handed back so the page's GatePolicyEditor can seed itself from THIS fetch instead
+   * of issuing a second getOrgGatePolicy of its own — the two reads were duplicated, and sequential.
+   * Deliberately the raw stored row, not the resolved policy: the editor must still distinguish
+   * "unset, inheriting the default" from "explicitly set to the default's values".
+   */
+  savedPolicy: GatePolicy | null;
 }
 
 const ORG_POLICY_ARCHETYPE = "org" as const;
@@ -84,12 +92,26 @@ function ciWith(p: GatePolicy): string[] {
   return describeGatePolicy(p).flatMap((c) => (c.ci ? [c.ci] : []));
 }
 
-export async function buildGovernanceOverview(orgSlug: string): Promise<GovernanceOverview | null> {
-  const rollup = await getOrgRollup(orgSlug);
+/**
+ * Assemble the fleet's governance reading, optionally SCOPED to a segment / tech-stack group — the
+ * same `(orgSlug, segmentId?, techGroupId?)` contract buildAdoptionOverview takes, so a lead who
+ * filters the fleet on one tab keeps that filter here instead of silently reverting to the whole org.
+ * The two reads run in parallel (the policy fetch used to sit behind the rollup await).
+ */
+export async function buildGovernanceOverview(
+  orgSlug: string,
+  segmentId?: string | null,
+  techGroupId?: string | null,
+): Promise<GovernanceOverview | null> {
+  // The org's configured gate bar (GATE-1), applied uniformly to the scoped fleet; archetype default
+  // when unset. The policy is org-wide by design — scope narrows WHO is measured, never the bar.
+  const [rollup, savedPolicy] = await Promise.all([
+    getOrgRollup(orgSlug, undefined, segmentId, techGroupId),
+    getOrgGatePolicy(orgSlug),
+  ]);
   if (!rollup || rollup.scannedCount === 0) return null;
 
-  // The org's configured gate bar (GATE-1), applied uniformly to the fleet; archetype default when unset.
-  const policy = (await getOrgGatePolicy(orgSlug)) ?? defaultGatePolicy(ORG_POLICY_ARCHETYPE);
+  const policy = savedPolicy ?? defaultGatePolicy(ORG_POLICY_ARCHETYPE);
   const scannedRepos = rollup.repos.filter((r) => r.latest);
 
   const byReason = { level: 0, overall: 0, dimension: 0, posture: 0, governance: 0 };
@@ -176,6 +198,7 @@ export async function buildGovernanceOverview(orgSlug: string): Promise<Governan
     closestToGreen: greenPath.slice(0, 8),
     gateQuery: gateQuery(policy),
     ciWith: ciWith(policy),
+    savedPolicy,
   };
 }
 
