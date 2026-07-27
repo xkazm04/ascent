@@ -11,6 +11,7 @@ import { getOrgId, getScanReportByCommit, isDbConfigured, persistScanReport } fr
 import { consumePublicScanQuota, refundPublicScanQuota, monthlyQuotaExceeded } from "@/lib/public-scan-quota";
 import { getViewer } from "@/lib/access";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
+import { recordScanMemories } from "@/lib/memory/scan-feed";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
@@ -165,7 +166,11 @@ export async function cacheAndPersistScan(
     if (newRowWritten) {
       try {
         const orgId = (await getOrgId(opts.orgSlug).catch(() => null)) ?? undefined;
-        await checkAndAlertRegression(prev, report, { orgId, orgSlug: opts.orgSlug });
+        const outcome = await checkAndAlertRegression(prev, report, { orgId, orgSlug: opts.orgSlug });
+        // Auto-feed Shared Org Memory from what this scan OBSERVED (regression / maturity band change).
+        // Piggybacks on the baseline + verdict already computed above, so it costs no extra scan work
+        // and can never disagree with the alert. Never-throwing by contract (src/lib/memory/scan-feed.ts).
+        await recordScanMemories(orgId, prev, report, outcome);
       } catch (err) {
         // Defense-in-depth: checkAndAlertRegression is contractually never-throwing, but a regression
         // alert must NEVER fail an already-persisted scan, so swallow anything that slips through.
