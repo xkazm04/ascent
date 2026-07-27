@@ -4,7 +4,7 @@
 // with no sign-in affordance. The classifier is what turns those refusals into a recovery.
 
 import { describe, it, expect } from "vitest";
-import { classifyScanFailure, gateAnnouncement } from "./scanGate";
+import { classifyScanFailure, gateAnnouncement, isPersonalRefusal } from "./scanGate";
 
 describe("classifyScanFailure", () => {
   it("maps a 401 (anonymous on a Supabase-configured deploy) to the sign-in gate", () => {
@@ -21,6 +21,23 @@ describe("classifyScanFailure", () => {
       "netflix",
     );
     expect(gate).toEqual({ kind: "no-access", org: "netflix" });
+  });
+
+  it("splits requireFleetOrg's 403 (a PERSONAL workspace) off from the membership 403", () => {
+    // The route runs requireOrgAccess then requireFleetOrg, so both answer 403 — only the message
+    // distinguishes them, and only the fleet one quotes an internal API route at the user.
+    expect(
+      classifyScanFailure(
+        {
+          status: 403,
+          message:
+            "This is a fleet operation. Personal workspaces track repos via /api/me/watch and rescan through the public report flow.",
+        },
+        "dana",
+      ),
+    ).toEqual({ kind: "personal", org: "dana" });
+    expect(isPersonalRefusal("You don't have access to this organization.")).toBe(false);
+    expect(isPersonalRefusal(undefined)).toBe(false);
   });
 
   it("returns null for a genuine failure so the server's diagnostic is NOT swallowed", () => {

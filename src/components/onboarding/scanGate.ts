@@ -10,7 +10,7 @@
 // pure (no React, no fetch) so both the flow hook and its tests can reason about the gate directly.
 
 /** Which recovery the refusal calls for. */
-export type ScanGateKind = "signin" | "no-access";
+export type ScanGateKind = "signin" | "no-access" | "personal";
 
 export interface ScanGate {
   kind: ScanGateKind;
@@ -28,13 +28,31 @@ export function classifyScanFailure(
   org: string,
 ): ScanGate | null {
   if (failure.status === 401) return { kind: "signin", org };
-  if (failure.status === 403) return { kind: "no-access", org };
+  // Two different 403s land here, in the route's own order: requireOrgAccess (not a member) and then
+  // requireFleetOrg (the target is a PERSONAL workspace — the individual tier's lens invariant). Only
+  // the second one's message names the internal API route, and only its recovery is /me, so they must
+  // not collapse into one gate.
+  if (failure.status === 403) {
+    return isPersonalRefusal(failure.message) ? { kind: "personal", org } : { kind: "no-access", org };
+  }
   return null;
+}
+
+/**
+ * Does this 403 come from requireFleetOrg (authz.ts)? Its message — "This is a fleet operation.
+ * Personal workspaces track repos via /api/me/watch and rescan through the public report flow." —
+ * quotes an INTERNAL API ROUTE at an end user, so it must never reach the screen; matching on it here
+ * is what lets the wizard replace it with a real handoff. Matched on the two stable phrases rather
+ * than the whole sentence so a copy edit server-side degrades to the generic no-access gate (still
+ * humane) instead of leaking the raw string.
+ */
+export function isPersonalRefusal(message?: string): boolean {
+  return /fleet operation|personal workspace/i.test(message ?? "");
 }
 
 /** The step title announced (and focused) when a gate replaces the scan — mirrors the phase titles. */
 export function gateAnnouncement(gate: ScanGate): string {
-  return gate.kind === "signin"
-    ? "Sign in to run this scan"
-    : `Your account can't scan ${gate.org}`;
+  if (gate.kind === "signin") return "Sign in to run this scan";
+  if (gate.kind === "personal") return `${gate.org} is your personal workspace`;
+  return `Your account can't scan ${gate.org}`;
 }

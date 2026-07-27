@@ -4,7 +4,8 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { getSession, isAuthConfigured } from "@/lib/auth";
 import { supabaseAuthConfigured } from "@/lib/env";
-import { getOrgRollup } from "@/lib/db";
+import { getOrgRollup, isPersonalOrg } from "@/lib/db";
+import { getViewer } from "@/lib/access";
 
 export const metadata: Metadata = {
   title: "Onboarding · Ascent",
@@ -30,6 +31,14 @@ export default async function OnboardingPage() {
   // landing page) and passed to the wizard so its ACCESS GATE can render the matching CTA. Without it
   // the public-preview funnel's final click (a 401 from requireOrgAccess) has no sign-in affordance.
   const auth = supabaseAuthConfigured() ? "supabase" : isAuthConfigured() ? "github" : null;
+  // Does the signed-in viewer own a PERSONAL workspace (Organization.kind === "personal")? One indexed
+  // lookup, and it is the real kind rather than a "slug === my login" guess — so the wizard can hand
+  // the individual tier off upfront without misclassifying a viewer whose namespace is a fleet org.
+  const viewer = await getViewer();
+  const personalOrg =
+    viewer && (await isPersonalOrg(viewer.login).catch(() => false))
+      ? viewer.login.trim().toLowerCase()
+      : null;
 
   // ONB-2 (server half): has this viewer already scanned repos in one of their orgs? If so, offer a
   // "welcome back" jump to that dashboard instead of a cold start. Cheap: only the viewer's own org
@@ -77,6 +86,7 @@ export default async function OnboardingPage() {
           suggestedOrgs={suggestedOrgs}
           seededOrg={seededOrg}
           auth={auth}
+          personalOrg={personalOrg}
         />
       </main>
       <SiteFooter />

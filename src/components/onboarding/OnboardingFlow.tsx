@@ -19,12 +19,16 @@ export function OnboardingFlow({
   suggestedOrgs = [],
   seededOrg,
   auth = null,
+  personalOrg = null,
 }: {
   hasInstallation?: boolean;
   installations?: Installation[];
   /** Which OAuth backend this deployment runs, resolved server-side — so the access gate can render
    *  the matching sign-in CTA instead of a dead button. */
   auth?: AuthMode;
+  /** The viewer's personal-workspace slug (Organization.kind === "personal"), when they have one —
+   *  lets the wizard hand the individual tier off before a doomed fleet import. */
+  personalOrg?: string | null;
   /** Orgs auto-discovered at login that aren't installed yet — one-click "scan this org" nudges. */
   suggestedOrgs?: string[];
   /** Most-active org whose watchlist was pre-seeded at login; surfaced as a "dashboard ready" CTA. */
@@ -63,7 +67,7 @@ export function OnboardingFlow({
     cancelScan,
     resetRun,
     startScan,
-  } = useOnboardingFlow();
+  } = useOnboardingFlow({ personalOrg });
 
   const checklistSteps = (): ReturnType<typeof buildChecklistSteps> =>
     buildChecklistSteps({ hasInstallation, selected, phase, sourceInstallId, invitedCount, sourceLabel });
@@ -92,7 +96,13 @@ export function OnboardingFlow({
   if (gate) {
     return (
       <Shell flowRef={flowRef} stepAnnounce={stepAnnounce}>
-        <GateStep gate={gate} auth={auth} selectedCount={selected.size} onBack={() => setGate(null)} />
+        <GateStep
+          gate={gate}
+          auth={auth}
+          selectedCount={selected.size}
+          selectedRepos={repos.filter((r) => selected.has(r.fullName))}
+          onBack={() => setGate(null)}
+        />
       </Shell>
     );
   }

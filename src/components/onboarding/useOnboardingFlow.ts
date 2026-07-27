@@ -18,10 +18,16 @@ import {
   topSelection,
 } from "@/components/onboarding/OnboardingFlow.model";
 
+// `personalOrg` is the viewer's PERSONAL workspace slug (Organization.kind === "personal"), resolved
+// server-side by the onboarding page. It lets the wizard refuse a personal target UPFRONT — before a
+// pointless import POST — instead of only catching requireFleetOrg's 403 after the fact. It is the
+// real DB kind, not a "slug === my login" guess, so a viewer whose own namespace is a normal fleet org
+// is unaffected.
+//
 // All wizard state, effects, and handlers for OnboardingFlow, relocated into a co-located hook so the
 // component file stays under the 300-LOC cap (AGENTS.md). Pure relocation — behavior, hook-call order,
 // and every closure are preserved exactly; the component consumes the returned bag unchanged.
-export function useOnboardingFlow() {
+export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string | null } = {}) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("pick");
   const [org, setOrg] = useState("");
@@ -316,6 +322,14 @@ export function useOnboardingFlow() {
   async function startScan() {
     const picks = repos.filter((r) => selected.has(r.fullName));
     if (picks.length === 0) return;
+    // UPFRONT personal-tier refusal: importing scans under a personal workspace is what requireFleetOrg
+    // rejects (the lens invariant — a public repo's series lives in the shared "public" org). Gating
+    // here spares the user a doomed round-trip and, more importantly, means the handoff is the FIRST
+    // thing they see rather than a 403 whose message quotes an internal API route.
+    if (personalOrg && sourceLabel === personalOrg) {
+      setGate({ kind: "personal", org: sourceLabel });
+      return;
+    }
     setPhase("scanning");
     setRows(Object.fromEntries(picks.map((r) => [r.fullName, { repo: r.fullName }])));
     setError(null);
