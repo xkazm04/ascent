@@ -6,7 +6,6 @@ import { CreditsControl } from "@/components/org/shared/CreditsControl";
 import { AlertsControl } from "@/components/org/shared/AlertsControl";
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { TourChecklist } from "@/components/onboarding/tour/TourChecklist";
-import { DEMO_ORG_SLUG } from "@/lib/site";
 import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getNavCounts } from "@/lib/org/nav-counts";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
@@ -214,9 +213,13 @@ export default async function OrgLayout({
           <div className="animate-fade-up">{children}</div>
         </div>
       </main>
-      {/* Guided onboarding drawer, scoped to the curated demo org. Mounted in the layout (not a page) so
-          the tour survives sub-page navigation and re-anchors after each redirect. */}
-      {slug.toLowerCase() === DEMO_ORG_SLUG && <TourChecklist slug={slug} />}
+      {/* Guided onboarding drawer for ANY org dashboard — it used to mount only on the curated demo org,
+          so every real customer who finished onboarding and clicked "View dashboard" never saw the one
+          surface that teaches this dashboard. It opens closed (just the pull tab) and the engine skips
+          steps whose anchor this org doesn't render, so a thin/personal org degrades instead of pointing
+          at nothing. Mounted in the layout (not a page) so the tour survives sub-page navigation and
+          re-anchors after each redirect. */}
+      <TourChecklist slug={slug} />
     </>
   );
 }

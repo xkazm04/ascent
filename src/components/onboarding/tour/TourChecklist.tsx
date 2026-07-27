@@ -1,22 +1,34 @@
 "use client";
 
-// The guided onboarding for the demo-org dashboard: a right-edge DRAWER that slides out from behind the
+// The guided onboarding for an org dashboard: a right-edge DRAWER that slides out from behind the
 // screen border and pushes back to hide, leaving only a pull tab. It's the non-blocking "pre-flight
 // checklist" direction — the app stays fully usable underneath while a pulsing ring tracks the current
 // step and the checklist maps what to learn next (set scope → read results → explore modules). Self-
 // contained: owns the open/collapsed state and drives the shared tour engine, which is inert while closed.
+//
+// Open state is restored from (and persisted to) this session's per-org tour state, so a hard refresh
+// mid-tour reopens the drawer on the same step instead of silently resetting to a closed step 1. The
+// engine is the single WRITER of that record (it also owns the cursor); this component only seeds from it.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CHAPTER_LABEL, CHAPTER_ORDER } from "./types";
-import { DEMO_TOUR_STEPS } from "./steps";
+import { ORG_TOUR_STEPS } from "./steps";
 import { useTourEngine } from "./useTourEngine";
+import { readTourState } from "./tourStorage";
 import { HighlightRing } from "./HighlightLayer";
 import { Kicker } from "@/components/ui";
 
 export function TourChecklist({ slug }: { slug: string }) {
   const [open, setOpen] = useState(false);
-  const t = useTourEngine(slug, DEMO_TOUR_STEPS, { enabled: open, onExit: () => setOpen(false) });
-  const steps = DEMO_TOUR_STEPS;
+  // Restore the drawer's open state after mount (never in a lazy initializer — this renders inside a
+  // server-rendered layout, and an open-on-first-client-render drawer would not match the SSR'd markup).
+  // Declared ABOVE useTourEngine so this read runs before the engine's persist effect writes.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot restore of the persisted drawer state
+    if (readTourState(slug)?.open === true) setOpen(true);
+  }, [slug]);
+  const t = useTourEngine(slug, ORG_TOUR_STEPS, { enabled: open, onExit: () => setOpen(false) });
+  const steps = ORG_TOUR_STEPS;
 
   return (
     <>
@@ -41,8 +53,13 @@ export function TourChecklist({ slug }: { slug: string }) {
             <span className="font-mono text-xs uppercase tracking-[0.2em]">Guided setup</span>
           </button>
 
-          {/* Panel — flush to the right edge (left-rounded, no right border). */}
-          <div className="flex max-h-[80vh] w-80 max-w-[85vw] flex-col rounded-l-2xl border border-r-0 border-divider bg-surface-strong shadow-2xl ring-1 ring-white/5 backdrop-blur-md">
+          {/* Panel — flush to the right edge (left-rounded, no right border). `inert` while collapsed: the
+              panel is only translated off-screen, so without it every control inside stays in the tab order
+              and a keyboard/SR user walks through an invisible drawer. The pull tab sits outside it. */}
+          <div
+            inert={!open}
+            className="flex max-h-[80vh] w-80 max-w-[85vw] flex-col rounded-l-2xl border border-r-0 border-divider bg-surface-strong shadow-2xl ring-1 ring-white/5 backdrop-blur-md"
+          >
             <div className="flex items-start justify-between gap-3 border-b border-divider px-4 py-3">
               <div>
                 <Kicker>Guided setup</Kicker>
@@ -72,23 +89,32 @@ export function TourChecklist({ slug }: { slug: string }) {
                     <div className="font-mono text-xs uppercase tracking-widest text-slate-500">{CHAPTER_LABEL[chapter]}</div>
                     <ul className="mt-2 space-y-1">
                       {chapterSteps.map(({ s, i }) => {
-                        const state = i === t.index ? "active" : i < t.index ? "done" : "pending";
+                        // A step whose anchor doesn't exist on THIS org (no scans yet, personal workspace)
+                        // is shown but disabled — an honest list beats offering a step that points nowhere.
+                        const unavailable = t.isSkipped(s.id);
+                        const state = unavailable ? "skipped" : i === t.index ? "active" : i < t.index ? "done" : "pending";
                         return (
                           <li key={s.id}>
                             <button
                               type="button"
                               onClick={() => t.goTo(i)}
+                              disabled={unavailable}
                               aria-current={state === "active" ? "step" : undefined}
                               className={`focus-ring flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition ${
                                 state === "active"
                                   ? "border-accent bg-accent/10"
                                   : "border-transparent hover:border-slate-700 hover:bg-white/5"
-                              }`}
+                              } ${unavailable ? "cursor-default opacity-50 hover:border-transparent hover:bg-transparent" : ""}`}
                             >
                               <Marker state={state} />
-                              <span className={`flex-1 text-sm ${state === "pending" ? "text-slate-400" : "text-white"}`}>
+                              <span
+                                className={`flex-1 text-sm ${state === "pending" || state === "skipped" ? "text-slate-400" : "text-white"}`}
+                              >
                                 {s.title}
                               </span>
+                              {unavailable && (
+                                <span className="font-mono text-xs uppercase tracking-widest text-slate-500">n/a</span>
+                              )}
                             </button>
                           </li>
                         );
@@ -102,6 +128,12 @@ export function TourChecklist({ slug }: { slug: string }) {
             {t.step && (
               <div className="border-t border-divider px-4 py-3">
                 <p className="text-sm leading-relaxed text-slate-300">{t.step.body}</p>
+                {t.isSkipped(t.step.id) && (
+                  <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                    This part of the dashboard isn&apos;t on screen for this organization yet — it appears once
+                    there are scan results to read.
+                  </p>
+                )}
                 <div className="mt-3 flex items-center justify-between gap-2">
                   <button
                     type="button"
@@ -128,7 +160,10 @@ export function TourChecklist({ slug }: { slug: string }) {
   );
 }
 
-function Marker({ state }: { state: "active" | "done" | "pending" }) {
+function Marker({ state }: { state: "active" | "done" | "pending" | "skipped" }) {
+  if (state === "skipped") {
+    return <span aria-hidden className="h-4 w-4 shrink-0 rounded-full border border-dashed border-slate-700" />;
+  }
   if (state === "done") {
     return (
       <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-xs text-on-accent">✓</span>
