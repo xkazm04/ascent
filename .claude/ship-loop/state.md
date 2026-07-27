@@ -45,8 +45,14 @@ DONE: 1-10,12,13,14,18,24,37,40 · 28-32 decided (M1). CUT: 15. PARTIAL: 20,22,2
 - Gate methodology addendum: do NOT run lint concurrently with the vitest suite — 1 contention flake in auth.test.ts (item 43).
 - **300-LOC invariant re-broken** (item 44): PracticeApply 326 · RepoSegmentsPanel 317 · Simulator 312 (two are regrowth of M7 extractions).
 
-## NEXT ACTION — CP2 (awaiting user; loop PAUSED on tree collision)
-FIRST: wait for the concurrent report-shell/personas-ports integration to settle, then re-run the gate on the integrated tree and re-apply 41 (+42 if still applicable). Then M12 candidates by severity under continuous cadence:
+## Resume 2026-07-27b (tree settled — collision resolved, gate GREEN)
+- The blocking collision is over. Local master (18 commits: report-shell round 3, .ai/ standard, harness + uat artifacts) was reconciled with origin/master's 224 commits (PRs #9 + #10); 7 conflicts resolved by keeping both sides' intent. The personas-ports work (5 tracks) merged on top. All 6 agent worktrees and branches removed.
+- **M11 items closed**: 41 ☑ (worktrees gone AND `.claude/worktrees/**` now in eslint globalIgnores — the durable fix, so the next agent run can't re-break the gate); 42 ✕ CUT (the finding did not survive the BadgeGenerator rewrite; lint is 0 errors on the integrated tree).
+- **Gate re-certified on the INTEGRATED tree** (sequential, per the addendum): lint ✓ 0 errors · vitest ✓ 4240/4240 · tsc ✓ 0 · build ✓. `report-document.test.ts` times out under full-suite load and passes 22/22 alone — pre-existing flake, new item 45.
+- Lesson worth keeping: tsc + 4240 unit tests were ALL GREEN while `npm run build` could not resolve dns/fs/net/tls — a client component had imported a runtime `@/lib/db` symbol. Only the build catches the client/server boundary; it belongs in the gate, not after it.
+
+## NEXT ACTION — CP2 (awaiting user; loop READY to resume)
+M12 candidates by severity under continuous cadence:
 - **A. Invariant repair (44 + 20 residual + 19)** — 300-LOC re-extraction ×3, context-map re-sweep, OnboardingChecklist rename. Mechanical, no product calls. (recommended default)
 - **B. Two-tier execution (33 + 35 + 17)** — the decided-but-unshipped D28/D29 copy: "AI-native Scorecard"/"readiness briefing" labels + "AI estimate — may vary" disclaimer + gate-default surfacing. Product-visible copy; user may want wording review.
 - **C. e2e in CI (11)** — wire mock-LLM Playwright into ci.yml.

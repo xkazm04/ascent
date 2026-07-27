@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Agent worktrees are full checkouts of this repo. Linting them reports every finding once per
+    // live worktree — on 2026-07-27 that turned 2 real errors into 14 and buried them under ~200
+    // duplicate warnings, so the gate failed for a reason no file in `src` could explain. The code
+    // in a worktree is linted on its own branch, before it merges; here it is noise.
+    ".claude/worktrees/**",
   ]),
 ]);
 
