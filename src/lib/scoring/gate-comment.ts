@@ -166,11 +166,28 @@ export function buildGateComment(
   // protected-branch requirement, which the old hand-rolled list omitted.
   const policyBits = describeGatePolicy(gate.policy).map((c) => c.bit);
 
+  // The single strongest reason to leave this gate ON, stated where the argument actually lands — on
+  // the PR, next to the bar it enforces. Security (D9) is the ONE fully-deterministic dimension: its
+  // score is the security check battery's risk-weighted mean, taken VERBATIM (engine.ts), and the LLM
+  // only narrates it — outside the guardband blend every other dimension goes through. So a security
+  // floor is a bar no model can talk its way past, and the same tree always yields the same verdict.
+  // Shown only when a D9 floor is actually configured, so it stays a fact about THIS gate rather than
+  // marketing on a check that doesn't enforce it. Companion voice: explains, never instructs.
+  const securedByD9 = gate.policy.minDimensionFor?.D9 != null;
+
   // Provider/mode now lives in `summary` (above), so the footer carries only the policy — no dupe.
   const commentBody = [
     GATE_COMMENT_MARKER,
     summary,
     "",
+    ...(securedByD9
+      ? [
+          "<sub>The Security (D9) floor is fully deterministic — its score comes straight from the security " +
+            "check battery, and the language model can only narrate it, never move the number. Same tree, " +
+            "same verdict.</sub>",
+          "",
+        ]
+      : []),
     `<sub>Policy: ${policyBits.join(" · ") || "archetype default"}</sub>`,
   ].join("\n");
 

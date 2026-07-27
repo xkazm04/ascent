@@ -169,6 +169,27 @@ describe("buildGateComment", () => {
     const c = buildGateComment(report(), gate);
     expect(c.commentBody).toContain("Policy: min L3 · min overall 50 · no dim < 40 · no D9 < 50 · forbid ungoverned · protected branch");
   });
+
+  // The gate's strongest turn-it-on argument was stated on NO gate surface: Security (D9) is the one
+  // fully-deterministic dimension (engine.ts takes its signal score verbatim and excludes it from the
+  // LLM guardband blend), so a D9 floor is a bar no model can talk its way past. It belongs on the PR,
+  // beside the policy it qualifies — but only when a D9 floor is genuinely enforced, or it would be
+  // marketing on a check that doesn't have one.
+  it("tells the PR why the security floor is trustworthy — but ONLY when a D9 floor is enforced", () => {
+    const withFloor = buildGateComment(
+      report(),
+      { pass: true, policy: { minLevel: "L3", minDimensionFor: { D9: 50 } }, failures: [] },
+    );
+    expect(withFloor.commentBody).toContain("fully deterministic");
+    expect(withFloor.commentBody).toContain("never move the number");
+    expect(withFloor.commentBody).toContain("Same tree, same verdict.");
+
+    const withoutFloor = buildGateComment(report(), { pass: true, policy: { minLevel: "L3" }, failures: [] });
+    expect(withoutFloor.commentBody).not.toContain("fully deterministic");
+    // The claim lives in the COMMENT footer only — the check-run summary is the merge-blocking
+    // surface and stays a verdict, not an argument.
+    expect(withFloor.summary).not.toContain("fully deterministic");
+  });
 });
 
 // github-app-installation-webhooks 2026-07-16 #3: the fork-PR fallback scores the DEFAULT BRANCH, not

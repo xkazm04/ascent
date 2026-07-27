@@ -1,9 +1,11 @@
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { BadgeGenerator } from "@/components/badge/BadgeGenerator";
+import { GATE_QUERY, GATE_YAML } from "./gate-snippets";
 
 export const metadata = {
   title: "Badge generator · Ascent",
-  description: "Generate a copy-paste Ascent maturity badge (Markdown, HTML, AsciiDoc) for your README.",
+  description:
+    "Generate a copy-paste Ascent maturity badge (Markdown, HTML, AsciiDoc) for your README, and the free CI gate snippets that enforce the same bar on every PR.",
 };
 
 export default function BadgePage() {
@@ -19,10 +21,13 @@ export default function BadgePage() {
           <p className="mt-2 max-w-2xl text-slate-400">
             Drop a live Ascent maturity badge into your README. It links back to the full report,
             so a reader can click through and scan their own repo — pick a repo and a style, then
-            copy the snippet for Markdown, HTML, or AsciiDoc.
+            copy the snippet for Markdown, HTML, or AsciiDoc. The same repo fills in the free CI
+            gate snippets at the bottom.
           </p>
           <div className="mt-6">
-            <BadgeGenerator />
+            {/* The gate snippets ride along inside the generator so they interpolate the repo the
+                visitor just typed; the policy they enforce is resolved here, on the server. */}
+            <BadgeGenerator gate={{ yaml: GATE_YAML, query: GATE_QUERY }} />
           </div>
         </div>
       </main>

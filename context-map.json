@@ -1599,6 +1599,8 @@
             "src/app/usage/AllotmentPanel.tsx",
             "src/components/badge/BadgeGenerator.test.tsx",
             "src/components/badge/GateSection.tsx",
+            "src/app/badge/gate-snippets.ts",
+            "src/app/badge/page.test.tsx",
             "src/components/usage/UsageTrend.test.tsx",
             "src/lib/badge.ts"
           ],

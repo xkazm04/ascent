@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { BADGE_STYLES, type BadgeStyle, badgeReportHref } from "@/lib/badge";
 import { attemptCopy, nextCopyState } from "@/components/copy-for-llm.logic";
+import { GateSection } from "@/components/badge/GateSection";
 
 /** Minimal owner/repo parser (kept local so this client component doesn't pull the
  *  server-side ingestion module). Accepts `owner/repo` or a github.com URL. */
@@ -40,7 +41,14 @@ const FORMATS: { id: Format; label: string }[] = [
   { id: "asciidoc", label: "AsciiDoc" },
 ];
 
-export function BadgeGenerator() {
+/**
+ * `gate` carries the "guard it in CI" snippets, built SERVER-side on /badge from one policy (see
+ * page.tsx) so the curl line and the workflow YAML can never advertise different bars. It is
+ * rendered from inside this component rather than beside it because the section's whole point is to
+ * interpolate the SAME repo the user just typed above — that value lives in this component's state.
+ * Omit the prop and the section simply doesn't render.
+ */
+export function BadgeGenerator({ gate }: { gate?: { yaml: string; query: string } } = {}) {
   const [input, setInput] = useState("");
   const [style, setStyle] = useState<Style>("flat");
   const [kind, setKind] = useState<Kind>("level");
@@ -224,6 +232,8 @@ export function BadgeGenerator() {
         Tip: the badge runs a fast deterministic scan on first request, then caches. For a full
         AI-scored report, <Link href="/?scan=1" className="text-accent hover:text-accent-soft">scan the repo</Link> first.
       </p>
+
+      {gate && <GateSection yaml={gate.yaml} query={gate.query} repo={parsed} />}
     </div>
   );
 }
