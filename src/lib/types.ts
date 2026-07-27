@@ -195,12 +195,34 @@ export type ProductionBand = "prototype" | "internal" | "beta" | "production" | 
 // Non-observable identity fields — a scan can't infer these, so an org owner sets them (P4 overrides).
 export type Criticality = "experimental" | "internal" | "business" | "mission-critical";
 export type Lifecycle = "prototype" | "alpha" | "beta" | "ga" | "maintenance" | "deprecated";
+/** Graded ladder for the agent-facing artifacts that used to be a bare boolean (passport 0.2.0):
+ *  none = absent · adhoc = present but unstructured · curated = structured/maintained library ·
+ *  governed = curated PLUS observable process (supersede links, a registry, or a CI check). */
+export type ArtifactGrade = "none" | "adhoc" | "curated" | "governed";
+
+/** An owner's "I've seen this gap and I'm opting out" annotation, projected onto the passport by the
+ *  read-time override overlay. Never a scan output — always owner intent. */
+export interface DeclinedByChoice {
+  /** Dotted passport field path (one of DECLINABLE_PATHS). */
+  path: string;
+  /** Human label for the declined field. */
+  label: string;
+  /** Optional owner rationale ("edge service, alerting lives in the platform"). */
+  reason?: string;
+  /** The blocker line this decline retired, preserved so the choice stays auditable. */
+  blocker?: string;
+}
 
 export interface AppPassport {
   passport: "app-passport";
   passportVersion: string;
   generatedAt: string;
   generatedBy: string;
+  /** Set by upgradePassport when this object was LIFTED from an older stored shape rather than freshly
+   *  assessed — so a reader never mistakes a migrated grade for observed evidence. */
+  migratedFrom?: string;
+  /** Owner "declined by choice" annotations (read-time overlay from PassportOverrides). */
+  declined?: DeclinedByChoice[];
   identity: {
     name: string;
     slug: string;
@@ -233,10 +255,12 @@ export interface AppPassport {
     artifacts: {
       agentInstructions: string[];
       contextGraph: "none" | "partial" | "full";
-      memory: boolean;
+      /** 0.2.0: graded ladder (was boolean in 0.1.0 — see upgradePassport). */
+      memory: ArtifactGrade;
       manifest: boolean;
       evals: "none" | "partial" | "full";
-      skills: boolean;
+      /** 0.2.0: graded ladder (was boolean in 0.1.0 — see upgradePassport). */
+      skills: ArtifactGrade;
     };
     selfVerify: { build: boolean; test: boolean; lint: boolean; typecheck: boolean };
     aiInWorkflow: boolean;
@@ -253,7 +277,7 @@ export interface AppPassport {
     blockers: string[];
   };
   links: { report?: string; contextMap?: string; manifest?: string };
-  evidence: { confidence: number; source: string; files: string[] };
+  evidence: { confidence: number; source: string; files: string[]; notes?: string[] };
 }
 
 export interface RepoSnapshot {
