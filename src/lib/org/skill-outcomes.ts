@@ -12,7 +12,9 @@
 // Pairing is pure (pairScansAroundAdoption / skillOutcomesFor) and unit-tested; the DB half just feeds it
 // getRepositoryHistory (src/lib/db/scans-read.ts) once per distinct repo.
 
-import { getRepositoryHistory, listOrgSkillAdoptionRows, type HistoryPoint } from "@/lib/db";
+// Dependency-free on purpose: this module is imported by client components, so it must never pull a
+// runtime `@/lib/db` symbol into the browser bundle. Its inputs are structural types and every read
+// lives in skill-outcomes-load.ts.
 
 /** `measured` = both sides exist. The other two are honest gaps, never a fabricated 0. */
 export type OutcomeStatus = "measured" | "no-before-scan" | "no-after-scan";
@@ -123,37 +125,6 @@ export function skillOutcomesFor(
   }
   return out;
 }
-
-/** How many scans back we look per repo when hunting the before/after pair. */
-const HISTORY_LIMIT = 100;
-
-/**
- * Server entry point: outcomes per skill id for an org. One history read per DISTINCT adopted repo (a
- * skill adopted by 20 repos, and 20 skills adopted by one repo, both cost one read per repo). {} when
- * persistence is off or nothing has been adopted.
- */
-export async function getOrgSkillOutcomes(orgSlug: string): Promise<Record<string, SkillOutcome[]>> {
-  const adoptions = await listOrgSkillAdoptionRows(orgSlug);
-  if (!adoptions.length) return {};
-  const repos = Array.from(new Set(adoptions.map((a) => a.repoFullName)));
-  const scansByRepo = new Map<string, OutcomeScan[]>();
-  await Promise.all(
-    repos.map(async (fullName) => {
-      const [owner, name] = fullName.split("/");
-      if (!owner || !name) return;
-      const history = await getRepositoryHistory(owner, name, { orgSlug, limit: HISTORY_LIMIT }).catch(() => null);
-      scansByRepo.set(fullName, (history?.scans ?? []).map(toOutcomeScan));
-    }),
-  );
-  return skillOutcomesFor(adoptions, scansByRepo);
-}
-
-const toOutcomeScan = (p: HistoryPoint): OutcomeScan => ({
-  id: p.id,
-  scannedAt: p.scannedAt,
-  overallScore: p.overallScore,
-  dimensions: p.dimensions,
-});
 
 /** The single headline an org card wants: the measured outcomes for a skill, best movement first. */
 export function measuredOutcomes(outcomes: SkillOutcome[] | undefined): SkillOutcome[] {

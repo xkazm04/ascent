@@ -9,7 +9,9 @@
 //
 // Pure over fetched rows (getOrgSkillUsageRows) so the verdict is unit-testable without a DB.
 
-import { getOrgSkillUsageRows, type SkillEventStat, type SkillUsageRows } from "@/lib/db";
+// Types only: this module is imported by client components, so it must never pull a runtime `@/lib/db`
+// symbol into the browser bundle. The reads live in skill-usage-load.ts.
+import type { SkillEventStat, SkillUsageRows } from "@/lib/db";
 
 /** `new` = arrived recently, never invoked. `active` = used inside the window. `dormant` = past the
  *  window with no use since (the prune candidate). */
@@ -144,12 +146,6 @@ export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Rec
     );
   }
   return out;
-}
-
-/** Server entry point: read + fold. {} when persistence is off or the org is unknown. */
-export async function getOrgSkillUsage(orgSlug: string, now: Date = new Date()): Promise<Record<string, SkillUsage>> {
-  const rows = await getOrgSkillUsageRows(orgSlug);
-  return rows ? skillUsageMap(rows, now) : {};
 }
 
 /** Fleet-level counts for a header line ("3 dormant of 12"). */

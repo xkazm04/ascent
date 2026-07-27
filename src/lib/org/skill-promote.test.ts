@@ -119,10 +119,14 @@ describe("buildPromotedSkill", () => {
     expect(all.trackIds.length).toBeGreaterThanOrEqual(one.trackIds.length);
   });
 
-  it("still yields a valid entry for a strong repo with no open tracks", () => {
+  it("still yields a valid entry for a strong repo with no WEAK tracks", () => {
     const skill = buildPromotedSkill(makeReport({ D1: 95, D2: 95, D3: 95, D4: 95, D5: 95, D6: 95, D7: 95, D8: 95, D9: 95 }, { owner: "acme", name: "api" }, 95));
-    expect(skill.trackIds).toEqual([]);
+    // A repo with nothing weak does not get an empty skill: the generator falls back to REFINEMENT
+    // targets (buildOnboardingSkill's isRefinement path), so a strong repo is still handed somewhere
+    // to go. What matters here is that promotion stays valid whichever path produced the tracks.
+    expect(skill.trackIds.length).toBeGreaterThan(0);
     expect(parseSkillFrontmatter(skill.content).ok).toBe(true);
-    expect(skill.tags).toEqual(["ascent", "onboarding", "acme"]);
+    expect(skill.tags.slice(0, 3)).toEqual(["ascent", "onboarding", "acme"]);
+    expect(skill.tags).toEqual(expect.arrayContaining(skill.trackIds.slice(0, 5)));
   });
 });

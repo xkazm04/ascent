@@ -52,18 +52,26 @@ export function FilterMenu({
   // Options sorted by name ascending — a stable, scannable list regardless of data order.
   const sorted = [...options].sort((a, b) => a.label.localeCompare(b.label));
 
-  // On open, move focus into the listbox — the first selected option (the user's likely anchor),
-  // else the first option — so arrow navigation starts immediately instead of focus staying behind
-  // the popup on the trigger.
+  // On open, move focus into the listbox so arrow navigation starts immediately instead of focus
+  // staying behind the popup on the trigger. The cursor POSITION is chosen in the open handler (an
+  // event, not an effect — see `openMenu`); this effect only pushes it into the DOM, which is the
+  // external system an effect is meant to synchronize with.
   useEffect(() => {
     if (!open) return;
-    const firstSelected = sorted.findIndex((o) => selected.has(o.value));
-    const start = firstSelected >= 0 ? firstSelected : 0;
-    setActiveIdx(start);
-    optionRefs.current[start]?.focus();
-    // Only on open — re-running on selection change would yank focus off the option being toggled.
+    optionRefs.current[activeIdx]?.focus();
+    // Only on open — re-running as activeIdx changes would fight the keyboard handler's own focus()
+    // calls and yank focus off the option being toggled.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Anchor the roving cursor on the first selected option (the user's likely reference point), else
+  // the first option. Computed here rather than in an effect: the value is knowable at the moment of
+  // opening, so deriving it after paint would cost an extra cascading render every time.
+  const openMenu = () => {
+    const firstSelected = sorted.findIndex((o) => selected.has(o.value));
+    setActiveIdx(firstSelected >= 0 ? firstSelected : 0);
+    setOpen(true);
+  };
 
   const closeAndRefocus = () => {
     setOpen(false);
@@ -107,7 +115,7 @@ export function FilterMenu({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={(e) => {
           // Escape on the (still-focused) trigger while the popup is open must also dismiss it —
           // previously a document-level listener closed it but stranded focus wherever it was.

@@ -7,8 +7,8 @@ import { describe, it, expect, vi } from "vitest";
 const { mockHistory, mockAdoptions } = vi.hoisted(() => ({ mockHistory: vi.fn(), mockAdoptions: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getRepositoryHistory: mockHistory, listOrgSkillAdoptionRows: mockAdoptions }));
 
+import { getOrgSkillOutcomes } from "./skill-outcomes-load";
 import {
-  getOrgSkillOutcomes,
   measuredOutcomes,
   outcomeStatusLabel,
   pairScansAroundAdoption,

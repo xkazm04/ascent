@@ -4,7 +4,7 @@
 // tag the whole set into a segment in one call (POST /api/org/segments/:id/repos/bulk). The table
 // markup mirrors the prior server render; only selection + the bar are client state.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { OrgTable } from "@/components/org/shared/ui";
@@ -48,7 +48,7 @@ export function RepoLeaderboard({
   segments: SegmentItem[];
   schedulable: boolean;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [rawSelected, setSelected] = useState<Set<string>>(new Set());
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -72,14 +72,16 @@ export function RepoLeaderboard({
   // around this still-mounted client component, and repos ticked under the old filter would silently
   // remain in `selected` while invisible. Prune to the visible rows so "Add to segment" can only ever
   // tag repos the user can currently see (repositories-segments 07-16 #1).
+  // Derived during render rather than pruned back into state by an effect: the visible set is fully
+  // knowable from `rawSelected` + `rows`, so storing it would mean an extra cascading render on every
+  // filter change — and a frame where the stale tick is still live. Everything below reads `selected`,
+  // so an off-screen repo can never reach "Add to segment"; the raw set is kept intact so navigating
+  // back to a wider filter restores the ticks the user made there.
   const rowNames = useMemo(() => new Set(rows.map((r) => r.fullName)), [rows]);
-  useEffect(() => {
-    setSelected((s) => {
-      if (s.size === 0) return s;
-      const pruned = [...s].filter((fn) => rowNames.has(fn));
-      return pruned.length === s.size ? s : new Set(pruned);
-    });
-  }, [rowNames]);
+  const selected = useMemo(
+    () => (rawSelected.size === 0 ? rawSelected : new Set([...rawSelected].filter((fn) => rowNames.has(fn)))),
+    [rawSelected, rowNames],
+  );
 
   const allSelected = selected.size > 0 && selected.size === rows.length;
   const segName = useMemo(() => new Map(segments.map((s) => [s.id, s.name])), [segments]);

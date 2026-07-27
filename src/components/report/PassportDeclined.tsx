@@ -35,11 +35,16 @@ export function PassportDeclined({ declined }: { declined: AppPassport["declined
 /** The two graded agent-artifact ladders (0.2.0) as a compact readout, with a migration caveat when the
  *  grade was lifted from a 0.1.0 boolean rather than assessed. */
 export function PassportArtifactGrades({ pp }: { pp: AppPassport }) {
-  const a = pp.automationReadiness.artifacts;
-  const rows: [string, ArtifactGrade][] = [
-    ["Memory", a.memory],
-    ["Skills", a.skills],
-  ];
+  // Passports arrive as stored JSON, and not every blob carries the graded ladders: a row written
+  // before 0.2.0 that reached this component without upgradePassport, or a server-supplied permalink
+  // payload trimmed to the fields its page needed. Read defensively and render nothing — a missing
+  // artifact set must not take the whole report down with it.
+  const a = pp.automationReadiness?.artifacts;
+  const rows = ([
+    ["Memory", a?.memory],
+    ["Skills", a?.skills],
+  ] as [string, ArtifactGrade | undefined][]).filter((r): r is [string, ArtifactGrade] => Boolean(r[1]));
+  if (!rows.length) return null;
   return (
     <div className="mt-5">
       <Kicker tone="muted" className="mb-1.5">

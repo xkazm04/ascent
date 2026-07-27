@@ -11,8 +11,8 @@ import {
 } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { SKILL_CATEGORIES } from "@/lib/org/skill-categories";
-import { getOrgSkillUsage } from "@/lib/org/skill-usage";
-import { getOrgSkillOutcomes } from "@/lib/org/skill-outcomes";
+import { getOrgSkillUsage } from "@/lib/org/skill-usage-load";
+import { getOrgSkillOutcomes } from "@/lib/org/skill-outcomes-load";
 
 export const dynamic = "force-dynamic";
 

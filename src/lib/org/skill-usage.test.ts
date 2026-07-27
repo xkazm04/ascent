@@ -8,9 +8,9 @@ import { describe, it, expect, vi } from "vitest";
 const { mockRows } = vi.hoisted(() => ({ mockRows: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getOrgSkillUsageRows: mockRows }));
 
+import { getOrgSkillUsage } from "./skill-usage-load";
 import {
   DORMANCY_WINDOW_DAYS,
-  getOrgSkillUsage,
   skillUsage,
   skillUsageMap,
   usageSummary,
