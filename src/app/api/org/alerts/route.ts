@@ -1,6 +1,8 @@
 // GET  /api/org/alerts?org=slug                                  -> { webhookUrl, overallDrop, dimensionDrop }  (admin)
+// GET  /api/org/alerts?org=slug&movement=1                       -> { movement }          (member) what moved since you last looked
 // POST /api/org/alerts { org, webhookUrl?, overallDrop?, dimensionDrop? } -> { ok, ... }  (admin)  set/clear sink + thresholds
 // POST /api/org/alerts { org, test: true }                       -> { ok, delivered }     (admin)  send a test alert
+// POST /api/org/alerts { org, seen: true }                       -> { ok, seen }          (member) advance the viewer's watermark
 //
 // Per-org alert sink configuration — where regression alerts, low-credit pushes and the weekly
 // digest for this org are POSTed (Slack-compatible incoming webhook). Setting it routes the org's
@@ -11,9 +13,12 @@
 
 import { NextResponse } from "next/server";
 import {
+  getAlertsWatermark,
   getOrgAlertThresholds,
   getOrgAlertWebhook,
+  getOrgMovementSince,
   isDbConfigured,
+  markAlertsSeen,
   recordOrgAudit,
   setOrgAlertThresholds,
   setOrgAlertWebhook,
@@ -34,10 +39,54 @@ function parseThreshold(v: unknown): number | null | false {
   return n;
 }
 
+/**
+ * "What moved since you last looked" — the Alerts chip's movement count, read from records the scan
+ * pipeline ALREADY persists (Shared Org Memory), measured from this viewer's own Membership
+ * watermark. Split from the config read on purpose: the config payload carries a channel-posting
+ * secret (admin-only, loaded lazily on open), while the count renders on page load for any member.
+ *
+ * Every degraded path answers `{ movement: null }`, which the chip renders exactly as it did before
+ * this feature existed: auth-off deployments and the public org (no viewer identity), a viewer with
+ * no membership row (no per-user watermark to measure from), and any read failure.
+ */
+async function movementResponse(org: string): Promise<NextResponse> {
+  const denied = await requireOrgRole(org, "viewer");
+  if (denied) return denied;
+  try {
+    const login = await resolveViewerLogin();
+    if (!login) return NextResponse.json({ movement: null });
+    const watermark = await getAlertsWatermark(org, login);
+    if (!watermark) return NextResponse.json({ movement: null });
+    const movement = await getOrgMovementSince(org, watermark.since);
+    if (!movement) return NextResponse.json({ movement: null });
+    return NextResponse.json({
+      movement: {
+        since: movement.since.toISOString(),
+        firstLook: !watermark.hadWatermark,
+        count: movement.count,
+        capped: movement.capped,
+        items: movement.items.map((i) => ({
+          repo: i.repo,
+          event: i.event,
+          summary: i.summary,
+          at: i.at.toISOString(),
+        })),
+      },
+    });
+  } catch (err) {
+    // A chip decoration must never turn an org page into an error: fall back to the countless chip.
+    console.error("[api/org/alerts] movement read failed", err instanceof Error ? err.message : err);
+    return NextResponse.json({ movement: null });
+  }
+}
+
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Alert routing requires a database." }, { status: 503 });
-  const org = new URL(request.url).searchParams.get("org");
+  const params = new URL(request.url).searchParams;
+  const org = params.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  // Movement is a separate, member-readable payload — resolved BEFORE the admin gate below.
+  if (params.get("movement") === "1") return movementResponse(org);
   const denied = await requireOrgRole(org, "admin");
   if (denied) return denied;
   const [webhookUrl, thresholds] = await Promise.all([getOrgAlertWebhook(org), getOrgAlertThresholds(org)]);
@@ -54,8 +103,24 @@ export async function POST(request: Request) {
     overallDrop?: unknown;
     dimensionDrop?: unknown;
     test?: boolean;
+    seen?: boolean;
   };
   if (!body.org) return NextResponse.json({ error: "Provide { org, webhookUrl }." }, { status: 400 });
+
+  // Watermark advance ("I've now looked at what moved"). Member-gated, not admin-gated — reading your
+  // own fleet's movement is not a privileged action, and the stamp lands on the CALLER's own
+  // Membership row, so it can't touch anyone else's read state. Handled before the admin gate below.
+  if (body.seen === true) {
+    const deniedSeen = await requireOrgRole(body.org, "viewer");
+    if (deniedSeen) return deniedSeen;
+    const login = await resolveViewerLogin();
+    // No viewer identity (auth-off / public org) → nothing to stamp; a clean no-op, not an error.
+    if (!login) return NextResponse.json({ ok: true, seen: false });
+    const at = new Date();
+    const stamped = await markAlertsSeen(body.org, login, at).catch(() => false);
+    return NextResponse.json({ ok: true, seen: stamped, ...(stamped ? { seenAt: at.toISOString() } : {}) });
+  }
+
   const denied = await requireOrgRole(body.org, "admin");
   if (denied) return denied;
 

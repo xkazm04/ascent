@@ -170,6 +170,11 @@ model Membership {
   userId    String
   role      String   @default("member") // owner | admin | member | viewer
   createdAt DateTime @default(now())
+  // Per-user-per-org "last looked at the fleet" watermark — the read state behind the Alerts chip's
+  // movement count ("what moved since you last looked"). Nullable: a member who has never opened the
+  // control has no watermark, and the movement window falls back to `createdAt` (since you joined)
+  // rather than replaying the org's whole history. Advanced by POST /api/org/alerts { seen: true }.
+  alertsSeenAt DateTime?
 
   org  Organization @relation(fields: [orgId], references: [id])
   user User         @relation(fields: [userId], references: [id])

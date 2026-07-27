@@ -43,6 +43,30 @@ It's called by the [rescan cron](cron-and-retention.md) and the [push webhook](g
 | `src/lib/alerts.test.ts` | Threshold + verdict + message tests. |
 | `src/lib/scan-alerts.ts` | Glue: diff prior vs fresh, audit, dispatch. |
 
+## What moved since you last looked (in-app unread state)
+
+The dashboard's Alerts chip carries a movement count. It is a **read** over records the scan
+pipeline already persists (Shared Org Memory — regressions, level changes, closed gaps), not a
+new event system:
+
+- **Watermark** — `Membership.alertsSeenAt` (nullable, per-user-per-org). Never opened it? The
+  window falls back to the member's join date. Advanced by `POST /api/org/alerts { seen: true }`
+  when the popover opens.
+- **Count** — `getOrgMovementSince(orgSlug, since)` (`src/lib/db/org-movement.ts`): ONE bounded
+  `OrgMemory` query with `take: MOVEMENT_CAP + 1`, so ">9" costs no second query. Hidden at zero.
+- **Degrades** — auth-off deployments, the public org, a viewer with no membership, or any read
+  failure answer `{ movement: null }` and the chip renders exactly as it did before.
+
+## Scan-completion email (a separate path)
+
+The per-scan "email me when it's done" opt-in is **not** the alert layer — it goes through
+`src/lib/email` (`dispatchScanCompletionEmail`). When no provider is wired
+(`SES_FROM_EMAIL` unset, or `EMAIL_PROVIDER=noop`) the no-op sender returns
+`{ ok: true, skipped: true }` and **nothing is sent**. `/api/scan/stream` emits a `notify`
+SSE frame *before* the `result` frame with `status: "sending" | "unconfigured"` (derived from
+`emailSendingEnabled()`), and logs the skip — so an unconfigured deploy says so instead of
+implying a send.
+
 ## Known gaps
 
 - **Slack-only delivery** — a single `ALERT_WEBHOOK_URL` sink; no email/in-app routing or

@@ -69,9 +69,13 @@ CREATE TABLE "Membership" (
     "userId" TEXT NOT NULL,
     "role" TEXT NOT NULL DEFAULT 'member',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "alertsSeenAt" TIMESTAMP(3),
 
     CONSTRAINT "Membership_pkey" PRIMARY KEY ("id")
 );
+-- Idempotent add-column (same rule as Scan's below): pglite-boot rewrites CREATE TABLE -> IF NOT
+-- EXISTS, so an EXISTING local .pglite DB needs the new column applied explicitly.
+ALTER TABLE "Membership" ADD COLUMN IF NOT EXISTS "alertsSeenAt" TIMESTAMP(3);
 
 -- CreateTable
 CREATE TABLE "Repository" (

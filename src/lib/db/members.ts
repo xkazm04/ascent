@@ -233,6 +233,64 @@ export async function removeMembership(orgSlug: string, login: string): Promise<
   }
 }
 
+// --- "What moved since you last looked" watermark ---------------------------------------------
+// Read state is per-USER-per-ORG, which is exactly the Membership row's grain — so the watermark is a
+// nullable column on it (Membership.alertsSeenAt), not a new table.
+
+export interface AlertsWatermark {
+  /** The instant to measure movement from. */
+  since: Date;
+  /** False when the member has never opened the control — `since` is then their join date. */
+  hadWatermark: boolean;
+}
+
+/**
+ * The member's alerts watermark in `orgSlug`, or null when they have no membership row (a signed-out
+ * viewer, an auth-off deployment, or a non-member) — the caller degrades to a countless chip.
+ *
+ * A member who has NEVER opened the control has no watermark; rather than replaying the org's whole
+ * history at them (a "9+" on their first ever visit is noise, not news), the window falls back to
+ * their JOIN date: everything that moved since they joined is legitimately unseen by them.
+ */
+export async function getAlertsWatermark(orgSlug: string, login: string): Promise<AlertsWatermark | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const gh = normalizeLogin(login);
+  if (!gh) return null;
+  const userId = await findUserId(prisma, gh);
+  if (!userId) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const m = await prisma.membership.findUnique({
+    where: { orgId_userId: { orgId, userId } },
+    select: { alertsSeenAt: true, createdAt: true },
+  });
+  if (!m) return null;
+  return { since: m.alertsSeenAt ?? m.createdAt, hadWatermark: m.alertsSeenAt != null };
+}
+
+/**
+ * Advance the member's watermark to `at` (they just looked). Returns false when there's no membership
+ * to stamp — the same degraded path as getAlertsWatermark. Deliberately unconditional: the watermark
+ * only ever moves forward in practice (it's stamped with `now` on an open), and an unconditional
+ * update keeps this a single write with no read-modify-write race between two open tabs.
+ */
+export async function markAlertsSeen(orgSlug: string, login: string, at: Date = new Date()): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const prisma = getPrisma();
+  const gh = normalizeLogin(login);
+  if (!gh) return false;
+  const userId = await findUserId(prisma, gh);
+  if (!userId) return false;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
+  const updated = await prisma.membership.updateMany({
+    where: { orgId, userId },
+    data: { alertsSeenAt: at },
+  });
+  return updated.count > 0;
+}
+
 /** A real (non-public) org the viewer belongs to, for the header's "enter your org" affordance. */
 export interface ViewerOrg {
   slug: string;

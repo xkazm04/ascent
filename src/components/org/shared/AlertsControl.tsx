@@ -5,9 +5,14 @@
 // incoming-webhook the org's regression / low-credit / weekly-digest alerts POST to, and send a test
 // so an admin can confirm delivery now instead of waiting for a real regression. Lazily loads the
 // current webhook on open; a non-admin viewer just sees an "admins only" note (the GET 403s).
+//
+// The chip also carries the fleet's UNREAD state: a movement count since this viewer's last look, and
+// a "since you last looked" list above the config section (see AlertsMovement.tsx). That half is
+// member-readable and degrades to the old countless chip whenever there's no viewer/membership.
 
 import { useEffect, useRef, useState } from "react";
 import { FOCUSABLE_SELECTOR, ThresholdFields, trapTab } from "./AlertsControlParts";
+import { MovementBadge, MovementSince, useOrgMovement } from "./AlertsMovement";
 
 export function AlertsControl({ org }: { org: string }) {
   const [open, setOpen] = useState(false);
@@ -30,6 +35,14 @@ export function AlertsControl({ org }: { org: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const { movement, badgeCount, markSeen } = useOrgMovement(org);
+
+  // Opening the control IS the act of looking, so it advances the watermark (the list stays visible —
+  // only the badge clears). Kept in an effect rather than the click handler so a keyboard/programmatic
+  // open counts the same as a mouse one.
+  useEffect(() => {
+    if (open) markSeen();
+  }, [open, markSeen]);
 
   // Dismiss on outside click / Escape. Deliberately does NOT reset the form state: the component
   // stays mounted, so an accidentally-dismissed dirty draft (webhook pasted, test sent, clicked
@@ -183,6 +196,7 @@ export function AlertsControl({ org }: { org: string }) {
         title="Configure where this org's alerts are sent"
       >
         <span aria-hidden>🔔</span> Alerts
+        <MovementBadge count={badgeCount} capped={movement?.capped ?? false} />
       </button>
 
       {open && (
@@ -194,6 +208,9 @@ export function AlertsControl({ org }: { org: string }) {
           onKeyDown={(e) => trapTab(e, dialogRef.current)}
           className="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-slate-800 bg-slate-950 p-4 shadow-2xl outline-none"
         >
+          {/* What moved since this viewer last looked — above the config, because it's the reason a
+              returning lead opens this at all. Renders nothing when there's no movement payload. */}
+          <MovementSince movement={movement} />
           <div className="font-mono text-sm uppercase tracking-widest text-accent">Alert routing</div>
           {denied ? (
             <p className="mt-2 text-sm text-slate-400">Only org admins can configure alert routing.</p>

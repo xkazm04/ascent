@@ -83,10 +83,19 @@ export {
   removeMembership,
   listOrgMembers,
   listOrgsForLogin,
+  getAlertsWatermark,
+  markAlertsSeen,
   type OrgRole,
   type OrgMember,
   type ViewerOrg,
+  type AlertsWatermark,
 } from "@/lib/db/members";
+export {
+  getOrgMovementSince,
+  MOVEMENT_CAP,
+  type OrgMovement,
+  type OrgMovementItem,
+} from "@/lib/db/org-movement";
 export {
   createInvite,
   listPendingInvites,
