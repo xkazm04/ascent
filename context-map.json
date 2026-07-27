@@ -764,6 +764,8 @@
             "src/lib/org/adoption.test.ts",
             "src/lib/org/governance.ts",
             "src/lib/org/governance.test.ts",
+            "src/lib/org/practice-library.ts",
+            "src/lib/org/practice-library.test.ts",
             "src/components/org/practices/PracticeApply.tsx",
             "src/app/api/practices/apply/route.ts",
             "src/app/api/practices/generate/route.ts",
