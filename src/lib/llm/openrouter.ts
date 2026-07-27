@@ -122,3 +122,73 @@ export class OpenRouterProvider implements LLMProvider {
     }
   }
 }
+
+/**
+ * One cheap OpenRouter call to validate a BYOM connection (the test-connection endpoint) — the
+ * OpenRouter twin of testBedrockConnection.
+ *
+ * WHY a schema-shaped call and not a bare "hi" ping: assess() above depends on THREE things holding
+ * at once — the key authenticates, the model slug resolves on this account, and the model honors
+ * `response_format: json_object`. A plain text ping proves only the first two. OpenRouter happily
+ * accepts a request for a model that cannot do JSON mode and returns prose; that model then fails
+ * parseJsonLoose/validateAssessment on EVERY real scan and silently degrades the org to the mock
+ * floor — after a green check mark. So the test sends the same JSON-mode request shape a real
+ * assessment sends and requires a parseable JSON OBJECT back, just with a tiny prompt and a small
+ * max_tokens (the assessment prompt is multi-KB and its completion is the expensive half; neither
+ * adds anything to what is being validated).
+ *
+ * Returns { ok } on success, or { ok:false, error } with a bounded, sanitized message (never the key).
+ */
+export async function testOpenRouterConnection(opts: {
+  model?: string;
+  apiKey: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const model = opts.model?.trim() || DEFAULT_OPENROUTER_MODEL;
+  if (!opts.apiKey.trim()) return { ok: false, error: "No OpenRouter API key to test." };
+  // Same cancellation wiring as assess() (shared helper owns the timer/clear), on a short fixed
+  // budget so the settings UI stays responsive.
+  const { signal, clear } = withLlmTimeout(undefined, 15_000, "OpenRouter test timed out.");
+  try {
+    const res = await fetch(`${BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${opts.apiKey.trim()}`,
+        "HTTP-Referer": REFERER,
+        "X-Title": TITLE,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        max_tokens: 64,
+        // Mirrors assess()'s JSON-mode setting — this is the capability under test.
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "You reply with a single JSON object and nothing else." },
+          { role: "user", content: 'Connection test. Reply with exactly {"ok":true}.' },
+        ],
+      }),
+      signal,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, error: `OpenRouter request failed (${res.status}): ${body.slice(0, 200)}`.slice(0, 300) };
+    }
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const text = data.choices?.[0]?.message?.content;
+    if (!text) return { ok: false, error: "Empty response from OpenRouter." };
+    const parsed = parseJsonLoose(text);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        ok: false,
+        error: `Model "${model}" did not return a JSON object — it can't produce the assessment format scans require.`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err instanceof Error ? err.message : "OpenRouter connection failed.").slice(0, 300) };
+  } finally {
+    clear();
+  }
+}

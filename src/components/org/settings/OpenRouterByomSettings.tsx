@@ -31,8 +31,9 @@ export function OpenRouterByomSettings({
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(isActive ? (initial?.enabled ?? false) : false);
   const [hasKey, setHasKey] = useState(isActive ? (initial?.hasCredentials ?? false) : false);
-  const [busy, setBusy] = useState<null | "save" | "disable">(null);
+  const [busy, setBusy] = useState<null | "save" | "test" | "disable">(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [lastValidatedAt, setLastValidatedAt] = useState(isActive ? (initial?.lastValidatedAt ?? null) : null);
   const disabledAll = !planAllowed || !encryptionConfigured;
 
   async function save() {
@@ -61,6 +62,37 @@ export function OpenRouterByomSettings({
     }
   }
 
+  // Validate BEFORE going live (save → test → enable), mirroring the Bedrock card. Without this the
+  // first real scan was the test: a bad key or a model that can't do JSON mode surfaced only as a
+  // silent degrade-to-mock, and lastValidatedAt stayed null forever for OpenRouter orgs.
+  async function test() {
+    setBusy("test");
+    setMsg(null);
+    try {
+      const res = await fetch("/api/org/llm-provider/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          org: slug,
+          provider: "openrouter",
+          modelId: modelId.trim(),
+          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        setLastValidatedAt(new Date().toISOString());
+        setMsg({ kind: "ok", text: "Connection succeeded." });
+      } else {
+        setMsg({ kind: "err", text: data.error ?? "Connection failed." });
+      }
+    } catch (e) {
+      setMsg({ kind: "err", text: e instanceof Error ? e.message : "Connection failed." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function disable() {
     setBusy("disable");
     setMsg(null);
@@ -73,6 +105,7 @@ export function OpenRouterByomSettings({
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Failed.");
       setEnabled(false);
       setHasKey(false);
+      setLastValidatedAt(null);
       setMsg({ kind: "ok", text: "Disabled and cleared the key." });
     } catch (e) {
       setMsg({ kind: "err", text: e instanceof Error ? e.message : "Failed." });
@@ -123,6 +156,13 @@ export function OpenRouterByomSettings({
 
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <button
+            onClick={test}
+            disabled={disabledAll || busy !== null || !modelId.trim()}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50"
+          >
+            {busy === "test" ? "Testing…" : "Test connection"}
+          </button>
+          <button
             onClick={save}
             disabled={disabledAll || busy !== null || !modelId.trim()}
             className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50"
@@ -140,6 +180,9 @@ export function OpenRouterByomSettings({
           )}
         </div>
 
+        {lastValidatedAt && (
+          <p className="text-sm text-slate-500">Last validated {lastValidatedAt.slice(0, 16).replace("T", " ")} UTC.</p>
+        )}
         {msg && (
           <p role="status" className={`text-sm ${msg.kind === "ok" ? "text-emerald-300" : "text-orange-300"}`}>
             {msg.text}

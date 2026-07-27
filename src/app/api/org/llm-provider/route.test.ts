@@ -138,4 +138,18 @@ describe("DELETE /api/org/llm-provider", () => {
     expect(res.status).toBe(403);
     expect(h.disableOrgLlmConfig).not.toHaveBeenCalled();
   });
+
+  // The audit row is the compliance record of which vendor stopped receiving the org's code, so it
+  // must name the provider that was ACTUALLY configured (it used to be hardcoded to "bedrock").
+  it("audits the configured provider, not a hardcoded bedrock", async () => {
+    h.getOrgLlmConfig.mockResolvedValue({ provider: "openrouter", enabled: true, modelId: "openai/gpt-4o-mini", region: null, authMode: "static", hasCredentials: true, lastValidatedAt: null, lastValidationError: null, createdBy: null, updatedAt: "x" });
+    await DELETE(del({ org: "acme" }));
+    expect(h.recordOrgAudit.mock.calls[0][2]).toEqual({ provider: "openrouter" });
+  });
+
+  it("audits a null provider when nothing was configured", async () => {
+    h.getOrgLlmConfig.mockResolvedValue(null);
+    await DELETE(del({ org: "acme" }));
+    expect(h.recordOrgAudit.mock.calls[0][2]).toEqual({ provider: null });
+  });
 });

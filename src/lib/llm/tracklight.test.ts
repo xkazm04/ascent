@@ -22,6 +22,20 @@ describe("toTracklightProvider", () => {
     expect(toTracklightProvider("openai")).toBe("openai");
     expect(toTracklightProvider("mock")).toBe("mock");
   });
+
+  // OpenRouter is a proxy: the honest provider key is the slug's VENDOR, so an OpenRouter-routed
+  // Sonnet is priced on the same row as a Bedrock Sonnet instead of landing outside the price book.
+  it("resolves an openrouter call to the vendor its model slug routes to", () => {
+    expect(toTracklightProvider("openrouter", "openai/gpt-4o-mini")).toBe("openai");
+    expect(toTracklightProvider("openrouter", "anthropic/claude-sonnet-4-6")).toBe("anthropic");
+    expect(toTracklightProvider("openrouter", "google/gemini-3-flash")).toBe("google");
+    expect(toTracklightProvider("openrouter", "OpenAI/GPT-4o-mini")).toBe("openai");
+  });
+
+  it("keeps an unpriced openrouter vendor under `openrouter` rather than mis-attributing it", () => {
+    expect(toTracklightProvider("openrouter", "meta-llama/llama-3.1-70b")).toBe("openrouter");
+    expect(toTracklightProvider("openrouter")).toBe("openrouter");
+  });
 });
 
 describe("toTracklightModel", () => {
@@ -42,6 +56,15 @@ describe("toTracklightModel", () => {
   it("passes gemini/openai model ids through unchanged", () => {
     expect(toTracklightModel("gemini", "gemini-3-flash-preview")).toBe("gemini-3-flash-preview");
     expect(toTracklightModel("openai", "gpt-4o-mini")).toBe("gpt-4o-mini");
+  });
+
+  it("strips the openrouter vendor prefix exactly when the provider key was that vendor", () => {
+    expect(toTracklightModel("openrouter", "openai/gpt-4o-mini")).toBe("gpt-4o-mini");
+    expect(toTracklightModel("openrouter", "anthropic/claude-sonnet-4-6")).toBe("claude-sonnet-4-6");
+    // Unpriced vendor: provider stays "openrouter", so the model must keep the FULL slug — the two
+    // halves of the "<provider>/<model>" cost key are decided together.
+    expect(toTracklightProvider("openrouter", "meta-llama/llama-3.1-70b")).toBe("openrouter");
+    expect(toTracklightModel("openrouter", "meta-llama/llama-3.1-70b")).toBe("meta-llama/llama-3.1-70b");
   });
 });
 
@@ -84,6 +107,11 @@ describe("buildEventBody", () => {
     const body = buildEventBody({ provider: "openai", model: "gpt-4o-mini", degraded: true });
     expect(body.tags).toEqual(["scan", "degraded"]);
     expect(body.metadata).toMatchObject({ degraded: true });
+  });
+
+  it("prices an openrouter call under the vendor its slug routes to", () => {
+    const body = buildEventBody({ provider: "openrouter", model: "anthropic/claude-sonnet-4-6" });
+    expect(body).toMatchObject({ provider: "anthropic", model: "claude-sonnet-4-6" });
   });
 
   it("omits project_id when none is configured, and zero-fills missing usage", () => {

@@ -420,7 +420,15 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   let capturedUsage: TokenUsage = {};
   // owner/repo for LightTrack telemetry (below) — the per-repo dimension of the LLM-cost rollup.
   const repoFullName = `${parsed.owner}/${parsed.repo}`;
-  const attemptAssess = async (p: LLMProvider, attemptSignal: AbortSignal | undefined) => {
+  // `moreAttemptsAfter` is supplied by the resilience loop below: only IT knows whether another plan
+  // step will actually run after this failure, and that is precisely what makes the tracked event's
+  // `degraded` flag honest (a failed primary that a retry recovers did NOT degrade the scan; the last
+  // failing attempt did). Without it the degradation rate is either unobservable or overstated.
+  const attemptAssess = async (
+    p: LLMProvider,
+    attemptSignal: AbortSignal | undefined,
+    moreAttemptsAfter: (err: unknown) => boolean,
+  ) => {
     // Capture this attempt's usage into a LOCAL and commit it to capturedUsage only AFTER the
     // attempt is proven usable. Providers call onUsage BEFORE the parse/usability check, so a failed
     // attempt (malformed JSON, unusable coverage) would otherwise leave its tokens on report.usage
@@ -445,6 +453,9 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
           usage: attemptUsage,
           latencyMs: Date.now() - attemptStartedAt,
           status: "success",
+          // This call produced a USABLE assessment (the coverage guard above already ran), so the
+          // report it backs is not on the deterministic floor.
+          degraded: false,
           repo: repoFullName,
           org: opts.orgSlug,
         });
@@ -463,6 +474,9 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
           latencyMs: Date.now() - attemptStartedAt,
           status: "error",
           error: err instanceof Error ? err.message : String(err),
+          // Degraded only when nothing else will run after this failure — i.e. THIS call is the one
+          // that drops the scan to the deterministic floor.
+          degraded: !moreAttemptsAfter(err),
           repo: repoFullName,
           org: opts.orgSlug,
         });
@@ -509,6 +523,19 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     if (fallback && fallback.name !== intendedProvider)
       plan.push({ p: fallback, kind: "fallback", note: `Falling over to ${fallback.name}…` });
     const hasFallback = plan.some((s) => s.kind === "fallback");
+    // Will ANY step after index `i` actually run, given this error? Mirrors the two skip rules the
+    // loop applies below (budget exhausted → break; a retry the budget/error class rules out →
+    // continue), so the tracked `degraded` flag matches what the scan really does next.
+    const moreAttemptsAfter = (i: number, err: unknown): boolean => {
+      if (llmDeadline.signal.aborted) return false;
+      return plan
+        .slice(i + 1)
+        .some(
+          (s) =>
+            s.kind !== "retry" ||
+            shouldRetrySameProvider({ lastError: err, hasFallback, remainingBudgetMs: budgetRemainingMs(), totalBudgetMs }),
+        );
+    };
 
     let resolved: Awaited<ReturnType<LLMProvider["assess"]>> | null = null;
     let lastErr: unknown;
@@ -530,7 +557,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
           signal?.throwIfAborted();
           emit({ stage: "score", message: step.note ?? "Retrying…", pct: 80, provider: step.p.name });
         }
-        resolved = await attemptAssess(step.p, llmSignal);
+        resolved = await attemptAssess(step.p, llmSignal, (err) => moreAttemptsAfter(i, err));
         usedProvider = step.p;
         break;
       } catch (err) {

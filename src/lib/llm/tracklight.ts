@@ -78,22 +78,51 @@ export function tracklightConfig(): TracklightConfig {
   return { enabled, url, project, key };
 }
 
-/** Map an ascent provider name to tracklight's normalized provider vocabulary (openai | anthropic
- *  | google | mock). Cost is keyed "<provider>/<model>", so this must line up with the model map. */
-export function toTracklightProvider(name: ProviderName): string {
-  switch (name) {
-    case "gemini":
-      return "google";
-    case "bedrock":
-    case "claude-cli":
-      return "anthropic";
-    case "openai":
-      return "openai";
-    case "mock":
-      return "mock";
-    default:
-      return name;
-  }
+/**
+ * Ascent provider name → tracklight's normalized provider vocabulary (openai | anthropic | google |
+ * mock). Cost is keyed "<provider>/<model>", so this must line up with {@link toTracklightModel}.
+ *
+ * Typed as a FULL Record over ProviderName (not a switch with a `default: return name`) so adding a
+ * member to the union FAILS THE COMPILE here instead of silently emitting events under a provider
+ * key the price book has never heard of — the same discipline PROVIDER_LABEL applies in config.ts,
+ * and exactly the gap that let `openrouter` fall through the old default for as long as it existed.
+ */
+const TRACKLIGHT_PROVIDER: Record<ProviderName, string> = {
+  gemini: "google",
+  bedrock: "anthropic",
+  "claude-cli": "anthropic",
+  openai: "openai",
+  // OpenRouter is a PROXY, not a vendor — the real provider is resolved per-model below, and this is
+  // only the fallback for a slug whose vendor tracklight doesn't price.
+  openrouter: "openrouter",
+  mock: "mock",
+};
+
+/**
+ * OpenRouter model slugs are always `vendor/model`. When the vendor is one tracklight prices, key the
+ * event under THAT vendor and strip the prefix off the model — so an OpenRouter-routed Sonnet lands
+ * on the SAME price-book row as a Bedrock Sonnet. That is the whole point of the fleet path (compare
+ * models on cost/quality), and it is impossible if every OpenRouter call is priced as "unknown".
+ * A vendor we don't price stays under "openrouter" carrying the FULL slug as the model, so the call
+ * is still identifiable (and obviously unpriced) rather than mis-attributed.
+ */
+const OPENROUTER_VENDOR: Record<string, string> = {
+  openai: "openai",
+  anthropic: "anthropic",
+  google: "google",
+};
+
+/** The tracklight vendor an OpenRouter `vendor/model` slug routes to, or undefined when unpriced. */
+function openrouterVendor(model: string | undefined): string | undefined {
+  const prefix = (model ?? "").trim().toLowerCase().split("/")[0];
+  return prefix ? OPENROUTER_VENDOR[prefix] : undefined;
+}
+
+/** Map an ascent provider name (+ model, needed to resolve an OpenRouter proxy hop) to tracklight's
+ *  normalized provider vocabulary. */
+export function toTracklightProvider(name: ProviderName, model?: string): string {
+  if (name === "openrouter") return openrouterVendor(model) ?? TRACKLIGHT_PROVIDER.openrouter;
+  return TRACKLIGHT_PROVIDER[name];
 }
 
 /** Bedrock cross-region inference geo prefixes — routing metadata, not part of the model id. */
@@ -116,6 +145,12 @@ export function toTracklightModel(name: ProviderName, model: string): string {
   if (name === "claude-cli") {
     return CLAUDE_ALIAS[m.toLowerCase()] ?? m;
   }
+  if (name === "openrouter") {
+    // Strip the `vendor/` prefix ONLY when toTracklightProvider keyed the event under that vendor —
+    // the two must agree or the "<provider>/<model>" cost key is a chimera.
+    const lower = m.toLowerCase();
+    return openrouterVendor(lower) ? lower.slice(lower.indexOf("/") + 1) : m;
+  }
   return m;
 }
 
@@ -130,7 +165,7 @@ export function buildEventBody(ev: LlmCallTrack, project?: string): Record<strin
   if (ev.usage?.cacheReadTokens != null) usage.cached_input = Math.trunc(ev.usage.cacheReadTokens);
 
   const body: Record<string, unknown> = {
-    provider: toTracklightProvider(ev.provider),
+    provider: toTracklightProvider(ev.provider, ev.model),
     model: toTracklightModel(ev.provider, ev.model) || "unknown",
     usage,
     source: "ascent",

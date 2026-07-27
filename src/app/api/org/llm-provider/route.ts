@@ -102,10 +102,14 @@ export async function DELETE(request: Request) {
   if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
   const denied = await requireOrgRole(body.org, "owner");
   if (denied) return denied;
+  // Read the config BEFORE disabling: the audit row must name the provider that was actually
+  // configured. It was hardcoded to "bedrock", so every OpenRouter disable was audited as a Bedrock
+  // disable — a compliance log that misstates which vendor stopped receiving the org's code.
+  const configured = (await getOrgLlmConfig(body.org).catch(() => null))?.provider ?? null;
   await disableOrgLlmConfig(body.org);
   // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
   // Supabase wall, so this actor/audit row was recorded as null in production.
   const actorLogin = await resolveViewerLogin();
-  await recordOrgAudit("org.llm_provider.disabled", body.org, { provider: "bedrock" }, actorLogin ?? undefined);
+  await recordOrgAudit("org.llm_provider.disabled", body.org, { provider: configured }, actorLogin ?? undefined);
   return NextResponse.json({ ok: true });
 }

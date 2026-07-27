@@ -2,7 +2,10 @@
 // customer secret Ascent persists, so the discipline here is strict:
 //   - the secret is stored ONLY in `credentialsEncrypted` (AES-256-GCM via secret-box), never plain;
 //   - getOrgLlmConfig returns metadata + `hasCredentials` (presence) — NEVER the secret, NEVER decrypts;
-//   - resolveByomProvider is the ONLY decrypt path, used solely by the provider factory at build time;
+//   - readStoredByomSecret (private) is the ONLY decrypt call site; resolveByomProvider (provider
+//     factory, gated on isByomActive) and getStoredByomSecret / getStoredByomCredentials (the
+//     test-connection route, ungated so save → test → enable works) are its only readers — adding a
+//     BYOM provider widens the credential SHAPE, never the number of places that decrypt;
 //   - everything is gated on planAllowsByom (Enterprise) AND isEncryptionConfigured() — fail closed.
 
 import { Prisma } from "@prisma/client";
@@ -194,24 +197,64 @@ export async function recordOrgLlmValidation(orgSlug: string, ok: boolean, error
   });
 }
 
-/** Decrypt an org's STORED static credentials regardless of `enabled` — for the test-connection
- *  endpoint (save → test → enable). Null when none / encryption off / tamper. Never returned to a
- *  client; consumed only by the test route to build a throwaway provider. */
-export async function getStoredByomCredentials(orgSlug: string): Promise<ByomStaticCredentials | null> {
+/** An org's STORED BYOM secret with the config it belongs to — the shape both the provider factory
+ *  and the test-connection endpoint need. A discriminated union so a caller can never read an
+ *  OpenRouter key as AWS credentials (the silent-null bug that made the OpenRouter test path
+ *  impossible to build). Never serialized to a response or a log. */
+export type StoredByomSecret =
+  | { provider: "bedrock"; modelId: string; region: string | null; credentials: ByomStaticCredentials }
+  | { provider: "openrouter"; modelId: string; apiKey: string };
+
+/**
+ * THE decrypt primitive — the single place in the codebase that calls decryptSecret on an org's BYOM
+ * blob. It is deliberately UN-gated (no `enabled`/plan check) and NOT exported: the two exported
+ * readers below own their own gating, so widening the credential surface to a second provider does
+ * NOT widen the decrypt surface (module-header discipline). Returns null on missing/tampered/
+ * malformed data — never throws, so a bad blob degrades rather than 500s a scan.
+ */
+async function readStoredByomSecret(orgSlug: string): Promise<StoredByomSecret | null> {
   if (!isDbConfigured() || !isEncryptionConfigured()) return null;
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
-  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId }, select: { credentialsEncrypted: true } });
+  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId } });
   if (!c?.credentialsEncrypted) return null;
   try {
-    const creds = JSON.parse(decryptSecret(c.credentialsEncrypted)) as Partial<ByomStaticCredentials>;
-    return creds.accessKeyId && creds.secretAccessKey
-      ? { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey }
-      : null;
+    const blob = JSON.parse(decryptSecret(c.credentialsEncrypted)) as Partial<ByomStaticCredentials> & {
+      apiKey?: string;
+    };
+    if (c.provider === "openrouter") {
+      return blob.apiKey ? { provider: "openrouter", modelId: c.modelId, apiKey: blob.apiKey } : null;
+    }
+    if (c.provider === "bedrock") {
+      return blob.accessKeyId && blob.secretAccessKey
+        ? {
+            provider: "bedrock",
+            modelId: c.modelId,
+            region: c.region,
+            credentials: { accessKeyId: blob.accessKeyId, secretAccessKey: blob.secretAccessKey },
+          }
+        : null;
+    }
+    return null; // unknown provider — never route
   } catch {
+    // Tamper / wrong key / malformed — never crash a scan; fall back to the platform provider.
     return null;
   }
+}
+
+/** Decrypt an org's STORED secret regardless of `enabled` — for the test-connection endpoint
+ *  (save → test → enable). Null when none / encryption off / tamper. Never returned to a client;
+ *  consumed only by the test route to build a throwaway provider. */
+export async function getStoredByomSecret(orgSlug: string): Promise<StoredByomSecret | null> {
+  return readStoredByomSecret(orgSlug);
+}
+
+/** Bedrock-only view of {@link getStoredByomSecret} — kept so callers that can ONLY handle AWS
+ *  credentials cannot accidentally receive an OpenRouter key. */
+export async function getStoredByomCredentials(orgSlug: string): Promise<ByomStaticCredentials | null> {
+  const stored = await readStoredByomSecret(orgSlug);
+  return stored?.provider === "bedrock" ? stored.credentials : null;
 }
 
 /** True when BYOM should drive this org's scans — enabled config WITH creds, Enterprise plan, AND
@@ -238,31 +281,15 @@ export async function isByomActive(orgSlug: string): Promise<boolean> {
  */
 export async function resolveByomProvider(orgSlug: string): Promise<ByomProviderParams | null> {
   if (!(await isByomActive(orgSlug))) return null;
-  const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
-  const c = await prisma.orgLlmConfig.findUnique({ where: { orgId } });
-  // No provider guard here: the switch below handles every supported BYOM provider (openrouter, bedrock).
-  if (!c?.credentialsEncrypted) return null;
-  try {
-    if (c.provider === "openrouter") {
-      const creds = JSON.parse(decryptSecret(c.credentialsEncrypted)) as { apiKey?: string };
-      if (!creds.apiKey) return null;
-      return { kind: "openrouter", model: c.modelId, apiKey: creds.apiKey };
-    }
-    if (c.provider === "bedrock") {
-      const creds = JSON.parse(decryptSecret(c.credentialsEncrypted)) as Partial<ByomStaticCredentials>;
-      if (!creds.accessKeyId || !creds.secretAccessKey) return null;
-      return {
-        kind: "bedrock",
-        model: c.modelId,
-        ...(c.region ? { region: c.region } : {}),
-        credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
-      };
-    }
-    return null; // unknown provider — never route
-  } catch {
-    // Tamper / wrong key / malformed — never crash a scan; fall back to the platform provider.
-    return null;
+  const stored = await readStoredByomSecret(orgSlug);
+  if (!stored) return null;
+  if (stored.provider === "openrouter") {
+    return { kind: "openrouter", model: stored.modelId, apiKey: stored.apiKey };
   }
+  return {
+    kind: "bedrock",
+    model: stored.modelId,
+    ...(stored.region ? { region: stored.region } : {}),
+    credentials: stored.credentials,
+  };
 }

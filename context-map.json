@@ -65,6 +65,7 @@
             "src/app/api/org/llm-provider/route.test.ts",
             "src/app/api/org/llm-provider/route.ts",
             "src/app/api/org/llm-provider/test/route.ts",
+            "src/app/api/org/llm-provider/test/route.test.ts",
             "src/app/org/[slug]/settings/page.tsx",
             "src/components/org/settings/LlmProviderSettings.tsx",
             "src/components/org/settings/LlmProviderSettings.test.tsx",

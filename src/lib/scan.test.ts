@@ -10,6 +10,7 @@ import { scanRepository, resolveScanAuth, isHardLlmError, shouldRetrySameProvide
 import type { FetchOptions, ParsedRepo, RepoSource } from "@/lib/github/source";
 import type { LlmAssessment, RepoSnapshot, TokenUsage } from "@/lib/types";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
+import type { LlmCallTrack } from "@/lib/llm/tracklight";
 
 // ---------------------------------------------------------------------------
 // Auth-dependency harness for the resolveScanAuth cross-tenant gate suite.
@@ -99,6 +100,20 @@ vi.mock("@/lib/llm", async (importActual) => {
     // Failover lookup — return the test-installed fallback (or null = "no real fallback",
     // which makes scan.ts degrade straight to its own MockProvider).
     providerByName: () => llmControl.fallback,
+  };
+});
+
+// LightTrack capture harness: the tracker is fire-and-forget and env-gated, so the ONLY way to pin
+// what the scan reports about itself is to intercept trackLlmCall. Used by the degradation-
+// observability suite below.
+const trackControl: { calls: LlmCallTrack[] } = { calls: [] };
+vi.mock("@/lib/llm/tracklight", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/llm/tracklight")>();
+  return {
+    ...actual,
+    trackLlmCall: (ev: LlmCallTrack) => {
+      trackControl.calls.push(ev);
+    },
   };
 });
 
@@ -356,6 +371,70 @@ describe("scanRepository — LLM usage metering + degradation honesty (#2/#3)", 
 // failures still retry. The matrix is pinned on the pure decision functions (isHardLlmError /
 // shouldRetrySameProvider); the two timing-free wirings are pinned end-to-end through scanRepository.
 // ---------------------------------------------------------------------------
+// The `degraded` flag is what makes the degradation RATE observable in LightTrack. It was declared on
+// LlmCallTrack and read by buildEventBody, but neither scan.ts call site ever passed it — so the tag
+// could never fire. These tests pin that it now flows, and that it is HONEST: a failed attempt that a
+// retry/failover recovers did not degrade the scan; only the last failing attempt did.
+describe("scanRepository — degradation observability (tracklight `degraded`)", () => {
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_TOKEN", "");
+    vi.stubEnv("LLM_FALLBACK_PROVIDER", "");
+    llmControl.primary = null;
+    llmControl.fallback = null;
+    trackControl.calls = [];
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    llmControl.primary = null;
+    llmControl.fallback = null;
+    trackControl.calls = [];
+  });
+
+  it("marks a usable call NOT degraded", async () => {
+    const { source } = mockSource("treesha-aaa");
+    llmControl.primary = fakeProvider("gemini", [{ kind: "usable", usage: { inputTokens: 10, outputTokens: 5 } }]);
+    await scanRepository("o/r", { source, now: NOW });
+
+    expect(trackControl.calls).toHaveLength(1);
+    expect(trackControl.calls[0]).toMatchObject({ provider: "gemini", status: "success", degraded: false });
+  });
+
+  it("marks ONLY the last failing attempt degraded when the scan falls to the floor", async () => {
+    const { source } = mockSource("treesha-aaa");
+    // Transient failure on every attempt, no fallback ⇒ plan is [primary, retry] and the RETRY is the
+    // call that actually drops the scan to the deterministic mock.
+    llmControl.primary = fakeProvider("gemini", [{ kind: "throw", usage: { inputTokens: 99 } }]);
+    const report = await scanRepository("o/r", { source, now: NOW });
+
+    expect(report.engine.provider).toBe("mock");
+    expect(trackControl.calls.map((c) => c.status)).toEqual(["error", "error"]);
+    expect(trackControl.calls.map((c) => c.degraded)).toEqual([false, true]);
+    // The deterministic mock itself is never tracked (no real provider traffic/cost).
+    expect(trackControl.calls.every((c) => c.provider !== "mock")).toBe(true);
+  });
+
+  it("never marks a failure degraded when a failover still recovers the scan", async () => {
+    const { source } = mockSource("treesha-aaa");
+    llmControl.primary = fakeProvider("gemini", [{ kind: "throw" }]);
+    llmControl.fallback = fakeProvider("openai", [{ kind: "usable", usage: { inputTokens: 10, outputTokens: 5 } }]);
+    vi.stubEnv("LLM_FALLBACK_PROVIDER", "openai");
+    const report = await scanRepository("o/r", { source, now: NOW });
+
+    expect(report.engine.provider).toBe("openai");
+    expect(trackControl.calls.some((c) => c.degraded === true)).toBe(false);
+    expect(trackControl.calls.at(-1)).toMatchObject({ provider: "openai", status: "success", degraded: false });
+  });
+
+  it("marks an unusable-but-answered final attempt degraded (it produced no usable assessment)", async () => {
+    const { source } = mockSource("treesha-aaa");
+    llmControl.primary = fakeProvider("gemini", [{ kind: "unusable", usage: { inputTokens: 42 } }]);
+    const report = await scanRepository("o/r", { source, now: NOW });
+
+    expect(report.engine.provider).toBe("mock");
+    expect(trackControl.calls.at(-1)).toMatchObject({ status: "error", degraded: true });
+  });
+});
+
 describe("isHardLlmError — provider failure classification (conservative: unknown ⇒ transient)", () => {
   const awsErr = (name: string) => Object.assign(new Error(name), { name });
   const metaErr = (httpStatusCode: number) => Object.assign(new Error("aws"), { $metadata: { httpStatusCode } });
