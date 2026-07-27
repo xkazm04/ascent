@@ -600,6 +600,12 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   signal?.throwIfAborted();
   emit({ stage: "compose", message: "Composing your report…", pct: 95 });
   const report = assembleReport(snapshot, signals, assessment, provider, now, archetype);
+  // WHOSE account the inference ran in. The report header claims "in-account … never leaves the AWS
+  // boundary" for every Bedrock scan, but that read as "YOUR account" on Ascent's PLATFORM Bedrock
+  // too. byomScan is already computed for the no-platform-failover rule; carrying it onto the report
+  // is what lets the chip tell the two apart. A degrade-to-mock keeps the flag false-y with the mock
+  // engine, so the chip never renders in that case anyway.
+  report.engine.byom = byomScan && provider.name !== "mock";
   report.prStats = prStats;
   // Re-derive AI usage now that PR stats are available: `detected` keys on REAL AI evidence (PR-level
   // AI involvement with tool attribution, committed guidance, or genuine AI co-author trailers) rather

@@ -285,6 +285,10 @@ export async function persistScanReport(
             // serving a stale-rubric snapshot until the age gate. Provider/model already round-trip via
             // engineProvider/engineModel; this completes the {provider, model, rubric} scoring identity.
             rubricVersion: SCORING_RUBRIC_VERSION,
+            // Whose account the inference ran in (BYOM vs Ascent's platform account) — persisted so a
+            // reloaded report's privacy chip keeps making the SAME claim the fresh scan made. `?? null`
+            // keeps a report that never set it (a hand-built or legacy in-memory report) as UNKNOWN.
+            engineByom: report.engine.byom ?? null,
             headline: report.headline,
             strengths: JSON.stringify(report.strengths),
             risks: JSON.stringify(report.risks),

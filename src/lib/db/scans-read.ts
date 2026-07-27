@@ -1008,6 +1008,13 @@ async function loadScanReportByCommit(
     confidence: scan.confidence,
     ...(warnings.length ? { warnings } : {}),
     scannedAt: scan.scannedAt.toISOString(),
-    engine: { provider: scan.engineProvider as ProviderName, model: scan.engineModel, rubricVersion: scan.rubricVersion ?? undefined },
+    engine: {
+      provider: scan.engineProvider as ProviderName,
+      model: scan.engineModel,
+      rubricVersion: scan.rubricVersion ?? undefined,
+      // A legacy row (scored before the column) is NULL -> undefined, which the header renders as the
+      // platform wording. Never upgrade "unknown" to an in-your-account claim.
+      byom: scan.engineByom ?? undefined,
+    },
   };
 }

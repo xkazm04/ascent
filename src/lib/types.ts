@@ -564,8 +564,13 @@ export interface ScanReport {
   scannedAt: string;
   /** The scoring identity that produced this report. `rubricVersion` (SCORING_RUBRIC_VERSION) is
    *  populated on a DB-reconstructed report so the cross-instance cache tier can detect a rubric bump
-   *  per-row; a live/fresh scan may omit it (the in-memory cache key already folds in the rubric). */
-  engine: { provider: ProviderName; model: string; rubricVersion?: string };
+   *  per-row; a live/fresh scan may omit it (the in-memory cache key already folds in the rubric).
+   *  `byom` records WHOSE account the inference ran in: true = the org's OWN connected provider
+   *  (BYOM), false = Ascent's platform account. Optional and additive — undefined on a legacy
+   *  persisted row (scored before the flag existed), which must read as "not proven to be the
+   *  customer's own account", never as true. The report header's privacy chip is the consumer:
+   *  "in-account" is only an honest claim when this is true. */
+  engine: { provider: ProviderName; model: string; rubricVersion?: string; byom?: boolean };
   /** LLM token usage + wall-clock latency for THIS scan's model call — the cost/usage metering basis.
    *  Absent on a mock/keyless scan, or when the provider didn't report usage. */
   usage?: { inputTokens?: number; outputTokens?: number; latencyMs?: number };

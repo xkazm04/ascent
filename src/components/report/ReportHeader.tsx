@@ -13,8 +13,16 @@ import { FoundationPrButton } from "@/components/report/FoundationPrButton";
 // sr-only text — screen-reader users hear the explanation inline, and hover users get the tooltip.
 // Hoisted so the title and the sr-only copy can't drift apart (repo-report-shell-tabs #3).
 const DEMO_HINT = "Keyless demo: scores are computed from deterministic signals, not LLM-written analysis";
-const bedrockHint = (model: string) =>
-  `Inference ran in-account on AWS Bedrock (${model}) — code never leaves the AWS boundary and is never used for training`;
+// The AWS guarantees (no training, stays inside the AWS boundary) hold for BOTH Bedrock paths, but
+// "in-account" reads as "in YOUR account" — which was a false claim on every scan that ran on
+// Ascent's PLATFORM Bedrock account. engine.byom (threaded from scan.ts, persisted per row) is the
+// only thing that distinguishes them, so the two hints are split on it. undefined (a row scored
+// before the flag existed) is UNKNOWN and must take the platform wording — never claim the
+// customer's own account without proof.
+const bedrockHint = (model: string, byom?: boolean) =>
+  byom
+    ? `Inference ran in YOUR org's own AWS account on Bedrock (${model}) — code never leaves your AWS boundary and is never used for training`
+    : `Inference ran on AWS Bedrock (${model}) in Ascent's AWS account — code stays within the AWS boundary and is never used for training. Connect your own Bedrock (BYOM) to keep it in your account`;
 const CONFIDENCE_HINT =
   "Evidence coverage: the share of the repository's signal-bearing files the scan could actually read — lower means the scores rest on thinner evidence";
 // D29: the narrative score is intentionally stochastic (no temp-0 path) — say so where the score is
@@ -94,14 +102,15 @@ export function ReportHeader({
               <span className="sr-only"> — {DEMO_HINT}</span>
             </span>
           ) : report.engine.provider === "bedrock" ? (
-            // Surface the enterprise-privacy inference path on screen: when scoring ran on AWS Bedrock,
-            // the customer's code stayed in-account and was never used for training (see docs/ARCHITECTURE.md).
+            // Surface the enterprise-privacy inference path on screen: scoring ran on AWS Bedrock, so
+            // the code stayed within the AWS boundary and was never used for training (see
+            // docs/ARCHITECTURE.md). The chip label says WHOSE account only when engine.byom proves it.
             <span
               className="cursor-help rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-300"
-              title={bedrockHint(report.engine.model)}
+              title={bedrockHint(report.engine.model, report.engine.byom)}
             >
-              inference · AWS Bedrock · {report.engine.model}
-              <span className="sr-only"> — {bedrockHint(report.engine.model)}</span>
+              inference · AWS Bedrock{report.engine.byom ? " · your account" : ""} · {report.engine.model}
+              <span className="sr-only"> — {bedrockHint(report.engine.model, report.engine.byom)}</span>
             </span>
           ) : (
             <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">

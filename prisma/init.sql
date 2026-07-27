@@ -181,6 +181,7 @@ CREATE TABLE "Scan" (
     "warningsJson" TEXT,
     "aiUsageJson" TEXT,
     "rubricVersion" TEXT,
+    "engineByom" BOOLEAN,
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
@@ -195,6 +196,7 @@ CREATE TABLE "Scan" (
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "warningsJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "aiUsageJson" TEXT;
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "rubricVersion" TEXT;
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "engineByom" BOOLEAN;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (

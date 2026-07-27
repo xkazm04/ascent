@@ -374,6 +374,11 @@ model Scan {
   // (persistedMatchesActiveIdentity) instead of serving a stale-rubric score until the 7-day age gate.
   // Nullable: rows scored before this column keep today's behavior (served, age-gated) — never force-rescanned.
   rubricVersion  String?
+  // WHOSE account this scan's inference ran in: true = the org's OWN connected provider (BYOM),
+  // false = Ascent's platform account. Read back onto engine.byom so the report header can say
+  // "in YOUR AWS account" only when that is literally true. Nullable: rows scored before this column
+  // are UNKNOWN, and unknown must render as the platform wording — never as the customer's account.
+  engineByom     Boolean?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens    Int?

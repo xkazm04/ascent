@@ -10,7 +10,7 @@ import type { ScanReport } from "@/lib/types";
 import { ReportHeader } from "./ReportHeader";
 
 // Minimal cast — ReportHeader + FreshnessControl only read repo/archetype/aiUsage/engine/confidence/scannedAt.
-function report(owner: string): ScanReport {
+function report(owner: string, engine?: Partial<ScanReport["engine"]>): ScanReport {
   return {
     repo: {
       owner,
@@ -25,7 +25,7 @@ function report(owner: string): ScanReport {
     },
     archetype: "team",
     aiUsage: { detected: false, commitFraction: 0 },
-    engine: { provider: "anthropic", model: "claude" },
+    engine: { provider: "anthropic", model: "claude", ...engine },
     confidence: 0.9,
     scannedAt: "2026-01-01T00:00:00Z",
   } as unknown as ScanReport;
@@ -42,6 +42,40 @@ describe("ReportHeader", () => {
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveClass("break-words");
     expect(h1.parentElement).toHaveClass("min-w-0"); // the flex column must be able to shrink
+  });
+
+  // The Bedrock privacy chip used to render the IDENTICAL "in-account" claim whether the scan ran on
+  // the org's own connected Bedrock (BYOM) or on Ascent's platform Bedrock account. The AWS
+  // guarantees hold either way; "in-account" does not. engine.byom is the only distinguisher, and a
+  // legacy row that predates the flag is UNKNOWN — which must read as the platform wording.
+  describe("Bedrock privacy chip — whose account", () => {
+    const chip = () => screen.getByText(/inference · AWS Bedrock/);
+
+    it("claims the customer's OWN account only when engine.byom is true", () => {
+      render(<ReportHeader report={report("acme", { provider: "bedrock", model: "claude-sonnet-4-6", byom: true })} isMock={false} />);
+      expect(chip()).toHaveTextContent("AWS Bedrock · your account");
+      const hint = chip().getAttribute("title")!;
+      expect(hint).toMatch(/YOUR org's own AWS account/);
+      expect(hint).toMatch(/never used for training/);
+      // The sr-only copy must carry the same hint (hover-only tooltips are not accessible).
+      expect(chip()).toHaveTextContent(hint);
+    });
+
+    it("uses accurate platform wording when byom is false, keeping the AWS boundary/no-training claims", () => {
+      render(<ReportHeader report={report("acme", { provider: "bedrock", model: "claude-sonnet-4-6", byom: false })} isMock={false} />);
+      expect(chip()).not.toHaveTextContent("AWS Bedrock · your account");
+      const hint = chip().getAttribute("title")!;
+      expect(hint).toMatch(/Ascent's AWS account/);
+      expect(hint).toMatch(/within the AWS boundary/);
+      expect(hint).toMatch(/never used for training/);
+      expect(hint).not.toMatch(/in-account/);
+    });
+
+    it("treats a legacy row (byom undefined) as the platform case, never as the customer's account", () => {
+      render(<ReportHeader report={report("acme", { provider: "bedrock", model: "claude-sonnet-4-6" })} isMock={false} />);
+      expect(chip()).not.toHaveTextContent("AWS Bedrock · your account");
+      expect(chip().getAttribute("title")).toMatch(/Ascent's AWS account/);
+    });
   });
 
   // Pins pdf-llm-export #1: "Export PDF" must not be a bare navigation anchor. A failed export
