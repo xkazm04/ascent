@@ -3,6 +3,7 @@ import type { ProviderName, ScanProgress, ScanReport } from "@/lib/types";
 import { parseScanReport } from "@/lib/report/validate";
 import { repoKey } from "@/components/report/repoKey";
 import { scanClientTimeoutMs } from "@/components/report/scanEstimate";
+import { backstopRemainingMs, nextBackstopCeilingMs } from "@/components/report/scanBackstop";
 import { classifyScanAbort } from "@/components/report/reportTaxonomy";
 import { parseSSE } from "@/lib/sse";
 import { type Progress } from "@/components/report/ReportClientStatus";
@@ -88,15 +89,19 @@ export function useReportScan(
       controller.abort();
     };
     let timeout = setTimeout(fireTimeout, scanClientTimeoutMs());
-    // Re-pin the backstop to the resolved provider's ceiling, ONCE, measured from scan start — so it
-    // can only ever shorten the window, never abort a scan that's legitimately still running.
-    let backstopPinned = false;
+    // Re-pin the backstop to whichever provider the stream currently names, measured from scan start.
+    // scan.ts FAILS OVER between providers mid-scan (emitting the new name on a progress frame), so
+    // this must be re-pinnable: the first resolution tightens off the unknown default, and a later
+    // change may only LENGTHEN the window — never shorten it under a scan already in flight. The
+    // asymmetry lives in nextBackstopCeilingMs (scanBackstop.ts), which is pure and tested there.
+    let pinnedCeilingMs: number | null = null;
     const pinBackstop = (provider?: ProviderName) => {
-      if (backstopPinned || !provider) return;
-      backstopPinned = true;
+      if (!provider) return;
+      const ceiling = nextBackstopCeilingMs(pinnedCeilingMs, provider);
+      if (ceiling === null) return;
+      pinnedCeilingMs = ceiling;
       clearTimeout(timeout);
-      const remaining = Math.max(0, scanClientTimeoutMs(provider) - (Date.now() - scanStartAt));
-      timeout = setTimeout(fireTimeout, remaining);
+      timeout = setTimeout(fireTimeout, backstopRemainingMs(ceiling, Date.now() - scanStartAt));
     };
 
     // Route a terminal outcome to the right surface: in rescan mode the existing report stays and the
@@ -246,11 +251,13 @@ export function useReportScan(
           if (cancelled || !event) return;
           if (event === "progress") {
             const p = (data ?? {}) as Partial<ScanProgress>;
-            // Tighten the runaway backstop to the resolved provider's ceiling the first time a frame
-            // names it (provider is sticky from the first frame; this only ever shortens the window).
+            // Re-pin the runaway backstop to whichever provider this frame names: the first frame
+            // tightens off the slowest-provider default, and a FAILOVER frame naming a slower provider
+            // lengthens the window so the client can't abort a scan that's legitimately still running.
             if (p.provider) pinBackstop(p.provider);
-            // provider/region/fallback are sticky: a later frame omits them, but the UI keeps showing
-            // which model ran and the fallback note once seen.
+            // provider/region/fallback are sticky in the sense that a frame OMITTING them keeps the
+            // last seen value — but a frame that names a new provider (failover) replaces it, so the
+            // loading copy/estimate track the same provider the backstop just re-pinned to.
             setProgress((prev) => ({
               stage: p.stage ?? prev.stage,
               message: p.message ?? "Working…",
