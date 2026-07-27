@@ -88,7 +88,18 @@ export async function GET(request: Request) {
   // `skill.trackIds` is what was actually RENDERED — the maintainer's ?dims selection when one was
   // given, the auto-picked weak set otherwise — so the history reflects the chosen set, not the rubric.
   // Fire-and-forget — the download never waits on it, and a failed write is swallowed.
-  void recordSkillGeneration(`${parsed.owner}/${parsed.name}`, parsed.sha ?? null, skill.trackIds).catch(() => {});
+  //
+  // The commit recorded is the REPORT's head sha, not the caller's `?repo=…@sha` suffix. Those differ
+  // whenever the caller omits the suffix (the report header's own link does when repo.headSha is
+  // absent, and any hand-typed/shared URL does): the old `parsed.sha ?? null` then wrote a
+  // headSha=null row that dedups SEPARATELY from the sha'd rows of the very same generation, so one
+  // report accumulated duplicate history entries and its track diff compared a null-sha row against a
+  // sha'd one. The report is the authority on which commit was actually scored.
+  void recordSkillGeneration(
+    `${parsed.owner}/${parsed.name}`,
+    report.repo.headSha ?? parsed.sha ?? null,
+    skill.trackIds,
+  ).catch(() => {});
   // Sanitize every interpolated segment before the Content-Disposition header (the sha is
   // caller-supplied and unvalidated): keep only filename-safe chars so it can't inject a header.
   const filename = `ascent-onboard-${safeFilenameSegment(parsed.owner)}-${safeFilenameSegment(parsed.name)}${

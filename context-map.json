@@ -275,6 +275,8 @@
             "src/app/api/report/skill/route.test.ts",
             "src/lib/db/skill-history.ts",
             "src/app/api/report/conformance/route.ts",
+            "src/app/api/report/conformance/route.test.ts",
+            "src/lib/db/skill-history.test.ts",
             "src/components/report/SkillDownload.tsx",
             "src/components/report/SkillDownload.test.tsx"
           ],

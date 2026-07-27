@@ -52,7 +52,10 @@ const mockRecord = vi.mocked(recordSkillGeneration);
 
 // A persisted report stand-in — the route only forwards it to buildOnboardingSkill (mocked), so the
 // fields don't matter to this test; the secret it represents must never escape behind a closed gate.
-const REPORT = { repo: "acme/api", headline: "SECRET_HEADLINE" } as unknown as ScanReport;
+const REPORT = {
+  repo: { owner: "acme", name: "api", headSha: "cafebabe0000" },
+  headline: "SECRET_HEADLINE",
+} as unknown as ScanReport;
 const SKILL: GeneratedSkill = {
   name: "ascent-onboard",
   path: ".claude/skills/ascent-onboard/SKILL.md",
@@ -231,7 +234,7 @@ describe("GET /api/report/skill — authorized happy path + filename sanitizatio
     expect(res.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
     expect(await res.text()).toBe(SKILL.body);
     // The history write was attempted (fire-and-forget) but its failure is swallowed.
-    expect(mockRecord).toHaveBeenCalledWith("acme/api", null, SKILL.trackIds);
+    expect(mockRecord).toHaveBeenCalledWith("acme/api", "cafebabe0000", SKILL.trackIds);
   });
 });
 
@@ -294,6 +297,56 @@ describe("GET /api/report/skill — maintainer track selection", () => {
   it("records the CHOSEN track set in the history (skill.trackIds, not the rubric's weak set)", async () => {
     mockBuildSkill.mockReturnValue({ ...SKILL, trackIds: ["D2"] });
     await get("acme/api", "&dims=D2");
-    expect(mockRecord).toHaveBeenCalledWith("acme/api", null, ["D2"]);
+    expect(mockRecord).toHaveBeenCalledWith("acme/api", "cafebabe0000", ["D2"]);
+  });
+});
+
+// ── Generation history records the REPORT's commit, not the URL's ─────────────────────────────────
+// The defect: the route recorded `parsed.sha ?? null` — the caller's `?repo=…@sha` SUFFIX. A download
+// without the suffix (the report header's own link omits it when repo.headSha is absent; any shared or
+// hand-typed URL omits it too) therefore wrote a headSha=null row, which dedups SEPARATELY from the
+// sha'd rows of the SAME generation. One report accumulated duplicate history entries and its track
+// diff compared a null-sha row against a sha'd one. The report is the authority on which commit was
+// scored, so that is what gets recorded.
+describe("GET /api/report/skill — history records the report's head sha", () => {
+  it("records report.repo.headSha when the URL carries NO @sha (the old null-row bug)", async () => {
+    await get("acme/api");
+    expect(mockRecord).toHaveBeenCalledWith("acme/api", "cafebabe0000", SKILL.trackIds);
+    expect(mockRecord).not.toHaveBeenCalledWith("acme/api", null, expect.anything());
+  });
+
+  it("records the SAME sha with and without the @sha suffix — one generation, one row identity", async () => {
+    await get("acme/api");
+    await get("acme/api@cafebabe0000");
+    const shas = mockRecord.mock.calls.map((c) => c[1]);
+    expect(shas).toEqual(["cafebabe0000", "cafebabe0000"]);
+  });
+
+  it("prefers the report's sha over a caller-supplied @sha that disagrees with it", async () => {
+    // getScanReportByCommit resolves what it resolves; the row must describe the report we rendered.
+    await get("acme/api@deadbeef");
+    expect(mockRecord).toHaveBeenCalledWith("acme/api", "cafebabe0000", SKILL.trackIds);
+  });
+
+  it("falls back to the URL sha, then null, when the report carries no headSha", async () => {
+    mockGetReport.mockResolvedValue({ repo: { owner: "acme", name: "api" } } as never);
+    await get("acme/api@abc1234");
+    expect(mockRecord).toHaveBeenCalledWith("acme/api", "abc1234", SKILL.trackIds);
+
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockReadableOrg.mockResolvedValue("acme");
+    mockRequireOrgRead.mockResolvedValue(null);
+    mockBuildSkill.mockReturnValue(SKILL);
+    mockGetReport.mockResolvedValue({ repo: { owner: "acme", name: "api" } } as never);
+    await get("acme/api");
+    expect(mockRecord).toHaveBeenCalledWith("acme/api", null, SKILL.trackIds);
+  });
+
+  it("still names the FILE from the caller's @sha (the download name is a URL concern)", async () => {
+    const res = await get("acme/api@abcdef1234567890");
+    expect(res.headers.get("content-disposition")).toBe(
+      'attachment; filename="ascent-onboard-acme-api-abcdef1.SKILL.md"',
+    );
   });
 });
