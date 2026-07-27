@@ -32,6 +32,7 @@ const {
   mockAuthorizeOrgApi,
   mockPrincipalLogin,
   mockResolveViewerLogin,
+  mockGetOrgSkill,
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetOrgSkillOrgSlug: vi.fn(),
@@ -44,6 +45,7 @@ const {
   mockAuthorizeOrgApi: vi.fn(),
   mockPrincipalLogin: vi.fn(),
   mockResolveViewerLogin: vi.fn(),
+  mockGetOrgSkill: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -54,7 +56,7 @@ vi.mock("@/lib/db", () => ({
   updateOrgSkill: mockUpdateOrgSkill,
   archiveOrgSkill: mockArchiveOrgSkill,
   recordOrgAudit: mockRecordOrgAudit,
-  getOrgSkill: vi.fn(),
+  getOrgSkill: mockGetOrgSkill,
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: mockRequireOrgRole }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
@@ -87,6 +89,15 @@ beforeEach(() => {
   mockUpdateOrgSkill.mockResolvedValue(undefined);
   mockArchiveOrgSkill.mockResolvedValue(undefined);
   mockRecordOrgAudit.mockResolvedValue(undefined);
+  // A content patch resolves anything the body omits from the stored row (frontmatter defaults).
+  mockGetOrgSkill.mockResolvedValue({
+    id: "s1",
+    name: "existing-skill",
+    description: "The stored description.",
+    category: "workflow",
+    tags: ["a"],
+    content: "old body",
+  });
 });
 
 describe("PATCH /api/org/skills/[id] — per-row gate + plan", () => {
@@ -135,12 +146,51 @@ describe("PATCH — body validation + forwarding", () => {
     expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
   });
 
-  it("forwards a content patch (drives the version bump downstream)", async () => {
+  it("forwards a content patch (drives the version bump downstream), frontmatter-wrapped", async () => {
     const res = await PATCH(patchReq({ name: "New", content: "body", category: "testing" }), ctx("s1"));
     expect(res.status).toBe(200);
     const [id, patch] = mockUpdateOrgSkill.mock.calls[0];
     expect(id).toBe("s1");
-    expect(patch).toMatchObject({ name: "New", content: "body", category: "testing" });
+    // the block-less body is wrapped, and the columns are synced from the resulting contract
+    expect(patch).toMatchObject({ name: "new", category: "testing", description: "The stored description." });
+    expect(patch.content).toContain(`---
+name: new
+`);
+    expect(patch.content.endsWith("body")).toBe(true);
+  });
+
+  it("rejects a content patch whose DECLARED block is invalid (400 + errors, no write)", async () => {
+    const content = `---
+name: Bad Name
+description: X.
+---
+
+body`;
+    const res = await PATCH(patchReq({ content }), ctx("s1"));
+    expect(res.status).toBe(400);
+    expect((await res.json()).errors.join(" ")).toMatch(/kebab-case/);
+    expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
+  });
+
+  it("a valid block WINS over the stored columns on a content patch", async () => {
+    const content = `---
+name: from-file
+description: From the file.
+category: security
+tags: x
+---
+
+body`;
+    const res = await PATCH(patchReq({ content }), ctx("s1"));
+    expect(res.status).toBe(200);
+    const [, patch] = mockUpdateOrgSkill.mock.calls[0];
+    expect(patch).toMatchObject({
+      name: "from-file",
+      description: "From the file.",
+      category: "security",
+      tags: ["x"],
+      content,
+    });
   });
 
   it("archive-only toggle forwards `archived` and NO content key", async () => {
