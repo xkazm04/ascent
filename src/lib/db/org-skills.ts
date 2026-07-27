@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { isSkillCategory, normalizeSkillCategory } from "@/lib/org/skill-categories";
+import { effectiveSkillFrontmatter, type SkillFrontmatter } from "@/lib/org/skill-frontmatter";
 
 /** How the list is ordered. `recent` (default) = last edited; `downloads` = most used. */
 export type SkillSort = "name" | "recent" | "downloads";
@@ -20,6 +21,12 @@ export interface SkillRow {
   content: string;
   category: string;
   tags: string[];
+  /**
+   * The frontmatter contract this skill EFFECTIVELY declares, resolved at read time: the document's own
+   * block when it has one, otherwise derived from the columns above (rows written before the contract
+   * existed still render + still download as a conformant SKILL.md). Never written back to `content`.
+   */
+  frontmatter: SkillFrontmatter;
   /** Bumped on each content edit — the change-history anchor. */
   version: number;
   /** sha256 hex of `content` — the sync-manifest change key (diff without shipping the body). */
@@ -74,13 +81,20 @@ const cleanContent = (s: string) => s.slice(0, MAX_CONTENT);
 const hashContent = (s: string) => createHash("sha256").update(cleanContent(s)).digest("hex");
 
 function toRow(s: Prisma.OrgSkillGetPayload<{ include: { _count: { select: { adoptions: true } } } }>): SkillRow {
+  const tags = parseTags(s.tags);
   return {
     id: s.id,
     name: s.name,
     description: s.description,
     content: s.content,
     category: s.category,
-    tags: parseTags(s.tags),
+    tags,
+    frontmatter: effectiveSkillFrontmatter(s.content, {
+      name: s.name,
+      description: s.description,
+      category: s.category,
+      tags,
+    }),
     version: s.version,
     contentHash: s.contentHash,
     downloadCount: s.downloadCount,

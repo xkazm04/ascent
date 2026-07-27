@@ -4,6 +4,8 @@
 // Per-row org gate: the owning org is resolved FROM the skill (getOrgSkillOrgSlug), then authorized.
 // GET/PATCH accept an `askl_` bearer (skills:read / skills:write) OR a session; PATCH is member-level +
 // Team+. DELETE is destructive (admin) and stays SESSION-only — a machine token never hard-archives.
+// A PATCH that touches `content` re-validates the frontmatter contract (400 + the specific errors when
+// a declared block is broken) and syncs name/description/category/tags FROM it.
 
 import { NextResponse } from "next/server";
 import {
@@ -20,6 +22,7 @@ import { authorizeOrgApi, isDenied, principalLogin, type OrgApiPrincipal } from 
 import { resolveViewerLogin } from "@/lib/access";
 import { workspaceAllowsSkills } from "@/lib/db";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
+import { reconcileSkillWrite } from "@/lib/org/skill-frontmatter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,15 +70,34 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   if (body.category !== undefined && !isSkillCategory(body.category)) {
     return NextResponse.json({ error: `category must be one of: ${SKILL_CATEGORIES.join(", ")}.` }, { status: 400 });
   }
-  try {
-    await updateOrgSkill(id, {
-      name: body.name,
-      description: body.description,
-      content: body.content,
-      category: body.category,
-      tags: Array.isArray(body.tags) ? body.tags : undefined,
-      archived: body.archived,
+  const patch: Parameters<typeof updateOrgSkill>[1] = {
+    name: body.name,
+    description: body.description,
+    content: body.content,
+    category: body.category,
+    tags: Array.isArray(body.tags) ? body.tags : undefined,
+    archived: body.archived,
+  };
+  // A CONTENT edit re-runs the frontmatter contract. Anything the patch omits falls back to the stored
+  // row, so editing only the body still resolves a full contract — and the block, once valid, WINS: the
+  // name/description/category columns are synced from it rather than left disagreeing with the file.
+  if (body.content !== undefined) {
+    const current = await getOrgSkill(id);
+    const fm = reconcileSkillWrite(body.content, {
+      name: body.name ?? current?.name,
+      description: body.description ?? current?.description,
+      category: body.category ?? current?.category,
+      tags: patch.tags ?? current?.tags,
     });
+    if (!fm.ok) return NextResponse.json({ error: fm.errors[0], errors: fm.errors }, { status: 400 });
+    patch.content = fm.content;
+    patch.name = fm.fields.name;
+    patch.description = fm.fields.description;
+    patch.category = fm.fields.category;
+    patch.tags = fm.fields.tags;
+  }
+  try {
+    await updateOrgSkill(id, patch);
     const actorLogin = await principalLogin(auth.principal as OrgApiPrincipal);
     const changed = Object.keys(body).filter((k) => body[k as keyof typeof body] !== undefined);
     await recordOrgAudit("org_skill.updated", org, { skillId: id, changed }, actorLogin ?? undefined);
