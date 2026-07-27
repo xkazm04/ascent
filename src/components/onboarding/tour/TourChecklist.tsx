@@ -13,7 +13,7 @@ import { useTourEngine } from "./useTourEngine";
 import { HighlightRing } from "./HighlightLayer";
 import { Kicker } from "@/components/ui";
 
-export function OnboardingChecklist({ slug }: { slug: string }) {
+export function TourChecklist({ slug }: { slug: string }) {
   const [open, setOpen] = useState(false);
   const t = useTourEngine(slug, DEMO_TOUR_STEPS, { enabled: open, onExit: () => setOpen(false) });
   const steps = DEMO_TOUR_STEPS;

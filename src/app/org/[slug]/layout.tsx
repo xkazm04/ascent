@@ -5,7 +5,7 @@ import { OrgScanButton } from "@/components/org/shared/OrgScanButton";
 import { CreditsControl } from "@/components/org/shared/CreditsControl";
 import { AlertsControl } from "@/components/org/shared/AlertsControl";
 import { OrgEmpty } from "@/components/org/shared/ui";
-import { OnboardingChecklist } from "@/components/onboarding/tour/OnboardingChecklist";
+import { TourChecklist } from "@/components/onboarding/tour/TourChecklist";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 import { countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getNavCounts } from "@/lib/org/nav-counts";
@@ -216,7 +216,7 @@ export default async function OrgLayout({
       </main>
       {/* Guided onboarding drawer, scoped to the curated demo org. Mounted in the layout (not a page) so
           the tour survives sub-page navigation and re-anchors after each redirect. */}
-      {slug.toLowerCase() === DEMO_ORG_SLUG && <OnboardingChecklist slug={slug} />}
+      {slug.toLowerCase() === DEMO_ORG_SLUG && <TourChecklist slug={slug} />}
     </>
   );
 }
