@@ -8,13 +8,19 @@
 import { useState } from "react";
 import { chipButtonClass } from "@/components/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { SkillDormancyBadge, usageDetail } from "@/components/org/skills/SkillDormancyBadge";
+import { SkillOutcomes } from "@/components/org/skills/SkillOutcomes";
 import { skillCategoryLabel } from "@/lib/org/skill-categories";
+import type { SkillUsage } from "@/lib/org/skill-usage";
+import type { SkillOutcome } from "@/lib/org/skill-outcomes";
 import type { SkillAdoption, SkillRow } from "@/lib/db";
 
 export function SkillCard({
   skill: s,
   slug,
   adoption,
+  usage,
+  outcomes,
   repoOptions,
   canArchive,
   onArchive,
@@ -22,6 +28,10 @@ export function SkillCard({
   skill: SkillRow;
   slug: string;
   adoption: SkillAdoption | undefined;
+  /** Dormancy verdict + last use (server-computed); undefined for a just-authored skill. */
+  usage: SkillUsage | undefined;
+  /** Per-adopted-repo score movement (server-computed); undefined when nothing adopted it. */
+  outcomes: SkillOutcome[] | undefined;
   repoOptions: string[];
   canArchive: boolean;
   onArchive: () => void;
@@ -126,7 +136,15 @@ export function SkillCard({
         <span className="font-mono text-slate-500" title="Total downloads + copies">
           {s.downloadCount} use{s.downloadCount === 1 ? "" : "s"}
         </span>
+        {usage && (
+          <span className="inline-flex items-center gap-1.5 font-mono text-slate-500">
+            <SkillDormancyBadge usage={usage} />
+            {usageDetail(usage)}
+          </span>
+        )}
       </div>
+
+      <SkillOutcomes outcomes={outcomes} />
 
       {applied.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">

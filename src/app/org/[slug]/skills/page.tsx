@@ -11,15 +11,21 @@ import {
 } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { SKILL_CATEGORIES } from "@/lib/org/skill-categories";
+import { getOrgSkillUsage } from "@/lib/org/skill-usage";
+import { getOrgSkillOutcomes } from "@/lib/org/skill-outcomes";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrgSkills({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   // Read access is enforced by the org layout; here we resolve the plan + role to gate authoring/archive.
-  const [skills, adoption, rollup, credit, isMember, isAdmin] = await Promise.all([
+  // usage/outcomes are the drift-loop half: is each skill still used (dormancy), and did adopting it
+  // move the adopting repo's score. Both degrade to {} rather than failing the catalog render.
+  const [skills, adoption, usage, outcomes, rollup, credit, isMember, isAdmin] = await Promise.all([
     listOrgSkills(slug),
     getOrgSkillAdoption(slug),
+    getOrgSkillUsage(slug).catch(() => ({})),
+    getOrgSkillOutcomes(slug).catch(() => ({})),
     getOrgRollup(slug),
     getCreditState(slug).catch(() => null),
     hasOrgRole(slug, "member"),
@@ -38,6 +44,8 @@ export default async function OrgSkills({ params }: { params: Promise<{ slug: st
         initial={skills ?? []}
         categories={SKILL_CATEGORIES}
         adoption={adoption}
+        usage={usage}
+        outcomes={outcomes}
         repoOptions={repoOptions}
         canAuthor={isMember && planAllowed}
         isAdmin={isAdmin}
