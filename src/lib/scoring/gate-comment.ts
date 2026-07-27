@@ -83,10 +83,13 @@ export function buildGateComment(
   const delta = deltaPhrase(baseline);
   const lines: string[] = [];
 
+  // D28 two-tier naming: the free deterministic gate is the "AI-native Scorecard". Display copy only —
+  // the check-run NAME stays "Ascent maturity gate" (github/checks.ts) because branch-protection
+  // required-check lists pin it by exact name.
   lines.push(
     scoredHead
-      ? `### ${pass ? "✅" : "❌"} Ascent maturity gate — ${verdict}`
-      : `### ⚠️ Ascent maturity gate — Default-branch verdict (PR head not scored)`,
+      ? `### ${pass ? "✅" : "❌"} Ascent AI-native Scorecard — ${verdict}`
+      : `### ⚠️ Ascent AI-native Scorecard — Default-branch verdict (PR head not scored)`,
   );
   if (!scoredHead) {
     lines.push("");
@@ -152,8 +155,8 @@ export function buildGateComment(
   lines.push("");
   lines.push(
     scoredByMock
-      ? "> ⚠️ **Scored by the deterministic rubric** (no LLM) — configure an LLM provider for the full AI-graded maturity verdict."
-      : `<sub>Scored by Ascent — ${mdInline(report.engine.provider)} · ${mdInline(report.engine.model)}</sub>`,
+      ? "> **Scored by the deterministic rubric** (no LLM) — fully reproducible: same inputs, same verdict. For the AI-graded readiness briefing, configure an LLM provider."
+      : `<sub>Scored by Ascent — ${mdInline(report.engine.provider)} · ${mdInline(report.engine.model)} · AI estimate, may vary between runs</sub>`,
   );
 
   const summary = lines.join("\n");

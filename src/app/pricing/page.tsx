@@ -55,7 +55,9 @@ export default function PricingPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white sm:text-4xl">Plans &amp; credits</h1>
           <p className="mx-auto mt-3 max-w-2xl text-lg text-slate-400">
-            Public scans are <span className="text-slate-200">always free</span>. Every plan adds a{" "}
+            The deterministic <span className="text-slate-200">AI-native Scorecard</span> gate and public scans are{" "}
+            <span className="text-slate-200">always free</span>. Every scan produces the full AI-graded{" "}
+            <span className="text-slate-200">readiness briefing</span>, and every plan adds a{" "}
             <span className="text-slate-200">monthly private-scan allowance</span> — {FREE_ALLOWANCE} free a month, then
             a subscription for more. Private scans beyond your allowance run on prepaid credits you can{" "}
             <span className="text-slate-200">top up anytime</span>. Pick the tier that fits your fleet.

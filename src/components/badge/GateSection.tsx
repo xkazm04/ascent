@@ -40,11 +40,12 @@ export function GateSection({ yaml, repo }: { yaml: string; repo: { owner: strin
 
   return (
     <section className="mt-10 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <h2 className="text-lg font-semibold text-white">Guard it in CI — no account needed</h2>
+      <h2 className="text-lg font-semibold text-white">The AI-native Scorecard gate — free, no account needed</h2>
       <p className="mt-2 max-w-2xl text-sm text-slate-400">
         The same maturity read behind the badge is available as a free, unauthenticated gate your
         pipeline can call on every PR: 200 = pass, 422 = fail, so <code className="font-mono">curl --fail</code>{" "}
-        exits non-zero and blocks the merge.
+        exits non-zero and blocks the merge. By default it scores with the deterministic rubric — no
+        LLM, fully reproducible, the same inputs always produce the same verdict.
       </p>
       <div className="mt-4 space-y-3">
         <div>

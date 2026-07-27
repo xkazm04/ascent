@@ -17,6 +17,11 @@ const bedrockHint = (model: string) =>
   `Inference ran in-account on AWS Bedrock (${model}) — code never leaves the AWS boundary and is never used for training`;
 const CONFIDENCE_HINT =
   "Evidence coverage: the share of the repository's signal-bearing files the scan could actually read — lower means the scores rest on thinner evidence";
+// D29: the narrative score is intentionally stochastic (no temp-0 path) — say so where the score is
+// read, so run-to-run drift reads as disclosed behavior rather than a bug. The CI gate stays
+// deterministic; this chip only renders on LLM-scored briefings.
+const AI_ESTIMATE_HINT =
+  "The narrative scores are an AI assessment and can vary slightly between runs. The CI Scorecard gate uses the deterministic rubric and is fully reproducible";
 
 /** Report header — repo title, archetype/engine/confidence chips, and the freshness + export row.
  *  `isMock` (keyless deterministic demo, no LLM) is derived once by ReportView and threaded down so
@@ -45,7 +50,7 @@ export function ReportHeader({
       {/* min-w-0 lets this column shrink on a narrow viewport; break-words then lets a long unbroken
           owner/name break instead of forcing horizontal overflow of the header (mobile). */}
       <div className="min-w-0">
-        <Kicker tone="muted">Repository report</Kicker>
+        <Kicker tone="muted">AI-native readiness briefing</Kicker>
         <h1 className="mt-2 break-words text-2xl font-bold text-white">
           <a href={repo.url} target="_blank" rel="noreferrer" className="hover:text-accent">
             {repo.owner}/{repo.name}
@@ -101,6 +106,15 @@ export function ReportHeader({
           ) : (
             <span className="rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400">
               engine: {report.engine.provider} · {report.engine.model}
+            </span>
+          )}
+          {!isMock && (
+            <span
+              className="cursor-help rounded-full border border-divider bg-surface/60 px-3 py-1 text-slate-400"
+              title={AI_ESTIMATE_HINT}
+            >
+              AI estimate · may vary between runs
+              <span className="sr-only"> — {AI_ESTIMATE_HINT}</span>
             </span>
           )}
           {/* The report's own credibility signal must explain itself — it's the number most likely
