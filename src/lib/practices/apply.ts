@@ -9,7 +9,7 @@
 import { fetchRepoContext, type ParsedRepo, type RepoContextMeta } from "@/lib/github/source";
 import { buildArtifact, type ArtifactSpec } from "@/lib/practice-artifact";
 import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
-import { recordAudit } from "@/lib/db";
+import { recordAudit, recordPracticePr } from "@/lib/db";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
 
 export type ApplyPracticeResult =
@@ -70,6 +70,21 @@ export async function applyPracticeToRepo(
     },
     { orgId: audit.orgId, actorId: audit.actorId },
   );
+
+  // Lifecycle: hand the PR to the SAME ImprovementPr machinery the war room polls (merge detection +
+  // post-merge impact), so applying a practice no longer dead-ends at an audit row — the practices
+  // page can show in-flight / landed / measured lift for what it opened. Org-scoped by nature: an
+  // apply outside an org context (no orgId) has nowhere to hang the row. Never throws.
+  if (audit.orgId) {
+    await recordPracticePr({
+      orgId: audit.orgId,
+      repoFullName: ctx.fullName,
+      practiceId,
+      prNumber: pr.number,
+      prUrl: pr.url,
+      openedBy: audit.actorId ?? null,
+    });
+  }
 
   return { kind: "ok", pr, ctx, artifact };
 }

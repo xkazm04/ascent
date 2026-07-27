@@ -349,6 +349,7 @@ export {
   acceptDirection,
   rejectDirection,
   refreshOps,
+  recordPracticePr,
   mockPrsEnabled,
   type OpsState,
   type OpsTriageItem,

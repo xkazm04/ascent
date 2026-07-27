@@ -11,6 +11,17 @@ export interface Artifact {
   repo: string;
 }
 
+/**
+ * A starter PR for this practice that is still OPEN on a repo (from the practice's ImprovementPr
+ * lifecycle, projected by getOrgPractices as `openPrs`). Applying again would only re-surface the
+ * same `ascent/<practice>` branch, so the apply UI links the live PR instead of offering a duplicate.
+ */
+export interface OpenPrRef {
+  repoFullName: string;
+  prNumber: number;
+  prUrl: string;
+}
+
 export interface BatchResult {
   repo: string;
   ok: boolean;

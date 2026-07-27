@@ -314,6 +314,102 @@ export async function acceptDirection(orgSlug: string, recommendationId: string,
   return { kind: "ok", item: toPrItem(row), reused: pr.reused };
 }
 
+/**
+ * Record a PRACTICE-ORIGIN starter PR onto the SAME ImprovementPr lifecycle the war room drives —
+ * the practices page's apply flow (single + batch) used to end at an audit row, so the most
+ * companion-like action in the product left no trace on the page that offered it. Reusing this table
+ * (rather than a parallel tracker) means `refreshOps` already polls these PRs to merged/closed and
+ * `verifyMergedPrs` already stamps their measured impact; the practices projection just reads it.
+ *
+ * The origin discriminator is the EXISTING nullable `recommendationId` column, whose schema comment
+ * already reads "null = other surfaces" — no migration.
+ *
+ * Never throws: the PR is already open on GitHub by the time this runs, so a DB hiccup must not turn
+ * a successful apply into an error (same contract as recordAudit). Returns whether the row landed.
+ */
+export async function recordPracticePr(input: {
+  orgId: string;
+  repoFullName: string;
+  practiceId: string;
+  prNumber: number;
+  prUrl: string;
+  openedBy?: string | null;
+}): Promise<boolean> {
+  if (!isDbConfigured()) return true;
+  const practice = PRACTICES.find((p) => p.id === input.practiceId);
+  if (!practice) return false; // an authored/unknown practice has no dimension to measure impact on
+  try {
+    const prisma = getPrisma();
+    const key = {
+      orgId_repoFullName_practiceId: {
+        orgId: input.orgId,
+        repoFullName: input.repoFullName,
+        practiceId: input.practiceId,
+      },
+    };
+    const existing = await prisma.improvementPr.findUnique({ where: key, select: { id: true, state: true } });
+
+    // Impact bookend: the repo's standing as of THIS apply. Resolved per-apply (not reused from an
+    // older cycle) so a re-opened PR is measured against what the repo looks like now.
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId: input.orgId, fullName: input.repoFullName } },
+      select: { id: true },
+    });
+    const baselineScanId = repo
+      ? (await prisma.scan.findFirst({ where: { repoId: repo.id }, orderBy: { scannedAt: "desc" }, select: { id: true } }))?.id ?? null
+      : null;
+
+    if (!existing) {
+      await prisma.improvementPr.create({
+        data: {
+          orgId: input.orgId,
+          repoFullName: input.repoFullName,
+          practiceId: input.practiceId,
+          dimId: practice.dimId,
+          recommendationId: null, // practice-origin (not triaged on the wall)
+          prNumber: input.prNumber,
+          prUrl: input.prUrl,
+          state: "open",
+          baselineScanId,
+          openedBy: input.openedBy ?? null,
+        },
+      });
+      return true;
+    }
+
+    // An already-open row is the SAME PR (openDraftPr reuses the per-repo `ascent/<practice>` branch)
+    // — refresh its coordinates without disturbing the in-flight cycle's baseline. A merged/closed row
+    // means a NEW cycle for this repo × practice: re-arm it exactly as acceptDirection does, so the
+    // previous cycle's measured impact can't be misread as this PR's.
+    await prisma.improvementPr.update({
+      where: { id: existing.id },
+      data:
+        existing.state === "open"
+          ? { prNumber: input.prNumber, prUrl: input.prUrl, openedBy: input.openedBy ?? null }
+          : {
+              prNumber: input.prNumber,
+              prUrl: input.prUrl,
+              state: "open",
+              mergedAt: null,
+              closedAt: null,
+              verifiedScanId: null,
+              impactDim: null,
+              impactOverall: null,
+              baselineScanId,
+              openedBy: input.openedBy ?? null,
+            },
+    });
+    return true;
+  } catch (err) {
+    console.error("[db] recordPracticePr FAILED — the starter PR is open but untracked", {
+      repo: input.repoFullName,
+      practiceId: input.practiceId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
 /** Reject a triaged direction: dismiss the recommendation (with a timeline event). */
 export async function rejectDirection(orgSlug: string, recommendationId: string, actor: string | null): Promise<boolean> {
   if (!isDbConfigured()) return false;

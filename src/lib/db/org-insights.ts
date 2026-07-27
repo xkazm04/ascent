@@ -749,10 +749,51 @@ export interface OrgPractice {
   exemplar: { name: string; fullName: string; score: number } | null; // learn from this one
   gapRepos: string[]; // repos that could adopt it (score < 40) — display names
   gapRepoRefs: { name: string; fullName: string }[]; // same repos with fullName, for "apply" actions
+  /**
+   * The lifecycle of the starter PRs this practice has actually opened (ImprovementPr rows, the same
+   * machinery the war room drives) — in flight, landed, and the measured average dimension lift of
+   * the merged-and-verified ones. Absent when the practice has never been applied in this org, so a
+   * never-applied row shows no rollout chrome at all. `lift` is null until a post-merge rescan lands.
+   */
+  prs?: { open: number; merged: number; lift: number | null };
+  /** The repos with a still-open starter PR for this practice — so apply offers a link, not a duplicate. */
+  openPrs?: { repoFullName: string; prNumber: number; prUrl: string }[];
 }
 
 const STRONG = 70;
 const GAP = 40;
+
+/** Fold ImprovementPr rows into the per-practice `prs` / `openPrs` projection. Pure. */
+export function summarizePracticePrs(
+  rows: { practiceId: string; repoFullName: string; prNumber: number; prUrl: string; state: string; impactDim: number | null }[],
+): Map<string, { prs: NonNullable<OrgPractice["prs"]>; openPrs: NonNullable<OrgPractice["openPrs"]> }> {
+  const out = new Map<string, { prs: { open: number; merged: number; lift: number | null }; openPrs: { repoFullName: string; prNumber: number; prUrl: string }[]; liftSum: number; liftN: number }>();
+  for (const r of rows) {
+    const e =
+      out.get(r.practiceId) ?? { prs: { open: 0, merged: 0, lift: null }, openPrs: [], liftSum: 0, liftN: 0 };
+    if (r.state === "open") {
+      e.prs.open += 1;
+      e.openPrs.push({ repoFullName: r.repoFullName, prNumber: r.prNumber, prUrl: r.prUrl });
+    } else if (r.state === "merged") {
+      e.prs.merged += 1;
+      // Only VERIFIED merges carry an impactDim; an awaiting-rescan merge must not drag the average
+      // toward zero (a null is "not measured yet", never "no effect").
+      if (r.impactDim != null) {
+        e.liftSum += r.impactDim;
+        e.liftN += 1;
+      }
+    }
+    out.set(r.practiceId, e);
+  }
+  const summary = new Map<string, { prs: NonNullable<OrgPractice["prs"]>; openPrs: NonNullable<OrgPractice["openPrs"]> }>();
+  for (const [id, e] of out) {
+    summary.set(id, {
+      prs: { open: e.prs.open, merged: e.prs.merged, lift: e.liftN > 0 ? Math.round(e.liftSum / e.liftN) : null },
+      openPrs: e.openPrs,
+    });
+  }
+  return summary;
+}
 
 /** The org's playbook: for each practice, who exemplifies it and who could adopt it next. */
 export async function getOrgPractices(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPractice[] | null> {
@@ -761,14 +802,24 @@ export async function getOrgPractices(orgSlug: string, segmentId?: string | null
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      name: true,
-      fullName: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
-    },
-  });
+  // Two org-scoped reads in parallel — the repo/dimension projection and ONE flat aggregate of every
+  // starter PR this org has opened (folded per-practice in memory). No per-practice or per-repo query:
+  // the PR read is a single indexed org lookup regardless of fleet or practice count.
+  const [repos, prRows] = await Promise.all([
+    prisma.repository.findMany({
+      where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
+      select: {
+        name: true,
+        fullName: true,
+        scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
+      },
+    }),
+    prisma.improvementPr.findMany({
+      where: { orgId: org.id },
+      select: { practiceId: true, repoFullName: true, prNumber: true, prUrl: true, state: true, impactDim: true },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   // Per-dimension list of {repo, score} from each repo's latest scan.
   const byDim = new Map<string, { name: string; fullName: string; score: number }[]>();
@@ -783,9 +834,15 @@ export async function getOrgPractices(orgSlug: string, segmentId?: string | null
   }
   if (byDim.size === 0) return null;
 
+  // Keep the PR projection inside the SAME slice the page is showing — a segment/tech-group filter
+  // must not leak counts for repos the viewer filtered out.
+  const inScope = new Set(repos.map((r) => r.fullName));
+  const prsByPractice = summarizePracticePrs(prRows.filter((r) => inScope.has(r.repoFullName)));
+
   const practices: OrgPractice[] = PRACTICES.map((p) => {
     const rows = (byDim.get(p.dimId) ?? []).slice().sort((a, b) => b.score - a.score);
     const top = rows[0];
+    const pr = prsByPractice.get(p.id);
     return {
       id: p.id,
       label: p.label,
@@ -797,6 +854,7 @@ export async function getOrgPractices(orgSlug: string, segmentId?: string | null
       exemplar: top && top.score >= STRONG ? { name: top.name, fullName: top.fullName, score: top.score } : null,
       gapRepos: rows.filter((r) => r.score < GAP).map((r) => r.name),
       gapRepoRefs: rows.filter((r) => r.score < GAP).map((r) => ({ name: r.name, fullName: r.fullName })),
+      ...(pr ? { prs: pr.prs, openPrs: pr.openPrs } : {}),
     };
   });
 

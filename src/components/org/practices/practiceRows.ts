@@ -27,6 +27,12 @@ export interface PracticeRow {
   reachLabel: string | null;
   /** Sort weight — biggest reuse opportunity / widest adoption first. */
   opportunity: number;
+  /**
+   * What this practice has actually PUT IN MOTION: starter PRs in flight, landed, and the measured
+   * average dimension lift of the landed-and-verified ones. Mined practices only (an authored playbook
+   * has no starter artifact to open a PR for), and absent until the practice has been applied once.
+   */
+  rollout?: { open: number; merged: number; lift: number | null };
   /** Raw payload for the detail modal (exactly one is set). */
   mined?: OrgPractice;
   authored?: { playbook: PlaybookRow; adoption?: PlaybookAdoption };
@@ -57,6 +63,7 @@ function minedRow(p: OrgPractice): PracticeRow {
           : null,
     // Reuse opportunity = an exemplar to copy AND repos lacking it (matches getOrgPractices' own sort).
     opportunity: (p.exemplar ? 1 : 0) * p.gapRepos.length + p.gapRepos.length / 100,
+    ...(p.prs ? { rollout: p.prs } : {}),
     mined: p,
   };
 }

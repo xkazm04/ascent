@@ -17,7 +17,7 @@ vi.mock("@/lib/db/client", () => ({
   withRetry: (fn: () => unknown) => fn(),
 }));
 
-import { percentileOf, getOrgMovers, getOrgRecommendations } from "@/lib/db/org-insights";
+import { percentileOf, getOrgMovers, getOrgRecommendations, getOrgPractices, summarizePracticePrs } from "@/lib/db/org-insights";
 import { getOrgRollup } from "@/lib/db/org-rollup";
 import { IMPACT_WEIGHT } from "@/lib/db/org-shared";
 import { weightsFor } from "@/lib/maturity/model";
@@ -774,5 +774,142 @@ describe("getOrgRecommendations — leverage formula, ranking, dedup, and zero-e
       "What would catch a regression before it merged?",
       "Which critical behaviors have no test?",
     ]);
+  });
+});
+
+// ── Practice PR lifecycle projection (practices #1) ──────────────────────────
+// Applying a practice opens real draft PRs into customer repos, and those PRs now ride the SAME
+// ImprovementPr lifecycle the war room drives (merge poll + post-merge impact). getOrgPractices
+// projects that back onto each practice row, so the page that offered the action can show what it
+// put in motion. The fold is the load-bearing math: a miscount claims work that isn't in flight, and
+// a mis-averaged lift is a number a lead reports upward.
+
+describe("summarizePracticePrs — the per-practice PR fold", () => {
+  const row = (o: Partial<Parameters<typeof summarizePracticePrs>[0][number]>) => ({
+    practiceId: "ci-gates",
+    repoFullName: "acme/app",
+    prNumber: 1,
+    prUrl: "https://github.com/acme/app/pull/1",
+    state: "open",
+    impactDim: null,
+    ...o,
+  });
+
+  it("counts in-flight vs landed per practice and averages the MEASURED lift", () => {
+    const s = summarizePracticePrs([
+      row({ repoFullName: "acme/a" }),
+      row({ repoFullName: "acme/b" }),
+      row({ repoFullName: "acme/c", state: "merged", impactDim: 10 }),
+      row({ repoFullName: "acme/d", state: "merged", impactDim: 20 }),
+    ]);
+    expect(s.get("ci-gates")!.prs).toEqual({ open: 2, merged: 2, lift: 15 });
+  });
+
+  it("keeps practices separate — one practice's rollout never bleeds into another's row", () => {
+    const s = summarizePracticePrs([
+      row({ practiceId: "ci-gates", repoFullName: "acme/a" }),
+      row({ practiceId: "test-discipline", repoFullName: "acme/b", state: "merged", impactDim: 8 }),
+    ]);
+    expect(s.get("ci-gates")!.prs).toEqual({ open: 1, merged: 0, lift: null });
+    expect(s.get("test-discipline")!.prs).toEqual({ open: 0, merged: 1, lift: 8 });
+  });
+
+  it("an awaiting-rescan merge does NOT drag the average toward zero (null ≠ no effect)", () => {
+    // impactDim is null until the post-merge scan lands. Counting it as 0 would report "+4 avg" for a
+    // practice that actually measured +8 on its only verified merge.
+    const s = summarizePracticePrs([
+      row({ repoFullName: "acme/a", state: "merged", impactDim: 8 }),
+      row({ repoFullName: "acme/b", state: "merged", impactDim: null }),
+    ]);
+    expect(s.get("ci-gates")!.prs).toEqual({ open: 0, merged: 2, lift: 8 });
+  });
+
+  it("reports a regression honestly and rounds the average to a whole point", () => {
+    const s = summarizePracticePrs([
+      row({ repoFullName: "acme/a", state: "merged", impactDim: -3 }),
+      row({ repoFullName: "acme/b", state: "merged", impactDim: 8 }),
+      row({ repoFullName: "acme/c", state: "merged", impactDim: 1 }),
+    ]);
+    expect(s.get("ci-gates")!.prs.lift).toBe(2); // (−3 + 8 + 1)/3 = 2
+  });
+
+  it("a GitHub-CLOSED (rejected) PR is neither in flight nor landed, and never blocks a re-apply", () => {
+    const s = summarizePracticePrs([row({ state: "closed" })]);
+    expect(s.get("ci-gates")!.prs).toEqual({ open: 0, merged: 0, lift: null });
+    expect(s.get("ci-gates")!.openPrs).toEqual([]);
+  });
+
+  it("lists ONLY open PRs per repo, with the coordinates the apply UI links", () => {
+    const s = summarizePracticePrs([
+      row({ repoFullName: "acme/a", prNumber: 7, prUrl: "u7" }),
+      row({ repoFullName: "acme/b", prNumber: 9, prUrl: "u9", state: "merged", impactDim: 3 }),
+    ]);
+    expect(s.get("ci-gates")!.openPrs).toEqual([{ repoFullName: "acme/a", prNumber: 7, prUrl: "u7" }]);
+  });
+
+  it("no PR rows at all ⇒ no entry (the practice row shows no rollout chrome)", () => {
+    expect(summarizePracticePrs([]).size).toBe(0);
+  });
+});
+
+describe("getOrgPractices — PR lifecycle is folded into the projection", () => {
+  function fakePracticePrisma(prRows: unknown[]) {
+    const improvementPrFindMany = vi.fn(async () => prRows);
+    return {
+      prisma: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "prax" })) },
+        repository: {
+          findMany: vi.fn(async () => [
+            { name: "app", fullName: "prax/app", scans: [{ dimensions: [{ dimId: "D3", score: 20 }] }] },
+            { name: "api", fullName: "prax/api", scans: [{ dimensions: [{ dimId: "D3", score: 90 }] }] },
+          ]),
+        },
+        improvementPr: { findMany: improvementPrFindMany },
+      },
+      improvementPrFindMany,
+    };
+  }
+
+  const ciGates = async (slug: string) => {
+    const all = await getOrgPractices(slug);
+    return all!.find((p) => p.id === "ci-gates")!;
+  };
+
+  it("projects prs + openPrs onto the practice the PRs belong to, in ONE aggregate read (no N+1)", async () => {
+    const { prisma, improvementPrFindMany } = fakePracticePrisma([
+      { practiceId: "ci-gates", repoFullName: "prax/app", prNumber: 4, prUrl: "u4", state: "open", impactDim: null },
+      { practiceId: "ci-gates", repoFullName: "prax/api", prNumber: 5, prUrl: "u5", state: "merged", impactDim: 12 },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma as never);
+
+    const p = await ciGates("prax-one");
+
+    expect(p.prs).toEqual({ open: 1, merged: 1, lift: 12 });
+    expect(p.openPrs).toEqual([{ repoFullName: "prax/app", prNumber: 4, prUrl: "u4" }]);
+    // One org-scoped read for the WHOLE library — not one per practice (9) or per repo.
+    expect(improvementPrFindMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves prs/openPrs UNDEFINED for a practice never applied — no rollout chrome on an untouched row", async () => {
+    const { prisma } = fakePracticePrisma([]);
+    mockGetPrisma.mockReturnValue(prisma as never);
+
+    const all = await getOrgPractices("prax-two");
+    expect(all!.every((p) => p.prs === undefined && p.openPrs === undefined)).toBe(true);
+  });
+
+  it("excludes PRs for repos outside the active segment/tech-group slice", async () => {
+    // The repo projection is filtered; the PR read is org-wide, so the fold MUST be re-scoped or the
+    // page would count PRs for repos the viewer filtered out.
+    const { prisma } = fakePracticePrisma([
+      { practiceId: "ci-gates", repoFullName: "prax/app", prNumber: 4, prUrl: "u4", state: "open", impactDim: null },
+      { practiceId: "ci-gates", repoFullName: "prax/elsewhere", prNumber: 6, prUrl: "u6", state: "open", impactDim: null },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma as never);
+
+    const p = await ciGates("prax-three");
+
+    expect(p.prs).toEqual({ open: 1, merged: 0, lift: null }); // prax/elsewhere is not in the slice
+    expect(p.openPrs).toEqual([{ repoFullName: "prax/app", prNumber: 4, prUrl: "u4" }]);
   });
 });

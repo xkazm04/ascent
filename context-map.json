@@ -766,6 +766,7 @@
             "src/components/org/practices/MinedPracticeDetail.tsx",
             "src/components/org/practices/NewPracticeModal.tsx",
             "src/components/org/practices/practice-apply-shared.ts",
+            "src/components/org/practices/PracticeApplyBatch.tsx",
             "src/components/org/practices/PracticeApplyBatchResults.tsx",
             "src/components/org/practices/PracticeDetailModal.tsx",
             "src/components/org/practices/PracticeLedger.tsx",

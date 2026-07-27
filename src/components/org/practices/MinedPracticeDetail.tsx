@@ -87,7 +87,7 @@ export function MinedPracticeDetail({ p }: { p: OrgPractice }) {
       </div>
 
       {/* Systematic apply: generate the starter + open a draft PR into a gap repo. */}
-      <PracticeApply practiceId={p.id} gapRepos={p.gapRepoRefs} />
+      <PracticeApply practiceId={p.id} gapRepos={p.gapRepoRefs} openPrs={p.openPrs} />
     </div>
   );
 }

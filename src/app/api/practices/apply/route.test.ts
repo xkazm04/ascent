@@ -78,6 +78,7 @@ vi.mock("@/lib/db", () => ({
   getOrgId: vi.fn(async () => "org-1"),
   isDbConfigured: () => true,
   recordAudit: vi.fn(async () => {}),
+  recordPracticePr: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -92,7 +93,7 @@ import { artifactFingerprint } from "@/lib/practices/fingerprint";
 import { openDraftPr } from "@/lib/github/write";
 import { fetchRepoContext } from "@/lib/github/source";
 import { AppApiError, getInstallationToken } from "@/lib/github/app";
-import { getInstallationIdForOwner, recordAudit } from "@/lib/db";
+import { getInstallationIdForOwner, recordAudit, recordPracticePr } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
 
@@ -178,6 +179,24 @@ describe("POST /api/practices/apply — authorized path + overwrite guard", () =
     expect(mockRecordAudit).toHaveBeenCalledTimes(1);
   });
 
+  it("records the PR onto the shared ImprovementPr lifecycle, not just the audit log", async () => {
+    // The apply flow used to end at an audit row, so the page that offered the action never learned
+    // what happened to the PR. Every successful apply must hand the PR to the tracker that polls it
+    // to merged and measures its post-merge lift.
+    const res = await run({ repo: "acme/app", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(recordPracticePr)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(recordPracticePr)).toHaveBeenCalledWith({
+      orgId: "org-1",
+      repoFullName: "acme/app",
+      practiceId: "ci-gates",
+      prNumber: 1,
+      prUrl: "https://github.com/pr/1",
+      openedBy: "alice",
+    });
+  });
+
   it("refuses with 409 content-drift when the previewed fingerprint no longer matches (no PR, no audit)", async () => {
     // The server regenerates at apply time; a stale fingerprint means the repo's context changed
     // since the preview — committing would land content the user never reviewed.
@@ -188,6 +207,7 @@ describe("POST /api/practices/apply — authorized path + overwrite guard", () =
     expect(json.code).toBe("content-drift");
     expect(mockOpenPr).not.toHaveBeenCalled();
     expect(mockRecordAudit).not.toHaveBeenCalled();
+    expect(vi.mocked(recordPracticePr)).not.toHaveBeenCalled(); // no PR ⇒ nothing to track
   });
 
   it("proceeds when the previewed fingerprint matches the regenerated body", async () => {

@@ -79,6 +79,7 @@ vi.mock("@/lib/db", () => ({
   getOrgId: vi.fn(async () => "org-1"),
   isDbConfigured: () => true,
   recordAudit: vi.fn(async () => {}),
+  recordPracticePr: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -92,7 +93,7 @@ import { POST } from "./route";
 import { openDraftPr } from "@/lib/github/write";
 import { fetchRepoContext, GitHubError } from "@/lib/github/source";
 import { getInstallationToken } from "@/lib/github/app";
-import { getInstallationIdForOwner, recordAudit } from "@/lib/db";
+import { getInstallationIdForOwner, recordAudit, recordPracticePr } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
 
 const mockOpenPr = vi.mocked(openDraftPr);
@@ -203,6 +204,28 @@ describe("POST /api/practices/apply-batch — MAX_BATCH cap + happy path", () =>
     expect(json.results.every((r: { ok: boolean }) => r.ok)).toBe(true);
     expect(mockToken).toHaveBeenCalledTimes(1); // one token mint for the whole gated batch
     expect(mockOpenPr).toHaveBeenCalledTimes(2);
+  });
+
+  it("records EVERY batched PR onto the shared ImprovementPr lifecycle (one row per repo)", async () => {
+    // The fleet rollout is the most companion-like action in the product; before this, 25 draft PRs
+    // left nothing but audit rows and the practices page could not show what it had put in motion.
+    const res = await run({ repos: ["acme/app", "acme/api"], practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    const tracked = vi.mocked(recordPracticePr);
+    expect(tracked).toHaveBeenCalledTimes(2);
+    expect(tracked.mock.calls.map((c) => c[0].repoFullName).sort()).toEqual(["acme/api", "acme/app"]);
+    expect(tracked.mock.calls.every((c) => c[0].orgId === "org-1" && c[0].practiceId === "ci-gates")).toBe(true);
+  });
+
+  it("does not track a repo whose PR-write failed — only real PRs enter the lifecycle", async () => {
+    mockOpenPr
+      .mockResolvedValueOnce({ url: "u1", number: 1, reused: false } as never)
+      .mockRejectedValueOnce(new GitHubError("UPSTREAM", "boom"));
+
+    await run({ repos: ["acme/a", "acme/b"], practiceId: "ci-gates" });
+
+    expect(vi.mocked(recordPracticePr)).toHaveBeenCalledTimes(1);
   });
 
   it("dedupes duplicate repos in the batch: one PR-write, one result, no same-branch race", async () => {
