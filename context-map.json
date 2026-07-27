@@ -524,7 +524,9 @@
             "src/lib/email/index.test.ts",
             "src/lib/email/index.ts",
             "src/lib/email/noop.ts",
+            "src/lib/email/noop.test.ts",
             "src/lib/email/ses.ts",
+            "src/lib/email/ses.test.ts",
             "src/lib/email/types.ts"
           ],
           "target": null,

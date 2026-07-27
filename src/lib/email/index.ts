@@ -24,6 +24,17 @@ export function getEmailSender(): EmailSender {
   return new NoopEmailSender();
 }
 
+/**
+ * Will a send on THIS deploy actually attempt delivery? Derived from the same selection
+ * getEmailSender/dispatchScanCompletionEmail use (not a second env read), so it can't disagree with
+ * what a send would do — the no-op sender is the one that reports `skipped`. Callers use it to tell a
+ * user, BEFORE promising anything, that email isn't configured here (see the notify pre-flight frame
+ * in /api/scan/stream): `emailConfigured()` alone is wrong, since EMAIL_PROVIDER=noop overrides it.
+ */
+export function emailSendingEnabled(): boolean {
+  return getEmailSender().name !== "noop";
+}
+
 /** Conservative email-shape check — enough to reject a typo'd custom address before we try to send to
  *  it. Trims first; rejects whitespace/multiple @. Not an RFC validator (delivery is the real test). */
 export function isValidEmail(value: string | undefined | null): value is string {
@@ -78,16 +89,30 @@ export function buildScanCompletionEmail(opts: {
 const EMAIL_TIMEOUT_MS = Number(process.env.EMAIL_TIMEOUT_MS) || 10_000;
 
 /**
+ * The outcome of a completion-email dispatch. `skipped` is the honest third state the old boolean
+ * return ERASED: the no-op sender reports `{ ok: true, skipped: true }` (nothing was sent — no provider
+ * is wired on this deploy), and collapsing that to `true` made the notify path report success on every
+ * deploy where email is unconfigured. Callers must distinguish "sent" from "nothing was sent".
+ */
+export interface EmailDispatchResult {
+  /** True when the send succeeded OR was intentionally skipped — i.e. nothing went wrong. */
+  ok: boolean;
+  /** True when no provider is configured, so no message was attempted. Never true together with a send. */
+  skipped: boolean;
+}
+
+/**
  * Best-effort send of the scan-completion email. Resolves the sender, builds the message, and sends it
- * under a hard timeout. Returns true on success/skip (no provider), false on any failure — NEVER throws,
- * so the scan that produced the report is unaffected (same contract as dispatchAlert).
+ * under a hard timeout. Returns `{ ok, skipped }` — NEVER throws, so the scan that produced the report
+ * is unaffected (same contract as dispatchAlert). A no-provider deploy comes back
+ * `{ ok: true, skipped: true }` so the caller can say so instead of implying a send.
  */
 export async function dispatchScanCompletionEmail(args: {
   to: string;
   repoFullName: string;
   url: string;
   report: ScanReport;
-}): Promise<boolean> {
+}): Promise<EmailDispatchResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("email send timed out")), EMAIL_TIMEOUT_MS);
   try {
@@ -95,10 +120,11 @@ export async function dispatchScanCompletionEmail(args: {
     const { subject, html, text } = buildScanCompletionEmail(args);
     const res = await sender.send({ to: args.to, subject, html, text }, { signal: controller.signal });
     if (!res.ok) console.error("[email] send failed", { sender: sender.name, to: args.to });
-    return res.ok;
+    else if (res.skipped) console.warn("[email] no provider configured — nothing was sent", { sender: sender.name });
+    return { ok: res.ok, skipped: res.ok && res.skipped === true };
   } catch (err) {
     console.error("[email] send error", err instanceof Error ? err.message : err);
-    return false;
+    return { ok: false, skipped: false };
   } finally {
     clearTimeout(timer);
   }

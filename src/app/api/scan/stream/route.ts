@@ -13,7 +13,7 @@ import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
-import { dispatchScanCompletionEmail, isValidEmail } from "@/lib/email";
+import { dispatchScanCompletionEmail, emailSendingEnabled, isValidEmail } from "@/lib/email";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 
 export const runtime = "nodejs";
@@ -219,6 +219,21 @@ export async function POST(request: Request) {
         // can't interleave after the result on a slow close.
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = undefined;
+        // Notify PRE-FLIGHT frame, emitted BEFORE `result` on purpose: the client settles on the
+        // `result` frame and stops reading, so anything sent after it never reaches the user. The
+        // status is derived from the SAME sender selection the dispatch below uses
+        // (emailSendingEnabled), so "unconfigured" is authoritative — on a deploy with no provider the
+        // user is told nothing will be emailed instead of being left to wait for mail that the no-op
+        // sender silently swallowed while reporting success.
+        if (notifyTo && willPersist) {
+          send("notify", {
+            to: notifyTo,
+            status: emailSendingEnabled() ? "sending" : "unconfigured",
+            ...(emailSendingEnabled()
+              ? {}
+              : { message: "Email isn't configured on this deployment — we can't send the report link." }),
+          });
+        }
         send("result", report);
 
         // "Email me when it's done" (opt-in). Sent AFTER the result frame so the report appears
@@ -227,10 +242,17 @@ export async function POST(request: Request) {
         // permalink wouldn't resolve. Recipient is the trusted account email, or the user-supplied
         // custom address ONLY when the account has none. Best-effort: dispatchScanCompletionEmail
         // never throws and is time-bounded, so a flaky SES call can't fail or delay-close the scan.
+        // The outcome is CONSUMED (not discarded): `skipped` means no provider is wired and nothing was
+        // sent — an operator-visible log line, matching the "unconfigured" frame the user just got.
         if (notifyTo && willPersist) {
           const full = `${report.repo.owner}/${report.repo.name}`;
           const url = `${publicBaseUrl()}${reportPermalink(full, report.repo.headSha)}`;
-          await dispatchScanCompletionEmail({ to: notifyTo, repoFullName: full, url, report });
+          const mail = await dispatchScanCompletionEmail({ to: notifyTo, repoFullName: full, url, report });
+          if (mail.skipped) {
+            console.warn("[scan/stream] notify opted in but no email provider is configured — nothing sent", { repo: full });
+          } else if (!mail.ok) {
+            console.error("[scan/stream] completion email failed to send", { repo: full });
+          }
         }
       } catch (err) {
         if (heartbeat) clearInterval(heartbeat);

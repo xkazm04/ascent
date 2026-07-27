@@ -1,6 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanReport } from "@/lib/types";
-import { buildScanCompletionEmail, emailConfigured, getEmailSender, isValidEmail } from "./index";
+import {
+  buildScanCompletionEmail,
+  dispatchScanCompletionEmail,
+  emailConfigured,
+  emailSendingEnabled,
+  getEmailSender,
+  isValidEmail,
+} from "./index";
 
 const report = {
   repo: { owner: "facebook", name: "react" },
@@ -65,5 +72,42 @@ describe("getEmailSender / emailConfigured", () => {
     process.env.SES_FROM_EMAIL = "Ascent <no-reply@nuda.dev>";
     process.env.EMAIL_PROVIDER = "noop";
     expect(getEmailSender().name).toBe("noop");
+  });
+
+  // emailConfigured() alone would say "yes" here — the notify pre-flight must key on the SELECTION.
+  it("emailSendingEnabled tracks the resolved sender, not just SES_FROM_EMAIL", () => {
+    expect(emailSendingEnabled()).toBe(false);
+    process.env.SES_FROM_EMAIL = "Ascent <no-reply@nuda.dev>";
+    expect(emailSendingEnabled()).toBe(true);
+    process.env.EMAIL_PROVIDER = "noop";
+    expect(emailConfigured()).toBe(true);
+    expect(emailSendingEnabled()).toBe(false);
+  });
+});
+
+describe("dispatchScanCompletionEmail", () => {
+  const saved = { ...process.env };
+  beforeEach(() => {
+    delete process.env.EMAIL_PROVIDER;
+    delete process.env.SES_FROM_EMAIL;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    process.env = { ...saved };
+    vi.restoreAllMocks();
+  });
+
+  // The regression this direction closes: an unconfigured deploy used to return a bare `true`, and the
+  // notify path read that as "sent". It must now be distinguishable from a real delivery.
+  it("reports skipped (not a plain success) when no provider is configured", async () => {
+    const res = await dispatchScanCompletionEmail({
+      to: "dev@nuda.dev",
+      repoFullName: "facebook/react",
+      url: "https://ascent.dev/report/facebook/react",
+      report,
+    });
+    expect(res).toEqual({ ok: true, skipped: true });
+    expect(console.warn).toHaveBeenCalled(); // operator-visible: nothing was sent
   });
 });

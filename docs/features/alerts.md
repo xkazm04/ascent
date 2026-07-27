@@ -24,9 +24,14 @@ chrome).
 
 `buildRegressionMessage(repo, diff, verdict)` formats a Slack-compatible message (emoji
 headline 🔻/⚠️, reason bullets, top-3 movement attributions from `diff.movements`, report
-link). `dispatchAlert(message, opts)` POSTs to `ALERT_WEBHOOK_URL` (Slack incoming
-webhook); it never throws and returns `false` when the sink is unset or the POST fails.
-`isAlertConfigured()` checks for the sink.
+link). `dispatchAlert(message, opts)` POSTs to the **resolved sink** — `resolveAlertWebhook`
+picks the org's own `Organization.alertWebhookUrl` when set, else the global
+`ALERT_WEBHOOK_URL` — so one tenant's fleet intelligence never lands in another's channel.
+It never throws and returns `false` when no sink resolves or the POST fails.
+`isAlertConfigured(orgWebhookUrl?)` checks for the sink. Per-org sinks and per-org
+sensitivity (`alertOverallDrop` / `alertDimensionDrop`) are configured through
+`GET`/`POST /api/org/alerts` (admin-gated) and the dashboard's Alerts popover
+(`src/components/org/shared/AlertsControl.tsx`).
 
 ## Integration (`src/lib/scan-alerts.ts`)
 
@@ -43,8 +48,12 @@ webhook); it never throws and returns `false` when the sink is unset or the POST
    audit row — the level change is already recorded to Shared Org Memory, both directions.
 5. Return `{ regressed, verdict, dispatched, promoted? }`. Never throws.
 
-It's called by the [rescan cron](cron-and-retention.md) and the [push webhook](github-app.md)
-*after* a new scan is persisted (capturing the prior report before persist, diffing after).
+It's called from **three** fire sites, all *after* a new scan is persisted (capturing the prior
+report before persist, diffing after): the [rescan cron](cron-and-retention.md), the
+[push webhook](github-app.md), and — since the shared finalize layer was wired
+(`cacheAndPersistScan` in `src/lib/scan-finalize.ts`) — every **interactive** scan through
+`/api/scan` and `/api/scan/stream`, on a newly written row. All three share the per-repo
+cooldown claim, so an interactive rescan can't double-alert with the cron.
 
 ## Key files
 
