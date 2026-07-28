@@ -7,8 +7,11 @@ import { GovernanceTable } from "@/components/org/delivery/GovernanceTable";
 import { DeliveryActivityChart } from "@/components/org/delivery/DeliveryActivityChart";
 import { AiDeliveryModule } from "@/components/org/delivery/ai/AiDeliveryModule";
 import { buildAiDeliveryModel } from "@/components/org/delivery/ai/aiDeliveryModel";
+import { DeliveryTrendSection } from "@/components/org/delivery/DeliveryTrendSection";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } from "@/lib/db";
+import { getOrgDeliveryTrend } from "@/lib/db/org-delivery-trend";
 import { resolveOrgScope } from "@/lib/org/scope";
+import { resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
 import { deliveryEmptyMessage, settle } from "@/components/org/delivery/deliveryLoad";
 
@@ -27,6 +30,10 @@ export default async function OrgDelivery({
   // Optional segment + tech-stack scope (bogus id/key → whole fleet) so a leader can read
   // delivery/governance for one business unit or stack; the two filters compose.
   const { barProps, segmentId, techGroupId, activeStack } = await resolveOrgScope(slug, sp);
+  // G7-09: the trend needs a period. Resolved through the SHARED org-window helper (URL `?range=`,
+  // then the remembered-period cookie, then the default) so picking "30 days" on the Overview carries
+  // into Delivery instead of each tab inventing its own range.
+  const period = await resolveOrgWindow(sp);
 
   // G4-10: Promise.all rejects on the FIRST failing query, which discarded all four panels — a
   // transient DB blip on, say, the governance rollup used to blank the whole page, including the PR
@@ -34,7 +41,7 @@ export default async function OrgDelivery({
   // one failure degrades only its own panel. Each panel then gets an explicit "couldn't load" banner
   // below (never a silent empty state) — an empty state reads as "nothing to show," which is a
   // different, false claim when the real story is "the query errored."
-  const [prSettled, govSettled, activitySettled, usageSettled] = await Promise.allSettled([
+  const [prSettled, govSettled, activitySettled, usageSettled, trendSettled] = await Promise.allSettled([
     getOrgPrSignals(slug, segmentId, techGroupId),
     getOrgGovernance(slug, segmentId, techGroupId),
     getOrgActivity(slug, segmentId, techGroupId),
@@ -42,11 +49,16 @@ export default async function OrgDelivery({
     // (so buildAiDeliveryModel's per-repo lookups already honor the filtered set), but its ALLOCATED
     // layer is a single org-level total with no per-repo breakdown — it genuinely cannot be filtered.
     getOrgUsageRollup(slug),
+    // G7-09: the only WINDOWED read on this page — it deliberately reads history, where every panel
+    // above reads each repo's latest scan. It joins the same allSettled set so a failing trend query
+    // degrades one panel, not the tab.
+    getOrgDeliveryTrend(slug, period, segmentId, techGroupId),
   ]);
   const { value: pr, failed: prFailed } = settle(prSettled);
   const { value: gov, failed: govFailed } = settle(govSettled);
   const { value: activity, failed: activityFailed } = settle(activitySettled);
   const { value: usage, failed: usageFailed } = settle(usageSettled);
+  const { value: trend, failed: trendFailed } = settle(trendSettled);
   // Surface the rejection server-side — a swallowed error here would be the exact "no signal that
   // anything went wrong" failure this fix exists to close, just moved from the page to the log.
   for (const [label, r] of [
@@ -54,6 +66,7 @@ export default async function OrgDelivery({
     ["getOrgGovernance", govSettled],
     ["getOrgActivity", activitySettled],
     ["getOrgUsageRollup", usageSettled],
+    ["getOrgDeliveryTrend", trendSettled],
   ] as const) {
     if (r.status === "rejected") console.error(`[delivery/${slug}] ${label} failed:`, r.reason);
   }
@@ -111,11 +124,18 @@ export default async function OrgDelivery({
       {prFailed && <SectionEmpty>Pull request signals couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
       {govFailed && <SectionEmpty>Branch governance couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
       {activityFailed && <SectionEmpty>Commit activity couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
+      {trendFailed && <SectionEmpty>The delivery trend couldn&apos;t load right now — try refreshing this page.</SectionEmpty>}
       {usageFailed && pr && (
         <SectionEmpty>
           AI usage/spend data couldn&apos;t load right now — the AI delivery figures below (if shown) may be
           missing spend context. Try refreshing this page.
         </SectionEmpty>
+      )}
+
+      {/* Is delivery health improving or degrading? The tables below are all point-in-time; this is the
+          only surface on the tab that answers the question over a period. */}
+      {trend && (
+        <DeliveryTrendSection trend={trend} range={period.key} from={period.from} to={period.to} periodTitle={period.title} />
       )}
 
       {/* AI delivery intelligence — spend × AI output × governance, as a Table and a Map view. */}

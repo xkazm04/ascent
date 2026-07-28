@@ -34,16 +34,26 @@ vi.mock("next/server", () => ({
 // is the shipped one (it resolves the bearer via verifyOrgApiToken and compares to the repo's owner).
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(), requireOrgRead: vi.fn() }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn() }));
-vi.mock("@/lib/db", () => ({ isDbConfigured: vi.fn(), recordConformance: vi.fn(), verifyOrgApiToken: vi.fn() }));
+vi.mock("@/lib/db", () => ({
+  isDbConfigured: vi.fn(),
+  recordConformance: vi.fn(),
+  verifyOrgApiToken: vi.fn(),
+  getAuditLog: vi.fn(),
+}));
+vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public", readableOrgForOwner: vi.fn() }));
 
-import { POST } from "./route";
-import { requireOrgAccess } from "@/lib/authz";
-import { isDbConfigured, recordConformance, verifyOrgApiToken } from "@/lib/db";
+import { GET, POST } from "./route";
+import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
+import { isDbConfigured, recordConformance, verifyOrgApiToken, getAuditLog } from "@/lib/db";
+import { readableOrgForOwner } from "@/lib/auth";
 
 const mockRequireOrgAccess = vi.mocked(requireOrgAccess);
+const mockRequireOrgRead = vi.mocked(requireOrgRead);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
 const mockRecord = vi.mocked(recordConformance);
 const mockVerifyToken = vi.mocked(verifyOrgApiToken);
+const mockGetAuditLog = vi.mocked(getAuditLog);
+const mockReadableOrgForOwner = vi.mocked(readableOrgForOwner);
 
 /** A verified org token principal, as verifyOrgApiToken would return it. */
 const orgToken = (orgSlug: string, scopes: string[] = ["telemetry:write"]) => ({
@@ -72,8 +82,11 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   mockIsDbConfigured.mockReturnValue(true);
   mockRequireOrgAccess.mockResolvedValue(null); // allowed
+  mockRequireOrgRead.mockResolvedValue(null); // allowed
   mockRecord.mockResolvedValue({ recorded: true, stale: false });
   mockVerifyToken.mockResolvedValue(null);
+  mockReadableOrgForOwner.mockResolvedValue("acme");
+  mockGetAuditLog.mockResolvedValue({ entries: [], nextCursor: null });
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -329,5 +342,127 @@ describe("POST /api/report/conformance — validation and the recorded:false pat
     const res = await post({ ...OK, repo: "https://github.com/acme/api.git" });
     expect(await res.json()).toEqual({ ok: true, recorded: true, stale: false, repo: "acme/api" });
     expect(mockRecord).toHaveBeenCalledWith("acme", "acme/api", expect.anything());
+  });
+});
+
+// GET /api/report/conformance — the trend read (G7-23). The Repository row only ever holds the
+// LATEST reported score, but every accepted POST above also appends a `conformance.reported` row to
+// the org's audit ledger — so history already exists with no schema change, and this walks it back
+// via the shared getAuditLog reader (the same one /api/audit uses), action-filtered and then
+// repo-filtered client-side (getAuditLog has no per-repo filter of its own).
+import type { AuditLogEntry } from "@/lib/db";
+
+function get(url: string) {
+  return GET(new Request(`http://localhost${url}`));
+}
+
+/** A `conformance.reported` audit row, as getAuditLog would return it (newest reports first). */
+function conformanceRow(over: { at: string; repo: string; score: number; fails?: number; warns?: number; sha?: string | null }): AuditLogEntry {
+  return {
+    id: `row_${over.at}`,
+    action: "conformance.reported",
+    actorId: null,
+    orgId: "org_1",
+    at: over.at,
+    meta: { repo: over.repo, sha: over.sha ?? null, score: over.score, fails: over.fails ?? 0, warns: over.warns ?? 0 },
+    scan: null,
+    integrity: "ok",
+  };
+}
+
+describe("GET /api/report/conformance — trend history", () => {
+  it("returns 503 when the DB is off, before resolving the org", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    const res = await get("/api/report/conformance?repo=acme/api");
+    expect(res.status).toBe(503);
+    expect(mockReadableOrgForOwner).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a missing/unusable repo query param", async () => {
+    const res = await get("/api/report/conformance?repo=not-a-repo");
+    expect(res.status).toBe(400);
+    expect(mockGetAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("refuses public-org (unowned) repos — history is an org-only surface", async () => {
+    mockReadableOrgForOwner.mockResolvedValue("public");
+    const res = await get("/api/report/conformance?repo=acme/api");
+    expect(res.status).toBe(403);
+    expect(mockGetAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("returns the read-gate's denial verbatim and never queries the ledger", async () => {
+    const denial = deny(401);
+    mockRequireOrgRead.mockResolvedValue(denial);
+    const res = await get("/api/report/conformance?repo=acme/api");
+    expect(res).toBe(denial);
+    expect(mockGetAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("filters the org-wide ledger down to just this repo's reports, newest-first", async () => {
+    mockGetAuditLog.mockResolvedValue({
+      entries: [
+        conformanceRow({ at: "2026-07-20T00:00:00.000Z", repo: "acme/other", score: 10 }), // different repo
+        conformanceRow({ at: "2026-07-19T00:00:00.000Z", repo: "acme/api", score: 90, sha: "abc1234" }),
+        conformanceRow({ at: "2026-07-12T00:00:00.000Z", repo: "acme/api", score: 82 }),
+      ],
+      nextCursor: null,
+    });
+
+    const res = await get("/api/report/conformance?repo=acme/api");
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.repo).toBe("acme/api");
+    expect(body.points).toEqual([
+      { at: "2026-07-19T00:00:00.000Z", score: 90, fails: 0, warns: 0, sha: "abc1234" },
+      { at: "2026-07-12T00:00:00.000Z", score: 82, fails: 0, warns: 0, sha: null },
+    ]);
+    expect(mockGetAuditLog).toHaveBeenCalledWith("acme", { action: "conformance.reported", cursor: null, limit: 100 });
+  });
+
+  it("paginates the ledger via cursor when the first page has no matching rows for this repo", async () => {
+    mockGetAuditLog
+      .mockResolvedValueOnce({ entries: [conformanceRow({ at: "t2", repo: "acme/other", score: 1 })], nextCursor: "c1" })
+      .mockResolvedValueOnce({ entries: [conformanceRow({ at: "t1", repo: "acme/api", score: 77 })], nextCursor: null });
+
+    const res = await get("/api/report/conformance?repo=acme/api");
+    const body = await res.json();
+
+    expect(body.points).toEqual([{ at: "t1", score: 77, fails: 0, warns: 0, sha: null }]);
+    expect(mockGetAuditLog).toHaveBeenNthCalledWith(2, "acme", { action: "conformance.reported", cursor: "c1", limit: 100 });
+  });
+
+  it("flags a regression when the newest report scored lower than the one before it", async () => {
+    mockGetAuditLog.mockResolvedValue({
+      entries: [
+        conformanceRow({ at: "t2", repo: "acme/api", score: 60 }),
+        conformanceRow({ at: "t1", repo: "acme/api", score: 90 }),
+      ],
+      nextCursor: null,
+    });
+    const body = await (await get("/api/report/conformance?repo=acme/api")).json();
+    expect(body.regressed).toBe(true);
+  });
+
+  it("does not flag a regression on an improvement, a flat score, or a single-point history", async () => {
+    mockGetAuditLog.mockResolvedValue({
+      entries: [
+        conformanceRow({ at: "t2", repo: "acme/api", score: 95 }),
+        conformanceRow({ at: "t1", repo: "acme/api", score: 90 }),
+      ],
+      nextCursor: null,
+    });
+    expect((await (await get("/api/report/conformance?repo=acme/api")).json()).regressed).toBe(false);
+
+    mockGetAuditLog.mockResolvedValue({ entries: [conformanceRow({ at: "t1", repo: "acme/api", score: 90 })], nextCursor: null });
+    expect((await (await get("/api/report/conformance?repo=acme/api")).json()).regressed).toBe(false);
+  });
+
+  it("returns an empty trend (not an error) when the repo has never reported", async () => {
+    const res = await get("/api/report/conformance?repo=acme/api");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ repo: "acme/api", points: [], regressed: false });
   });
 });

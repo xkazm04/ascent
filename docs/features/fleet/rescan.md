@@ -83,6 +83,15 @@ returns, guarded by `report.engine.provider !== "mock"`:
 - **BYOM / `public` / within-allowance** runs never reserved a credit (`reserved === false`), so
   `refundScanCredit` is a no-op on both paths — a refund there would *mint* a credit.
 
+**Second meter on `/api/org/import` (G7-17).** A run that opts into the public funnel
+(`publicFunnel: true` on a non-mock, token-less request — see
+[wizard.md](../onboarding/wizard.md)) is metered by the free **monthly public-scan allowance**
+(`src/lib/public-scan-quota.ts`) rather than by credits: `metered` is false for it, so nothing is
+reserved, and instead one allowance slot is consumed per repo and refunded through the *same*
+`refundCredit()` verb. That is deliberate — one refund call has to give back whichever meter this run
+actually charged, or a deduped/degraded public scan would silently burn a free slot. The flag is
+honoured only when no installation token was minted, so it can never buy a free private scan.
+
 The caller is never charged silently: `/api/org/scan` and `/api/org/import` add `charged: <bool>`
 to the failing per-repo SSE `repo` event (alongside `error`), and the cron — which has no
 human watching — appends `(credit kept — inference already ran)` to that repo's entry in `errors`.

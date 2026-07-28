@@ -6,7 +6,7 @@
 // Presentational + pure helpers only, so it stays a server component (no "use client").
 
 import Link from "next/link";
-import type { PublicRepoCard } from "@/lib/db";
+import type { RegisterEntry } from "@/lib/register/data";
 import type { DimensionId } from "@/lib/types";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex, timeAgo } from "@/lib/ui";
@@ -33,7 +33,21 @@ function ScoreCell({ score, big = false, className = "" }: { score?: number; big
   );
 }
 
-export function LeaderboardTable({ rows }: { rows: PublicRepoCard[] }) {
+/**
+ * `ranked: false` draws the SAME table with no rank numbers — the shape the register's "not
+ * independently scored" section uses. A mock-engine row must never wear a board position, so the rank
+ * cell becomes an em dash rather than a number, and every row carries the `demo` qualifier below.
+ */
+export function LeaderboardTable({
+  rows,
+  startRank = 1,
+  ranked = true,
+}: {
+  rows: RegisterEntry[];
+  /** 1-based position of `rows[0]` on the whole board — the pager's page offset. */
+  startRank?: number;
+  ranked?: boolean;
+}) {
   return (
     <div className="mt-8">
       {/* Column header — aligned to the row track; dimension labels only show where their columns do. */}
@@ -53,15 +67,16 @@ export function LeaderboardTable({ rows }: { rows: PublicRepoCard[] }) {
 
       <ol className={`divide-y divide-divider/70`}>
         {rows.map((c, i) => {
-          const rank = i + 1;
+          const rank = startRank + i;
           return (
             <li key={c.fullName} className={`group relative py-3.5 transition hover:bg-white/[0.02] ${GRID}`}>
               <span
                 className={`text-center font-mono text-sm tabular-nums ${
-                  rank <= 3 ? "font-bold text-accent" : "text-slate-600"
+                  ranked && rank <= 3 ? "font-bold text-accent" : "text-slate-600"
                 }`}
+                title={ranked ? undefined : "Not ranked — this score came from the deterministic preview rubric."}
               >
-                {String(rank).padStart(2, "0")}
+                {ranked ? String(rank).padStart(2, "0") : "—"}
               </span>
 
               <span className="min-w-0">
@@ -77,7 +92,27 @@ export function LeaderboardTable({ rows }: { rows: PublicRepoCard[] }) {
                   </span>
                 </Link>
                 <span className="font-mono text-xs uppercase tracking-widest text-slate-500">
-                  {c.levelName} · {timeAgo(c.scannedAt)}
+                  {/* Crawl path into the owner's public scorecard. Dynamic per-owner routes can't be
+                      enumerated in sitemap.ts, so this link is how they get discovered at all. It sits
+                      above the stretched row overlay (relative z-10) or the report link would eat it. */}
+                  <Link
+                    href={`/scorecard/${c.owner}`}
+                    className="focus-ring relative z-10 rounded-sm underline decoration-dotted underline-offset-2 transition hover:text-accent"
+                    title={`Public scorecard for ${c.owner}`}
+                  >
+                    {c.owner}
+                  </Link>{" "}
+                  · {c.levelName} · {timeAgo(c.scannedAt)}
+                  {/* Provenance, carried onto the public surface exactly as the README badge carries
+                      it: a deterministic-rubric score is a preview, never a rating. Never silent. */}
+                  {!c.verified && (
+                    <span
+                      className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-300/90"
+                      title="Scored by the deterministic preview rubric — no model contributed. Not ranked."
+                    >
+                      demo
+                    </span>
+                  )}
                 </span>
               </span>
 

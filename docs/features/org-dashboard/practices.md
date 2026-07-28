@@ -103,6 +103,41 @@ client component lets the user pick a target gap repo, **Preview** (→ `/genera
 the artifact body in a collapsible block), and **Open draft PR** (→ `/apply`, shows a link
 to the PR, labeled "Existing draft PR" when reused). Errors surface inline.
 
+## Playbooks: the org's OWN standards (authored, not mined)
+
+Alongside the mined practices, the Practice Library lists **playbooks** an org authors for
+itself (`src/lib/db/playbooks.ts`, `/api/org/playbooks`). Three things connect the two
+halves:
+
+- **Promote a mined practice into a playbook (G7-25).** A mined practice detail carries a
+  "Save as playbook →" action that opens the author form pre-filled from the practice:
+  its label becomes the title, its dimension carries over, its "what" plus the exemplar
+  repo become the summary, and its leak-free starter becomes the checklist. The mapping is
+  pure and bounded to exactly what `createPlaybook` stores (single-line title ≤200,
+  summary ≤1000, ≤20 steps of ≤300 chars) — see
+  `src/components/org/practices/promotePractice.ts` — so nothing is silently truncated on
+  save. Everything stays editable: a promotion is a review, not a commit.
+- **Fleet rollout for playbooks (G7-24).** `POST /api/org/playbooks/[id]/apply-batch
+  { repos[] }` opens a draft PR seeding the playbook into a whole segment (or the whole
+  fleet) in one action, mirroring the practices batch verbatim. Its bounds: the **admin**
+  role (resolved from the playbook's own org — the single-repo `apply` stays member-level),
+  every repo must belong to that org (a foreign coordinate fails the whole batch, never
+  partially applies), **25 repos per call** after case-insensitive dedupe with the excess
+  reported as `skipped`, and `SCAN_CONCURRENCY` lanes. One repo's failure never aborts the
+  rest. UI: `PlaybookApplyBatch.tsx`, behind the same `batchPrConfirm` dialog the practices
+  rollout uses; the single-repo and batch paths are mutually locked. The write sequence
+  itself is single-sourced in `src/lib/org/playbook-apply.ts`, shared with the single route.
+- **Rollout rollup (G7-20).** `summarizeRollout` (in `practiceRows.ts`) folds the rows
+  already on screen into the fleet answer — repos adopting, starter PRs landed / in flight,
+  and lift — rendered by `PracticeRolloutStrip.tsx`. It adds no query and no schema: the
+  per-repo loop was already complete (apply → `ImprovementPr` → `refreshOps` merges it →
+  `verifyMergedPrs` stamps the measured dimension impact), what was missing was the
+  aggregate. Playbook lift is **sample-weighted** by `adoption.measured` so a one-repo
+  playbook can't outvote a twelve-repo one, and it is reported SEPARATELY from practice-PR
+  lift because the two are measured on different bases (adoption mark vs. a specific merged
+  PR). A null lift means "not measured yet" and never drags an average toward zero; the
+  strip renders nothing at all until something has actually been rolled out.
+
 ## Relationship to recommendations
 
 Recommendations (see [report.md](../reporting/report.md)) are *exploratory, prioritized, status-tracked*
@@ -121,7 +156,12 @@ straight at the CI-gates practice and its exemplars.
 | `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes). |
 | `src/app/api/practices/apply/route.ts` | Apply endpoint: gates + `openDraftPr` + audit. |
 | `src/lib/github/write.ts` | `openDraftPr()` — branch → file → draft PR (idempotent). |
-| `src/components/org/PracticeApply.tsx` | Preview + apply UI. |
+| `src/components/org/practices/PracticeApply.tsx` | Preview + apply UI. |
+| `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout — admin-gated, org-scoped, capped at 25 repos/run. |
+| `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
+| `src/components/org/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
+| `src/components/org/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
+| `src/components/org/practices/PracticeRolloutStrip.tsx` | Fleet "applied → landed → lift" rollup strip. |
 
 ## Known gaps
 
@@ -133,7 +173,11 @@ straight at the CI-gates practice and its exemplars.
   refreshed template.
 - **Overwrites existing files** — `PUT` updates a file already at the path; there's no
   "create-only" safety check.
-- **Batch apply is capped** — `POST /api/practices/apply-batch` applies one practice
-  across many repos (`PracticeApplyBatch.tsx`), but is bounded to `MAX_BATCH = 25`
-  repos per call; larger fleets need repeated passes. The `base` override has no UI yet.
+- **Batch apply is capped** — both `POST /api/practices/apply-batch` and
+  `POST /api/org/playbooks/[id]/apply-batch` are bounded to **25 repos per call** (a
+  deliberate bound, not a limitation to remove: one click must never become hundreds of
+  PRs); larger fleets need repeated, re-confirmed passes. The `base` override has no UI yet.
+- **The rollout rollup is page-local** — `summarizeRollout` folds the rows the Practices
+  page already has, so the fleet ROI number lives only there. It is not yet a section in
+  the executive briefing (`src/lib/org/briefing.ts`), which remains the natural next home.
 - **Catalog is global** — orgs can't customize practices or starter checklists.

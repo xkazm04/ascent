@@ -15,6 +15,7 @@
 import { resolveHead, type ParsedRepo } from "@/lib/github/source";
 import { activeScoringIdentity, cacheGet, cacheSet, headHintGet, headHintSet, makeCacheKey } from "@/lib/cache";
 import { getHeadHint, getScanReportByCommit } from "@/lib/db";
+import { scopeCacheSegment } from "@/lib/scan-scope";
 import type { ScanReport } from "@/lib/types";
 
 /**
@@ -170,6 +171,54 @@ export async function lookupCachedScan(opts: {
   }
 
   return { cacheKey, headSha, etag, cached: null, source: null };
+}
+
+/**
+ * Cache state for a SCOPED scan — one aimed at a non-default git ref and/or a monorepo sub-path
+ * (G7-07 / G7-08). The scoped twin of {@link lookupCachedScan}, and deliberately much smaller.
+ *
+ * WHAT IT GUARANTEES (the ref/sub-path collision contract):
+ *   • The key is pinned to the REF'S OWN commit sha, resolved server-side by the route — never the
+ *     default branch's head. Two different refs are two different commits, so they can never share an
+ *     entry, and a ref scan can never overwrite or be served the default branch's entry.
+ *   • A sub-path adds an explicit `!path:<dir>` key segment, because a sub-path scan reads a different
+ *     file set at the SAME commit and so is a different subject with the same sha.
+ *   • Only the in-memory tier is consulted, and only under that scoped key. The DB tier is skipped
+ *     entirely: persisted rows are keyed on (repo, headSha) with no notion of scope, so a scoped read
+ *     could return a whole-repo report for a sub-path request (or a report from a totally different
+ *     ingestion scope) — and scoped scans are never WRITTEN there either (see cacheAndPersistScan's
+ *     `persist: false`), so there is nothing correct for it to return.
+ *   • `etag` is null: the ETag machinery re-validates the DEFAULT branch's head, which is not what
+ *     this scan is pinned to, and persisting it would poison the head hint for ordinary scans.
+ *
+ * `fresh` (an explicit re-test) skips the in-memory hit but keeps the key, exactly as the unscoped
+ * lookup does, so the re-run still populates the cache and still coalesces.
+ */
+export function lookupScopedScan(opts: {
+  parsed: ParsedRepo;
+  useLLM: boolean;
+  /** The ref's OWN 40-hex commit sha (resolved by the route), or null when the scan isn't ref-pinned. */
+  refSha: string | null;
+  /** Normalized sub-path, or undefined. */
+  subPath?: string;
+  fresh?: boolean;
+}): ScanCacheLookup {
+  const { parsed, useLLM, refSha, subPath, fresh = false } = opts;
+  const cacheKey = makeCacheKey(
+    parsed.owner,
+    parsed.repo,
+    useLLM,
+    refSha,
+    undefined,
+    scopeCacheSegment({ subPath }),
+  );
+  if (!fresh) {
+    const mem = cacheGet(cacheKey);
+    if (mem && isPersistedScanFresh(mem.scannedAt)) {
+      return { cacheKey, headSha: refSha, etag: null, cached: mem, source: "memory" };
+    }
+  }
+  return { cacheKey, headSha: refSha, etag: null, cached: null, source: null };
 }
 
 /**

@@ -90,6 +90,91 @@ function authoredRow(pb: PlaybookRow, adoption: PlaybookAdoption | undefined, fl
 }
 
 /**
+ * G7-20 — the FLEET-LEVEL rollout rollup the per-row chrome never added up to.
+ *
+ * The per-practice loop was already complete before this: applying opens a real draft PR, the PR is
+ * recorded onto the shared ImprovementPr lifecycle, `refreshOps` advances it open→merged, and
+ * `verifyMergedPrs` stamps the measured dimension impact from the first post-merge scan — all of it
+ * surfaced per row (`rollout`) and per playbook (`adoption.lift` / `.measured`). What was missing was
+ * the number a leader actually asks for: across the whole library, what did this put in motion and
+ * what did it move. This folds the rows that are already on screen; it adds no query and no schema.
+ *
+ * The two lift figures are kept SEPARATE on purpose. They are measured on different bases — a
+ * playbook's lift is the dimension delta in adopting repos since the adoption mark, a practice's is
+ * the delta bookended by a specific merged PR — so averaging them into one headline would invent a
+ * number neither layer supports. Each carries its own sample count for the same reason.
+ */
+export interface PracticeRollout {
+  /** Authored playbooks with at least one adopting repo. */
+  playbooksAdopted: number;
+  /** Distinct repos that have adopted at least one authored playbook. */
+  adoptingRepos: number;
+  /** Sample-weighted average dimension lift across adopting repos with a before/after scan. */
+  playbookLift: number | null;
+  /** Adoptions backing `playbookLift` (repos with a scan on both sides of the adoption). */
+  playbookMeasured: number;
+  /** Starter PRs the mined practices have in flight / landed. */
+  prsOpen: number;
+  prsMerged: number;
+  /** Average measured dimension lift of merged+verified starter PRs, across the practices that have
+   *  one. `practiceLiftSources` is how many practices back it — a one-practice average is not a fleet
+   *  result, and the strip must be able to say so. */
+  practiceLift: number | null;
+  practiceLiftSources: number;
+}
+
+/** Fold the library's rows into {@link PracticeRollout}. Pure. */
+export function summarizeRollout(rows: readonly PracticeRow[]): PracticeRollout {
+  const repos = new Set<string>();
+  let playbooksAdopted = 0;
+  let liftWeighted = 0;
+  let playbookMeasured = 0;
+  let prsOpen = 0;
+  let prsMerged = 0;
+  let practiceLiftSum = 0;
+  let practiceLiftSources = 0;
+
+  for (const r of rows) {
+    const a = r.authored?.adoption;
+    if (a) {
+      if (a.repos > 0) playbooksAdopted += 1;
+      for (const repo of a.appliedRepos) repos.add(repo);
+      // `lift` is itself a mean over `measured` applications, so weighting by `measured` recovers the
+      // true pooled average instead of letting a 1-repo playbook count as much as a 12-repo one.
+      if (a.lift != null && a.measured > 0) {
+        liftWeighted += a.lift * a.measured;
+        playbookMeasured += a.measured;
+      }
+    }
+    if (r.rollout) {
+      prsOpen += r.rollout.open;
+      prsMerged += r.rollout.merged;
+      if (r.rollout.lift != null) {
+        practiceLiftSum += r.rollout.lift;
+        practiceLiftSources += 1;
+      }
+    }
+  }
+
+  return {
+    playbooksAdopted,
+    adoptingRepos: repos.size,
+    playbookLift: playbookMeasured > 0 ? Math.round(liftWeighted / playbookMeasured) : null,
+    playbookMeasured,
+    prsOpen,
+    prsMerged,
+    practiceLift: practiceLiftSources > 0 ? Math.round(practiceLiftSum / practiceLiftSources) : null,
+    practiceLiftSources,
+  };
+}
+
+/** True when the rollup has anything to report — a library nobody has applied yet must render no
+ *  strip at all rather than a row of confident zeros. */
+export function rolloutIsMeaningful(r: PracticeRollout): boolean {
+  return r.adoptingRepos > 0 || r.prsOpen > 0 || r.prsMerged > 0;
+}
+
+/**
  * Merge authored playbooks + mined practices into one row list. `fleetSize` (the org's scannable repo
  * count) gives authored practices a reach denominator. Order: the org's OWN standards first (authored),
  * then mined practices by biggest reuse opportunity — so a lead sees "what we've committed to" above

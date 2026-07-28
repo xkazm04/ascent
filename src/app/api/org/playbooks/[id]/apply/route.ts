@@ -4,28 +4,22 @@
 // mechanism the derived Practice Library already has via /api/practices/apply, now for first-party
 // playbooks. Same trust model: GitHub App installed + signed-in + org-owned. On success it also
 // records the adoption mark so the playbook's lift analytics light up.
+//
+// The write sequence itself lives in @/lib/org/playbook-apply, shared with the fleet `apply-batch`
+// sibling; this route owns only its gating and its one-status error mapping.
 
 import { NextResponse } from "next/server";
-import { fetchRepoContext } from "@/lib/github/source";
-import { openDraftPr } from "@/lib/github/write";
 import { isAppConfigured } from "@/lib/github/app";
-import { applyPlaybook, getPlaybook, isDbConfigured, recordOrgAudit } from "@/lib/db";
+import { getPlaybook, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
-import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
-import { DIMENSION_SHORT } from "@/lib/ui";
-import type { DimensionId } from "@/lib/types";
-import { slugify } from "@/lib/slug";
+import { applyPlaybookToRepo } from "@/lib/org/playbook-apply";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-// Branch-name-length cap (60), distinct from the file-path cap used elsewhere — kept as a parameter
-// to `slugify`, not flattened, since the two feed different downstream limits.
-const slug = (s: string) => slugify(s, 60, "playbook");
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -60,54 +54,18 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const playbook = await getPlaybook(id);
   if (!playbook) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
 
-  const dimLabel = DIMENSION_SHORT[playbook.dimId as DimensionId] ?? playbook.dimId;
-  const brief = playbookMarkdown(playbook, dimLabel);
-  // Single-sourced with the PlaybookCard "Preview starter" so the preview matches what's committed.
-  const fileBody = playbookStarterFile(playbook, dimLabel);
-
   try {
     // Install presence (403) + installation-token mint, single-sourced across the PR-write routes.
-    const ctx = await requirePrWriteContext(org);
-    if (ctx instanceof Response) return ctx;
-    const { token } = ctx;
-    const ctxRepo = await fetchRepoContext(parsed, token);
-    const pr = await openDraftPr({
-      token,
-      owner: parsed.owner,
-      repo: parsed.repo,
-      // Namespace the branch + committed file by the playbook's DB id (its true identity), not only
-      // the human title slug: two distinct playbooks whose titles slug identically (e.g. "Our CI
-      // standard" / "Our CI Standard!") used to collide on the SAME branch/file, so applying B reused
-      // A's open PR and overwrote it with B's content while adoption was recorded against B's id.
-      // Including the id makes the GitHub artifact namespace as unique as the playbook. (playbooks #2)
-      branch: `ascent/playbook-${id}-${slug(playbook.title)}`,
+    const prCtx = await requirePrWriteContext(org);
+    if (prCtx instanceof Response) return prCtx;
+    const { pr } = await applyPlaybookToRepo({
+      token: prCtx.token,
+      org,
+      playbook,
+      parsed,
       base: body.base,
-      path: `docs/playbooks/${id}-${slug(playbook.title)}.md`,
-      content: fileBody,
-      commitMessage: `docs: adopt "${playbook.title}" playbook (via Ascent)`,
-      prTitle: `Adopt playbook: ${playbook.title}`,
-      prBody: brief,
+      actorLogin,
     });
-
-    // The PR is now OPEN — the adoption mark + audit are BOOKKEEPING. A failure here must NOT surface as
-    // "Failed to open the playbook PR." (the outer catch's 500): the PR exists, so reporting failure sends
-    // the caller to retry and open a DUPLICATE. Record best-effort and always return the opened PR, so a
-    // "PR opened but a follow-up step failed" is distinguished from "PR not opened". (playbooks #2)
-    try {
-      await applyPlaybook(org, id, ctxRepo.fullName, actorLogin);
-      await recordOrgAudit(
-        "playbook.pr_opened",
-        org,
-        { repo: ctxRepo.fullName, playbookId: id, pr: pr.number, reused: pr.reused },
-        actorLogin ?? undefined,
-      );
-    } catch (bookkeepErr) {
-      console.error(
-        "[playbooks/apply] PR opened but adoption/audit bookkeeping failed",
-        bookkeepErr instanceof Error ? bookkeepErr.message : bookkeepErr,
-      );
-    }
-
     return NextResponse.json(pr);
   } catch (err) {
     // Unified with the sibling PR-write routes. This ALSO gains the 409 "won't overwrite" branch this

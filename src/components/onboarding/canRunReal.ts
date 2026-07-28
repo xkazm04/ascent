@@ -29,3 +29,22 @@ export function canRunRealScan(args: {
   if (!sourceInstallId || !credit || credit.org !== sourceLabel) return false;
   return credit.unlimited || credit.balance > 0 || (credit.allowanceRemaining ?? 0) > 0;
 }
+
+/**
+ * The PUBLIC-handle path (G7-17): no installation, so no private repo can be read and no credit can be
+ * drawn — but that is an argument for a REAL scan, not against one.
+ *
+ * `/report?repo=` has always scored a public repo for real, free, with no account, metered only by the
+ * monthly public-scan allowance (src/lib/public-scan-quota.ts). The onboarding funnel is the SAME work
+ * on the SAME kind of repo, so scoring it with the deterministic rubric made the product's highest-
+ * intent first run the one place it showed numbers no model produced — and those numbers land in the
+ * public corpus that the public register ranks. Routing this path to a real scan is what makes the
+ * register trustworthy at its source.
+ *
+ * The server is the authority: `/api/org/import` runs the token-less public path (private repos 404 by
+ * construction) and charges the same public-scan allowance, capping/refusing the batch when it is
+ * exhausted. This predicate only decides what the client REQUESTS.
+ */
+export function canRunRealPublicScan(args: { sourceInstallId?: string | null }): boolean {
+  return !args.sourceInstallId;
+}

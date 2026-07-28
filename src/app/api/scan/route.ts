@@ -9,7 +9,15 @@ import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl, type ParsedRepo } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
-import { isPersistedScanFresh, lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
+import {
+  isPersistedScanFresh,
+  lookupCachedScan,
+  lookupScopedScan,
+  resolveHeadWithHint,
+  type ScanCacheLookup,
+} from "@/lib/scan-cache";
+import { isScopedScan, scopeWarning } from "@/lib/scan-scope";
+import { resolveScanScope, UNSCOPED, type ResolvedScanScope } from "@/lib/scan-scope-server";
 import { consumeScanCredit, CREDIT_REASON, getScanReportByCommit, grantCredits, recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
 import { scanAuthGate, scanRateLimitGate } from "@/lib/scan-gates";
@@ -52,7 +60,21 @@ async function latestPublicReport(parsed: ParsedRepo | null, token: string | und
 
 async function runScan(
   url: string,
-  opts: { token?: string; mock: boolean; installationId?: string; fresh?: boolean; peek?: boolean; recent?: boolean; latest?: boolean; signal?: AbortSignal; req?: Request },
+  opts: {
+    token?: string;
+    mock: boolean;
+    installationId?: string;
+    fresh?: boolean;
+    peek?: boolean;
+    recent?: boolean;
+    latest?: boolean;
+    signal?: AbortSignal;
+    req?: Request;
+    /** Optional SCOPE (G7-07 / G7-08): a git ref to score instead of the default branch, and/or a
+     *  monorepo sub-path to aim the ingestion budget at. Validated + resolved server-side. */
+    ref?: string;
+    subPath?: string;
+  },
 ) {
   const parsed = parseRepoUrl(url);
 
@@ -95,14 +117,49 @@ async function runScan(
   // lookup issues a CONDITIONAL head request (free 304 when unchanged), pins the cache key to
   // the resolved commit, then probes the in-memory + persistent (cross-instance) caches. A
   // `fresh` re-test skips the cached report but still resolves the key/ETag for the re-run.
+  //
+  // SCOPE (G7-07 / G7-08). Resolved before the cache probe (a scoped request must never be answered
+  // from the whole-repo entry) and before the quota block below (a typo'd branch must not burn a free
+  // slot). `noAmbientToken` is honored so a ref resolve can't confirm a private repo's branches through
+  // the operator PAT. See scan-scope-server.ts for the collision/trust reasoning.
+  const scopeToken = token ?? (noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
+  const scoping: ResolvedScanScope = parsed
+    ? await resolveScanScope(parsed, { ref: opts.ref, subPath: opts.subPath }, { token: scopeToken })
+    : UNSCOPED;
+  if (scoping.error) {
+    return NextResponse.json({ error: scoping.error.message, code: scoping.error.code }, { status: scoping.error.status });
+  }
+
   let lookup: ScanCacheLookup | null = null;
-  if (parsed && !token) {
+  // The repo's REAL default-branch head — the yardstick isScopedScan measures the requested ref
+  // against, so `?ref=main` stays an ordinary, fully-cached, persisted scan.
+  let defaultHeadSha: string | null = null;
+  const subPathScope = Boolean(scoping.scope.subPath);
+  if (parsed && !token && subPathScope) {
+    // Always scoped — skip the whole-repo lookup (its cached report answers a different question) and
+    // resolve the head with the cheap conditional hint purely to pin the scoped key to a commit.
+    defaultHeadSha = await resolveHeadWithHint(parsed, scopeToken);
+  } else if (parsed && !token) {
     lookup = await lookupCachedScan({ parsed, useLLM: !opts.mock, orgSlug: "public", fresh: opts.fresh });
-    if (lookup.cached) {
-      return NextResponse.json(lookup.cached, {
-        headers: { "x-ascent-cache": lookup.source === "db" ? "hit-db" : "hit" },
-      });
-    }
+    defaultHeadSha = lookup.headSha;
+  }
+  const scoped = scoping.requested && isScopedScan(scoping.scope, token ? null : defaultHeadSha);
+  if (scoped) {
+    lookup =
+      parsed && !token
+        ? lookupScopedScan({
+            parsed,
+            useLLM: !opts.mock,
+            refSha: scoping.pinSha ?? defaultHeadSha,
+            subPath: scoping.scope.subPath,
+            fresh: opts.fresh,
+          })
+        : null;
+  }
+  if (lookup?.cached) {
+    return NextResponse.json(lookup.cached, {
+      headers: { "x-ascent-cache": lookup.source === "db" ? "hit-db" : "hit" },
+    });
   }
 
   // Cache-only probe: the /report page peeks for an existing snapshot of the repo's CURRENT head
@@ -110,6 +167,11 @@ async function runScan(
   // re-scoring from scratch. A cache miss here (or a private/unparseable repo that can't use the
   // shared anonymous cache) returns 204 — the client then falls back to streaming a fresh scan.
   if (opts.peek) {
+    // A SCOPED peek has nothing correct to return: the shared caches and the persisted corpus only
+    // ever hold whole-repo, default-branch readings, so both the head-pinned probe and the
+    // recent/latest salvage below would answer a different question than the one asked. 204 → the
+    // client goes straight to a live scoped scan.
+    if (scoped) return new NextResponse(null, { status: 204 });
     // Hand the head sha/etag we just resolved back to the client so the follow-up streaming scan
     // (the hot peek-miss path) can reuse them and skip a duplicate conditional head request. Only
     // present for anonymous, parseable repos (the ones that share the public cache).
@@ -245,8 +307,15 @@ async function runScan(
       noAmbientToken,
       mock: opts.mock,
       signal,
-      headSha: lookup?.headSha ?? undefined,
+      // On a scoped scan this sha IS the requested ref's own commit (resolved server-side) — the
+      // reason a ref scan can never be keyed by, or collide with, the default branch's entry.
+      headSha: (scoped ? (scoping.pinSha ?? defaultHeadSha) : lookup?.headSha) ?? undefined,
       decisionOrgSlug: decisionViewer ? decisionViewer.login.trim().toLowerCase() : undefined,
+      // The resolved ref sha (never the client's ref string) + the normalized sub-path. Omitted unless
+      // genuinely scoped, so a `ref=main` request ingests byte-for-byte what a plain scan does.
+      ...(scoped
+        ? { ref: scoping.pinSha ?? undefined, subPath: scoping.scope.subPath, scopeCaveat: scopeWarning(scoping.scope) }
+        : {}),
     });
   // Coalesce concurrent scans of the same uncached commit (anonymous cacheable path only) onto one
   // run so two callers don't each pay a full ingest + LLM. The token (private) path is per-tenant and
@@ -275,7 +344,10 @@ async function runScan(
     // salvage the quota wall uses (peek&latest). Anonymous public, parseable repos only (token scans are
     // per-tenant and never share this store); never on a client abort (no one is waiting); never a
     // private snapshot (defense-in-depth on the shared store). x-ascent-stale + x-ascent-fallback flag it.
-    if (!(err instanceof Error && err.name === "AbortError")) {
+    // Never on a SCOPED scan either: the salvaged report is the repo's whole-repo default-branch
+    // reading, which is not what this request asked for — silently answering with it would present a
+    // main-branch score as the branch/package the user typed.
+    if (!(err instanceof Error && err.name === "AbortError") && !scoped) {
       const last = await latestPublicReport(parsed, token);
       if (last) {
         return NextResponse.json(last, {
@@ -323,6 +395,10 @@ async function runScan(
     repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
     orgSlug,
     lookup,
+    // A scoped (ref / sub-path) report is about a different subject than "this repository" — keep it
+    // out of the durable corpus and the regression-alert baseline. The scoped in-memory key can never
+    // collide with the whole-repo one.
+    persist: !scoped,
   });
 
   // The credit was RESERVED before inference (above). Refund it when this commit was already scored
@@ -378,6 +454,9 @@ export async function POST(request: Request) {
       mock?: boolean;
       installationId?: string;
       fresh?: boolean;
+      // Optional scope — a git ref to score instead of the default branch, and/or a monorepo sub-path.
+      ref?: string;
+      subPath?: string;
     };
     if (!body.url || typeof body.url !== "string") {
       return NextResponse.json({ error: "Missing 'url' in request body." }, { status: 400 });
@@ -387,6 +466,8 @@ export async function POST(request: Request) {
       mock: Boolean(body.mock),
       installationId: body.installationId,
       fresh: Boolean(body.fresh),
+      ref: typeof body.ref === "string" ? body.ref : undefined,
+      subPath: typeof body.subPath === "string" ? body.subPath : undefined,
       signal: request.signal,
       req: request,
     });
@@ -429,7 +510,11 @@ export async function GET(request: Request) {
         { status: 405, headers: { allow: "POST", "cache-control": "no-store" } },
       );
     }
-    return await runScan(url, { mock, installationId, fresh, peek, recent, latest, signal: request.signal, req: request });
+    // Scope params are accepted on GET too, but only reach a real scan in the ?mock=1 demo mode (the
+    // guard above restricts GET to peek/mock); a scoped peek short-circuits to 204 inside runScan.
+    const ref = searchParams.get("ref") ?? undefined;
+    const subPath = searchParams.get("path") ?? undefined;
+    return await runScan(url, { mock, installationId, fresh, peek, recent, latest, ref, subPath, signal: request.signal, req: request });
   } catch (err) {
     return handleError(err);
   }

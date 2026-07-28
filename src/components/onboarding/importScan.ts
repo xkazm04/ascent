@@ -29,6 +29,10 @@ export interface ImportScanRequest {
    *  EVERY scan, so anonymous preview users were auto-enrolled in weekly autoscans on repos they don't
    *  own. Left overridable so a future disclosed opt-in can request it explicitly. */
   watch?: boolean;
+  /** G7-17: this is the token-less PUBLIC funnel — run the scan for REAL and meter it against the free
+   *  monthly public-scan allowance rather than prepaid credits. The server honors it only when the run
+   *  is genuinely token-less (private repos 404 there), so it can't buy a free private scan. */
+  publicFunnel?: boolean;
 }
 
 export interface ImportScanCallbacks {
@@ -95,6 +99,8 @@ export async function runImportScan(
         // Default to preview (mock) when the caller doesn't specify — the public-handle funnel can't
         // meter credits. The App path passes mock:false explicitly when the org has credits.
         mock: request.mock ?? true,
+        // Only ever meaningful alongside mock:false; the server ignores it otherwise.
+        publicFunnel: request.publicFunnel ?? undefined,
         watch,
         // Send the cadence only when actually watching, so the body never implies a schedule the
         // server won't set (it ignores `schedule` under watch:false anyway).

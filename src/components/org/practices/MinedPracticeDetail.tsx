@@ -11,7 +11,7 @@ import { PracticeApply } from "@/components/org/practices/PracticeApply";
 import { scoreHex } from "@/lib/ui";
 import type { OrgPractice } from "@/lib/db";
 
-export function MinedPracticeDetail({ p }: { p: OrgPractice }) {
+export function MinedPracticeDetail({ p, onPromote }: { p: OrgPractice; onPromote?: () => void }) {
   // `total` is the # of repos evaluated on this practice's dimension. When it's 0, show a "not yet
   // measured" state instead of a meaningless "0/0 · 0%" that reads as 0% adoption.
   const measured = p.total > 0;
@@ -74,7 +74,22 @@ export function MinedPracticeDetail({ p }: { p: OrgPractice }) {
 
         {/* Reusable shape (leak-free starter) */}
         <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-          <div className="font-mono text-sm uppercase tracking-widest text-accent">Reusable shape</div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="font-mono text-sm uppercase tracking-widest text-accent">Reusable shape</div>
+            {/* G7-25: the hand-off to the org's OWN standards. A mined practice the fleet has proven
+                out had no route into the playbook set — it had to be re-authored from scratch. This
+                opens the author form pre-filled from the starter below, so promotion is a review, not
+                a re-type. */}
+            {onPromote && (
+              <button
+                onClick={onPromote}
+                title="Open the playbook author form pre-filled from this practice"
+                className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-2.5 py-1 text-sm font-medium text-white transition hover:bg-accent/20"
+              >
+                Save as playbook →
+              </button>
+            )}
+          </div>
           <ul className="mt-2 space-y-1 text-base text-slate-300">
             {p.starter.map((s, i) => (
               <li key={i} className="flex gap-2">

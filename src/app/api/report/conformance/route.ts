@@ -20,11 +20,22 @@
 
 import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
-import { isDbConfigured, recordConformance } from "@/lib/db";
+import { getAuditLog, isDbConfigured, recordConformance } from "@/lib/db";
 import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
+import { PUBLIC_ORG, readableOrgForOwner } from "@/lib/auth";
+import { requireOrgRead } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** One reported conformance data point, newest-first (mirrors the audit ledger's own order). */
+export interface ConformanceTrendPoint {
+  at: string;
+  score: number;
+  fails: number;
+  warns: number;
+  sha: string | null;
+}
 
 // Require an ACTUAL number (or a numeric string a shell-built JSON payload might send) — not
 // "coerces to one". `Number(v)` before the finiteness check let null/""/false/[] all coerce to 0
@@ -124,4 +135,76 @@ export async function POST(request: Request) {
   // NOT overwritten. `recorded:false` (without stale) means the repo isn't tracked under this org
   // yet — not an error; watch it first.
   return NextResponse.json({ ok: true, recorded, stale, repo: fullName });
+}
+
+// GET /api/report/conformance?repo=owner/name[&limit=50] -> { repo, points, regressed }
+//
+// The Continuous Conformance trend (G7-23): every accepted POST above already appends a
+// `conformance.reported` row to the org's audit ledger (recordConformance, in src/lib/db/org-watch.ts)
+// — the Repository row itself only holds the LATEST score, but the ledger is real per-report history,
+// so a trend can be read back with no schema change. This walks that ledger (via the existing
+// getAuditLog reader, action-filtered) and picks out the rows for THIS repo, since getAuditLog has no
+// per-repo filter of its own. `regressed` is a computed signal only — it is not dispatched anywhere;
+// wiring it to a push notification belongs to the alerts system (G7-03), which this change does not
+// touch.
+async function loadConformanceTrend(org: string, fullName: string, limit: number): Promise<ConformanceTrendPoint[]> {
+  const points: ConformanceTrendPoint[] = [];
+  let cursor: string | null = null;
+  // Bound the ledger scan: a busy org's audit trail can be large, and most of it is other actions or
+  // other repos' conformance reports. 10 pages of 100 (the max page size getAuditLog allows) is enough
+  // to surface a meaningful trend for any one repo without an unbounded read on a shared table.
+  const MAX_PAGES = 10;
+  for (let page = 0; page < MAX_PAGES && points.length < limit; page++) {
+    const res = await getAuditLog(org, { action: "conformance.reported", cursor, limit: 100 });
+    if (!res || res.entries.length === 0) break;
+    for (const e of res.entries) {
+      const meta = e.meta as { repo?: string; sha?: string | null; score?: number; fails?: number; warns?: number };
+      if (meta.repo !== fullName) continue;
+      points.push({
+        at: e.at,
+        score: Number(meta.score) || 0,
+        fails: Number(meta.fails) || 0,
+        warns: Number(meta.warns) || 0,
+        sha: typeof meta.sha === "string" ? meta.sha : null,
+      });
+      if (points.length >= limit) break;
+    }
+    if (!res.nextCursor) break;
+    cursor = res.nextCursor;
+  }
+  return points; // newest-first, matching getAuditLog's own ordering
+}
+
+export async function GET(request: Request) {
+  if (!isDbConfigured()) {
+    return NextResponse.json({ error: "Conformance history requires a database." }, { status: 503 });
+  }
+  const { searchParams } = new URL(request.url);
+  const parsed = parseRepoUrl(searchParams.get("repo") ?? "");
+  if (!parsed) return NextResponse.json({ error: "Provide ?repo=owner/name." }, { status: 400 });
+
+  const org = await readableOrgForOwner(parsed.owner);
+  if (org === PUBLIC_ORG) {
+    return NextResponse.json({ error: "Conformance history is only available for org-owned repositories." }, { status: 403 });
+  }
+  // Read-side tenant gate — this surfaces the org's own audit ledger content, same sensitivity as
+  // /api/audit, so any org member (not just admin) may read it.
+  const denied = await requireOrgRead(org);
+  if (denied) return denied;
+
+  const limit = Math.min(200, Math.max(1, Number(searchParams.get("limit")) || 50));
+  const fullName = `${parsed.owner}/${parsed.repo}`;
+  try {
+    const points = await loadConformanceTrend(org, fullName, limit);
+    // Regression: the newest report scored lower than the one immediately before it (points are
+    // newest-first). A single-point history has nothing to regress against.
+    // Destructured rather than indexed: `length >= 2` does not narrow index access under
+    // noUncheckedIndexedAccess, and an explicit pair reads as the comparison it is.
+    const [newest, prior] = points;
+    const regressed = newest !== undefined && prior !== undefined && newest.score < prior.score;
+    return NextResponse.json({ repo: fullName, points, regressed });
+  } catch (err) {
+    console.error("[conformance] trend query failed", err);
+    return NextResponse.json({ error: "Failed to load conformance history." }, { status: 500 });
+  }
 }

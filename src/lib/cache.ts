@@ -165,6 +165,14 @@ function scoringFingerprint(useLLM: boolean, identity?: ScoringIdentity): string
  * old entries; that re-introduces the fleet-wide staleness this key was widened to fix. `identity` is
  * an explicit override for tests / a caller that already resolved it; production callers omit it and
  * the current env-derived identity is used.
+ *
+ * `scope` (G7-08) is the SUBJECT segment: a monorepo sub-path scan reads a different file set at the
+ * SAME commit, so the sha alone no longer identifies what was scored. Rendered as `@sha!scope` so a
+ * scoped entry can never collide with — or be served to — a whole-repo reader of that commit, and vice
+ * versa. Omitted (the default) reproduces the pre-scope key byte-for-byte, so every existing entry and
+ * every existing caller is unaffected. A ref deliberately does NOT go in here: two ref NAMES that
+ * resolve to one commit produce an identical scan and should share the entry (the ref's own resolved
+ * sha is what distinguishes a ref scan — see src/lib/scan-scope.ts).
  */
 export function makeCacheKey(
   owner: string,
@@ -172,10 +180,12 @@ export function makeCacheKey(
   useLLM: boolean,
   sha?: string | null,
   identity?: ScoringIdentity,
+  scope?: string | null,
 ): string {
   const rev = sha ? `@${sha.toLowerCase()}` : "";
+  const scoped = scope ? `!${scope}` : "";
   const mode = useLLM ? "llm" : "mock";
-  return `${normalizeRepoName(owner)}/${normalizeRepoName(repo)}${rev}::${mode}#${scoringFingerprint(useLLM, identity)}`;
+  return `${normalizeRepoName(owner)}/${normalizeRepoName(repo)}${rev}${scoped}::${mode}#${scoringFingerprint(useLLM, identity)}`;
 }
 
 export function cacheGet(key: string): ScanReport | null {

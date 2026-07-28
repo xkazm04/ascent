@@ -8,6 +8,14 @@
 // (Organization.alertWebhookUrl, threaded in by the caller) when set, else the global
 // ALERT_WEBHOOK_URL — and is otherwise a graceful no-op so the feature degrades cleanly with no
 // configuration. Per-org routing keeps one tenant's fleet intelligence out of another's channel.
+//
+// EMAIL SINKS (G7-01). The same sink field also accepts `mailto:someone@example.com`, in which case
+// dispatchAlert renders the message as mail and sends it through the ONE existing transport
+// (src/lib/email) instead of POSTing. That is the whole email channel: no per-feature toggle, no second
+// recipient list, and no send to anyone who wasn't deliberately configured as this org's sink by an
+// admin. It is off in three independent ways by default — no sink stored, no global ALERT_WEBHOOK_URL,
+// and no email provider (SES_FROM_EMAIL) — and each alert mail carries the unsubscribe link that clears
+// the sink (see src/lib/email/alert-sink.ts + /api/email/unsubscribe).
 
 import type { ScanDiff } from "@/lib/report/compare";
 import { isWithinNoise, postureTransition } from "@/lib/maturity/noise";
@@ -473,6 +481,143 @@ export function buildLowCreditsMessage(d: LowCreditsInput): AlertMessage {
   return { text: textParts.join("\n"), blocks };
 }
 
+// --- G7-03: the three trigger classes the alert layer could always compute and never pushed ---------
+// Goal-at-risk, a security flip, and a spend anomaly were each "open the dashboard and notice a number"
+// gaps on the product's one push channel. All three are PURE builders in the buildRegressionMessage
+// family (plain-text fallback + Block Kit sections + a link), so they inherit the email rendering, the
+// per-org sink routing and the dispatch deadline for free. Detection helpers live beside them so the
+// "is this worth a push" decision is unit-tested rather than restated at each call site.
+
+/** One goal's standing, in the shape the pace fields of GoalProgress already provide. */
+export interface GoalRisk {
+  label: string;
+  metricLabel: string;
+  current: number;
+  target: number;
+  targetDate: string | null;
+  /** Weekly gain still needed to hit the target by the deadline, when computable. */
+  requiredPerWeek: number | null;
+  /** Current weekly rate of change. */
+  perWeek: number;
+}
+
+export interface GoalAtRiskInput {
+  org: string;
+  url?: string;
+  goals: GoalRisk[];
+}
+
+/**
+ * Build the goal-at-risk push. Fires on goals the plan layer already marks `pace: "behind"` — the one
+ * fact a leader currently has to remember to go looking for. Pure.
+ */
+export function buildGoalAtRiskMessage(d: GoalAtRiskInput): AlertMessage {
+  const n = d.goals.length;
+  const headline = `${SEV_EMOJI.warning} Ascent: ${n} goal${n === 1 ? "" : "s"} off pace in ${d.org}`;
+  const line = (g: GoalRisk) => {
+    const by = g.targetDate ? ` by ${g.targetDate}` : "";
+    const need =
+      g.requiredPerWeek != null
+        ? ` — needs ${signed(Math.round(g.requiredPerWeek * 10) / 10)}/wk, running at ${signed(Math.round(g.perWeek * 10) / 10)}/wk`
+        : ` — running at ${signed(Math.round(g.perWeek * 10) / 10)}/wk`;
+    return `• ${g.label}: ${g.metricLabel} ${g.current}/${g.target}${by}${need}`;
+  };
+  const lines = d.goals.map(line);
+  const textParts = [headline, ...lines];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*`), mrkdwnSection(lines.join("\n"))];
+  if (d.url) blocks.push(linkContext(d.url, "Open the plan"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+/** A security event worth interrupting someone for: a fresh critical advisory or a gate pass→fail flip. */
+export interface SecurityAlertItem {
+  repo: string;
+  /** One-line description ("2 new critical advisories", "Branch protection gate flipped to FAIL"). */
+  detail: string;
+  kind: "advisory" | "gate";
+}
+
+export interface SecurityAlertInput {
+  org: string;
+  url?: string;
+  items: SecurityAlertItem[];
+}
+
+/**
+ * Build the security push. `critical` severity: a new critical advisory or a governance gate flipping
+ * pass→fail is the class of change a team wants to hear about the same day, not next Monday. Pure.
+ */
+export function buildSecurityAlertMessage(d: SecurityAlertInput): AlertMessage {
+  const n = d.items.length;
+  const headline = `${SEV_EMOJI.critical} Ascent: security standing dropped in ${d.org}`;
+  const summary = `${n} repo${n === 1 ? "" : "s"} crossed a security line since the last check.`;
+  const lines = d.items.map((i) => `• ${i.repo}: ${i.detail}`);
+  const textParts = [headline, summary, ...lines];
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${summary}`), mrkdwnSection(lines.join("\n"))];
+  if (d.url) blocks.push(linkContext(d.url, "Open governance"));
+  return { text: textParts.join("\n"), blocks };
+}
+
+export interface SpendAnomalyInput {
+  org: string;
+  url?: string;
+  /** Metered scans (or cost basis units) in the period that tripped the alert. */
+  periodScans: number;
+  /** Trailing per-period average the current period is measured against. */
+  baseline: number;
+  /** Ratio current/baseline, e.g. 2.4. */
+  ratio: number;
+  /** Estimated USD for the period, when the usage layer could price it. */
+  estimatedCostUsd?: number | null;
+}
+
+/** Default multiple of the trailing average that counts as a spend anomaly. */
+const DEFAULT_SPEND_ANOMALY_RATIO = 2;
+/** Below this many scans in the period, a ratio is meaningless (1 → 3 is not an anomaly). */
+const SPEND_ANOMALY_MIN_SCANS = 10;
+
+/**
+ * SPEND_ANOMALY_RATIO (a number > 1), default 2 — the multiple of the trailing average that trips the
+ * alert. Blank/missing → the default, never 0 (the blank-vs-zero rule the cost rates use).
+ */
+export function spendAnomalyRatio(): number {
+  const raw = process.env.SPEND_ANOMALY_RATIO;
+  if (raw == null || raw.trim() === "") return DEFAULT_SPEND_ANOMALY_RATIO;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 1 ? n : DEFAULT_SPEND_ANOMALY_RATIO;
+}
+
+/**
+ * Is this period's metered volume an anomaly against its trailing baseline? Pure. Deliberately
+ * one-sided (a DROP in spend is not a page) and floored at SPEND_ANOMALY_MIN_SCANS so a fleet doing
+ * single-digit scans can't trip a "3× spend" alert on two extra runs. A zero baseline with real volume
+ * counts — first spend on a previously idle org is exactly the surprise this exists to catch.
+ */
+export function isSpendAnomaly(periodScans: number, baseline: number, ratio: number = spendAnomalyRatio()): boolean {
+  if (periodScans < SPEND_ANOMALY_MIN_SCANS) return false;
+  if (baseline <= 0) return true;
+  return periodScans / baseline >= ratio;
+}
+
+/** Build the spend-anomaly push. Pure. */
+export function buildSpendAnomalyMessage(d: SpendAnomalyInput): AlertMessage {
+  const headline = `${SEV_EMOJI.warning} Ascent: scan spend spiked in ${d.org}`;
+  const mult = d.baseline > 0 ? `${(Math.round(d.ratio * 10) / 10).toFixed(1)}×` : "no prior";
+  const body =
+    d.baseline > 0
+      ? `${d.periodScans} metered scans this period vs a ${Math.round(d.baseline)} trailing average (${mult}).`
+      : `${d.periodScans} metered scans this period, against no prior activity.`;
+  const cost = d.estimatedCostUsd != null ? `Estimated inference cost this period: $${d.estimatedCostUsd.toFixed(2)}.` : null;
+  const textParts = [headline, body];
+  if (cost) textParts.push(cost);
+  if (d.url) textParts.push("", d.url);
+  const blocks: unknown[] = [mrkdwnSection(`*${headline}*\n${body}${cost ? `\n${cost}` : ""}`)];
+  if (d.url) blocks.push(linkContext(d.url, "Open usage"));
+  return { text: textParts.join("\n"), blocks };
+}
+
 /**
  * Build the "test alert" message an admin sends to confirm their sink is wired up. Pure — the same
  * shape as the other builders (plain-text fallback + a single Block-Kit section), so the test send
@@ -485,6 +630,24 @@ export function buildTestAlertMessage(org: string): AlertMessage {
     text: `${headline}\n${body}`,
     blocks: [mrkdwnSection(`*${headline}*\n${body}`)],
   };
+}
+
+/** Minimal email shape for a `mailto:` sink — one @, no whitespace, a dotted domain. Same rule as
+ *  isValidEmail in @/lib/email (restated here to keep this module free of a server-only import). */
+const SINK_EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * The address a sink points at when it is an EMAIL sink (`mailto:you@example.com`), else null. Pure.
+ * G7-01: the alert sink accepts an address alongside an https webhook so an org whose leadership
+ * doesn't live in Slack can still receive regression alerts, the weekly digest and the credit/goal/
+ * spend pushes. Kept here (not only in the email module) so `dispatchAlert` can branch without a
+ * server-only import, and so the shape is pinned by this module's unit tests.
+ */
+export function emailSinkAddress(sink: string | null | undefined): string | null {
+  const raw = sink?.trim();
+  if (!raw || !/^mailto:/i.test(raw)) return null;
+  const addr = (raw.slice("mailto:".length).split("?")[0] ?? "").trim();
+  return SINK_EMAIL_SHAPE.test(addr) && addr.length <= 254 ? addr : null;
 }
 
 /**
@@ -518,6 +681,16 @@ export function isAlertConfigured(orgWebhookUrl?: string | null): boolean {
 export function validateAlertWebhookUrl(raw: string): { ok: true; url: string } | { ok: false; error: string } {
   const trimmed = raw.trim();
   if (trimmed.length > 1000) return { ok: false, error: "Webhook URL is too long (max 1000 chars)." };
+  // G7-01: an EMAIL sink (`mailto:you@example.com`) is a first-class sink value. Storing it is the
+  // org's explicit opt-in to alert mail — an admin-authenticated act, on the same field and with the
+  // same blast radius as pointing the sink at a Slack channel. Validated on shape only (no SSRF
+  // surface: nothing is fetched), and normalized to a lowercase scheme so the dispatcher's check and
+  // the stored value can't drift.
+  if (/^mailto:/i.test(trimmed)) {
+    const addr = emailSinkAddress(trimmed);
+    if (!addr) return { ok: false, error: "mailto: sink must be a single valid email address." };
+    return { ok: true, url: `mailto:${addr}` };
+  }
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
@@ -547,10 +720,32 @@ const DISPATCH_TIMEOUT_MS = 8000;
  */
 export async function dispatchAlert(
   message: AlertMessage,
-  opts: { signal?: AbortSignal; webhookUrl?: string | null } = {},
+  opts: { signal?: AbortSignal; webhookUrl?: string | null; org?: string | null } = {},
 ): Promise<boolean> {
   const url = resolveAlertWebhook(opts.webhookUrl);
   if (!url) return false;
+  // EMAIL SINK (G7-01). Branch before the POST, and reach the mail transport through a DYNAMIC import:
+  // src/lib/email pulls in the provider factory (and, lazily, the AWS SDK), and this module is reachable
+  // from a client bundle via @/lib/alerts' pure exports (DEFAULT_THRESHOLDS in /trends). A static import
+  // would drag server-only code across that boundary — the failure mode that passes tsc and unit tests
+  // and only breaks `next build`. Returns FALSE when nothing was actually sent (no provider configured),
+  // which is what lets the digest release its once-per-window claim and retry.
+  if (/^mailto:/i.test(url.trim())) {
+    const to = emailSinkAddress(url);
+    // A malformed mailto: sink must DEAD-END here. Falling through would hand `fetch` a mailto: URL
+    // (a throw at best, an unpredictable request at worst) for a value the org clearly meant as mail.
+    if (!to) {
+      console.error("[alerts] sink is a malformed mailto: — nothing dispatched");
+      return false;
+    }
+    try {
+      const { dispatchAlertEmail } = await import("./email/alert-sink");
+      return await dispatchAlertEmail(to, message, { org: opts.org ?? null });
+    } catch (err) {
+      console.error("[alerts] email dispatch error", err instanceof Error ? err.message : err);
+      return false;
+    }
+  }
   const timeout = AbortSignal.timeout(DISPATCH_TIMEOUT_MS);
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
   try {

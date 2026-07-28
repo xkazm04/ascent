@@ -1,33 +1,68 @@
-// /leaderboard — public, no-auth ranking of the most AI-native public repositories. Reads the same
-// persisted public-scan corpus the landing "register" does (getPublicScanGallery, scoped to the
-// PUBLIC org), but as a full-page top-20 board with the complete per-dimension breakdown. Every
-// public scan is open, so each row deep-links straight to its report; a GitHub icon opens the repo.
-// Live data ⇒ force-dynamic, exactly like the landing.
+// /leaderboard — THE PUBLIC REGISTER (G7-05). A server-rendered, crawlable, paginated ranking of the
+// most AI-native PUBLIC repositories, independent of the client-rendered landing deck.
+//
+// Three properties this page is responsible for, none of them cosmetic:
+//
+//  1. CRAWLABLE. The ranking is rendered on the server, every page past the first is a real
+//     `?page=N` URL with rel=prev/next and a self-referencing canonical, and the route is listed in
+//     sitemap.ts. No part of the board depends on client JS.
+//  2. PUBLIC-ONLY. Data comes from `getPublicRegister`, which pins every query to the shared public
+//     org AND `isPrivate:false`, and drops a private row per-row on top of that (see lib/register).
+//  3. HONEST. Mock-engine scans are NEVER ranked. They are drawn below the board, unranked, each
+//     carrying the same `demo` qualifier the README badge uses. A register that silently ranked a
+//     deterministic preview against a model-scored repo would be worse than no register at all.
 
 import Link from "next/link";
-import { SiteFooter, SiteHeader } from "@/components/Brand";
-import { getPublicScanGallery } from "@/lib/db";
-import { dbModeLabel } from "@/lib/db/mode";
+import type { Metadata } from "next";
+import { SiteHeader, SiteFooter } from "@/components/Brand";
+import { getPublicRegister } from "@/lib/register/data";
+import { getDbMode, dbModeLabel } from "@/lib/db/mode";
 import { Kicker } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
 import { LeaderboardTable } from "@/components/leaderboard/LeaderboardTable";
+import { RegisterCta, RegisterPager } from "@/components/leaderboard/RegisterPager";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = {
-  title: "Leaderboard — Ascent",
-  description:
-    "The most AI-native public repositories, ranked by maturity score with a full per-dimension breakdown. Every scan is public — open any report, no account needed.",
-};
+const TITLE = "The AI-native register — Ascent";
+const DESCRIPTION =
+  "Every public repository Ascent has scored, ranked by AI-native maturity with a full per-dimension breakdown. Model-scored entries only; preview scans are listed separately and never ranked.";
 
-const TOP_N = 20;
+function pageParam(v: string | string[] | undefined): number {
+  const n = Number(Array.isArray(v) ? v[0] : v);
+  return Number.isFinite(n) && n > 1 ? Math.floor(n) : 1;
+}
 
-export default async function LeaderboardPage() {
-  // Top-N by overall maturity, with each scan's per-dimension scores. Null on a DB-less deploy or an
-  // empty corpus — the page then shows its "nothing scored yet" state instead of an empty table.
-  const gallery = await getPublicScanGallery({ topLimit: TOP_N }).catch(() => null);
-  const rows = gallery?.topAiNative ?? [];
-  const latest = gallery?.recent[0]?.scannedAt;
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<Metadata> {
+  const page = pageParam((await searchParams).page);
+  // Self-referencing canonical per page — page 2+ is genuinely distinct content, not a duplicate of
+  // page 1, so each points at itself rather than collapsing the series onto one URL.
+  const canonical = page > 1 ? `/leaderboard?page=${page}` : "/leaderboard";
+  const title = page > 1 ? `${TITLE} · page ${page}` : TITLE;
+  return {
+    title,
+    description: DESCRIPTION,
+    alternates: { canonical },
+    openGraph: { title, description: DESCRIPTION, url: canonical, type: "website" },
+    twitter: { card: "summary_large_image", title, description: DESCRIPTION },
+  };
+}
+
+export default async function LeaderboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const page = pageParam((await searchParams).page);
+  const register = await getPublicRegister({ page }).catch(() => null);
+  const rows = register?.entries ?? [];
+  const unranked = register?.unverified ?? [];
+  const latest = rows[0]?.scannedAt ?? unranked[0]?.scannedAt;
+  const startRank = register ? (register.page - 1) * register.perPage + 1 : 1;
 
   return (
     <>
@@ -36,37 +71,52 @@ export default async function LeaderboardPage() {
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-divider pb-4">
           <div>
             <Kicker>The index · ranked</Kicker>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">Leaderboard</h1>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+              The AI-native register
+            </h1>
             <p className="mt-3 max-w-2xl text-lg leading-relaxed text-slate-400">
-              The {TOP_N} most AI-native public repositories, ranked by overall maturity and broken down
-              across all nine dimensions. Every public scan is open — click any repo to read its full report.
+              Every public repository Ascent has scored, ranked by overall maturity and broken down
+              across all nine dimensions. Every public scan is open — click any repo to read its full
+              report, or open an owner&apos;s{" "}
+              <span className="text-slate-300">public scorecard</span> from its name.
             </p>
           </div>
-          {gallery && (
+          {register && (
             <div className="text-right">
               <span className="block font-mono text-xs uppercase tracking-[0.2em] text-slate-500">
-                {gallery.totalRepos} public {gallery.totalRepos === 1 ? "repo" : "repos"} rated
+                {register.totalVerified} ranked · {register.totalRepos} public{" "}
+                {register.totalRepos === 1 ? "repo" : "repos"} scored
               </span>
-              {/* DB-backed provenance: the live persistence backend (Aurora DSQL in prod) + corpus freshness. */}
               <span
                 className="mt-1 block font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600"
-                title={`This leaderboard is served live from ${dbModeLabel(gallery.dbMode)}.`}
+                title={`This register is served live from ${dbModeLabel(getDbMode())}.`}
               >
-                Served live from {dbModeLabel(gallery.dbMode)}
+                Served live from {dbModeLabel(getDbMode())}
                 {latest ? <> · as of {timeAgo(latest)}</> : null}
               </span>
             </div>
           )}
         </div>
 
-        {rows.length > 0 ? (
-          <LeaderboardTable rows={rows} />
+        {register && rows.length > 0 ? (
+          <>
+            <LeaderboardTable rows={rows} startRank={startRank} />
+            {register.windowed && (
+              <p className="mt-4 font-mono text-[11px] uppercase tracking-widest text-slate-600">
+                Ranked within the {register.totalVerified} highest-scoring scored repositories.
+              </p>
+            )}
+            <RegisterPager page={register.page} totalPages={register.totalPages} basePath="/leaderboard" />
+          </>
         ) : (
           <div className="mt-12 rounded-2xl border border-divider bg-surface/40 p-10 text-center">
-            <p className="text-lg font-semibold text-white">No public scans yet</p>
+            <p className="text-lg font-semibold text-white">
+              {unranked.length > 0 ? "Nothing model-scored yet" : "No public scans yet"}
+            </p>
             <p className="mx-auto mt-2 max-w-md text-base text-slate-400">
-              The leaderboard fills as repositories get scanned. Be the first — scan a public repo and it
-              lands on the board.
+              {unranked.length > 0
+                ? "Every public scan so far came from the deterministic preview rubric, so there is nothing to rank. A real scan puts a repo on the board."
+                : "The register fills as repositories get scanned. Be the first — scan a public repo and it lands on the board."}
             </p>
             <Link
               href="/?scan=1"
@@ -77,25 +127,24 @@ export default async function LeaderboardPage() {
           </div>
         )}
 
-        {rows.length > 0 && (
-          // Growth loop, mirroring the register footer: convert a viewer into a scanned repo / a badge embed.
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-5">
-            <span className="text-sm text-slate-500">Want your repo on the leaderboard?</span>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href="/?scan=1"
-                className="focus-ring inline-flex items-center gap-2 rounded-md border border-divider px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
-              >
-                <span aria-hidden>▸</span> Scan your repo
-              </Link>
-              <Link
-                href="/badge"
-                className="focus-ring inline-flex items-center gap-2 rounded-md border border-divider px-3 py-1.5 font-mono text-xs uppercase tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
-              >
-                <span aria-hidden>◆</span> Add a README badge
-              </Link>
-            </div>
-          </div>
+        {unranked.length > 0 && (
+          // NOT a second leaderboard. These scores came from the deterministic rubric with no model in
+          // the loop, so they are shown without positions and with the `demo` qualifier on every row.
+          <section aria-labelledby="unranked" className="mt-14">
+            <h2 id="unranked" className="text-xl font-bold tracking-tight text-white">
+              Preview scans — not ranked
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+              These repositories were scored by the deterministic preview rubric: no model contributed a
+              judgement, so the numbers are a floor, not a rating. They are listed for completeness and
+              are excluded from the ranking above.
+            </p>
+            <LeaderboardTable rows={unranked} ranked={false} />
+          </section>
+        )}
+
+        {(rows.length > 0 || unranked.length > 0) && (
+          <RegisterCta prompt="Want your repo on the register?" />
         )}
       </main>
       <SiteFooter />

@@ -1,16 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Card } from "@/components/org/shared/ui";
-import type { BacklogItem, BacklogDueGroup, OrgBacklog } from "@/lib/db";
-import { OwnerHeader, SummaryStrip } from "@/components/org/backlog/BacklogSummary";
-import { BacklogItemRow, type BacklogRowState } from "@/components/org/backlog/BacklogItemRow";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { OrgBacklog } from "@/lib/db";
+import { SummaryStrip } from "@/components/org/backlog/BacklogSummary";
+import type { BacklogRowState } from "@/components/org/backlog/BacklogItemRow";
 import { useSavingIds } from "@/components/org/shared/recStatusUi";
 import type { PatchOutcome } from "@/components/org/shared/backlogShared";
 import { BacklogUndoBar, BacklogViewControls, type BacklogUndo } from "@/components/org/backlog/BacklogPanel.controls";
+import { BacklogFilters } from "@/components/org/backlog/BacklogFilters";
+import { BacklogBulkBar } from "@/components/org/backlog/BacklogBulkBar";
+import { BacklogGroups, type BacklogView } from "@/components/org/backlog/BacklogGroups";
+import { MAX_BULK, useBacklogBulk } from "@/components/org/backlog/useBacklogBulk";
+import {
+  EMPTY_BACKLOG_FILTER,
+  backlogItemCount,
+  backlogItemIds,
+  backlogOwnerOptions,
+  filterBacklog,
+  filterIsActive,
+  filterWantsClosed,
+  type BacklogFilter,
+} from "@/components/org/backlog/backlogFilter";
 import type { RecStatus } from "@/lib/types";
-// Impact-word tiebreak ranking for the "Projected points" cross-repo sort (canonical map).
-import { IMPACT_RANK } from "@/lib/scoring/impact";
 
 /**
  * The org-wide recommendation backlog: a stat strip, a By owner / By due date toggle, and inline
@@ -32,7 +43,12 @@ export function BacklogPanel({
   techGroupId?: string | null;
 }) {
   const [backlog, setBacklog] = useState<OrgBacklog>(initial);
-  const [view, setView] = useState<"owner" | "due" | "points">("owner");
+  const [view, setView] = useState<BacklogView>("owner");
+  // G7-12. Search/status/owner filtering is a CLIENT narrowing of the fetched snapshot; only the
+  // closed-status chips change the FETCH, by forcing `showClosed` on (see setFilter below), so the
+  // filter composes with the recovery toggle instead of shadowing it.
+  const [filter, setFilter] = useState<BacklogFilter>(EMPTY_BACKLOG_FILTER);
+  const [rawSelected, setSelected] = useState<Set<string>>(() => new Set());
   // G6-02 (reversibility). Two affordances, no confirm dialog:
   //  1. `undo` — the last completed change to a terminal status, offered back for one click. The row is
   //     already gone from the list by then, so the affordance has to live HERE, in the panel.
@@ -90,6 +106,20 @@ export function BacklogPanel({
     if (!data.backlog) return false;
     setBacklog(data.backlog);
     return true;
+  }, [slug, segmentId, techGroupId, showClosed]);
+
+  const { bulk, runBulk, resetBulk } = useBacklogBulk(refresh);
+
+  // G7-13: the CSV download mirrors the CURRENT read scope exactly (segment, tech group, and whether
+  // closed rows are included), so an export can't quietly carry rows the screen isn't showing. The
+  // client-side text/status/owner filter is deliberately NOT encoded — it's a view over the fetch, and
+  // the route is the one place the scope is authorized.
+  const exportHref = useMemo(() => {
+    const qs = new URLSearchParams({ org: slug, format: "csv" });
+    if (segmentId) qs.set("segment", segmentId);
+    if (techGroupId) qs.set("techGroup", techGroupId);
+    if (showClosed) qs.set("includeClosed", "1");
+    return `/api/org/backlog?${qs}`;
   }, [slug, segmentId, techGroupId, showClosed]);
 
   // Re-read when the closed-items toggle flips (the scope of the query changed, not just the view).
@@ -155,45 +185,41 @@ export function BacklogPanel({
     if (outcome.patched) setUndo(null);
   }, [undo, undoBusy, patch]);
 
-  const groups: { key: string; header: React.ReactNode; items: BacklogItem[] }[] =
-    view === "owner"
-      ? backlog.byOwner.map((g) => ({ key: g.login ?? "__unassigned", header: <OwnerHeader group={g} />, items: g.items }))
-      : view === "due"
-        ? backlog.byDue.map((g: BacklogDueGroup) => ({
-            key: g.bucket,
-            header: (
-              <span className={`text-base font-semibold ${g.bucket === "overdue" ? "text-orange-300" : "text-white"}`}>
-                {g.label} <span className="font-mono text-sm text-slate-500">· {g.items.length}</span>
-              </span>
-            ),
-            items: g.items,
-          }))
-        : [
-            {
-              key: "__points",
-              header: (
-                <span className="text-base font-semibold text-white">
-                  Highest projected gain first{" "}
-                  <span className="font-mono text-sm text-slate-500">
-                    · engine points if the gap is fully closed
-                  </span>
-                </span>
-              ),
-              // "Projected points" is a flat cross-repo ranking on the engine-true ROI each item
-              // carries (projectedPoints — overall-score upside of closing the gap), so cross-repo
-              // leverage the per-repo report can't show sorts to the top. Items without a projection
-              // (pre-dimension scans) sink below scored ones; impact words break ties. Built lazily
-              // here so the cross-repo sort only runs when this view is actually selected.
-              items: backlog.byOwner
-                .flatMap((g) => g.items)
-                .sort(
-                  (a, b) =>
-                    (b.projectedPoints ?? -1) - (a.projectedPoints ?? -1) ||
-                    (IMPACT_RANK[b.impact] ?? 0) - (IMPACT_RANK[a.impact] ?? 0) ||
-                    b.lastActivityAt.localeCompare(a.lastActivityAt),
-                ),
-            },
-          ];
+  // The filtered view every list/selection decision reads. Filtering never touches the headline
+  // counts (SummaryStrip keeps describing the ACTIVE org backlog), only what's listed.
+  const shownBacklog = useMemo(() => filterBacklog(backlog, filter), [backlog, filter]);
+  const shownIds = useMemo(() => backlogItemIds(shownBacklog), [shownBacklog]);
+  const shownCount = shownIds.length;
+  const ownerOptions = useMemo(() => backlogOwnerOptions(backlog), [backlog]);
+
+  // Picking a Done/Dismissed chip forces the closed rows into the FETCH — otherwise the chip filters a
+  // payload that never contained them and reads as a broken search.
+  const applyFilter = useCallback((next: BacklogFilter) => {
+    setFilter(next);
+    if (filterWantsClosed(next)) setShowClosed(true);
+  }, []);
+
+  // Selection is pruned to what's on screen, so a bulk action can never reach a row the current
+  // filter (or the closed toggle) has hidden — "apply to what I can see" is the whole contract.
+  // DERIVED, not synced through an effect: an effect would render once with a stale selection
+  // (briefly showing a count that includes hidden rows) before correcting itself, and every read
+  // below would have to tolerate that window. `rawSelected` may retain ids that scrolled out of the
+  // filter; nothing ever reads it directly.
+  const selected = useMemo(() => {
+    if (rawSelected.size === 0) return rawSelected;
+    const visible = new Set(shownIds);
+    const next = new Set([...rawSelected].filter((id) => visible.has(id)));
+    return next.size === rawSelected.size ? rawSelected : next;
+  }, [rawSelected, shownIds]);
+
+  const runStatus = useCallback(
+    async (status: RecStatus) => {
+      const ids = shownIds.filter((id) => selected.has(id));
+      await runBulk(ids, { status });
+      setSelected(new Set());
+    },
+    [shownIds, selected, runBulk],
+  );
 
   return (
     <div className="space-y-5">
@@ -205,52 +231,62 @@ export function BacklogPanel({
         showClosed={showClosed}
         onToggleClosed={() => setShowClosed((v) => !v)}
         closedCount={backlog.done + backlog.dismissed}
+        exportHref={exportHref}
       />
+
+      <BacklogFilters
+        filter={filter}
+        onFilter={applyFilter}
+        ownerOptions={ownerOptions}
+        shown={shownCount}
+        total={backlogItemCount(backlog)}
+      />
+
+      {/* The bar outlives the selection on purpose: a run clears the selection, and unmounting the bar
+          with it would take the "N of M updated · K failed" report down with it — the only place a
+          bulk write reports itself. It stays until explicitly cleared. */}
+      {(selected.size > 0 || bulk.running || bulk.total > 0) && (
+        <BacklogBulkBar
+          count={selected.size}
+          shownCount={shownCount}
+          bulk={bulk}
+          onSelectAll={() => setSelected(new Set(shownIds.slice(0, MAX_BULK)))}
+          onClear={() => {
+            setSelected(new Set());
+            resetBulk();
+          }}
+          onApply={(status) => void runStatus(status)}
+        />
+      )}
 
       {undo && (
         <BacklogUndoBar undo={undo} busy={undoBusy} onUndo={() => void runUndo()} onDismiss={() => setUndo(null)} />
       )}
 
-      {groups.length === 0 ? (
-        <Card>
-          <p className="text-base text-slate-500">
-            {showClosed
-              ? "No recommendations at all — nothing has been tracked for this scope yet."
-              : "Nothing active in the backlog — every recommendation is done or dismissed. 🎉"}
-          </p>
-          {/* Never a terminal dead end: name the route to the closed items even from the empty state. */}
-          {!showClosed && backlog.done + backlog.dismissed > 0 && (
-            <p className="mt-1 text-sm text-slate-500">
-              Use “Show done &amp; dismissed” above to review or restore the{" "}
-              {backlog.done + backlog.dismissed} closed item{backlog.done + backlog.dismissed === 1 ? "" : "s"}.
-            </p>
-          )}
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {groups.map((g) => (
-            <Card key={g.key}>
-              <div className="mb-3">{g.header}</div>
-              <div className="space-y-3">
-                {g.items.map((item) => (
-                  <BacklogItemRow
-                    key={item.id}
-                    org={slug}
-                    item={item}
-                    assignees={backlog.assignees}
-                    saving={savingIds.has(item.id)}
-                    error={errors[item.id]}
-                    state={rowStates[item.id]}
-                    onState={(patch) => setRowState(item.id, patch)}
-                    onPatch={patch}
-                    onEditField={onEditField}
-                  />
-                ))}
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
+      <BacklogGroups
+        slug={slug}
+        backlog={shownBacklog}
+        view={view}
+        showClosed={showClosed}
+        closedCount={backlog.done + backlog.dismissed}
+        filtered={filterIsActive(filter)}
+        onClearFilter={() => applyFilter(EMPTY_BACKLOG_FILTER)}
+        savingIds={savingIds}
+        errors={errors}
+        rowStates={rowStates}
+        onRowState={setRowState}
+        onPatch={patch}
+        onEditField={onEditField}
+        selected={selected}
+        onToggleSelect={(id) =>
+          setSelected((cur) => {
+            const next = new Set(cur);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+          })
+        }
+      />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { DecisionControl } from "@/components/org/DecisionControl";
 import { decisionMap, type DecisionMap } from "@/lib/org/decision-map";
 import { AiBar } from "./AiBar";
 import { IndividualInvolvement } from "./IndividualInvolvement";
+import { ResilienceModule } from "./ResilienceModule";
 
 export const dynamic = "force-dynamic";
 
@@ -186,6 +187,10 @@ export default async function ContributorInsightsPage({
         {insights.champions.length > 0 && <ChampionsGrid champions={insights.champions} />}
 
         <IndividualInvolvement insights={insights} slug={slug} segmentId={segmentId} stack={activeStack?.key ?? null} />
+
+        {/* G7-18: the fleet read on key-person exposure, above the per-repo table it summarizes. It
+            names no individual at any population size — see ResilienceModule's header. */}
+        {insights.resilience && <ResilienceModule resilience={insights.resilience} />}
 
         <ConcentrationTable slug={slug} rows={insights.concentration} decisions={decisions} />
 

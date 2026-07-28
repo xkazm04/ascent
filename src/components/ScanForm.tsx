@@ -3,45 +3,37 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { NotifyToggle } from "@/components/scan/NotifyToggle";
+import {
+  EMPTY_SCOPE,
+  ScanScopeFields,
+  scopeQuery,
+  validateScope,
+  type ScanScopeValue,
+} from "@/components/scan/ScanScopeFields";
 import type { AuthMode } from "@/components/auth/SignInButtonFor";
+import { normalizeRepo, REPO_URL_LIKE, stripRepoRef } from "@/lib/repo-ref";
+import { isValidGitRef } from "@/lib/scan-scope";
 
 // Fallback chips when the live index is empty (DB-less MVP, or no scans yet).
 const FALLBACK_EXAMPLES = ["facebook/react", "vercel/next.js", "anthropics/claude-code"];
 
-/**
- * Peel the GitHub URL/SSH chrome off a repo reference, leaving a bare `owner/repo`-ish string (no
- * validation): strips a `git@github.com:` SSH prefix, an `https://` scheme, a `github.com/` host, a
- * `.git` suffix, and surrounding slashes. Shared by {@link normalizeRepo} and the paste handler so
- * both peel a pasted link identically.
- */
-function stripRepoRef(raw: string): string {
-  return raw
-    .trim()
-    .replace(/^git@github\.com:/i, "") // SSH form
-    .replace(/^https?:\/\//i, "") // scheme
-    .replace(/^(www\.)?github\.com\//i, "") // host prefix
-    .replace(/\.git$/i, "") // .git suffix
-    .replace(/^\/+|\/+$/g, ""); // leading/trailing slashes
-}
-
-/** A pasted value carrying URL/SSH chrome (a scheme, a `git@` SSH prefix, or a github.com host)
- *  rather than a bare `owner/repo` — the cue to collapse it to `owner/repo` in place on paste. */
-const REPO_URL_LIKE = /:\/\/|^git@|github\.com/i;
+// Repo-reference parsing now lives in @/lib/repo-ref — the shared module every repo input surface
+// already used. ScanForm carried a byte-identical private copy (minus the `@owner/repo` handle-strip,
+// the one place the two had drifted); re-exported here so the historic `normalizeRepo` import path
+// keeps working.
+export { normalizeRepo };
 
 /**
- * Forgiving client-side normalization: accepts a full URL, a `git@` SSH URL, a
- * `github.com/owner/repo`, a trailing slash, or a bare `owner/repo`, and returns a clean
- * `owner/repo` — or null when it can't be coerced into a valid GitHub repo reference.
+ * A pasted `github.com/owner/repo/tree/<branch>` link carries the branch the user is actually looking
+ * at. parseRepoUrl (server-side) already surfaces that intent but the form discarded it, so the scan
+ * silently fell back to the default branch. Now that a branch is scannable, prefill the field with it.
+ * Only the UNAMBIGUOUS single-segment form — `/tree/a/b` can't be split into branch-vs-subdirectory
+ * without the repo's ref list, exactly as parseRepoUrl documents.
  */
-export function normalizeRepo(raw: string): string | null {
-  const s = stripRepoRef(raw);
-  if (!s) return null;
-  const parts = s.split("/").filter(Boolean);
-  if (parts.length < 2) return null;
-  const [owner = "", repo = ""] = parts;
-  const ok = /^[A-Za-z0-9_.-]+$/;
-  if (!ok.test(owner) || !ok.test(repo)) return null;
-  return `${owner}/${repo}`;
+function treeRefFromPaste(raw: string): string | null {
+  const m = /\/tree\/([^/?#]+)\/?(?:[?#]|$)/.exec(raw.trim());
+  const ref = m?.[1];
+  return ref && isValidGitRef(ref) ? ref : null;
 }
 
 export function ScanForm({
@@ -76,6 +68,9 @@ export function ScanForm({
   // "email me when it's done" opt-in. Null until resolved; the toggle stays hidden for signed-out users.
   const [viewer, setViewer] = useState<{ signedIn: boolean; email: string | null } | null>(null);
   const [notifyOn, setNotifyOn] = useState(false);
+  // Optional scan scope (G7-07 / G7-08): a branch/tag/commit and/or a monorepo sub-path. Empty by
+  // default, so the ordinary one-field flow is untouched.
+  const [scope, setScope] = useState<ScanScopeValue>(EMPTY_SCOPE);
 
   useEffect(() => {
     let active = true;
@@ -124,6 +119,16 @@ export function ScanForm({
       requestAnimationFrame(() => setShake(true));
       return;
     }
+    // Catch an obviously-invalid branch/sub-path here, using the same pure predicates the scan routes
+    // enforce — a typo'd ref would otherwise cost a navigation and a round-trip to be told the same
+    // thing on the report page.
+    const scopeError = validateScope(scope);
+    if (scopeError) {
+      setError(scopeError);
+      setShake(false);
+      requestAnimationFrame(() => setShake(true));
+      return;
+    }
     // "Email me when it's done" opt-in (signed-in only; the flag rides the URL). The recipient is
     // ALWAYS the viewer's own verified account email — the stream route's open-relay hardening drops a
     // client-supplied address for authenticated viewers, so the old custom-address path (collected +
@@ -134,7 +139,7 @@ export function ScanForm({
     const notifyQs = viewer?.signedIn && notifyOn && viewer.email ? "&notify=1" : "";
     setError(null);
     setSubmitting(true);
-    router.push(`/report?repo=${encodeURIComponent(normalized)}${notifyQs}`);
+    router.push(`/report?repo=${encodeURIComponent(normalized)}${notifyQs}${scopeQuery(scope)}`);
   }
 
   return (
@@ -166,6 +171,11 @@ export function ScanForm({
             if (!REPO_URL_LIKE.test(text)) return;
             e.preventDefault();
             setValue(normalizeRepo(text) ?? stripRepoRef(text));
+            // A `/tree/<branch>` deep link says which branch the user was looking at — carry that
+            // into the branch field instead of silently scanning the default branch. The field is
+            // visible (ScanScopeFields opens itself when a value is present), so it stays correctable.
+            const pastedRef = treeRefFromPaste(text);
+            if (pastedRef) setScope((s) => ({ ...s, ref: pastedRef }));
             if (error) setError(null);
           }}
           onChange={(e) => {
@@ -226,6 +236,9 @@ export function ScanForm({
       <span role="status" aria-live="polite" className="sr-only">
         {submitting ? `Scanning ${normalizeRepo(value) ?? value}…` : ""}
       </span>
+
+      {/* Optional scope: a branch/tag/commit and/or a monorepo sub-path. Collapsed by default. */}
+      <ScanScopeFields value={scope} onChange={setScope} disabled={submitting} />
 
       {/* "Email me when it's done" — signed-in only; a live scan runs for minutes. */}
       <NotifyToggle

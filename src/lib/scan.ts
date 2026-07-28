@@ -73,6 +73,25 @@ export interface ScanOptions {
    */
   ref?: string;
   /**
+   * Monorepo sub-tree to aim the per-file ingestion budget at, e.g. `packages/api` (G7-08). Must be
+   * normalized through `normalizeSubPath` (src/lib/scan-scope.ts) by the caller. Repo-wide files
+   * (root manifests, CODEOWNERS, SECURITY.md, every CI workflow) are still ingested — only the
+   * docs/test/source SAMPLE slots are scoped — and every GitHub-side enrichment stays repo-level.
+   *
+   * SCORE COMPARABILITY: a sub-path scan reads a different file set, so it is NOT comparable with a
+   * whole-repo score. Callers must treat the resulting report as scoped (see `isScopedScan`): never
+   * persisted to the shared corpus, and stamped with the `scopeWarning` caveat.
+   */
+  subPath?: string;
+  /**
+   * Prose caveat to append to `report.warnings` when this scan is SCOPED (a non-default ref and/or a
+   * sub-path). Built by the calling route via `scopeWarning` (src/lib/scan-scope.ts), because only the
+   * route knows the repo's default-branch head sha and can therefore tell a genuinely scoped scan from
+   * a ref that merely points at the default head. Omitted ⇒ no scope caveat (the PR-gate and webhook
+   * paths, unchanged).
+   */
+  scopeCaveat?: string | null;
+  /**
    * Head commit sha already resolved for the cache key (by lookupCachedScan). Pins ingestion to
    * that exact commit so the scored snapshot matches the key even if a push lands between the head
    * lookup and this read, and stamps it as the report's canonical commit identity. Ignored when an
@@ -173,6 +192,7 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
       token,
       ref: opts.ref,
       headSha: opts.headSha,
+      subPath: opts.subPath,
       signal,
       emit,
     });
@@ -276,6 +296,12 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
     snapshotCoverage: snapshot.coverage,
     stackFit,
     prPartial,
+    // A ref/sub-path scan reports on a different SUBJECT than "this repository" — say so on the report
+    // itself, not only in the route that suppressed its persistence. Supplied by the caller rather than
+    // derived here: only the ROUTE knows the default branch's head sha, so only it can tell a genuinely
+    // scoped scan from a ref that happens to point at the default head (see isScopedScan). Unset for the
+    // PR-gate/webhook paths, which are byte-for-byte unchanged.
+    scopeCaveat: opts.scopeCaveat ?? null,
   });
   if (warnings.length) report.warnings = [...(report.warnings ?? []), ...warnings];
 

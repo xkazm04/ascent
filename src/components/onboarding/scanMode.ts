@@ -1,5 +1,11 @@
 // The MONEY GATE: real LLM scan vs. disclosed preview, settled before any import POST.
 //
+// G7-17 changed what "no installation" means here. It used to mean "preview" — the public-handle
+// funnel, the product's highest-intent first run, always showed deterministic numbers no model
+// produced (and those rows land in the public corpus the register ranks). It now means "real, free,
+// public-only": the same deal `/report?repo=` has always offered, metered by the monthly public-scan
+// allowance server-side rather than by prepaid credits. Everything below this point is the App path.
+//
 // Relocated out of useOnboardingFlow (the 300-LOC spirit for dense .ts modules) once a SECOND caller
 // appeared: a per-repo retry on the done screen must re-check the gate exactly as the batch did — a
 // retry that skipped it could charge an org whose balance drained mid-run, or downgrade a paying org
@@ -14,7 +20,7 @@
 //   4. Still unknown ⇒ fail closed to a preview (never charge on an unknown balance), but report the
 //      cause so the done screen can explain it honestly instead of saying "install the GitHub App".
 
-import { canRunRealScan } from "@/components/onboarding/canRunReal";
+import { canRunRealPublicScan, canRunRealScan } from "@/components/onboarding/canRunReal";
 import type { OrgCredit } from "@/components/onboarding/OnboardingFlow.model";
 
 export type CreditRead = OrgCredit | "failed" | null;
@@ -23,6 +29,10 @@ export interface ScanModeDecision {
   canRunReal: boolean;
   /** The balance could not be read at all (transient) — distinct from "verifiably no credits". */
   creditUnknown: boolean;
+  /** True when this run is the token-less PUBLIC path: real inference, no credits, public repos only.
+   *  Distinct from the App path's `canRunReal` because the cost disclosure differs — a public run
+   *  spends the free monthly public-scan allowance, never a prepaid credit. */
+  publicFunnel: boolean;
 }
 
 export async function resolveScanMode(args: {
@@ -37,8 +47,17 @@ export async function resolveScanMode(args: {
 }): Promise<ScanModeDecision> {
   const { sourceInstallId, sourceLabel, credit, creditReady, fetchCredit } = args;
 
+  // G7-17: the PUBLIC-handle path settles first and settles differently. There is no installation, so
+  // there is no balance to read, nothing to wait on, and nothing to fail closed about — the scan is
+  // real and free, exactly as `/report?repo=` has always been. Short-circuiting here also keeps the
+  // credit machinery below untouched for the App path it was written for.
+  if (canRunRealPublicScan({ sourceInstallId })) {
+    return { canRunReal: true, creditUnknown: false, publicFunnel: true };
+  }
+
   let settled: CreditRead = credit && credit.org === sourceLabel ? credit : null;
-  // The public-handle path has no installation id, so canRunRealScan is false regardless — no wait.
+  // Only the App path reaches here (the public path returned above), but the `sourceInstallId` guards
+  // are kept so this block stays correct on its own terms.
   if (sourceInstallId && !settled && creditReady.current) {
     settled = await creditReady.current;
   }
@@ -52,5 +71,6 @@ export async function resolveScanMode(args: {
   return {
     canRunReal: canRunRealScan({ sourceInstallId, credit: settledCredit, sourceLabel }),
     creditUnknown,
+    publicFunnel: false,
   };
 }

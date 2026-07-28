@@ -373,10 +373,13 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     // done screen re-checks the money gate through the SAME code path. The credit read is its own fetch
     // (not tied to `controller`), so it still resolves if the user cancels mid-wait; an aborted
     // controller is handled below by runImportScan ("Scan canceled").
-    // Run a REAL scan only on the App path AND when the org has credits (the import route meters +
-    // refunds on failure) — otherwise a disclosed preview, so a credit-less org never dead-ends on a
-    // 402 and scores are never silently fabricated. The public-handle funnel is always a preview.
-    const { canRunReal, creditUnknown } = await resolveScanMode({
+    // Run a REAL scan on the App path when the org has credits (the import route meters + refunds on
+    // failure) — otherwise a disclosed preview, so a credit-less org never dead-ends on a 402 and
+    // scores are never silently fabricated. G7-17: the PUBLIC-handle funnel is ALSO real now — no
+    // installation means public repos only, which `/report?repo=` already scores for free against the
+    // monthly public-scan allowance. A preview there was the one place the funnel showed numbers no
+    // model produced, and those rows feed the public register.
+    const { canRunReal, creditUnknown, publicFunnel } = await resolveScanMode({
       sourceInstallId,
       sourceLabel,
       credit,
@@ -394,6 +397,9 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
           // mints an installation token — required to read the private repos we just listed.
           installationId: sourceInstallId ?? undefined,
           mock: !canRunReal,
+          // G7-17: tell the server to meter this run against the free monthly public-scan allowance
+          // rather than prepaid credits. Only ever true on the token-less public-handle path.
+          publicFunnel,
           // Recurring weekly autoscan enrolment is OPT-IN (the select step's checkbox writes this
           // store). Omitting the field meant runImportScan defaulted it to `Boolean(installationId)` —
           // true on every App-path run — so a scan click silently subscribed each repo to a standing,

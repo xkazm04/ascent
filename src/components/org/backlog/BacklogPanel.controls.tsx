@@ -22,6 +22,7 @@ export function BacklogViewControls({
   showClosed,
   onToggleClosed,
   closedCount,
+  exportHref,
 }: {
   view: "owner" | "due" | "points";
   onView: (v: "owner" | "due" | "points") => void;
@@ -29,6 +30,8 @@ export function BacklogViewControls({
   onToggleClosed: () => void;
   /** done + dismissed across the fleet — named on the toggle so it reads as "there are N to recover". */
   closedCount: number;
+  /** CSV download for the CURRENT read scope (G7-13). Omitted → no export affordance. */
+  exportHref?: string;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -62,6 +65,18 @@ export function BacklogViewControls({
         {showClosed ? "Hide done & dismissed" : "Show done & dismissed"}
         <span className="ml-1.5 font-mono text-sm text-slate-500">{closedCount}</span>
       </button>
+
+      {/* G7-13: the backlog was the last actionable surface with no CSV, forcing manual re-entry into
+          whatever tracker the team actually uses. Plain anchor — the route sets Content-Disposition. */}
+      {exportHref && (
+        <a
+          href={exportHref}
+          className="focus-ring rounded-lg border border-slate-700 px-3 py-1.5 font-mono text-sm text-slate-400 transition hover:border-accent hover:text-white"
+          title="Download the backlog for this scope as CSV"
+        >
+          Export CSV ↓
+        </a>
+      )}
     </div>
   );
 }

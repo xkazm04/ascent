@@ -128,10 +128,27 @@ export async function cacheAndPersistScan(
     repo: string;
     orgSlug: string;
     lookup: ScanCacheLookup | null;
+    /**
+     * `false` for a SCOPED scan — one aimed at a non-default git ref and/or a monorepo sub-path
+     * (G7-07 / G7-08). Such a report is about a DIFFERENT SUBJECT than "this repository": the corpus
+     * reads a repo's most recent persisted row as its current standing (the leaderboard, /report's
+     * "latest", org rollups, the regression alert baseline), so writing a feature-branch or
+     * single-package score there would silently redefine what the repo scores and could fire a
+     * regression alert against a branch that was never the baseline. It also closes the trust hole a
+     * client-supplied ref would otherwise open (a cherry-picked flattering commit scored, saved, and
+     * later served as the repo's public reading — the same reason /api/scan/stream refuses a
+     * client-supplied headSha).
+     *
+     * The IN-MEMORY cache is still written: its key carries the ref's own commit sha plus an explicit
+     * sub-path segment (see makeCacheKey's `scope`), so a scoped entry provably cannot be read by, or
+     * overwrite, a whole-repo reader of that commit. Defaults to true — every existing caller is
+     * unaffected.
+     */
+    persist?: boolean;
   },
 ): Promise<{ deduped: boolean; persistedOk: boolean }> {
   const { degradedToMock, lowCoverage, partialPrSlice } = cls;
-  const { lookup } = opts;
+  const { lookup, persist = true } = opts;
   // A truncated PR slice is the third poisoning vector, alongside a mock fallback and low coverage: its
   // D6/D7/D8 scores understate reality, so caching or persisting it would serve a deflated verdict to
   // every later reader of this commit. graphql.ts always documented this; nothing enforced it.
@@ -144,7 +161,7 @@ export async function cacheAndPersistScan(
   // Whether a NEW authoritative scored row was written this call (persisted, truthy, not a commit
   // dedup) — the trigger for the interactive regression alert below, mirroring the cron/webhook guard.
   let newRowWritten = false;
-  if (isDbConfigured() && authoritative) {
+  if (persist && isDbConfigured() && authoritative) {
     // Capture the repo's latest persisted report BEFORE the fresh one lands, so the interactive
     // regression check below can diff against it (checkAndAlertRegression's caller contract: capture
     // `prev` before persisting). Best-effort — a failed read just yields a null baseline (first-scan no-op).

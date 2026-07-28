@@ -34,6 +34,17 @@ export interface FetchOptions {
    * default; only the tree/content/commit reads are pinned to this ref.
    */
   ref?: string;
+  /**
+   * Monorepo sub-tree to aim the CONTENT budget at (e.g. `packages/api`), normalized and validated
+   * upstream by `normalizeSubPath` (src/lib/scan-scope.ts). The file TREE is still read whole — repo
+   * structure is a repo-wide fact — but {@link pickFilesToFetch} spends its per-file slots on this
+   * sub-tree's manifests/source/tests instead of sampling the whole monorepo, while repo-wide
+   * governance files (root README/manifests, CODEOWNERS, SECURITY.md, CI workflows) are still read so
+   * the deterministic batteries that depend on them (notably D9's workflow battery) don't go blind.
+   *
+   * Unset ⇒ ingestion is byte-for-byte what it was before sub-path support existed.
+   */
+  subPath?: string;
 }
 
 const API = githubApiBase();
@@ -288,6 +299,29 @@ async function resolveRefHeadSha(
   }
 }
 
+/**
+ * Resolve an ARBITRARY ref (branch, tag, or commit sha) to its full 40-char commit sha — the strict,
+ * exported twin of {@link resolveHead}, which only ever resolves the DEFAULT branch (`commits/HEAD`).
+ *
+ * This is what makes an interactive ref selector cache-safe. The scan cache and the persisted Scan row
+ * are keyed on a commit sha; without resolving the ref itself, a `develop` scan would be keyed by the
+ * DEFAULT branch's head and the two refs would collide on one entry. Callers MUST validate the ref
+ * through `isValidGitRef` (src/lib/scan-scope.ts) first — this function encodes it into a URL path.
+ *
+ * Returns null on any failure (unknown ref, network, rate limit) so the caller can report "no such
+ * branch" rather than silently falling back to the default branch, which would score the wrong tree.
+ * EXACTLY 40 hex is required, for the same reason resolveHead requires it (G3-22): a short/garbled
+ * body must never become a commit identity.
+ */
+export async function resolveRefSha(
+  { owner, repo }: ParsedRepo,
+  ref: string,
+  opts: { token?: string; signal?: AbortSignal } = {},
+): Promise<string | null> {
+  const sha = await resolveRefHeadSha(owner, repo, ref, opts.token, opts.signal);
+  return sha && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+}
+
 /** Minimal repo metadata for tailoring a generated artifact (no tree/file fetch). */
 export interface RepoContextMeta {
   fullName: string;
@@ -518,8 +552,10 @@ export class GitHubPublicSource implements RepoSource {
       committedAt: c.commit.author?.date ?? undefined,
     }));
 
-    // Fetch a budgeted set of file contents from the raw host (no API quota cost).
-    const picks = pickFilesToFetch(blobs);
+    // Fetch a budgeted set of file contents from the raw host (no API quota cost). `subPath` aims the
+    // per-file budget at one package of a monorepo; unset (the default) leaves the pick byte-for-byte
+    // as it was.
+    const picks = pickFilesToFetch(blobs, opts.subPath);
     emit({ stage: "files", message: `Reading ${picks.length} key files…`, pct: 45 });
     const files: FetchedFile[] = [];
     let totalBytes = 0;
@@ -640,8 +676,21 @@ async function fetchRaw(
  * Choose which files to fetch contents for, within MAX_FILES. We always grab
  * high-signal files (manifests, AI config, CI, docs) then sample a few source/test
  * files so the LLM gets a feel for the codebase.
+ *
+ * `subPath` (G7-08) re-aims the budget at one package of a monorepo. It deliberately does NOT filter
+ * everything: a 12-package monorepo's problem is that the ~50-slot budget is spread across the whole
+ * tree so each package gets a couple of files, NOT that repo-wide files are unwanted. So the split is:
+ *
+ *   • repo-wide, kept regardless — root README/manifests/configs (step 1), CODEOWNERS, SECURITY.md,
+ *     and ALL CI workflows (step 7). These feed deterministic batteries that are repo-level facts;
+ *     filtering them out would floor D9 on every sub-path scan exactly the way the old 3-workflow cap
+ *     did (see MAX_WORKFLOW_FILES).
+ *   • sub-tree preferred/scoped — the package's OWN manifests (step 1b), and the docs/test/source
+ *     SAMPLES (steps 4-6), which are the slots that were being spread thin in the first place.
+ *   • agent guidance (step 0) — repo-wide, but sub-tree copies rank first, since a nested
+ *     `packages/api/CLAUDE.md` is the more specific D1 evidence for this scan.
  */
-export function pickFilesToFetch(blobs: RepoFile[]): string[] {
+export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] {
   const paths = blobs.map((b) => b.path);
   const picked = new Set<string>();
 
@@ -649,14 +698,24 @@ export function pickFilesToFetch(blobs: RepoFile[]): string[] {
     if (picked.size < MAX_FILES) picked.add(p);
   };
 
+  // In-scope test + orderings for the sub-path mode. `scoped()` narrows a candidate list to the
+  // sub-tree; `preferScoped()` keeps everything but floats the sub-tree's entries to the front so a
+  // `.slice(n)` cap spends its slots on them first. Both are identity when no subPath is set, which is
+  // what keeps the default pick byte-for-byte unchanged.
+  const inScope = (p: string) => !subPath || p === subPath || p.startsWith(`${subPath}/`);
+  const scoped = (list: string[]) => (subPath ? list.filter(inScope) : list);
+  const preferScoped = (list: string[]) =>
+    subPath ? [...list.filter(inScope), ...list.filter((p) => !inScope(p))] : list;
+
   // 0. Agent-guidance files ANYWHERE in the tree — we fetch their contents to assess
   //    guidance *quality* (D1), not just presence (e.g. .claude/CLAUDE.md, nested AGENTS.md).
-  paths
-    .filter((p) =>
+  preferScoped(
+    paths.filter((p) =>
       /(^|\/)(claude\.md|agents?\.md|\.cursorrules|\.windsurfrules)$/i.test(p) ||
       /^\.github\/copilot-instructions\.md$/i.test(p) ||
       /^\.cursor\/rules\//i.test(p),
-    )
+    ),
+  )
     .slice(0, 4)
     .forEach(add);
 
@@ -704,6 +763,18 @@ export function pickFilesToFetch(blobs: RepoFile[]): string[] {
     "vercel.json",
   ];
   const lowerMap = new Map(paths.map((p) => [p.toLowerCase(), p]));
+  // 1a. The SUB-TREE's own copies of those high-signal names, FIRST. On a `packages/api` scan the
+  //     package's README/manifest/tsconfig are the primary evidence, so they take prompt priority over
+  //     the monorepo root's (which step 1b still adds right after — the root manifest carries the
+  //     workspace layout and the repo's identity, which a package scan still wants in context).
+  //     No-op without a subPath.
+  if (subPath) {
+    for (const name of exactNames) {
+      const hit = lowerMap.get(`${subPath.toLowerCase()}/${name}`);
+      if (hit) add(hit);
+    }
+  }
+  // 1b. Exact high-signal filenames at the repo root (or their canonical nested locations).
   for (const name of exactNames) {
     const hit = lowerMap.get(name);
     if (hit) add(hit);
@@ -712,36 +783,38 @@ export function pickFilesToFetch(blobs: RepoFile[]): string[] {
   // (CI workflow CONTENT is fetched in bulk at the END — see step 7 — so the security check battery
   //  sees every workflow, while these high-signal files keep prompt priority.)
 
-  // 3. Cursor rules dir, MCP configs.
-  paths
-    .filter((p) => /^\.cursor\/rules\//i.test(p) || /(^|\/)\.?mcp\.json$/i.test(p))
+  // 3. Cursor rules dir, MCP configs. Repo-wide (`.cursor/rules/` only exists at the root), but a
+  //    nested `packages/api/.mcp.json` floats first under a sub-path scan.
+  preferScoped(paths.filter((p) => /^\.cursor\/rules\//i.test(p) || /(^|\/)\.?mcp\.json$/i.test(p)))
     .slice(0, 3)
     .forEach(add);
 
-  // 4. ADRs / docs samples.
-  paths
-    .filter((p) => /^docs\/.*\.(md|mdx)$/i.test(p) || /adr.*\.(md|mdx)$/i.test(p))
+  // 4. ADRs / docs samples. SCOPED under a sub-path scan: a monorepo's root `docs/` tree would
+  //    otherwise eat the sample slots with material about other packages.
+  scoped(paths.filter((p) => /^docs\/.*\.(md|mdx)$/i.test(p) || /adr.*\.(md|mdx)$/i.test(p)))
     .slice(0, 3)
     .forEach(add);
 
-  // 5. A sample of test files.
-  paths
-    .filter((p) =>
+  // 5. A sample of test files — SCOPED (this is the budget that was being spread thin).
+  scoped(
+    paths.filter((p) =>
       /(^|\/)(__tests__|tests?|spec)\//i.test(p) ||
       /\.(test|spec)\.[a-z0-9]+$/i.test(p) ||
       /_test\.[a-z0-9]+$/i.test(p),
-    )
+    ),
+  )
     .slice(0, 4)
     .forEach(add);
 
-  // 6. A sample of source files to give the LLM texture.
-  paths
-    .filter(
+  // 6. A sample of source files to give the LLM texture — SCOPED, same reason as step 5.
+  scoped(
+    paths.filter(
       (p) =>
         /\.(ts|tsx|js|jsx|py|go|rs|java|rb|kt|cs|php)$/i.test(p) &&
         !/(^|\/)(node_modules|dist|build|vendor|\.next)\//i.test(p) &&
         !picked.has(p),
-    )
+    ),
+  )
     .slice(0, 6)
     .forEach(add);
 

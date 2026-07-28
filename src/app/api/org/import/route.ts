@@ -41,6 +41,12 @@ import { authGateEnabled, getViewer } from "@/lib/access";
 import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
+import {
+  consumePublicScanQuota,
+  peekPublicScanQuota,
+  refundPublicScanQuota,
+  type QuotaIdentity,
+} from "@/lib/public-scan-quota";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
@@ -78,6 +84,9 @@ export async function POST(request: Request) {
     watch?: boolean;
     schedule?: string;
     installationId?: string;
+    /** Opt in to public-funnel metering (free monthly public-scan allowance instead of credits).
+     *  Honored only for a token-less, non-mock run — see the `publicFunnel` derivation below. */
+    publicFunnel?: boolean;
   };
   const org = body.org ? normalizeOrgSlug(body.org) : undefined;
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
@@ -168,7 +177,20 @@ export async function POST(request: Request) {
   // inference is billed to its AWS account, so the platform never charges a scan credit — without this
   // term a BYOM org's import reserved platform credits per repo (or truncated the batch at balance 0).
   const byom = await isByomActive(org).catch(() => false);
-  const metered = !mock && org !== "public" && !byom;
+  // G7-17. The PUBLIC FUNNEL: a real scan billed against the free monthly public-scan allowance
+  // instead of prepaid credits, which is what let the onboarding wizard stop fabricating previews.
+  //
+  // It requires BOTH halves, and the second is the safety one:
+  //   • the caller ASKS for it (`publicFunnel: true`) — an explicit opt-in, so no existing metered
+  //     caller silently changes billing mode; and
+  //   • the run is token-less (no installation token minted, not the auth-off operator/seeding path),
+  //     which means `scanOpts.noAmbientToken` is set and a private repo 404s. So the mode is only ever
+  //     granted to a run that is STRUCTURALLY incapable of scanning anything non-public.
+  //
+  // Asking for it on a run that DID mint a token is simply ignored (it stays credit-metered) — the flag
+  // can't be used to scan private repos for free.
+  const publicFunnel = body.publicFunnel === true && !mock && !appTokenMinted && !authOff;
+  const metered = !mock && org !== "public" && !byom && !publicFunnel;
   // Supabase login wall on the PRIVATE/metered import path only — a real-inference import into a
   // tenant org is a gated "org feature". The free funnel (mock import, or the shared public org)
   // stays open / no-signup. Mirrors the scan-route gate (orgSlug !== "public").
@@ -185,6 +207,19 @@ export async function POST(request: Request) {
     if (!ent.allowed) return paymentRequired(ent.balance);
     unlimited = ent.unlimited;
     scanCapacity = ent.balance + ent.allowanceRemaining;
+  }
+
+  // G7-17: the token-less public path draws on the FREE monthly public-scan allowance, not on credits.
+  // The viewer is resolved HERE, in the route body — a cookie-scoped read inside the SSE `start()`
+  // returns null, which would silently bucket a signed-in caller as anonymous (and at the anonymous,
+  // lower limit). The peek is non-consuming; each repo consumes its own slot in the lane below.
+  const publicQuotaIdentity: QuotaIdentity | null = publicFunnel
+    ? { viewerId: (await getViewer().catch(() => null))?.id ?? null }
+    : null;
+  let publicScanCapacity = Number.POSITIVE_INFINITY;
+  if (publicQuotaIdentity) {
+    const peek = await peekPublicScanQuota(request, publicQuotaIdentity);
+    if (peek.enforced) publicScanCapacity = peek.remaining;
   }
 
   const stream = new ReadableStream<Uint8Array>({
@@ -252,6 +287,24 @@ export async function POST(request: Request) {
           fullNames = fullNames.slice(0, scanCapacity);
           send("notice", { reason: "insufficient_credits", scanning: fullNames.length, skipped: skippedForCredits });
         }
+
+        // The same cap for the public path, against the monthly free allowance rather than credits.
+        // Disclosed as a `notice` exactly like the credit cap, so a short batch is never read as "these
+        // repos scanned and scored nothing".
+        let skippedForQuota = 0;
+        if (publicQuotaIdentity && fullNames.length > publicScanCapacity) {
+          skippedForQuota = fullNames.length - publicScanCapacity;
+          fullNames = fullNames.slice(0, Math.max(0, publicScanCapacity));
+          send("notice", { reason: "monthly_quota", scanning: fullNames.length, skipped: skippedForQuota });
+        }
+        if (fullNames.length === 0) {
+          // Allowance fully spent. Say so — a real-scan funnel must not quietly substitute a preview.
+          send("error", {
+            error:
+              "You've used your free public scans for this month. Add scan credits or install the GitHub App to keep scanning.",
+          });
+          return;
+        }
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });
 
         // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
@@ -300,7 +353,34 @@ export async function POST(request: Request) {
               }
               reserved = reservation.reserved;
             }
-            const refundCredit = () => refundScanCredit(org, reserved);
+            // The public path's equivalent of reserving a credit: consume one monthly free-scan slot
+            // BEFORE the ingest, value-keyed so the refund below removes exactly this lane's slot.
+            let quotaChargedAt: number | null = null;
+            if (publicQuotaIdentity) {
+              const q = await consumePublicScanQuota(request, publicQuotaIdentity);
+              if (q.enforced && !q.allowed) {
+                skippedForQuota += 1;
+                processed += 1;
+                send("repo", { repo: r.fullName, skipped: "monthly_quota" });
+                send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
+                return; // finally releases the claim
+              }
+              quotaChargedAt = q.chargedAt;
+            }
+            const refundQuota = async () => {
+              if (publicQuotaIdentity && quotaChargedAt != null) {
+                const at = quotaChargedAt;
+                quotaChargedAt = null; // at most one refund per consumed slot
+                await refundPublicScanQuota(request, publicQuotaIdentity, at);
+              }
+            };
+            // One refund verb for both meters: whichever one this run charged, "nothing chargeable was
+            // produced" must give it back. A caller that remembered only credits would silently burn a
+            // free public slot on a deduped or degraded scan.
+            const refundCredit = async () => {
+              await refundScanCredit(org, reserved);
+              await refundQuota();
+            };
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
             // Set the moment `scanRepository` returns a REAL (non-mock) report: the inference is
             // already spent at that point. A failure AFTER it (persist, bookkeeping) must not refund —
@@ -365,7 +445,7 @@ export async function POST(request: Request) {
         // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
         // never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
-        send("result", { org, scanned, total: fullNames.length, skippedForCredits, skippedInProgress, dashboard: `/org/${org}` });
+        send("result", { org, scanned, total: fullNames.length, skippedForCredits, skippedForQuota, skippedInProgress, dashboard: `/org/${org}` });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });
       } finally {

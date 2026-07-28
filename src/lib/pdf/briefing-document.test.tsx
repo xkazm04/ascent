@@ -9,11 +9,18 @@
 // BriefingDocument returns plain React elements, so we assert structurally on the element tree
 // (same approach as security-document.test.tsx) — no @react-pdf binary render needed.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { BriefingDocument } from "./briefing-document";
 import type { ExecBriefing } from "@/lib/org/briefing";
+
+// The `renderToBuffer` cases below drive the REAL @react-pdf pipeline (font registration, layout,
+// PDF serialization) rather than inspecting an element tree, so they are genuinely slow — they pass
+// in isolation but exceed the 5s default when the full suite saturates the CPU. Raised file-locally
+// rather than globally: a global bump would hide a real regression somewhere else.
+vi.setConfig({ testTimeout: 30_000 });
+
 
 /** Flatten every string in a React element tree (children + string props like Document's subject). */
 function collectText(node: ReactNode, out: string[] = []): string[] {

@@ -47,9 +47,20 @@ export interface ReportScan {
 export function useReportScan(
   repo: string,
   initialFresh: boolean,
-  opts: { notify?: boolean; email?: string } = {},
+  opts: {
+    notify?: boolean;
+    email?: string;
+    /** Git ref to score instead of the default branch (G7-07). Resolved + validated server-side. */
+    ref?: string;
+    /** Monorepo sub-path to aim the ingestion budget at (G7-08). */
+    subPath?: string;
+  } = {},
 ): ReportScan {
-  const { notify, email } = opts;
+  const { notify, email, ref, subPath } = opts;
+  // A SCOPED scan (branch/tag/commit and/or sub-path) can't be answered from any cache the peek
+  // probes: the shared caches and the persisted corpus hold only whole-repo, default-branch readings.
+  // The server 204s a scoped peek anyway; skipping it here saves the round-trip.
+  const scoped = Boolean(ref || subPath);
   const [state, setState] = useState<ScanState>({ status: "idle" });
   const [progress, setProgress] = useState<Progress>({ message: "Starting…", pct: 0 });
   // Set from the scan response headers when the free monthly public-scan gate counted this scan.
@@ -135,7 +146,7 @@ export function useReportScan(
       // "Re-test" to force a fresh re-score). On a peek MISS the server hands back the head sha/etag it
       // resolved; forward them so the stream skips a duplicate head lookup.
       let peekHead: { headSha: string; headEtag: string | null } | null = null;
-      if (!fresh) {
+      if (!fresh && !scoped) {
         try {
           const peek = await fetch(`/api/scan?url=${encodeURIComponent(repo)}&peek=1&recent=1`, {
             signal: controller.signal,
@@ -168,6 +179,11 @@ export function useReportScan(
           body: JSON.stringify({
             url: repo,
             fresh,
+            // Scope travels with every attempt including a re-test, so "Re-test" re-scores the SAME
+            // branch/sub-path the report on screen is about rather than silently switching subject
+            // to the default branch.
+            ...(ref ? { ref } : {}),
+            ...(subPath ? { subPath } : {}),
             ...(notify && retestNonce === 0 ? { notify: true, ...(email ? { email } : {}) } : {}),
             ...(peekHead ?? {}),
           }),
@@ -324,7 +340,9 @@ export function useReportScan(
       controller.abort();
       clearTimeout(timeout);
     };
-  }, [repo, fresh, retestNonce]);
+    // `ref`/`subPath` are dependencies: changing the branch or sub-path in the URL is a different
+    // scan subject, so the effect must re-run rather than keep showing the previous subject's report.
+  }, [repo, fresh, retestNonce, ref, subPath, scoped]);
 
   return {
     state,

@@ -19,6 +19,7 @@ pure, testable TypeScript.
 | Surface | Behavior | Implementation |
 | --- | --- | --- |
 | Landing scan box | `ScanForm` normalizes any input shape (`owner/repo`, full URL, SSH) via `normalizeRepo()` and routes to `/report?repo=<normalized>`. | `src/app/page.tsx`, `src/components/ScanForm.tsx` |
+| Branch &amp; sub-path | A collapsed "Branch &amp; sub-path" disclosure under the scan box adds an optional git ref and monorepo sub-path, appended as `&ref=` / `&path=`. Pasting a `github.com/o/r/tree/<branch>` link prefills the branch. See [Scan scope](#scan-scope-branch--sub-path). | `src/components/scan/ScanScopeFields.tsx` |
 | Scan gallery | Curated/live examples on the landing page; live entries come from `getPublicScanGallery()`. | `src/components/landing/ScanGallery.tsx` |
 
 The report page then drives the actual scan over the streaming endpoint — see
@@ -39,9 +40,16 @@ The report page then drives the actual scan over the streaming endpoint — see
   "token":          "optional GitHub token (private repos / PR signals)",
   "installationId": "optional GitHub App installation id",
   "mock":  true,    // force the deterministic provider
-  "fresh": true     // /api/scan only: skip the cached report, re-run
+  "fresh": true,    // /api/scan only: skip the cached report, re-run
+  "ref":     "develop",       // optional: score this branch/tag/commit, not the default branch
+  "subPath": "packages/api"   // optional: aim the ingestion budget at this monorepo sub-tree
 }
 ```
+
+`ref` / `subPath` are also accepted on `GET /api/scan` as `?ref=` / `?path=` (which only reach a
+real scan in `?mock=1` demo mode — `GET` is otherwise restricted to `peek=1`). Invalid values are
+rejected **before** the quota block: `400 { code: "INVALID_REF" | "INVALID_SUBPATH" }`, and an
+unresolvable ref is `404 { code: "REF_NOT_FOUND" }` — never a silent fall-back to the default branch.
 
 `/api/scan` responses carry cache-provenance headers: `x-ascent-cache: hit | miss | hit-db`
 and `x-ascent-dedup: hit | miss`.
@@ -70,15 +78,58 @@ quota is consumed, so a typo can never burn one of the free tier's monthly scan 
 
 - `meta: RepoMeta` — owner, name, stars, forks, language, default branch, **head SHA**.
 - `tree: RepoFile[]` — the full recursive git tree (`git/trees?recursive=1`, one call).
-- `files: FetchedFile[]` — a **budgeted sample** (≤ 32 files, ≤ 14 KB each, ≤ 180 KB
-  total) chosen by `pickFilesToFetch`: agent-guidance files, manifests, configs, CI
-  workflows, tests, and a sample of source. Public repos read from `raw.githubusercontent.com`;
-  private repos use the Contents API.
+- `files: FetchedFile[]` — a **budgeted sample** (≤ 50 files + a reserved quota of ≤ 24 CI
+  workflows, ≤ 14 KB each — 60 KB for CODEOWNERS — ≤ 280 KB total) chosen by
+  `pickFilesToFetch`: agent-guidance files, manifests, configs, CI workflows, tests, and a
+  sample of source. Public repos read from `raw.githubusercontent.com`; private repos use the
+  Contents API. The budget is a **fixed constant, deliberately**: it is what makes two repos'
+  scores comparable, so it is not request-configurable (see [Known gaps](#known-gaps)).
 - `commits: CommitInfo[]` — up to 30 recent commits (message, author, login, date).
 - `truncated`, `coverage` — flags that drive confidence + warnings.
 
 Ingest accepts an optional `ref` (branch/tag/SHA) so the pipeline can score a **PR head**
-instead of the default branch — this is what the [gate](./gate.md) and the App webhook use.
+instead of the default branch — this is what the [gate](./gate.md) and the App webhook use,
+and what the public scan form's branch selector drives (below).
+
+## Scan scope (branch &amp; sub-path)
+
+An interactive scan can target something other than "the whole repo at its default-branch head":
+
+| Input | Effect |
+| --- | --- |
+| `ref` | Ingest a branch, tag or commit instead of the default branch. |
+| `subPath` | Spend the per-file content budget on one sub-tree of a monorepo. |
+
+**Sub-path is a budget re-aim, not a filter.** The tree, commit history and every repo-level
+enrichment (PR stats, governance, security posture/exposure) stay repo-wide, and repo-wide files —
+root README/manifests, `CODEOWNERS`, `SECURITY.md`, and **every CI workflow** — are still read, so
+the deterministic batteries that depend on them (notably D9's workflow battery) don't go blind. Only
+the docs/test/source *sample* slots are scoped, plus the sub-tree's own manifests, which take prompt
+priority over the root's. Prefix matching is exact-segment: `packages/api` never sweeps in
+`packages/api-client`.
+
+Three invariants hold, and are unit-tested (`src/lib/scan-scope.test.ts`,
+`src/lib/scan-scope-cache.test.ts`, `src/lib/scan-scope-server.test.ts`):
+
+1. **Identity.** The ref is resolved **server-side** to its own 40-char commit SHA
+   (`resolveRefSha`), and that SHA keys the cache — never the default branch's head. A sub-path adds
+   an explicit `!path:<dir>` key segment, because it reads a different file set at the *same* commit.
+   So a ref/sub-path entry can neither collide with nor be served to a whole-repo reader.
+2. **Subject.** A scoped report is **never persisted**. The corpus (leaderboard, `/report`'s
+   "latest", org rollups, the regression-alert baseline) reads a repo's most recent persisted row, so
+   saving a branch or single-package score would silently redefine what the repo scores. The scoped
+   report is stamped with a warning saying it isn't comparable and wasn't saved, the completion email
+   is suppressed (its permalink wouldn't resolve), and the peek / error-salvage paths return `204`
+   rather than a whole-repo report.
+3. **Trust.** Because it never enters the corpus, a client-supplied ref can't get a flattering
+   cherry-picked commit scored, saved and later served as the repo's public reading — the same attack
+   `/api/scan/stream` refuses a client-supplied `headSha` for.
+
+A ref that resolves to the **default branch's head** is not scoped: same commit, same tree, same
+score, so `?ref=main` keeps full cache reuse and normal persistence.
+
+Definitions live in `src/lib/scan-scope.ts` (pure, shared with the form) and
+`src/lib/scan-scope-server.ts` (validation + resolution, shared by both routes).
 
 ### 2 — Analyze (`src/lib/analyze/index.ts`)
 
@@ -175,7 +226,9 @@ level — used by the org [Trajectory](../org-dashboard/org-intelligence.md).
 
 ## Caching (`src/lib/cache.ts`, `src/lib/scan-cache.ts`)
 
-Two tiers, keyed by `owner/repo@sha::{llm|mock}` (`makeCacheKey`):
+Two tiers, keyed by `owner/repo@sha[!scope]::{llm|mock}#fp` (`makeCacheKey`), where `#fp` fingerprints
+the {provider, model, rubric} scoring identity and the optional `!scope` segment carries a sub-path
+(see [Scan scope](#scan-scope-branch--sub-path)):
 
 1. **In-memory LRU** (`src/lib/cache.ts`) — 100 entries, 15-min TTL, plus a separate
    `HeadHint` LRU (ETag + SHA, 6-hr TTL) for cheap conditional head requests.
@@ -216,7 +269,9 @@ cancelled only when the last interested caller disconnects.
 | `src/lib/scoring/recommendations.ts` | Deterministic fallback roadmap (per-dimension templates ranked by upside). |
 | `src/lib/maturity/model.ts` | `LEVELS`, `DIMENSIONS`, `ARCHETYPE_WEIGHTS`, `levelForScore`, `postureFor`, constants. |
 | `src/lib/maturity/forecast.ts` | Trend projection + ETA to next level. |
-| `src/lib/cache.ts` / `src/lib/scan-cache.ts` | In-memory LRU + tiered cache orchestration. |
+| `src/lib/cache.ts` / `src/lib/scan-cache.ts` | In-memory LRU + tiered cache orchestration (incl. `lookupScopedScan`). |
+| `src/lib/scan-scope.ts` | Pure scope predicates: ref/sub-path validation, `isScopedScan`, the cache-key segment, the report caveat. Shared with the scan form. |
+| `src/lib/scan-scope-server.ts` | `resolveScanScope()` — validates + server-side-resolves a request's ref/sub-path for both scan routes. |
 | `src/lib/types.ts` | All domain types (`RepoSnapshot`, `DimensionSignals`, `LlmAssessment`, `ScanReport`, …). |
 
 ## Known gaps
@@ -229,3 +284,20 @@ cancelled only when the last interested caller disconnects.
   the report still renders but with `engine.provider: "mock"` and a warning.
 - **No raw source is persisted** in the MVP — only the derived report (see
   [data-model.md](../data/data-model.md)).
+- **The ingestion budget is not configurable per request, on purpose.** A bigger budget changes
+  which files the *deterministic* detectors see (they read whole file bodies with length
+  thresholds), so it changes the score — two repos scanned under different budgets would not be
+  comparable, and the persisted corpus has no column to mark which budget produced a row. Raising
+  the budget for large repos is therefore a *global, versioned* decision (bump
+  `SCORING_RUBRIC_VERSION`, which self-invalidates both cache tiers), not a request knob. A
+  per-scan budget would need a schema column recording it plus comparability handling in every
+  rollup that averages across repos.
+- **Sub-path scans are not saved.** They're a diagnostic lens on one package, not a second score
+  for the repo, so there is no per-package history or trend (that would need a first-class
+  "component" object, not a scan flag).
+- **Lockfiles are read for exposure, not for pinning.** `src/lib/security/exposure.ts` already
+  fetches and parses `package-lock.json` out-of-band and grades open known vulns via OSV (a
+  stronger signal than pinned-vs-floating). Other ecosystems (`pnpm-lock.yaml`, `Cargo.lock`,
+  `go.sum`, `poetry.lock`) return `known:false` = UNKNOWN, treated as neutral — never "clean".
+  Lockfiles are deliberately **not** added to `pickFilesToFetch`: they are large, low-signal-
+  per-byte, and would displace README/manifests/source from the prompt window.

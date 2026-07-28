@@ -17,12 +17,27 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 | **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **120s stall timeout** (`STALL_MS`, sized for a real LLM scan of one large repo). |
 | **done** | `OnboardingChecklist` + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. |
 
-**Real vs. preview scans.** A run is real only on the App path *and* when the org's credit read
-settles with headroom (`canRunReal`); everything else — the whole public-handle funnel — is a
-disclosed **preview** (deterministic mock), so a credit-less org never dead-ends on a 402 and
-mock scores are never mistaken for live ones. The gate awaits the in-flight balance read and
-retries once, then fails closed to a preview and records *why* (`previewCause`), so the done
-screen can say "balance unreadable" rather than "install the App" to an org that already did.
+**Real vs. preview scans.** `resolveScanMode` (`scanMode.ts`) settles this before any POST, and it
+now has **two** real paths:
+
+- **Public-handle path (no installation) — REAL, free (G7-17).** `canRunRealPublicScan` returns true
+  whenever there is no installation id. A token-less run can only ever read *public* repositories
+  (`noAmbientToken` ⇒ a private repo 404s), which is exactly what `/report?repo=` has always scored
+  for real, with no account and no credits. The client sends `publicFunnel: true` alongside
+  `mock: false`; `/api/org/import` honours that flag **only** for a genuinely token-less, non-mock run
+  and then meters it against the free **monthly public-scan allowance**
+  (`src/lib/public-scan-quota.ts`) instead of prepaid credits — peeked up front to cap the batch
+  (`notice: monthly_quota`), consumed per repo, and refunded when a repo produced nothing chargeable
+  (a dedup or a degrade-to-mock). With the allowance spent the run **refuses and says so**; it never
+  silently downgrades to a preview.
+  *Why this mattered:* the highest-intent first run in the funnel used to show deterministic numbers
+  no model produced — and those rows land in the public corpus that the
+  [public register](../reporting/report.md#the-public-register--org-scorecards-g7-05--g7-06) ranks.
+- **App path — real when credits allow.** Unchanged: `canRunRealScan` requires an installation *and*
+  a credit read that settles with headroom. Everything else is a disclosed **preview** (deterministic
+  mock), so a credit-less org never dead-ends on a 402. The gate awaits the in-flight balance read and
+  retries once, then fails closed to a preview and records *why* (`previewCause`), so the done screen
+  can say "balance unreadable" rather than "install the App" to an org that already did.
 
 **Cost disclosure + the autoscan opt-in (App path only).** `ScanCostDisclosure`
 (`OnboardingSelectStep.CostDisclosure.tsx`) sits directly under the Scan button and prices *both*
@@ -120,10 +135,11 @@ cluster, each repo a star:
 
 ## Known gaps
 
-- **The public funnel is preview-only** — a real (LLM) scan needs the App path *and* credits;
-  the public-handle path always produces a disclosed mock. Private repos likewise require the
-  App and the [connect](../github/github-app.md) flow (the wizard reaches them via `loadInstallationRepos`,
-  so "select is public-only" is no longer true — the *funnel* is, the *selector* isn't).
+- **The public funnel is allowance-bounded** (no longer preview-only, G7-17) — it runs real scans, but
+  only as many as the caller's remaining free monthly public-scan allowance covers; past that it
+  refuses rather than downgrading. Private repos still require the App and the
+  [connect](../github/github-app.md) flow (the wizard reaches them via `loadInstallationRepos`, so
+  "select is public-only" is no longer true — the *funnel* is, the *selector* isn't).
 - **The public listing is bounded** — it walks at most 5 pages before giving up, so a large or
   fork-heavy account yields a recent slice (disclosed in the select step, not silently).
 - **The tour's steps are fixed** — they teach the fleet dashboard; a personal workspace or an

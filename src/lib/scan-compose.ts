@@ -137,6 +137,13 @@ export interface ScanWarningsInput {
   snapshotCoverage: number;
   stackFit: StackFit | null;
   prPartial: boolean;
+  /**
+   * Prose caveat for a SCOPED scan (a non-default ref and/or a monorepo sub-path — see
+   * `scopeWarning` in src/lib/scan-scope.ts), or null for an ordinary whole-repo default-branch scan.
+   * Emitted LAST because it qualifies the whole report's subject rather than one signal's reliability:
+   * a reader must not compare it with default-branch scores, and it is deliberately not persisted.
+   */
+  scopeCaveat?: string | null;
 }
 
 /**
@@ -186,5 +193,8 @@ export function buildScanWarnings(input: ScanWarningsInput): string[] {
       "Pull-request data was incomplete (GitHub returned a truncated page), so the Review, Velocity and Delivery dimensions may understate. This scan was not cached.",
     );
   }
+  // Scope caveat last: it qualifies WHAT was scored, not how reliably, so it should read as the final
+  // framing statement rather than be buried among the signal-level caveats.
+  if (input.scopeCaveat) warnings.push(input.scopeCaveat);
   return warnings;
 }

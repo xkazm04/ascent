@@ -38,12 +38,12 @@ since fleet aggregation/attribution surfaces need a real org's breadth.
 | Fleet | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
 | Intelligence | Security | `org/[slug]/security` | `src/app/org/[slug]/security/` | Security posture across the fleet. |
 | Intelligence | Adoption | `org/[slug]/adoption` | `src/app/org/[slug]/adoption/` | Adoption signals. |
-| Intelligence | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity. Its four rollup queries (PR signals, governance, activity, AI usage) run via `Promise.allSettled`, not `Promise.all` — one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. |
-| Intelligence | Contributors | `org/[slug]/contributors` | `src/app/org/[slug]/contributors/page.tsx` | AI champions, involvement table (withheld below 3 contributors), per-repo concentration / bus-factor. |
+| Intelligence | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: six small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, protected default branch, merge rate, time to merge) plus gated slope reads, scoped by the shared org period selector. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all` — one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. |
+| Intelligence | Contributors | `org/[slug]/contributors` | `src/app/org/[slug]/contributors/page.tsx` | AI champions, involvement table (withheld below 3 contributors), an **Org resilience** module (fleet key-person exposure — repo-level only, names nobody), and the per-repo concentration / bus-factor table. |
 | Intelligence | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. |
 | Plan | Practices | `org/[slug]/practices` | `src/app/org/[slug]/practices/page.tsx` | The Practice Library — see [../practices.md](./practices.md). |
 | Plan | Plan | `org/[slug]/plan` | `src/app/org/[slug]/plan/page.tsx` | Goals, simulator, initiatives, detector backlog — see [plan.md](../org-planning/plan.md). |
-| Plan | Backlog | `org/[slug]/backlog` | `src/app/org/[slug]/backlog/page.tsx` | The recommendation backlog — every open gap across the fleet with an owner + due date, grouped by owner and by due-date bucket; inline status/owner/due-date edits and a per-item activity history. Closing an item (Done/Dismissed) stays one click but is **reversible**: an Undo bar offers the prior status straight back, and a "Show done & dismissed" toggle re-reads the closed rows so an older mistake can still be restored. Undated items show an explicit "no due date" control that focuses the row's due field. |
+| Plan | Backlog | `org/[slug]/backlog` | `src/app/org/[slug]/backlog/page.tsx` | The recommendation backlog — every open gap across the fleet with an owner + due date, grouped by owner and by due-date bucket; inline status/owner/due-date edits and a per-item activity history. Closing an item (Done/Dismissed) stays one click but is **reversible**: an Undo bar offers the prior status straight back, and a "Show done & dismissed" toggle re-reads the closed rows so an older mistake can still be restored. Undated items show an explicit "no due date" control that focuses the row's due field. **Search, filter & bulk (2026-07-28, G7-12):** a full-text box (title / repo / dimension / impact / effort / owner / rationale, whitespace-separated terms AND-ed), status chips and an owner picker narrow the list CLIENT-side — the headline counts never move, and a "N of M shown" readout says what was hidden. Picking a Done/Dismissed chip turns "show done & dismissed" ON rather than filtering a payload that never carried closed rows. Row checkboxes drive a sticky bulk bar that sets a status on up to **100** selected rows per action (bounded, confirmed, 4-wide fan-out, ONE backlog re-read for the whole run); the selection is pruned to what the filter shows, so a bulk action can never reach a hidden row. **CSV export (G7-13):** "Export CSV ↓" downloads `GET /api/org/backlog?format=csv` for the CURRENT scope (segment / tech group / includeClosed, all encoded in the filename), one row per item via the canonical `csvTable`. |
 | Library | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
 | Library | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
 | Govern | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
@@ -108,7 +108,9 @@ The Overview page composes several server queries, all scoped to the org:
 | `getContributorInsights(slug, segmentId?)` | Champions, involvement, concentration/bus-factor, plus the aggregate AI-share `distribution`. Optional `segmentId` scopes to a segment. **Privacy floor (2026-07-28):** below `CHAMPION_MIN_POP` (3) humans it returns `namingAllowed: false` and emits NO per-individual data at all — `champions: []`, `contributors: []`, and `concentration[].topLogin` redacted to `—`; every aggregate (totals, shares, distribution, bus factor) is unaffected. The floor lives in the producer, not in the pages, so the CSV export, the adoption brief and any future consumer inherit it. |
 | `compareSegments(slug, aId, bId?)` (`src/lib/db/segments.ts`) | Two segments side by side (B may be null = whole fleet): headline metric deltas + per-dimension Δ. Reuses `getOrgRollup`'s scoped averages; the pure diff is `buildSegmentComparison` (unit-tested). `listSegments` / `createSegment` / `setRepoSegment` / `getRepoSegmentMap` manage the `Segment` / `RepoSegment` tags. |
 | `getOrgTeamRollup(slug)` | Per-team rollup keyed by CODEOWNERS attribution (`RepoTeam`, captured at scan time): each team's Adoption×Rigor, per-dimension averages (strongest/weakest), merged human AI-commit knowledge + champions, and since-last-scan movers, across the repos it owns. Team `champions` are subject to the same producer-level `CHAMPION_MIN_POP` floor (empty below 3 team contributors), and the knowledge leader is elected only from teams that clear it. Plus the org's AI-knowledge leader and the single highest-leverage strong→weak cross-team pairing. Pure aggregation lives in `rollupTeams` (unit-tested). |
-| `getOrgGovernance` / `getOrgActivity` / `getOrgPrSignals(slug)` | Delivery-tab aggregates. |
+| `getOrgGovernance` / `getOrgActivity` / `getOrgPrSignals(slug)` | Delivery-tab aggregates (point-in-time: each repo's latest scan). |
+| `getOrgDeliveryTrend(slug, window, segmentId?, techGroupId?)` (`src/lib/db/org-delivery-trend.ts`) | **Delivery over time (2026-07-28).** The Delivery tab's only *windowed* read: it walks every `Scan` in the period and folds the already-persisted `prStats`/`governance` blobs into one point per canonical-zone calendar day. Rates are analyzed-PR-weighted exactly like `getOrgPrSignals`; a nullable rate stays null ("no sample" ≠ a measured 0); unreadable governance contributes nothing. Each point carries its own `scans`/`repos`/`prs` sample size, because a point describes **the repos scanned that day, not the fleet** — the same semantics as the maturity trend, disclosed rather than reconstructed. Lower bound is retention-clamped like the maturity trend. `fits` gives a per-week slope for `reviewedRate` / `aiGovernedRate`, gated by the **shared** `forecastInsufficiency` floor and deliberately narrowed to the slope fields (a review-coverage percentage has no maturity level, so `projectedLevel`/`eta` are never exposed). Pure `buildDeliveryTrend` / `buildDeliveryRateFit` are unit-tested. |
+| `computeOrgResilience(concentration)` (`src/lib/db/org-contributors.ts`) | **Org resilience / key-person exposure (2026-07-28).** Returned as `ContributorInsights.resilience`. Rolls the per-repo concentration rows into a commit-weighted fleet score (0-100), a critical/at-risk repo count, `exposedCommitShare` (how much of the fleet's recent commit volume sits in at-risk repos), and the riskiest repos ranked by `0.6 × topShare + 0.4 × (100 / busFactor)`. **It emits no login at any population size** — stricter than the `CHAMPION_MIN_POP` floor, on purpose: a "risk" framing is where a name stops being attribution and becomes an accusation, and the repo-level statement ("one point of failure, 92% concentration") carries the whole decision. Conversely it *survives* below the naming floor: a 2-person org is the most exposed org there is, so withholding the read would hide the finding, not a person. |
 | `getOrgDiscrepancies(slug)` | Aggregated LLM-auditor flags grouped by dimension (the calibration backlog). |
 
 **Trajectory** (`src/components/org/Trajectory.tsx`) renders the `Forecast` from
@@ -277,6 +279,18 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   invite. `src/app/invite/[token]/page.tsx` is the UI that collects the token and fires the
   accept POST. Both create and accept are recorded to the audit log
   (`org.member.invited`, `org.member.invite_accepted`).
+- **The invite is now delivered** (G7-02) — creating an invite with an `email` sends **one**
+  transactional message to that address via the shared email transport (`src/lib/email/invite.ts`).
+  *Trigger*: an owner's `POST /api/org/invites` with `email` set. *Recipient*: only that address.
+  *Opt-out*: `notify: false` in the same request; deployment-wide, `EMAIL_INVITES=off`, and the whole
+  path is inert with no email provider (`SES_FROM_EMAIL` unset). There is no list and no repeat send,
+  so there is nothing to unsubscribe from — the mail says exactly that.
+  The address is **not verified** (an owner typed it), so the mail discloses only the org slug, the
+  role, the inviting login, the link and the expiry — no scores, repos, or member list — and accepting
+  still requires the accepter's Supabase-**confirmed** email to match the pin (`acceptInvite`), so a
+  misdirected message cannot hand a stranger the role. The response reports `emailed`:
+  `"sent" | "skipped" | "failed" | null`, and the invite + token are returned either way, so the
+  owner's manual copy/paste path is never lost. The audit entry records the outcome.
 
 ## Key files
 
@@ -296,7 +310,10 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
 | `src/components/org/Trajectory.tsx` | Forecast "GPS" card. |
 | `src/components/org/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
 | `src/components/org/AuditLogViewer.tsx` | Audit trail viewer. |
-| `src/components/org/BacklogPanel.tsx` | Backlog tab client panel — owner/due-date grouping toggle, inline status/owner/due-date edits, per-item activity history. |
+| `src/components/org/backlog/BacklogPanel.tsx` | Backlog tab client panel — grouping toggle, inline status/owner/due-date edits, per-item activity history, undo bar, search/filter row and the bulk-action bar. |
+| `src/components/org/backlog/backlogFilter.ts` | Pure search/filter model (`matchesBacklogFilter`, `filterBacklog`, `filterWantsClosed` — the rule that composes a closed-status chip with the `includeClosed` fetch). |
+| `src/components/org/backlog/useBacklogBulk.ts` | Bulk status runner — `MAX_BULK` (100) per action, `BULK_CONCURRENCY` lanes, one refresh at the end. |
+| `src/components/org/backlog/BacklogGroups.tsx` | The grouped Cards + rows + the three empty states (filter-empty is distinct from backlog-empty). |
 | `src/components/org/ui.tsx` | Shared org-UI primitives. |
 | `src/app/api/org/*` | Active org, repos, import, scan, watch, schedule, segments, **backlog** (`GET ?org=` → `OrgBacklog`) (+ goals/initiatives/simulate — see [plan.md](../org-planning/plan.md)). |
 | `src/app/api/recommendations/[id]` | `PATCH` (status / `assigneeLogin` / `targetDate`, recording a `RecommendationEvent` attributed to the signed-in user) · `[id]/events` `GET` → the item's activity timeline. |
@@ -304,8 +321,21 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
 
 ## Known gaps
 
-- **No per-person time-series** — contributor data is latest-scan snapshots, not a trend
-  (would need `/stats/contributors` ingestion).
+- **No per-contributor drill-down page, deliberately** — and no per-person time-series to build one
+  from: `RepoContributor` is uniquely keyed `(repoId, login)` and upserted each scan, so it is a
+  *current* snapshot with no history. Two reasons this stays unbuilt rather than "not yet": (1) the
+  data doesn't exist — a "this person's trajectory" page could only be faked; (2) the only per-person
+  history that *does* exist (`AiChange.authorLogin`) is documented in the schema as internal-only and
+  pseudonymized in customer-facing packs, so building a profile page on it would invert an existing
+  privacy decision. Team-level drill-down already exists (the expandable `TeamsMatrixDetail` row).
+- **No DORA panel, deliberately** — of DORA's four metrics, Ascent ingests neither a deployment feed
+  nor an incident feed, so **deployment frequency** and **time to restore** are not derivable at all;
+  **lead time for changes** (commit → running in production) is only partially observable as PR
+  open→merge latency, which the Delivery trend ships under its true name ("time to merge"); and
+  **change failure rate** has only `prStats.revertRate` (a VCS revert, not a production failure)
+  behind it. Labelling any of these "DORA" would invite a leader to benchmark a proxy against
+  published industry figures. Unblocking it needs GitHub Deployments/Releases ingestion plus an
+  incident source — a data-ingestion project, not a dashboard one.
 - **No regression notifications in the UI** — movers show on the dashboard; push/email
   alerts go through the webhook sink (see [../alerts.md](../fleet/alerts.md)).
 - **Org trend is overall-only** — per-dimension org trends over time aren't surfaced yet.

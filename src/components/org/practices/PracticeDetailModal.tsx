@@ -9,6 +9,7 @@ import { Modal, ModalHeader, ModalBody } from "@/components/ui";
 import { PlaybookCard } from "@/components/org/practices/PlaybookCard";
 import { MinedPracticeDetail } from "./MinedPracticeDetail";
 import { categoryLabel, type PracticeRow } from "./practiceRows";
+import type { OrgPractice } from "@/lib/db";
 
 export function PracticeDetailModal({
   row,
@@ -17,6 +18,7 @@ export function PracticeDetailModal({
   repoOptions,
   onClose,
   onRemoveAuthored,
+  onPromoteMined,
 }: {
   row: PracticeRow | null;
   slug: string;
@@ -24,6 +26,8 @@ export function PracticeDetailModal({
   repoOptions: string[];
   onClose: () => void;
   onRemoveAuthored: (id: string) => void;
+  /** G7-25: promote a MINED practice into an authored playbook (opens the author form pre-filled). */
+  onPromoteMined?: (p: OrgPractice) => void;
 }) {
   return (
     <Modal open={row != null} onClose={onClose} size="xl" ariaLabel={row ? row.label : "Practice detail"}>
@@ -36,7 +40,10 @@ export function PracticeDetailModal({
           />
           <ModalBody>
             {row.source === "mined" && row.mined ? (
-              <MinedPracticeDetail p={row.mined} />
+              <MinedPracticeDetail
+                p={row.mined}
+                onPromote={onPromoteMined ? () => onPromoteMined(row.mined!) : undefined}
+              />
             ) : row.authored ? (
               <PlaybookCard
                 playbook={row.authored.playbook}

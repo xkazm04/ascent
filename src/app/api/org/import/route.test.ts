@@ -68,6 +68,23 @@ vi.mock("@/lib/rate-limit", () => ({
   tooManyRequests: vi.fn(),
   ORG_IMPORT_RATE_LIMIT: {},
 }));
+// G7-17: the token-less REAL public path is metered by the monthly free public-scan allowance rather
+// than by credits. Default here to the module's own fail-open shape (`enforced: false`) so the token
+// discipline / credit suites below are unaffected; the allowance behaviour has its own suite, which
+// overrides these.
+vi.mock("@/lib/public-scan-quota", () => ({
+  peekPublicScanQuota: vi.fn(async () => ({ enforced: false, remaining: 5, limit: 5, resetAt: null, scope: "anon" })),
+  consumePublicScanQuota: vi.fn(async () => ({
+    enforced: false,
+    allowed: true,
+    remaining: 5,
+    retryAfterSec: 0,
+    resetAt: null,
+    signedIn: false,
+    chargedAt: null,
+  })),
+  refundPublicScanQuota: vi.fn(async () => {}),
+}));
 
 import { POST } from "./route";
 import { scanRepository } from "@/lib/scan";
@@ -78,6 +95,7 @@ import { getInstallationToken } from "@/lib/github/app";
 import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, persistScanReport, reconcileListedRepos } from "@/lib/db";
 import { listOrgRepos } from "@/lib/github/list";
 import { checkScanEntitlement } from "@/lib/entitlement";
+import { consumePublicScanQuota, peekPublicScanQuota, refundPublicScanQuota } from "@/lib/public-scan-quota";
 // Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
 // here is visible to the route, letting us simulate a concurrent in-flight run deterministically.
 import { claimRepoScan, releaseRepoScan } from "@/lib/db/org-watch";
@@ -515,5 +533,133 @@ describe("POST /api/org/import — missing-repo reconciliation", () => {
     mockReconcile.mockRejectedValueOnce(new Error("db down"));
     await runImport({ org: "acme", mock: true, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(1); // the scan still ran
+  });
+});
+
+// ── G7-17: the PUBLIC FUNNEL runs REAL scans, metered by the free monthly allowance ──────────────
+//
+// The onboarding wizard's public-handle path used to be documented in-code as "always a preview": it
+// could not mint an installation token, so the money gate refused a real scan and the product's
+// highest-intent first run showed deterministic numbers no model produced — numbers that then land in
+// the public corpus the public register ranks. It now runs for real, billed against the SAME monthly
+// public-scan allowance `/report?repo=` uses, and never against org credits.
+//
+// The safety property pinned here is that the mode is opt-in AND token-bound: asking for it on a run
+// that minted an installation token (i.e. one that CAN read private repos) is ignored.
+describe("POST /api/org/import — public funnel (real scan, allowance-metered)", () => {
+  it("runs a REAL token-less scan without touching credits or entitlement", async () => {
+    mockScan.mockResolvedValue(realReport);
+    const events = await collectImport({
+      org: "facebook",
+      repos: ["facebook/react"],
+      mock: false,
+      watch: false,
+      publicFunnel: true,
+    });
+
+    // Real inference…
+    expect(mockScan.mock.calls[0][1]!.mock).toBe(false);
+    // …on a token-less scan, so a private repo could only ever 404 here.
+    expect(mockScan.mock.calls[0][1]!.noAmbientToken).toBe(true);
+    // …and NOT a credit draw: no entitlement check, no consume, no 402 dead-end.
+    expect(mockEntitlement).not.toHaveBeenCalled();
+    expect(mockConsume).not.toHaveBeenCalled();
+    // It IS metered — one allowance slot per repo.
+    expect(vi.mocked(consumePublicScanQuota)).toHaveBeenCalledTimes(1);
+    expect(events.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 1 });
+  });
+
+  it("IGNORES the flag when an installation token was minted (no free private scans)", async () => {
+    mockCanMint.mockResolvedValue(true);
+    mockInstallId.mockResolvedValue("inst-1");
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: true, balance: 0, allowanceRemaining: 0 });
+    mockScan.mockResolvedValue(realReport);
+
+    await collectImport({ org: "acme", repos: ["acme/app"], mock: false, watch: false, publicFunnel: true });
+
+    // Credit-metered as before; the allowance is untouched.
+    expect(mockEntitlement).toHaveBeenCalled();
+    expect(vi.mocked(consumePublicScanQuota)).not.toHaveBeenCalled();
+  });
+
+  it("caps the batch at the remaining allowance and DISCLOSES the shortfall", async () => {
+    vi.mocked(peekPublicScanQuota).mockResolvedValue({
+      enforced: true,
+      remaining: 1,
+      limit: 5,
+      resetAt: null,
+      scope: "anon",
+    });
+    mockScan.mockResolvedValue(realReport);
+
+    const events = await collectImport({
+      org: "facebook",
+      repos: ["facebook/react", "facebook/jest"],
+      mock: false,
+      watch: false,
+      publicFunnel: true,
+    });
+
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(events.find((e) => e.event === "notice")?.data).toMatchObject({
+      reason: "monthly_quota",
+      scanning: 1,
+      skipped: 1,
+    });
+  });
+
+  it("REFUSES rather than silently downgrading to a preview when the allowance is spent", async () => {
+    vi.mocked(peekPublicScanQuota).mockResolvedValue({
+      enforced: true,
+      remaining: 0,
+      limit: 5,
+      resetAt: null,
+      scope: "anon",
+    });
+
+    const events = await collectImport({
+      org: "facebook",
+      repos: ["facebook/react"],
+      mock: false,
+      watch: false,
+      publicFunnel: true,
+    });
+
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(String((events.find((e) => e.event === "error")?.data as { error?: string })?.error)).toMatch(
+      /free public scans/i,
+    );
+  });
+
+  it("refunds the allowance slot when the scan degraded to mock (nothing chargeable)", async () => {
+    // `mockResolvedValue` survives clearAllMocks (it clears calls, not implementations), so restore the
+    // allowance explicitly — the preceding cases deliberately exhaust it.
+    vi.mocked(peekPublicScanQuota).mockResolvedValue({
+      enforced: true,
+      remaining: 5,
+      limit: 5,
+      resetAt: null,
+      scope: "anon",
+    });
+    vi.mocked(consumePublicScanQuota).mockResolvedValue({
+      enforced: true,
+      allowed: true,
+      remaining: 4,
+      retryAfterSec: 0,
+      resetAt: null,
+      signedIn: false,
+      chargedAt: 1_700_000_000_000,
+    });
+    // A degrade-to-mock report: real inference was requested but never happened.
+    mockScan.mockResolvedValue(report);
+    mockPersist.mockResolvedValue({ deduped: false } as never);
+    await collectImport({
+      org: "facebook",
+      repos: ["facebook/react"],
+      mock: false,
+      watch: false,
+      publicFunnel: true,
+    });
+    expect(vi.mocked(refundPublicScanQuota)).toHaveBeenCalled();
   });
 });

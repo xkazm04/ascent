@@ -15,11 +15,18 @@
 //      during a real @react-pdf `renderToBuffer` regardless of empty arrays / a missing-or-malformed
 //      scannedAt — the invariant the paid export depends on.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { ReportDocument } from "./report-document";
 import type { ScanReport, DimensionResult, MaturityLevel, RepoMeta, Posture } from "@/lib/types";
+
+// The `renderToBuffer` cases below drive the REAL @react-pdf pipeline (font registration, layout,
+// PDF serialization) rather than inspecting an element tree, so they are genuinely slow — they pass
+// in isolation but exceed the 5s default when the full suite saturates the CPU. Raised file-locally
+// rather than globally: a global bump would hide a real regression somewhere else.
+vi.setConfig({ testTimeout: 30_000 });
+
 
 // ── Band colors the component hard-codes (must mirror report-document.tsx) ──────────────────────────
 const GREEN = "#16a34a"; // >= 80

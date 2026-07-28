@@ -49,6 +49,27 @@ A public landing page wrapping `BadgeGenerator` (client): parse a repo input, sh
 preview, and copy a snippet (Markdown / HTML / AsciiDoc) for all supported params. Snippets
 use absolute URLs so they're portable across READMEs.
 
+## Org badge (`GET /api/scorecard/[owner]/badge`, G7-06)
+
+The organisation-level sibling, drawn by the **same renderer** (`src/lib/badge-svg.ts`, extracted from
+the per-repo route so the two can't drift). Same query vocabulary (`style`, `label`, `color`,
+`metric=score`), same cache branching, same rate-limit budget, same CVD glyph redundancy, and the same
+rule that `?color=` may never repaint a resolved verdict.
+
+Three deliberate differences:
+
+- **It never scans.** The per-repo badge falls back to a fresh mock scan so a README image is never
+  broken. An org aggregate has no such contract, and inventing one from a mock would publish a number
+  no model produced — so an owner with nothing scored gets a neutral `not scored` badge.
+- **Public corpus only.** It reads `getPublicOrgScorecard` (see
+  [report.md](../reporting/report.md#the-public-register--org-scorecards-g7-05--g7-06)), which pins
+  every query to the public org + `isPrivate:false`. A private repo cannot move — or reach — it.
+- **Provenance is a refusal, not a suffix.** The per-repo badge can honestly say `L3 · demo` because
+  that is one repo's own preview. An *average over previews* is not a preview of anything real, so the
+  badge renders `preview only` instead of a qualified number.
+
+It links through to `/scorecard/{owner}?ref=badge`, the same attribution tag the repo badge uses.
+
 ## Key files
 
 | File | Role |
@@ -56,6 +77,9 @@ use absolute URLs so they're portable across READMEs.
 | `src/app/api/badge/[owner]/[repo]/route.ts` | The SVG endpoint: validate → rate-limit → cache → mock scan → render; level + `gate` modes. |
 | `src/app/badge/page.tsx` | Generator landing page. |
 | `src/components/badge/BadgeGenerator.tsx` | Live preview + snippet copy tool. |
+| `src/lib/badge-svg.ts` | The shared SVG renderer + cache-policy vocabulary, used by both badge endpoints. |
+| `src/lib/badge.ts` | The client-safe badge contract (styles, report href, `validRepoNamePart`). |
+| `src/app/api/scorecard/[owner]/badge/route.ts` | Org-level badge: read-only, public-corpus only, refuses a number when nothing was model-scored. |
 
 ## Known gaps
 

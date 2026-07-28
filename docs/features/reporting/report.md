@@ -13,10 +13,47 @@ All charts are **dependency-free inline SVG** — no D3/recharts — to keep the
 
 | Route | Component | Type | Data source |
 | --- | --- | --- | --- |
-| `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`. |
+| `/report` | `src/app/report/page.tsx` | Client-driven | Live scan over `/api/scan/stream`; reads `?repo=` / `?fresh=1`, plus the optional scan scope `?ref=<branch\|tag\|sha>` / `?path=<sub-dir>` (see [scan.md](../scanning/scan.md#scan-scope-branch--sub-path)). A scoped scan skips the cache peek, always re-scans, is never persisted, and carries a warning that its score isn't comparable with default-branch scans. `Re-test` and the sign-in round-trip both preserve the scope. |
 | `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); else falls back to a live stream. Shareable permalink. |
 | `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). Picks two scans via `?a=`/`?b=`, renders the diff. |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP` — the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
+
+## The public register + org scorecards (G7-05 / G7-06)
+
+Two crawlable, unauthenticated surfaces built on one read module, `src/lib/register/data.ts`.
+
+| Route | What it is |
+| --- | --- |
+| `/leaderboard` | The **AI-native register**: every model-scored public repo, ranked, paginated via `?page=N`, with the full nine-dimension breakdown. |
+| `/scorecard/[owner]` | An owner's **public scorecard**: the aggregate score/level over that owner's public repos, its own OG card, and a copy-paste badge embed. |
+| `GET /api/scorecard/[owner]/badge` | The org-level SVG badge (see [badge.md](../billing/badge.md)). |
+
+**Two invariants, both unit-pinned (`src/lib/register/data.test.ts`):**
+
+1. **Tenancy.** Every query is pinned to the shared public org *and* `isPrivate: false`, both
+   predicates are re-asserted on the id-keyed second fetch, and `registerEntryFrom` refuses a private
+   row per-row on top of that. "The query returned it" is never treated as proof it may be published.
+2. **Provenance.** A `engineProvider === "mock"` scan had no model contribution, so it is **never
+   ranked**. It is carried out as `verified: false`, rendered in a separate "Preview scans — not
+   ranked" section with the same `demo` qualifier the README badge uses, and excluded from every
+   scorecard average. An owner whose public scans are *all* previews gets an explicit "No published
+   score yet" state — not an average over previews.
+
+Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP`, ordered by score
+at the DB), so neither surface needs a new column or index. `windowed` discloses when the corpus has
+outgrown the window, so "top N" is never quietly presented as "all".
+
+**Crawlability** is a requirement, not a nicety: the ranking is server-rendered (no `"use client"`
+anywhere in the path), pagination is plain anchors with `rel=prev/next`, each page carries a
+self-referencing canonical plus OpenGraph/Twitter metadata, and `/leaderboard` is listed in
+`sitemap.ts`. Per-owner scorecard routes are dynamic and therefore *not* enumerable in the sitemap —
+they are discovered through the owner link on every register row, which is why that link exists.
+
+**Opt-in vs opt-out.** These pages republish nothing that isn't already public: the same reports are
+already readable one at a time at `/report/{owner}/{repo}` and already listed on the register, so the
+aggregate is opt-**out** by default. A *tenant* fleet scorecard (an org's own dashboard aggregates)
+would be a genuinely new disclosure and is deliberately **not** built — it needs a persisted per-org
+opt-in flag, i.e. a schema change.
 
 ### Cold permalink (`ColdScanGate` + `ColdScanTeaser`)
 
@@ -227,6 +264,29 @@ Set `CONFORMANCE_INGEST_STRICT=1` once every runner has moved to a per-org token
 token is then refused with a 403 and only the two bound credentials work. Clamping applies on every
 path — the unattended reporter is not more trusted than a browser.
 
+### Continuous Conformance: trend + scheduled ingestion (G7-23)
+
+`GET /api/report/conformance?repo=owner/name[&limit=50]` returns `{ repo, points, regressed }`, a
+history of past reports for that repo, newest-first (`points[i] = { at, score, fails, warns, sha }`).
+No new storage was added for this: every accepted POST above already appends a `conformance.reported`
+row to the org's tamper-evident audit ledger (`recordConformance`, `src/lib/db/org-watch.ts`) — the
+Repository row only ever holds the *latest* score, but the ledger is real per-report history. The GET
+handler walks that ledger back via the existing `getAuditLog` reader (the same one `/api/audit` uses),
+action-filtered and then repo-filtered in `src/app/api/report/conformance/route.ts` (`getAuditLog` has
+no per-repo filter of its own), capped at 10 pages of 100 rows. Gated read-side by
+`readableOrgForOwner` → `requireOrgRead`, same as the other report exports; `PUBLIC_ORG` repos are
+refused (conformance history is an org-only surface). `regressed` is a computed boolean (newest score
+lower than the prior one) returned in the payload only — it is **not** dispatched anywhere; wiring a
+regression to a push notification is a job for the alerts system, not this route.
+
+The generated CI workflow (`buildConformanceWiring`, `src/lib/standard/wiring.ts`,
+`.github/workflows/ai-conformance.yml`) now also runs on a weekly `schedule` (plus
+`workflow_dispatch`), not just `pull_request`: a `scheduled-report` job re-runs the doctor with
+`--json` and self-reports via `ASCENT_CONFORMANCE_URL`/`ASCENT_CONFORMANCE_TOKEN` secrets, so a repo
+that goes quiet (no PRs) still gets a fresh conformance report instead of the dashboard silently
+showing a weeks-stale score. The `pull_request` job is unchanged (still the hard-pass merge gate); the
+scheduled job never fails the run.
+
 ## Share exports (`GET /api/report/llm`, `GET /api/report/share-card`)
 
 Two export routes sit beside the PDF, both keyed the same way (`?repo=owner/name[@sha]`), both
@@ -288,6 +348,13 @@ mock-engine report.
 | `src/lib/report/compare.ts` | `diffScans()` pure diff engine. |
 | `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
 | `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |
+| `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked. |
+| `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. |
+| `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row. |
+| `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan/badge CTA. |
+| `src/app/scorecard/[owner]/page.tsx` | Public org scorecard + badge embed snippet. |
+| `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0`. |
+| `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews. |
 
 ## Known gaps
 

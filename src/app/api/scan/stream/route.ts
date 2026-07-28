@@ -6,7 +6,9 @@ import { NextResponse } from "next/server";
 import { GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { resolveScanAuth, scanRepository } from "@/lib/scan";
 import { coalesceScan } from "@/lib/cache";
-import { lookupCachedScan, type ScanCacheLookup } from "@/lib/scan-cache";
+import { lookupCachedScan, lookupScopedScan, resolveHeadWithHint, type ScanCacheLookup } from "@/lib/scan-cache";
+import { isScopedScan, scopeWarning } from "@/lib/scan-scope";
+import { resolveScanScope } from "@/lib/scan-scope-server";
 import { tooManyRequests } from "@/lib/rate-limit";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
 import { scanAuthGate, scanRateLimitGate } from "@/lib/scan-gates";
@@ -39,6 +41,11 @@ export async function POST(request: Request) {
     // account has no email; otherwise the trusted viewer email is used (see the send below).
     notify?: boolean;
     email?: string;
+    // Optional SCOPE (G7-07 / G7-08): a git ref to score instead of the default branch, and/or a
+    // monorepo sub-path to aim the ingestion budget at. Both are validated + resolved server-side
+    // (resolveScanScope); a scoped result is never persisted to the shared corpus.
+    ref?: string;
+    subPath?: string;
   };
   if (!body.url || typeof body.url !== "string") {
     return NextResponse.json({ error: "Missing 'url' in request body." }, { status: 400 });
@@ -83,6 +90,19 @@ export async function POST(request: Request) {
   const authGate = await scanAuthGate(() => viewer);
   if (!authGate.ok) {
     return NextResponse.json({ error: "Sign in to run a scan.", code: "auth_required" }, { status: 401 });
+  }
+
+  // SCOPE (G7-07 / G7-08). Placed AFTER the sign-in wall (so an anonymous caller can't drive the
+  // GitHub ref-resolve behind it) and BEFORE the quota consume below (so a typo'd branch name 400/404s
+  // without burning one of the free tier's monthly slots — the same reason an unparseable URL is
+  // rejected up front). The ref is resolved to its own commit sha server-side; see scan-scope-server.ts
+  // for why that, and not the client's word for it, is what keeps the cache collision-free.
+  // `noAmbientToken` is honored so a ref resolve can never confirm a private repo's branches through
+  // the operator PAT.
+  const scopeToken = token ?? (noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
+  const scoping = await resolveScanScope(parsed, { ref: body.ref, subPath: body.subPath }, { token: scopeToken });
+  if (scoping.error) {
+    return NextResponse.json({ error: scoping.error.message, code: scoping.error.code }, { status: scoping.error.status });
   }
   // Completion-email recipient (when opted in). For a SIGNED-IN viewer we ONLY ever send to their own
   // verified account address — never a client-supplied `email`. The old `viewer?.email ?? body.email`
@@ -139,7 +159,18 @@ export async function POST(request: Request) {
         // this public cache. A `fresh` re-test bypasses the cached report but still caches its
         // result. A failed head lookup degrades to a SHA-less best-effort key inside the helper.
         let lookup: ScanCacheLookup | null = null;
-        if (parsed && !token) {
+        // The repo's REAL default-branch head. Needed twice: it keys an ordinary scan, and it is the
+        // yardstick isScopedScan measures the requested ref against — so `?ref=main` (or a sha that
+        // happens to be the head) is recognised as an ordinary scan and keeps full cache reuse instead
+        // of being needlessly demoted to a non-persisted scoped run.
+        let defaultHeadSha: string | null = null;
+        // A sub-path scan is scoped no matter what the head is, so skip the full cached lookup (whose
+        // report is for the WHOLE repo and must never be served here) and resolve the head with the
+        // cheap conditional hint instead — purely to pin the scoped key to a commit.
+        const hasSubPathScope = Boolean(scoping.scope.subPath);
+        if (parsed && !token && hasSubPathScope) {
+          defaultHeadSha = await resolveHeadWithHint(parsed, scopeToken);
+        } else if (parsed && !token) {
           // Resolve the head SERVER-SIDE (a conditional head request — a free 304 when unchanged),
           // never from the client-supplied body.headSha. The peek→stream handoff previously fed that
           // sha in as `preResolved` to skip this request, but lookupCachedScan returns it as
@@ -149,19 +180,43 @@ export async function POST(request: Request) {
           // repo's "most recent" public report. The client sha must never drive the scored ref; the
           // (cheap, mostly-304) re-resolve here keys, scores, and persists the true head. [security]
           lookup = await lookupCachedScan({ parsed, useLLM: !mock, orgSlug: "public", fresh });
-          if (lookup.cached) {
-            // The JSON route serves cache hits BEFORE its quota block; the stream consumes first
-            // (the cache probe lives inside start()), so refund the slot — a cached report is
-            // free everywhere. The quota headers already sent overstate usage by this one slot.
-            await refundQuota();
-            send("progress", {
-              stage: "done",
-              message: lookup.source === "db" ? "Loaded from a saved scan" : "Loaded from cache",
-              pct: 100,
-            });
-            send("result", lookup.cached);
-            return;
-          }
+          defaultHeadSha = lookup.headSha;
+        }
+
+        // Is this scan about something OTHER than "the whole repo at its default-branch head"? A ref
+        // that resolves to the default head is NOT scoped — same commit, same tree, same score — so it
+        // keeps the ordinary cache entry and ordinary persistence. A private (token) scan has no
+        // resolved default head here, so any requested scope counts as scoped: the safe side.
+        const scoped = scoping.requested && isScopedScan(scoping.scope, token ? null : defaultHeadSha);
+        if (scoped) {
+          // Swap in a SCOPED lookup: keyed on the ref's OWN commit sha plus an explicit sub-path
+          // segment, memory-tier only, DB tier skipped. This also discards any whole-repo `cached`
+          // report the default lookup found — serving that for a ref/sub-path request would answer a
+          // different question than the one asked. Only the cacheable anonymous path gets an entry at
+          // all (the token path stays uncoalesced/uncached, exactly as before).
+          lookup =
+            parsed && !token
+              ? lookupScopedScan({
+                  parsed,
+                  useLLM: !mock,
+                  refSha: scoping.pinSha ?? defaultHeadSha,
+                  subPath: scoping.scope.subPath,
+                  fresh,
+                })
+              : null;
+        }
+        if (lookup?.cached) {
+          // The JSON route serves cache hits BEFORE its quota block; the stream consumes first
+          // (the cache probe lives inside start()), so refund the slot — a cached report is
+          // free everywhere. The quota headers already sent overstate usage by this one slot.
+          await refundQuota();
+          send("progress", {
+            stage: "done",
+            message: lookup.source === "db" ? "Loaded from a saved scan" : "Loaded from cache",
+            pct: 100,
+          });
+          send("result", lookup.cached);
+          return;
         }
 
         // Progress sink for THIS connection. When the scan is coalesced, coalesceScan fans the owner's
@@ -180,8 +235,20 @@ export async function POST(request: Request) {
             decisionOrgSlug: orgSlug === "public" && viewer ? viewer.login.trim().toLowerCase() : undefined,
             onProgress: emit,
             // Pin the scored commit to the sha resolved for the cache key, so a push landing mid-scan
-            // can't key the report under a different commit than it actually scored.
-            headSha: lookup?.headSha ?? undefined,
+            // can't key the report under a different commit than it actually scored. On a scoped scan
+            // that sha IS the requested ref's own commit (resolved server-side), which is precisely
+            // what stops a ref scan from being keyed by — and colliding with — the default branch.
+            headSha: (scoped ? (scoping.pinSha ?? defaultHeadSha) : lookup?.headSha) ?? undefined,
+            // The resolved ref sha (never the client's ref string) and the normalized sub-path. Only
+            // set on a genuinely scoped scan, so a `?ref=main` request ingests byte-for-byte what a
+            // plain default-branch scan does.
+            ...(scoped
+              ? {
+                  ref: scoping.pinSha ?? undefined,
+                  subPath: scoping.scope.subPath,
+                  scopeCaveat: scopeWarning(scoping.scope),
+                }
+              : {}),
             // Abort the scan (GitHub ingest + LLM) when the browser navigates away or aborts the SSE
             // stream, instead of running it to completion for a closed connection.
             signal,
@@ -219,7 +286,10 @@ export async function POST(request: Request) {
         // Whether cacheAndPersistScan will actually store this report. Keep this in step with its
         // `authoritative` guard: the completion email links a permalink that only resolves once the
         // report is persisted, so every poisoning vector must suppress the mail too.
-        const willPersist = !degradedToMock && !lowCoverage && !partialPrSlice;
+        // `!scoped` is part of this: a ref/sub-path report is never persisted, so its permalink would
+        // not resolve — the completion email must be suppressed for the same reason a degraded scan
+        // suppresses it.
+        const willPersist = !scoped && !degradedToMock && !lowCoverage && !partialPrSlice;
         // A degrade-to-mock run cost no LLM inference and delivered the deterministic floor, not
         // the product the slot pays for — refund it, mirroring the credit rule ("a degrade-to-mock
         // run is free").
@@ -233,6 +303,10 @@ export async function POST(request: Request) {
           repo: parsed ? `${parsed.owner}/${parsed.repo}` : url,
           orgSlug,
           lookup,
+          // A scoped (ref / sub-path) report describes a different subject than "this repository" —
+          // keep it out of the durable corpus and out of the regression-alert baseline. The in-memory
+          // entry is still written under the scoped key, which cannot collide with the whole-repo one.
+          persist: !scoped,
         });
         // Stop the keepalive at the terminal frame (co-located), not only in finally, so a 15s ping
         // can't interleave after the result on a slow close.

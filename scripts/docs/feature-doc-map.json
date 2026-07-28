@@ -105,7 +105,9 @@
         "src/lib/scan-alerts.ts",
         "src/lib/db/org-alerts.ts",
         "src/app/api/org/alerts/**",
-        "src/app/api/cron/digest/**"
+        "src/app/api/cron/digest/**",
+        "src/lib/email/**",
+        "src/app/api/email/**"
       ]
     },
     {
@@ -140,7 +142,8 @@
         "src/app/api/practices/**",
         "src/components/org/practices/**",
         "src/lib/org/governance.ts",
-        "src/lib/org/adoption.ts"
+        "src/lib/org/adoption.ts",
+        "src/lib/org/playbook-apply.ts"
       ]
     },
     {
@@ -160,7 +163,8 @@
         "src/lib/db/org-insights.ts",
         "src/lib/db/segments.ts",
         "src/lib/db/branding.ts",
-        "src/lib/integrations/**"
+        "src/lib/integrations/**",
+        "src/app/api/org/invites/**"
       ]
     },
     {
@@ -230,7 +234,9 @@
         "src/components/leaderboard/**",
         "src/app/api/recommendations/**",
         "src/app/api/report/**",
-        "src/app/api/history/**"
+        "src/app/api/history/**",
+        "src/lib/register/**",
+        "src/app/scorecard/**"
       ]
     },
     {
@@ -272,7 +278,9 @@
         "src/app/badge/**",
         "src/components/badge/**",
         "src/lib/badge.ts",
-        "src/lib/db/badge-analytics.ts"
+        "src/lib/db/badge-analytics.ts",
+        "src/lib/badge-svg.ts",
+        "src/app/api/scorecard/**"
       ]
     },
     {

@@ -21,6 +21,11 @@ import type { GeneratedFile } from "./types";
 import { levelForScore } from "@/lib/maturity/model";
 import type { ScanReport } from "@/lib/types";
 
+// The doctor-execution cases spawn a real Node subprocess against fixture repos, so they are slow by
+// nature — green in isolation, but past the 5s default when the full suite saturates the CPU. Raised
+// file-locally rather than globally, so a genuine slowdown elsewhere still fails loudly.
+vi.setConfig({ testTimeout: 30_000 });
+
 // The onboarding skill imports `buildFoundation` from this same barrel (`@/lib/standard`). To pin the
 // code-fence escaping invariant we need to feed `embedFile` (private to skill.ts) a hostile file body,
 // so we mock the barrel BUT default every export to the real implementation — the 30+ tests above that

@@ -24,6 +24,13 @@ export interface IngestPhaseInput {
   ref?: string;
   /** Commit sha already resolved for the cache key — pins ingestion AND stamps the report identity. */
   headSha?: string;
+  /**
+   * Monorepo sub-tree to aim the per-file CONTENT budget at (G7-08). Validated/normalized upstream by
+   * `normalizeSubPath` (src/lib/scan-scope.ts) before it reaches any URL builder. Affects only which
+   * file CONTENTS are sampled — the tree, the commit history and every repo-level enrichment below
+   * (PR stats, governance, security posture/exposure) remain repo-wide facts and are untouched.
+   */
+  subPath?: string;
   signal?: AbortSignal;
   emit: ProgressFn;
 }
@@ -67,7 +74,13 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // canonical identity — fetchSnapshot otherwise records treeRes.sha, the tree object's sha, not
   // the commit's — so lookup, scan, cache, and persistence all reference the same commit.
   const pinnedRef = input.ref ?? input.headSha;
-  const snapshot = await source.fetchSnapshot(parsed, { token, onProgress: emit, signal, ref: pinnedRef });
+  const snapshot = await source.fetchSnapshot(parsed, {
+    token,
+    onProgress: emit,
+    signal,
+    ref: pinnedRef,
+    subPath: input.subPath,
+  });
   if (!input.ref && input.headSha) snapshot.meta.headSha = input.headSha;
   signal?.throwIfAborted();
 

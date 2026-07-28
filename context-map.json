@@ -166,6 +166,13 @@
             "src/lib/scan-finalize.test.ts",
             "src/lib/scan-finalize.ts",
             "src/lib/scan-gates.ts",
+            "src/lib/scan-scope.ts",
+            "src/lib/scan-scope.test.ts",
+            "src/lib/scan-scope-server.ts",
+            "src/lib/scan-scope-server.test.ts",
+            "src/lib/scan-scope-cache.test.ts",
+            "src/components/scan/ScanScopeFields.tsx",
+            "src/lib/github/source-subpath.test.ts",
             "src/lib/security/checks.test.ts",
             "src/lib/sse-server.ts",
             "src/lib/sse.test.ts"
@@ -1538,7 +1545,14 @@
             "src/app/portfolio/PortfolioTable.tsx",
             "src/components/leaderboard/LeaderboardTable.tsx",
             "src/lib/org/portfolio.test.ts",
-            "src/lib/org/portfolio.ts"
+            "src/lib/org/portfolio.ts",
+            "src/lib/register/data.ts",
+            "src/lib/register/data.test.ts",
+            "src/app/leaderboard/page.test.tsx",
+            "src/components/leaderboard/RegisterPager.tsx",
+            "src/components/leaderboard/ScorecardSummary.tsx",
+            "src/app/scorecard/[owner]/page.tsx",
+            "src/app/scorecard/[owner]/opengraph-image.tsx"
           ],
           "target": null,
           "apiRoutes": []
@@ -1660,7 +1674,10 @@
             "src/app/badge/gate-snippets.ts",
             "src/app/badge/page.test.tsx",
             "src/components/usage/UsageTrend.test.tsx",
-            "src/lib/badge.ts"
+            "src/lib/badge.ts",
+            "src/lib/badge-svg.ts",
+            "src/app/api/scorecard/[owner]/badge/route.ts",
+            "src/app/api/scorecard/[owner]/badge/route.test.ts"
           ],
           "target": null,
           "apiRoutes": [

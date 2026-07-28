@@ -102,6 +102,36 @@ export interface EmailDispatchResult {
 }
 
 /**
+ * Send an ALREADY-BUILT message under the shared per-send timeout. The one place any feature's mail
+ * actually leaves the process: resolves the env-selected sender (no provider → the no-op, which reports
+ * `skipped` and sends nothing), bounds the attempt, and NEVER throws — so a flaky/unconfigured provider
+ * can't fail the request that triggered it (same contract as dispatchAlert).
+ *
+ * Every new mail-sending feature (invites, alert email sinks) MUST go through here rather than
+ * constructing a second transport: one selection point means "email is off on this deploy" is a single,
+ * unambiguous fact (see emailSendingEnabled).
+ */
+export async function dispatchBuiltEmail(
+  to: string,
+  built: { subject: string; html: string; text: string },
+): Promise<EmailDispatchResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error("email send timed out")), EMAIL_TIMEOUT_MS);
+  try {
+    const sender = getEmailSender();
+    const res = await sender.send({ to, subject: built.subject, html: built.html, text: built.text }, { signal: controller.signal });
+    if (!res.ok) console.error("[email] send failed", { sender: sender.name, to });
+    else if (res.skipped) console.warn("[email] no provider configured — nothing was sent", { sender: sender.name });
+    return { ok: res.ok, skipped: res.ok && res.skipped === true };
+  } catch (err) {
+    console.error("[email] send error", err instanceof Error ? err.message : err);
+    return { ok: false, skipped: false };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Best-effort send of the scan-completion email. Resolves the sender, builds the message, and sends it
  * under a hard timeout. Returns `{ ok, skipped }` — NEVER throws, so the scan that produced the report
  * is unaffected (same contract as dispatchAlert). A no-provider deploy comes back
@@ -113,19 +143,5 @@ export async function dispatchScanCompletionEmail(args: {
   url: string;
   report: ScanReport;
 }): Promise<EmailDispatchResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("email send timed out")), EMAIL_TIMEOUT_MS);
-  try {
-    const sender = getEmailSender();
-    const { subject, html, text } = buildScanCompletionEmail(args);
-    const res = await sender.send({ to: args.to, subject, html, text }, { signal: controller.signal });
-    if (!res.ok) console.error("[email] send failed", { sender: sender.name, to: args.to });
-    else if (res.skipped) console.warn("[email] no provider configured — nothing was sent", { sender: sender.name });
-    return { ok: res.ok, skipped: res.ok && res.skipped === true };
-  } catch (err) {
-    console.error("[email] send error", err instanceof Error ? err.message : err);
-    return { ok: false, skipped: false };
-  } finally {
-    clearTimeout(timer);
-  }
+  return dispatchBuiltEmail(args.to, buildScanCompletionEmail(args));
 }

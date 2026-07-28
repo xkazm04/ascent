@@ -69,6 +69,9 @@ cooldown claim, so an interactive rescan can't double-alert with the cron.
 | `src/lib/alerts.test.ts` | Threshold + verdict + message tests. |
 | `src/lib/scan-alerts.ts` | Glue: diff prior vs fresh, audit, dispatch. |
 | `src/app/api/cron/digest/route.ts` | Weekly fleet digest cron handler. |
+| `src/app/api/cron/digest/extra-alerts.ts` | Goal-at-risk + spend-anomaly pushes that ride the weekly run. |
+| `src/lib/email/alert-sink.ts` | Renders an `AlertMessage` as mail for a `mailto:` sink. |
+| `src/lib/email/unsubscribe.ts`, `src/app/api/email/unsubscribe/route.ts` | Signed one-click unsubscribe (clears the org's sink). |
 
 ## What moved since you last looked (in-app unread state)
 
@@ -156,9 +159,77 @@ SSE frame *before* the `result` frame with `status: "sending" | "unconfigured"` 
 `emailSendingEnabled()`), and logs the skip — so an unconfigured deploy says so instead of
 implying a send.
 
+## Email sinks (`mailto:` — G7-01)
+
+The alert sink accepts **an email address as well as a webhook**, so an org whose leadership
+doesn't live in Slack still receives regression, promotion, low-credit, digest, goal-at-risk and
+spend-anomaly pushes. There is no second transport and no second recipient list.
+
+- **How it is turned on** — an admin stores `mailto:someone@example.com` in the org's alert sink
+  (`POST /api/org/alerts { webhookUrl: "mailto:…" }`, the same admin-gated field and the same
+  deliberate act as pointing the sink at a Slack channel). `validateAlertWebhookUrl` accepts the
+  `mailto:` scheme, requires a single well-formed address (no comma-separated fan-out), and
+  normalizes the stored value. The global `ALERT_WEBHOOK_URL` may also be a `mailto:` for a
+  single-tenant deployment.
+- **Who receives it** — exactly the one configured address. Nothing is ever sent to org members,
+  to a scan requester, or to any address the org did not store as its sink.
+- **Off by default, three ways over** — no sink stored, no global `ALERT_WEBHOOK_URL`, and no
+  email provider (`SES_FROM_EMAIL`) each independently make it a no-op. With no provider,
+  `dispatchAlert` to a `mailto:` sink performs **no network I/O** and returns `false`, so the
+  digest releases its window claim and retries later rather than recording a phantom send.
+- **How it stops** — every alert mail states why it arrived and carries an unsubscribe link to
+  `GET/POST /api/email/unsubscribe`, whose token is an HMAC over the org slug signed with
+  `EMAIL_UNSUBSCRIBE_SECRET`. `GET` only renders a confirm form (mail clients and security
+  gateways prefetch links); `POST` clears `Organization.alertWebhookUrl`. With no secret
+  configured there is no one-click link at all — the footer names the settings page instead, and
+  the route 503s (no unauthenticated mutation endpoint on a deploy that never mailed a token).
+  Clearing the sink stops the webhook pushes too, because they are one setting; the mail says so.
+- **Rendering** — `buildAlertEmail` (`src/lib/email/alert-sink.ts`, pure) uses each builder's
+  existing plain-text fallback as the body, so a new alert builder gets an email rendering for
+  free. Slack Block Kit is ignored on this path.
+
+## Goal-at-risk and spend-anomaly pushes (G7-03)
+
+Two trigger classes the layer could always compute and never pushed. Both ride the weekly digest
+cron (`src/app/api/cron/digest/extra-alerts.ts`) and route through the org's own sink — so an org
+with no sink gets no extra work and no extra push.
+
+| Trigger | Condition | Recipient | Cadence |
+| --- | --- | --- | --- |
+| **Goal at risk** (`buildGoalAtRiskMessage`) | Any goal `listGoals` already marks `pace: "behind"` and not achieved. | The org's alert sink. | At most once per weekly window (`org.alert.goal-at-risk` claim). |
+| **Spend anomaly** (`buildSpendAnomalyMessage`) | This week's billable scans ≥ `SPEND_ANOMALY_RATIO` × the trailing 3-week per-week average, with a floor of 10 scans so small fleets can't trip it. A spend *drop* never fires. | The org's alert sink. | At most once per weekly window (`org.alert.spend-anomaly` claim). |
+
+They are dispatched **before** the digest's movement gate on purpose: a goal sliding off pace is
+exactly the news a flat fleet week still needs to carry. Each takes its own at-most-once claim and
+releases it on a failed delivery; the whole call is internally caught, so it can add to `errors`
+but can never fail the digest that carries it. The run's response reports `goalAlerts` /
+`spendAlerts`.
+
+`buildSecurityAlertMessage` ships as a pure builder but is **not yet dispatched**: a fresh critical
+advisory or a gate pass→fail flip is a same-day event whose natural trigger is the scan pipeline's
+post-scan diff (`src/lib/scan-alerts.ts`), not a weekly sweep — firing it weekly would arrive stale
+and train the reader to ignore security pushes.
+
+## Environment variables
+
+| Var | Default | Effect |
+| --- | --- | --- |
+| `ALERT_WEBHOOK_URL` | unset | Global fallback sink. May be an `https://` webhook **or** a `mailto:` address. |
+| `SES_FROM_EMAIL` | unset | Verified SES sender. **Unset ⇒ no email is ever sent** (the no-op sender reports `skipped`). |
+| `EMAIL_PROVIDER` | `auto` | `auto` \| `ses` \| `noop`. `noop` forces "never send" even with SES configured. |
+| `EMAIL_UNSUBSCRIBE_SECRET` | unset | HMAC key for one-click unsubscribe links. Unset ⇒ no link is minted and `/api/email/unsubscribe` 503s. |
+| `EMAIL_INVITES` | on | Set to `off` to refuse invite mail on a deploy that has SES wired for other mail. |
+| `SPEND_ANOMALY_RATIO` | `2` | Multiple of the trailing average that trips the spend alert. Blank/invalid → 2, never 0. |
+| `REGRESSION_COOLDOWN_MINUTES` | `360` | Per-repo regression/promotion alert cooldown. |
+| `CREDITS_ALERT_THRESHOLD` | `5` | Low-water mark for credit alerts. |
+
 ## Known gaps
 
-- **Slack-only delivery** — regression/digest/low-credit alerts POST to a webhook sink; there
-  is still no email or in-app routing for them (per-org *sink* routing does exist).
 - **Promotions are band-crossings only** — a large in-band gain (46 → 60, still L3) is not
   pushed; only a level crossing is.
+- **No in-app alert history** — every dispatch is still fire-and-forget with no persisted record
+  or acknowledgement state. That needs an `AlertHistory` table (a migration), so it is not built.
+- **Per-org digest frequency/sections are not configurable** — the cadence is the weekly cron plus
+  the movement gate; per-org preference fields would also need a migration.
+- **Security alerts are built but not dispatched** — see above; the dispatch site belongs in the
+  scan pipeline.

@@ -35,6 +35,7 @@ import {
 // write (fleet-alerts-digests #3).
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, dispatchAlert, isAlertConfigured } from "@/lib/alerts";
+import { dispatchExtraAlerts } from "./extra-alerts";
 import { mapPool } from "@/lib/pool";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { isWithinNoise } from "@/lib/maturity/noise";
@@ -110,6 +111,8 @@ export async function GET(request: Request) {
   let skippedNoData = 0;
   let remaining = 0;
   let skippedAlreadySent = 0;
+  let goalAlerts = 0;
+  let spendAlerts = 0;
   const errors: string[] = [];
   const startedAt = Date.now();
   await mapPool(orgs, DIGEST_CONCURRENCY, async (org) => {
@@ -148,6 +151,17 @@ export async function GET(request: Request) {
         skippedAlreadySent += 1;
         return;
       }
+      // G7-03: the goal-at-risk / spend-anomaly pushes ride this run (see ./extra-alerts). Placed
+      // BEFORE the rollup and the movement-gate on purpose — a goal sliding off pace or a spend spike
+      // is exactly the kind of news a FLAT fleet week still needs to carry, and the digest's silence-
+      // on-noise gate would otherwise suppress it. Each carries its own at-most-once window claim, so
+      // this is not gated by the digest's, and the whole call is internally defensive: it can add
+      // `errors` but can never fail the digest.
+      const extra = await dispatchExtraAlerts({ org, webhookUrl, base, windowStart, periodQs });
+      goalAlerts += extra.goalAlerts;
+      spendAlerts += extra.spendAlerts;
+      errors.push(...extra.errors);
+
       const rollup = await getOrgRollup(org, win);
       if (!rollup || rollup.scannedCount === 0) {
         // Nothing to report on yet (no rollup, or zero scanned repos) — counted so `orgs.length`
@@ -218,7 +232,7 @@ export async function GET(request: Request) {
         skippedAlreadySent += 1;
         return;
       }
-      if (await dispatchAlert(msg, { webhookUrl })) {
+      if (await dispatchAlert(msg, { webhookUrl, org })) {
         sent += 1;
       } else {
         // Delivery failed AFTER we claimed the window — RELEASE the claim so the next run retries this
@@ -231,5 +245,5 @@ export async function GET(request: Request) {
     }
   });
 
-  return NextResponse.json({ orgs: orgs.length, sent, failed, skippedNoSink, skippedFlat, skippedNoData, skippedAlreadySent, remaining, errors });
+  return NextResponse.json({ orgs: orgs.length, sent, failed, skippedNoSink, skippedFlat, skippedNoData, skippedAlreadySent, remaining, goalAlerts, spendAlerts, errors });
 }

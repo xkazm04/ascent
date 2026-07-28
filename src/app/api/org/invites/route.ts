@@ -1,9 +1,18 @@
 // GET    /api/org/invites?org=slug                         -> { invites[] }   list pending invites
-// POST   /api/org/invites { org, role, email?, githubLogin? } -> { invite }     create an invite
+// POST   /api/org/invites { org, role, email?, githubLogin?, notify? } -> { invite, emailed }  create an invite
 // DELETE /api/org/invites?org=slug&id=inviteId              -> { ok }          revoke a pending invite
 //
 // Owner-only: inviting/revoking is an ownership-level action (mirrors /api/org/members). An invite
 // carries a single-use token returned to the owner so they can share the /invite/[token] link.
+//
+// G7-02 — DELIVERY. When the invite pins an `email`, the invitee is now MAILED the link instead of the
+// owner having to copy it out of the UI. Exactly one transactional message per created invite, to the
+// address the owner just typed, containing only the org slug / role / inviter / link (see
+// src/lib/email/invite.ts for the disclosure rationale). `notify: false` in the body suppresses it
+// (the per-request opt-out, for an owner who wants to deliver the link privately); the whole path is a
+// silent no-op on a deploy with no email provider or with EMAIL_INVITES=off. The response reports
+// `emailed` honestly — "sent" | "skipped" (no provider) | "failed" | null (not requested / no email) —
+// so the UI can tell the owner to share the link manually rather than implying a delivery.
 
 import { NextResponse } from "next/server";
 import { createInvite, isDbConfigured, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
@@ -11,6 +20,8 @@ import { requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
+import { dispatchInviteEmail } from "@/lib/email/invite";
+import { publicBaseUrl } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +46,14 @@ export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
   const crossOriginPost = requireSameOrigin(request);
   if (crossOriginPost) return crossOriginPost;
-  const body = (await request.json().catch(() => ({}))) as { org?: string; role?: string; email?: string; githubLogin?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    org?: string;
+    role?: string;
+    email?: string;
+    githubLogin?: string;
+    /** Opt OUT of the invite mail (default: mail an email-pinned invite). Ignored without an email. */
+    notify?: boolean;
+  };
   if (!body.org || !body.role || !isOrgRole(body.role)) {
     return NextResponse.json({ error: "Provide { org, role: admin|member|viewer }." }, { status: 400 });
   }
@@ -73,13 +91,29 @@ export async function POST(request: Request) {
     invitedBy: actor,
   });
   if (!invite) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  // Deliver the link. Only ever to the address the owner just typed on THIS request, only when they
+  // didn't opt out, and never fatal: a failed/absent send still returns the invite + token, so the
+  // owner's manual copy/paste path is untouched.
+  let emailed: "sent" | "skipped" | "failed" | null = null;
+  if (invite.email && body.notify !== false) {
+    const base = publicBaseUrl();
+    const res = await dispatchInviteEmail(invite.email, {
+      org: body.org,
+      role: invite.role,
+      url: base ? `${base}/invite/${encodeURIComponent(invite.token)}` : null,
+      invitedBy: actor,
+      expiresAt: invite.expiresAt,
+      nowMs: Date.now(),
+    });
+    emailed = res.ok ? (res.skipped ? "skipped" : "sent") : "failed";
+  }
   await recordOrgAudit(
     "org.member.invited",
     body.org,
-    { org: body.org, role: body.role, target: body.githubLogin?.toLowerCase() ?? body.email ?? null },
+    { org: body.org, role: body.role, target: body.githubLogin?.toLowerCase() ?? body.email ?? null, emailed },
     actor ?? undefined,
   ).catch(() => {});
-  return NextResponse.json({ invite });
+  return NextResponse.json({ invite, emailed });
 }
 
 export async function DELETE(request: Request) {

@@ -22,9 +22,11 @@ import { immediateScanCredits, WatchCostTail } from "@/components/credit/WatchCo
  *  2. The weekly autoscan is now OPT-IN. It used to be committed unconditionally (`watch:true`,
  *     `schedule:"weekly"`), so the recurring cost was disclosed but never consented to.
  *
- * Metered App path ONLY. Scanning a public handle (no installation) forces a preview (mock): it sets no
- * credit account and is never metered, so quoting prepaid credits there is money confusion that scares
- * users off the free top-of-funnel.
+ * Metered App path ONLY. Scanning a public handle (no installation) is token-less — public repos only —
+ * so it draws no prepaid credit at all; quoting credits there is money confusion that scares users off
+ * the free top-of-funnel. G7-17: that path now runs a REAL scan (metered by the free monthly
+ * public-scan allowance, exactly like `/report?repo=`), so the copy below must no longer call it a
+ * preview — it stopped being one, and telling a user their real score is illustrative is its own lie.
  */
 export function ScanCostDisclosure({
   count,
@@ -46,8 +48,8 @@ export function ScanCostDisclosure({
   if (!sourceInstallId) {
     return (
       <p className="mt-3 max-w-xl text-sm text-slate-500">
-        Free preview — no prepaid credits are used. Install the GitHub App to run metered live scans on
-        your own public &amp; private repos.
+        Free live scan — real scoring on public repositories, drawn from your free monthly scan
+        allowance. No prepaid credits are used. Install the GitHub App to scan private repos too.
       </p>
     );
   }

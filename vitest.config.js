@@ -14,6 +14,13 @@ export default {
     // pinned; the bug+ui scan's 93 ui-perfectionist findings had no test coverage available to them.
     // The setup file is inert under node (it guards on `document`), so it costs the node tests nothing.
     setupFiles: ["./vitest.setup.dom.js"],
+    // 15s, up from the 5s default. Not a licence for slow tests — it is a contention allowance. The
+    // suite grew past 5,000 tests across ~400 files, several of which do real work (spawning the
+    // doctor subprocess against fixture repos, driving the @react-pdf pipeline end to end). Those
+    // finish in well under a second each in isolation, but on a saturated 16-core box the runner's
+    // own parallelism starves individual workers past 5s, producing failures that reproduce nowhere
+    // and re-run green. A genuine hang or infinite loop still fails, just three seconds later.
+    testTimeout: 15_000,
     // Calibrated coverage gate (`npm run test:coverage`, wired into CI). Scoped to three high-risk,
     // high-churn directories — the DB write/query layer and the two feature surfaces flagged by the
     // test-mastery scan. Each floor sits a few points BELOW the coverage measured the day it was set,

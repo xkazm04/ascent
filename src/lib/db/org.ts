@@ -57,9 +57,12 @@ export { getOrgGatePolicy, setOrgGatePolicy } from "@/lib/db/org-gate";
 
 export {
   getContributorInsights,
+  computeOrgResilience,
   type ContributorInsight,
   type RepoConcentration,
   type ContributorInsights,
+  type OrgResilience,
+  type RepoResilienceRisk,
 } from "@/lib/db/org-contributors";
 
 export {

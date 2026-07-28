@@ -76,9 +76,14 @@ describe("onboarding cost disclosure at the commit point", () => {
     expect(screen.queryByText(/One-time scan/)).toBeNull();
   });
 
-  it("keeps the free-preview reassurance (and no credit figures) off the App path", () => {
+  // G7-17: the public-handle path stopped being a preview — it runs a real scan against the free
+  // monthly allowance. The reassurance must promise a FREE LIVE scan, and must not describe a real
+  // result as illustrative; the "no credit figures" half of the contract is unchanged.
+  it("promises a free LIVE scan (and no credit figures) off the App path", () => {
     render(<ScanCostDisclosure count={3} sourceInstallId={null} credit={null} />);
-    expect(screen.getByText(/Free preview/)).toBeInTheDocument();
+    expect(screen.getByText(/Free live scan/)).toBeInTheDocument();
+    expect(screen.getByText(/free monthly scan allowance/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/preview/i);
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByText(/draws up to/)).toBeNull();
   });

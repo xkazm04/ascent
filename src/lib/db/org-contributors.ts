@@ -72,10 +72,120 @@ export interface ContributorInsights {
   /** Per repo, sorted by topShare desc. Counts/shares are aggregates and always present; `topLogin`
    *  is a named individual and is redacted to "—" when `namingAllowed` is false. */
   concentration: RepoConcentration[];
+  /** Fleet key-person exposure rolled up from `concentration` (G7-18). Names NO individual at any
+   *  population size — see the note above `computeOrgResilience`. Null when no repo has commit data. */
+  resilience: OrgResilience | null;
 }
 
 /** What `topLogin` reads when the population is below the naming floor (same sentinel as "no data"). */
 const REDACTED_LOGIN = "—";
+
+// ── ORG RESILIENCE (G7-18) ───────────────────────────────────────────────────
+//
+// Bus factor and commit concentration were already computed, but only as two columns in a passive
+// per-repo table — a board-relevant risk that required someone to notice a number. This rolls them
+// into a fleet read: how exposed is the org to any one person leaving, which repos carry that
+// exposure, and how much of the fleet's actual work sits behind it.
+//
+// WHERE THE PRIVACY LINE IS DRAWN, and why it is drawn TIGHTER than the rest of this module.
+// "Key-person risk" is the one metric on the dashboard whose natural phrasing is a claim about a
+// named human ("the bus factor here is Dana"). Everything below is deliberately a claim about a
+// REPOSITORY instead: it has one point of failure, N contributors, X% concentration. That statement
+// carries the entire decision value — you fix it by pairing, rotating ownership, or writing the repo
+// down, none of which needs the name — while a name adds only the ability to point at someone in a
+// leadership review as a liability. So `OrgResilience` carries NO login field at all, at ANY
+// population size. That is stricter than `concentration` above (which does surface `topLogin` when
+// the population clears the naming floor) and stricter than it strictly has to be; the asymmetry is
+// intentional, because a "Risk" framing is exactly where a name stops being descriptive and starts
+// being an accusation. The existing concentration table remains the one place a name appears, under
+// the existing floor, where it reads as attribution rather than exposure.
+
+/** One repo's key-person exposure. Deliberately carries NO contributor login — see the note above. */
+export interface RepoResilienceRisk {
+  fullName: string;
+  name: string;
+  contributorCount: number;
+  busFactor: number;
+  topShare: number;
+  totalCommits: number;
+  /** 0..100 — higher means more concentrated, i.e. more exposed to one person leaving. */
+  riskScore: number;
+  band: "critical" | "high" | "moderate" | "low";
+}
+
+export interface OrgResilience {
+  /** 0..100, commit-WEIGHTED across repos — higher is more resilient. Weighted so a dormant toy repo
+   *  with one author doesn't drag down (or a busy well-spread repo doesn't mask) the fleet read. */
+  score: number;
+  repos: number;
+  /** Repos in the critical band (effectively single-author). */
+  critical: number;
+  /** Repos in the critical OR high band — the ones worth acting on. */
+  atRisk: number;
+  /** 0..100 — share of the fleet's commits that live in at-risk repos. The number that says whether
+   *  the exposure is on the work that matters or on the archive. */
+  exposedCommitShare: number;
+  /** Riskiest repos, worst first, capped. No individuals named. */
+  topRisks: RepoResilienceRisk[];
+}
+
+/** How many repos the risk list shows before it stops being a list and starts being the table again. */
+const RESILIENCE_LIST_CAP = 8;
+
+function resilienceBand(risk: number): RepoResilienceRisk["band"] {
+  if (risk >= 80) return "critical";
+  if (risk >= 60) return "high";
+  if (risk >= 40) return "moderate";
+  return "low";
+}
+
+/**
+ * Fold per-repo concentration into a fleet resilience read. PURE — takes the already-computed
+ * concentration rows, so it is unit-testable without a DB and cannot see (let alone emit) a login.
+ *
+ * The per-repo risk blends the two facts that are already measured, because either alone lies: top
+ * share alone calls a 2-author 60/40 repo healthy, and bus factor alone calls a 51/49 repo as safe as
+ * a 20-author one. 60% concentration + 40% inverse bus factor (1 → 100, 2 → 50, 3 → 33…).
+ * Returns null for an org with no repo-level commit data — nothing to be resilient about.
+ */
+export function computeOrgResilience(concentration: readonly RepoConcentration[]): OrgResilience | null {
+  if (!concentration.length) return null;
+
+  const rows: RepoResilienceRisk[] = concentration.map((r) => {
+    const riskScore = Math.round(0.6 * r.topShare + 0.4 * (100 / Math.max(1, r.busFactor)));
+    return {
+      fullName: r.fullName,
+      name: r.name,
+      contributorCount: r.contributorCount,
+      busFactor: r.busFactor,
+      topShare: r.topShare,
+      totalCommits: r.totalCommits,
+      riskScore,
+      band: resilienceBand(riskScore),
+    };
+  });
+
+  const totalCommits = rows.reduce((s, r) => s + r.totalCommits, 0);
+  // Weight by commits where there are any; fall back to an unweighted mean so a fleet whose snapshots
+  // carry zero commits still gets a real (if flat-weighted) score instead of a divide-by-zero NaN.
+  const weighted = totalCommits > 0
+    ? rows.reduce((s, r) => s + r.riskScore * r.totalCommits, 0) / totalCommits
+    : rows.reduce((s, r) => s + r.riskScore, 0) / rows.length;
+  const atRiskRows = rows.filter((r) => r.band === "critical" || r.band === "high");
+
+  return {
+    score: Math.max(0, Math.min(100, Math.round(100 - weighted))),
+    repos: rows.length,
+    critical: rows.filter((r) => r.band === "critical").length,
+    atRisk: atRiskRows.length,
+    exposedCommitShare: totalCommits > 0
+      ? Math.round((atRiskRows.reduce((s, r) => s + r.totalCommits, 0) / totalCommits) * 100)
+      : 0,
+    topRisks: [...rows]
+      .sort((a, b) => b.riskScore - a.riskScore || b.totalCommits - a.totalCommits || a.fullName.localeCompare(b.fullName))
+      .slice(0, RESILIENCE_LIST_CAP),
+  };
+}
 
 /** Contributor involvement, AI-native profiles, champions, and bus-factor across an org. */
 export async function getContributorInsights(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<ContributorInsights | null> {
@@ -231,5 +341,10 @@ export async function getContributorInsights(orgSlug: string, segmentId?: string
     // The per-repo top contributor is a named individual too — redact it below the floor while
     // keeping the concentration/bus-factor numbers the key-person-risk view is actually built on.
     concentration: namingAllowed ? concentration : concentration.map((r) => ({ ...r, topLogin: REDACTED_LOGIN })),
+    // Computed from the concentration rows, which are population-independent aggregates — so the
+    // resilience read survives the naming floor intact (that is the point: a 2-person org is the MOST
+    // key-person-exposed org there is, and withholding its risk read would hide the finding, not a
+    // person). It emits no login either way.
+    resilience: computeOrgResilience(concentration),
   };
 }

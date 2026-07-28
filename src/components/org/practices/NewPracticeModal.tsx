@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { Modal, ModalHeader, ModalBody, ModalFooter } from "@/components/ui";
 import { PLAYBOOK_TEMPLATES } from "@/lib/org/playbook-templates";
+import type { PlaybookDraft } from "./promotePractice";
 import type { PlaybookRow } from "@/lib/db";
 
 interface DimOption {
@@ -23,12 +24,16 @@ export function NewPracticeModal({
   open,
   slug,
   dimOptions,
+  draft,
   onClose,
   onCreated,
 }: {
   open: boolean;
   slug: string;
   dimOptions: DimOption[];
+  /** G7-25: a prefill from a promoted mined practice. Applied when the dialog OPENS with it, so the
+   *  fields are seeded once and stay fully editable — a promotion is a review, not a commit. */
+  draft?: PlaybookDraft | null;
   onClose: () => void;
   onCreated: (playbooks: PlaybookRow[]) => void;
 }) {
@@ -38,6 +43,24 @@ export function NewPracticeModal({
   const [stepsText, setStepsText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Seed on open, as a RENDER-PHASE adjustment rather than an effect. React supports setting state
+  // while rendering to derive from changed props — it re-runs the component before committing, so
+  // nothing is painted in between — whereas the effect version showed one frame of an empty form
+  // over the draft the user had just chosen. Keyed on the `open` + `draft` pair, so re-opening with
+  // the SAME draft re-seeds a cleared form while in-progress edits are never clobbered mid-session.
+  const seedKey = open && draft ? `${draft.dimId}:${draft.title}` : null;
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (seedKey !== null && seedKey !== seededFor && draft) {
+    setSeededFor(seedKey);
+    setTitle(draft.title);
+    setDimId(draft.dimId);
+    setSummary(draft.summary);
+    setStepsText(draft.steps.join("\n"));
+    setError(null);
+  } else if (seedKey === null && seededFor !== null) {
+    setSeededFor(null);
+  }
 
   function applyTemplate(idx: number) {
     const t = PLAYBOOK_TEMPLATES[idx];
@@ -76,11 +99,15 @@ export function NewPracticeModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} size="lg" locked={busy} ariaLabel="New practice">
+    <Modal open={open} onClose={onClose} size="lg" locked={busy} ariaLabel={draft ? "Save as playbook" : "New practice"}>
       <ModalHeader
         kicker="Company playbook"
-        title="New practice"
-        context="Author a standard once — devs adopt it across the fleet."
+        title={draft ? "Save as playbook" : "New practice"}
+        context={
+          draft
+            ? "Pre-filled from the mined practice — edit anything before it becomes one of your org's own standards."
+            : "Author a standard once — devs adopt it across the fleet."
+        }
       />
       <ModalBody className="space-y-3">
         {/* Start from a leak-free template instead of a blank form. */}

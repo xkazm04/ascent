@@ -21,11 +21,22 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   // (open-relay hardening), so the form no longer collects it and this no longer forwards it.
   // (ambiguity-ui-scan-2026-07-16 scan-pipeline-ingestion #1)
   const notify = params.get("notify") === "1";
+  // Optional scan SCOPE (G7-07 / G7-08), set by the scan form: `ref` = branch/tag/commit to score
+  // instead of the default branch, `path` = monorepo sub-path to aim the ingestion budget at. Both
+  // are re-validated and resolved server-side; a scoped report is never persisted, so it always
+  // re-scans rather than hydrating from a cached whole-repo reading.
+  const ref = params.get("ref") ?? undefined;
+  const subPath = params.get("path") ?? undefined;
   const { state, progress, quota, rescan, attempt, retest, dismissRescan } = useReportScan(repo, initialFresh, {
     notify,
+    ref,
+    subPath,
   });
 
-  const signInNext = `/report?repo=${encodeURIComponent(repo)}`;
+  // Preserve the scope across the sign-in round-trip, or the user comes back to a DIFFERENT scan
+  // (the default branch) than the one they asked for.
+  const scopeQs = `${ref ? `&ref=${encodeURIComponent(ref)}` : ""}${subPath ? `&path=${encodeURIComponent(subPath)}` : ""}`;
+  const signInNext = `/report?repo=${encodeURIComponent(repo)}${scopeQs}`;
 
   if (!repo) {
     return <Empty title="No repository specified" message="Head back and enter a GitHub repo to scan." />;

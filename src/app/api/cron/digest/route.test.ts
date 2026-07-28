@@ -53,6 +53,13 @@ vi.mock("@/lib/maturity/noise", () => ({
   isWithinNoise: vi.fn((d: number) => Math.abs(d) <= 2),
 }));
 
+// G7-03 rides this cron (./extra-alerts). Mocked here so this suite keeps testing the DIGEST's auth,
+// routing and gating in isolation — the added pushes have their own suite (extra-alerts.test.ts). The
+// route must still hand it the org's OWN sink, asserted below.
+vi.mock("./extra-alerts", () => ({
+  dispatchExtraAlerts: vi.fn(async () => ({ goalAlerts: 0, spendAlerts: 0, errors: [] })),
+}));
+
 vi.mock("@/lib/alerts", () => ({
   // `isAlertConfigured(url)` must mirror the real "a non-null/usable sink resolves" semantics for
   // routing decisions: here, any truthy webhookUrl is a configured sink (env fallback not needed
@@ -85,6 +92,7 @@ import {
 import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
 import { dispatchAlert, buildFleetDigestMessage, digestHasSignal } from "@/lib/alerts";
 import { isWithinNoise } from "@/lib/maturity/noise";
+import { dispatchExtraAlerts } from "./extra-alerts";
 
 const mockIsDb = vi.mocked(isDbConfigured);
 const mockListOrgs = vi.mocked(listOrgsWithWatchedRepos);
@@ -100,6 +108,7 @@ const mockHasSignal = vi.mocked(digestHasSignal);
 const mockAuditLog = vi.mocked(getAuditLog);
 const mockClaim = vi.mocked(claimOrgAuditOnce);
 const mockRelease = vi.mocked(releaseAuditClaim);
+const mockExtra = vi.mocked(dispatchExtraAlerts);
 
 const SECRET = "digest-secret-xyz";
 
@@ -511,5 +520,41 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
     const body = await bodyOf(res);
     expect(body).toMatchObject({ orgs: 1, sent: 0, skippedNoSink: 0, errors: [] });
     expect(mockDispatch).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- G7-03: the goal-at-risk / spend-anomaly pushes that ride this run --------------------------
+
+  it("hands the extra alerts the org's OWN sink and the digest's window", async () => {
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockExtra.mockResolvedValue({ goalAlerts: 1, spendAlerts: 1, errors: [] });
+
+    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
+    expect(body).toMatchObject({ goalAlerts: 1, spendAlerts: 1 });
+    expect(mockExtra).toHaveBeenCalledTimes(1);
+    expect(mockExtra.mock.calls[0]![0]).toMatchObject({ org: "orgA", webhookUrl: "https://hooks.example.com/A" });
+  });
+
+  it("still fires them on a FLAT week the digest itself stays silent about", async () => {
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    mockRollup.mockResolvedValue(rollupWith());
+    mockHasSignal.mockReturnValue(false); // no digest-worthy movement
+    mockExtra.mockResolvedValue({ goalAlerts: 1, spendAlerts: 0, errors: [] });
+
+    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
+    expect(body).toMatchObject({ skippedFlat: 1, sent: 0, goalAlerts: 1 });
+    expect(mockDispatch).not.toHaveBeenCalled(); // the digest stayed silent
+    expect(mockExtra).toHaveBeenCalledTimes(1); // the goal alert did not
+  });
+
+  it("never runs them for an org with no resolvable sink", async () => {
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockOrgWebhook.mockResolvedValue(null);
+
+    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
+    expect(body).toMatchObject({ skippedNoSink: 1, goalAlerts: 0, spendAlerts: 0 });
+    expect(mockExtra).not.toHaveBeenCalled();
   });
 });
