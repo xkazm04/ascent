@@ -81,6 +81,18 @@ whichever mapping matches.
   non-empty — a subscription-only deployment (plan products but no à-la-carte packs) is a valid, supported
   config and still enables checkout.
 
+## Reaching checkout in-app (`/pricing`, G1-01)
+
+The Pro/Team price cards on `/pricing` (`src/app/pricing/page.tsx`) render a real "Subscribe" checkout
+link — `/api/billing/checkout?org=<slug>&pack=<planProductId>` — sourced from `planProducts()`, when ALL
+of the following hold: Polar is configured (`polarEnabled()`), the tier has a `POLAR_PLAN_PRODUCTS`
+mapping, and the signed-in viewer's primary org can be resolved (same precedence as the header's org-entry
+link: custom-OAuth session, then the Supabase/dev viewer, then their highest-role membership). Any of
+those being false — an anonymous visitor, a viewer with no org yet, or a deployment with no plan-product
+catalog — degrades the CTA to the pre-existing "Get started" → `/onboarding` link (a real destination,
+never a dead button); the org dashboard's `CreditsControl` offers the same checkout once the org exists.
+The Free and Enterprise CTAs are unchanged (a scan link and a contact mailto/About page, respectively).
+
 ## Checkout flow (`GET /api/billing/checkout?org=<slug>&pack=<productId>`)
 
 1. Rejects if billing isn't configured (`polarEnabled()` false → 503), if the request looks like a
@@ -150,7 +162,57 @@ state.
   override path — normal paid upgrades go through Polar checkout); without it the route returns 403
   `USE_CHECKOUT`. Every change is recorded via `recordOrgAudit("org.plan", ...)`.
 - **`POST /api/org/credits/grant`** — owner-only, gated behind `ASCENT_ALLOW_CREDIT_GRANTS`. Calls
-  `grantCredits` directly (dev/manual top-up path, same accounting as the webhook).
+  `grantCredits` directly (dev/manual top-up path, same accounting as the webhook). Two bounds sit above
+  it, because "owner" is the top authorization tier and a self-serve mint has no role to appeal to:
+  - **Production hard-disable** — `creditGrantsEnabled()` (`src/lib/env.ts`) returns `false` whenever
+    `NODE_ENV === "production"`, *regardless of the env var*, exactly like `authBypassEnabled()`. A
+    leaked, misconfigured, or staging-reused `ASCENT_ALLOW_CREDIT_GRANTS` therefore cannot open a credit
+    mint on a real deployment; in production, credits move only via the Polar webhook.
+  - **Lifetime grant cap** — `LIFETIME_GRANT_CAP` (1,000,000 credits, ten times the per-call clamp)
+    bounds the **net total** an org may ever mint here, measured from the persisted ledger via
+    `sumManualGrants`. The per-call `|amount| <= 100_000` clamp bounds one call; without a cumulative
+    bound, repeated calls summed to an unbounded total. A positive grant that would cross the cap is
+    refused with 403 + `{ granted, cap }`; debits/corrections are never blocked. Deliberately a code
+    constant, not an env var — a cap the leaked environment could raise would be no cap at all.
+
+## Low-balance warning (the opt-in "auto-recharge" preference)
+
+A paying org whose prepaid balance hits 0 used to discover it only from the `paused` chip (or the next
+402) — autoscans stall mid-week and nobody is told until someone looks. The counter-measure is an
+**opt-in low-balance warning** with a one-click top-up, armed per org.
+
+**What it is NOT.** Ascent cannot auto-recharge in the literal sense. The Polar integration is a *hosted
+checkout redirect* plus a *signed fulfilment webhook*; nothing stores a payment method or a Polar
+customer session, and no off-session charge API is used. Buying credits therefore always requires a
+present human. The constant `AUTO_RECHARGE_CHARGES_AUTOMATICALLY`
+(`src/components/org/shared/CreditsControl.autorecharge.ts`) is hard-wired `false`, every "we top up for
+you" string in the UI is gated on it, and the endpoint returns it as `chargesAutomatically` — so the
+product cannot drift into promising a purchase that would silently never happen. **The one genuinely
+recurring top-up that exists is a Polar *subscription* whose product is also a credit pack: its renewal
+`order.paid` grants credits every cycle (see the webhook above). That is calendar-driven, not
+balance-driven.**
+
+- **The preference** — `{ enabled, threshold, packProductId }`. `enabled` is the switch (default
+  **off**); `threshold` is the balance at which to warn (1…10,000, default **5**, matching
+  `CREDITS_ALERT_THRESHOLD` so the in-app warning and the Slack low-credit push agree); `packProductId`
+  is the pack the one-click top-up offers.
+- **Where it lives** — the **audit trail**. There is no org-settings JSON column on `Organization` (and
+  adding one is a migration), so each save appends one `billing.autorecharge` `AuditLog` row and the
+  org's *most recent* such row **is** the current preference. Durable, per-org, and it carries the actor
+  + timestamp of a billing-adjacent setting change for free.
+- **`GET /api/billing/autorecharge?org=`** — read-gated; returns `{ pref, chargesAutomatically, source }`
+  where `source` is `"stored"` or `"default"`. A missing/unreadable preference degrades to the default,
+  which is **off** — failing to read a warning setting must never invent a warning.
+- **`PUT /api/billing/autorecharge`** — owner-gated + same-origin. An out-of-range `threshold` is a 400
+  (not a silent clamp); a failed audit write is a **503, never `ok: true`** — the row *is* the storage.
+- **The boundary** — `creditPressure({ balance, allowanceRemaining, pref })` returns one of
+  `paused` (balance 0 **and** allowance spent) · `covered` (balance 0, monthly allowance still paying) ·
+  `low` (balance still **positive** and `<= threshold`) · `ok`. `low` is the only state the preference
+  can produce and it requires `enabled`, so an org that never opts in sees byte-identical behaviour to
+  before the feature existed. At 0 the harder `paused`/`covered` states win — they say more.
+- **In the UI** — `CreditsControl`'s popover renders the amber "Running low — N credits left … private
+  scans pause at 0" notice with a direct `/api/billing/checkout` link for the chosen pack, plus the
+  opt-in toggle itself.
 
 ## Ledger & consumption safety (`src/lib/db/credits.ts`)
 
@@ -163,6 +225,10 @@ state.
   double-grant, double-debit, or double-claw.
 - `consumeScanCredit`'s debit is a conditional decrement (`scanCredits > 0`), so two concurrent scans can
   never drive the balance negative; the loser retries under Aurora DSQL serialization.
+- `sumManualGrants(org)` sums the ledger rows the manual grant path writes (`grant` + `adjustment`,
+  net) and nothing else — Polar top-ups, scan debits, refunds and clawbacks are excluded, so purchases
+  never consume manual-grant headroom and spending granted credits never frees any. It is the persisted
+  basis for the grant endpoint's lifetime cap.
 - `getCreditReconciliation(org, days)` buckets ledger rows into `debited` / `refunded` / `granted` / `net`
   over a window, used by the `/usage` reconciliation panel — refund-reason rows are excluded from
   `debited` so a Polar clawback isn't double-counted as scan spend.
@@ -175,7 +241,7 @@ POLAR_WEBHOOK_SECRET=        # verifies POST /api/billing/webhook signatures; un
 POLAR_SERVER=sandbox         # sandbox (default) | production
 POLAR_CREDIT_PACKS=prod_abc=100,prod_def=500,prod_ghi=2000
 POLAR_PLAN_PRODUCTS=prod_pro=pro,prod_team=team,prod_ent=enterprise
-ASCENT_ALLOW_CREDIT_GRANTS=  # enables POST /api/org/credits/grant (owner-gated manual top-up)
+ASCENT_ALLOW_CREDIT_GRANTS=  # enables POST /api/org/credits/grant (owner-gated manual top-up); IGNORED under NODE_ENV=production
 ASCENT_ALLOW_PLAN_CHANGES=   # enables POST /api/org/plan to set a paid/unlimited tier directly (bypassing checkout)
 ```
 
@@ -196,3 +262,13 @@ into a $ estimate on `/usage` — useful for calibrating pack/plan prices agains
 - **Seat enforcement** — `seats` is defined per plan but this doc did not verify seat-limit enforcement at
   the membership-write path; treat as unconfirmed.
 - **Email receipts** — Polar sends its own; Ascent doesn't send a separate one.
+- **No off-session charging (blocks true auto-recharge)** — the low-balance feature above stops at a
+  *warning + one-click top-up* because this integration has no stored payment method and no Polar
+  customer-session / off-session charge path. Closing this needs (a) persisting the Polar customer id at
+  checkout, (b) a saved-method / customer-session capability confirmed on the Polar plan in use, and
+  (c) a server-side trigger (the debit path in `consumeScanCredit`, or the rescan cron) that fires the
+  charge — plus its own idempotency key so a retry can't double-bill. Until all three exist,
+  `AUTO_RECHARGE_CHARGES_AUTOMATICALLY` must stay `false`.
+- **The warning is UI-only** — `creditPressure` is evaluated in the credits popover, so an org that
+  never opens it relies on the existing Slack low-credit push (`maybeAlertLowCredits`, global
+  `CREDITS_ALERT_THRESHOLD`), which does **not** yet read the per-org `threshold` stored here.

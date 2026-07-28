@@ -131,6 +131,12 @@ export async function GET(request: Request) {
       charged = reservation.reserved;
     }
     const refundCredit = () => refundScanCredit(r.orgSlug, charged);
+    // Set the moment `scanRepository` returns a REAL (non-mock) report: from there on the inference is
+    // spent and billed to the platform, so a later throw (persist, regression alert, schedule settle)
+    // must NOT be refunded — that would return a credit for inference that genuinely ran and let the
+    // next pass re-run and re-bill it for free. A mock report leaves this false and still refunds;
+    // unmetered/BYOM repos never charged, so their refund is a no-op on both paths.
+    let inferenceBilled = false;
     try {
       const token = tokenByOrg.get(r.orgSlug);
       // Capture the prior persisted report BEFORE the new scan lands, so we can diff for a
@@ -139,6 +145,7 @@ export async function GET(request: Request) {
       const prev = await getScanReportByCommit(owner, name, { orgSlug: r.orgSlug }).catch(() => null);
 
       const report = await scanRepository(r.fullName, { token });
+      inferenceBilled = report.engine.provider !== "mock";
       const persisted = await persistScanReport(report, { orgSlug: r.orgSlug });
       // Refund the reserved credit when the autoscan produced nothing billable: either it degraded to
       // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no new
@@ -156,8 +163,11 @@ export async function GET(request: Request) {
       await recordScanOutcome(r.orgSlug, r.fullName, { ok: true }).catch(() => {});
       scanned += 1;
     } catch (err) {
-      // The scan failed — no inference to bill, so refund the credit reserved above.
-      await refundCredit();
+      // Refund a PRE-inference failure only (see `inferenceBilled` above). Nobody watches the cron, so
+      // a post-inference persist failure that also refunded would be a silent, self-repeating giveaway:
+      // credit back, retry next pass, bill the same inference again. The kept charge is named in the
+      // error string instead — the JSON body is the only place this run can say it.
+      if (!inferenceBilled) await refundCredit();
       // Override the claim's full-cadence nextScanAt with a shorter retry backoff, so a transient
       // failure is retried sooner than a full cadence (but still off the front of the oldest-first
       // queue, so a persistently-broken repo can't starve the rest of the fleet).
@@ -167,7 +177,8 @@ export async function GET(request: Request) {
         ok: false,
         error: err instanceof Error ? err.message : "scan failed",
       }).catch(() => {});
-      errors.push(`${r.fullName}: ${err instanceof Error ? err.message : "failed"}`);
+      const kept = inferenceBilled && charged ? " (credit kept — inference already ran)" : "";
+      errors.push(`${r.fullName}: ${err instanceof Error ? err.message : "failed"}${kept}`);
     }
   });
 

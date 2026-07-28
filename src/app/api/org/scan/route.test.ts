@@ -118,6 +118,49 @@ describe("POST /api/org/scan — dedupe/degrade refund policy", () => {
   });
 });
 
+// G1-06: the catch block's premise ("the scan threw, so nothing was billed") is only true BEFORE
+// scanRepository returns. A persist failure after real inference must keep the debit — otherwise a
+// transient DB conflict refunds a credit for inference that ran, and the retry re-bills the same work.
+describe("POST /api/org/scan — pre- vs post-inference failure", () => {
+  it("does NOT refund when persistScanReport throws after a REAL scan (inference already paid for)", async () => {
+    mockScan.mockResolvedValue(report("gemini"));
+    mockPersist.mockRejectedValue(new Error("could not serialize access"));
+    const body = await runBulkScan();
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    expect(mockGrant).not.toHaveBeenCalled();
+    // The caller is told BOTH things: the repo failed, and it was charged anyway — no silent charge.
+    expect(body).toContain('"charged":true');
+    expect(mockRecordOutcome).toHaveBeenCalledWith("acme", "acme/repo", { ok: false, error: "could not serialize access" });
+  });
+
+  it("DOES refund when scanRepository itself throws (pre-inference failure, nothing billed)", async () => {
+    mockScan.mockRejectedValue(new Error("github 502"));
+    const body = await runBulkScan();
+    expect(mockPersist).not.toHaveBeenCalled();
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    expect(body).toContain('"charged":false');
+  });
+
+  it("DOES refund a MOCK scan whose persist throws — a mock run bills no inference", async () => {
+    mockScan.mockResolvedValue(report("mock"));
+    mockPersist.mockRejectedValue(new Error("write failed"));
+    const body = await runBulkScan();
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    expect(body).toContain('"charged":false');
+  });
+
+  it("BYOM org: a post-inference persist failure neither refunds nor charges", async () => {
+    const { isByomActive } = await import("@/lib/db");
+    vi.mocked(isByomActive).mockResolvedValueOnce(true);
+    mockScan.mockResolvedValue(report("bedrock"));
+    mockPersist.mockRejectedValue(new Error("write failed"));
+    const body = await runBulkScan();
+    expect(mockConsume).not.toHaveBeenCalled(); // BYOM is unmetered — no platform credit reserved
+    expect(mockGrant).not.toHaveBeenCalled(); // ...so a "refund" would MINT a credit
+    expect(body).toContain('"charged":false'); // nothing was charged, so nothing was kept
+  });
+});
+
 describe("POST /api/org/scan — never-scans-for-free + out-of-credits surfacing", () => {
   // INVARIANT (never-free): a watched repo is scanned IFF a credit was actually reserved. If the
   // per-repo atomic reservation comes back ok:false mid-pool (balance exhausted by a concurrent

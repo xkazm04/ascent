@@ -1,10 +1,8 @@
 "use client";
 
-import { importWatchMonthlyCredits } from "@/components/onboarding/importCost";
-import { IMPORT_WATCH_SCHEDULE } from "@/components/onboarding/importScan";
 import type { OrgRepo } from "@/components/onboarding/types";
-import { CREDIT_ESTIMATE_NOTE } from "@/lib/credit-estimate";
-import { WatchCostTail } from "@/components/credit/WatchCostTail";
+import { ScanCostDisclosure } from "@/components/onboarding/OnboardingSelectStep.CostDisclosure";
+import { PrivateRepoBadge } from "@/components/LevelBadge";
 
 /** The "choose up to maxSelect repos" phase: sticky action bar, repo list (or skeleton), scan/back. */
 export function SelectStep({
@@ -44,11 +42,6 @@ export function SelectStep({
 }) {
   const listing = loading && repos.length === 0;
   const atCap = selected.size >= maxSelect;
-  // The scan button also COMMITS these repos to a weekly autoscan (watch:true in the import) —
-  // a recurring prepaid-credit draw that was previously invisible at this exact decision moment.
-  // Net the org's included free monthly scans, exactly as canRunReal does when it qualifies this org for
-  // a real scan. Passing only `count` left allowanceRemaining defaulted to 0 — the inflated alarm.
-  const monthlyCredits = importWatchMonthlyCredits(selected.size, credit?.allowanceRemaining ?? 0);
   return (
     <div key="select" className="animate-phase-in">
       {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change).
@@ -133,11 +126,7 @@ export function SelectStep({
                   {checked && "✓"}
                 </span>
                 <span className="flex-1 truncate font-mono text-base text-white">{r.fullName}</span>
-                {r.private && (
-                  <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-sm uppercase tracking-widest text-accent">
-                    private
-                  </span>
-                )}
+                {r.private && <PrivateRepoBadge />}
                 {capped && (
                   <span className="font-mono text-sm uppercase tracking-widest text-slate-500">limit reached</span>
                 )}
@@ -176,26 +165,10 @@ export function SelectStep({
               </span>
             )}
           </div>
-          {/* Cost disclosure AT the commitment button — but ONLY on the metered App path. Scanning a
-              public handle (no installation) forces a preview (mock): it sets no credit account and is
-              never metered, so quoting "~N prepaid credits/month" there is money confusion that scares
-              users off the free top-of-funnel. Show the prepaid figure only when sourceInstallId is
-              present; otherwise reassure that the preview is free. */}
-          {selected.size > 0 &&
-            (sourceInstallId ? (
-              <p className="mt-3 max-w-xl text-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
-                Scanning also watches {selected.size === 1 ? "this repo" : `these ${selected.size} repos`} with a{" "}
-                {IMPORT_WATCH_SCHEDULE} autoscan ≈{" "}
-                <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
-                {monthlyCredits === 1 ? "" : "s"}/month
-                <WatchCostTail credit={credit} monthlyCredits={monthlyCredits} />. Adjust or turn off anytime on Connect.
-              </p>
-            ) : (
-              <p className="mt-3 max-w-xl text-sm text-slate-500">
-                Free preview — no prepaid credits are used. Install the GitHub App to run metered live
-                scans on your own public &amp; private repos.
-              </p>
-            ))}
+          {/* Cost disclosure AT the commitment button + the recurring-autoscan opt-in. Both live in
+              ScanCostDisclosure (co-located) so this file stays inside the 300-LOC cap; it also owns
+              the free-preview reassurance for the public-handle path. */}
+          <ScanCostDisclosure count={selected.size} sourceInstallId={sourceInstallId} credit={credit} />
         </>
       )}
     </div>

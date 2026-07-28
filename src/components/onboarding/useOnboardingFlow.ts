@@ -8,6 +8,7 @@ import { runImportScan } from "@/components/onboarding/importScan";
 import { resolveScanMode, type CreditRead } from "@/components/onboarding/scanMode";
 import { runRepoRetry } from "@/components/onboarding/retryRepo";
 import { byProminence } from "@/components/onboarding/byProminence";
+import { getAutoWatchOptIn, resetAutoWatchOptIn } from "@/components/onboarding/OnboardingSelectStep.watchOptIn";
 import { classifyScanFailure, gateAnnouncement, type ScanGate } from "@/components/onboarding/scanGate";
 import {
   MAX_LIST,
@@ -329,6 +330,9 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     setInvitedCount(0);
     setCreditSkipped(0);
     setGate(null);
+    // The autoscan opt-in is per-run consent, not a sticky preference: a second run must start from
+    // the safe default rather than inherit a tick the user made for a different repo set.
+    resetAutoWatchOptIn();
   }
 
   async function startScan() {
@@ -378,6 +382,12 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
           // mints an installation token — required to read the private repos we just listed.
           installationId: sourceInstallId ?? undefined,
           mock: !canRunReal,
+          // Recurring weekly autoscan enrolment is OPT-IN (the select step's checkbox writes this
+          // store). Omitting the field meant runImportScan defaulted it to `Boolean(installationId)` —
+          // true on every App-path run — so a scan click silently subscribed each repo to a standing,
+          // billable weekly draw. Pass it EXPLICITLY: the server also defaults `watch` to true, so
+          // "not opted in" must travel as false, never as an omission.
+          watch: getAutoWatchOptIn(),
         },
         controller,
         {

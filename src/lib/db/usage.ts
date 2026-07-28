@@ -20,11 +20,52 @@ export interface RepoUsage {
   tokens: number; // input + output
 }
 
-/** One day's computed-scan counts, split billable (private) vs free (public). */
+/** One day's computed-scan counts, split billable (metered) vs free (everything else). */
 export interface UsageDay {
   date: string; // YYYY-MM-DD (UTC)
   billable: number;
   free: number;
+}
+
+/**
+ * The engineProvider value for a keyless/degraded run: no Ascent-metered inference happened, so the
+ * scan cost nothing to serve. Shared with credits.ts's allowance basis (`engineProvider: { not: "mock" }`).
+ */
+const UNMETERED_PROVIDER = "mock";
+
+/**
+ * THE billable predicate — the ONE definition of "this scan consumed Ascent-metered inference and is
+ * therefore a billable unit". A scan is billable only when it is (a) a PRIVATE repo (public scans are
+ * free by policy) AND (b) it ran on Ascent's own metered provider: not the keyless `mock` engine (no
+ * inference at all) and not the org's own BYOM provider (the org already paid its vendor directly).
+ *
+ * Previously the per-day series bucketed on `repo.isPrivate` alone, so a private mock/BYOM scan was
+ * drawn as billable volume in the trend chart and the finance CSV while the dollar-cost path
+ * (estimateLlmCostFromTable) already skipped token-less rows — the chart overstated the bill.
+ *
+ * Every path that splits billable vs free MUST go through this function, `billableScanWhere` (the
+ * Prisma form) or the `billable` expression in fetchDailySeries' raw SQL — all three encode the same
+ * three clauses, and drift between the SQL path and the JS fallback is the root of this bug class.
+ * `engineByom` is nullable (rows predating the column): UNKNOWN provenance means Ascent's platform
+ * account, so only an explicit `true` de-meters a scan — matching the report header's wording rule.
+ */
+export function isBillableScan(scan: {
+  isPrivate: boolean;
+  engineProvider: string;
+  engineByom?: boolean | null;
+}): boolean {
+  return scan.isPrivate && scan.engineProvider !== UNMETERED_PROVIDER && scan.engineByom !== true;
+}
+
+/** The Prisma-`where` form of {@link isBillableScan}, for the headline count + the byRepo attribution. */
+function billableScanWhere(orgId: string) {
+  return {
+    repo: { orgId, isPrivate: true },
+    engineProvider: { not: UNMETERED_PROVIDER },
+    // Nullable column: `null` (unknown) counts as Ascent-metered, so match false OR null explicitly
+    // rather than relying on driver-specific `not: true` NULL semantics.
+    OR: [{ engineByom: false }, { engineByom: null }],
+  };
 }
 
 export interface UsageSummary {
@@ -34,9 +75,13 @@ export interface UsageSummary {
   totalScans: number;
   /** Computed scans within the last `periodDays`. */
   periodScans: number;
-  /** Billable (private) computed scans within the last `periodDays`. */
+  /** BILLABLE computed scans within the last `periodDays` — see isBillableScan (private AND metered).
+   *  Named `private*` for historical/wire compatibility; a private mock/BYOM scan is NOT counted. */
   privateScans: number;
-  /** Free (public) computed scans within the last `periodDays`. */
+  /** FREE computed scans within the last `periodDays` — `periodScans - privateScans`, i.e. public
+   *  scans plus private scans that consumed no Ascent-metered inference (mock / BYOM). Derived, not
+   *  queried, so `privateScans + publicScans === periodScans` and the headline tiles equal the trend
+   *  chart's totals BY CONSTRUCTION (same predicate, same window bounds as `daily`). */
   publicScans: number;
   /** All-time count of distinct repos scanned. */
   distinctRepos: number;
@@ -122,29 +167,37 @@ export async function getUsageSummary(
   // fell into the idx-miss gap and were silently dropped (under-reporting billable volume).
   const todayUtcMs = utcDayStart(Date.now());
   const since = new Date(todayUtcMs - (periodDays - 1) * 86_400_000);
+  // UPPER bound: the exclusive end of TODAY's UTC day — the same edge the generated day axis stops at.
+  // Without it the period counts were open-ended while the series index only spans since→today, so a
+  // future-dated / clock-skewed scan was counted in the headline Stat tile yet silently idx-missed out
+  // of the chart and CSV (`idx.get(row.day)` undefined → row dropped) — the headline and the trend
+  // total disagreeing on the org's billing page. Both sides now share this window.
+  const before = new Date(todayUtcMs + 86_400_000);
   const where = { repo: { orgId } };
-  // The private/public split and provider mix are shown beside the "Last Nd" window, so they
+  // The billable/free split and provider mix are shown beside the "Last Nd" window, so they
   // must be scoped to the same window as periodScans — otherwise the billable figure reported
   // for a selected period would actually be the org's all-time private-scan total.
-  const periodWhere = { ...where, scannedAt: { gte: since } };
+  const periodWhere = { ...where, scannedAt: { gte: since, lt: before } };
 
-  const [total, period, priv, pub, distinctRepos, providerGroups, agg, daily, modelGroups, repoGroups] =
+  const [total, period, billable, distinctRepos, providerGroups, agg, daily, modelGroups, repoGroups] =
     await Promise.all([
       prisma.scan.count({ where }),
       prisma.scan.count({ where: periodWhere }),
-      prisma.scan.count({ where: { ...periodWhere, repo: { orgId, isPrivate: true } } }),
-      prisma.scan.count({ where: { ...periodWhere, repo: { orgId, isPrivate: false } } }),
+      // Headline billable tile: the SAME predicate the chart's `billable` series uses (isBillableScan),
+      // over the same window — so the tile can't drift from the chart total. `publicScans` (free) is
+      // then derived as period - billable rather than separately queried.
+      prisma.scan.count({ where: { ...periodWhere, ...billableScanWhere(orgId) } }),
       prisma.repository.count({ where: { orgId, scans: { some: {} } } }),
       prisma.scan.groupBy({ by: ["engineProvider"], where: periodWhere, _count: true }),
       prisma.scan.aggregate({ where, _min: { scannedAt: true }, _max: { scannedAt: true } }),
-      // Per-day series, aggregated in SQL (one row per UTC-day × visibility) instead of streaming
+      // Per-day series, aggregated in SQL (one row per UTC-day × billable) instead of streaming
       // every period scan row back to bucket in JS — see fetchDailySeries.
-      fetchDailySeries(prisma, orgId, since, periodDays, todayUtcMs),
+      fetchDailySeries(prisma, orgId, since, before, periodDays, todayUtcMs),
       // Token totals (cost basis) grouped PER MODEL — one aggregate, no row streaming. The split
       // matters because failover legitimately mixes models in one window (Gemini Flash cents/MTok
       // beside Claude Sonnet dollars/MTok); a single global rate can't price that correctly. byRepo
-      // is scoped to PRIVATE repos (the same predicate as the `priv` count above) so the "by
-      // metered scans" attribution can't mix free public scans into "which repos drove the bill".
+      // is scoped by billableScanWhere (the same predicate as the headline count above) so the "by
+      // metered scans" attribution can't mix free scans into "which repos drove the bill".
       prisma.scan.groupBy({
         by: ["engineModel"],
         where: periodWhere,
@@ -152,7 +205,7 @@ export async function getUsageSummary(
       }),
       prisma.scan.groupBy({
         by: ["repoId"],
-        where: { ...periodWhere, repo: { orgId, isPrivate: true } },
+        where: { ...periodWhere, ...billableScanWhere(orgId) },
         _count: true,
         _sum: { inputTokens: true, outputTokens: true },
         orderBy: { _count: { repoId: "desc" } },
@@ -201,8 +254,10 @@ export async function getUsageSummary(
     periodDays,
     totalScans: total,
     periodScans: period,
-    privateScans: priv,
-    publicScans: pub,
+    privateScans: billable,
+    // Free = the period's non-billable remainder (public scans + private mock/BYOM scans). Derived so
+    // billable + free === periodScans and the tiles match the chart's stacked totals exactly.
+    publicScans: Math.max(0, period - billable),
     distinctRepos,
     byProvider: providerGroups
       .map((g) => ({ provider: g.engineProvider, count: g._count }))
@@ -279,50 +334,71 @@ function utcDayStart(ms: number): number {
 
 /**
  * Aggregate the period's computed scans into a per-UTC-day billable/free series in SQL — a single
- * COUNT(*) per (day, visibility) row (~periodDays×2 rows) rather than streaming every scan row in
+ * COUNT(*) per (day, billable) row (~periodDays×2 rows) rather than streaming every scan row in
  * the window back to bucket in JS (thousands of rows on a busy org). `date_trunc` is standard SQL
  * supported by both local Postgres and Aurora DSQL, and Prisma stores DateTime as UTC `timestamp`,
  * so `date_trunc('day', "scannedAt")` is the UTC day that matches the dayKey axis; `to_char` formats
  * it to the same YYYY-MM-DD token (no driver-dependent Date round-trip) and `::int` keeps COUNT out
  * of BigInt. Falls back to row-bucketing if the raw query is ever unavailable, so /usage can't break.
+ *
+ * The `billable` expression is the SQL transcription of {@link isBillableScan} (the JS fallback below
+ * calls that function directly, so the two paths cannot classify a scan differently): private AND not
+ * the keyless `mock` provider AND not BYOM. `IS NOT TRUE` — not `<> true` — so a NULL `engineByom`
+ * (rows predating the column) stays billable exactly as `engineByom !== true` does in JS. Both the
+ * lower AND upper `scannedAt` bounds are passed in from the caller, shared with the headline counts.
  */
 async function fetchDailySeries(
   prisma: ReturnType<typeof getPrisma>,
   orgId: string,
   since: Date,
+  before: Date,
   periodDays: number,
   anchorUtcMs: number,
 ): Promise<UsageDay[]> {
   const series = emptyDailySeries(periodDays, anchorUtcMs);
   const idx = new Map(series.map((d, i) => [d.date, i]));
   try {
-    const rows = await prisma.$queryRaw<{ day: string; isPrivate: boolean; count: number }[]>`
+    const rows = await prisma.$queryRaw<{ day: string; billable: boolean; count: number }[]>`
       SELECT to_char(date_trunc('day', s."scannedAt"), 'YYYY-MM-DD') AS day,
-             r."isPrivate" AS "isPrivate",
+             (r."isPrivate"
+               AND s."engineProvider" <> ${UNMETERED_PROVIDER}
+               AND s."engineByom" IS NOT TRUE) AS billable,
              COUNT(*)::int AS count
       FROM "Scan" s
       JOIN "Repository" r ON r."id" = s."repoId"
-      WHERE r."orgId" = ${orgId} AND s."scannedAt" >= ${since}
-      GROUP BY day, r."isPrivate"
+      WHERE r."orgId" = ${orgId} AND s."scannedAt" >= ${since} AND s."scannedAt" < ${before}
+      GROUP BY day, billable
     `;
     for (const row of rows) {
       const i = idx.get(row.day);
       if (i === undefined) continue;
       const day = series[i]!; // safe: i is a valid index into series (built from series.map)
-      if (row.isPrivate) day.billable += Number(row.count);
+      if (row.billable) day.billable += Number(row.count);
       else day.free += Number(row.count);
     }
     return series;
   } catch (err) {
     console.error("[usage] daily aggregation query failed, falling back to row bucketing", err);
     const scans = await prisma.scan.findMany({
-      where: { repo: { orgId }, scannedAt: { gte: since } },
-      select: { scannedAt: true, repo: { select: { isPrivate: true } } },
+      where: { repo: { orgId }, scannedAt: { gte: since, lt: before } },
+      select: {
+        scannedAt: true,
+        engineProvider: true,
+        engineByom: true,
+        repo: { select: { isPrivate: true } },
+      },
     });
     return buildDailySeries(
       periodDays,
       anchorUtcMs,
-      scans.map((s) => ({ at: s.scannedAt, billable: s.repo.isPrivate })),
+      scans.map((s) => ({
+        at: s.scannedAt,
+        billable: isBillableScan({
+          isPrivate: s.repo.isPrivate,
+          engineProvider: s.engineProvider,
+          engineByom: s.engineByom,
+        }),
+      })),
     );
   }
 }

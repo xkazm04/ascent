@@ -169,8 +169,16 @@ export async function POST(request: Request) {
             }
             const refundCredit = () => refundScanCredit(org, reserved);
             send("progress", { stage: "scan", repo: repo.fullName, index: done, total: scanList.length });
+            // Set the moment `scanRepository` returns a REAL (non-mock) report: the inference is
+            // already spent and billed to the platform at that point. Everything after it (persist,
+            // bookkeeping) can still throw, and the catch below must NOT refund then — a refund there
+            // hands back a credit for inference that genuinely ran, and the retry re-runs and
+            // re-bills the same inference. A mock report never bills, so it leaves this false and a
+            // later failure still refunds. (BYOM/unmetered orgs never reserved, so refund is a no-op.)
+            let inferenceBilled = false;
             try {
               const report = await scanRepository(repo.fullName, { token, orgSlug: org });
+              inferenceBilled = report.engine.provider !== "mock";
               const persisted = await persistScanReport(report, { orgSlug: org });
               // Refund the reservation when nothing billable was produced: either the scan degraded to
               // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
@@ -186,11 +194,15 @@ export async function POST(request: Request) {
               });
               await recordScanOutcome(org, repo.fullName, { ok: true }).catch(() => {});
             } catch (err) {
-              // Scan threw — no inference to bill, so refund the reservation.
-              await refundCredit();
+              // PRE-inference failure (scanRepository threw, or it degraded to mock): nothing billable
+              // was produced, so refund. POST-inference failure (the persist or a step after it threw):
+              // the inference already ran and cost real money — keep the credit, or a DB serialization
+              // conflict would silently mint a free scan on every retry. The org paid for a scan it
+              // didn't get to keep, so SAY SO on the wire (`charged`) instead of charging silently.
+              if (!inferenceBilled) await refundCredit();
               const msg = err instanceof Error ? err.message : "scan failed";
               await recordScanOutcome(org, repo.fullName, { ok: false, error: msg }).catch(() => {});
-              send("repo", { repo: repo.fullName, error: msg });
+              send("repo", { repo: repo.fullName, error: msg, charged: inferenceBilled && reserved });
             }
             scanned += 1; // a scan actually ran for this repo (scored or failed) — never a skip
             done += 1;

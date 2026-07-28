@@ -39,10 +39,11 @@ import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list"
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canMintInstallationToken, requireFleetOrg, requireOrgAccess } from "@/lib/authz";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 import { checkScanEntitlement, paymentRequired } from "@/lib/entitlement";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
-import { rateLimitRequest, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
+import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 import { SCHEDULES as SCAN_SCHEDULES } from "@/components/connect/installationRepoTypes";
 
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Org import requires a database (DATABASE_URL)." }, { status: 503 });
   }
   // Bulk scan = up to 100 GitHub ingests + (optionally) LLM completions per call. Rate-limit hard.
-  const rl = rateLimitRequest(request, ORG_IMPORT_RATE_LIMIT);
+  const rl = await rateLimitRequestShared(request, ORG_IMPORT_RATE_LIMIT);
   if (!rl.ok) {
     void recordQuotaEvent("rate_limit", "org-import").catch(() => {}); // QUOTA #2: observability on the bulk-import path
     return tooManyRequests(rl.retryAfterSec);
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
     schedule?: string;
     installationId?: string;
   };
-  const org = body.org?.trim().toLowerCase();
+  const org = body.org ? normalizeOrgSlug(body.org) : undefined;
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
 
   // Bring this mutating, tenant-scoped route to parity with its siblings (/api/org/scan, /watch,
@@ -301,8 +302,14 @@ export async function POST(request: Request) {
             }
             const refundCredit = () => refundScanCredit(org, reserved);
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
+            // Set the moment `scanRepository` returns a REAL (non-mock) report: the inference is
+            // already spent at that point. A failure AFTER it (persist, bookkeeping) must not refund —
+            // see the catch below. A mock import leaves this false, so it still refunds. (Mock and BYOM
+            // imports never reserve in the first place, so their refund is a no-op either way.)
+            let inferenceBilled = false;
             try {
               const report = await scanRepository(r.fullName, scanOpts);
+              inferenceBilled = report.engine.provider !== "mock";
               const persisted = await persistScanReport(report, { orgSlug: org });
               // Refund the reservation when nothing billable was produced: either the scan degraded to
               // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
@@ -335,11 +342,14 @@ export async function POST(request: Request) {
               // public funnel (watch=false) may not have persisted a Repository row, so skip then.
               if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
             } catch (err) {
-              // Scan threw — no inference to bill, so refund the reservation made above.
-              await refundCredit();
+              // Refund a PRE-inference failure only. Once scanRepository has returned a real report the
+              // inference is paid for; refunding a persist failure would let a transient DB error hand
+              // back a credit for work that really ran (and the retry re-bills it). Report `charged` so
+              // the importer can see it paid for a repo whose report didn't land.
+              if (!inferenceBilled) await refundCredit();
               const msg = err instanceof Error ? err.message : "scan failed";
               if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
-              send("repo", { repo: r.fullName, error: msg });
+              send("repo", { repo: r.fullName, error: msg, charged: inferenceBilled && reserved });
             }
             scanned += 1; // a scan actually ran for this repo (scored or failed) — never a skip
             processed += 1;

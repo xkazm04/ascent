@@ -64,6 +64,7 @@ vi.mock("@/lib/entitlement", () => ({
 }));
 vi.mock("@/lib/rate-limit", () => ({
   rateLimitRequest: () => ({ ok: true }),
+  rateLimitRequestShared: async () => ({ ok: true }),
   tooManyRequests: vi.fn(),
   ORG_IMPORT_RATE_LIMIT: {},
 }));
@@ -74,7 +75,7 @@ import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled } from "@/lib/access";
 import { canMintInstallationToken, requireOrgAccess } from "@/lib/authz";
 import { getInstallationToken } from "@/lib/github/app";
-import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, reconcileListedRepos } from "@/lib/db";
+import { consumeScanCredit, getInstallationIdForOwner, grantCredits, isByomActive, persistScanReport, reconcileListedRepos } from "@/lib/db";
 import { listOrgRepos } from "@/lib/github/list";
 import { checkScanEntitlement } from "@/lib/entitlement";
 // Real (unmocked) process-local claim — the route imports it from the same sub-module, so a claim taken
@@ -92,6 +93,7 @@ const mockConsume = vi.mocked(consumeScanCredit);
 const mockGrant = vi.mocked(grantCredits);
 const mockEntitlement = vi.mocked(checkScanEntitlement);
 const mockByom = vi.mocked(isByomActive);
+const mockPersist = vi.mocked(persistScanReport);
 
 const report = {
   engine: { provider: "mock", model: "m" },
@@ -327,6 +329,42 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
     expect(mockEntitlement).not.toHaveBeenCalled();
     expect(mockConsume).not.toHaveBeenCalled();
     expect(events.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 2, skippedForCredits: 0 });
+  });
+
+  // G1-06: "the scan threw so nothing was billed" only holds BEFORE scanRepository returns. Once a
+  // real report is in hand the inference is spent; refunding a persist failure hands back a credit
+  // for work that ran, and the retry re-bills the same inference.
+  it("does NOT refund when persistScanReport throws after a REAL scan — the inference was already paid for", async () => {
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
+    mockPersist.mockRejectedValueOnce(new Error("could not serialize access"));
+    const events = await collectImport({ org: "acme", repos: ["acme/ok"], mock: false, watch: false });
+    expect(mockConsume).toHaveBeenCalledTimes(1);
+    expect(mockGrant).not.toHaveBeenCalled();
+    // The importer is told it failed AND that it was charged — never a silent charge for nothing.
+    expect(events.find((e) => e.event === "repo")?.data).toMatchObject({
+      repo: "acme/ok",
+      error: "could not serialize access",
+      charged: true,
+    });
+  });
+
+  it("DOES refund a MOCK-degraded scan whose persist throws — a mock run bills no inference", async () => {
+    mockEntitlement.mockResolvedValue({ allowed: true, unlimited: false, balance: 5, allowanceRemaining: 0 });
+    // mock:false enters the metered path, but the SCAN itself degraded to the mock provider.
+    mockScan.mockResolvedValue(report); // `report` is provider:"mock"
+    mockPersist.mockRejectedValueOnce(new Error("write failed"));
+    const events = await collectImport({ org: "acme", repos: ["acme/deg"], mock: false, watch: false });
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, { reason: "refund", actor: "system" });
+    expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ charged: false });
+  });
+
+  it("BYOM org: a post-inference persist failure neither refunds nor charges a platform credit", async () => {
+    mockByom.mockResolvedValue(true);
+    mockPersist.mockRejectedValueOnce(new Error("write failed"));
+    const events = await collectImport({ org: "acme", repos: ["acme/byom"], mock: false, watch: false });
+    expect(mockConsume).not.toHaveBeenCalled(); // unmetered — nothing reserved
+    expect(mockGrant).not.toHaveBeenCalled(); // ...so a refund would MINT a credit
+    expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ charged: false });
   });
 
   it("passes orgSlug to scanRepository so a BYOM org's inference runs on ITS provider, not the platform's", async () => {

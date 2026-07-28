@@ -748,6 +748,145 @@ describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", ()
   });
 });
 
+// Pins G1-05: a push rescan is a REAL, LLM-billed scan, so `runPushRescan` throttles to at most one
+// scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES (default 15). The window state is the PRIOR
+// PERSISTED SCAN's `scannedAt` — a DB fact, so the throttle holds across instances — and the check runs
+// INSIDE the serializePerRepo critical section so a burst's 2nd run sees the 1st run's persisted stamp.
+// Invariant: a second default-branch push inside the window costs NOTHING (no token, no scan, no
+// persist, no alert); a push past the window scans normally; and throttling never weakens the #6
+// baseline-ordering guarantee.
+describe("POST /api/app/webhook — push rescan throttle (G1-05)", () => {
+  const pushPayload = () => ({
+    installation: { id: 77 },
+    repository: { name: "busy-repo", default_branch: "main", owner: { login: "acme" } },
+    ref: "refs/heads/main",
+    after: "beef000000000000000000000000000000000000",
+    deleted: false,
+  });
+
+  /** A scan report carrying an explicit scannedAt — what the throttle reads off the baseline. */
+  const report = (headSha: string, scannedAt: string) =>
+    ({ repo: { headSha }, scannedAt }) as unknown as Awaited<ReturnType<typeof scanRepository>>;
+
+  function authorizeWatchedRepo() {
+    mockIdForOwner.mockResolvedValue("77");
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_tok");
+    mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
+    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
+  }
+
+  beforeEach(() => {
+    vi.spyOn(console, "info").mockImplementation(() => {}); // the coalesce path logs why it skipped
+  });
+
+  afterEach(() => {
+    delete process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES;
+  });
+
+  it("a SECOND push inside the window does NOT buy a second scan (no token, no scan, no persist, no alert)", async () => {
+    authorizeWatchedRepo();
+    const now = Date.now();
+    // Model the DB: the baseline read returns the last persisted report, exactly as the real reader does.
+    let lastPersisted: unknown = null;
+    mockGetReportByCommit.mockImplementation(
+      async () => lastPersisted as Awaited<ReturnType<typeof getScanReportByCommit>>,
+    );
+    mockPersist.mockImplementation(async (r) => {
+      lastPersisted = r;
+      return { deduped: false } as Awaited<ReturnType<typeof persistScanReport>>;
+    });
+    // The first push's scan lands NOW; the second push arrives 1 minute later — inside the 15-min default.
+    mockScan.mockResolvedValue(report("beef", new Date(now).toISOString()));
+
+    await post("push", "throttle-first", pushPayload());
+    await runDeferred();
+    expect(mockScan).toHaveBeenCalledTimes(1);
+
+    await post("push", "throttle-second", pushPayload());
+    await runDeferred();
+
+    expect(mockScan).toHaveBeenCalledTimes(1); // still ONE paid scan
+    expect(mockGetToken).toHaveBeenCalledTimes(1); // and no token minted for the coalesced push
+    expect(mockPersist).toHaveBeenCalledTimes(1);
+    expect(mockCheckRegression).toHaveBeenCalledTimes(1);
+    // A coalesced push is a deterministic decision, not a failure — the delivery claim stays held.
+    expect(mockRelease).not.toHaveBeenCalledWith("throttle-second");
+  });
+
+  it("a push AFTER the window DOES scan again", async () => {
+    authorizeWatchedRepo();
+    // Baseline scanned 16 minutes ago — past the 15-minute default.
+    mockGetReportByCommit.mockResolvedValue(
+      report("old", new Date(Date.now() - 16 * 60_000).toISOString()) as Awaited<
+        ReturnType<typeof getScanReportByCommit>
+      >,
+    );
+    mockScan.mockResolvedValue(report("beef", new Date().toISOString()));
+
+    await post("push", "throttle-past-window", pushPayload());
+    await runDeferred();
+
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockCheckRegression).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors PUSH_RESCAN_MIN_INTERVAL_MINUTES (a 60-min window coalesces a 20-min-old baseline)", async () => {
+    process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES = "60";
+    authorizeWatchedRepo();
+    mockGetReportByCommit.mockResolvedValue(
+      report("old", new Date(Date.now() - 20 * 60_000).toISOString()) as Awaited<
+        ReturnType<typeof getScanReportByCommit>
+      >,
+    );
+
+    await post("push", "throttle-env-60", pushPayload());
+    await runDeferred();
+
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockGetToken).not.toHaveBeenCalled();
+  });
+
+  it("a baseline with NO usable timestamp fails toward freshness (scans)", async () => {
+    authorizeWatchedRepo();
+    // A DB blip degrades the baseline read to null; an unparseable stamp is the same case.
+    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
+    mockScan.mockResolvedValue(report("beef", new Date().toISOString()));
+
+    await post("push", "throttle-no-baseline", pushPayload());
+    await runDeferred();
+
+    expect(mockScan).toHaveBeenCalledTimes(1);
+  });
+
+  it("with the throttle DISABLED (0) the #6 per-repo baseline ordering still holds for a concurrent burst", async () => {
+    process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES = "0";
+    authorizeWatchedRepo();
+    const now = Date.now();
+    const reportA = report("a", new Date(now).toISOString());
+    const reportB = report("b", new Date(now + 1000).toISOString());
+    let lastPersisted: unknown = null;
+    mockGetReportByCommit.mockImplementation(
+      async () => lastPersisted as Awaited<ReturnType<typeof getScanReportByCommit>>,
+    );
+    mockScan.mockResolvedValueOnce(reportA).mockResolvedValueOnce(reportB);
+    mockPersist.mockImplementation(async (r) => {
+      lastPersisted = r;
+      return { deduped: false } as Awaited<ReturnType<typeof persistScanReport>>;
+    });
+
+    await post("push", "throttle-off-a", pushPayload());
+    await post("push", "throttle-off-b", pushPayload());
+    await Promise.all(mockAfter.mock.calls.map((c) => (c[0] as () => Promise<void>)()));
+
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    // The 2nd critical section baselines on the 1st's PERSISTED report, not the stale null it read before.
+    expect(mockCheckRegression).toHaveBeenCalledTimes(2);
+    expect(mockCheckRegression.mock.calls[0]![0]).toBeNull();
+    expect(mockCheckRegression.mock.calls[1]![0]).toBe(mockCheckRegression.mock.calls[0]![1]);
+  });
+});
+
 // Pins test-mastery 06-18 medium #5 (route.ts:72-101): the replay-dedup window itself — the
 // `deliveryAlreadySeen` Map with a 10-minute TTL (`DELIVERY_TTL_MS`) and a 2000-entry bounded
 // eviction (`DELIVERY_MAX`). The earlier redelivery-net suites reuse a fresh id per case, so they

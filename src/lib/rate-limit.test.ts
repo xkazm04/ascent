@@ -2,9 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   clientIp,
   rateLimitRequest,
+  rateLimitRequestShared,
   tooManyRequests,
   type RateLimitConfig,
 } from "./rate-limit";
+import {
+  createUpstashStore,
+  sharedWindowStore,
+  __setSharedWindowStore,
+  type SharedWindowStore,
+} from "./rate-limit-store";
 
 // IMPORTANT: `rate-limit.ts` keeps its sliding-window state in a MODULE-GLOBAL `Map` that is not
 // exported and cannot be reset between tests. To keep tests isolated and deterministic we give
@@ -422,6 +429,212 @@ describe("real exported configs pin the as-written limits", () => {
       global: 600,
       windowMs: 60_000,
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// G1-04: the GLOBAL ceiling backed by a SHARED store (cross-instance).
+//
+// "Instances" are simulated by building SEPARATE store objects (createUpstashStore) over ONE fake
+// Redis backend — that is exactly the production shape: N processes, N clients, 1 store. Per-IP
+// buckets stay in-process, so every request below uses a DISTINCT IP and the per-IP cap never trips;
+// what trips is the shared budget.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A minimal in-process stand-in for the Upstash REST `/pipeline` endpoint (sorted sets only). */
+function fakeUpstash() {
+  const zsets = new Map<string, { score: number; member: string }[]>();
+  let calls = 0;
+  let fail = false;
+
+  function run(cmd: (string | number)[]): unknown {
+    const op = String(cmd[0]).toUpperCase();
+    const key = String(cmd[1]);
+    const z = zsets.get(key) ?? [];
+    switch (op) {
+      case "ZREMRANGEBYSCORE": {
+        const max = Number(cmd[3]);
+        zsets.set(key, z.filter((e) => e.score > max));
+        return 0;
+      }
+      case "ZADD": {
+        z.push({ score: Number(cmd[2]), member: String(cmd[3]) });
+        z.sort((a, b) => a.score - b.score);
+        zsets.set(key, z);
+        return 1;
+      }
+      case "ZCARD":
+        return z.length;
+      case "ZRANGE": {
+        const slice = z.slice(Number(cmd[2]), Number(cmd[3]) + 1);
+        return slice.flatMap((e) => [e.member, String(e.score)]);
+      }
+      case "ZREM": {
+        zsets.set(key, z.filter((e) => e.member !== String(cmd[2])));
+        return 1;
+      }
+      case "PEXPIRE":
+        return 1;
+      default:
+        throw new Error(`fakeUpstash: unsupported ${op}`);
+    }
+  }
+
+  const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    calls += 1;
+    if (fail) throw new Error("ECONNREFUSED");
+    const commands = JSON.parse(String(init?.body)) as (string | number)[][];
+    const out = commands.map((c) => ({ result: run(c) }));
+    return new Response(JSON.stringify(out), { status: 200 });
+  });
+
+  return {
+    fetchImpl,
+    size: (key: string) => (zsets.get(key) ?? []).length,
+    get calls() {
+      return calls;
+    },
+    breakStore: () => {
+      fail = true;
+    },
+  };
+}
+
+describe("shared store — the global ceiling holds ACROSS instances (G1-04)", () => {
+  let backend: ReturnType<typeof fakeUpstash>;
+  const realFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    backend = fakeUpstash();
+    globalThis.fetch = backend.fetchImpl as unknown as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    __setSharedWindowStore(undefined);
+    vi.unstubAllEnvs();
+  });
+
+  it("N instances sharing one store enforce ONE budget, not N × budget", async () => {
+    const cfg = makeConfig({ perIp: 50, global: 3 });
+    // Three independent "instances", each with its own client object over the same backend.
+    const instances = [0, 1, 2].map(() => createUpstashStore("https://fake.upstash", "tkn"));
+    const send = async (i: number, ip: string) => {
+      __setSharedWindowStore(instances[i]!);
+      return rateLimitRequestShared(reqFromIp(ip), cfg);
+    };
+
+    expect((await send(0, "192.0.2.1")).ok).toBe(true); // instance A
+    expect((await send(1, "192.0.2.2")).ok).toBe(true); // instance B
+    expect((await send(2, "192.0.2.3")).ok).toBe(true); // instance C — budget now full
+    // A fourth request on a FRESH instance would have been admitted under per-process state.
+    const tripped = await send(0, "192.0.2.4");
+    expect(tripped.ok).toBe(false);
+    expect(tripped.retryAfterSec).toBeGreaterThan(0);
+    expect(tripped.retryAfterSec).toBeLessThanOrEqual(60);
+  });
+
+  it("a rejected shared hit is UN-recorded, so the shared window can drain", async () => {
+    const cfg = makeConfig({ perIp: 50, global: 2 });
+    const key = `ascent:rl:${cfg.name}:__global__`;
+    __setSharedWindowStore(createUpstashStore("https://fake.upstash", "tkn"));
+
+    expect((await rateLimitRequestShared(reqFromIp("198.18.0.1"), cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(reqFromIp("198.18.0.2"), cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(reqFromIp("198.18.0.3"), cfg)).ok).toBe(false);
+    await new Promise((r) => setTimeout(r, 0)); // the compensating ZREM is fire-and-forget
+    expect(backend.size(key)).toBe(2); // only the two ADMITTED hits are in the window
+  });
+
+  it("a per-IP-rejected request never charges the shared budget (QUOTA #1 across the network)", async () => {
+    const cfg = makeConfig({ perIp: 1, global: 10 });
+    __setSharedWindowStore(createUpstashStore("https://fake.upstash", "tkn"));
+    expect((await rateLimitRequestShared(reqFromIp("198.18.1.1"), cfg)).ok).toBe(true);
+    const callsAfterAdmit = backend.calls;
+    expect((await rateLimitRequestShared(reqFromIp("198.18.1.1"), cfg)).ok).toBe(false);
+    expect(backend.calls).toBe(callsAfterAdmit); // the store was never touched
+  });
+});
+
+describe("shared store — in-memory remains the default and behaves as today", () => {
+  afterEach(() => {
+    __setSharedWindowStore(undefined);
+    vi.unstubAllEnvs();
+  });
+
+  it("no ASCENT_RATE_LIMIT_STORE → sharedWindowStore() is null (no infrastructure needed)", () => {
+    __setSharedWindowStore(undefined);
+    vi.stubEnv("ASCENT_RATE_LIMIT_STORE", "");
+    expect(sharedWindowStore()).toBeNull();
+  });
+
+  it("upstash selected but credentials missing → still in-memory (a bad env var can't 500 the funnel)", () => {
+    __setSharedWindowStore(undefined);
+    vi.stubEnv("ASCENT_RATE_LIMIT_STORE", "upstash");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "");
+    expect(sharedWindowStore()).toBeNull();
+  });
+
+  it("with no store, rateLimitRequestShared trips on the in-memory global exactly like the sync path", async () => {
+    __setSharedWindowStore(null);
+    const cfg = makeConfig({ perIp: 50, global: 2 });
+    expect((await rateLimitRequestShared(reqFromIp("203.0.114.1"), cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(reqFromIp("203.0.114.2"), cfg)).ok).toBe(true);
+    const tripped = await rateLimitRequestShared(reqFromIp("203.0.114.3"), cfg);
+    expect(tripped.ok).toBe(false);
+    expect(tripped.retryAfterSec).toBeGreaterThan(0);
+  });
+
+  it("with no store, the per-IP burst window is still in-memory and still trips", async () => {
+    __setSharedWindowStore(null);
+    const cfg = makeConfig({ perIp: 2, global: 100 });
+    const ip = reqFromIp("203.0.115.9");
+    expect((await rateLimitRequestShared(ip, cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(ip, cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(ip, cfg)).ok).toBe(false);
+  });
+});
+
+describe("shared store unreachable — the deliberate FAIL-CLOSED choice", () => {
+  const unreachable: SharedWindowStore = { kind: "dead", hit: async () => null };
+
+  afterEach(() => {
+    __setSharedWindowStore(undefined);
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects (429-worthy) by default — a denial-of-wallet is worse than a denied free scan", async () => {
+    __setSharedWindowStore(unreachable);
+    const cfg = makeConfig({ perIp: 50, global: 100 });
+    const r = await rateLimitRequestShared(reqFromIp("198.51.101.1"), cfg);
+    expect(r.ok).toBe(false);
+    expect(r.retryAfterSec).toBe(60); // one window
+  });
+
+  it("ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN=1 degrades to the in-memory ceiling instead", async () => {
+    __setSharedWindowStore(unreachable);
+    vi.stubEnv("ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN", "1");
+    const cfg = makeConfig({ perIp: 50, global: 2 });
+    expect((await rateLimitRequestShared(reqFromIp("198.51.102.1"), cfg)).ok).toBe(true);
+    expect((await rateLimitRequestShared(reqFromIp("198.51.102.2"), cfg)).ok).toBe(true);
+    // Degraded, but NOT unlimited: the in-memory ceiling still bites.
+    expect((await rateLimitRequestShared(reqFromIp("198.51.102.3"), cfg)).ok).toBe(false);
+  });
+
+  it("a transport failure marks the store unavailable and opens a breaker (no timeout per request)", async () => {
+    const backend = fakeUpstash();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = backend.fetchImpl as unknown as typeof fetch;
+    try {
+      backend.breakStore();
+      const store = createUpstashStore("https://fake.upstash", "tkn");
+      expect(await store.hit("k", 5, 60_000)).toBeNull();
+      expect(backend.calls).toBe(1);
+      expect(await store.hit("k", 5, 60_000)).toBeNull(); // breaker open → no second network call
+      expect(backend.calls).toBe(1);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });
 

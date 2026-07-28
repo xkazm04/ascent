@@ -3,7 +3,8 @@
 //   • pull_request (opened/synced/reopened)    → run the maturity gate on the repo and post a
 //                                                Check Run + sticky PR comment (Feature 2).
 //   • push (to the default branch, head moved) → re-scan a watched repo and alert on a
-//                                                regression vs the prior scan (Feature 4).
+//                                                regression vs the prior scan (Feature 4), throttled to
+//                                                one paid scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES.
 //
 // GitHub expects a fast 2xx, so the scan work runs in `after()` — scheduled to execute AFTER the
 // response is sent, within the route's maxDuration. We always 200 (even on handler errors) so
@@ -27,13 +28,13 @@ import {
   isRepoWatched,
   persistScanReport,
   reconcileWatchedRepos,
-  releaseWebhookDelivery,
   removeInstallation,
   resumeInstallation,
   suspendInstallation,
   upsertInstallation,
 } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
+import { abandonDelivery, deliveryAlreadySeen, forgetLocalDelivery } from "@/lib/github/webhook-delivery";
 // The PR gate itself now lives in @/lib/github/pr-gate so the org gate-policy sweep can re-run the
 // SAME check-writing path (a route file may only export the HTTP-method / segment-config names, so
 // it could not be shared from here). This route still owns the replay/dedup machinery and injects
@@ -60,20 +61,12 @@ interface WebhookPayload {
 
 const PR_ACTIONS = new Set(["opened", "synchronize", "reopened", "ready_for_review"]);
 
-// Replay defense. GitHub stamps each delivery with a unique X-GitHub-Delivery id. A captured,
-// still-valid signed request can be re-sent (the HMAC still verifies) to re-trigger scans/gates;
-// remember recently-seen ids (bounded, in-memory) and skip duplicates. This Map is only a fast
-// FIRST-LEVEL filter — it is PROCESS-LOCAL, so on a horizontally-scaled / serverless deploy every
-// instance starts empty and a replay routed elsewhere slips past it. The AUTHORITATIVE cross-instance
-// check is claimWebhookDelivery (a shared DB-backed claim, github-app-installation-webhooks #3); the Map
-// just saves a DB round-trip on same-instance replays. Recorded only AFTER signature verification so junk
-// can't fill the map.
-const DELIVERY_TTL_MS = 10 * 60_000;
-const DELIVERY_MAX = 2000;
-const seenDeliveries = new Map<string, number>(); // delivery id -> expiry
+// Replay defense (in-memory fast path + the shared "abort, but release the delivery" helper) lives in
+// @/lib/github/webhook-delivery: deliveryAlreadySeen, forgetLocalDelivery, forgetDelivery, abandonDelivery.
+// See that module's doc comment for the process-local-vs-cross-instance tradeoff.
 
 // github-app-installation-webhooks #5: a GitHub HMAC never expires, so a captured, still-validly-signed
-// delivery can be REPLAYED anytime within GitHub's redelivery horizon (hours/days). The in-memory Map above
+// delivery can be REPLAYED anytime within GitHub's redelivery horizon (hours/days). The in-memory cache above
 // is only a 10-min, process-local FAST PATH; the AUTHORITATIVE cross-instance replay defense is the DB claim
 // (claimWebhookDelivery), whose default TTL also matched 10 min — far shorter than the window it defends, so
 // a replay 10 min later re-claimed and fully reprocessed (double scan/alert/re-posted checks). Persist the
@@ -81,35 +74,6 @@ const seenDeliveries = new Map<string, number>(); // delivery id -> expiry
 // failure still retries: forgetDelivery() DELETES the claim on a deferred-work failure, so only
 // SUCCESSFULLY-processed ids stay claimed — exactly the replay we want to keep rejecting.
 const REPLAY_HORIZON_MS = 24 * 60 * 60_000;
-
-function deliveryAlreadySeen(id: string): boolean {
-  const now = Date.now();
-  const exp = seenDeliveries.get(id);
-  if (exp && exp > now) return true;
-  seenDeliveries.set(id, now + DELIVERY_TTL_MS);
-  if (seenDeliveries.size > DELIVERY_MAX) {
-    for (const [k, v] of seenDeliveries) if (v <= now) seenDeliveries.delete(k);
-    while (seenDeliveries.size > DELIVERY_MAX) {
-      const oldest = seenDeliveries.keys().next().value;
-      if (oldest === undefined) break;
-      seenDeliveries.delete(oldest);
-    }
-  }
-  return false;
-}
-
-/**
- * Release a delivery id from BOTH the in-memory seen-set AND the shared DB claim so a redelivery can be
- * retried. The handler claims a delivery at the top (replay protection) BEFORE the deferred after() scan
- * runs; if that scan then fails transiently (DB blip, token mint failure), the delivery would stay
- * "claimed" and a GitHub/manual redelivery of the same id — to ANY instance — would be silently deduped,
- * dropping the scan forever. Calling this in the deferred work's failure path frees the slot so the retry
- * actually runs. The DB release is best-effort (it self-heals at the TTL even if it fails).
- */
-async function forgetDelivery(id: string): Promise<void> {
-  seenDeliveries.delete(id);
-  await releaseWebhookDelivery(id);
-}
 
 /** Bind a webhook's claimed installation to its owner before we mint a token / scan. For a KNOWN
  *  owner, the stored mapping must agree. For an UNKNOWN owner (no mapping yet), the HMAC proves the
@@ -208,9 +172,7 @@ async function confirmRevocationWithGitHub(installationId: number, action: "dele
 function webhookGateHooks(deliveryId?: string): PrGateHooks {
   return {
     confirmOwner: installationMatchesOwner,
-    onRetryable: async () => {
-      if (deliveryId) await forgetDelivery(deliveryId);
-    },
+    onRetryable: () => abandonDelivery(deliveryId),
   };
 }
 
@@ -244,14 +206,15 @@ async function reconcileInstallationRepos(installationId: number, deliveryId?: s
       console.warn(`[webhook] installation ${installationId}: unwatched ${dropped} repo(s) no longer accessible`);
     }
   } catch (err) {
-    console.warn(
-      `[webhook] installation_repositories reconcile failed for ${installationId}`,
-      err instanceof Error ? err.message : err,
-    );
     // The deferred reconcile failed after we already 2xx'd — release the delivery so a redelivery
     // retries (same net as runPrGate/runPushRescan); otherwise a transient listing failure dedupes
     // the redelivery and the access change is lost until some later event happens to re-reconcile.
-    if (deliveryId) await forgetDelivery(deliveryId);
+    await abandonDelivery(deliveryId, () =>
+      console.warn(
+        `[webhook] installation_repositories reconcile failed for ${installationId}`,
+        err instanceof Error ? err.message : err,
+      ),
+    );
   }
 }
 
@@ -274,6 +237,43 @@ function serializePerRepo<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+/**
+ * G1-05: a push-triggered rescan is a REAL, LLM-billed scan, and `onDefault && headMoved` used to fire
+ * one per push with nothing throttling it — a busy monorepo or a CI force-push storm bought one full
+ * paid scan per commit. This is the per-repo MINIMUM INTERVAL between push-triggered scans.
+ *
+ * State lives in the DB, not in memory: the debounce compares against the PRIOR PERSISTED SCAN's
+ * `scannedAt` (the report `runPushRescan` already reads as its regression baseline, so the check costs
+ * zero extra queries and zero new infrastructure). That makes the window CROSS-INSTANCE by construction —
+ * unlike a process-local Map, a webhook fleet behind a load balancer shares one window per repo.
+ *
+ * Default 15 minutes: comfortably longer than a median scan (~6 min), so a burst can never queue scans
+ * back-to-back, and it caps push-driven spend at ≤4 scans/hour/repo while keeping a watched repo's report
+ * fresh within a quarter hour. Override with `PUSH_RESCAN_MIN_INTERVAL_MINUTES`; 0 disables the throttle
+ * (every default-branch push scans, the old behavior).
+ */
+const DEFAULT_PUSH_RESCAN_MIN_INTERVAL_MINUTES = 15;
+function pushRescanMinIntervalMs(): number {
+  const minutes = Number(process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES);
+  const m = Number.isFinite(minutes) && minutes >= 0 ? minutes : DEFAULT_PUSH_RESCAN_MIN_INTERVAL_MINUTES;
+  return m * 60_000;
+}
+
+/**
+ * Should this push COALESCE into the repo's most recent scan instead of buying its own?
+ * Pure, given the baseline report's `scannedAt`. An absent/garbled timestamp means we can't prove the
+ * repo was scanned recently, so we scan (fail toward freshness — the same discipline as
+ * `isPersistedScanFresh`); the per-commit `@@unique[repoId, headSha]` dedup still blocks a double charge
+ * for an identical head.
+ */
+function withinPushRescanWindow(prevScannedAt: string | undefined, now: number = Date.now()): boolean {
+  const window = pushRescanMinIntervalMs();
+  if (window <= 0) return false; // throttle disabled
+  const t = prevScannedAt ? new Date(prevScannedAt).getTime() : NaN;
+  if (!Number.isFinite(t)) return false;
+  return now - t < window;
+}
+
 /** Re-scan a watched repo on push, persist, and alert on a regression vs the prior scan. */
 async function runPushRescan(installationId: number, owner: string, repo: string, deliveryId?: string) {
   try {
@@ -287,14 +287,29 @@ async function runPushRescan(installationId: number, owner: string, repo: string
       // github-app-installation-webhooks #2 (push path): same as runPrGate — a `false` here can be a
       // transient DB/GitHub blip, and this bare return is inside the try, so release the delivery so a
       // redelivery retries the rescan rather than being silently deduped and the push scan lost forever.
-      if (deliveryId) await forgetDelivery(deliveryId);
+      await abandonDelivery(deliveryId);
       return;
     }
-    const token = await getInstallationToken(installationId);
     // #6: read the baseline, scan, persist and diff as ONE per-repo critical section, so a concurrent
     // rescan of the same repo reads its baseline AFTER this one persists (see serializePerRepo).
+    // G1-05: the throttle check lives INSIDE that same section on purpose — a burst's second run waits
+    // for the first to persist, then reads the just-written `scannedAt` and coalesces. Checking outside
+    // would race (both reads see the old baseline and both scan), which is exactly the bug being fixed.
     await serializePerRepo(fullName.toLowerCase(), async () => {
       const prev = await getScanReportByCommit(owner, repo, { orgSlug }).catch(() => null);
+      if (withinPushRescanWindow(prev?.scannedAt)) {
+        // COALESCE, don't queue: we have no background worker (this runs inside the request's after(),
+        // bounded by maxDuration), so the push is DROPPED rather than deferred. It is not lost work in
+        // the usual case — `scanRepository` always scans the repo's CURRENT default-branch head, so the
+        // next push past the window picks up every commit coalesced here in one scan. If pushes stop
+        // inside the window, the trailing head is covered by the repo's scheduled autoscan
+        // (/api/cron/rescan) or a manual rescan; the report is at most one window + one cadence stale.
+        console.info(
+          `[webhook] push rescan for ${fullName} coalesced into the scan at ${prev?.scannedAt} (min interval ${pushRescanMinIntervalMs()}ms)`,
+        );
+        return;
+      }
+      const token = await getInstallationToken(installationId);
       const report = await scanRepository(fullName, { token });
       const persisted = await persistScanReport(report, { orgSlug });
       if (persisted && !persisted.deduped) {
@@ -303,9 +318,10 @@ async function runPushRescan(installationId: number, owner: string, repo: string
       }
     });
   } catch (err) {
-    console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err);
     // The deferred rescan failed after we already 2xx'd — release the delivery so a redelivery retries.
-    if (deliveryId) await forgetDelivery(deliveryId);
+    await abandonDelivery(deliveryId, () =>
+      console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err),
+    );
   }
 }
 
@@ -349,14 +365,15 @@ async function runInstallationLifecycle(
         // `created` has nothing to resume, so this branch is unsuspend-only.
         if (action === "unsuspend") await resumeInstallation(id);
       } catch (err) {
-        console.warn(
-          `[webhook] could not confirm installation ${id}; skipping ${action}`,
-          err instanceof Error ? err.message : err,
-        );
         // The install was NOT persisted (transient GitHub/DB failure). The delivery was already marked
         // seen, so without this release GitHub's redelivery — the only retry — would be deduped and the
         // installation silently never recorded (broken /connect, every scan falling back to public).
-        if (deliveryId) await forgetDelivery(deliveryId);
+        await abandonDelivery(deliveryId, () =>
+          console.warn(
+            `[webhook] could not confirm installation ${id}; skipping ${action}`,
+            err instanceof Error ? err.message : err,
+          ),
+        );
       }
     } else if (action === "suspend") {
       // REVERSIBLE pause, not a permanent revocation — confirm with GitHub (symmetric with delete),
@@ -367,8 +384,9 @@ async function runInstallationLifecycle(
       if (await confirmRevocationWithGitHub(id, action)) {
         await suspendInstallation(id);
       } else {
-        console.warn(`[webhook] ignoring unconfirmed installation suspend for id ${id}`);
-        if (deliveryId) await forgetDelivery(deliveryId);
+        await abandonDelivery(deliveryId, () =>
+          console.warn(`[webhook] ignoring unconfirmed installation suspend for id ${id}`),
+        );
       }
     } else {
       // deleted: a genuine permanent revocation. Destructive + cascading (removeInstallation unwatches
@@ -378,18 +396,20 @@ async function runInstallationLifecycle(
       if (await confirmRevocationWithGitHub(id, action)) {
         await removeInstallation(id);
       } else {
-        console.warn(`[webhook] ignoring unconfirmed installation ${action} for id ${id}`);
         // "Unconfirmed" covers two cases confirmRevocationWithGitHub can't distinguish: a forged
         // delivery (GitHub still has the installation — replaying re-runs only the confirm and refuses
         // again, no state change) and a TRANSIENT confirm failure on a genuine uninstall. Release the
         // delivery so the genuine case stays retryable; the security control is the GitHub confirm gate.
-        if (deliveryId) await forgetDelivery(deliveryId);
+        await abandonDelivery(deliveryId, () =>
+          console.warn(`[webhook] ignoring unconfirmed installation ${action} for id ${id}`),
+        );
       }
     }
   } catch (err) {
-    console.error("[webhook] installation lifecycle failed", err instanceof Error ? err.message : err);
     // The deferred lifecycle failed after we already 2xx'd — release the delivery so a redelivery retries.
-    if (deliveryId) await forgetDelivery(deliveryId);
+    await abandonDelivery(deliveryId, () =>
+      console.error("[webhook] installation lifecycle failed", err instanceof Error ? err.message : err),
+    );
   }
 }
 
@@ -431,7 +451,7 @@ export async function POST(request: Request) {
       // GitHub's redelivery as `duplicate: true` for a delivery that was never claimed nor processed
       // (the same silent-loss the forgetDelivery release-net exists to prevent). Answer 500 so GitHub
       // retries a delivery that nothing has claimed.
-      seenDeliveries.delete(delivery);
+      forgetLocalDelivery(delivery);
       console.error("[webhook] delivery claim failed", err instanceof Error ? err.message : err);
       return NextResponse.json({ error: "Delivery claim failed." }, { status: 500 });
     }
@@ -514,12 +534,11 @@ export async function POST(request: Request) {
       }
     }
   } catch (err) {
-    console.error("[app/webhook] handler error", err);
     // Still 200 so GitHub doesn't endlessly retry on our transient DB issues — but release the
     // delivery from the seen-set so a GitHub/manual REDELIVERY isn't deduped: the synchronous work
     // (installation upsert/removal, repo unwatch) did NOT complete, and dedup must mean
     // "successfully processed", not merely "HTTP acknowledged".
-    if (delivery) await forgetDelivery(delivery);
+    await abandonDelivery(delivery ?? undefined, () => console.error("[app/webhook] handler error", err));
   }
 
   return NextResponse.json({ ok: true, event });

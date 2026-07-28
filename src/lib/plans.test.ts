@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { retentionCutoff, planFeatures, planAllowsWhiteLabel, planPriceLabel, scanAllowance, decideScanCharge, PLAN_FEATURES } from "./plans";
+import { retentionCutoff, planFeatures, planAllowsWhiteLabel, planAllowsPdfExport, planPriceLabel, scanAllowance, decideScanCharge, PLAN_FEATURES } from "./plans";
 
 const NOW = Date.UTC(2026, 5, 20); // fixed clock so the cutoff math is deterministic
 const DAY = 86_400_000;
@@ -33,6 +33,17 @@ describe("planAllowsWhiteLabel — Team and up", () => {
     expect(planAllowsWhiteLabel("free")).toBe(false);
     expect(planAllowsWhiteLabel(null)).toBe(false);
     expect(planAllowsWhiteLabel("bogus")).toBe(false);
+  });
+});
+
+describe("planAllowsPdfExport — Pro and up (g1-02)", () => {
+  it("allows Pro, Team, and Enterprise, denies Free/unknown", () => {
+    expect(planAllowsPdfExport("pro")).toBe(true);
+    expect(planAllowsPdfExport("team")).toBe(true);
+    expect(planAllowsPdfExport("enterprise")).toBe(true);
+    expect(planAllowsPdfExport("free")).toBe(false);
+    expect(planAllowsPdfExport(null)).toBe(false);
+    expect(planAllowsPdfExport("bogus")).toBe(false);
   });
 });
 

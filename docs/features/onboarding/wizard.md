@@ -13,7 +13,7 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 | Phase | What happens |
 | --- | --- |
 | **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). A `?org=<handle>` query param — used by the connect page's discovered-org chips — starts the public path immediately. |
-| **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed and discloses when it was cut short (`truncated`); the App listing is ordered by stars → recent activity. Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the recurring-cost disclosure (a scan enrolls each repo in the **weekly** watch on the App path). |
+| **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed and discloses when it was cut short (`truncated`); the App listing is ordered by stars → recent activity. Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
 | **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **120s stall timeout** (`STALL_MS`, sized for a real LLM scan of one large repo). |
 | **done** | `OnboardingChecklist` + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. |
 
@@ -23,6 +23,27 @@ disclosed **preview** (deterministic mock), so a credit-less org never dead-ends
 mock scores are never mistaken for live ones. The gate awaits the in-flight balance read and
 retries once, then fails closed to a preview and records *why* (`previewCause`), so the done
 screen can say "balance unreadable" rather than "install the App" to an org that already did.
+
+**Cost disclosure + the autoscan opt-in (App path only).** `ScanCostDisclosure`
+(`OnboardingSelectStep.CostDisclosure.tsx`) sits directly under the Scan button and prices *both*
+halves of the commitment:
+
+- **Now** — the click scans every selected repo immediately, and a metered import reserves **one
+  prepaid credit per repo** (`reserveScanCredit`) beyond the org's remaining free monthly scans
+  (within-allowance scans are charged to the allowance and debit nothing). Shown as "this scan draws
+  up to *N* credits now", or "covered by your free monthly scans" when the allowance absorbs it.
+  `immediateScanCredits` (`src/components/credit/WatchCostTail.tsx`) returns `null` — and the
+  fragment is omitted entirely — when the balance is unreadable (the run would be a free preview) or
+  the org is unlimited, so no number is ever stated that the code can't back.
+- **Recurring** — the **weekly** autoscan is **opt-in**. The checkbox is unchecked by default; until
+  it's ticked the copy reads "One-time scan — no recurring autoscan is set up" and `startScan` sends
+  `watch: false` **explicitly** (both `runImportScan` and `/api/org/import` default `watch` to true,
+  so consent has to travel as a real `false`, not an omission). Ticking it reveals the
+  `≈ N prepaid credits/month` estimate and sends `watch: true, schedule: "weekly"`.
+
+The tick is per-run consent, not a preference: `resetRun` ("Scan another") clears it. The value lives
+in a two-consumer store (`OnboardingSelectStep.watchOptIn.ts`) read by both the checkbox and
+`startScan`, so the disclosed commitment and the POSTed one cannot drift.
 
 **Resume.** The wizard snapshots its resumable inputs (source, install id, selection) to
 `sessionStorage` (`RESUME_KEY`) on every change and rehydrates on mount, re-fetching the source's
@@ -34,7 +55,8 @@ installation? are repos selected? is the phase done? was the run on the App path
 App, pick repos, run a scan, set a watch schedule, *invite your team* (App path only, so the list
 is **5 or 6 steps**), view cross-repo analysis — with a progress bar and the first incomplete step
 highlighted as the next action (linking to `/connect` etc.). "Set a watch schedule" ticks only on
-the App path, because that's the only path whose import actually enrolls a watch. The flow is
+the App path, because that's the only path whose import *can* enroll a watch (and only when the
+select step's autoscan opt-in was ticked — the step is a prompt, not a record of enrolment). The flow is
 accessible (`role=progressbar`, `aria-live` announcements, per-step focus move, keyboard nav).
 
 The import path powers **free-tier onboarding**: it scans a whole public org without
@@ -88,6 +110,8 @@ cluster, each repo a star:
 | `src/app/onboarding/page.tsx` | Onboarding page shell (seeds from session; "welcome back" jump when the viewer already has a scanned org). |
 | `src/components/onboarding/OnboardingFlow.tsx` | Four-phase pick → select → scan → done (view layer). |
 | `src/components/onboarding/useOnboardingFlow.ts` | All wizard state/effects: listings, credit gate, resume snapshot, `?org=` handoff, SSE run. |
+| `src/components/onboarding/OnboardingSelectStep.CostDisclosure.tsx` | Immediate + recurring cost copy and the weekly-autoscan opt-in checkbox. |
+| `src/components/onboarding/OnboardingSelectStep.watchOptIn.ts` | The opt-in store shared by the checkbox and `startScan` (default **off**). |
 | `src/components/onboarding/OnboardingFlow.model.ts` | Phases, `RESUME_KEY`/snapshot, caps (`MAX_LIST`/`MAX_SELECT`), `topSelection`, checklist builder. |
 | `src/components/onboarding/OnboardingChecklist.tsx` | Signal-driven activation checklist (5–6 conditional steps). |
 | `src/components/onboarding/tour/` | The org-dashboard tour: steps, engine, persistence, drawer. |

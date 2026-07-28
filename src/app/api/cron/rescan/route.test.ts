@@ -258,6 +258,53 @@ describe("GET /api/cron/rescan — auth gate, claim-before-scan, refund", () => 
     expect(body.scanned).toBe(1);
   });
 
+  // ---- (3a) POST-INFERENCE PERSIST FAILURE — the inference was already paid for (G1-06) ----
+  // The whole refund premise is "the scan threw, so nothing was billed". That premise dies the
+  // instant scanRepository RETURNS: a DB serialization conflict inside persistScanReport then
+  // refunds a credit for inference that genuinely ran, and the next pass re-runs and re-bills it.
+
+  it("does NOT refund when persistScanReport throws AFTER a real scan completed", async () => {
+    mockPersist.mockRejectedValue(new Error("could not serialize access"));
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(mockScan).toHaveBeenCalledTimes(1); // inference really ran (and really cost money)
+    expect(mockGrant).not.toHaveBeenCalled(); // ...so the credit STAYS spent
+    // The failure is still handled as a failure everywhere else: backoff, outcome, error line.
+    expect(mockAdvanceFail).toHaveBeenCalledWith("repo-1");
+    expect(body.scanned).toBe(0);
+    // Unattended: the JSON body is the only place this can admit the org was charged for nothing.
+    expect((body.errors as string[])[0]).toContain("credit kept");
+  });
+
+  it("DOES refund when the scan throws BEFORE inference (pre-inference failure still refunds)", async () => {
+    mockScan.mockRejectedValue(new Error("github 502"));
+    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
+    expect(mockPersist).not.toHaveBeenCalled();
+    expect(mockGrant).toHaveBeenCalledTimes(1);
+    expect(body.scanned).toBe(0);
+    expect((body.errors as string[])[0]).not.toContain("credit kept");
+  });
+
+  it("DOES refund a MOCK scan whose persist throws — a mock run bills no inference", async () => {
+    mockScan.mockResolvedValue({ engine: { provider: "mock", model: "m" }, warnings: [] } as never);
+    mockPersist.mockRejectedValue(new Error("write failed"));
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(mockGrant).toHaveBeenCalledTimes(1); // refunded — no metered inference was spent
+    expect((body.errors as string[])[0]).not.toContain("credit kept");
+  });
+
+  it("BYOM org: a post-inference persist failure neither refunds nor charges (no platform credit)", async () => {
+    mockByom.mockResolvedValue(true);
+    mockPersist.mockRejectedValue(new Error("write failed"));
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const body = await bodyOf(res);
+    expect(mockConsume).not.toHaveBeenCalled(); // never charged a platform credit
+    expect(mockGrant).not.toHaveBeenCalled(); // so a refund would MINT a credit — must not happen
+    // ...and the "credit kept" note is only for runs that actually kept a charge.
+    expect((body.errors as string[])[0]).not.toContain("credit kept");
+  });
+
   // ---- (3b) LEASE-THEN-SETTLE — a successful scan advances to the FULL cadence ----
 
   it("settles a successful scan to the full cadence (claim only LEASES; success advances)", async () => {

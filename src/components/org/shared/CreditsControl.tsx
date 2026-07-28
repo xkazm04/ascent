@@ -5,6 +5,10 @@
 // (ASCENT_ALLOW_CREDIT_GRANTS), quick top-up buttons that POST /api/org/credits/grant. Where grants
 // are disabled (production), it explains that top-ups go through billing. The recent ledger is loaded
 // lazily when the popover opens. Server passes the initial balance so the chip paints without a fetch.
+//
+// It also carries the opt-in LOW-BALANCE warning (the honest half of "auto-recharge"): a pre-emptive
+// notice + one-click top-up while the balance is still positive, driven by a per-org threshold. Nothing
+// here charges anyone — see CreditsControl.autorecharge.ts for why that is not possible today.
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { CreditPack } from "@/lib/polar";
@@ -15,6 +19,12 @@ import {
   UnlimitedChip,
   type LedgerEntry,
 } from "./CreditsControl.sections";
+import { creditPressure } from "./CreditsControl.autorecharge";
+import {
+  AutoRechargeSection,
+  LowBalanceNotice,
+  useAutoRechargePref,
+} from "./CreditsControl.autorechargeUi";
 
 // The purchasable credit-pack shape is `CreditPack` from @/lib/polar. It's imported type-only, so the
 // TS/SWC compiler fully erases the import — this client component never pulls lib/polar (or the Polar
@@ -52,6 +62,9 @@ export function CreditsControl({
   // empty ledger made a 503/403/network error masquerade as an empty (successful) ledger on a money screen.
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState(false);
+  // Opt-in low-balance preference (see CreditsControl.autorecharge.ts) — loaded lazily when the popover
+  // first opens, defaulting to OFF until the org's real setting is known.
+  const { pref, saving: prefSaving, error: prefError, save: savePref } = useAutoRechargePref(org, open);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -144,9 +157,14 @@ export function CreditsControl({
   // A 0 prepaid balance only PAUSES scanning when the monthly free allowance is also spent. While the
   // allowance still covers scans, consumeScanCredit charges nothing (charge === "allowance"), so the
   // chip must not cry "out of credits / paused" — that falsely nudges toward unnecessary top-ups.
+  //
+  // `low` is the new PRE-EMPTIVE state (still positive, at/below the org's opt-in line) — it exists only
+  // when the org enabled it, so with the feature off creditPressure returns exactly the paused/covered/ok
+  // this file computed before.
   const freeScansLeft = Math.max(0, allowanceLeft);
-  const paused = balance <= 0 && freeScansLeft <= 0;
-  const coveredByAllowance = balance <= 0 && freeScansLeft > 0;
+  const pressure = creditPressure({ balance, allowanceRemaining: freeScansLeft, pref });
+  const paused = pressure === "paused";
+  const coveredByAllowance = pressure === "covered";
 
   return (
     <div ref={ref} className="relative">
@@ -211,6 +229,10 @@ export function CreditsControl({
             </p>
           )}
 
+          {pressure === "low" && (
+            <LowBalanceNotice org={org} balance={balance} pref={pref} packs={buyEnabled ? packs : []} />
+          )}
+
           {buyEnabled && packs.length > 0 && <PacksSection org={org} packs={packs} />}
 
           {grantsEnabled && <GrantSection buyEnabled={buyEnabled} busy={busy} grant={grant} />}
@@ -230,6 +252,16 @@ export function CreditsControl({
               {error}
             </p>
           )}
+
+          {/* `key` re-seeds the section's local draft when the stored preference arrives (or changes),
+              so the checkbox/threshold never sit on a value the server has since superseded. */}
+          <AutoRechargeSection
+            key={`${pref.enabled}:${pref.threshold}`}
+            pref={pref}
+            saving={prefSaving}
+            error={prefError}
+            onSave={savePref}
+          />
 
           {(ledgerLoading || ledgerError || ledger !== null) && (
             <LedgerSection

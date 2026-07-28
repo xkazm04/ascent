@@ -9,25 +9,65 @@ import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { PLAN_FEATURES, PLAN_ORDER, planPriceLabel, type PlanId } from "@/lib/plans";
 import { CreditMatrixLedger } from "@/components/pricing/CreditMatrixLedger";
+import { planProducts, polarEnabled } from "@/lib/polar";
+import { getSession } from "@/lib/auth";
+import { getViewer } from "@/lib/access";
+import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 
 // Each tier's primary CTA points at its REAL destination, labeled to match. The previous single
 // `href={id === "free" ? "/" : "/connect"}` ternary sent Pro/Team AND Enterprise to /connect (the
 // repo-watch page): "Contact us" dead-ended with no way to reach anyone, and "Get started" landed on a
-// screen that is neither a checkout nor a plan upgrade. Free → run a scan; Pro/Team → the onboarding
-// funnel (the app's canonical "get started", where watches/credits are set up); Enterprise → a real
-// contact mailto when one is configured, else the About page (labeled honestly as "Learn more").
+// screen that is neither a checkout nor a plan upgrade. Free → run a scan; Enterprise → a real contact
+// mailto when one is configured, else the About page (labeled honestly as "Learn more").
+//
+// Pro/Team (G1-01): when Polar is configured with a POLAR_PLAN_PRODUCTS mapping for the tier AND we can
+// resolve the signed-in viewer's org (the checkout route requires ?org=, see /api/billing/checkout), the
+// CTA becomes a REAL "Subscribe" checkout link. Anonymous visitors, viewers without an org yet, or a
+// deployment with Polar unconfigured/no plan-product mapping all degrade to the previous "Get started" →
+// /onboarding funnel (a real, working destination, never a dead button) — /onboarding is where an org
+// gets created in the first place, and the org dashboard's own CreditsControl offers the same checkout
+// once the org exists.
 const CONTACT_EMAIL = process.env.ASCENT_CONTACT_EMAIL?.trim();
 const CTA_CLASS =
   "focus-ring mt-4 rounded-lg border border-accent/50 bg-accent/10 px-3 py-2 text-center text-sm font-medium text-white transition hover:bg-accent/20";
 
-function ctaFor(id: PlanId): { href: string; label: string } {
+/** Pure — testable without rendering the page. `org`/`planProductId` are already resolved by the
+ *  caller (null/undefined when unavailable), so this only decides the CTA shape from that outcome. */
+export function ctaFor(id: PlanId, org: string | null, planProductId: string | undefined): { href: string; label: string } {
   if (id === "free") return { href: "/", label: "Scan a repo free" };
   if (id === "enterprise") {
     return CONTACT_EMAIL
       ? { href: `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Ascent Enterprise enquiry")}`, label: "Contact us" }
       : { href: "/about", label: "Learn more" };
   }
+  if (org && planProductId) {
+    return {
+      href: `/api/billing/checkout?org=${encodeURIComponent(org)}&pack=${encodeURIComponent(planProductId)}`,
+      label: "Subscribe",
+    };
+  }
   return { href: "/onboarding", label: "Get started" };
+}
+
+/** The signed-in viewer's primary (most privileged, then most recent) org slug, or null when there is
+ *  no DB, no signed-in viewer, or the viewer belongs to no real org yet — mirrors the header's
+ *  `OrgEntryLink` resolution (src/components/Brand.tsx) so the two surfaces agree on "which org". */
+async function resolvePrimaryOrgSlug(): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const [session, viewer] = await Promise.all([getSession(), getViewer()]);
+  const login = session?.login ?? viewer?.login ?? null;
+  if (!login) return null;
+  const orgs = await listOrgsForLogin(login);
+  return orgs[0]?.slug ?? null;
+}
+
+/** planId → Polar product id, from POLAR_PLAN_PRODUCTS — empty when Polar isn't configured, so the
+ *  Pro/Team CTA cleanly falls back to /onboarding instead of a dead checkout link. */
+function planProductMap(): Partial<Record<PlanId, string>> {
+  if (!polarEnabled()) return {};
+  const map: Partial<Record<PlanId, string>> = {};
+  for (const p of planProducts()) if (!(p.plan in map)) map[p.plan] = p.productId;
+  return map;
 }
 
 export const dynamic = "force-dynamic";
@@ -47,7 +87,9 @@ export const metadata = {
   description: `Public scans are always free. Every plan includes a monthly private-scan allowance — ${FREE_ALLOWANCE} free a month, Pro ${PRO_PRICE}/mo, Team ${TEAM_PRICE}/mo. Private scans beyond your allowance run on prepaid credits you can top up anytime.`,
 };
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  const org = await resolvePrimaryOrgSlug();
+  const productByPlan = planProductMap();
   return (
     <>
       <SiteHeader />
@@ -68,7 +110,7 @@ export default function PricingPage() {
           {PLAN_ORDER.map((id) => {
             const p = PLAN_FEATURES[id];
             const highlight = id === "team";
-            const cta = ctaFor(id);
+            const cta = ctaFor(id, org, productByPlan[id]);
             return (
               <div
                 key={id}
@@ -98,7 +140,11 @@ export default function PricingPage() {
                     </li>
                   ))}
                 </ul>
-                {cta.href.startsWith("mailto:") ? (
+                {cta.href.startsWith("mailto:") || cta.href.startsWith("/api/billing/checkout") ? (
+                  // Plain <a>, not next/link: the checkout route mints a real, billable Polar session on
+                  // GET, so it must never be Link-prefetched — same reasoning as PacksSection's checkout
+                  // links in CreditsControl. The route itself also rejects a Sec-Purpose/Purpose-flagged
+                  // prefetch as a second line of defense.
                   <a href={cta.href} className={CTA_CLASS}>
                     {cta.label}
                   </a>

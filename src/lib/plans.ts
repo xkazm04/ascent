@@ -188,6 +188,16 @@ export function planAllowsByom(plan: string | null | undefined): boolean {
   return id === "enterprise";
 }
 
+/** Plans that may export a saved report as a PDF — Pro and up. The PRD's legacy "Private" tier (paid,
+ *  usage-based private-repo scanning) is what originally bundled PDF export; today's nearest equivalent
+ *  is the lowest PAID plan (Pro), since Free is a real usage tier now (5 private scans/month) and
+ *  gating any lower would mean no plan at all could ever unlock it. Least-breaking reading of an
+ *  otherwise-stale "Private tier" label (g1-02). */
+export function planAllowsPdfExport(plan: string | null | undefined): boolean {
+  const id = plan && isPlanId(plan) ? plan : "free";
+  return id === "pro" || id === "team" || id === "enterprise";
+}
+
 /**
  * The earliest scan date a plan's retention window includes, given the current time (ms since epoch).
  * `null` = unlimited retention (Enterprise / custom) — no lower bound. This is a NON-DESTRUCTIVE read

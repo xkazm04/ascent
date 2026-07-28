@@ -51,7 +51,8 @@ can't drift apart.
       (`checkAndAlertRegression`, see [alerts.md](./alerts.md)) when the scan wasn't deduped.
       On success: settle to the full cadence via `advanceToFullCadence` and record the outcome
       (`recordScanOutcome`, `ok: true`).
-   5. On a thrown error: refund the credit, back off via `advanceScheduleAfterFailure`
+   5. On a thrown error: refund the credit **only if the throw happened BEFORE billable
+      inference** — see "Refund boundary" below — then back off via `advanceScheduleAfterFailure`
       (6h retry, not a full cadence, so a persistently-broken repo doesn't starve the rest of
       the fleet from the front of the oldest-first queue), and record the outcome
       (`recordScanOutcome`, `ok: false`, with the error message) — this is what lets the
@@ -61,6 +62,32 @@ can't drift apart.
 Repos the deadline guard never issued (`remaining`) were never claimed, so their
 `nextScanAt` is untouched — they're still due and picked up by the next cron pass, neither
 failed nor backed off.
+
+## Refund boundary (shared by `/api/cron/rescan`, `/api/org/scan`, `/api/org/import`)
+
+All three fleet-scan routes reserve a credit, then run `scanRepository()` → `persistScanReport()`
+inside one `try`. The catch used to refund unconditionally on the premise *"the scan threw, so
+nothing was billed"*. That premise only holds **before `scanRepository` returns**:
+
+- **Pre-inference failure** (GitHub error, provider error, the scan itself throwing) — nothing
+  billable was produced → **refund**.
+- **Post-inference failure** (`persistScanReport` hitting a serialization conflict / transient
+  write error, or any step after it) — the inference already ran and cost real money → **keep the
+  credit**. Refunding here would return a credit for work that was genuinely performed, and the
+  retry would re-run and re-bill the same inference.
+
+Each route tracks this with an `inferenceBilled` flag set immediately after `scanRepository`
+returns, guarded by `report.engine.provider !== "mock"`:
+
+- A **mock-degraded** scan bills no inference, so it leaves the flag false and still refunds.
+- **BYOM / `public` / within-allowance** runs never reserved a credit (`reserved === false`), so
+  `refundScanCredit` is a no-op on both paths — a refund there would *mint* a credit.
+
+The caller is never charged silently: `/api/org/scan` and `/api/org/import` add `charged: <bool>`
+to the failing per-repo SSE `repo` event (alongside `error`), and the cron — which has no
+human watching — appends `(credit kept — inference already ran)` to that repo's entry in `errors`.
+The report itself is lost in this case (it was never persisted); the repo stays scannable and a
+later scan re-produces it.
 
 ## Return shape
 

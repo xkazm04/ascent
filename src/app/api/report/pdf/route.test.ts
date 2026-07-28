@@ -1,4 +1,4 @@
-// Integration test for the Private-tier PDF export route (GET /api/report/pdf). The route is a
+// Integration test for the plan-gated PDF export route (GET /api/report/pdf). The route is a
 // cross-tenant data-egress point: a refactor that fetches a private report with a default/owner org
 // instead of the gated org — or that drops/reorders the read gate — would silently turn every
 // private report's PDF into an unauthenticated download. These tests pin that contract by mocking
@@ -20,9 +20,13 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/auth", () => ({ readableOrgForOwner: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ readableOrgForOwner: vi.fn(), PUBLIC_ORG: "public" }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
-vi.mock("@/lib/db", () => ({ getScanReportByCommit: vi.fn(), isDbConfigured: vi.fn(() => true) }));
+vi.mock("@/lib/db", () => ({
+  getScanReportByCommit: vi.fn(),
+  isDbConfigured: vi.fn(() => true),
+  getCreditState: vi.fn(),
+}));
 vi.mock("@react-pdf/renderer", () => ({ renderToBuffer: vi.fn() }));
 // ReportDocument is irrelevant here — the route passes it to the (mocked) renderToBuffer.
 vi.mock("@/lib/pdf/report-document", () => ({ ReportDocument: () => null }));
@@ -30,13 +34,14 @@ vi.mock("@/lib/pdf/report-document", () => ({ ReportDocument: () => null }));
 import { GET } from "./route";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
-import { getScanReportByCommit, isDbConfigured } from "@/lib/db";
+import { getCreditState, getScanReportByCommit, isDbConfigured } from "@/lib/db";
 import { renderToBuffer } from "@react-pdf/renderer";
 
 const mockReadableOrg = vi.mocked(readableOrgForOwner);
 const mockRequireOrgRead = vi.mocked(requireOrgRead);
 const mockGetReport = vi.mocked(getScanReportByCommit);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
+const mockGetCreditState = vi.mocked(getCreditState);
 const mockRender = vi.mocked(renderToBuffer);
 
 const REPORT = { repo: "acme/private-repo", scannedAt: "2026-01-01T00:00:00.000Z" } as unknown as ScanReport;
@@ -53,6 +58,9 @@ describe("GET /api/report/pdf", () => {
     mockIsDbConfigured.mockReturnValue(true);
     mockReadableOrg.mockResolvedValue("acme"); // member → gated to the real owner org
     mockRequireOrgRead.mockResolvedValue(null); // read allowed
+    // Entitled by default (Pro) so the pre-existing tests exercise the read/render path unchanged;
+    // the entitlement-specific tests below override this per case.
+    mockGetCreditState.mockResolvedValue({ balance: 0, plan: "pro", unlimited: false, orgExists: true });
     mockGetReport.mockResolvedValue(REPORT);
     mockRender.mockResolvedValue(Buffer.from("%PDF-1.7 fake"));
   });
@@ -105,6 +113,37 @@ describe("GET /api/report/pdf", () => {
     expect(res).toBe(denial); // the handler returns the gate's own Response verbatim
     expect(mockGetReport).not.toHaveBeenCalled(); // no fetch behind a closed gate
     expect(mockRender).not.toHaveBeenCalled();
+  });
+
+  // ── Plan entitlement gate (g1-02: PDF export is a paid, Pro+ feature) ────────────────────────────
+
+  it("403 when a real (non-public) org is below the Pro plan", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetCreditState.mockResolvedValue({ balance: 0, plan: "free", unlimited: false, orgExists: true });
+    const res = await get("acme/private-repo");
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "PDF export is a Pro-plan feature." });
+    expect(mockGetReport).not.toHaveBeenCalled();
+    expect(mockRender).not.toHaveBeenCalled();
+  });
+
+  it("200 when a real org is on the Pro plan or above", async () => {
+    mockReadableOrg.mockResolvedValue("acme");
+    mockGetCreditState.mockResolvedValue({ balance: 0, plan: "team", unlimited: false, orgExists: true });
+    const res = await get("acme/private-repo");
+
+    expect(res.status).toBe(200);
+    expect(mockGetReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("never consults the plan for the PUBLIC_ORG funnel — public reports stay unmetered", async () => {
+    mockReadableOrg.mockResolvedValue("public");
+    mockGetReport.mockResolvedValue(REPORT);
+    const res = await get("acme/private-repo");
+
+    expect(res.status).toBe(200);
+    expect(mockGetCreditState).not.toHaveBeenCalled();
   });
 
   // ── Failure branches ──────────────────────────────────────────────────────────────────────────

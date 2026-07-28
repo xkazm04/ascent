@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { EmptyState } from "@/components/EmptyState";
 import { appConfigureUrl } from "@/lib/ui";
+import { BalanceChip } from "./InstallationRepos.BalanceChip";
 import { BulkActionsBar } from "./InstallationRepos.BulkActionsBar";
 import { CreditCostStrip } from "./InstallationRepos.CreditCostStrip";
 import { RepoFilterBar } from "./RepoFilterBar";
@@ -73,12 +74,18 @@ export function InstallationRepos({ org, installationId }: { org: string; instal
         <span className="text-slate-400">
           <span className="font-semibold text-white">{watchedCount}</span> of {view.repos.length} watched
         </span>
-        <Link
-          href={`/org/${encodeURIComponent(org)}`}
-          className="rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-accent hover:bg-accent/10"
-        >
-          Org dashboard →
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Balance AT the commitment point: every watch toggle below is a recurring billable draw,
+              and this screen used to show no balance at all. Renders nothing when no balance could be
+              read, so an anonymous / DB-less viewer sees no fabricated zero. */}
+          <BalanceChip credit={credit} />
+          <Link
+            href={`/org/${encodeURIComponent(org)}`}
+            className="rounded-lg border border-accent/40 px-3 py-1.5 font-mono text-sm uppercase tracking-widest text-accent hover:bg-accent/10"
+          >
+            Org dashboard →
+          </Link>
+        </div>
       </div>
 
       <CreditCostStrip

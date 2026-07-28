@@ -1,12 +1,27 @@
-// Shared in-memory sliding-window rate limiter for the public, unauthenticated funnel
-// (/api/scan, /api/scan/stream, /api/org/import). Each entry is a per-key timestamp window.
+// Sliding-window rate limiter for the public, unauthenticated funnel (/api/scan, /api/scan/stream,
+// /api/org/import). Each entry is a per-key timestamp window.
 //
-// SCOPE / LIMITATION: state is a module-global Map, so it is PER SERVER INSTANCE. On a
-// multi-instance / serverless deployment each instance keeps its own window, so the effective
-// global limit is (instances × limit). This is a cost-control BACKSTOP against a single abusive
-// client hammering an expensive LLM scan, not a precise distributed quota — for a hard
-// cross-instance limit, back it with Redis/Upstash (see docs/archive/2026-audits/PRODUCTION_READINESS.md, Wave 2).
+// TWO HALVES, TWO SCOPES:
+//   - PER-IP burst — always in-process (module-global Map below). A burst arrives over seconds and
+//     is normally pinned to one instance; a per-instance burst cap is a real cap, and keeping it
+//     local keeps the hot path synchronous and infrastructure-free.
+//   - GLOBAL spend ceiling — the budget on paid-inference endpoints. In-process, its true value is
+//     (instances × limit), which RISES with autoscaling — i.e. loosens exactly when abuse peaks. It
+//     can therefore be backed by a SHARED store (see rate-limit-store.ts, `ASCENT_RATE_LIMIT_STORE`)
+//     so every instance charges one budget. Because that store is a network hop, the shared path is
+//     async: use `rateLimitRequestShared()`. `rateLimitRequest()` keeps the old synchronous
+//     in-process behavior verbatim for callers that have not adopted it.
+//
+// STORE UNREACHABLE → FAIL CLOSED (default). Configuring a shared store is an explicit statement
+// that the fleet needs ONE hard ceiling; silently degrading to in-memory on an outage restores the
+// exact (instances × limit) hole the operator paid to close, on endpoints that spend real inference
+// money per request. A rejected free scan is recoverable in a minute; a denial-of-wallet is not.
+// Operators who prefer availability can set ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN=1 to degrade to the
+// in-memory ceiling instead. Note the per-IP burst cap is in-memory and keeps working either way,
+// so failing open is a bounded (not unlimited) degradation.
 // (The badge route also uses this shared limiter via BADGE_RATE_LIMIT.)
+
+import { sharedWindowStore } from "@/lib/rate-limit-store";
 
 /**
  * TRUST MODEL (quotas-rate-limiting 07-16 #1): how many proxies between the client and this app are
@@ -95,7 +110,10 @@ export interface RateLimitConfig {
   name: string;
   /** Max requests per IP per window. */
   perIp: number;
-  /** Max requests across ALL callers per window (a per-instance spend ceiling). */
+  /**
+   * Max requests across ALL callers per window — the spend ceiling. Per-instance via
+   * `rateLimitRequest`, fleet-wide via `rateLimitRequestShared` with a shared store configured.
+   */
   global: number;
   /** Window length in ms. */
   windowMs: number;
@@ -131,17 +149,73 @@ export function rateLimitRequest(req: Request, cfg: RateLimitConfig): RateLimitR
   return { ok: false, retryAfterSec: g.retryAfterSec };
 }
 
+function sharedFailOpen(): boolean {
+  const raw = process.env.ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN?.trim().toLowerCase();
+  return raw === "1" || raw === "true";
+}
+
+/**
+ * Cross-instance variant of `rateLimitRequest`: per-IP burst is charged in-process exactly as
+ * before (synchronously, no network), and the GLOBAL ceiling is charged against the shared store
+ * when one is configured — so a fleet of N instances shares ONE budget instead of N.
+ *
+ * QUOTA #1 still holds: a request already over its per-IP cap is rejected WITHOUT touching the
+ * global window (or the store), so one abuser can't spend everyone's budget on its own rejections.
+ *
+ * With no store configured (the default, and every test/dev run) this is byte-for-byte the
+ * in-memory behavior of `rateLimitRequest`, just wrapped in a resolved promise.
+ *
+ * When the store IS configured but unreachable, the result is a 429 (fail closed) unless
+ * ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN is set, in which case the in-memory ceiling takes over. See
+ * the file header for the reasoning.
+ */
+export async function rateLimitRequestShared(req: Request, cfg: RateLimitConfig): Promise<RateLimitResult> {
+  const ip = clientIp(req);
+  const p = hit(`${cfg.name}:ip:${ip}`, cfg.perIp, cfg.windowMs);
+  if (!p.ok) return { ok: false, retryAfterSec: p.retryAfterSec };
+
+  const store = sharedWindowStore();
+  if (!store) {
+    const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
+    return g.ok ? { ok: true, retryAfterSec: 0 } : { ok: false, retryAfterSec: g.retryAfterSec };
+  }
+
+  const g = await store.hit(`ascent:rl:${cfg.name}:__global__`, cfg.global, cfg.windowMs);
+  if (g) return g.ok ? { ok: true, retryAfterSec: 0 } : { ok: false, retryAfterSec: g.retryAfterSec };
+
+  if (sharedFailOpen()) {
+    const local = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
+    return local.ok ? { ok: true, retryAfterSec: 0 } : { ok: false, retryAfterSec: local.retryAfterSec };
+  }
+  // Fail closed. Retry-After is one window: the store's state is unknown, so there is no honest
+  // shorter estimate, and the breaker in the driver retries the store within a few seconds anyway.
+  return { ok: false, retryAfterSec: Math.max(1, Math.ceil(cfg.windowMs / 1000)) };
+}
+
+/**
+ * Shared 429 JSON response builder (G8-29): every quota/rate-limit gate in this codebase returns the
+ * same status + content-type, so that construction is single-sourced here. The BODY and any headers
+ * beyond content-type are NOT flattened to a common shape — the per-minute rate limiter and the
+ * monthly public-scan quota (src/lib/public-scan-quota.ts's monthlyQuotaExceeded) are genuinely
+ * different responses: the monthly gate's body carries `code`/`remaining`/`resetAt`/`scope` for the
+ * client meter to parse, and its headers add `x-ascent-quota-*` fields the rate limiter has no
+ * equivalent for. Callers supply their own body and headers; this only fixes the status + content-type.
+ */
+export function tooManyResponse(body: unknown, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status: 429,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...headers,
+    },
+  });
+}
+
 /** A ready-made 429 JSON Response with a Retry-After header. */
 export function tooManyRequests(retryAfterSec: number): Response {
-  return new Response(
-    JSON.stringify({ error: "Rate limit exceeded — please slow down and try again shortly." }),
-    {
-      status: 429,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "retry-after": String(retryAfterSec),
-      },
-    },
+  return tooManyResponse(
+    { error: "Rate limit exceeded — please slow down and try again shortly." },
+    { "retry-after": String(retryAfterSec) },
   );
 }
 
